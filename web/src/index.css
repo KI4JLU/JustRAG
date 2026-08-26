@@ -1,10 +1,37 @@
 /* ---------------------------------------------------------------------------
  * JLU Design System (@ki4jlu/design-system) — Tier 1 integration (tokens only).
  *
- * Tailwind 4 is imported WITHOUT Preflight on purpose: Preflight is an
- * opinionated reset that would restyle every raw <button>/<h*>/<ul> across the
- * 124 existing components at once. We only need Tailwind's engine to compile
- * the design system's `@theme` block into CSS variables.
+ * Tailwind 4 is imported PIECEWISE (theme / preflight / utilities) instead of
+ * as a bare `@import "tailwindcss"`, so the `@layer` order below stays under
+ * our control in a 2400-line file. That is the only reason for the three
+ * separate imports — it is not a way of leaving parts of Tailwind out.
+ *
+ * PREFLIGHT IS ON (decided 26.08.2026, board card KI-94). It used to be
+ * deliberately omitted, on the grounds quoted here before: that it would
+ * "restyle every raw <button>/<h*>/<ul> across the 124 existing components at
+ * once". Two things overturned that:
+ *
+ *   1. Rendering correctness, which is independent of anyone's preference.
+ *      Preflight's `*, ::before, ::after { border: 0 solid }` is what gives
+ *      Tailwind's border utilities a border STYLE — the utility only sets
+ *      `border-width: 1px`, and a width with no style paints NOTHING. The
+ *      design system uses border utilities in 32 files (Card, Input, Popover,
+ *      DropdownMenu, Select, SidePanel, sidebar chrome), so without Preflight
+ *      every one of those borders is invisible. The same reset supplies
+ *      `font: inherit` for the raw <button>/<input> that eight DS components
+ *      render internally, `svg { display: block }` so lucide icons stop
+ *      shifting the baseline, and `[hidden] { display: none !important }`.
+ *   2. Enforcement. A raw <button> now looks unstyled, which pushes new work
+ *      towards the design system. On its own this is a WEAK lever — a
+ *      hand-built `<button className="px-4 py-2 bg-primary rounded-action">`
+ *      still looks correct and is exactly the mutation we want to prevent. The
+ *      real lever is the DS ESLint plugin (`layout-only-classname`). Preflight
+ *      is the rendering half, not the policy half; do not confuse the two.
+ *
+ * Preflight is an opinionated reset, so switching it on also removed the
+ * user-agent PROSE defaults this app never re-declared. The `@layer base`
+ * counterweight further down puts exactly those back, and nothing else — see
+ * its own comment for the measurements and the reasoning.
  *
  * Namespace note: JustRAG's own ladders are --type-* (font shorthands) and
  * --shape-* (radii), deliberately NOT --text-* / --radius-*. Those two names
@@ -25,6 +52,7 @@
  * ------------------------------------------------------------------------- */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "@ki4jlu/design-system/tokens.css";
 
@@ -43,10 +71,142 @@
  * fonts.googleapis.com in index.html — see the header in fonts.css. */
 @import "./assets/fonts/fonts.css";
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* ---------------------------------------------------------------------------
+ * Preflight counterweight — restore the user-agent PROSE defaults, nothing else.
+ *
+ * (The hand-written `*, *::before, *::after { box-sizing: border-box }` block
+ * that used to sit here is gone: Preflight's `*` rule sets it, for a superset
+ * of pseudo-elements.)
+ *
+ * Preflight resets more than this app ever re-declared. Measured against the
+ * installed node_modules/tailwindcss/preflight.css (v4.3.3 — note: the card
+ * said 4.3.2), the gaps that actually regress rendering here are all
+ * typographic:
+ *
+ *   `*{margin:0;padding:0}`
+ *       Every heading/paragraph/list/quote that leaned on UA spacing collapses.
+ *       Worst case is the product's main surface: only
+ *       `.markdown-content p:first-child` / `p:last-child` are declared, and
+ *       both OVERRIDE a default the block never sets — so a multi-paragraph
+ *       chat answer becomes one unbroken slab.
+ *
+ *   `h1..h6{font-size:inherit;font-weight:inherit}`
+ *       55 raw headings in web/src have no font-size from ANY source (inline
+ *       style, `text-*` utility, or a CSS class rule) and would render at body
+ *       size; the global `h1,h2,h3` rule further down sets family, weight and
+ *       colour but no size, so it does not save them. Markdown h1-h3 are among
+ *       the 55; markdown h4-h6 additionally lose their weight.
+ *
+ *   `ol,ul,menu{list-style:none}`
+ *       Every bullet and number disappears from every chat answer while
+ *       `padding-left` keeps the indent (indented lines, no markers), plus five
+ *       hand-written lists outside markdown: MessageBubble.tsx:163,
+ *       admin/AdminEvalTab.tsx:479, sidebar/ConfluenceModal.tsx:362,
+ *       ConfluenceTokenManager.tsx:286, MindMap/EntityCard.tsx:52.
+ *
+ *   `sub,sup{font-size:75%;line-height:0;position:relative;
+ *            vertical-align:baseline}` + `sup{top:-0.5em}`
+ *       The citation pill is a `<sup class="source-ref">` with padding and a
+ *       border. `line-height: 0` makes it contribute nothing to its line box,
+ *       so a bordered pill overflows the line instead of riding on the UA's
+ *       `vertical-align: super`.
+ *
+ * Every declaration below is `revert`, on purpose. `revert` rolls a property
+ * back to the USER-AGENT value — i.e. precisely what rendered before Preflight
+ * was switched on — so this block cannot change today's appearance; it can only
+ * stop Preflight from changing it. It also preserves list-marker nesting
+ * (disc → circle → square, decimal at every <ol> level), which a literal
+ * `list-style: disc` would flatten.
+ *
+ * Placement is load-bearing. It sits in `layer(base)` AFTER the preflight
+ * import, so it wins inside that layer on source order where specificity ties
+ * (`h1..h6` against `h1..h6`), while every Tailwind utility (layer utilities),
+ * every unlayered rule in this file and every inline style still beats it.
+ * Checked against the installed design system rather than assumed: every h1/p
+ * dist/index.js renders carries an explicit `text-*`/`font-*` utility, and it
+ * renders no bare ul/ol/li at all, so DS components are unaffected.
+ *
+ * What is deliberately NOT reverted, because it is the reason Preflight is on:
+ * the `*{border:0 solid}` reset, the button/input/select/textarea reset (raw
+ * controls SHOULD look unstyled), `svg{display:block}`, `[hidden]`, and the
+ * `::placeholder` colour.
+ * ------------------------------------------------------------------------- */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-size: revert;
+    font-weight: revert;
+    margin: revert;
+  }
+
+  p,
+  blockquote,
+  figure,
+  figcaption,
+  dl,
+  dt,
+  dd,
+  pre,
+  address {
+    margin: revert;
+  }
+
+  ol,
+  ul,
+  menu {
+    list-style: revert;
+    margin: revert;
+    padding-inline-start: revert;
+  }
+
+  /* <hr> loses its box to `*{border:0 solid;margin:0}` plus preflight's own
+   * `hr{height:0;color:inherit;border-top-width:1px}`. Markdown `---` and the
+   * three <hr> in web/src go back to the UA rule. */
+  hr {
+    height: revert;
+    margin: revert;
+    border: revert;
+    color: revert;
+  }
+
+  sub,
+  sup {
+    font-size: revert;
+    line-height: revert;
+    position: revert;
+    vertical-align: revert;
+    top: revert;
+    bottom: revert;
+  }
+
+  /* The ONE deliberate departure from "revert everything".
+   *
+   * Preflight's `a { color: inherit; text-decoration: inherit }` makes a link
+   * inside a chat answer indistinguishable from body text — the only item on
+   * the list above with a product consequence rather than a cosmetic one, in a
+   * RAG product whose answers cite sources. `revert` is not the answer here: it
+   * would bring back the UA's #0000EE, which is off-brand and barely readable
+   * in the dark theme. So links get the brand colour instead.
+   *
+   * `--accent-primary` is this file's bridge name for the design system's
+   * `--color-primary`, which the DS tunes explicitly for use AS TEXT in both
+   * themes (its tokens.css notes 10.8:1 on surface in light, blue-200 in dark).
+   * Using the bridge name rather than `--color-primary` directly keeps this
+   * rule consistent with every other component rule in this file, so stage 3
+   * dismantles the whole bridge in one sweep instead of leaving one outlier.
+   *
+   * Still layer(base): the three class-styled <a> in the app (.skip-link twice,
+   * PreviewModal's inline-styled source link) keep overriding it, and so will
+   * any future DS Button-as-link. */
+  a {
+    color: var(--accent-primary);
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -219,6 +379,11 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E");
 }
 
+/* NOTE: no font-size here, deliberately left to the user agent — which is why
+ * Preflight's `h1..h6 { font-size: inherit }` had to be countered in the
+ * `@layer base` block at the top of this file rather than here. Adding a size
+ * to this UNLAYERED rule would override the `text-*` utility on every
+ * design-system heading, which is the opposite of what stage 1 needs. */
 h1,
 h2,
 h3 {
@@ -445,6 +610,19 @@ button.source-card {
   min-width: 0;
 }
 
+/* Rendered markdown — the product's main surface (six call sites wrap
+ * ReactMarkdown in `.markdown-content`: MessageContent x2, PreviewModal,
+ * ResearchMode, AcademicResearchMode, Studio/StudioWorkspace; the seventh,
+ * Studio/MarkdownEditor's `.markdown-preview`, has its own inline <style>).
+ *
+ * This block is deliberately UNCHANGED by the Preflight switch-on. Everything
+ * it leaves to the browser — list markers, paragraph margins, h1-h3 size,
+ * h4-h6 entirely — is restored by the `@layer base` counterweight at the top of
+ * this file, which reverts to the same UA values rather than inventing new
+ * ones. Two consequences of that choice, both pre-existing and neither
+ * introduced here: markdown h4-h6 take the UA's `bold` rather than the 600 the
+ * h1-h3 rule below uses, and h5/h6 stay SMALLER than body text (UA 0.83em /
+ * 0.67em). Change either on purpose, not as a side effect. */
 .markdown-content {
   font-size: 0.95rem;
   /* Continue the min-width:0 chain into the markdown wrapper so the
