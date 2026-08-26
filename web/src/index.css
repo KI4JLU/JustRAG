@@ -27,6 +27,18 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "@ki4jlu/design-system/tokens.css";
+
+/* Tailwind must compile the utility classes used inside the design-system
+ * components, or every imported DS component renders unstyled. This scans the
+ * installed package for class strings.
+ *
+ * The path is TWO levels up, not one as in CampusAgents: JustRAG is an npm
+ * workspace ("workspaces": ["web"]), so npm hoists dependencies to
+ * <repo>/node_modules rather than web/node_modules. Verified against
+ * package-lock.json, whose entry key is "node_modules/@ki4jlu/design-system".
+ * A wrong @source path throws NO error -- it silently scans nothing, so the
+ * symptom would be unstyled components with a clean build. */
+@source "../../node_modules/@ki4jlu/design-system";
 /* Self-hosted Inter / Manrope / JetBrains Mono. Previously <link>ed from
  * fonts.googleapis.com in index.html — see the header in fonts.css. */
 @import "./assets/fonts/fonts.css";
