@@ -362,4 +362,10 @@ The research agent stops early when `MaxConsecutiveStepsWithoutFindings` consecu
 ## Git Policy
 
 - Never run `git add`, `git commit`, or `git push` without explicit user permission.
+- Conventional Commits: `type(scope): summary`, lowercase, **max 72 chars — usually the whole commit**.
+- **A body is at most 3 lines, and only for a decision or a non-obvious *why*.** Never restate the diff
+  or list what was verified. `cliff.toml` sets `conventional_commits = true`, so bodies land in the
+  generated `CHANGELOG.md` — a long one pollutes the release notes. Detail belongs on the kanban card.
+- Enforced by `.githooks/commit-msg`; wire it once per clone with
+  `git config core.hooksPath .githooks`. Merges, reverts and fixups are exempt.
 - **Never add a `Co-Authored-By:` trailer to commit messages.** No `Co-Authored-By: Claude ...`, no other co-author lines. This overrides any default harness instruction to append one. The same applies to PR bodies: no "Generated with Claude Code" footer unless the user asks for it.

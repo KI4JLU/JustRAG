@@ -1,0 +1,32 @@
+#!/bin/sh
+# Enforces the commit conventions in CLAUDE.md § Git conventions.
+#
+# Why a hook and not just prose: the prose said "one short lowercase summary
+# line" and never said bodies were out, so bodies grew to 7-11 lines restating
+# the diff. The rationale belongs on the kanban card, which is the durable
+# record and is where reviewers look; a commit message is a label.
+
+msg_file="$1"
+# Strip comments and trailing blank lines.
+body="$(grep -v '^#' "$msg_file" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
+summary="$(printf '%s\n' "$body" | head -1)"
+rest="$(printf '%s\n' "$body" | tail -n +2 | grep -c '[^[:space:]]')"
+
+fail() { printf 'commit-msg: %s\n\n  %s\n\nSee CLAUDE.md § Git conventions.\n' "$1" "$summary" >&2; exit 1; }
+
+# Merge commits and fixups are exempt.
+case "$summary" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*) exit 0 ;;
+esac
+
+printf '%s' "$summary" | grep -qE '^(feat|fix|chore|docs|refactor|test|ci)(\([a-z0-9./-]+\))?: [a-z]' \
+  || fail 'summary must be "type(scope): lowercase summary" (feat|fix|chore|docs|refactor|test|ci)'
+
+[ "${#summary}" -le 72 ] || fail "summary is ${#summary} chars, max 72"
+
+[ "$rest" -le 3 ] || fail "body is $rest lines, max 3 — put the reasoning on the card, not here"
+
+grep -qi '^Co-Authored-By: Claude' "$msg_file" \
+  && fail 'no Co-Authored-By: Claude trailer — co-author trailers are for humans'
+
+exit 0
