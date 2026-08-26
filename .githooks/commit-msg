@@ -7,26 +7,37 @@
 # record and is where reviewers look; a commit message is a label.
 
 msg_file="$1"
-# Strip comments and trailing blank lines.
 body="$(grep -v '^#' "$msg_file" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')"
 summary="$(printf '%s\n' "$body" | head -1)"
 rest="$(printf '%s\n' "$body" | tail -n +2 | grep -c '[^[:space:]]')"
 
-fail() { printf 'commit-msg: %s\n\n  %s\n\nSee CLAUDE.md § Git conventions.\n' "$1" "$summary" >&2; exit 1; }
+fail() {
+  printf 'commit-msg: %s\n\n  %s\n\nSee CLAUDE.md, git conventions.\n' "$1" "$summary" >&2
+  exit 1
+}
 
-# Merge commits and fixups are exempt.
 case "$summary" in
   "Merge "*|"Revert "*|"fixup!"*|"squash!"*) exit 0 ;;
 esac
 
-printf '%s' "$summary" | grep -qE '^(feat|fix|chore|docs|refactor|test|ci)(\([a-z0-9./-]+\))?: [a-z]' \
-  || fail 'summary must be "type(scope): lowercase summary" (feat|fix|chore|docs|refactor|test|ci)'
+# Summary starts lowercase, or with a PascalCase identifier: a design-system
+# commit legitimately begins with a component name ("feat(sidebar):
+# SidebarUserMenu ..."). Requiring a second capital distinguishes that from
+# sentence case ("Added stuff"), which stays rejected.
+if ! printf '%s' "$summary" | grep -Eq '^(feat|fix|chore|docs|refactor|test|ci)(\([a-z0-9./-]+\))?: ([a-z]|[A-Z][A-Za-z0-9]*[A-Z])'; then
+  fail 'summary must be "type(scope): summary", lowercase or a PascalCase component name'
+fi
 
-[ "${#summary}" -le 72 ] || fail "summary is ${#summary} chars, max 72"
+if [ "${#summary}" -gt 72 ]; then
+  fail "summary is ${#summary} chars, max 72"
+fi
 
-[ "$rest" -le 3 ] || fail "body is $rest lines, max 3 — put the reasoning on the card, not here"
+if [ "$rest" -gt 3 ]; then
+  fail "body is $rest lines, max 3 - put the reasoning on the card, not here"
+fi
 
-grep -qi '^Co-Authored-By: Claude' "$msg_file" \
-  && fail 'no Co-Authored-By: Claude trailer — co-author trailers are for humans'
+if grep -qi '^Co-Authored-By: Claude' "$msg_file"; then
+  fail 'no Co-Authored-By: Claude trailer - co-author trailers are for humans'
+fi
 
 exit 0
