@@ -103,6 +103,46 @@ Other useful commands:
 | `npm run test:env:down` | stop dedicated test services |
 | `npm run test:setup` | start test infra and run root migrations |
 
+### Frontend lint and the design-system suppressions catalogue
+
+```bash
+npm run lint --prefix web          # the gate
+npm run lint:prune --prefix web    # repair the catalogue after fixing hits
+```
+
+> **Note:** the `lint` step in `.github/workflows/ci.yml` is still
+> `continue-on-error: true`, so these rules currently block only locally. Making
+> that step blocking is what turns the catalogue below into a real gate — it is
+> left as a separate, deliberate decision rather than bundled into this change.
+
+`web/eslint.config.js` runs `@ki4jlu/design-system/eslint-plugin` with all three
+rules at `error`: `no-raw-ui-elements`, `no-hardcoded-colors`,
+`layout-only-classname`. Controls come from `@ki4jlu/design-system`; colours go
+through semantic tokens (`bg-scrim/50`, `bg-primary`, …), never a Tailwind
+palette class or a hex.
+
+`no-raw-ui-elements` has 690 pre-existing hits across 101 files. They are not
+downgraded to a warning — every one is counted, per file, in the committed
+`web/eslint-suppressions.json`. That file is the project's only exception
+mechanism; do **not** scatter `eslint-disable` comments instead. Three
+consequences worth knowing before you hit them:
+
+- Adding a **new** raw `<button>`/`<input>` fails lint, including in a file that
+  already has suppressed hits.
+- Suppression is counted per file and rule, and it is all-or-nothing: exceed the
+  recorded count by one and ESLint reports *every* hit in that file. One new
+  button in `AdminAgentTab.tsx` produces 147 errors, not 1. The new one is the
+  last in the list — that is the one to remove.
+- **Fixing** a hit without updating the catalogue also fails, with `There are
+  suppressions left that do not occur anymore` (exit 2). Plain `eslint .` is the
+  whole gate; run `npm run lint:prune --prefix web` and commit the shrunken
+  catalogue in the same change. Never add `--prune-suppressions` to the `lint`
+  script or to CI — it repairs in place and exits 0, which is exactly the
+  failure the gate exists for. `--pass-on-unpruned-suppressions` is set nowhere.
+
+The count in `web/eslint-suppressions.json` is a one-way burn-down counter: it
+may shrink, never grow.
+
 ## Database and Migration Workflow
 
 ### Primary runtime migrations

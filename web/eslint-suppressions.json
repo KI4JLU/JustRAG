@@ -1,0 +1,507 @@
+{
+  "src/AdminUI.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/AuthenticatedApp.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/Dashboard.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/KBOverviewDashboard.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 8
+    }
+  },
+  "src/Login.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/MessageBubble.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/Profile.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/SystemHealthDashboard.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/AbstractGenerationModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/AcademicMode.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/AcademicResearchMode.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 16
+    }
+  },
+  "src/components/AcademicSearchMode.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 9
+    }
+  },
+  "src/components/AnswerExportMenu.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/ApiKeys/ApiKeyManager.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 6
+    }
+  },
+  "src/components/BranchIndicator.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/BranchTreeNav.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/Button.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/ChartModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/ChatView.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 24
+    }
+  },
+  "src/components/ComparisonView.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/ConfluenceTokenManager.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/DataExplorer/DataExplorerToolbar.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/ErrorBoundary.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/Footer.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/GlobalKbSettings.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 23
+    }
+  },
+  "src/components/HomeView.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 18
+    }
+  },
+  "src/components/InlineMessageEditor.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/KbAccordion.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/KbCatalogPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/KbHeaderTitle.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/LegalPage.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/MarkdownTable.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/MembersModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 18
+    }
+  },
+  "src/components/Memory/MemoryManager.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/MessageActions.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 9
+    }
+  },
+  "src/components/MessageContent.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/MindMap/EntityCard.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/MindMap/GraphExportPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/MindMap/GraphToolbar.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/MindMap/MindMapView.test.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/MindMap/MindMapView.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/MobileTabBar.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/Modal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/OnboardingTour.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/PdfPreviewModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/PreviewModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/ReloadPrompt.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/ResearchMode.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 10
+    }
+  },
+  "src/components/RssFeedEntriesModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/SettingsModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/Studio/ChartArtifact.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/Studio/ComparisonDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/Studio/FlashcardsArtifact.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/Studio/MarkdownEditor.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 12
+    }
+  },
+  "src/components/Studio/PodcastArtifact.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/Studio/PresentationArtifact.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/Studio/QuizView.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/Studio/StudioWorkspace.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 17
+    }
+  },
+  "src/components/Studio/WorkspacePromptDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/ToastContainer.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/TrajectoryPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/WebWorkspace.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 8
+    }
+  },
+  "src/components/admin/AdminAgentMetricsCard.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/admin/AdminAgentTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 146
+    }
+  },
+  "src/components/admin/AdminAuthTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 17
+    }
+  },
+  "src/components/admin/AdminCategoriesSection.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/admin/AdminConfigsTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 28
+    }
+  },
+  "src/components/admin/AdminEvalTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 29
+    }
+  },
+  "src/components/admin/AdminGlobalKbsTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 6
+    }
+  },
+  "src/components/admin/AdminMCPSection.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/admin/AdminSearchTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/admin/AdminSiteTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 6
+    }
+  },
+  "src/components/admin/AdminUnpublishDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/admin/AdminUsersTab.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/admin/KbDeleteDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/admin/KbPublishDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/admin/KbTransferOwnerDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/admin/ReembedSection.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/agents/AgentConfigFields.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/agents/AgentForm.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/agents/AgentsView.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 9
+    }
+  },
+  "src/components/agents/ConfirmDialog.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/agents/KbAgentsSection.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/agents/TeamForm.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/history/HistoryPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/kb-settings/KbSettingsPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 10
+    }
+  },
+  "src/components/kb-settings/workflow/NodeFieldInput.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/kb-settings/workflow/NodeInspector.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/kb-settings/workflow/PresetPicker.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/kb-settings/workflow/WorkflowCanvas.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/sidebar-shell/SidebarShell.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/sidebar/ConfluenceModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 15
+    }
+  },
+  "src/components/sidebar/CrawlModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/sidebar/FileUploadModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/sidebar/GitRepoModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 6
+    }
+  },
+  "src/components/sidebar/RssModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 3
+    }
+  },
+  "src/components/sidebar/SourceModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/sidebar/SourcesGrid.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 5
+    }
+  },
+  "src/components/sidebar/SourcesSection.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 17
+    }
+  },
+  "src/components/sidebar/WebSearchModal.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/sources/SourcesPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  }
+}

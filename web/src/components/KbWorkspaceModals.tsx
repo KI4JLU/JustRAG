@@ -83,7 +83,7 @@ export function KbWorkspaceModals() {
       </Suspense>
 
       {webTools.showWebWorkspace && currentKb && (
-        <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><Loader2 className="animate-spin text-white" /></div>}>
+        <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50"><Loader2 className="animate-spin text-white" /></div>}>
           <WebWorkspace
             type={webTools.toolTab === 'websearch' ? 'websearch' : 'crawl'}
             results={(webTools.toolTab === 'websearch' ? webTools.searchResults.map(r => ({ ...r, content: r.content ?? '' })) : webTools.crawlResults)}
