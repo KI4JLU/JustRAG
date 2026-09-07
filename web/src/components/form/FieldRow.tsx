@@ -8,6 +8,11 @@
  * AdminEvalTab and SettingsModal — so the composition lives HERE, once, and
  * those screens import it. It is not a pattern to copy.
  *
+ * Stage 3b (card KI-692) migrated AdminEvalTab and AdminConfigsTab onto it and
+ * extended it four times rather than working around it at those call sites:
+ * `width="narrow"`, `error`, and SelectFieldRow's `placeholder` + `required`.
+ * Each one is documented at its own prop; every later stage inherits them.
+ *
  * WHAT WAS WRONG WITH THE OLD ROW, and what each of these fixes:
  *
  *   1. The <label> both WRAPPED the control and repeated `htmlFor`. Redundant,
@@ -40,6 +45,7 @@ import {
     FormDescription,
     FormItem,
     FormLabel,
+    FormMessage,
     Input,
     Select,
     SelectContent,
@@ -50,13 +56,23 @@ import {
 } from '@ki4jlu/design-system';
 
 /**
- * The two field widths the settings screens use. Previously repeated as an
- * inline `maxWidth` on all 143 rows (135 × 400px, 8 × 600px); the values are
- * carried over unchanged so the migration is not also a layout change.
+ * The field widths the settings screens use. `default` and `wide` were
+ * repeated as an inline `maxWidth` on all 143 rows of AdminAgentTab (135 ×
+ * 400px, 8 × 600px); the values are carried over unchanged so the migration is
+ * not also a layout change.
+ *
+ * `narrow` was added by Stage 3b (card KI-692) for the small numeric fields on
+ * AdminEvalTab: the four "generate from corpus" counts (raw inputs at 80px)
+ * and top-k (a 100px wrapper). 80px is not carried over verbatim because the
+ * DS Input brings its own `px-4` (32px of horizontal padding) plus the number
+ * spinner, which 80px would clip.
+ * TODO: 120px is a reasoned choice, not a measured one — not yet visually
+ * confirmed in a browser.
  */
 const ROW_WIDTH = {
     default: 'max-w-[400px]',
     wide: 'max-w-[600px]',
+    narrow: 'max-w-[120px]',
 } as const;
 
 type RowWidth = keyof typeof ROW_WIDTH;
@@ -70,18 +86,34 @@ interface FieldRowBaseProps {
     width?: RowWidth;
     /** Extra content below the help text (e.g. a conditional warning). */
     footer?: React.ReactNode;
+    /**
+     * Validation message for this field. Added by Stage 3b (card KI-692):
+     * AdminConfigsTab showed its two validation errors as a loose
+     * `<span className="field-error" role="alert">` next to the input, with no
+     * association to the control at all. The DS already implements the whole
+     * wiring — FormItem carries the error, FormLabel turns error-coloured,
+     * FormControl sets `aria-invalid` and points `aria-describedby` at
+     * FormMessage — so the call site must not re-derive it.
+     *
+     * Caveat, from the DS FormControl source: when an error is present the
+     * control's `aria-describedby` points at the MESSAGE only, so a row that
+     * has both `help` and `error` loses the help association while the error
+     * is showing. No current call site has both.
+     */
+    error?: string;
 }
 
 /**
- * FormControl points `aria-describedby` at the FormDescription's id
- * unconditionally. A row with no help text renders no FormDescription, so that
- * reference would point at nothing — clear it explicitly in that case.
+ * FormControl points `aria-describedby` at the FormDescription's id (or, with
+ * an error, at the FormMessage's) unconditionally. A row that renders neither
+ * would leave that reference pointing at nothing — clear it explicitly in that
+ * case.
  *
  * TODO: arguably the design system should only set aria-describedby when a
  * FormDescription is present; raised as a DS follow-up, not yet confirmed.
  */
-function describedBy(help: React.ReactNode) {
-    return help ? {} : { 'aria-describedby': undefined };
+function describedBy(help: React.ReactNode, error?: string) {
+    return help || error ? {} : { 'aria-describedby': undefined };
 }
 
 export type FieldRowProps = FieldRowBaseProps &
@@ -101,13 +133,21 @@ export type FieldRowProps = FieldRowBaseProps &
  * `max`, `step`, `placeholder` and `disabled` pass straight through to the DS
  * Input, so a call site keeps whatever binding it had.
  */
-export function FieldRow({ label, help, width = 'default', footer, ...inputProps }: FieldRowProps) {
+export function FieldRow({
+    label,
+    help,
+    width = 'default',
+    footer,
+    error,
+    ...inputProps
+}: FieldRowProps) {
     return (
-        <FormItem className={ROW_WIDTH[width]}>
+        <FormItem className={ROW_WIDTH[width]} error={error}>
             <FormLabel>{label}</FormLabel>
-            <FormControl {...describedBy(help)}>
+            <FormControl {...describedBy(help, error)}>
                 <Input {...inputProps} />
             </FormControl>
+            {error ? <FormMessage /> : null}
             {help ? <FormDescription>{help}</FormDescription> : null}
             {footer}
         </FormItem>
@@ -140,14 +180,15 @@ export function CheckboxFieldRow({
     help,
     width = 'default',
     footer,
+    error,
     checked,
     onCheckedChange,
     disabled,
 }: CheckboxFieldRowProps) {
     return (
-        <FormItem className={ROW_WIDTH[width]}>
+        <FormItem className={ROW_WIDTH[width]} error={error}>
             <div className="flex items-center gap-3">
-                <FormControl {...describedBy(help)}>
+                <FormControl {...describedBy(help, error)}>
                     <Checkbox
                         checked={checked}
                         onCheckedChange={next => onCheckedChange(next === true)}
@@ -156,6 +197,7 @@ export function CheckboxFieldRow({
                 </FormControl>
                 <FormLabel className="cursor-pointer">{label}</FormLabel>
             </div>
+            {error ? <FormMessage /> : null}
             {help ? <FormDescription>{help}</FormDescription> : null}
             {footer}
         </FormItem>
@@ -170,8 +212,32 @@ export interface SelectFieldRowOption {
 export interface SelectFieldRowProps extends FieldRowBaseProps {
     value: string;
     onValueChange: (value: string) => void;
+    /**
+     * Values must be UNIQUE. Not a stylistic rule: Radix renders a hidden
+     * native `<option>` per item and keys it by the item's value
+     * (@radix-ui/react-select 2.3.7), so two items sharing a value produce a
+     * React duplicate-key warning inside the Select and both render as
+     * selected. A caller whose source data can repeat a value has to collapse
+     * it before passing the list (AdminConfigsTab does).
+     */
     options: readonly SelectFieldRowOption[];
     disabled?: boolean;
+    /**
+     * Trigger text while nothing is selected. Added by Stage 3b (card KI-692):
+     * Radix defines "nothing selected" as `value === '' || value === undefined`
+     * (`shouldShowPlaceholder`, @radix-ui/react-select 2.3.7), so a screen whose
+     * empty string is a MEANINGFUL choice — "fall through to the KB default",
+     * "standard, no team" — can only put that wording on the trigger through
+     * the placeholder. The option with `value: ''` is still listed, so the
+     * choice can be taken back after another value was picked.
+     */
+    placeholder?: string;
+    /**
+     * Mirrors the native `required` the migrated `<select>` carried. Radix
+     * forwards it to the trigger as `aria-required` and to its hidden native
+     * select, so browser constraint validation is preserved.
+     */
+    required?: boolean;
 }
 
 /**
@@ -184,18 +250,26 @@ export function SelectFieldRow({
     help,
     width = 'default',
     footer,
+    error,
     value,
     onValueChange,
     options,
     disabled,
+    placeholder,
+    required,
 }: SelectFieldRowProps) {
     return (
-        <FormItem className={ROW_WIDTH[width]}>
+        <FormItem className={ROW_WIDTH[width]} error={error}>
             <FormLabel>{label}</FormLabel>
-            <Select value={value} onValueChange={onValueChange} disabled={disabled}>
-                <FormControl {...describedBy(help)}>
+            <Select
+                value={value}
+                onValueChange={onValueChange}
+                disabled={disabled}
+                required={required}
+            >
+                <FormControl {...describedBy(help, error)}>
                     <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder={placeholder} />
                     </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -206,6 +280,7 @@ export function SelectFieldRow({
                     ))}
                 </SelectContent>
             </Select>
+            {error ? <FormMessage /> : null}
             {help ? <FormDescription>{help}</FormDescription> : null}
             {footer}
         </FormItem>
