@@ -276,13 +276,21 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, bm25_tiered_boost_enabled: checked ? 'true' : 'false' }))}
                     />
 
+                    {/* `step` is VALIDATION, not a spinner increment: HTML defines the
+                      * valid set as min + n*step, so the former step="10" made
+                      * 1, 11, 21 … 991 the only accepted values and this row's own
+                      * default (150) permanently invalid — which blocked Save for the
+                      * whole form whenever this section was expanded (card KI-710).
+                      * ef_search is any integer >= 1, so step="1" is the constraint.
+                      * A coarse arrow increment is a DS Input affordance, which HTML
+                      * cannot express separately from validation. */}
                     <FieldRow
                         label={t('hnswEfSearch')}
                         help={t('hnswEfSearchHelp')}
                         type="number"
                         min="1"
                         max="1000"
-                        step="10"
+                        step="1"
                         value={siteConfigs.hnsw_ef_search || '150'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, hnsw_ef_search: e.target.value }))}
                     />
@@ -685,13 +693,24 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         ]}
                     />
 
+                    {/* step="0.01", not 0.05: with min="0.01" as the step base, 0.05
+                      * accepted only 0.01, 0.06, 0.11 … 0.96 — so this row's own
+                      * default (0.85) failed constraint validation and blocked Save
+                      * for the whole form as soon as an operator picked path mode
+                      * "ppr" (until then the row is disabled, which bars it from
+                      * validation and hid the defect). 0.01 matches the granularity
+                      * min/max are already written in, is a strict superset of the
+                      * values 0.05 accepted, and is what the other two-decimal rows
+                      * in this file use. The backend clamps to [0.01, 0.99] and
+                      * accepts any float in between (chat/siteconfig.go readFloat),
+                      * so the 0.01 grid is a UI granularity, not a wire constraint. */}
                     <FieldRow
                         label={t('chatGraphRoutingPPRDamping')}
                         help={t('chatGraphRoutingPPRDampingHelp')}
                         type="number"
                         min="0.01"
                         max="0.99"
-                        step="0.05"
+                        step="0.01"
                         value={siteConfigs.chat_graph_routing_ppr_damping || '0.85'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_graph_routing_ppr_damping: e.target.value }))}
                         disabled={(siteConfigs.chat_graph_routing_path_mode || 'neighbors') !== 'ppr'}
@@ -1412,13 +1431,17 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         ]}
                     />
 
+                    {/* step={0.01}, not 0.05 — same defect as PPR damping: with
+                      * min={0.01} as the step base, 0.05 rejected this row's own
+                      * default (1.0) and blocked Save for the whole form as soon as
+                      * the clustering algorithm was set to "leiden". */}
                     <FieldRow
                         label={t('raptorLeidenResolution')}
                         help={t('raptorLeidenResolutionHelp')}
                         type="number"
                         min={0.01}
                         max={10}
-                        step={0.05}
+                        step={0.01}
                         value={siteConfigs.raptor_leiden_resolution || '1.0'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, raptor_leiden_resolution: e.target.value }))}
                         disabled={(siteConfigs.raptor_clustering_algorithm || 'kmeans') !== 'leiden'}

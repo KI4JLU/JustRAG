@@ -13,6 +13,17 @@
  * `width="narrow"`, `error`, and SelectFieldRow's `placeholder` + `required`.
  * Each one is documented at its own prop; every later stage inherits them.
  *
+ * Card KI-710 then REMOVED `required` again, and this file is otherwise closed
+ * (KI-692's reviewer: further changes get their own card). The reason is worth
+ * keeping, because it applies to every native validation attribute reachable
+ * from here: Radix's Select puts `required` on a VISUALLY HIDDEN native
+ * <select>, so a browser that refuses to submit the form has nowhere to show
+ * its bubble — Chrome logs "An invalid form control ... is not focusable" and
+ * the user sees nothing happen at all. `min`/`max`/`step` on FieldRow's Input
+ * are fine, because that control IS focusable; a hidden one is not. Where a
+ * select must be filled, the app's own guard validates and the message renders
+ * through `error` -> FormMessage below.
+ *
  * WHAT WAS WRONG WITH THE OLD ROW, and what each of these fixes:
  *
  *   1. The <label> both WRAPPED the control and repeated `htmlFor`. Redundant,
@@ -232,12 +243,6 @@ export interface SelectFieldRowProps extends FieldRowBaseProps {
      * choice can be taken back after another value was picked.
      */
     placeholder?: string;
-    /**
-     * Mirrors the native `required` the migrated `<select>` carried. Radix
-     * forwards it to the trigger as `aria-required` and to its hidden native
-     * select, so browser constraint validation is preserved.
-     */
-    required?: boolean;
 }
 
 /**
@@ -256,17 +261,11 @@ export function SelectFieldRow({
     options,
     disabled,
     placeholder,
-    required,
 }: SelectFieldRowProps) {
     return (
         <FormItem className={ROW_WIDTH[width]} error={error}>
             <FormLabel>{label}</FormLabel>
-            <Select
-                value={value}
-                onValueChange={onValueChange}
-                disabled={disabled}
-                required={required}
-            >
+            <Select value={value} onValueChange={onValueChange} disabled={disabled}>
                 <FormControl {...describedBy(help, error)}>
                     <SelectTrigger>
                         <SelectValue placeholder={placeholder} />

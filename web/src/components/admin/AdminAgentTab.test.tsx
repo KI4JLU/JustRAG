@@ -364,35 +364,117 @@ describe('AdminAgentTab — submit', () => {
         expect(onSubmit).toHaveBeenCalledTimes(1);
     });
 
-    it('PRE-EXISTING BUG: hnsw_ef_search fails HTML constraint validation and blocks Save', () => {
-        // ORACLE: the HTML constraint-validation algorithm, run by jsdom, not
-        // by this component. `step` valid values are `min + n*step`, so
-        // min="1" step="10" permits 1, 11, 21 … 991 — and the row's own
-        // default value is 150. The field is therefore permanently invalid,
-        // and because it lives inside the <form>, clicking Save does nothing
-        // at all whenever the "Hybrid Search" section is expanded: the browser
-        // blocks submission and shows its bubble on that field.
+    it('submits with every section expanded — the form passes constraint validation', async () => {
+        // ORACLE: the HTML constraint-validation algorithm, run by jsdom, not by
+        // this component. This is the direct inverse of the bug card KI-710
+        // fixed and replaces the test that pinned it: hnsw_ef_search carried
+        // min="1" step="10" with a default of 150, so `min + n*step` never
+        // produced 150, the field was permanently invalid, and jsdom (like the
+        // browser) refuses to fire `submit` for an invalid form — clicking Save
+        // did nothing at all whenever the "Hybrid Search" section was expanded.
         //
-        // This is NOT a regression from the design-system migration (card
-        // KI-691). The attributes are byte-identical to the pre-migration
-        // source (`min="1" max="1000" step="10"`, value `|| '150'`); the
-        // migration only made it observable, because there was no test on
-        // this file before. Reported on the card for a decision — the likely
-        // fix is `step="1"` (ef_search is any integer ≥ 1; step="10" reads
-        // like an intended spinner increment, which HTML cannot express
-        // separately from validation).
-        //
-        // DELETE THIS TEST when the step is fixed; the assertion below is
-        // written to fail loudly at that point rather than silently pass.
-        const { container } = renderTab();
+        // beforeEach seeds localStorage with every section open, which is what
+        // makes this the whole-form assertion: all 72 number fields are in the
+        // <form> and one invalid field is enough to block submission.
+        const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+        const { container } = render(
+            <AdminAgentTab siteConfigs={{}} setSiteConfigs={vi.fn()} onSubmit={onSubmit} />,
+        );
+
         const form = container.querySelector('form')!;
+        const invalid = Array.from(container.querySelectorAll('input'))
+            .filter(i => !i.checkValidity())
+            .map(i => container.querySelector(`label[for="${CSS.escape(i.id)}"]`)?.textContent?.trim());
+
+        expect(invalid).toEqual([]);
+        expect(form.checkValidity()).toBe(true);
+
+        await userEvent.click(screen.getByRole('button', { name: new RegExp(tMock('saveSettings'), 'i') }));
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives every numeric row a default value that satisfies its own min/max/step', () => {
+        // ORACLE: the HTML constraint-validation algorithm again — but applied
+        // per field, off the attributes React actually rendered, so it does not
+        // depend on any table maintained by hand. Each field is checked on a
+        // detached CLONE with `disabled` stripped, because a disabled control is
+        // barred from constraint validation (`willValidate === false`) and would
+        // report itself valid: that is exactly what hid two of the three defects
+        // card KI-710 found (chat_graph_routing_ppr_damping is disabled until
+        // path mode is "ppr", raptor_leiden_resolution until the clustering
+        // algorithm is "leiden"), each of which blocked Save for the whole form
+        // the moment an operator turned its gate on.
+        //
+        // cloneNode(true) carries the value because React renders a controlled
+        // input's value as an ATTRIBUTE as well as a property (verified in
+        // jsdom 29 while writing this test) — the non-empty count below is the
+        // guard against that silently ceasing to be true and making every
+        // assertion vacuous.
+        const { container } = renderTab();
+
+        const numbers = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+        expect(numbers).toHaveLength(72); // same census as the control-census test above
+
+        const withDefault = numbers.filter(i => i.getAttribute('value') !== '');
+        // 60 of the 72 rows ship a default; the other 12 default to '' (the four
+        // rerank_blend_alpha_* overrides, the three top_n_* overrides, the four
+        // query_cache_similarity_threshold* rows and query_cache_ttl_hours),
+        // and an empty value is exempt from range/step validation by the spec.
+        expect(withDefault).toHaveLength(60);
+
+        const offenders = withDefault
+            .filter(input => {
+                const clone = input.cloneNode(true) as HTMLInputElement;
+                clone.removeAttribute('disabled');
+                return !clone.checkValidity();
+            })
+            .map(input => {
+                const label = container.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+                return `${label?.textContent?.trim()}: value=${input.getAttribute('value')} min=${input.getAttribute('min')} step=${input.getAttribute('step')}`;
+            });
+
+        expect(offenders).toEqual([]);
+    });
+
+    it('detects a step mismatch at all (positive control for the check above)', () => {
+        // ORACLE: the same algorithm, run against a SYNTHETIC input carrying the
+        // exact attributes hnsw_ef_search used to carry. Without this, the check
+        // above could pass because the mechanism never fires. It also records the
+        // defect shape now that the bug test that documented it is gone.
+        // `defaultValue`, not `value`+`readOnly`: a readonly control is barred
+        // from constraint validation just like a disabled one, which would make
+        // this control report itself valid and prove nothing.
+        const { container } = render(
+            // eslint-disable-next-line design-system/no-raw-ui-elements -- the subject IS the native constraint-validation algorithm; a DS Input would only add a wrapper between this fixture and the attributes under test
+            <input type="number" min="1" max="1000" step="10" defaultValue="150" />,
+        );
+        const historic = container.querySelector('input')!;
+        expect(historic.checkValidity()).toBe(false);
+        expect(historic.validity.stepMismatch).toBe(true);
+    });
+
+    it('stays submittable when the two gated float rows are switched on', () => {
+        // ORACLE: the HTML constraint-validation algorithm, on the two rows that
+        // are disabled at defaults. An operator who picks path mode "ppr" or the
+        // "leiden" clustering algorithm enables them, which un-bars them from
+        // validation — before card KI-710 that turned Save into a no-op for the
+        // whole tab. The two site_config values come from the backend
+        // (chat/siteconfig.go: chat_graph_routing_path_mode, and
+        // raptor_clustering_algorithm), not from this component.
+        const { container } = renderTab({
+            chat_graph_routing_path_mode: 'ppr',
+            raptor_clustering_algorithm: 'leiden',
+        });
+
+        expect(screen.getByLabelText(tMock('chatGraphRoutingPPRDamping'))).toBeEnabled();
+        expect(screen.getByLabelText(tMock('raptorLeidenResolution'))).toBeEnabled();
 
         const invalid = Array.from(container.querySelectorAll('input'))
             .filter(i => !i.checkValidity())
             .map(i => container.querySelector(`label[for="${CSS.escape(i.id)}"]`)?.textContent?.trim());
 
-        expect(invalid).toEqual([tMock('hnswEfSearch')]);
-        expect(form.checkValidity()).toBe(false);
+        expect(invalid).toEqual([]);
+        expect(container.querySelector('form')!.checkValidity()).toBe(true);
     });
 
     it('does not submit the form when a checkbox is toggled', async () => {

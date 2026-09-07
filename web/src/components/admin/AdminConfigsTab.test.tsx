@@ -500,3 +500,35 @@ describe('AdminConfigsTab — submit', () => {
         expect(screen.getByRole('button', { name: tMock('deleteConfig') })).toBeInTheDocument();
     });
 });
+
+describe('AdminConfigsTab — numeric field constraints', () => {
+    it('gives every number field a value that satisfies its own min/max/step', () => {
+        // ORACLE: the HTML constraint-validation algorithm, run by jsdom over
+        // the attributes React actually rendered — no hand-maintained table.
+        // Card KI-710 found three rows on AdminAgentTab whose own default value
+        // failed their own `min + n*step` grid, which makes the whole <form>
+        // invalid and turns the submit button into a no-op. This is the same
+        // mechanical check on this tab. Each field is validated on a detached
+        // CLONE with `disabled` stripped, because a disabled (or readonly)
+        // control is barred from constraint validation and would report itself
+        // valid — which is exactly what hid two of those three defects.
+        const { container } = renderTab();
+
+        const numbers = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+        expect(numbers.length).toBe(1);
+
+        const offenders = numbers
+            .filter(input => input.getAttribute('value') !== '')
+            .filter(input => {
+                const clone = input.cloneNode(true) as HTMLInputElement;
+                clone.removeAttribute('disabled');
+                return !clone.checkValidity();
+            })
+            .map(input => {
+                const label = container.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+                return `${label?.textContent?.trim() ?? input.getAttribute('aria-label')}: value=${input.getAttribute('value')} min=${input.getAttribute('min')} step=${input.getAttribute('step')}`;
+            });
+
+        expect(offenders).toEqual([]);
+    });
+});

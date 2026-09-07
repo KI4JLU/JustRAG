@@ -86,6 +86,15 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     const [label, setLabel] = useState('');
     const [formKbId, setFormKbId] = useState('');
     const [selectedGoldenSetId, setSelectedGoldenSetId] = useState<string>('');
+    /**
+     * Whether the kick-off form has been submitted at least once. The golden-set
+     * field's error message is DERIVED from this plus the field's own value
+     * (see `goldenSetError` below) rather than stored: stored error state would
+     * have to be cleared again on every path that fills the field — the user
+     * picking a set, and handleUpload auto-selecting a freshly uploaded one —
+     * and a missed one leaves a stale message under a filled field.
+     */
+    const [kickOffAttempted, setKickOffAttempted] = useState(false);
     const [judgeEnabled, setJudgeEnabled] = useState(true);
     const [topK, setTopK] = useState(10);
     const [kickOffLoading, setKickOffLoading] = useState(false);
@@ -232,6 +241,15 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
         return () => clearInterval(interval);
     }, [fetchRuns, hasInFlight]);
 
+    /**
+     * The golden-set field's validation message. Shown once a submit has been
+     * attempted and the field is still empty; it disappears again the moment a
+     * set is selected, whichever path sets it.
+     */
+    const goldenSetError = kickOffAttempted && !selectedGoldenSetId
+        ? t('evalSelectGoldenSet')
+        : undefined;
+
     const handleUpload = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!uploadFile || !uploadName.trim()) {
@@ -288,10 +306,11 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
 
     const handleKickOff = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedGoldenSetId) {
-            toast.error(t('evalSelectGoldenSet'));
-            return;
-        }
+        setKickOffAttempted(true);
+        // Field-level validation failure: it names one field, so it renders ON
+        // that field through FieldRow's `error` -> FormMessage (card KI-710).
+        // The toasts in this file stay where they report a REQUEST outcome.
+        if (!selectedGoldenSetId) return;
         setKickOffLoading(true);
         try {
             const body: Record<string, unknown> = {
@@ -619,11 +638,18 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                   * trigger PLACEHOLDER here: Radix reads value '' as "nothing
                   * selected", so a listed item with that value could never show on
                   * the trigger. Nothing is lost — the prompt was never a submittable
-                  * choice (the select was `required`, which is kept). */}
+                  * choice.
+                  *
+                  * The native `required` this row carried until card KI-710 is gone:
+                  * Radix put it on a visually hidden <select>, where the browser's
+                  * refusal to submit has nowhere to render its bubble (Chrome logs
+                  * "An invalid form control ... is not focusable" and the user sees
+                  * nothing at all). handleKickOff's own guard is the single source of
+                  * truth now, and its message renders here. */}
                 <SelectFieldRow
                     label={t('evalGoldenSet')}
                     placeholder={t('evalPickGoldenSet')}
-                    required
+                    error={goldenSetError}
                     value={selectedGoldenSetId}
                     onValueChange={setSelectedGoldenSetId}
                     options={goldenSets.map(gs => ({
@@ -666,7 +692,17 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                         checked={judgeEnabled}
                         onCheckedChange={setJudgeEnabled}
                     />
-                    <Button type="submit" disabled={kickOffLoading || hasInFlight || !selectedGoldenSetId}>
+                    {/* `!selectedGoldenSetId` is deliberately NOT a disabled reason
+                      * any more (card KI-710). A disabled submit button is a third
+                      * validation mechanism on top of the native constraint and the
+                      * app guard, and it is the one that explains nothing: with it,
+                      * HTML implicit submission does nothing either (the spec only
+                      * fires the default button when that button is not disabled —
+                      * verified in jsdom), so pressing Enter in the label field was
+                      * a dead end. Enter now reaches handleKickOff, which puts the
+                      * reason on the field. `kickOffLoading`/`hasInFlight` stay:
+                      * those are request state, not form validity. */}
+                    <Button type="submit" disabled={kickOffLoading || hasInFlight}>
                         <Play size={16} />
                         {kickOffLoading ? t('evalKickingOff') : t('evalKickOff')}
                     </Button>

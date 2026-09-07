@@ -271,35 +271,121 @@ describe('AdminEvalTab — the golden-set select', () => {
             .toHaveTextContent(tMock('evalPickGoldenSet'));
     });
 
-    it('keeps the required flag the native select carried', async () => {
-        // ORACLE: the pre-migration source — `<select id="eval-golden-set" …
-        // required>`. Radix surfaces it on the trigger as aria-required (and on
-        // its hidden native select, so browser constraint validation survives).
-        await renderTab();
+    it('carries no native `required`, on the trigger or the hidden select', async () => {
+        // ORACLE: the HTML/ARIA contract, read off the rendered DOM — the
+        // inverse of the test this replaces, which pinned the pre-migration
+        // `<select … required>` (card KI-710 removed the prop from
+        // SelectFieldRow entirely). Radix puts `required` on a VISUALLY HIDDEN
+        // native <select>, and a browser that refuses to submit because of it
+        // has nowhere to show its bubble; the app guard validates instead.
+        //
+        // KNOWN TRADE-OFF, recorded here rather than hidden: Radix drove the
+        // trigger's `aria-required` from the same prop, so the trigger no
+        // longer announces "required". Re-adding it would mean a new
+        // SelectFieldRow prop, and that file is closed (KI-692's reviewer);
+        // it is reported on the card as an open question for the DS.
+        const { container } = await renderTab();
+
         expect(screen.getByRole('combobox', { name: tMock('evalGoldenSet') }))
-            .toHaveAttribute('aria-required', 'true');
+            .not.toHaveAttribute('aria-required');
+        expect(container.querySelectorAll('select[required]')).toHaveLength(0);
     });
 
-    it('enables the run button only once a set is picked, and posts its id', async () => {
-        // ORACLE: two independent artifacts.
-        //   * the pre-migration source for the gate:
-        //     `disabled={kickOffLoading || hasInFlight || !selectedGoldenSetId}`
-        //   * go-backend/internal/admineval/types.go for the body:
-        //     CreateRunRequest{ GoldenSetID *uuid.UUID `json:"golden_set_id"`,
-        //     JudgeEnabled *bool, TopK *int, Label string } — so golden_set_id
-        //     is a string id, judge_enabled a JSON boolean and top_k a NUMBER.
-        //     A DS control that stringified top_k would 400 against that DTO.
-        mockedAxios.post.mockResolvedValue({ data: { id: 'run-new' } });
+    it('control case: a hidden required select swallows implicit submission', async () => {
+        // ORACLE: the HTML implicit-submission and constraint-validation
+        // algorithms, run by jsdom against a SYNTHETIC form — no component
+        // involved. This is the evidence for why `required` had to LEAVE
+        // SelectFieldRow instead of being kept "for correctness": with an
+        // invalid, non-focusable required control in the form, pressing Enter
+        // in a text field fires nothing and the user is told nothing. The
+        // second half shows the same Enter reaching the handler once that
+        // control is gone, which is the mechanism the kick-off form now relies
+        // on for its own guard to run at all.
+        const submitWith = async (hiddenRequired: boolean) => {
+            const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+            const view = render(
+                /* eslint-disable design-system/no-raw-ui-elements -- the subject IS native HTML form
+                   semantics (implicit submission + constraint validation); DS components would put a
+                   wrapper between this fixture and the behaviour under test */
+                <form onSubmit={onSubmit}>
+                    <input aria-label="probe-text" defaultValue="x" />
+                    {hiddenRequired && (
+                        // what Radix renders for a `required` Select
+                        <select required defaultValue="" aria-hidden="true" tabIndex={-1} style={{ display: 'none' }}>
+                            <option value="" />
+                        </select>
+                    )}
+                    <button type="submit">go</button>
+                </form>,
+                /* eslint-enable design-system/no-raw-ui-elements */
+            );
+            await userEvent.type(view.getByLabelText('probe-text'), '{Enter}');
+            const calls = onSubmit.mock.calls.length;
+            view.unmount();
+            return calls;
+        };
+
+        expect(await submitWith(true)).toBe(0);
+        expect(await submitWith(false)).toBe(1);
+    });
+
+    it('reaches the app guard on Enter from a text field, and shows it on the field', async () => {
+        // ORACLE: three artifacts, none of them this component.
+        //   * the HTML implicit-submission algorithm (jsdom): Enter in a text
+        //     field fires the form's default button — but only while that
+        //     button is NOT disabled, which is why `!selectedGoldenSetId` is no
+        //     longer a disabled reason (card KI-710). Before this card, both
+        //     paths were dead ends: the click path because the button was
+        //     disabled, and Enter because of the hidden `required` select (see
+        //     the control case above).
+        //   * WAI-ARIA: an aria-describedby IDREF must resolve, and the
+        //     description is what carries the reason to a screen reader.
+        //   * web/src/translations.ts for the wording (`evalSelectGoldenSet`),
+        //     which is a different file from the one under test.
         await renderTab();
 
         const runButton = screen.getByRole('button', { name: new RegExp(tMock('evalKickOff'), 'i') });
-        expect(runButton).toBeDisabled();
+        expect(runButton).toBeEnabled();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+        await userEvent.type(screen.getByLabelText(tMock('evalLabel')), '{Enter}');
+
+        // The guard ran and stopped the request.
+        expect(mockedAxios.post).not.toHaveBeenCalled();
+
+        // The message is on the field, not in a toast.
+        const message = screen.getByRole('alert');
+        expect(message).toHaveTextContent(tMock('evalSelectGoldenSet'));
+        expect(toastMock.error).not.toHaveBeenCalled();
+
+        // And the control points at it: aria-invalid plus a resolving IDREF.
+        const trigger = screen.getByRole('combobox', { name: tMock('evalGoldenSet') });
+        expect(trigger).toHaveAttribute('aria-invalid', 'true');
+        const describedBy = trigger.getAttribute('aria-describedby')!;
+        expect(describedBy).toBeTruthy();
+        expect(document.getElementById(describedBy)).toBe(message);
+    });
+
+    it('clears the field message and posts the picked set once one is chosen', async () => {
+        // ORACLE: go-backend/internal/admineval/types.go for the body —
+        // CreateRunRequest{ GoldenSetID *uuid.UUID `json:"golden_set_id"`,
+        // JudgeEnabled *bool, TopK *int, Label string } — so golden_set_id is a
+        // string id, judge_enabled a JSON boolean and top_k a NUMBER. A DS
+        // control that stringified top_k would 400 against that DTO. The
+        // message's disappearance is the derived-state claim from the
+        // component's docstring, checked rather than trusted.
+        mockedAxios.post.mockResolvedValue({ data: { id: 'run-new' } });
+        await renderTab();
+
+        // Fail the guard first, so there is a message to clear.
+        await userEvent.type(screen.getByLabelText(tMock('evalLabel')), '{Enter}');
+        expect(screen.getByRole('alert')).toHaveTextContent(tMock('evalSelectGoldenSet'));
 
         await userEvent.click(screen.getByRole('combobox', { name: tMock('evalGoldenSet') }));
         await userEvent.click(await screen.findByRole('option', { name: /baseline/ }));
 
         expect(screen.getByRole('combobox', { name: tMock('evalGoldenSet') })).toHaveTextContent('baseline');
-        expect(screen.getByRole('button', { name: new RegExp(tMock('evalKickOff'), 'i') })).toBeEnabled();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
         await userEvent.click(screen.getByRole('button', { name: new RegExp(tMock('evalKickOff'), 'i') }));
 
@@ -489,5 +575,37 @@ describe('AdminEvalTab — run history', () => {
         expect(screen.getAllByRole('button', { name: tMock('evalExportSingle') })).toHaveLength(RUNS.length);
         expect(screen.getAllByRole('button', { name: tMock('evalCompareWith') })).toHaveLength(RUNS.length);
         expect(screen.getAllByRole('button', { name: tMock('delete') }).length).toBeGreaterThanOrEqual(RUNS.length);
+    });
+});
+
+describe('AdminEvalTab — numeric field constraints', () => {
+    it('gives every number field a value that satisfies its own min/max/step', async () => {
+        // ORACLE: the HTML constraint-validation algorithm, run by jsdom over
+        // the attributes React actually rendered — no hand-maintained table.
+        // Card KI-710 found three rows on AdminAgentTab whose own default value
+        // failed their own `min + n*step` grid, which makes the whole <form>
+        // invalid and turns the submit button into a no-op. This is the same
+        // mechanical check on this tab. Each field is validated on a detached
+        // CLONE with `disabled` stripped, because a disabled (or readonly)
+        // control is barred from constraint validation and would report itself
+        // valid — which is exactly what hid two of those three defects.
+        const { container } = await renderTab();
+
+        const numbers = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+        expect(numbers.length).toBe(5);
+
+        const offenders = numbers
+            .filter(input => input.getAttribute('value') !== '')
+            .filter(input => {
+                const clone = input.cloneNode(true) as HTMLInputElement;
+                clone.removeAttribute('disabled');
+                return !clone.checkValidity();
+            })
+            .map(input => {
+                const label = container.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+                return `${label?.textContent?.trim() ?? input.getAttribute('aria-label')}: value=${input.getAttribute('value')} min=${input.getAttribute('min')} step=${input.getAttribute('step')}`;
+            });
+
+        expect(offenders).toEqual([]);
     });
 });
