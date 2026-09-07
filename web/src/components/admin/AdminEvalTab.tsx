@@ -2,12 +2,22 @@ import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } fro
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { Play, RefreshCw, Download, Copy, Trash2, BarChart3, X, AlertCircle, Check, Upload } from 'lucide-react';
+import {
+    Button,
+    Input,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { fetchKbAgents, type KbAgentOption } from '../agents/api';
+import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/FieldRow';
 
 // Types mirror the backend DTOs (internal/admineval/types.go).
 interface AggregateSummary {
@@ -405,13 +415,17 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                                     <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right' }}>{gs.question_count}</td>
                                     <td style={{ padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{new Date(gs.created_at).toLocaleString()}</td>
                                     <td style={{ padding: '0.3rem 0.5rem', fontFamily: 'monospace', fontSize: '0.75rem', opacity: 0.7 }}>{gs.content_hash.slice(0, 12)}</td>
+                                    {/* The <table> itself is deliberately untouched — the DS
+                                      * TableLayout migration is Stage 5 (card KI-694). Only the
+                                      * two raw <button>s inside it are swapped here, because they
+                                      * are part of THIS file's catalogue count. */}
                                     <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right' }}>
-                                        <button type="button" onClick={() => handleDownloadGoldenSet(gs.id, gs.name)} title={t('evalDownload')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: 'var(--text-primary)' }}>
+                                        <Button type="button" variant="ghost" size="icon" onClick={() => handleDownloadGoldenSet(gs.id, gs.name)} title={t('evalDownload')} aria-label={t('evalDownload')}>
                                             <Download size={14} />
-                                        </button>
-                                        <button type="button" onClick={() => handleDeleteGoldenSet(gs.id, gs.name)} title={t('delete')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d93535', padding: '0.2rem' }}>
+                                        </Button>
+                                        <Button type="button" variant="ghost-destructive" size="icon" onClick={() => handleDeleteGoldenSet(gs.id, gs.name)} title={t('delete')} aria-label={t('delete')}>
                                             <Trash2 size={14} />
-                                        </button>
+                                        </Button>
                                     </td>
                                 </tr>
                             ))}
@@ -423,57 +437,95 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                 <form onSubmit={handleGenerate} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1rem', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', marginBottom: '1rem' }}>
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{t('evalGenerateTitle')}</div>
                     <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>{t('evalGenerateHint')}</div>
+                    {/* The three fields in this row had a placeholder and no label at
+                      * all, so they had no accessible name; the aria-labels are new. The
+                      * ids they carried (`gen-kb-id`, `gen-name`, `gen-lang`) were
+                      * referenced by nothing — no <label htmlFor>, no CSS, no test, and
+                      * the submit path POSTs component state rather than FormData
+                      * (checked across web/ and go-backend/) — so they are dropped.
+                      *
+                      * The kb_id fields also lose their `fontFamily: 'monospace'`, here
+                      * and in the upload row and the kick-off form. That is deliberate,
+                      * not an oversight: `design-system/layout-only-classname` forbids a
+                      * font family on a DS control, and the DS has no monospace field
+                      * variant. Raised for the design system (a `variant="code"` field
+                      * is the obvious shape); do NOT re-add `font-mono` here. */}
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {!kbId && (
-                        <input
+                        <Input
                             type="text"
-                            id="gen-kb-id"
+                            aria-label={t('evalKbId')}
                             value={genKbId}
                             onChange={e => setGenKbId(e.target.value)}
                             placeholder="kb_id"
-                            style={{ flex: 1, minWidth: '200px', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'monospace' }}
+                            className="min-w-[200px] flex-1"
                         />
                         )}
-                        <input
+                        <Input
                             type="text"
-                            id="gen-name"
+                            aria-label={t('evalGenName')}
                             value={genName}
                             onChange={e => setGenName(e.target.value)}
                             placeholder={t('evalGenName')}
-                            style={{ flex: 2, minWidth: '200px', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                            className="min-w-[200px] flex-[2]"
                         />
-                        <select
-                            id="gen-lang"
-                            value={genLang}
-                            onChange={e => setGenLang(e.target.value as 'de' | 'en')}
-                            style={{ padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
-                        >
-                            <option value="de">de</option>
-                            <option value="en">en</option>
-                        </select>
+                        <Select value={genLang} onValueChange={value => setGenLang(value as 'de' | 'en')}>
+                            <SelectTrigger aria-label={t('evalGenLang')} className="w-[100px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="de">de</SelectItem>
+                                <SelectItem value="en">en</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
+                    {/* Four count fields. They were a wrapping <label> + <input>; as
+                      * FieldRows the label/control pairing comes from FormControl's
+                      * injected id instead of the wrapping, and the repeated inline
+                      * style object (incl. `width: '80px'`) is gone — the width is now
+                      * FieldRow's `width="narrow"`. */}
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.85rem' }}>
-                            {t('evalGenLookup')}
-                            <input type="number" min={0} max={200} value={genLookup} onChange={e => setGenLookup(Number(e.target.value))} style={{ width: '80px', padding: '0.3rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.85rem' }}>
-                            {t('evalGenComplex')}
-                            <input type="number" min={0} max={200} value={genComplex} onChange={e => setGenComplex(Number(e.target.value))} style={{ width: '80px', padding: '0.3rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.85rem' }}>
-                            {t('evalGenEnumeration')}
-                            <input type="number" min={0} max={200} value={genEnum} onChange={e => setGenEnum(Number(e.target.value))} style={{ width: '80px', padding: '0.3rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.85rem' }}>
-                            {t('evalGenMultiHop')}
-                            <input type="number" min={0} max={200} value={genMultihop} onChange={e => setGenMultihop(Number(e.target.value))} style={{ width: '80px', padding: '0.3rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
-                        </label>
+                        <FieldRow
+                            label={t('evalGenLookup')}
+                            width="narrow"
+                            type="number"
+                            min={0}
+                            max={200}
+                            value={genLookup}
+                            onChange={e => setGenLookup(Number(e.target.value))}
+                        />
+                        <FieldRow
+                            label={t('evalGenComplex')}
+                            width="narrow"
+                            type="number"
+                            min={0}
+                            max={200}
+                            value={genComplex}
+                            onChange={e => setGenComplex(Number(e.target.value))}
+                        />
+                        <FieldRow
+                            label={t('evalGenEnumeration')}
+                            width="narrow"
+                            type="number"
+                            min={0}
+                            max={200}
+                            value={genEnum}
+                            onChange={e => setGenEnum(Number(e.target.value))}
+                        />
+                        <FieldRow
+                            label={t('evalGenMultiHop')}
+                            width="narrow"
+                            type="number"
+                            min={0}
+                            max={200}
+                            value={genMultihop}
+                            onChange={e => setGenMultihop(Number(e.target.value))}
+                        />
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button type="submit" disabled={genInFlight} style={{ padding: '0.4rem 1rem', background: 'var(--accent-primary)', color: 'white', border: 'none', borderRadius: '4px', cursor: genInFlight ? 'not-allowed' : 'pointer', opacity: genInFlight ? 0.5 : 1 }}>
+                        <Button type="submit" size="sm" disabled={genInFlight}>
                             {genInFlight ? t('evalGenRunning') : t('evalGenButton')}
-                        </button>
+                        </Button>
                     </div>
                     {genJobs.length > 0 && (
                         <ul style={{ margin: '0.5rem 0 0 0', padding: '0 0 0 1rem', fontSize: '0.85rem', opacity: 0.8 }}>
@@ -489,108 +541,135 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{t('evalGoldenSetUpload')}</div>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {!kbId && (
-                        <input
+                        <Input
                             type="text"
+                            aria-label={t('evalKbId')}
                             value={uploadKbId}
                             onChange={e => setUploadKbId(e.target.value)}
                             placeholder="kb_id"
-                            style={{ flex: 1, minWidth: '200px', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'monospace' }}
+                            className="min-w-[200px] flex-1"
                         />
                         )}
-                        <input
+                        <Input
                             type="text"
+                            aria-label={t('evalGoldenSetName')}
                             value={uploadName}
                             onChange={e => setUploadName(e.target.value)}
                             placeholder={t('evalGoldenSetName')}
                             required
                             maxLength={255}
-                            style={{ flex: 1, minWidth: '200px', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                            className="min-w-[200px] flex-1"
                         />
-                        <input
+                        <Input
                             type="text"
+                            aria-label={t('evalGoldenSetDescription')}
                             value={uploadDescription}
                             onChange={e => setUploadDescription(e.target.value)}
                             placeholder={t('evalGoldenSetDescription')}
-                            style={{ flex: 2, minWidth: '200px', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                            className="min-w-[200px] flex-[2]"
                         />
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <input
+                        {/* The file field keeps its ref (handleUpload clears it after a
+                          * successful upload); the DS Input forwards refs to the
+                          * underlying <input>, so nothing else had to change.
+                          * TODO: a file input inside the DS field frame is not visually
+                          * confirmed — the native button sits inside the framed field. */}
+                        <Input
                             ref={fileInputRef}
                             type="file"
+                            aria-label={t('evalGoldenSetUpload')}
                             accept=".jsonl,.ndjson,application/x-ndjson,text/plain"
                             onChange={e => setUploadFile(e.target.files?.[0] || null)}
-                            style={{ flex: 1, padding: '0.3rem' }}
+                            className="flex-1"
                         />
-                        <button type="submit" disabled={uploadLoading || !uploadFile || !uploadName.trim()} style={{ padding: '0.4rem 1rem', background: 'var(--accent-primary)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', opacity: (uploadLoading || !uploadFile || !uploadName.trim()) ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Button type="submit" size="sm" disabled={uploadLoading || !uploadFile || !uploadName.trim()}>
                             <Upload size={14} />
                             {uploadLoading ? t('loading') : t('evalGoldenSetUpload')}
-                        </button>
+                        </Button>
                     </div>
                 </form>
             </div>
 
             {/* Section 1: Kick-off form */}
             <form onSubmit={handleKickOff} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '2rem', padding: '1.5rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
-                {/* Label */}
-                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label htmlFor="eval-label" style={{ fontSize: '0.9rem', opacity: 0.8 }}>{t('evalLabel')}</label>
-                    <input id="eval-label" type="text" value={label} onChange={e => setLabel(e.target.value)} maxLength={255} placeholder={t('evalLabelPlaceholder')} style={{ padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-                </div>
+                {/* Label. The `input-group` wrapper and the per-row inline style
+                  * objects are gone (`.input-group` has no CSS rule anywhere in the
+                  * repo); the field width is FieldRow's, which caps these rows at
+                  * 400px where they previously ran the full width of the card. */}
+                <FieldRow
+                    label={t('evalLabel')}
+                    type="text"
+                    value={label}
+                    onChange={e => setLabel(e.target.value)}
+                    maxLength={255}
+                    placeholder={t('evalLabelPlaceholder')}
+                />
                 {/* KB ID — hidden when the tab is already scoped to a KB */}
                 {!kbId && (
-                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label htmlFor="eval-kb-id" style={{ fontSize: '0.9rem', opacity: 0.8 }}>{t('evalKbId')}</label>
-                    <input id="eval-kb-id" type="text" value={formKbId} onChange={e => setFormKbId(e.target.value)} placeholder={t('evalKbIdPlaceholder')} style={{ padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: 'monospace' }} />
-                </div>
+                <FieldRow
+                    label={t('evalKbId')}
+                    type="text"
+                    value={formKbId}
+                    onChange={e => setFormKbId(e.target.value)}
+                    placeholder={t('evalKbIdPlaceholder')}
+                />
                 )}
-                {/* Golden set selector */}
-                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label htmlFor="eval-golden-set" style={{ fontSize: '0.9rem', opacity: 0.8 }}>{t('evalGoldenSet')}</label>
-                    <select
-                        id="eval-golden-set"
-                        value={selectedGoldenSetId}
-                        onChange={e => setSelectedGoldenSetId(e.target.value)}
-                        required
-                        style={{ padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                    >
-                        <option value="">{t('evalPickGoldenSet')}</option>
-                        {goldenSets.map(gs => (
-                            <option key={gs.id} value={gs.id}>{gs.name} ({gs.question_count} {t('evalQuestions')})</option>
-                        ))}
-                    </select>
-                </div>
+                {/* Golden set selector. The old `<option value="">` prompt is the
+                  * trigger PLACEHOLDER here: Radix reads value '' as "nothing
+                  * selected", so a listed item with that value could never show on
+                  * the trigger. Nothing is lost — the prompt was never a submittable
+                  * choice (the select was `required`, which is kept). */}
+                <SelectFieldRow
+                    label={t('evalGoldenSet')}
+                    placeholder={t('evalPickGoldenSet')}
+                    required
+                    value={selectedGoldenSetId}
+                    onValueChange={setSelectedGoldenSetId}
+                    options={goldenSets.map(gs => ({
+                        value: gs.id,
+                        label: `${gs.name} (${gs.question_count} ${t('evalQuestions')})`,
+                    }))}
+                />
                 {/* Team selector — only shown once a KB is in play (its teams may be empty) */}
                 {kbTeams.length > 0 && (
-                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <label htmlFor="eval-team-id" style={{ fontSize: '0.9rem', opacity: 0.8 }}>{t('evalTeamLabel')}</label>
-                    <select
-                        id="eval-team-id"
-                        value={selectedTeamId}
-                        onChange={e => setSelectedTeamId(e.target.value)}
-                        style={{ padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                    >
-                        <option value="">{t('evalTeamStandard')}</option>
-                        {kbTeams.map(tm => (
-                            <option key={tm.id} value={tm.id}>{tm.name}</option>
-                        ))}
-                    </select>
-                </div>
+                <SelectFieldRow
+                    label={t('evalTeamLabel')}
+                    // '' is a real choice here ("standard, no team"), so it stays a
+                    // listed option AND supplies the placeholder — Radix shows the
+                    // placeholder for value '', so the wording has to exist twice for
+                    // the trigger and the list to read the same.
+                    placeholder={t('evalTeamStandard')}
+                    value={selectedTeamId}
+                    onValueChange={setSelectedTeamId}
+                    options={[
+                        { value: '', label: t('evalTeamStandard') },
+                        ...kbTeams.map(tm => ({ value: tm.id, label: tm.name })),
+                    ]}
+                />
                 )}
                 {/* Top-k + judge + submit row */}
                 <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100px' }}>
-                        <label htmlFor="eval-topk" style={{ fontSize: '0.9rem', opacity: 0.8 }}>{t('evalTopK')}</label>
-                        <input id="eval-topk" type="number" min={1} max={100} value={topK} onChange={e => setTopK(parseInt(e.target.value, 10) || 10)} style={{ padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <input id="eval-judge" type="checkbox" checked={judgeEnabled} onChange={e => setJudgeEnabled(e.target.checked)} />
-                        <label htmlFor="eval-judge" style={{ cursor: 'pointer' }}>{t('evalJudge')}</label>
-                    </div>
-                    <button type="submit" disabled={kickOffLoading || hasInFlight || !selectedGoldenSetId} style={{ padding: '0.5rem 1rem', background: 'var(--accent-primary)', color: 'white', border: 'none', borderRadius: '4px', cursor: kickOffLoading || hasInFlight || !selectedGoldenSetId ? 'not-allowed' : 'pointer', opacity: kickOffLoading || hasInFlight || !selectedGoldenSetId ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <FieldRow
+                        label={t('evalTopK')}
+                        width="narrow"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={topK}
+                        onChange={e => setTopK(parseInt(e.target.value, 10) || 10)}
+                    />
+                    {/* Checkbox, not Switch: judge mode is staged until "Run eval" is
+                      * pressed, so a switch would claim the change already applies. */}
+                    <CheckboxFieldRow
+                        label={t('evalJudge')}
+                        checked={judgeEnabled}
+                        onCheckedChange={setJudgeEnabled}
+                    />
+                    <Button type="submit" disabled={kickOffLoading || hasInFlight || !selectedGoldenSetId}>
                         <Play size={16} />
                         {kickOffLoading ? t('evalKickingOff') : t('evalKickOff')}
-                    </button>
+                    </Button>
                 </div>
                 {/* Warnings */}
                 {judgeEnabled && (
@@ -612,16 +691,28 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
                     <h4 style={{ margin: 0 }}>{t('evalHistory')}</h4>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setOffset(0); }} style={{ padding: '0.3rem 0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                            <option value="">{t('evalFilterAll')}</option>
-                            <option value="queued">{t('evalStatusQueued')}</option>
-                            <option value="running">{t('evalStatusRunning')}</option>
-                            <option value="completed">{t('evalStatusCompleted')}</option>
-                            <option value="failed">{t('evalStatusFailed')}</option>
-                        </select>
-                        <button type="button" onClick={fetchRuns} style={{ padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        {/* A filter, not a form field: no visible label existed and none
+                          * is added, so the accessible name is an aria-label on the
+                          * trigger. '' ("all") stays a listed item and doubles as the
+                          * placeholder, since Radix shows the placeholder for value ''. */}
+                        <Select
+                            value={statusFilter}
+                            onValueChange={value => { setStatusFilter(value); setOffset(0); }}
+                        >
+                            <SelectTrigger aria-label={t('evalStatus')} className="w-[180px]">
+                                <SelectValue placeholder={t('evalFilterAll')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="">{t('evalFilterAll')}</SelectItem>
+                                <SelectItem value="queued">{t('evalStatusQueued')}</SelectItem>
+                                <SelectItem value="running">{t('evalStatusRunning')}</SelectItem>
+                                <SelectItem value="completed">{t('evalStatusCompleted')}</SelectItem>
+                                <SelectItem value="failed">{t('evalStatusFailed')}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button type="button" variant="outline" size="sm" onClick={fetchRuns}>
                             <RefreshCw size={14} /> {t('evalRefresh')}
-                        </button>
+                        </Button>
                     </div>
                 </div>
                 {listLoading && <div style={{ opacity: 0.6 }}>{t('loading')}...</div>}
@@ -646,10 +737,10 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                     </table>
                 )}
                 {total > 50 && (
-                    <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                        <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>{t('prev')}</button>
+                    <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'center', alignItems: 'center' }}>
+                        <Button type="button" variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>{t('prev')}</Button>
                         <span style={{ padding: '0.3rem 0.5rem' }}>{offset + 1} – {Math.min(offset + 50, total)} / {total}</span>
-                        <button type="button" disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)}>{t('next')}</button>
+                        <Button type="button" variant="outline" size="sm" disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)}>{t('next')}</Button>
                     </div>
                 )}
             </div>
@@ -659,26 +750,26 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                 <div style={{ marginTop: '2.5rem', padding: '1.5rem', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
                         <h4 style={{ margin: 0 }}>{t('evalCompare')}</h4>
-                        <button type="button" onClick={() => { setCompareAId(''); setCompareBId(''); setCompareMarkdown(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
+                        <Button type="button" variant="ghost" size="icon" aria-label={t('close')} onClick={() => { setCompareAId(''); setCompareBId(''); setCompareMarkdown(''); }}><X size={16} /></Button>
                     </div>
                     <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '1rem' }}>
                         A: <code>{compareAId}</code> → B: <code>{compareBId}</code>
                     </div>
                     {!compareMarkdown && (
-                        <button type="button" onClick={handleCompare} disabled={compareLoading} style={{ padding: '0.5rem 1rem', background: 'var(--accent-primary)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                            <BarChart3 size={16} style={{ verticalAlign: 'middle', marginRight: '0.3rem' }} />
+                        <Button type="button" onClick={handleCompare} disabled={compareLoading}>
+                            <BarChart3 size={16} />
                             {compareLoading ? t('loading') : t('evalRunCompare')}
-                        </button>
+                        </Button>
                     )}
                     {compareMarkdown && (
                         <>
                             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                                <button type="button" onClick={() => navigator.clipboard.writeText(compareMarkdown).then(() => toast.success(t('evalCopied')))} style={{ padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(compareMarkdown).then(() => toast.success(t('evalCopied')))}>
                                     <Copy size={14} /> {t('evalExportMarkdown')}
-                                </button>
-                                <button type="button" onClick={() => handleExport(compareAId, compareBId, true)} style={{ padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" onClick={() => handleExport(compareAId, compareBId, true)}>
                                     <Download size={14} /> {t('evalDownloadMarkdown')}
-                                </button>
+                                </Button>
                             </div>
                             <pre style={{ padding: '1rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'auto', maxHeight: '600px', fontSize: '0.85rem', whiteSpace: 'pre-wrap' }}>
                                 {compareMarkdown}
@@ -738,25 +829,53 @@ function RunRow({ run, onDelete, onExport, onCompareWith, runs }: { run: RunSumm
                     : '—'}
             </td>
             <td style={{ padding: '0.5rem', textAlign: 'right' }}>
-                <button type="button" onClick={() => onExport(run.id)} title={t('evalExportSingle')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem' }}><Copy size={14} /></button>
+                <Button type="button" variant="ghost" size="icon" onClick={() => onExport(run.id)} title={t('evalExportSingle')} aria-label={t('evalExportSingle')}><Copy size={14} /></Button>
                 {run.status === 'completed' && otherRuns.length > 0 && (
                     <>
-                        <button type="button" onClick={() => setShowComparePicker(!showComparePicker)} title={t('evalCompareWith')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem' }}><BarChart3 size={14} /></button>
+                        {/* Disclosure: `aria-expanded`, never `aria-pressed` — a control
+                          * cannot be both a toggle button and a disclosure. `data-state`
+                          * is Radix's non-ARIA convention and the hook the DS ghost
+                          * variant tints on, so it supplies the open-state look without
+                          * the semantic conflict (same treatment as AdminAgentTab's
+                          * section headers, card KI-691). */}
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setShowComparePicker(!showComparePicker)}
+                            aria-expanded={showComparePicker}
+                            data-state={showComparePicker ? 'open' : 'closed'}
+                            title={t('evalCompareWith')}
+                            aria-label={t('evalCompareWith')}
+                        >
+                            <BarChart3 size={14} />
+                        </Button>
                         {showComparePicker && (
-                            <select
-                                // eslint-disable-next-line jsx-a11y/no-autofocus -- focus the just-revealed picker so keyboard users land on it and onBlur dismissal works (dialog-like disclosure pattern)
-                                autoFocus
-                                onChange={e => { onCompareWith(e.target.value); setShowComparePicker(false); }}
-                                onBlur={() => setShowComparePicker(false)}
-                                style={{ marginLeft: '0.3rem' }}
+                            /* Opened immediately (`open`) so keyboard users land inside
+                             * the list, which is what the raw <select>'s autoFocus +
+                             * onBlur pair was hand-building; Radix closes on Escape, on
+                             * outside click and on select, and every one of those routes
+                             * through onOpenChange -> dismiss. That is also why the
+                             * jsx-a11y/no-autofocus disable is gone. */
+                            <Select
+                                open
+                                onOpenChange={open => { if (!open) setShowComparePicker(false); }}
+                                value=""
+                                onValueChange={id => { onCompareWith(id); setShowComparePicker(false); }}
                             >
-                                <option value="">{t('evalPickRun')}</option>
-                                {otherRuns.map(r => <option key={r.id} value={r.id}>{r.label || r.id.slice(0, 8)}</option>)}
-                            </select>
+                                <SelectTrigger aria-label={t('evalCompareWith')} className="ml-1 inline-flex w-[180px]">
+                                    <SelectValue placeholder={t('evalPickRun')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {otherRuns.map(r => (
+                                        <SelectItem key={r.id} value={r.id}>{r.label || r.id.slice(0, 8)}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         )}
                     </>
                 )}
-                <button type="button" onClick={() => onDelete(run.id, run.status)} disabled={run.status === 'running'} title={t('delete')} style={{ background: 'none', border: 'none', cursor: run.status === 'running' ? 'not-allowed' : 'pointer', opacity: run.status === 'running' ? 0.3 : 1, padding: '0.2rem', color: '#d93535' }}><Trash2 size={14} /></button>
+                <Button type="button" variant="ghost-destructive" size="icon" onClick={() => onDelete(run.id, run.status)} disabled={run.status === 'running'} title={t('delete')} aria-label={t('delete')}><Trash2 size={14} /></Button>
             </td>
         </tr>
     );

@@ -1,8 +1,15 @@
 import { Plus, Trash2, CheckCircle2, Settings, Save, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Button, Input } from '@ki4jlu/design-system';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { parseDimensionsInput, formatDimensionsValue } from '../../utils/embeddingDimensions';
+import {
+    CheckboxFieldRow,
+    FieldRow,
+    SelectFieldRow,
+    type SelectFieldRowOption,
+} from '../form/FieldRow';
 import type { ChatModelOption } from '../../AdminUI';
 
 interface AIModel {
@@ -98,6 +105,41 @@ export default function AdminConfigsTab({
     const reducedMotion = useReducedMotion();
     const { t } = useTheme();
 
+    /**
+     * Option list for a per-job model select.
+     *
+     * The empty string means "no override — fall through to model_tier_fast /
+     * the KB chat model", which is a real choice the admin has to be able to
+     * take back, so it stays a listed option. Radix reports `value === ''` as
+     * "nothing selected" and renders the trigger's placeholder for it, which is
+     * why every one of these rows also passes `placeholder`.
+     */
+    const modelOptions = (current: string): SelectFieldRowOption[] => {
+        // `availableChatModels` lists one entry per (model, config) pair, so the
+        // same model name can appear twice with different labels. The saved
+        // value is the model NAME, so those two entries are the same choice —
+        // and Radix keys its hidden native options by value, which makes a
+        // repeated value a React duplicate-key warning plus two simultaneously
+        // "checked" items. Collapsed here, first label wins.
+        // TODO: whether the label should instead name every config the model
+        // lives in is a product question, not decided here (KI-692).
+        const seen = new Set<string>();
+        const catalogue: SelectFieldRowOption[] = [];
+        for (const m of availableChatModels) {
+            if (seen.has(m.value)) continue;
+            seen.add(m.value);
+            catalogue.push({ value: m.value, label: m.label });
+        }
+        return [
+            { value: '', label: t('useKbDefaultModel') },
+            // If the saved value isn't in the catalogue (model removed or
+            // renamed), keep it as an extra option so it stays visible until
+            // the admin actively changes it.
+            ...(current && !seen.has(current) ? [{ value: current, label: current }] : []),
+            ...catalogue,
+        ];
+    };
+
     return (
         <>
             <AnimatePresence>
@@ -140,13 +182,15 @@ export default function AdminConfigsTab({
                             {connectionTest.status === 'healthy' && `${t('connectionSuccess')} (${connectionTest.latencyMs}ms)`}
                             {connectionTest.status === 'unhealthy' && (connectionTest.error || t('connectionFailed'))}
                         </span>
-                        <button
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setConnectionTest(null)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}
                             aria-label={t('closeBanner')}
                         >
                             <X size={16} />
-                        </button>
+                        </Button>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -157,296 +201,307 @@ export default function AdminConfigsTab({
                         <form onSubmit={handleConfigSubmit} className="result-card" style={{ padding: '2rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
                                 <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>{editingId ? t('editConfig2') : t('newConfig')}</h3>
-                                <button type="button" onClick={resetForm} className="icon-button" style={{ color: 'var(--text-secondary)' }} aria-label={t('closeForm')}><X size={20} /></button>
+                                <Button type="button" variant="ghost" size="icon" onClick={resetForm} aria-label={t('closeForm')}><X size={20} /></Button>
                             </div>
-                            <div className="form-grid">
-                                <div className="input-group">
-                                    <label htmlFor="config-name">{t('configName')}</label>
-                                    <input id="config-name" value={configFormData.name} onChange={e => { setConfigFormData({ ...configFormData, name: e.target.value }); configValidation.clearError('name'); }} placeholder={t('configNamePlaceholder')} />
-                                    {configValidation.errors.name && <span className="field-error" role="alert">{configValidation.errors.name}</span>}
-                                </div>
-                                <div className="input-group">
-                                    <label htmlFor="config-provider">{t('provider')}</label>
-                                    <select id="config-provider" value={configFormData.provider} onChange={e => setConfigFormData({ ...configFormData, provider: e.target.value })}>
-                                        <option value="openai">OpenAI (OpenAI-compatible)</option>
-                                    </select>
-                                </div>
-                                <div className="input-group">
-                                    <label htmlFor="config-api-key">{t('apiKey')}</label>
-                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        <input id="config-api-key" type="password" style={{ flex: 1 }} value={configFormData.api_key} onChange={e => { setConfigFormData({ ...configFormData, api_key: e.target.value }); configValidation.clearError('api_key'); }} placeholder="sk-..." />
-                                    </div>
-                                    {configValidation.errors.api_key && <span className="field-error" role="alert">{configValidation.errors.api_key}</span>}
-                                </div>
-                                <div className="input-group">
-                                    <label htmlFor="config-base-url">{t('baseUrl')}</label>
-                                    <input id="config-base-url" value={configFormData.base_url} onChange={e => setConfigFormData({ ...configFormData, base_url: e.target.value })} placeholder="https://api.openai.com/v1" />
-                                </div>
+                            {/* `form-grid` and the `input-group` wrappers are gone: neither has a
+                              * CSS rule anywhere in the repo, so the `gridColumn: 'span 2'` the
+                              * model sections carried was inert too (there was no grid). The
+                              * rows are stacked here with an explicit gap, which the framed DS
+                              * fields need — flush against each other they would touch. */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                                <FieldRow
+                                    label={t('configName')}
+                                    placeholder={t('configNamePlaceholder')}
+                                    value={configFormData.name ?? ''}
+                                    error={configValidation.errors.name}
+                                    onChange={e => { setConfigFormData({ ...configFormData, name: e.target.value }); configValidation.clearError('name'); }}
+                                />
+
+                                <SelectFieldRow
+                                    label={t('provider')}
+                                    value={configFormData.provider ?? 'openai'}
+                                    onValueChange={value => setConfigFormData({ ...configFormData, provider: value })}
+                                    options={[{ value: 'openai', label: 'OpenAI (OpenAI-compatible)' }]}
+                                />
+
+                                <FieldRow
+                                    label={t('apiKey')}
+                                    type="password"
+                                    placeholder="sk-..."
+                                    value={configFormData.api_key ?? ''}
+                                    error={configValidation.errors.api_key}
+                                    onChange={e => { setConfigFormData({ ...configFormData, api_key: e.target.value }); configValidation.clearError('api_key'); }}
+                                />
+
+                                <FieldRow
+                                    label={t('baseUrl')}
+                                    placeholder="https://api.openai.com/v1"
+                                    value={configFormData.base_url ?? ''}
+                                    onChange={e => setConfigFormData({ ...configFormData, base_url: e.target.value })}
+                                />
+
+                                {/* The five model lists below label a GROUP of controls, not a
+                                  * single one, so they are fieldset/legend rather than a
+                                  * <label> with nothing to point at (which is what they were).
+                                  * Each row's field keeps its own accessible name via
+                                  * aria-label, as before. */}
 
                                 {/* Chat Models */}
-                                <div className="input-group" style={{ gridColumn: 'span 2' }}>
-                                    <label>{t('chatModels')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                                        {(configFormData.chat_models || []).map((model, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                <input
-                                                    aria-label={`Chat model ${idx + 1}`}
-                                                    style={{ flex: 1 }}
-                                                    value={model.name}
-                                                    onChange={e => {
-                                                        const models = [...(configFormData.chat_models || [])];
-                                                        models[idx] = { ...models[idx], name: e.target.value };
+                                <fieldset className="flex flex-col gap-2">
+                                    <legend className="mb-2 font-label-sm text-label-sm text-on-surface-variant">{t('chatModels')}</legend>
+                                    {(configFormData.chat_models || []).map((model, idx) => (
+                                        <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <Input
+                                                aria-label={`Chat model ${idx + 1}`}
+                                                className="flex-1"
+                                                value={model.name}
+                                                onChange={e => {
+                                                    const models = [...(configFormData.chat_models || [])];
+                                                    models[idx] = { ...models[idx], name: e.target.value };
+                                                    setConfigFormData({ ...configFormData, chat_models: models });
+                                                }}
+                                                placeholder="e.g. gpt-4o"
+                                            />
+                                            <CheckboxFieldRow
+                                                label={t('reasoning')}
+                                                checked={model.isReasoning}
+                                                onCheckedChange={checked => {
+                                                    const models = [...(configFormData.chat_models || [])];
+                                                    models[idx] = { ...models[idx], isReasoning: checked };
+                                                    setConfigFormData({ ...configFormData, chat_models: models });
+                                                }}
+                                            />
+                                            {(configFormData.chat_models || []).length > 1 && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost-destructive"
+                                                    size="icon"
+                                                    onClick={() => {
+                                                        const models = (configFormData.chat_models || []).filter((_, i) => i !== idx);
                                                         setConfigFormData({ ...configFormData, chat_models: models });
                                                     }}
-                                                    placeholder="e.g. gpt-4o"
-                                                />
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={model.isReasoning}
-                                                        onChange={e => {
-                                                            const models = [...(configFormData.chat_models || [])];
-                                                            models[idx] = { ...models[idx], isReasoning: e.target.checked };
-                                                            setConfigFormData({ ...configFormData, chat_models: models });
-                                                        }}
-                                                    />
-                                                    {t('reasoning')}
-                                                </label>
-                                                {(configFormData.chat_models || []).length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const models = (configFormData.chat_models || []).filter((_, i) => i !== idx);
-                                                            setConfigFormData({ ...configFormData, chat_models: models });
-                                                        }}
-                                                        className="icon-button delete"
-                                                        style={{ padding: '0.4rem' }}
-                                                        aria-label={t('removeModel')}
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const models = [...(configFormData.chat_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: false, isTts: false, isStt: false }];
-                                                setConfigFormData({ ...configFormData, chat_models: models });
-                                            }}
-                                            className="secondary-button"
-                                            style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: 'fit-content' }}
-                                        >
-                                            <Plus size={16} /> {t('addModel')}
-                                        </button>
-                                    </div>
-                                </div>
+                                                    aria-label={t('removeModel')}
+                                                >
+                                                    <X size={16} />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-fit"
+                                        onClick={() => {
+                                            const models = [...(configFormData.chat_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: false, isTts: false, isStt: false }];
+                                            setConfigFormData({ ...configFormData, chat_models: models });
+                                        }}
+                                    >
+                                        <Plus size={16} /> {t('addModel')}
+                                    </Button>
+                                </fieldset>
 
                                 {/* Embedding Models */}
-                                <div className="input-group" style={{ gridColumn: 'span 2' }}>
-                                    <label>{t('embeddingModels')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                                        {(configFormData.embedding_models || []).map((model, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '0.5rem' }}>
-                                                <input
-                                                    aria-label={`Embedding model ${idx + 1}`}
-                                                    style={{ flex: 2 }}
-                                                    value={model.name}
-                                                    onChange={e => {
-                                                        const models = [...(configFormData.embedding_models || [])];
-                                                        models[idx] = { ...models[idx], name: e.target.value };
+                                <fieldset className="flex flex-col gap-2">
+                                    <legend className="mb-2 font-label-sm text-label-sm text-on-surface-variant">{t('embeddingModels')}</legend>
+                                    {(configFormData.embedding_models || []).map((model, idx) => (
+                                        <div key={idx} style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <Input
+                                                aria-label={`Embedding model ${idx + 1}`}
+                                                className="flex-[2]"
+                                                value={model.name}
+                                                onChange={e => {
+                                                    const models = [...(configFormData.embedding_models || [])];
+                                                    models[idx] = { ...models[idx], name: e.target.value };
+                                                    setConfigFormData({ ...configFormData, embedding_models: models });
+                                                }}
+                                                placeholder="e.g. text-embedding-3-small"
+                                            />
+                                            <Input
+                                                aria-label={`Dimensions for embedding model ${idx + 1}`}
+                                                type="number"
+                                                min={0}
+                                                className="w-[120px]"
+                                                value={formatDimensionsValue(model.dimensions)}
+                                                onChange={e => {
+                                                    const models = [...(configFormData.embedding_models || [])];
+                                                    models[idx] = { ...models[idx], dimensions: parseDimensionsInput(e.target.value) };
+                                                    setConfigFormData({ ...configFormData, embedding_models: models });
+                                                }}
+                                                placeholder="auto"
+                                                title={t('vectorDimensionsHelp')}
+                                            />
+                                            {(configFormData.embedding_models || []).length > 1 && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost-destructive"
+                                                    size="icon"
+                                                    onClick={() => {
+                                                        const models = (configFormData.embedding_models || []).filter((_, i) => i !== idx);
                                                         setConfigFormData({ ...configFormData, embedding_models: models });
                                                     }}
-                                                    placeholder="e.g. text-embedding-3-small"
-                                                />
-                                                <input
-                                                    aria-label={`Dimensions for embedding model ${idx + 1}`}
-                                                    type="number"
-                                                    min={0}
-                                                    style={{ width: '100px' }}
-                                                    value={formatDimensionsValue(model.dimensions)}
-                                                    onChange={e => {
-                                                        const models = [...(configFormData.embedding_models || [])];
-                                                        models[idx] = { ...models[idx], dimensions: parseDimensionsInput(e.target.value) };
-                                                        setConfigFormData({ ...configFormData, embedding_models: models });
-                                                    }}
-                                                    placeholder="auto"
-                                                    title={t('vectorDimensionsHelp')}
-                                                />
-                                                {(configFormData.embedding_models || []).length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const models = (configFormData.embedding_models || []).filter((_, i) => i !== idx);
-                                                            setConfigFormData({ ...configFormData, embedding_models: models });
-                                                        }}
-                                                        className="icon-button delete"
-                                                        style={{ padding: '0.4rem' }}
-                                                        aria-label={t('removeModel')}
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const models = [...(configFormData.embedding_models || []), { name: '', isReasoning: false, isEmbedding: true, isRerank: false, isTts: false, isStt: false, dimensions: 0 }];
-                                                setConfigFormData({ ...configFormData, embedding_models: models });
-                                            }}
-                                            className="secondary-button"
-                                            style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: 'fit-content' }}
-                                        >
-                                            <Plus size={16} /> {t('addModel')}
-                                        </button>
-                                    </div>
-                                </div>
+                                                    aria-label={t('removeModel')}
+                                                >
+                                                    <X size={16} />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-fit"
+                                        onClick={() => {
+                                            const models = [...(configFormData.embedding_models || []), { name: '', isReasoning: false, isEmbedding: true, isRerank: false, isTts: false, isStt: false, dimensions: 0 }];
+                                            setConfigFormData({ ...configFormData, embedding_models: models });
+                                        }}
+                                    >
+                                        <Plus size={16} /> {t('addModel')}
+                                    </Button>
+                                </fieldset>
 
                                 {/* Rerank Models */}
-                                <div className="input-group" style={{ gridColumn: 'span 2' }}>
-                                    <label>{t('rerankModels')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                                        {(configFormData.rerank_models || []).map((model, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                <input
-                                                    aria-label={`Rerank model ${idx + 1}`}
-                                                    style={{ flex: 1 }}
-                                                    value={model.name}
-                                                    onChange={e => {
-                                                        const models = [...(configFormData.rerank_models || [])];
-                                                        models[idx] = { ...models[idx], name: e.target.value };
+                                <fieldset className="flex flex-col gap-2">
+                                    <legend className="mb-2 font-label-sm text-label-sm text-on-surface-variant">{t('rerankModels')}</legend>
+                                    {(configFormData.rerank_models || []).map((model, idx) => (
+                                        <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <Input
+                                                aria-label={`Rerank model ${idx + 1}`}
+                                                className="flex-1"
+                                                value={model.name}
+                                                onChange={e => {
+                                                    const models = [...(configFormData.rerank_models || [])];
+                                                    models[idx] = { ...models[idx], name: e.target.value };
+                                                    setConfigFormData({ ...configFormData, rerank_models: models });
+                                                }}
+                                                placeholder="e.g. jina-reranker-v2-base-multilingual"
+                                            />
+                                            {(configFormData.rerank_models || []).length > 1 && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost-destructive"
+                                                    size="icon"
+                                                    onClick={() => {
+                                                        const models = (configFormData.rerank_models || []).filter((_, i) => i !== idx);
                                                         setConfigFormData({ ...configFormData, rerank_models: models });
                                                     }}
-                                                    placeholder="e.g. jina-reranker-v2-base-multilingual"
-                                                />
-                                                {(configFormData.rerank_models || []).length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const models = (configFormData.rerank_models || []).filter((_, i) => i !== idx);
-                                                            setConfigFormData({ ...configFormData, rerank_models: models });
-                                                        }}
-                                                        className="icon-button delete"
-                                                        style={{ padding: '0.4rem' }}
-                                                        aria-label={t('removeModel')}
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const models = [...(configFormData.rerank_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: true, isTts: false, isStt: false }];
-                                                setConfigFormData({ ...configFormData, rerank_models: models });
-                                            }}
-                                            className="secondary-button"
-                                            style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: 'fit-content' }}
-                                        >
-                                            <Plus size={16} /> {t('addModel')}
-                                        </button>
-                                    </div>
-                                </div>
+                                                    aria-label={t('removeModel')}
+                                                >
+                                                    <X size={16} />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-fit"
+                                        onClick={() => {
+                                            const models = [...(configFormData.rerank_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: true, isTts: false, isStt: false }];
+                                            setConfigFormData({ ...configFormData, rerank_models: models });
+                                        }}
+                                    >
+                                        <Plus size={16} /> {t('addModel')}
+                                    </Button>
+                                </fieldset>
 
                                 {/* TTS Models */}
-                                <div className="input-group" style={{ gridColumn: 'span 2' }}>
-                                    <label>{t('ttsModels')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                                        {(configFormData.tts_models || []).map((model, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                <input
-                                                    aria-label={`TTS model ${idx + 1}`}
-                                                    style={{ flex: 1 }}
-                                                    value={model.name}
-                                                    onChange={e => {
-                                                        const models = [...(configFormData.tts_models || [])];
-                                                        models[idx] = { ...models[idx], name: e.target.value };
+                                <fieldset className="flex flex-col gap-2">
+                                    <legend className="mb-2 font-label-sm text-label-sm text-on-surface-variant">{t('ttsModels')}</legend>
+                                    {(configFormData.tts_models || []).map((model, idx) => (
+                                        <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <Input
+                                                aria-label={`TTS model ${idx + 1}`}
+                                                className="flex-1"
+                                                value={model.name}
+                                                onChange={e => {
+                                                    const models = [...(configFormData.tts_models || [])];
+                                                    models[idx] = { ...models[idx], name: e.target.value };
+                                                    setConfigFormData({ ...configFormData, tts_models: models });
+                                                }}
+                                                placeholder="e.g. tts-1"
+                                            />
+                                            {(configFormData.tts_models || []).length > 1 && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost-destructive"
+                                                    size="icon"
+                                                    onClick={() => {
+                                                        const models = (configFormData.tts_models || []).filter((_, i) => i !== idx);
                                                         setConfigFormData({ ...configFormData, tts_models: models });
                                                     }}
-                                                    placeholder="e.g. tts-1"
-                                                />
-                                                {(configFormData.tts_models || []).length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const models = (configFormData.tts_models || []).filter((_, i) => i !== idx);
-                                                            setConfigFormData({ ...configFormData, tts_models: models });
-                                                        }}
-                                                        className="icon-button delete"
-                                                        style={{ padding: '0.4rem' }}
-                                                        aria-label={t('removeModel')}
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const models = [...(configFormData.tts_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: false, isTts: true, isStt: false }];
-                                                setConfigFormData({ ...configFormData, tts_models: models });
-                                            }}
-                                            className="secondary-button"
-                                            style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: 'fit-content' }}
-                                        >
-                                            <Plus size={16} /> {t('addModel')}
-                                        </button>
-                                    </div>
-                                </div>
+                                                    aria-label={t('removeModel')}
+                                                >
+                                                    <X size={16} />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-fit"
+                                        onClick={() => {
+                                            const models = [...(configFormData.tts_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: false, isTts: true, isStt: false }];
+                                            setConfigFormData({ ...configFormData, tts_models: models });
+                                        }}
+                                    >
+                                        <Plus size={16} /> {t('addModel')}
+                                    </Button>
+                                </fieldset>
 
                                 {/* STT Models */}
-                                <div className="input-group" style={{ gridColumn: 'span 2' }}>
-                                    <label>{t('sttModels')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                                        {(configFormData.stt_models || []).map((model, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                <input
-                                                    aria-label={`STT model ${idx + 1}`}
-                                                    style={{ flex: 1 }}
-                                                    value={model.name}
-                                                    onChange={e => {
-                                                        const models = [...(configFormData.stt_models || [])];
-                                                        models[idx] = { ...models[idx], name: e.target.value };
+                                <fieldset className="flex flex-col gap-2">
+                                    <legend className="mb-2 font-label-sm text-label-sm text-on-surface-variant">{t('sttModels')}</legend>
+                                    {(configFormData.stt_models || []).map((model, idx) => (
+                                        <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <Input
+                                                aria-label={`STT model ${idx + 1}`}
+                                                className="flex-1"
+                                                value={model.name}
+                                                onChange={e => {
+                                                    const models = [...(configFormData.stt_models || [])];
+                                                    models[idx] = { ...models[idx], name: e.target.value };
+                                                    setConfigFormData({ ...configFormData, stt_models: models });
+                                                }}
+                                                placeholder="e.g. whisper-1"
+                                            />
+                                            {(configFormData.stt_models || []).length > 1 && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost-destructive"
+                                                    size="icon"
+                                                    onClick={() => {
+                                                        const models = (configFormData.stt_models || []).filter((_, i) => i !== idx);
                                                         setConfigFormData({ ...configFormData, stt_models: models });
                                                     }}
-                                                    placeholder="e.g. whisper-1"
-                                                />
-                                                {(configFormData.stt_models || []).length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const models = (configFormData.stt_models || []).filter((_, i) => i !== idx);
-                                                            setConfigFormData({ ...configFormData, stt_models: models });
-                                                        }}
-                                                        className="icon-button delete"
-                                                        style={{ padding: '0.4rem' }}
-                                                        aria-label={t('removeModel')}
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const models = [...(configFormData.stt_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: false, isTts: false, isStt: true }];
-                                                setConfigFormData({ ...configFormData, stt_models: models });
-                                            }}
-                                            className="secondary-button"
-                                            style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: 'fit-content' }}
-                                        >
-                                            <Plus size={16} /> {t('addModel')}
-                                        </button>
-                                    </div>
-                                </div>
+                                                    aria-label={t('removeModel')}
+                                                >
+                                                    <X size={16} />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-fit"
+                                        onClick={() => {
+                                            const models = [...(configFormData.stt_models || []), { name: '', isReasoning: false, isEmbedding: false, isRerank: false, isTts: false, isStt: true }];
+                                            setConfigFormData({ ...configFormData, stt_models: models });
+                                        }}
+                                    >
+                                        <Plus size={16} /> {t('addModel')}
+                                    </Button>
+                                </fieldset>
                             </div>
                             <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
-                                <button type="submit" className="search-button"><Save size={18} /> {t('saveConfig')}</button>
-                                <button type="button" className="secondary-button" onClick={resetForm}>{t('cancel')}</button>
+                                <Button type="submit"><Save size={18} /> {t('saveConfig')}</Button>
+                                <Button type="button" variant="outline" onClick={resetForm}>{t('cancel')}</Button>
                             </div>
                         </form>
                     </motion.div>
@@ -465,52 +520,30 @@ export default function AdminConfigsTab({
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
                     {MODEL_JOBS.map(job => (
-                        <div key={job.key} className="input-group">
-                            <label htmlFor={`job-${job.key}`}>{t(job.labelKey)}</label>
-                            <select
-                                id={`job-${job.key}`}
-                                value={siteConfigs[job.key] || ''}
-                                onChange={e => setSiteConfigs(prev => ({ ...prev, [job.key]: e.target.value }))}
-                                style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px', color: 'var(--text-primary)' }}
-                            >
-                                <option value="">{t('useKbDefaultModel')}</option>
-                                {/* If the saved value isn't in the catalogue (model removed or
-                                    renamed), keep it as an extra option so it stays visible until
-                                    the admin actively changes it. */}
-                                {siteConfigs[job.key] && !availableChatModels.some(m => m.value === siteConfigs[job.key]) && (
-                                    <option value={siteConfigs[job.key]}>{siteConfigs[job.key]}</option>
-                                )}
-                                {availableChatModels.map(m => (
-                                    <option key={m.label} value={m.value}>{m.label}</option>
-                                ))}
-                            </select>
-                            <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '0.5rem' }}>{t(job.helpKey)}</p>
-                        </div>
+                        <SelectFieldRow
+                            key={job.key}
+                            label={t(job.labelKey)}
+                            help={t(job.helpKey)}
+                            placeholder={t('useKbDefaultModel')}
+                            value={siteConfigs[job.key] || ''}
+                            onValueChange={value => setSiteConfigs(prev => ({ ...prev, [job.key]: value }))}
+                            options={modelOptions(siteConfigs[job.key] || '')}
+                        />
                     ))}
 
-                    <div className="input-group">
-                        <label htmlFor="job-model_tier_fast">{t('modelTierFast')}</label>
-                        <select
-                            id="job-model_tier_fast"
-                            value={siteConfigs.model_tier_fast || ''}
-                            onChange={e => setSiteConfigs(prev => ({ ...prev, model_tier_fast: e.target.value }))}
-                            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px', color: 'var(--text-primary)' }}
-                        >
-                            <option value="">{t('useKbDefaultModel')}</option>
-                            {siteConfigs.model_tier_fast && !availableChatModels.some(m => m.value === siteConfigs.model_tier_fast) && (
-                                <option value={siteConfigs.model_tier_fast}>{siteConfigs.model_tier_fast}</option>
-                            )}
-                            {availableChatModels.map(m => (
-                                <option key={m.label} value={m.value}>{m.label}</option>
-                            ))}
-                        </select>
-                        <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '0.5rem' }}>{t('modelTierFastHelp')}</p>
-                    </div>
+                    <SelectFieldRow
+                        label={t('modelTierFast')}
+                        help={t('modelTierFastHelp')}
+                        placeholder={t('useKbDefaultModel')}
+                        value={siteConfigs.model_tier_fast || ''}
+                        onValueChange={value => setSiteConfigs(prev => ({ ...prev, model_tier_fast: value }))}
+                        options={modelOptions(siteConfigs.model_tier_fast || '')}
+                    />
                 </div>
 
-                <button type="submit" className="search-button" style={{ width: 'fit-content' }}>
+                <Button type="submit" className="w-fit">
                     <Save size={18} /> {t('saveSettings')}
-                </button>
+                </Button>
             </form>
 
             <div className="configs-list">
@@ -532,10 +565,10 @@ export default function AdminConfigsTab({
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     {!config.is_active && (
-                                        <button onClick={() => handleActivate(config.id)} className="icon-button activate" title={t('activateConfig')} aria-label={t('activateConfig')}><CheckCircle2 size={20} /></button>
+                                        <Button type="button" variant="ghost" size="icon" onClick={() => handleActivate(config.id)} title={t('activateConfig')} aria-label={t('activateConfig')}><CheckCircle2 size={20} /></Button>
                                     )}
-                                    <button onClick={() => startEditConfig(config)} className="icon-button" title={t('editConfig')} aria-label={t('editConfig')}><Settings size={20} /></button>
-                                    <button onClick={() => handleDelete(config.id, 'config')} className="icon-button delete" title={t('deleteConfig')} aria-label={t('deleteConfig')}><Trash2 size={20} /></button>
+                                    <Button type="button" variant="ghost" size="icon" onClick={() => startEditConfig(config)} title={t('editConfig')} aria-label={t('editConfig')}><Settings size={20} /></Button>
+                                    <Button type="button" variant="ghost-destructive" size="icon" onClick={() => handleDelete(config.id, 'config')} title={t('deleteConfig')} aria-label={t('deleteConfig')}><Trash2 size={20} /></Button>
                                 </div>
                             </div>
                         </motion.div>

@@ -1744,6 +1744,9 @@ export const translations = {
     evalGenerateTitle: { de: 'Aus Korpus generieren', en: 'Generate from corpus' },
     evalGenerateHint: { de: 'Erzeugt einen Entwurf zur manuellen Kuratierung. Danach herunterladen, prüfen und erneut hochladen.', en: 'Produces a draft for manual curation. Download, review, then re-upload.' },
     evalGenName: { de: 'Name des Golden-Sets', en: 'Golden set name' },
+    // Accessible name for the de/en select in "generate from corpus" — that
+    // control had no label at all before the design-system migration (KI-692).
+    evalGenLang: { de: 'Sprache', en: 'Language' },
     evalGenLookup: { de: 'Lookup-Fragen', en: 'Lookup questions' },
     evalGenComplex: { de: 'Komplexe Fragen', en: 'Complex questions' },
     evalGenEnumeration: { de: 'Aufzählungsfragen', en: 'Enumeration questions' },

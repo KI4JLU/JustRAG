@@ -324,16 +324,6 @@
       "count": 3
     }
   },
-  "src/components/admin/AdminConfigsTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 28
-    }
-  },
-  "src/components/admin/AdminEvalTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 29
-    }
-  },
   "src/components/admin/AdminGlobalKbsTab.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 6
