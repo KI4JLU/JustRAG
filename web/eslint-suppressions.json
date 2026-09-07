@@ -314,11 +314,6 @@
       "count": 2
     }
   },
-  "src/components/admin/AdminAgentTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 146
-    }
-  },
   "src/components/admin/AdminAuthTab.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 17
