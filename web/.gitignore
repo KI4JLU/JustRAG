@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Storybook static build output (npm run build-storybook)
+storybook-static

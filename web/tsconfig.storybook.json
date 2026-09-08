@@ -1,0 +1,23 @@
+{
+  /* Typechecks the Storybook config and the Vitest config, which tsconfig.app.json
+   * (include: ["src"]) and tsconfig.node.json (include: ["vite.config.ts"]) both
+   * miss. Without this project, `tsc -b` — i.e. `npm run build`, i.e. CI — is
+   * blind to .storybook/, and a broken Decorator or a mistyped `define` map only
+   * surfaces when someone runs Storybook by hand.
+   *
+   * Extends the APP config, not the node one: .storybook/preview.tsx is JSX,
+   * renders the app's own providers and imports ./preview.css, so it needs
+   * `jsx: react-jsx`, the DOM lib and vite/client's CSS module declarations —
+   * all of which the app config already sets. */
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.storybook.tsbuildinfo"
+  },
+  /* vitest.shims.d.ts is `storybook add @storybook/addon-vitest`'s own output
+   * (`/// <reference types="@vitest/browser-playwright" />`). It is listed here
+   * so it is actually in a program: nothing today imports
+   * @vitest/browser/context, but an unreferenced .d.ts is dead weight, and the
+   * first story test that reaches for the browser context would otherwise fail
+   * to typecheck for a reason nobody would look for here. */
+  "include": [".storybook", "vitest.config.ts", "vitest.shims.d.ts"]
+}

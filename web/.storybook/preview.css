@@ -1,0 +1,13 @@
+/* Storybook loads the application's REAL stylesheet, not a Storybook-only
+ * Tailwind entry point.
+ *
+ * src/index.css is not just an `@import "tailwindcss"`: it fixes the
+ * `@layer theme, base, components, utilities` order by hand, imports Preflight
+ * into `layer(base)`, pulls in the design system's tokens and the self-hosted
+ * font faces, and adds an `@layer base` counterweight that reverts h1-h6 to
+ * user-agent prose defaults. Login.tsx and LegalPage.tsx both compensate for
+ * that counterweight at their call sites (`m-0 text-headline-md
+ * font-semibold`), so a story rendered against any other stylesheet would show
+ * a heading the app never renders — i.e. it would be a picture of something
+ * else. Importing the app's own entry point keeps one source of truth. */
+@import "../src/index.css";

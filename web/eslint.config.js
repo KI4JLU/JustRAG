@@ -5,10 +5,11 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
 import designSystem from '@ki4jlu/design-system/eslint-plugin'
+import storybook from 'eslint-plugin-storybook'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'storybook-static']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -57,6 +58,24 @@ export default defineConfig([
     rules: {
       // Context modules intentionally export Provider + hook together; an HMR
       // update of a context invalidates its consumers, which is acceptable.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
+  // Storybook (card KI-725). `flat/recommended` lints the CSF itself — a
+  // missing default export, a play function that forgets to await an
+  // interaction, `expect` imported from vitest instead of `storybook/test`,
+  // an addon listed in main.ts but not installed. It is configured, not
+  // suppressed: every rule below runs at the plugin's own severity.
+  ...storybook.configs['flat/recommended'],
+  {
+    files: ['**/*.stories.{ts,tsx}', '.storybook/**/*.{ts,tsx}'],
+    rules: {
+      // CSF is a module format, not a component module: a story file's default
+      // export is the `meta` object and its named exports are story objects.
+      // react-refresh cannot express that, and the file is never part of the
+      // app bundle, so there is no HMR boundary to protect. Same exemption the
+      // context modules above already carry, for the same kind of reason.
       'react-refresh/only-export-components': 'off',
     },
   },

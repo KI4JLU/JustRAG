@@ -9,8 +9,12 @@
     "lint": "eslint .",
     "lint:prune": "eslint . --prune-suppressions",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --project=unit",
+    "test:watch": "vitest --project=unit",
+    "test:stories": "vitest run --project=storybook",
+    "test:all": "vitest run",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "browserslist": [
     "last 2 Chrome versions",
@@ -42,6 +46,10 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@storybook/addon-a11y": "^10.6.0",
+    "@storybook/addon-docs": "^10.6.0",
+    "@storybook/addon-vitest": "^10.6.0",
+    "@storybook/react-vite": "^10.6.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -52,13 +60,18 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/browser-playwright": "4.1.11",
+    "axios-mock-adapter": "^2.1.0",
     "eslint": "^10.6.0",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
+    "eslint-plugin-storybook": "^10.6.0",
     "globals": "17.7.0",
     "jsdom": "^29.1.1",
+    "playwright": "^1.63.0",
     "sharp": "^0.35.2",
+    "storybook": "^10.6.0",
     "svgo": "^4.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "6.0.3",
@@ -67,6 +80,6 @@
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-image-optimizer": "^2.0.3",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^4.1.9"
+    "vitest": "4.1.11"
   }
 }
