@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Sparkles, KeyRound } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
@@ -303,9 +303,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
                                         {loading ? (
                                             <Spinner size="sm" label={t('loading')} />
                                         ) : (
-                                            <>
-                                                {t('login')} <Sparkles size={18} />
-                                            </>
+                                            t('login')
                                         )}
                                     </span>
                                 </Button>
