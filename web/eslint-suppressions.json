@@ -9,16 +9,6 @@
       "count": 2
     }
   },
-  "src/Dashboard.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
-    }
-  },
-  "src/KBOverviewDashboard.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 8
-    }
-  },
   "src/MessageBubble.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 5
@@ -27,11 +17,6 @@
   "src/Profile.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
-    }
-  },
-  "src/SystemHealthDashboard.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
     }
   },
   "src/components/AbstractGenerationModal.tsx": {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import axios from 'axios';
 import { getApiErrorMessage } from './utils/apiError';
 import {
@@ -10,8 +10,70 @@ import {
     RefreshCw, Clock, AlertCircle, CheckCircle, AlertTriangle, Cpu, MessageSquare,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import {
+    Button, Card, CardContent, CardHeader, Checkbox, DashboardLayout, Grid, Label,
+    SegmentedControl, Spinner, Stack, cn,
+} from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
 import { useTheme } from './contexts/ThemeContext';
+
+/* ---------------------------------------------------------------------------
+ * Shell: the design system's `DashboardLayout` template (card KI-714,
+ * Stage 4b). The template's slot API and how it compares to `AuthLayout`'s two
+ * known gaps are documented once, in Dashboard.tsx — read that first.
+ *
+ * Two things about THIS page's migration:
+ *
+ * 1. THE PAGE'S OWN SCROLL BOX IS PRESERVED, moved from an inline style onto
+ *    the template's `className`. The card's own text says the only `maxHeight`
+ *    in the three files is Dashboard.tsx:679 — that is WRONG, this file's root
+ *    carried `maxHeight: 'calc(100vh - 200px)'` + `overflowY: 'auto'` as well
+ *    (line 473 at the claim base). It is the whole reason this dashboard
+ *    scrolls inside the admin content column instead of growing the admin
+ *    page, so dropping it silently would have been a behaviour change. The
+ *    200px is tied to AdminUI's header + tab chrome; whether it should stay a
+ *    magic number is a question for the developer, not this card.
+ *
+ * 2. The heading level changes h2 -> h1 (PageHeader renders a real `<h1>` and
+ *    the level is not a prop), so this page now has two `<h1>`s: AdminUI.tsx
+ *    already renders one. Reported as an open question.
+ *
+ * TODO: no visual confirmation in this pass; the stories exist for the
+ * developer's both-theme pass.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * KPI tile accent tones — the design system's semantic colour vocabulary,
+ * replacing the raw `color` string the tiles used to take and concatenate into
+ * `${color}15` for the icon chip. That made the accent theme-blind; these
+ * follow the theme. It IS a colour change (see the card report).
+ */
+const STAT_TONE = {
+    primary: 'bg-primary/10 text-primary',
+    secondary: 'bg-secondary/10 text-secondary',
+    tertiary: 'bg-tertiary/10 text-tertiary',
+    success: 'bg-success/10 text-success',
+    warning: 'bg-warning/10 text-warning',
+    info: 'bg-info/10 text-info',
+} as const;
+
+type StatTone = keyof typeof STAT_TONE;
+
+/** Left accent border per subsystem status, on the DS status tokens. */
+const HEALTH_ACCENT: Record<SubsystemHealth['status'], string> = {
+    healthy: 'border-l-success',
+    degraded: 'border-l-warning',
+    unhealthy: 'border-l-error',
+};
+
+const RANGE_OPTIONS = [
+    { value: '1h', label: '1h' },
+    { value: '24h', label: '24h' },
+    { value: '7d', label: '7d' },
+    { value: '30d', label: '30d' },
+];
+
+type DateRange = '1h' | '24h' | '7d' | '30d';
 
 interface QueueStats {
     waiting: number;
@@ -83,16 +145,12 @@ const formatTime = (isoString: string): string => {
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; color: string }[]; label?: string }) => {
     if (active && payload && payload.length) {
         return (
-            <div style={{
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '8px',
-                padding: '0.75rem',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-            }}>
-                <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>{label}</div>
+            <div className="rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-on-surface shadow-overlay">
+                <div className="mb-1 font-medium">{label}</div>
                 {payload.map((entry, index: number) => (
-                    <div key={index} style={{ color: entry.color, fontSize: '0.9rem' }}>
+                    /* SURVIVING INLINE STYLE: the recharts series colour is a
+                     * runtime value off the chart payload. */
+                    <div key={index} className="text-sm" style={{ color: entry.color }}>
                         {entry.value}
                     </div>
                 ))}
@@ -102,155 +160,151 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
     return null;
 };
 
-const StatCard = ({ title, value, subtitle, icon: Icon, color }: {
+/**
+ * The stat tiles keep their mount animation, so the animated element has to BE
+ * the DS Card rather than a wrapper around it. `motion.create` is
+ * framer-motion's documented way to animate a third-party component (it needs
+ * `className`, `style` and a forwarded ref, all of which `Card` provides), and
+ * it avoids the extra `<div>` a `motion.div` wrapper would add inside the
+ * template's `stats` Grid.
+ */
+const MotionCard = motion.create(Card);
+
+/**
+ * KPI tile for the template's `stats` slot.
+ *
+ * It stays a LOCAL composition of `Card`: the design system ships no stat/KPI
+ * component even though `DashboardLayout`'s `stats` prop is documented as "KPI
+ * tiles". Reported as a DS gap — Dashboard.tsx has the un-animated twin, and
+ * promoting the two into one shared local primitive would be inventing the
+ * component the design system is missing.
+ */
+const StatCard = ({ title, value, subtitle, icon: Icon, tone }: {
     title: string;
     value: string | number;
     subtitle?: string;
     icon: React.ElementType;
-    color: string;
+    tone: StatTone;
 }) => (
-    <motion.div
+    <MotionCard
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        style={{
-            background: 'var(--bg-secondary)',
-            borderRadius: '12px',
-            padding: '1.25rem',
-            border: '1px solid var(--border-color)'
-        }}
+        className="p-5"
     >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div className="flex items-start justify-between gap-2">
             <div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                    {title}
-                </div>
-                <div style={{ fontSize: '1.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {value}
-                </div>
+                <div className="mb-2 text-sm text-on-surface-variant">{title}</div>
+                <div className="font-stat-lg text-stat-lg text-on-surface">{value}</div>
                 {subtitle && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                        {subtitle}
-                    </div>
+                    <div className="mt-1 text-xs text-on-surface-variant">{subtitle}</div>
                 )}
             </div>
-            <div style={{
-                padding: '0.75rem',
-                background: `${color}15`,
-                borderRadius: '10px',
-                color: color
-            }}>
+            <div className={cn('rounded-lg p-3', STAT_TONE[tone])}>
                 <Icon size={22} />
             </div>
         </div>
-    </motion.div>
+    </MotionCard>
 );
 
-const QueueCard = ({ name, stats }: { name: string; stats: QueueStats }) => {
-    return (
-        <div style={{
-            background: 'var(--bg-secondary)',
-            borderRadius: '12px',
-            padding: '1rem',
-            border: '1px solid var(--border-color)'
-        }}>
-            <div style={{ fontWeight: 500, marginBottom: '0.75rem', fontSize: '0.9rem' }}>{name}</div>
-            <div style={{ display: 'flex', gap: '1rem', fontSize: '0.85rem' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ color: 'var(--warning-text)', fontWeight: 600 }}>{stats.waiting}</div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Wartend</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{stats.active}</div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Aktiv</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ color: 'var(--error-text)', fontWeight: 600 }}>{stats.failed}</div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Fehler</div>
-                </div>
+const QueueCard = ({ name, stats }: { name: string; stats: QueueStats }) => (
+    <Card className="p-4">
+        <div className="mb-3 text-sm font-medium text-on-surface">{name}</div>
+        <div className="flex gap-4 text-sm">
+            <div className="text-center">
+                <div className="font-semibold text-warning">{stats.waiting}</div>
+                <div className="text-xs text-on-surface-variant">Wartend</div>
+            </div>
+            <div className="text-center">
+                <div className="font-semibold text-primary">{stats.active}</div>
+                <div className="text-xs text-on-surface-variant">Aktiv</div>
+            </div>
+            <div className="text-center">
+                <div className="font-semibold text-error">{stats.failed}</div>
+                <div className="text-xs text-on-surface-variant">Fehler</div>
             </div>
         </div>
-    );
-};
+    </Card>
+);
 
 const HealthIndicator = ({ name, health }: { name: string; health: SubsystemHealth }) => {
-    const getStatusIcon = () => {
-        switch (health.status) {
-            case 'healthy': return <CheckCircle size={18} style={{ color: 'var(--success-text)' }} />;
-            case 'degraded': return <AlertTriangle size={18} style={{ color: 'var(--warning-text)' }} />;
-            case 'unhealthy': return <AlertCircle size={18} style={{ color: 'var(--error-text)' }} />;
-        }
-    };
-
-    const getStatusColor = () => {
-        switch (health.status) {
-            case 'healthy': return 'var(--success-text)';
-            case 'degraded': return 'var(--warning-text)';
-            case 'unhealthy': return 'var(--error-text)';
-        }
-    };
+    const statusIcon = {
+        healthy: <CheckCircle size={18} className="text-success" />,
+        degraded: <AlertTriangle size={18} className="text-warning" />,
+        unhealthy: <AlertCircle size={18} className="text-error" />,
+    }[health.status];
 
     return (
-        <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0.75rem 1rem',
-            background: 'var(--bg-secondary)',
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            borderLeft: `3px solid ${getStatusColor()}`
-        }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                {getStatusIcon()}
-                <span style={{ fontWeight: 500 }}>{name}</span>
+        <Card className={cn('flex items-center justify-between gap-2 border-l-4 p-4', HEALTH_ACCENT[health.status])}>
+            <div className="flex items-center gap-2">
+                {statusIcon}
+                <span className="font-medium">{name}</span>
             </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <div className="text-sm text-on-surface-variant">
                 {health.latencyMs !== undefined && `${health.latencyMs}ms`}
-                {health.error && <span style={{ color: 'var(--error-text)' }}> - {health.error}</span>}
+                {health.error && <span className="text-error"> - {health.error}</span>}
             </div>
-        </div>
+        </Card>
     );
 };
 
-const GaugeBar = ({ value, max, label, color }: {
+/**
+ * Utilisation bar. `barClassName` replaced the old `color: string` prop: the
+ * three call sites passed `var(--accent-primary)`, `var(--success-text)` and a
+ * raw `#6a1b9a`, none of which is a design-system token. The track uses the
+ * DS's own `--color-chart-track`.
+ *
+ * The design system ships no progress/meter component, so this stays a local
+ * two-div composition — reported as a DS gap rather than worked around with a
+ * new shared primitive.
+ */
+const GaugeBar = ({ value, max, label, barClassName }: {
     value: number;
     max: number;
     label: string;
-    color: string;
+    barClassName: string;
 }) => {
     const percentage = Math.min((value / max) * 100, 100);
     return (
-        <div style={{ marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{label}</span>
-                <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>{value.toFixed(1)}{max === 100 ? '%' : ''}</span>
+        <div className="mb-4">
+            <div className="mb-2 flex justify-between">
+                <span className="text-sm text-on-surface-variant">{label}</span>
+                <span className="text-sm font-medium">{value.toFixed(1)}{max === 100 ? '%' : ''}</span>
             </div>
-            <div style={{
-                height: '8px',
-                background: 'var(--bg-primary)',
-                borderRadius: '4px',
-                overflow: 'hidden'
-            }}>
-                <div style={{
-                    height: '100%',
-                    width: `${percentage}%`,
-                    background: color,
-                    borderRadius: '4px',
-                    transition: 'width 0.3s ease'
-                }} />
+            <div className="h-2 overflow-hidden rounded-full bg-chart-track">
+                {/* SURVIVING INLINE STYLE: the fill width is the measured
+                  * value, so it cannot be a utility class. */}
+                <div
+                    className={cn('h-full rounded-full transition-[width] duration-300 ease-out', barClassName)}
+                    style={{ width: `${percentage}%` }}
+                />
             </div>
         </div>
     );
 };
 
+/**
+ * Chart panel. Same composition as Dashboard.tsx's: `CardHeader`'s `flex-col`
+ * is flipped to `flex-row` through tailwind-merge, and the heading stays an
+ * `<h3>` (CardTitle is a `div` at 24px; these titles were 16px/500). `m-0`
+ * neutralises index.css's `@layer base { h3 { margin: revert } }`.
+ */
 const ChartCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div style={{
-        background: 'var(--bg-secondary)',
-        borderRadius: '12px',
-        padding: '1.25rem',
-        border: '1px solid var(--border-color)'
-    }}>
-        <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 500 }}>{title}</h3>
+    <Card>
+        <CardHeader>
+            <h3 className="m-0 text-base font-medium text-on-surface">{title}</h3>
+        </CardHeader>
+        <CardContent>{children}</CardContent>
+    </Card>
+);
+
+/** Section heading above a grid that is not itself a Card. */
+const SectionHeading = ({ children }: { children: React.ReactNode }) => (
+    <h3 className="m-0 text-base font-medium text-on-surface-variant">{children}</h3>
+);
+
+/** Centred empty state inside a fixed-height chart box. */
+const ChartEmpty = ({ children }: { children: React.ReactNode }) => (
+    <div className="flex h-full items-center justify-center text-on-surface-variant">
         {children}
     </div>
 );
@@ -273,7 +327,11 @@ export default function SystemHealthDashboard() {
     const [error, setError] = useState<string | null>(null);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-    const [dateRange, setDateRange] = useState<'1h' | '24h' | '7d' | '30d'>('24h');
+    const [dateRange, setDateRange] = useState<DateRange>('24h');
+    // The DS Checkbox is a Radix <button role="checkbox">, which IS a labelable
+    // element per HTML 4.10.4, so `Label htmlFor` + `Checkbox id` is a real
+    // label/control pair. React generates the id so two mounts cannot collide.
+    const autoRefreshId = useId();
     const [aiHealth, setAiHealth] = useState<{
         status: 'idle' | 'testing' | 'healthy' | 'unhealthy';
         latencyMs?: number;
@@ -409,35 +467,33 @@ export default function SystemHealthDashboard() {
 
     if (loading && !metrics) {
         return (
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '400px',
-                color: 'var(--text-secondary)'
-            }}>
-                <RefreshCw size={24} className="spin" style={{ marginRight: '0.5rem' }} />
-                Lade System-Health-Dashboard...
-            </div>
+            <Stack
+                direction="row"
+                align="center"
+                justify="center"
+                gap="sm"
+                className="h-[400px] text-on-surface-variant"
+            >
+                <Spinner label="Lade System-Health-Dashboard..." />
+                <span aria-hidden="true">Lade System-Health-Dashboard...</span>
+            </Stack>
         );
     }
 
     if (error && !metrics) {
         return (
-            <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '400px',
-                color: 'var(--text-secondary)'
-            }}>
-                <AlertCircle size={48} style={{ color: 'var(--error-text)', marginBottom: '1rem' }} />
-                <div style={{ marginBottom: '1rem' }}>{error}</div>
-                <button onClick={fetchAll} className="secondary-button">
+            <Stack
+                align="center"
+                justify="center"
+                gap="md"
+                className="h-[400px] text-on-surface-variant"
+            >
+                <AlertCircle size={48} className="text-error" />
+                <div>{error}</div>
+                <Button variant="outline" onClick={fetchAll}>
                     Erneut versuchen
-                </button>
-            </div>
+                </Button>
+            </Stack>
         );
     }
 
@@ -470,367 +526,322 @@ export default function SystemHealthDashboard() {
     };
 
     return (
-        <div style={{ padding: '1.5rem', maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
-            {/* Header */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '1.5rem'
-            }}>
-                <div>
-                    <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Activity size={24} />
-                        System Health
-                    </h2>
-                    {lastUpdated && (
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <Clock size={14} />
-                            Zuletzt aktualisiert: {lastUpdated.toLocaleTimeString('de-DE')}
-                        </div>
-                    )}
-                </div>
-
-                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                    <label style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        fontSize: '0.9rem',
-                        color: 'var(--text-secondary)',
-                        cursor: 'pointer'
-                    }}>
-                        <input
-                            type="checkbox"
+        <DashboardLayout
+            /* Two separate concerns, both explained at the top of this file:
+             * the page's own scroll box (preserved from the pre-migration
+             * root), and index.css's h1-h6/p `margin: revert` counterweight,
+             * which PageHeader's own heading and description walk into. */
+            className="max-h-[calc(100vh-200px)] overflow-y-auto [&>header_h1]:m-0 [&>header_p]:m-0"
+            title={
+                <span className="inline-flex items-center gap-2">
+                    <Activity size={24} aria-hidden="true" />
+                    System Health
+                </span>
+            }
+            description={lastUpdated ? (
+                <span className="inline-flex items-center gap-1">
+                    <Clock size={14} aria-hidden="true" />
+                    Zuletzt aktualisiert: {lastUpdated.toLocaleTimeString('de-DE')}
+                </span>
+            ) : undefined}
+            actions={
+                <>
+                    <div className="flex items-center gap-2">
+                        {/* Checkbox, not Switch: a one-for-one replacement of
+                          * the native checkbox that was here. Flagged as an
+                          * open question — the value applies immediately,
+                          * which is the case Switch exists for. */}
+                        <Checkbox
+                            id={autoRefreshId}
                             checked={autoRefresh}
-                            onChange={(e) => setAutoRefresh(e.target.checked)}
-                            style={{ cursor: 'pointer' }}
+                            onCheckedChange={(next) => setAutoRefresh(next === true)}
                         />
-                        Auto-Refresh (10s)
-                    </label>
-                    <button
+                        <Label htmlFor={autoRefreshId} className="cursor-pointer">
+                            Auto-Refresh (10s)
+                        </Label>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="icon"
                         onClick={fetchAll}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.5rem 1rem',
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '8px',
-                            color: 'var(--text-primary)',
-                            cursor: 'pointer'
-                        }}
                         title="Aktualisieren"
+                        aria-label="Aktualisieren"
                     >
-                        <RefreshCw size={16} className={loading ? 'spin' : ''} />
-                    </button>
-                </div>
-            </div>
-
-            {/* Stat Cards */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: '1rem',
-                marginBottom: '1.5rem'
-            }}>
-                <StatCard
-                    title="Aktive Benutzer"
-                    value={metrics.activeUsers}
-                    subtitle="Letzte 15 Min"
-                    icon={Users}
-                    color="var(--accent-primary)"
-                />
-                <StatCard
-                    title="Dateien in Verarbeitung"
-                    value={metrics.processingFiles}
-                    icon={FileText}
-                    color="var(--warning-text)"
-                />
-                <StatCard
-                    title="Knowledge Bases"
-                    value={metrics.totalKnowledgeBases}
-                    icon={Database}
-                    color="var(--success-text)"
-                />
-                <StatCard
-                    title="Dateien gesamt"
-                    value={metrics.totalFiles}
-                    icon={FileText}
-                    color="#6a1b9a"
-                />
-                <StatCard
-                    title="Speicher"
-                    value={formatBytes(metrics.totalStorageBytes)}
-                    icon={HardDrive}
-                    color="#d84315"
-                />
-                <StatCard
-                    title="Benutzer gesamt"
-                    value={metrics.totalUsers}
-                    icon={Users}
-                    color="#00838f"
-                />
-                <StatCard
-                    title="Nachrichten gesamt"
-                    value={metrics.totalMessages}
-                    subtitle={`davon ${metrics.totalMessagesApi} über API`}
-                    icon={MessageSquare}
-                    color="var(--accent-primary)"
-                />
-                <StatCard
-                    title="Nachrichten (24 h)"
-                    value={metrics.messages24h}
-                    subtitle={`davon ${metrics.messages24hApi} über API`}
-                    icon={MessageSquare}
-                    color="#00838f"
-                />
-            </div>
-
+                        {loading
+                            ? <Spinner size="sm" label="Aktualisiere …" />
+                            : <RefreshCw size={16} aria-hidden="true" />}
+                    </Button>
+                </>
+            }
+            stats={
+                <>
+                    <StatCard
+                        title="Aktive Benutzer"
+                        value={metrics.activeUsers}
+                        subtitle="Letzte 15 Min"
+                        icon={Users}
+                        tone="primary"
+                    />
+                    <StatCard
+                        title="Dateien in Verarbeitung"
+                        value={metrics.processingFiles}
+                        icon={FileText}
+                        tone="warning"
+                    />
+                    <StatCard
+                        title="Knowledge Bases"
+                        value={metrics.totalKnowledgeBases}
+                        icon={Database}
+                        tone="success"
+                    />
+                    <StatCard
+                        title="Dateien gesamt"
+                        value={metrics.totalFiles}
+                        icon={FileText}
+                        tone="tertiary"
+                    />
+                    <StatCard
+                        title="Speicher"
+                        value={formatBytes(metrics.totalStorageBytes)}
+                        icon={HardDrive}
+                        tone="secondary"
+                    />
+                    <StatCard
+                        title="Benutzer gesamt"
+                        value={metrics.totalUsers}
+                        icon={Users}
+                        tone="info"
+                    />
+                    <StatCard
+                        title="Nachrichten gesamt"
+                        value={metrics.totalMessages}
+                        subtitle={`davon ${metrics.totalMessagesApi} über API`}
+                        icon={MessageSquare}
+                        tone="primary"
+                    />
+                    <StatCard
+                        title="Nachrichten (24 h)"
+                        value={metrics.messages24h}
+                        subtitle={`davon ${metrics.messages24hApi} über API`}
+                        icon={MessageSquare}
+                        tone="info"
+                    />
+                </>
+            }
+        >
             {/* Queue Stats */}
-            <div style={{ marginBottom: '1.5rem' }}>
-                <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                    Job-Warteschlangen
-                </h3>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '1rem'
-                }}>
+            <Stack gap="md">
+                <SectionHeading>Job-Warteschlangen</SectionHeading>
+                <Grid cols={3}>
                     <QueueCard name="rag-quick" stats={metrics.queueStats['rag-quick']} />
                     <QueueCard name="rag-heavy" stats={metrics.queueStats['rag-heavy']} />
                     <QueueCard name="rag-batch" stats={metrics.queueStats['rag-batch']} />
-                </div>
-            </div>
+                </Grid>
+            </Stack>
 
             {/* Subsystem Health + Resources */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 500px), 1fr))',
-                gap: '1.5rem',
-                marginBottom: '1.5rem'
-            }}>
-                {/* Subsystem Health */}
-                <div>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                        Subsystem-Status
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <Grid cols={2}>
+                <Stack gap="md">
+                    <SectionHeading>Subsystem-Status</SectionHeading>
+                    <Stack gap="sm">
                         <HealthIndicator name="Haupt-Datenbank" health={metrics.subsystemHealth.mainDb} />
                         <HealthIndicator name="Vektor-Datenbank" health={metrics.subsystemHealth.vectorDb} />
                         <HealthIndicator name="Redis" health={metrics.subsystemHealth.redis} />
                         <HealthIndicator name="Speicher" health={metrics.subsystemHealth.storage} />
 
-                        {/* AI Provider Health - manual check */}
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '0.75rem 1rem',
-                            background: 'var(--bg-secondary)',
-                            borderRadius: '8px',
-                            border: '1px solid var(--border-color)',
-                            borderLeft: `3px solid ${aiHealth.status === 'healthy' ? 'var(--success-text)' : aiHealth.status === 'unhealthy' ? 'var(--error-text)' : 'var(--border-color)'}`
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                {aiHealth.status === 'testing' && <RefreshCw size={18} className="spin" style={{ color: 'var(--text-secondary)' }} />}
-                                {aiHealth.status === 'healthy' && <CheckCircle size={18} style={{ color: 'var(--success-text)' }} />}
-                                {aiHealth.status === 'unhealthy' && <AlertCircle size={18} style={{ color: 'var(--error-text)' }} />}
-                                {aiHealth.status === 'idle' && <Cpu size={18} style={{ color: 'var(--text-secondary)' }} />}
-                                <span style={{ fontWeight: 500 }}>
+                        {/* AI Provider Health — manual check. Not a
+                          * HealthIndicator: its status vocabulary is
+                          * idle/testing/healthy/unhealthy and it owns a
+                          * button, so it stays its own row. */}
+                        <Card
+                            className={cn(
+                                'flex items-center justify-between gap-2 border-l-4 p-4',
+                                aiHealth.status === 'healthy' ? 'border-l-success'
+                                    : aiHealth.status === 'unhealthy' ? 'border-l-error'
+                                        : 'border-l-outline-variant',
+                            )}
+                        >
+                            <div className="flex items-center gap-2">
+                                {aiHealth.status === 'testing' && <Spinner size="default" label="Teste …" />}
+                                {aiHealth.status === 'healthy' && <CheckCircle size={18} className="text-success" />}
+                                {aiHealth.status === 'unhealthy' && <AlertCircle size={18} className="text-error" />}
+                                {aiHealth.status === 'idle' && <Cpu size={18} className="text-on-surface-variant" />}
+                                <span className="font-medium">
                                     {aiHealth.providerName ? `KI-Anbieter (${aiHealth.providerName})` : 'KI-Anbieter'}
                                 </span>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
+                            <div className="flex items-center gap-3 text-sm">
                                 {aiHealth.status === 'idle' && (
-                                    <span style={{ color: 'var(--text-secondary)' }}>Nicht getestet</span>
+                                    <span className="text-on-surface-variant">Nicht getestet</span>
                                 )}
                                 {aiHealth.status === 'testing' && (
-                                    <span style={{ color: 'var(--text-secondary)' }}>Teste...</span>
+                                    <span className="text-on-surface-variant">Teste...</span>
                                 )}
                                 {aiHealth.status === 'healthy' && aiHealth.latencyMs !== undefined && (
-                                    <span style={{ color: 'var(--text-secondary)' }}>{aiHealth.latencyMs}ms</span>
+                                    <span className="text-on-surface-variant">{aiHealth.latencyMs}ms</span>
                                 )}
                                 {aiHealth.status === 'unhealthy' && aiHealth.error && (
-                                    <span style={{ color: 'var(--error-text)' }}>{aiHealth.error}</span>
+                                    <span className="text-error">{aiHealth.error}</span>
                                 )}
-                                <button
+                                <Button
+                                    variant="outline"
+                                    size="sm"
                                     onClick={checkAiHealth}
                                     disabled={aiHealth.status === 'testing'}
-                                    style={{
-                                        padding: '0.3rem 0.7rem',
-                                        background: 'var(--bg-primary)',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '6px',
-                                        color: 'var(--text-primary)',
-                                        cursor: aiHealth.status === 'testing' ? 'not-allowed' : 'pointer',
-                                        fontSize: '0.8rem',
-                                        opacity: aiHealth.status === 'testing' ? 0.6 : 1,
-                                    }}
                                 >
                                     Prüfen
-                                </button>
+                                </Button>
                             </div>
-                        </div>
-                    </div>
-                </div>
+                        </Card>
+                    </Stack>
+                </Stack>
 
                 {/* Resource Usage */}
-                <div style={{
-                    background: 'var(--bg-secondary)',
-                    borderRadius: '12px',
-                    padding: '1.25rem',
-                    border: '1px solid var(--border-color)'
-                }}>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Server size={18} />
-                        Ressourcenverbrauch
-                    </h3>
-                    <GaugeBar
-                        value={metrics.resourceUsage.cpuLoadAvg1m}
-                        max={metrics.resourceUsage.cpuCount || 4}
-                        label="CPU Load (1m)"
-                        color="var(--accent-primary)"
-                    />
-                    <GaugeBar
-                        value={metrics.resourceUsage.systemMemoryUsedPercent}
-                        max={100}
-                        label="Systemspeicher"
-                        color="var(--success-text)"
-                    />
-                    <GaugeBar
-                        value={metrics.resourceUsage.nodeHeapUsedMB}
-                        max={1024}
-                        label={`Node Heap (${metrics.resourceUsage.nodeHeapUsedMB} MB)`}
-                        color="#6a1b9a"
-                    />
-                </div>
-            </div>
+                <Card>
+                    <CardHeader>
+                        <h3 className="m-0 flex items-center gap-2 text-base font-medium text-on-surface">
+                            <Server size={18} aria-hidden="true" />
+                            Ressourcenverbrauch
+                        </h3>
+                    </CardHeader>
+                    <CardContent>
+                        <GaugeBar
+                            value={metrics.resourceUsage.cpuLoadAvg1m}
+                            max={metrics.resourceUsage.cpuCount || 4}
+                            label="CPU Load (1m)"
+                            barClassName="bg-primary"
+                        />
+                        <GaugeBar
+                            value={metrics.resourceUsage.systemMemoryUsedPercent}
+                            max={100}
+                            label="Systemspeicher"
+                            barClassName="bg-success"
+                        />
+                        <GaugeBar
+                            value={metrics.resourceUsage.nodeHeapUsedMB}
+                            max={1024}
+                            label={`Node Heap (${metrics.resourceUsage.nodeHeapUsedMB} MB)`}
+                            barClassName="bg-tertiary"
+                        />
+                    </CardContent>
+                </Card>
+            </Grid>
 
             {/* Historical Charts */}
-            <div style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                        Historische Daten
-                    </h3>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        {(['1h', '24h', '7d', '30d'] as const).map(range => (
-                            <button
-                                key={range}
-                                onClick={() => {
-                                    if (range === dateRange) return;
-                                    // Show the refresh spinner while the
-                                    // range-change effect refetches.
-                                    setLoading(true);
-                                    setDateRange(range);
-                                }}
-                                style={{
-                                    padding: '0.4rem 0.8rem',
-                                    background: dateRange === range ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-                                    color: dateRange === range ? 'white' : 'var(--text-primary)',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.85rem'
-                                }}
-                            >
-                                {range}
-                            </button>
-                        ))}
-                    </div>
+            <Stack gap="md">
+                <div className="flex items-center justify-between gap-2">
+                    <SectionHeading>Historische Daten</SectionHeading>
+                    {/* Replaces four raw <button>s that already looked like a
+                      * segmented control. `SegmentedControl` is the DS control
+                      * for exactly this, and its docstring names the
+                      * chart-range switch as the case. It renders its own raw
+                      * buttons INSIDE the design system, where the
+                      * raw-elements rule does not apply. */}
+                    <SegmentedControl
+                        aria-label="Zeitraum"
+                        options={RANGE_OPTIONS}
+                        value={dateRange}
+                        onValueChange={(next) => {
+                            if (next === dateRange) return;
+                            // Show the refresh spinner while the
+                            // range-change effect refetches.
+                            setLoading(true);
+                            setDateRange(next as DateRange);
+                        }}
+                    />
                 </div>
 
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 500px), 1fr))',
-                    gap: '1rem'
-                }}>
+                <Grid cols={2}>
                     <ChartCard title="Aktive Benutzer">
-                        <div style={{ height: '200px' }}>
+                        <div className="h-[200px]">
                             {formatChartData(historicalData.activeUsers).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={formatChartData(historicalData.activeUsers)}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                        <XAxis dataKey="time" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
-                                        <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline-variant)" />
+                                        <XAxis dataKey="time" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
+                                        <YAxis tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
                                         <Tooltip content={<CustomTooltip />} />
                                         <Area type="monotone" dataKey="value" stroke="#165a97" fill="#165a9740" />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-                                    Keine Daten vorhanden
-                                </div>
+                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
 
                     <ChartCard title="Speicherverbrauch">
-                        <div style={{ height: '200px' }}>
+                        <div className="h-[200px]">
                             {formatChartData(historicalData.storage).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={formatChartData(historicalData.storage).map(d => ({
                                         ...d,
                                         value: d.value / (1024 * 1024 * 1024) // Convert to GB
                                     }))}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                        <XAxis dataKey="time" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
-                                        <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} tickFormatter={(v) => `${v.toFixed(1)} GB`} />
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline-variant)" />
+                                        <XAxis dataKey="time" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
+                                        <YAxis tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} tickFormatter={(v) => `${v.toFixed(1)} GB`} />
                                         <Tooltip content={<CustomTooltip />} />
                                         <Area type="monotone" dataKey="value" stroke="#2d8f4e" fill="#2d8f4e40" />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-                                    Keine Daten vorhanden
-                                </div>
+                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
 
                     <ChartCard title="Dateien verarbeitet (pro Intervall)">
-                        <div style={{ height: '200px' }}>
+                        <div className="h-[200px]">
                             {formatChartDataDelta(historicalData.totalFiles).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={formatChartDataDelta(historicalData.totalFiles)}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                        <XAxis dataKey="time" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
-                                        <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline-variant)" />
+                                        <XAxis dataKey="time" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
+                                        <YAxis tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
                                         <Tooltip content={<CustomTooltip />} />
                                         <Bar dataKey="value" fill="#6a1b9a" radius={[4, 4, 0, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-                                    Keine Daten vorhanden
-                                </div>
+                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
 
                     <ChartCard title="Fehler in Warteschlangen">
-                        <div style={{ height: '200px' }}>
+                        <div className="h-[200px]">
                             {formatChartData(historicalData.queueFailed).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={formatChartData(historicalData.queueFailed)}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                        <XAxis dataKey="time" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
-                                        <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline-variant)" />
+                                        <XAxis dataKey="time" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
+                                        <YAxis tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} />
                                         <Tooltip content={<CustomTooltip />} />
                                         <Line type="monotone" dataKey="value" stroke="#c0392b" strokeWidth={2} dot={false} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-                                    Keine Daten vorhanden
-                                </div>
+                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
-                </div>
-            </div>
+                </Grid>
+            </Stack>
 
+            {/* SURVIVING <style> BLOCK — deliberately NOT deleted, even though
+              * nothing in this file uses `.spin` any more.
+              *
+              * `.spin` is NOT defined in src/index.css (only `@keyframes spin`
+              * and `.animate-spin` are), yet ~17 components across the app
+              * render `className="spin"`. The class exists only because three
+              * components inject it globally through a <style> element, and
+              * this is one of them. Removing it is an app-wide CSS change with
+              * a blast radius this card cannot verify, so it needs its own
+              * card together with the decision to standardise on
+              * `.animate-spin`.
+              * TODO: not verified which mounted component each of those 17
+              * call sites currently depends on. */}
             <style>{`
                 .spin {
                     animation: spin 1s linear infinite;
@@ -840,6 +851,6 @@ export default function SystemHealthDashboard() {
                     to { transform: rotate(360deg); }
                 }
             `}</style>
-        </div>
+        </DashboardLayout>
     );
 }

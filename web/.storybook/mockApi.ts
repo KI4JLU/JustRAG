@@ -46,18 +46,71 @@ export interface MockLoginRejection {
   body: { error?: string };
 }
 
+/* ---------------------------------------------------------------------------
+ * DASHBOARDS (card KI-714, Stage 4b)
+ *
+ * The three dashboards are the same case as Login, one level up: each derives
+ * its whole rendered state from GET responses and takes no props that describe
+ * it (Dashboard takes only `kbId`/`kbName`; the two admin dashboards take no
+ * props at all). So the stories set responses, never internals.
+ *
+ * `*Pending` is what makes a LOADING story real rather than a screenshot of
+ * one: the handler returns a promise that never settles, so the component sits
+ * in exactly the state a slow backend puts it in — its own `loading` state,
+ * reached through its own effect. `beforeEach`'s teardown restores the adapter
+ * when the story is switched, so a hanging request cannot leak into the next.
+ * The types below are structural mirrors of the components' own response
+ * interfaces; they are deliberately NOT imported from the components, so a
+ * fixture cannot silently follow a change in the code under test.
+ * ------------------------------------------------------------------------- */
+
+/** A promise that never settles — the loading state, held open. */
+const never = () => new Promise<never>(() => {});
+
 export interface ApiMockParameters {
   authProviders?: MockAuthConfig;
   loginRejection?: MockLoginRejection;
+  /** GET /api/kb/{id}/analytics */
+  kbAnalytics?: unknown;
+  /** GET /api/kb/{id}/analytics/retrieval-quality */
+  kbRetrievalQuality?: unknown;
+  /** GET /api/admin/kb-overview */
+  kbOverview?: unknown;
+  /** GET /api/system-health/live */
+  systemHealthLive?: unknown;
+  /** GET /api/system-health/history (one shape answers all four metrics) */
+  systemHealthHistory?: unknown;
+  /** POST /api/system-health/ai-check */
+  aiCheck?: unknown;
+  /** Endpoints whose request must hang, so the story shows the loading state. */
+  pending?: Array<
+    | 'kbAnalytics'
+    | 'kbRetrievalQuality'
+    | 'kbOverview'
+    | 'systemHealthLive'
+    | 'systemHealthHistory'
+  >;
 }
+
+/**
+ * Tail-anchored URL patterns. API_BASE_URL is the Storybook origin at runtime
+ * (.storybook/env.ts), so the URL axios is handed is absolute; the query
+ * string is matched by axios-mock-adapter separately from the path, which is
+ * why `analytics` needs the `(\?|$)` tail — `Dashboard` always appends `?…`.
+ */
+const URLS = {
+  kbAnalytics: /\/api\/kb\/[^/]+\/analytics(\?|$)/,
+  kbRetrievalQuality: /\/api\/kb\/[^/]+\/analytics\/retrieval-quality(\?|$)/,
+  kbOverview: /\/api\/admin\/kb-overview$/,
+  systemHealthLive: /\/api\/system-health\/live$/,
+  systemHealthHistory: /\/api\/system-health\/history$/,
+} as const;
 
 /** Installs the handlers and returns the teardown. */
 export function installApiMock(params: ApiMockParameters): () => void {
   const mock = new MockAdapter(axios, { onNoMatch: 'passthrough' });
 
   if (params.authProviders) {
-    // Tail-anchored: API_BASE_URL is the Storybook origin at runtime
-    // (.storybook/env.ts), so the URL axios is handed is absolute.
     mock.onGet(/\/api\/auth\/providers$/).reply(200, params.authProviders);
   }
 
@@ -65,6 +118,34 @@ export function installApiMock(params: ApiMockParameters): () => void {
     mock
       .onPost(/\/api\/auth\/login$/)
       .reply(params.loginRejection.status, params.loginRejection.body);
+  }
+
+  const pending = new Set(params.pending ?? []);
+
+  // retrieval-quality FIRST: axios-mock-adapter matches handlers in
+  // registration order, and `/analytics(\?|$)` would otherwise swallow
+  // `/analytics/retrieval-quality?…` before the more specific pattern is
+  // reached.
+  if (pending.has('kbRetrievalQuality')) {
+    mock.onGet(URLS.kbRetrievalQuality).reply(never);
+  } else if (params.kbRetrievalQuality !== undefined) {
+    mock.onGet(URLS.kbRetrievalQuality).reply(200, params.kbRetrievalQuality);
+  } else {
+    // Dashboard treats a failure here as "optional data absent" and keeps
+    // rendering, so 404 is the honest default rather than an empty object.
+    mock.onGet(URLS.kbRetrievalQuality).reply(404, { error: 'not configured' });
+  }
+
+  for (const key of ['kbAnalytics', 'kbOverview', 'systemHealthLive', 'systemHealthHistory'] as const) {
+    if (pending.has(key)) {
+      mock.onGet(URLS[key]).reply(never);
+    } else if (params[key] !== undefined) {
+      mock.onGet(URLS[key]).reply(200, params[key]);
+    }
+  }
+
+  if (params.aiCheck !== undefined) {
+    mock.onPost(/\/api\/system-health\/ai-check$/).reply(200, params.aiCheck);
   }
 
   return () => mock.restore();

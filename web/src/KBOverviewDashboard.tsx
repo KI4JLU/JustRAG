@@ -1,6 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import axios from 'axios';
-import { RefreshCw, AlertTriangle, Loader2, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe } from 'lucide-react';
+import {
+    Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
+    PopoverContent, PopoverTrigger, Spinner, Stack, cn,
+} from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
 import { useTheme } from './contexts/ThemeContext';
@@ -8,6 +12,39 @@ import { useAuth } from './contexts/AuthContext';
 import { KbDeleteDialog } from './components/admin/KbDeleteDialog';
 import { KbPublishDialog } from './components/admin/KbPublishDialog';
 import { KbTransferOwnerDialog } from './components/admin/KbTransferOwnerDialog';
+
+/* ---------------------------------------------------------------------------
+ * Shell: the design system's `DashboardLayout` template (card KI-714,
+ * Stage 4b). The template's slot API and how it compares to `AuthLayout`'s two
+ * known gaps are documented once, in Dashboard.tsx — read that first.
+ *
+ * What this file uses the slots for:
+ *   toolbar -> `ListToolbar` (search field left, column-picker right). This is
+ *              a LAYOUT CHANGE: the search field and the column picker used to
+ *              sit in the same row as the heading. `toolbar` renders ABOVE the
+ *              PageHeader, which is the template's documented place for a
+ *              list's search/filter row, so the two controls move up one row.
+ *   actions -> auto-refresh checkbox + refresh button (page actions, so they
+ *              stay on the heading row).
+ *   stats   -> the three queue-summary cards.
+ *   children-> error, loading and the table.
+ *
+ * THE TABLE IS UNTOUCHED. Stage 5 (card KI-694) migrates `<table>` to
+ * `Table`/`TableLayout`; this card is the outer page shell only, the same
+ * discipline Stage 3b used for AdminEvalTab's tables. `thStyle`, `tdStyle`,
+ * `cellStyle` and `rowStyle` therefore survive verbatim as TABLE styles, and
+ * so do the two badge `<span>`s in `renderCell` — they are table cell content,
+ * not page chrome. The three row-action `<button>`s DID become DS `Button`s:
+ * swapping a control inside a `<td>` is not migrating the table markup.
+ *
+ * The heading level changes h2 -> h1, because PageHeader renders a real `<h1>`
+ * and the level is not a prop. AdminUI.tsx already renders the admin page's
+ * `<h1>`, so this page now has two. Reported as an open question — the fix is
+ * either a heading-level prop in the DS or a change in AdminUI.tsx, neither of
+ * which belongs in this card.
+ * TODO: no visual confirmation in this pass; the stories exist for the
+ * developer's both-theme pass.
+ * ------------------------------------------------------------------------- */
 
 interface QueueStats {
     waiting: number;
@@ -133,20 +170,11 @@ export default function KBOverviewDashboard() {
         chatCount: false,
         createdAt: false,
     });
-    const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
-    const columnsMenuRef = useRef<HTMLDivElement | null>(null);
-
-    // Close the column-toggle popover on outside click.
-    useEffect(() => {
-        if (!columnsMenuOpen) return;
-        const onClick = (e: MouseEvent) => {
-            if (columnsMenuRef.current && !columnsMenuRef.current.contains(e.target as Node)) {
-                setColumnsMenuOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', onClick);
-        return () => document.removeEventListener('mousedown', onClick);
-    }, [columnsMenuOpen]);
+    // The DS Checkbox is a Radix <button role="checkbox">, which IS a labelable
+    // element per HTML 4.10.4, so `Label htmlFor` + `Checkbox id` is a real
+    // label/control pair. React generates the ids so no two mounts collide.
+    const autoRefreshId = useId();
+    const columnIdPrefix = useId();
 
     const fetchData = useCallback(async () => {
         setRefreshing(true);
@@ -286,6 +314,9 @@ export default function KBOverviewDashboard() {
     const columns = ALL_COLUMNS.filter((c) => !c.optional || optionalVisible[c.key]);
     const optionalColumns = ALL_COLUMNS.filter((c) => c.optional);
 
+    /* SURVIVING INLINE STYLES — all four objects below style the `<table>`,
+     * which Stage 5 (KI-694) owns. Migrating them here would be migrating the
+     * table markup this card is explicitly told to leave alone. */
     const thStyle: React.CSSProperties = {
         textAlign: 'left', padding: '0.6rem 0.75rem', cursor: 'pointer',
         color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap',
@@ -295,11 +326,6 @@ export default function KBOverviewDashboard() {
         padding: '0.6rem 0.75rem', color: 'var(--text-primary)',
         borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap',
     };
-    const cardStyle: React.CSSProperties = {
-        background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-        borderRadius: 'var(--shape-lg)', padding: '1rem 1.25rem', minWidth: '160px',
-    };
-    const queueStat: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '0.3rem' };
 
     const renderCell = (row: KBRow, key: SortKey): React.ReactNode => {
         switch (key) {
@@ -340,101 +366,128 @@ export default function KBOverviewDashboard() {
     };
 
     return (
-        <section className="admin-content" style={{ color: 'var(--text-primary)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h2 style={{ margin: 0 }}>{t('adminTabKbOverview')}</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder={t('kbSearchPlaceholder')}
-                        aria-label={t('kbSearchPlaceholder')}
-                        style={{
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                            color: 'var(--text-primary)', padding: '0.45rem 0.75rem', borderRadius: 'var(--shape-md)',
-                            fontSize: '0.9rem', minWidth: '180px',
-                        }}
-                    />
-                    <div ref={columnsMenuRef} style={{ position: 'relative' }}>
-                        <button
-                            type="button"
-                            onClick={() => setColumnsMenuOpen((v) => !v)}
-                            aria-haspopup="true"
-                            aria-expanded={columnsMenuOpen}
-                            aria-label={t('columnsToggle')}
-                            style={{
-                                background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                                color: 'var(--text-primary)', padding: '0.45rem 0.75rem', borderRadius: 'var(--shape-md)',
-                                display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', fontSize: '0.9rem',
-                            }}
-                        >
-                            {t('columnsToggle')} <ChevronDown size={15} />
-                        </button>
-                        {columnsMenuOpen && (
-                            <div
-                                role="menu"
-                                style={{
-                                    position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 10,
-                                    background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                                    borderRadius: 'var(--shape-md)', boxShadow: 'var(--shadow-md)', padding: '0.5rem',
-                                    minWidth: '180px', display: 'flex', flexDirection: 'column', gap: '0.25rem',
-                                }}
-                            >
-                                {optionalColumns.map((c) => (
-                                    <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.4rem', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={!!optionalVisible[c.key]}
-                                            onChange={(e) => setOptionalVisible((prev) => ({ ...prev, [c.key]: e.target.checked }))}
-                                        />
-                                        {c.label}
-                                    </label>
-                                ))}
-                            </div>
-                        )}
+        <DashboardLayout
+            /* See Dashboard.tsx for why: index.css reverts h1-h6 and p margins
+             * to the UA values in `@layer base`, and PageHeader's own h1/p
+             * carry no margin utility. */
+            className="[&>header_h1]:m-0 [&>header_p]:m-0"
+            title={t('adminTabKbOverview')}
+            toolbar={
+                <ListToolbar
+                    search={
+                        <Input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder={t('kbSearchPlaceholder')}
+                            aria-label={t('kbSearchPlaceholder')}
+                            leadingIcon={<Search size={16} />}
+                        />
+                    }
+                    filters={
+                        /* Replaces a hand-built popover: a raw <button>
+                         * trigger, an absolutely positioned `role="menu"` div
+                         * and a `document.mousedown` listener in a useEffect to
+                         * close it. The DS Popover (Radix) owns the open state,
+                         * `aria-expanded`, the outside-click dismissal, Escape
+                         * and focus return — so the `columnsMenuOpen` state and
+                         * the `columnsMenuRef` effect are both gone.
+                         *
+                         * `FilterMenu` would have been the DS's toolbar
+                         * dropdown, but it is strictly SINGLE-select
+                         * (`value`/`defaultValue`/`onChange`) and this is a
+                         * multi-select column picker, so Popover + Checkbox is
+                         * the sanctioned composition instead. */
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" aria-label={t('columnsToggle')}>
+                                    {t('columnsToggle')} <ChevronDown size={15} aria-hidden="true" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-auto min-w-[180px] p-2">
+                                <Stack gap="sm">
+                                    {optionalColumns.map((c) => (
+                                        <div key={c.key} className="flex items-center gap-2">
+                                            <Checkbox
+                                                id={`${columnIdPrefix}-${c.key}`}
+                                                checked={!!optionalVisible[c.key]}
+                                                onCheckedChange={(next) => setOptionalVisible((prev) => ({ ...prev, [c.key]: next === true }))}
+                                            />
+                                            <Label htmlFor={`${columnIdPrefix}-${c.key}`} className="cursor-pointer">
+                                                {c.label}
+                                            </Label>
+                                        </div>
+                                    ))}
+                                </Stack>
+                            </PopoverContent>
+                        </Popover>
+                    }
+                />
+            }
+            actions={
+                <>
+                    <div className="flex items-center gap-2">
+                        {/* Checkbox, not Switch: this replaces a native
+                          * checkbox one-for-one, and turning it into a Switch
+                          * would be a semantic and visual change this card has
+                          * no mandate for. Flagged as an open question — the
+                          * value DOES apply immediately, which is the case
+                          * Switch exists for. */}
+                        <Checkbox
+                            id={autoRefreshId}
+                            checked={autoRefresh}
+                            onCheckedChange={(next) => setAutoRefresh(next === true)}
+                        />
+                        <Label htmlFor={autoRefreshId} className="cursor-pointer">
+                            {t('kbAutoRefresh')}
+                        </Label>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)' }}>
-                        <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
-                        {t('kbAutoRefresh')}
-                    </label>
-                    <button
-                        onClick={fetchData}
-                        disabled={refreshing}
-                        className="search-button"
-                        style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: refreshing ? 'default' : 'pointer' }}
-                    >
-                        {refreshing ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />} {t('refresh')}
-                    </button>
-                </div>
-            </div>
-
-            {/* Global queue summary */}
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-                {QUEUE_NAMES.map((q) => {
-                    const s = data?.queueSummary?.[q] ?? { waiting: 0, active: 0, failed: 0 };
-                    return (
-                        <div key={q} style={cardStyle}>
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.4rem' }}>{q}</div>
-                            <div style={{ display: 'flex', gap: '1rem' }}>
-                                <span title={t('queueWaiting')} style={queueStat}><Hourglass size={14} aria-hidden="true" /> {s.waiting}</span>
-                                <span title={t('queueActive')} style={queueStat}><Play size={14} aria-hidden="true" /> {s.active}</span>
-                                <span title={t('queueFailed')} style={{ ...queueStat, color: s.failed > 0 ? 'var(--error-text)' : undefined }}><XCircle size={14} aria-hidden="true" /> {s.failed}</span>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-
+                    <Button onClick={fetchData} disabled={refreshing}>
+                        {refreshing
+                            ? <Spinner size="sm" label={t('loading')} />
+                            : <RefreshCw size={16} aria-hidden="true" />}
+                        {t('refresh')}
+                    </Button>
+                </>
+            }
+            stats={
+                <>
+                    {QUEUE_NAMES.map((q) => {
+                        const s = data?.queueSummary?.[q] ?? { waiting: 0, active: 0, failed: 0 };
+                        return (
+                            <Card key={q} className="p-4">
+                                <div className="mb-1 text-sm text-on-surface-variant">{q}</div>
+                                <div className="flex gap-4">
+                                    <span title={t('queueWaiting')} className="inline-flex items-center gap-1">
+                                        <Hourglass size={14} aria-hidden="true" /> {s.waiting}
+                                    </span>
+                                    <span title={t('queueActive')} className="inline-flex items-center gap-1">
+                                        <Play size={14} aria-hidden="true" /> {s.active}
+                                    </span>
+                                    <span
+                                        title={t('queueFailed')}
+                                        className={cn('inline-flex items-center gap-1', s.failed > 0 && 'text-error')}
+                                    >
+                                        <XCircle size={14} aria-hidden="true" /> {s.failed}
+                                    </span>
+                                </div>
+                            </Card>
+                        );
+                    })}
+                </>
+            }
+        >
             {error && (
-                <div style={{ color: 'var(--error-text)', marginBottom: '1rem' }}>{error}</div>
+                <div className="text-error">{error}</div>
             )}
             {loading && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
-                    <Loader2 size={16} className="spin" /> {t('loading')}
+                <div className="flex items-center gap-2 text-on-surface-variant">
+                    <Spinner size="sm" label={t('loading')} />
+                    <span aria-hidden="true">{t('loading')}</span>
                 </div>
             )}
 
+            {/* ===== Stage 5 (KI-694) territory below: table markup untouched ===== */}
             {!loading && data && (
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
@@ -504,37 +557,40 @@ export default function KBOverviewDashboard() {
                                                     Publish accepts (it answers 409 otherwise). The reverse
                                                     direction lives in the global-KB admin tab. */}
                                                 {canPublish && !row.isGlobal && (
-                                                    <button
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
                                                         type="button"
                                                         aria-label={t('kbActionPublish')}
                                                         title={t('kbActionPublish')}
                                                         onClick={() => { setActionError(null); setPublishTarget(row); }}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}
                                                     >
                                                         <Globe size={16} aria-hidden="true" />
-                                                    </button>
+                                                    </Button>
                                                 )}
                                                 {canManage && !row.isGlobal && (
-                                                    <button
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
                                                         type="button"
                                                         aria-label={t('kbActionTransfer')}
                                                         title={t('kbActionTransfer')}
                                                         onClick={() => { setActionError(null); setTransferTarget(row); }}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}
                                                     >
                                                         <UserCog size={16} aria-hidden="true" />
-                                                    </button>
+                                                    </Button>
                                                 )}
                                                 {canManage && (
-                                                    <button
+                                                    <Button
+                                                        variant="ghost-destructive"
+                                                        size="icon"
                                                         type="button"
                                                         aria-label={t('kbActionDelete')}
                                                         title={t('kbActionDelete')}
                                                         onClick={() => { setActionError(null); setDeleteTarget(row); }}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error-text)', padding: '0.25rem' }}
                                                     >
                                                         <Trash2 size={16} aria-hidden="true" />
-                                                    </button>
+                                                    </Button>
                                                 )}
                                             </td>
                                         )}
@@ -548,6 +604,7 @@ export default function KBOverviewDashboard() {
                     </table>
                 </div>
             )}
+            {/* ===== end Stage 5 territory ===== */}
 
             {deleteTarget && (
                 <KbDeleteDialog
@@ -582,6 +639,6 @@ export default function KBOverviewDashboard() {
                     onConfirm={confirmTransfer}
                 />
             )}
-        </section>
+        </DashboardLayout>
     );
 }

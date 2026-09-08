@@ -40,19 +40,49 @@ vi.mock('framer-motion', async () => {
   // "element could not be found in the document" in Login.test.tsx.
   const componentsByTag = new Map<string | symbol, unknown>();
 
+  /** Strips the animation-only props so they never reach a DOM node. */
+  const stripMotionProps = (props: Record<string, unknown>) =>
+    Object.fromEntries(Object.entries(props).filter(([k]) => !MOTION_PROPS.includes(k)));
+
+  /**
+   * `createElement`, retyped to accept a `ref` in the props bag.
+   * @types/react's `Attributes` still carries only `key`, so the component
+   * overload rejects `ref` even though React 19 treats it as an ordinary prop.
+   * The tag overload accepts it, which is why only the component factory below
+   * needs this.
+   */
+  const createElementWithRef = createElement as unknown as (
+    type: unknown,
+    props: Record<string, unknown>,
+  ) => ReturnType<typeof createElement>;
+
   return {
     motion: new Proxy({}, {
       get: (_target, prop: string) => {
+        // `motion.create(Component)` is framer-motion's factory for animating
+        // a third-party component (SystemHealthDashboard.tsx animates the
+        // design system's `Card` with it, card KI-714). It is a FUNCTION, not
+        // a tag name, so the tag branch below would hand back a forwardRef
+        // object and calling it throws at module load. Under test the
+        // animation is a no-op, so the factory returns the wrapped component
+        // with the motion props removed — same contract as the tag branch.
+        if (prop === 'create') {
+          return (Component: unknown) => {
+            const Animated = forwardRef((props: Record<string, unknown>, ref: unknown) =>
+              createElementWithRef(Component, { ...stripMotionProps(props), ref }),
+            );
+            Animated.displayName = 'motion.create()';
+            return Animated;
+          };
+        }
+
         const cached = componentsByTag.get(prop);
         if (cached) return cached;
 
         // A forwardRef component that renders the plain HTML element.
-        const Component = forwardRef((props: Record<string, unknown>, ref: unknown) => {
-          const rest = Object.fromEntries(
-            Object.entries(props).filter(([k]) => !MOTION_PROPS.includes(k))
-          );
-          return createElement(prop, { ...rest, ref });
-        });
+        const Component = forwardRef((props: Record<string, unknown>, ref: unknown) =>
+          createElement(prop, { ...stripMotionProps(props), ref }),
+        );
         Component.displayName = `motion.${String(prop)}`;
         componentsByTag.set(prop, Component);
         return Component;
