@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { BookOpen, Sparkles, KeyRound } from 'lucide-react';
+import { Sparkles, KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { AuthLayout, Button, Spinner, Stack } from '@ki4jlu/design-system';
+import { AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
 
 import { useTheme } from './contexts/ThemeContext';
@@ -193,7 +193,18 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
                         className="h-[180px] max-w-full object-contain"
                     />
                 ) : (
-                    <BookOpen size={100} className="text-primary" />
+                    /* The default is the design system's own wordmark, not a
+                     * generic lucide icon: `Logo` renders „JLU [RAG]" as real
+                     * text on the brand tokens, so it is readable content and
+                     * scales with the type system. `size="lg"` matches the
+                     * only other consumer of this slot (CampusAgents'
+                     * LoginPage) rather than being chosen here.
+                     *
+                     * The `logo_path` branch above is untouched on purpose: an
+                     * operator-uploaded logo still wins (card KI-719). A
+                     * deployment that has one set therefore shows no change
+                     * until the upload is cleared in AdminUI. */
+                    <Logo product="RAG" size="lg" />
                 )}
                 /* CardTitle renders a <div>, so the page's only <h1> has to
                  * come from the call site or be lost outright. `m-0` and
@@ -306,7 +317,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
                         /* `asChild` is the DS's documented way to style a link
                          * as a button — the href, and with it the OIDC flow,
                          * is untouched. */
-                        <Button asChild variant="outline" className="w-full">
+                        <Button asChild variant="default" className="w-full">
                             <a href={`${API_BASE_URL}/api/auth/oidc/login`}>
                                 <KeyRound size={18} /> {oidcProvider.name || t('loginWithSso')}
                             </a>
