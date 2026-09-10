@@ -32,7 +32,29 @@ const withAppShell: Decorator = (Story, context) => {
     <ThemeProvider key={theme}>
       {/* LegalPage calls useToast() for its load-failure path; Login renders
         * LegalPage, so the provider belongs around every story rather than
-        * around one of them. */}
+        * around one of them.
+        *
+        * KNOWN FIDELITY GAP, and the reason it is kept global rather than
+        * narrowed (card KI-740): a provider mounted for EVERY story cannot
+        * tell you whether the app mounts it on every ROUTE. It did not —
+        * `ToastProvider` sat in AuthenticatedApp, so the legal pages threw
+        * `useToast must be used within ToastProvider` before login while all
+        * six `Pages/LegalPage` stories rendered perfectly. Storybook showed a
+        * working page; the developer found the crash in the real app.
+        *
+        * KI-740 moved the provider and its container to App.tsx's root, so
+        * this decorator now MIRRORS production instead of over-supplying it —
+        * which is why it was not narrowed: a per-story provider would be less
+        * faithful than the app, not more. What does not change is the
+        * structural limit: a story renders a component under whatever this
+        * file supplies, so no story can ever catch a provider that production
+        * mounts on only some routes. That guard is a route-level test —
+        * `src/App.unauthenticated.test.tsx`, which renders the real App and
+        * the real provider tree — and any new globally provided context here
+        * needs the same kind of test rather than the assurance of a green
+        * story. The container is deliberately NOT added: it would make
+        * toasts appear in unrelated stories' screenshots.
+        */}
       <ToastProvider>
         <Story />
       </ToastProvider>

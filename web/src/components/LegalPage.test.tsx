@@ -1,7 +1,10 @@
+import type { ComponentProps } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LegalPage } from './LegalPage';
+import { ToastProvider } from '../contexts/ToastContext';
+import { ToastContainer } from './ToastContainer';
 import { translations } from '../translations';
 
 /* ---------------------------------------------------------------------------
@@ -25,11 +28,25 @@ import { translations } from '../translations';
  * translations.ts, and a census of the PRE-migration source read out of git
  * at the card's claim base
  * (`git show 272a27d:web/src/components/LegalPage.tsx`).
+ *
+ * ToastContext is NOT mocked any more (card KI-740). It used to be replaced
+ * wholesale — `vi.mock('../contexts/ToastContext', …)` — which meant the real
+ * `useToast()` never ran here, and with it neither did its missing-provider
+ * check. All six tests below passed while the page threw
+ * `useToast must be used within ToastProvider` in the real app on every
+ * unauthenticated visit, because production mounted `ToastProvider` on the
+ * authenticated half of the tree only. The mock was not a shortcut, it was
+ * the blind spot: every render below now goes through the REAL provider, the
+ * REAL hook and the REAL container, so the wiring is part of what is asserted
+ * rather than part of what is assumed. See `src/App.unauthenticated.test.tsx`
+ * for the route-level guard.
  * ------------------------------------------------------------------------- */
 
-// Both mocks hand back ONE stable object: `t` and `toast` sit in the
+// ThemeContext stays mocked, and hands back ONE stable object: `t` sits in the
 // component's useEffect dependency list, so a fresh object per render would
-// re-run the document fetch forever.
+// re-run the document fetch forever. (The real ToastProvider is safe in that
+// respect — its `toast` API is a `useMemo` over `useCallback`s with no
+// dependencies, so it is referentially stable across renders.)
 const themeMock = {
   language: 'en' as const,
   t: (key: string) => {
@@ -37,9 +54,22 @@ const themeMock = {
     return entry ? entry.en : key;
   },
 };
-const toastMock = { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() };
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
-vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
+
+/**
+ * The page under its real toast wiring — the provider plus the one container
+ * that renders the queue — mirroring how App.tsx mounts both at the root.
+ * Nothing here is a stand-in: a toast raised by the page is observable as
+ * rendered text, which is what the failed-fetch test asserts.
+ */
+function renderLegalPage(props: ComponentProps<typeof LegalPage>) {
+  return render(
+    <ToastProvider>
+      <LegalPage {...props} />
+      <ToastContainer />
+    </ToastProvider>,
+  );
+}
 
 /** Resolves the document fetch with `html`; never touches the network. */
 function stubFetch(html: string) {
@@ -57,6 +87,19 @@ function stubPendingFetch() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // jsdom ships no matchMedia. The real ToastContainer's items call
+  // useReducedMotion, which reads it, so rendering an actual toast needs it
+  // stubbed (same pattern as HomeView.test.tsx / KbSettingsPanel.test.tsx).
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
 });
 
 describe('LegalPage — page structure', () => {
@@ -66,7 +109,7 @@ describe('LegalPage — page structure', () => {
     // (line 84 of `git show 272a27d:web/src/components/LegalPage.tsx`).
     // Both are artifacts independent of this component.
     stubFetch('<p>Body</p>');
-    const { container } = render(<LegalPage page="privacy" onBack={vi.fn()} />);
+    const { container } = renderLegalPage({ page: 'privacy', onBack: vi.fn() });
 
     const heading = await screen.findByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent(translations.privacyPolicyTitle.en);
@@ -78,7 +121,7 @@ describe('LegalPage — page structure', () => {
     // documents per page exist as `<page>-<lang>.html`, so the path is
     // determined by the asset tree rather than by this component.
     const fetchMock = stubFetch('<p>Body</p>');
-    render(<LegalPage page="accessibility" onBack={vi.fn()} />);
+    renderLegalPage({ page: 'accessibility', onBack: vi.fn() });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/legal/accessibility-en.html'));
   });
@@ -90,7 +133,7 @@ describe('LegalPage — page structure', () => {
     // — the census of the pre-migration file counts exactly one.
     stubFetch('<p>Body</p>');
     const onBack = vi.fn();
-    const { container } = render(<LegalPage page="terms" onBack={onBack} />);
+    const { container } = renderLegalPage({ page: 'terms', onBack });
 
     const back = await screen.findByRole('button', { name: new RegExp(translations.backToHome.en) });
     expect(back.tagName.toLowerCase()).toBe('button');
@@ -106,7 +149,7 @@ describe('LegalPage — page structure', () => {
     // way of exposing. The DS Spinner supplies it; this pins that the loading
     // branch actually renders one.
     stubPendingFetch();
-    render(<LegalPage page="terms" onBack={vi.fn()} />);
+    renderLegalPage({ page: 'terms', onBack: vi.fn() });
 
     expect(await screen.findByRole('status')).toBeInTheDocument();
   });
@@ -126,7 +169,7 @@ describe('LegalPage — injected HTML', () => {
       + '<img src="x" onerror="globalThis.__legalPageXss = true">'
       + '<a href="javascript:globalThis.__legalPageXss = true">link</a>',
     );
-    const { container } = render(<LegalPage page="terms" onBack={vi.fn()} />);
+    const { container } = renderLegalPage({ page: 'terms', onBack: vi.fn() });
 
     expect(await screen.findByText('Visible paragraph')).toBeInTheDocument();
     expect(container.querySelector('script')).toBeNull();
@@ -138,10 +181,41 @@ describe('LegalPage — injected HTML', () => {
   it('reports a failed fetch through the toast API instead of an empty page', async () => {
     // ORACLE: ToastContext's published `ToastApi.error(message)` signature
     // (src/contexts/ToastContext.tsx) and translations.ts for the message.
-    // Neither is derived from this component.
+    // Neither is derived from this component. The signature is now exercised
+    // rather than asserted against a spy: the real provider stores what
+    // `error(message)` was called with and the real ToastContainer renders it
+    // verbatim, so the translated string showing up in the notification
+    // region is the same claim the old `toHaveBeenCalledWith` made — plus the
+    // proof that provider and container are actually wired to each other.
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
-    render(<LegalPage page="terms" onBack={vi.fn()} />);
+    renderLegalPage({ page: 'terms', onBack: vi.fn() });
 
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(translations.pageLoadError.en));
+    // ORACLE for the region: WAI-ARIA — `aria-label` is the container's
+    // accessible name (ToastContainer sets "Notifications"), so the toast is
+    // located the way an assistive technology would, not by CSS class.
+    const message = await screen.findByText(translations.pageLoadError.en);
+    expect(screen.getByLabelText('Notifications')).toContainElement(message);
+  });
+
+  it('throws instead of swallowing the failure when no ToastProvider is mounted', () => {
+    /* ORACLE: the error message published by ToastContext's own `useToast`
+     * (src/contexts/ToastContext.tsx) — a module other than this component.
+     *
+     * This pins the decision recorded on card KI-740: the throw is CORRECT
+     * and must not be traded for a no-op hook. A `useToast` that returned
+     * silent no-ops without a provider would stop this page from crashing and
+     * start swallowing `toast.error(t('pageLoadError'))` above, so a legal
+     * document that fails to load would show an empty page and say nothing.
+     * The mounting is the thing that was wrong, and App.tsx is where it was
+     * fixed; this test fails loudly if someone "fixes" it here instead.
+     */
+    stubFetch('<p>Body</p>');
+    // React logs the render error through console.error before rethrowing.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => render(<LegalPage page="terms" onBack={vi.fn()} />))
+      .toThrow('useToast must be used within ToastProvider');
+
+    consoleError.mockRestore();
   });
 });

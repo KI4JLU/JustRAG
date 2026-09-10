@@ -6,8 +6,10 @@ import { API_BASE_URL } from './api';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { viewportHeight } from './utils/viewport';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastContainer } from './components/ToastContainer';
 import { ReloadPrompt } from './components/ReloadPrompt';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { captureJoinToken } from './hooks/useJoinLink';
@@ -153,26 +155,69 @@ function App() {
       <ThemeProvider>
         <ReloadPrompt />
         <MobileProvider>
-          <Suspense fallback={<LoadingFallback />}>
-            {(!token || !user) ? (
-              <Login
-                onLogin={handleLogin}
-                siteConfigs={siteConfigs}
-              />
-            ) : (
-              <AuthProvider
-                user={user}
-                token={token}
-                siteConfigs={siteConfigs}
-                logout={handleLogout}
-                updateUser={handleUpdateUser}
-              >
-                <ErrorBoundary>
-                  <AuthenticatedApp />
-                </ErrorBoundary>
-              </AuthProvider>
-            )}
-          </Suspense>
+          {/* -----------------------------------------------------------------
+            * The app's ONE toast provider and ONE toast container (card
+            * KI-740). Both used to sit in AuthenticatedApp, i.e. on the
+            * authenticated half of the tree only — so `LegalPage`, which
+            * calls `useToast()` unconditionally and which `Login` renders on
+            * the unauthenticated route, threw `useToast must be used within
+            * ToastProvider`. The terms, privacy and accessibility documents
+            * are exactly the pages people open BEFORE signing in.
+            *
+            * There must stay exactly one of each in the tree. A second,
+            * nested `ToastProvider` would give the authenticated subtree its
+            * own store while a container mounted against the outer one
+            * renders a permanently empty stack — toasts would appear on some
+            * routes and vanish on others. Adding the provider here therefore
+            * means REMOVING it from AuthenticatedApp, never duplicating it.
+            *
+            * Deliberately OUTSIDE `<Suspense>`, not inside it. `Login` and
+            * `AuthenticatedApp` are both `lazy`, so every route switch makes
+            * this boundary suspend, and React MAY discard a suspended
+            * subtree's state — whether it does is a React implementation
+            * detail, not a documented guarantee in either direction. Probed
+            * on React 19 for card KI-740, a `useReducer` provider inside the
+            * boundary KEPT its state across the lazy-sibling swap; that is a
+            * measurement of this version's behaviour, not a promise about
+            * the next one, and it is not what the placement rests on.
+            * Outside the boundary the question does not arise at all: the
+            * provider's lifetime is the app's, so no pending toast can
+            * depend on how React treats suspended subtrees.
+            * TODO: whether a suspended subtree keeps provider state is not
+            * confirmed as stable across React versions — moving the provider
+            * inside this boundary would make the toast queue's survival
+            * depend on it, so don't.
+            *
+            * The container is outside for a reason that IS established: it
+            * has to survive the very route switch that raised the toast,
+            * which it cannot do from inside the subtree being swapped. It is
+            * `pointer-events: none` and renders an empty <div> when there is
+            * nothing to show (Toast.css), so mounting it on the login screen
+            * costs nothing.
+            * --------------------------------------------------------------- */}
+          <ToastProvider>
+            <Suspense fallback={<LoadingFallback />}>
+              {(!token || !user) ? (
+                <Login
+                  onLogin={handleLogin}
+                  siteConfigs={siteConfigs}
+                />
+              ) : (
+                <AuthProvider
+                  user={user}
+                  token={token}
+                  siteConfigs={siteConfigs}
+                  logout={handleLogout}
+                  updateUser={handleUpdateUser}
+                >
+                  <ErrorBoundary>
+                    <AuthenticatedApp />
+                  </ErrorBoundary>
+                </AuthProvider>
+              )}
+            </Suspense>
+            <ToastContainer />
+          </ToastProvider>
         </MobileProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -18,6 +18,21 @@ import { LegalPage } from './LegalPage';
  * Language follows the app's own state (seeded to `de` in
  * .storybook/preview.tsx); the DE/EN control lives on Login, so switch it
  * there, or change localStorage['language'] and reload the story.
+ *
+ * FIDELITY GAP — do not use these stories to judge whether the legal pages
+ * work (card KI-740). This page calls `useToast()`, and .storybook/preview.tsx
+ * wraps every story in a `ToastProvider`. Production did not: the provider was
+ * mounted in AuthenticatedApp, i.e. on the authenticated half of the tree
+ * only, so the three legal documents threw
+ * `useToast must be used within ToastProvider` for every visitor who opened
+ * them BEFORE login — the main path for reading them — while all six stories
+ * below rendered correctly. The advice "open Pages/LegalPage in Storybook to
+ * check it" was therefore actively misleading, and no story can be made to
+ * catch this class of bug: a story renders this component under the preview's
+ * decorators, never under the app's routes. `src/App.unauthenticated.test.tsx`
+ * is the guard that can — it renders the real App and clicks through the login
+ * footer. These stories answer a different question: how the DOCUMENTS look at
+ * the template's measure, in both themes.
  * ------------------------------------------------------------------------- */
 
 const meta = {

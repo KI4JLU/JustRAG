@@ -375,7 +375,8 @@ export const GoldenSetNotSelected: Story = {
          * string is this file's own; the clearing is the component's. (The
          * usual signal, the success toast, is unavailable here: preview.tsx
          * supplies `ToastProvider`, which only holds state — the container that
-         * renders toasts lives in AuthenticatedApp and is not in a story.) */
+         * renders toasts lives in App.tsx (it moved out of AuthenticatedApp in
+         * card KI-740) and is not in a story.) */
         await expect(labelField).toHaveValue('baseline-lauf');
 
         /* And the message is DERIVED, not stored: picking a set clears it with

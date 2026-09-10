@@ -7,8 +7,7 @@ import { API_BASE_URL } from './api';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
-import { ToastProvider, useToast } from './contexts/ToastContext';
-import { ToastContainer } from './components/ToastContainer';
+import { useToast } from './contexts/ToastContext';
 import { KbCoreProvider, type KbCoreContextValue } from './contexts/KbCoreContext';
 import { KbChatProvider, type KbChatContextValue } from './contexts/KbChatContext';
 import { KbDataProvider, type KbDataContextValue } from './contexts/KbDataContext';
@@ -87,12 +86,29 @@ function OnboardingHelpButton({ onClick }: { onClick: () => void }) {
 }
 
 export default function AuthenticatedApp() {
+  /* `ToastProvider` and `ToastContainer` used to be here, inside
+   * `ModalProvider`. They moved up to App.tsx's root (card KI-740) because
+   * this component is only the AUTHENTICATED half of the tree, and
+   * `LegalPage` — rendered by `Login` on the unauthenticated route — calls
+   * `useToast()`, so the legal pages threw before login. They are NOT
+   * duplicated here: exactly one provider and one container exist in the
+   * tree, and a nested second provider would split the toast store in two.
+   *
+   * `ModalProvider` stays. It has the identical shape — mounted on the
+   * authenticated half only — but no current trigger: the app components
+   * `Login` renders are `Footer`, `FieldRow` and `LegalPage` (everything
+   * else in it comes from @ki4jlu/design-system), and none of those three,
+   * nor `ReloadPrompt`, imports `contexts/ModalContext` at all. Every
+   * `useModalContext()` call site sits inside this authenticated tree —
+   * `grep -rn "useModalContext()" src` is the check, and it is a grep and
+   * not a number here on purpose, so it cannot go stale. Moving the
+   * provider anyway would have been a second, unmotivated change in the
+   * KI-740 diff. If an unauthenticated surface ever does need a confirm
+   * dialog, it has the same latent bug and the same fix applies.
+   */
   return (
     <ModalProvider>
-      <ToastProvider>
-        <AuthenticatedAppInner />
-        <ToastContainer />
-      </ToastProvider>
+      <AuthenticatedAppInner />
     </ModalProvider>
   );
 }
