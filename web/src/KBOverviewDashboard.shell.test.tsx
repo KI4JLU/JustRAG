@@ -20,7 +20,8 @@ import KBOverviewDashboard from './KBOverviewDashboard';
  *   2. the column picker — an absolutely positioned `role="menu"` div plus a
  *      `document.mousedown` listener became a Radix Popover, so open/close and
  *      the checkbox wiring are new code paths;
- *   3. the page heading — h2 became the template's h1;
+ *   3. the page heading — h2 became the template's h1, and is an h2 again
+ *      since design-system v0.24.0 made the level a prop (card KI-743);
  *   4. the `<table>`, which this card must leave for Stage 5 (KI-694).
  *
  * Every test names its oracle. None of them is this component.
@@ -72,7 +73,7 @@ describe('KBOverviewDashboard — label and control pairing', () => {
         // WRAPPED its input in the label instead, so nothing had to resolve.
         const LABELABLE = ['button', 'input', 'meter', 'output', 'progress', 'select', 'textarea'];
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         // Open the column picker so its three labels are in the document too.
         await userEvent.click(screen.getByRole('button', { name: 'columnsToggle' }));
@@ -97,7 +98,7 @@ describe('KBOverviewDashboard — label and control pairing', () => {
         // technology can observe. Auto-refresh starts false (the component's
         // documented default is off here).
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const autoRefresh = screen.getByRole('checkbox', { name: 'kbAutoRefresh' });
         expect(autoRefresh).toHaveAttribute('aria-checked', 'false');
@@ -116,7 +117,7 @@ describe('KBOverviewDashboard — the column picker survived the Popover swap', 
         // Escape handling at all, so this is a capability the swap added and
         // the test pins.
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const trigger = screen.getByRole('button', { name: 'columnsToggle' });
         expect(trigger).toHaveAttribute('aria-expanded', 'false');
@@ -139,7 +140,7 @@ describe('KBOverviewDashboard — the column picker survived the Popover swap', 
         // one. The count is measured from the `columnheader` role, so it is
         // independent of how the header is built.
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
         expect(screen.getAllByRole('columnheader')).toHaveLength(8);
 
         await userEvent.click(screen.getByRole('button', { name: 'columnsToggle' }));
@@ -152,17 +153,23 @@ describe('KBOverviewDashboard — the column picker survived the Popover swap', 
 });
 
 describe('KBOverviewDashboard — the shell', () => {
-    it('renders the page title as the template h1, and only one of them', async () => {
-        // ORACLE: the pre-migration source rendered `<h2 style={{margin: 0}}>`
-        // (line 345 at the claim base). `DashboardLayout` routes `title`
-        // through `PageHeader`'s `<h1>` and the level is not a prop, so the
-        // level change is forced by the template. This assertion records that
-        // fact so it cannot drift unnoticed — and so the open question about
-        // AdminUI's own <h1> stays attached to something executable.
+    it('renders the page title as one h2 and no h1 of its own', async () => {
+        // ORACLE: the HTML outline, plus this page's POSITION in the app.
+        // AdminUI.tsx renders this component inside its own <h1> (line 497),
+        // so a top-level heading here is a second one on the same page.
+        // KI-714 could only record that as an open question, because
+        // `DashboardLayout` fixed the level at 1; design-system v0.24.0 made
+        // it the `headingLevel` prop and the call site passes 2 (card KI-743).
+        // The pre-migration source rendered `<h2 style={{margin: 0}}>` at line
+        // 345 of the KI-714 claim base — i.e. this restores the level the page
+        // had before the template migration, this time as a real heading
+        // wired through PageHeader. `AdminUI.headings.test.tsx` is what pins
+        // "exactly one <h1> in the admin tree"; this pins the other half, that
+        // the nested page contributes none.
         const { container } = render(<KBOverviewDashboard />);
-        await waitFor(() => expect(container.querySelectorAll('h1')).toHaveLength(1));
-        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('adminTabKbOverview');
-        expect(container.querySelectorAll('h2')).toHaveLength(0);
+        await waitFor(() => expect(container.querySelectorAll('h2')).toHaveLength(1));
+        expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('adminTabKbOverview');
+        expect(container.querySelectorAll('h1')).toHaveLength(0);
     });
 
     it('keeps the search field a labelled text input', async () => {
@@ -172,7 +179,7 @@ describe('KBOverviewDashboard — the shell', () => {
         // fails if the `aria-label` the pre-migration source carried (line
         // 352) was dropped in the move into `ListToolbar`.
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const search = screen.getByLabelText('kbSearchPlaceholder');
         expect(search.tagName.toLowerCase()).toBe('input');
@@ -193,7 +200,7 @@ describe('KBOverviewDashboard — the shell', () => {
         // checkboxes, and Radix renders its hidden native input only inside a
         // <form>, of which this page has none.
         const { container } = render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         expect(container.querySelectorAll('input')).toHaveLength(1);
         expect(container.querySelectorAll('input[type="text"]')).toHaveLength(1);
@@ -205,7 +212,7 @@ describe('KBOverviewDashboard — the shell', () => {
         // to submit with no bubble. This page has no form and must have no
         // constraint.
         const { container } = render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         expect(container.querySelectorAll('[required]')).toHaveLength(0);
         expect(container.querySelectorAll('[min], [max], [step]')).toHaveLength(0);
@@ -217,7 +224,7 @@ describe('KBOverviewDashboard — the shell', () => {
         // defect class). Checked with the popover OPEN, because that is where
         // the DS wiring is densest.
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
         await userEvent.click(screen.getByRole('button', { name: 'columnsToggle' }));
         await screen.findByRole('checkbox', { name: 'colChats' });
 
@@ -236,7 +243,7 @@ describe('KBOverviewDashboard — Stage 5 territory is untouched', () => {
         // `<tbody>` (lines 440-548 at the claim base). Card KI-694 migrates it
         // to `Table`/`TableLayout`; a premature swap changes these counts.
         const { container } = render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         expect(container.querySelectorAll('table')).toHaveLength(1);
         expect(container.querySelectorAll('thead')).toHaveLength(1);
@@ -250,7 +257,7 @@ describe('KBOverviewDashboard — Stage 5 territory is untouched', () => {
         // <td>, so the swap must be invisible from the outside. The existing
         // actions suite keys on the same names.
         render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const row = screen.getByText('Alpha KB').closest('tr')!;
         expect(within(row).getByRole('button', { name: 'kbActionPublish' })).toBeInTheDocument();

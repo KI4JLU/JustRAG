@@ -156,11 +156,13 @@ export const Populated: Story = {
 
     // ORACLE 2: the browser's own CSSOM. src/index.css deliberately reverts
     // h1-h6 margins to the USER-AGENT value inside `@layer base` (to protect
-    // markdown prose from Preflight), and PageHeader's <h1> carries token type
-    // utilities but NO margin utility — so it is exactly the element that
-    // counterweight hits. Without the `[&>header_h1]:m-0` on the call site the
-    // UA's 0.67em lands on top of the template's own `gap-1`. Nothing in this
-    // repo computes this number; Chromium does.
+    // markdown prose from Preflight), so PageHeader's heading is exactly the
+    // element that counterweight hits: without an `m-0` somewhere the UA's
+    // 0.67em lands on top of the template's own `gap-1`. Until v0.24.0 that
+    // `m-0` was a `[&>header_h1]:m-0` workaround on this call site; the
+    // component now carries it itself, and this assertion is unchanged on
+    // purpose — it is what shows the guarantee survived the move (card
+    // KI-743). Nothing in this repo computes this number; Chromium does.
     const style = getComputedStyle(heading);
     await expect(style.marginTop).toBe('0px');
     await expect(style.marginBottom).toBe('0px');

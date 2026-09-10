@@ -92,16 +92,20 @@ beforeEach(() => {
 });
 
 describe('SystemHealthDashboard — the shell', () => {
-    it('renders the page title as the template h1, and only one of them', async () => {
-        // ORACLE: the pre-migration source rendered `<h2 style={{margin: 0…}}>`
-        // (line 482 at the claim base) and five `<h3>` section headings.
-        // `DashboardLayout` routes `title` through `PageHeader`'s `<h1>` and
-        // the level is not a prop, so the level change is the TEMPLATE's, not
-        // a choice made here. Recorded so it cannot drift unnoticed.
+    it('renders the page title as one h2 and no h1 of its own', async () => {
+        // ORACLE: the HTML outline, plus this page's POSITION in the app.
+        // AdminUI.tsx renders this component under its own <h1> (line 497), so
+        // a top-level heading here would be the page's second. The template
+        // fixed the level at 1 until design-system v0.24.0 added
+        // `headingLevel`, which this call site now passes as 2 (card KI-743) —
+        // the level the pre-migration source used (`<h2 style={{margin: 0…}}>`
+        // at line 482 of the KI-714 claim base), above its five `<h3>` section
+        // headings. "Exactly one <h1> in the admin tree" is pinned in
+        // `AdminUI.headings.test.tsx`; this pins that the nested page adds none.
         const { container } = render(<SystemHealthDashboard />);
-        await waitFor(() => expect(container.querySelectorAll('h1')).toHaveLength(1));
-        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('System Health');
-        expect(container.querySelectorAll('h2')).toHaveLength(0);
+        await waitFor(() => expect(container.querySelectorAll('h2')).toHaveLength(1));
+        expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('System Health');
+        expect(container.querySelectorAll('h1')).toHaveLength(0);
     });
 
     it('pairs every rendered <label> with a labelable control', async () => {
@@ -114,7 +118,7 @@ describe('SystemHealthDashboard — the shell', () => {
         // `htmlFor` would be silent.
         const LABELABLE = ['button', 'input', 'meter', 'output', 'progress', 'select', 'textarea'];
         const { container } = render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const labels = Array.from(container.querySelectorAll<HTMLLabelElement>('label'));
         // Guard against a vacuous pass: the auto-refresh row is the one label.
@@ -132,7 +136,7 @@ describe('SystemHealthDashboard — the shell', () => {
         // overview). A Radix control's native input is visually hidden, so the
         // ARIA state is the only observable one (card KI-710).
         render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const box = screen.getByRole('checkbox', { name: 'Auto-Refresh (10s)' });
         expect(box).toHaveAttribute('aria-checked', 'true');
@@ -148,7 +152,7 @@ describe('SystemHealthDashboard — the shell', () => {
         // inside a <form>, of which this page has none. The constraint check
         // is card KI-710's rule.
         const { container } = render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         expect(container.querySelectorAll('input')).toHaveLength(0);
         expect(container.querySelectorAll('[required]')).toHaveLength(0);
@@ -159,7 +163,7 @@ describe('SystemHealthDashboard — the shell', () => {
         // ORACLE: WAI-ARIA 1.2 — a reference that resolves to nothing is
         // silently dropped by assistive technology (the KI-692 defect class).
         const { container } = render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         expect(container.querySelectorAll('button').length).toBeGreaterThan(0);
         for (const el of Array.from(container.querySelectorAll('[aria-describedby]'))) {
@@ -179,7 +183,7 @@ describe('SystemHealthDashboard — the range switch survived the SegmentedContr
         // through a background colour ONLY, with nothing in the accessibility
         // tree, so this is a capability the swap added.
         render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         const pressed = ['1h', '24h', '7d', '30d'].map(
             (label) => screen.getByRole('button', { name: label }).getAttribute('aria-pressed'),
@@ -200,7 +204,7 @@ describe('SystemHealthDashboard — the range switch survived the SegmentedContr
         // `system_health_metrics` keys the Go handler serves are
         // active_users / storage_bytes / total_files / queue_failed.
         render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
         await waitFor(() => expect(historyCalls()).toHaveLength(4));
 
         await userEvent.click(screen.getByRole('button', { name: '7d' }));
@@ -237,7 +241,7 @@ describe('SystemHealthDashboard — the range switch survived the SegmentedContr
         // notice the stranded spinner: measured, a version of this test that
         // checked only `historyCalls()` passed with the guard REMOVED.
         render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
         await waitFor(() => expect(historyCalls()).toHaveLength(4));
 
         const refresh = screen.getByRole('button', { name: 'Aktualisieren' });
@@ -259,7 +263,7 @@ describe('SystemHealthDashboard — subsystem status', () => {
         // checked row with its own button. The fixture's error string can only
         // reach the page through the unhealthy branch.
         render(<SystemHealthDashboard />);
-        await screen.findByRole('heading', { level: 1 });
+        await screen.findByRole('heading', { level: 2 });
 
         expect(screen.getByText('Haupt-Datenbank')).toBeInTheDocument();
         expect(screen.getByText('Vektor-Datenbank')).toBeInTheDocument();

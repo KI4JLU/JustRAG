@@ -62,14 +62,18 @@ export function LegalPage({ page, onBack }: LegalPageProps) {
    * are deleted. No inline style survives in this file.
    *
    * Two visual consequences only the developer's both-theme QA can accept:
-   *   1. The content column narrows from a hand-set 720px to the template's
-   *      `max-w-md` (448px), which is hardcoded on its inner Stack and is
-   *      therefore NOT reachable through `className`. At 16px that is roughly
-   *      55 characters per line, i.e. inside the 45-75 measure, where 720px
-   *      was above it — but it is still a large change for a legal document,
-   *      and the document now sits in a card.
-   *      TODO: if 448px is too narrow here, the fix is a width prop on the
-   *      template in the design system, not an override at this call site.
+   *   1. The content column. KI-693 landed on the template's hardcoded
+   *      `max-w-md` (448px) because the width was not reachable through
+   *      `className`, and the developer rejected that at visual QA. The fix
+   *      went where that card said it belonged — a named width on the
+   *      template in the design system — and shipped as v0.24.0's
+   *      `width="prose"` (`max-w-2xl`, 672px), which is what this call site
+   *      now passes (card KI-743). 672px is 48px NARROWER than the
+   *      pre-migration 720px, deliberately: the DS picked `2xl` as the widest
+   *      step still under the WCAG 1.4.8 80-character cap (79.3 characters
+   *      measured in Chromium at its 624px effective text width, against 91.8
+   *      at `3xl`). If it still reads too narrow, the answer is a further
+   *      named step in the design system, not an arbitrary override here.
    *   2. The "back" control moves from above the heading to directly below
    *      it, because the heading is now the template's card header and the
    *      slot order is fixed.
@@ -77,6 +81,7 @@ export function LegalPage({ page, onBack }: LegalPageProps) {
   return (
     <main>
       <AuthLayout
+        width="prose"
         /* See ../Login.tsx: CardTitle is a <div>, so the <h1> comes from the
          * call site, and the two type classes neutralise index.css's
          * `@layer base` h1 revert rather than re-skinning the template. */

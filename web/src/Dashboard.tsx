@@ -47,12 +47,16 @@ import { API_BASE_URL } from './api';
  *      override it. Not shared.
  *   2. THERE IS AN `<h1>`. AuthLayout's title goes through `CardTitle`, which
  *      renders a `div`; DashboardLayout's goes through `PageHeader`, which
- *      renders `<header>` + a real `<h1>`. Not shared — but see the two NEW
- *      findings in the report: the level is FIXED at 1 (unreachable, the exact
- *      mirror of gap 2), and PageHeader's `h1`/`p` carry no margin utility,
- *      which collides with index.css's `@layer base { h1 { margin: revert } }`
- *      counterweight. The `[&_h1]:m-0 [&>header_p]:m-0` below is that
- *      collision, neutralised at the call site.
+ *      renders `<header>` + a real heading. Not shared. KI-714 reported two
+ *      further findings from here and design-system v0.24.0 answered both
+ *      (card KI-743): the heading level was FIXED at 1 and is now the optional
+ *      `headingLevel` prop — used by the two NESTED admin dashboards, not by
+ *      this page — and PageHeader's `h1`/`p` carried no margin utility, which
+ *      collided with index.css's `@layer base { h1 { margin: revert } }`
+ *      counterweight; they now carry `m-0` inside the component, so the
+ *      `[&>header_h1]:m-0 [&>header_p]:m-0` that used to be repeated on all
+ *      three call sites is gone. The stories' CSSOM oracles still assert the
+ *      computed 0px, so the guarantee stayed pinned when it moved.
  *
  * `<main>` is kept as a wrapper: the template renders a plain `div`, and this
  * page's root used to be the `<main>` landmark.
@@ -363,17 +367,12 @@ export default function Dashboard({ kbId, kbName }: DashboardProps) {
     return (
         <main>
             <DashboardLayout
-                /* index.css reverts h1-h6 and p margins to the USER-AGENT
-                 * values inside `@layer base`, to protect markdown prose from
-                 * Preflight. PageHeader's `<h1>` and its description `<p>`
-                 * carry token type utilities but NO margin utility, so they
-                 * are exactly the elements that counterweight hits: without
-                 * this the heading gets 0.67em and the description 1em of UA
-                 * margin on top of the template's own `gap-1`. Scoped to the
-                 * template's own <header> so nothing in `children` is
-                 * affected. Reported as a DS finding — the fix belongs in
-                 * PageHeader, which should not depend on a reset. */
-                className="[&>header_h1]:m-0 [&>header_p]:m-0"
+                /* No margin workaround here any more: KI-714 reported the
+                 * collision to the design system, and v0.24.0 puts `m-0` on
+                 * PageHeader's own heading and description (card KI-743). No
+                 * `headingLevel` either — unlike the two admin dashboards this
+                 * page is not nested under another <h1>, so the template's
+                 * default level 1 is correct. */
                 title="Dashboard"
                 description={kbName}
                 actions={

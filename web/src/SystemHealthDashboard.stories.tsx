@@ -145,14 +145,20 @@ export const Healthy: Story = {
     api: { systemHealthLive: LIVE, systemHealthHistory: HISTORY },
   },
   play: async ({ canvas }) => {
-    // ORACLE 1: the accessibility tree — PageHeader renders a real <h1>
-    // (this page used to render an <h2>; the level is fixed by the template).
-    const heading = await canvas.findByRole('heading', { level: 1, name: /System Health/ });
+    // ORACLE 1: the accessibility tree — the page title is a real heading at
+    // level 2 (`headingLevel={2}`, design-system v0.24.0, card KI-743).
+    // Level 2 because this page is NESTED under AdminUI.tsx's own <h1>; the
+    // template's level was fixed at 1 before v0.24.0, which gave the admin
+    // area two. Standalone, as here, the page has no <h1> — the "exactly one
+    // in the admin tree" oracle lives in src/AdminUI.headings.test.tsx.
+    const heading = await canvas.findByRole('heading', { level: 2, name: /System Health/ });
 
     // ORACLE 2: the browser's CSSOM. index.css reverts h1-h6 margins to the
-    // USER-AGENT value in `@layer base` and PageHeader's <h1> carries no
-    // margin utility, so without the `[&>header_h1]:m-0` on the call site
-    // Chromium computes the UA's 0.67em. The number is the browser's.
+    // USER-AGENT value in `@layer base`, so the template's heading walks into
+    // that counterweight. The answering `m-0` moved from a
+    // `[&>header_h1]:m-0` workaround on the call site into PageHeader itself
+    // in v0.24.0; the assertion stayed, and now pins the component's own
+    // guarantee. The number is the browser's.
     await expect(getComputedStyle(heading).marginTop).toBe('0px');
 
     // ORACLE 3: the page's own scroll box, which this migration had to carry
@@ -196,7 +202,7 @@ export const Degraded: Story = {
     api: { systemHealthLive: DEGRADED, systemHealthHistory: HISTORY },
   },
   play: async ({ canvas }) => {
-    await canvas.findByRole('heading', { level: 1, name: /System Health/ });
+    await canvas.findByRole('heading', { level: 2, name: /System Health/ });
     // ORACLE: the fixture's own error string, which only reaches the page if
     // the unhealthy branch renders it. Read as text from the DOM, not from
     // component state.
@@ -228,7 +234,7 @@ export const Empty: Story = {
     api: { systemHealthLive: EMPTY_LIVE, systemHealthHistory: EMPTY_HISTORY },
   },
   play: async ({ canvas }) => {
-    await canvas.findByRole('heading', { level: 1, name: /System Health/ });
+    await canvas.findByRole('heading', { level: 2, name: /System Health/ });
     // ORACLE: recharts' DOM contract, negative direction — with every series
     // empty there must be NO chart surface anywhere on the page. An
     // axis-only chart drawn over no data is the defect this pins.
@@ -253,7 +259,9 @@ export const Loading: Story = {
     // replaced `<RefreshCw className="spin">`.
     const status = await canvas.findByRole('status');
     await expect(status).toHaveTextContent('Lade System-Health-Dashboard...');
-    await expect(canvas.queryByRole('heading', { level: 1 })).toBeNull();
+    // Level 2 since v0.24.0's `headingLevel` (card KI-743): the page title is
+    // an <h2>, so pinning "no heading yet" on level 1 would pass vacuously.
+    await expect(canvas.queryByRole('heading', { level: 2 })).toBeNull();
   },
 };
 

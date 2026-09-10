@@ -117,16 +117,22 @@ export const Superadmin: Story = {
   decorators: [authDecorator('superadmin')],
   parameters: { api: { kbOverview: OVERVIEW } },
   play: async ({ canvas }) => {
-    // ORACLE 1: the accessibility tree. PageHeader renders a real <h1>; this
-    // page used to render an <h2>. The level is FIXED by the template and not
-    // a prop, which is the finding this pins (AdminUI.tsx renders the admin
-    // page's other <h1>).
-    const heading = await canvas.findByRole('heading', { level: 1, name: NAME.overview });
+    // ORACLE 1: the accessibility tree. The page title is a real heading at
+    // level 2 — `headingLevel={2}`, design-system v0.24.0 (card KI-743).
+    // Level 2 and not 1 because this page is NESTED: AdminUI.tsx owns the
+    // admin area's <h1>, and until v0.24.0 the template's level was fixed at 1
+    // and gave those pages two. Rendered standalone here, the page therefore
+    // has no <h1> at all; that AdminUI's tree has exactly one is what
+    // src/AdminUI.headings.test.tsx pins, which no story can (a story never
+    // renders the app's routes).
+    const heading = await canvas.findByRole('heading', { level: 2, name: NAME.overview });
 
     // ORACLE 2: the browser's CSSOM. index.css reverts h1-h6 margins to the
-    // UA value in `@layer base`; PageHeader's <h1> carries no margin utility,
-    // so without the `[&>header_h1]:m-0` on the call site Chromium computes
-    // the UA's 0.67em here. This number comes from the browser, not the repo.
+    // UA value in `@layer base`, so the template's heading is the element that
+    // counterweight hits. The `m-0` that answers it moved from a
+    // `[&>header_h1]:m-0` workaround on the call site into PageHeader itself
+    // in v0.24.0; the assertion is deliberately unchanged, so it now pins the
+    // component's guarantee. This number comes from the browser, not the repo.
     await expect(getComputedStyle(heading).marginTop).toBe('0px');
 
     // ORACLE 3: the fixture's `isGlobal` flags. Publish is offered only for a
@@ -150,7 +156,7 @@ export const Admin: Story = {
   decorators: [authDecorator('admin')],
   parameters: { api: { kbOverview: OVERVIEW } },
   play: async ({ canvas }) => {
-    await canvas.findByRole('heading', { level: 1 });
+    await canvas.findByRole('heading', { level: 2 });
     // ORACLE: the backend's own route gating — POST /api/admin/kb/{id}/publish
     // sits on adminChain while delete/transfer are superadmin-only, so the
     // role in the provider decides exactly this set.
@@ -174,7 +180,7 @@ export const Empty: Story = {
   decorators: [authDecorator('superadmin')],
   parameters: { api: { kbOverview: EMPTY_OVERVIEW } },
   play: async ({ canvas }) => {
-    await canvas.findByRole('heading', { level: 1 });
+    await canvas.findByRole('heading', { level: 2 });
     // ORACLE: the fixture's `queueSummary: {}`. The component's documented
     // fallback is `{ waiting: 0, active: 0, failed: 0 }` per queue, so nine
     // zeroes must be on the page — three tiles x three counters. Fewer means

@@ -6,13 +6,16 @@ import { LegalPage } from './LegalPage';
  * LegalPage on the design system's AuthLayout (card KI-693), so the question
  * that card left open can be judged instead of described: the content column
  * narrowed from a hand-set 720px to the template's `max-w-md` (448px), which
- * sits on AuthLayout's inner Stack and is not reachable through className.
+ * sat on AuthLayout's inner Stack and was not reachable through className.
+ * The developer rejected 448px at visual QA, the design system added a named
+ * width, and this call site now passes `width="prose"` — `max-w-2xl`, 672px
+ * (card KI-743). The measurement below is the 672px, from the CSSOM.
  *
  * Nothing is mocked here. The component fetches
  * /legal/<page>-<language>.html, and Storybook serves web/public through
  * `staticDirs` while the Vitest browser runner serves it through Vite's
  * publicDir — so these stories render the ACTUAL compliance documents at the
- * actual measure, which is the only thing that makes the 448px question
+ * actual measure, which is the only thing that makes the width question
  * answerable.
  *
  * Language follows the app's own state (seeded to `de` in
@@ -62,8 +65,12 @@ export const Terms: Story = {
     // Oracle 2: the browser's own CSSOM. Walk up from the page heading to the
     // first ancestor that constrains width and read the COMPUTED value, so the
     // number comes from the cascade rather than from a class string this repo
-    // wrote. 448px is `max-w-md`; KI-693 recorded it as a reasoned figure with
-    // a "not visually confirmed" TODO, and this is the confirmation.
+    // wrote. 672px is the `max-w-2xl` behind AuthLayout's `width="prose"`; the
+    // Tailwind scale is the design system's, and Chromium resolves it, so
+    // neither the class nor the number is this repo's own claim. Drop the prop
+    // and the walk finds 448px (`max-w-md`) instead — which is exactly the
+    // state the developer rejected, so this assertion is the regression guard
+    // for it.
     let node: HTMLElement | null = await canvas.findByRole('heading', {
       level: 1,
       name: 'Nutzungsbedingungen',
@@ -73,7 +80,7 @@ export const Terms: Story = {
       constrained = getComputedStyle(node).maxWidth;
       node = node.parentElement;
     }
-    await expect(constrained).toBe('448px');
+    await expect(constrained).toBe('672px');
   },
 };
 
@@ -82,7 +89,7 @@ export const TermsDark: Story = {
   globals: { theme: 'dark' },
 };
 
-/** The longest of the three documents — the worst case for a 448px measure. */
+/** The longest of the three documents — the worst case for the measure. */
 export const Privacy: Story = {
   args: { page: 'privacy' },
 };

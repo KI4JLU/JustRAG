@@ -34,9 +34,11 @@ import { useTheme } from './contexts/ThemeContext';
  *    200px is tied to AdminUI's header + tab chrome; whether it should stay a
  *    magic number is a question for the developer, not this card.
  *
- * 2. The heading level changes h2 -> h1 (PageHeader renders a real `<h1>` and
- *    the level is not a prop), so this page now has two `<h1>`s: AdminUI.tsx
- *    already renders one. Reported as an open question.
+ * 2. THE HEADING LEVEL. KI-714 had to accept h2 -> h1 (PageHeader rendered a
+ *    real `<h1>` and the level was not a prop), which gave this page two:
+ *    AdminUI.tsx already renders one. Closed by card KI-743 — design-system
+ *    v0.24.0 added `headingLevel`, this call site passes 2, and
+ *    `src/AdminUI.headings.test.tsx` pins the count in the admin composition.
  *
  * TODO: no visual confirmation in this pass; the stories exist for the
  * developer's both-theme pass.
@@ -527,11 +529,16 @@ export default function SystemHealthDashboard() {
 
     return (
         <DashboardLayout
-            /* Two separate concerns, both explained at the top of this file:
-             * the page's own scroll box (preserved from the pre-migration
-             * root), and index.css's h1-h6/p `margin: revert` counterweight,
-             * which PageHeader's own heading and description walk into. */
-            className="max-h-[calc(100vh-200px)] overflow-y-auto [&>header_h1]:m-0 [&>header_p]:m-0"
+            /* This page is NESTED inside AdminUI.tsx's own <h1>, so the
+             * template's fixed <h1> made two top-level headings; v0.24.0's
+             * `headingLevel` moves the page title down one (card KI-743). */
+            headingLevel={2}
+            /* The page's own scroll box, preserved from the pre-migration root
+             * and explained at the top of this file. The h1-h6/p `margin:
+             * revert` counterweight that used to be neutralised here as well
+             * (`[&>header_h1]:m-0 [&>header_p]:m-0`) is handled inside
+             * PageHeader from v0.24.0 on. */
+            className="max-h-[calc(100vh-200px)] overflow-y-auto"
             title={
                 <span className="inline-flex items-center gap-2">
                     <Activity size={24} aria-hidden="true" />

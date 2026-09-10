@@ -37,11 +37,12 @@ import { KbTransferOwnerDialog } from './components/admin/KbTransferOwnerDialog'
  * not page chrome. The three row-action `<button>`s DID become DS `Button`s:
  * swapping a control inside a `<td>` is not migrating the table markup.
  *
- * The heading level changes h2 -> h1, because PageHeader renders a real `<h1>`
- * and the level is not a prop. AdminUI.tsx already renders the admin page's
- * `<h1>`, so this page now has two. Reported as an open question — the fix is
- * either a heading-level prop in the DS or a change in AdminUI.tsx, neither of
- * which belongs in this card.
+ * THE HEADING LEVEL, and how it was resolved. KI-714 had to accept h2 -> h1,
+ * because PageHeader rendered a real `<h1>` and the level was not a prop —
+ * which gave this page two, since AdminUI.tsx owns the admin area's `<h1>`.
+ * That open question is closed: design-system v0.24.0 added `headingLevel`,
+ * this call site passes 2 (card KI-743), and `src/AdminUI.headings.test.tsx`
+ * pins the count in the composition where it matters.
  * TODO: no visual confirmation in this pass; the stories exist for the
  * developer's both-theme pass.
  * ------------------------------------------------------------------------- */
@@ -367,10 +368,18 @@ export default function KBOverviewDashboard() {
 
     return (
         <DashboardLayout
-            /* See Dashboard.tsx for why: index.css reverts h1-h6 and p margins
-             * to the UA values in `@layer base`, and PageHeader's own h1/p
-             * carry no margin utility. */
-            className="[&>header_h1]:m-0 [&>header_p]:m-0"
+            /* This page is NESTED: AdminUI.tsx renders it inside its own
+             * <header><h1>Admin Dashboard</h1>, so a second <h1> here gave the
+             * admin area two top-level headings. `headingLevel` (design system
+             * v0.24.0, card KI-743) puts the page title one level down, where
+             * the document outline says it belongs. The KI-714 workaround that
+             * used to sit on this call site — `[&>header_h1]:m-0
+             * [&>header_p]:m-0`, neutralising index.css's `@layer base` h1-h6/p
+             * `margin: revert` — is gone with the same release: PageHeader now
+             * carries `m-0` on its heading and description itself. The story's
+             * CSSOM oracle still asserts the computed 0px, so the guarantee is
+             * pinned on the component instead of on this line. */
+            headingLevel={2}
             title={t('adminTabKbOverview')}
             toolbar={
                 <ListToolbar
