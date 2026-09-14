@@ -12,6 +12,8 @@ import { KbCoreProvider, type KbCoreContextValue } from './contexts/KbCoreContex
 import { KbChatProvider, type KbChatContextValue } from './contexts/KbChatContext';
 import { KbDataProvider, type KbDataContextValue } from './contexts/KbDataContext';
 import { KbLayoutProvider, type KbLayoutContextValue } from './contexts/KbLayoutContext';
+import { AppNavProvider, type AppNavContextValue } from './contexts/AppNavContext';
+import { SharingProvider } from './contexts/SharingContext';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 
 // Hooks
@@ -115,7 +117,7 @@ export default function AuthenticatedApp() {
 
 function AuthenticatedAppInner() {
   const { theme, t } = useTheme();
-  const { user, token, logout: onLogout, updateUser: onUpdateUser } = useAuth();
+  const { user, token, updateUser: onUpdateUser } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
   const reducedMotion = useReducedMotion();
@@ -346,7 +348,20 @@ function AuthenticatedAppInner() {
   }
 
   if (view === 'home') {
+    // The two overview contexts. `sharing` is the same object the KB
+    // workspace half already receives through KbDataContext.sharing — one
+    // useSharing() call, two mount points, so the dialog cannot get out of
+    // step between the two halves of the app. `appNav` carries the three
+    // top-level jumps KI-696 relocates into the shell's sidebar; logout is
+    // absent on purpose, since AuthContext already publishes it.
+    const appNav: AppNavContextValue = {
+      onViewProfile: () => setView('profile'),
+      onViewAdmin: () => setView('admin'),
+      onViewAgents: () => setView('agents'),
+    };
     return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
       <motion.div
         key="home"
         {...getMotionProps(reducedMotion)}
@@ -359,12 +374,6 @@ function AuthenticatedAppInner() {
           globalKbs={kbMgmt.globalKbs}
           currentKb={currentKb}
           availableConfigs={kbSettings.availableConfigs}
-          copySuccess={sharing.copySuccess}
-          onCopyUserId={sharing.copyUserId}
-          onLogout={onLogout}
-          onViewProfile={() => setView('profile')}
-          onViewAdmin={() => setView('admin')}
-          onViewAgents={() => setView('agents')}
           onCreateKB={kbMgmt.handleCreateKB}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
@@ -376,21 +385,7 @@ function AuthenticatedAppInner() {
           onOpenGlobalKbSettings={kbMgmt.handleOpenGlobalKbSettings}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
-          onOpenShare={sharing.handleOpenShare}
           onUpdateKBSettings={handleUpdateKBSettings}
-          showShareModal={sharing.showShareModal}
-          setShowShareModal={sharing.setShowShareModal}
-          sharingKb={sharing.sharingKb}
-          shareUserId={sharing.shareUserId}
-          setShareUserId={sharing.setShareUserId}
-          shareTargetUser={sharing.shareTargetUser}
-          shareLoading={sharing.shareLoading}
-          sharePermission={sharing.sharePermission}
-          setSharePermission={sharing.setSharePermission}
-          onLookupUser={sharing.lookupUser}
-          onConfirmShare={sharing.confirmShare}
-          notFoundUsername={sharing.notFoundUsername}
-          onPendingInvited={sharing.clearNotFound}
           showSettings={kbSettings.showSettings}
           setShowSettings={kbSettings.setShowSettings}
         />
@@ -398,6 +393,8 @@ function AuthenticatedAppInner() {
         <OnboardingHelpButton onClick={() => setShowOnboarding(true)} />
         <OnboardingTour show={showOnboarding} onClose={handleCloseOnboarding} />
       </motion.div>
+      </AppNavProvider>
+      </SharingProvider>
     );
   }
 

@@ -4,10 +4,12 @@ import {
   Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, Bot, Search, Star, Users,
   SlidersHorizontal
 } from 'lucide-react';
-import type { KnowledgeBase, SafeAIConfig, KbAssignableRole } from '../types';
+import type { KnowledgeBase, SafeAIConfig } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useAppNav } from '../contexts/AppNavContext';
+import { useSharingContext } from '../contexts/SharingContext';
 import { KBCardSkeleton } from './Skeleton';
 import { KbAccordion } from './KbAccordion';
 import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
@@ -17,17 +19,32 @@ import './HomeView.css';
 const MembersModal = lazy(() => import('./MembersModal').then(module => ({ default: module.MembersModal })));
 const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
 
+/**
+ * What `HomeView` still takes as a prop, and why.
+ *
+ * KI-770 removed 20 of the original 38. The line it drew is not "fewer props"
+ * but WHO OWNS THE CONCERN:
+ *
+ * - The KB lists and the actions on them ARE this page's subject matter. The
+ *   overview exists to render `kbs`/`globalKbs` and to offer create / open /
+ *   delete / rename / settings on them, so receiving them is its interface,
+ *   not drilling. They also stay out of the shell KI-696 introduces, which
+ *   never touches a KB row.
+ * - The sharing concern (16 props) moved to `SharingContext`: every one of
+ *   them came from a single `useSharing()` call in `AuthenticatedApp`, and the
+ *   dialog they drive is self-contained.
+ * - The three top-level navigation jumps moved to `AppNavContext`, and logout
+ *   to `useAuth().logout`, because KI-696 relocates all four into a sidebar
+ *   the SHELL renders — a destination this component's signature cannot reach.
+ * - The `SettingsModal` group (`currentKb`, `availableConfigs`,
+ *   `onUpdateKBSettings`, `showSettings`, `setShowSettings`) stayed, and that
+ *   is a deliberate non-change: see the note above its `Suspense` boundary.
+ */
 export interface HomeViewProps {
   kbs: KnowledgeBase[];
   globalKbs: KnowledgeBase[];
   currentKb: KnowledgeBase | null;
   availableConfigs: SafeAIConfig[];
-  copySuccess: boolean;
-  onCopyUserId: () => void;
-  onLogout: () => void;
-  onViewProfile: () => void;
-  onViewAdmin: () => void;
-  onViewAgents: () => void;
   onCreateKB: () => void;
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
@@ -43,21 +60,7 @@ export interface HomeViewProps {
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** Rename prompt; the card only offers it when canRenameKb allows. */
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onUpdateKBSettings: (data: Record<string, unknown>) => void;
-  showShareModal: boolean;
-  setShowShareModal: (v: boolean) => void;
-  sharingKb: KnowledgeBase | null;
-  shareUserId: string;
-  setShareUserId: (v: string) => void;
-  shareTargetUser: { id: string; firstName: string; lastName: string; username: string } | null;
-  shareLoading: boolean;
-  sharePermission: KbAssignableRole;
-  setSharePermission: (v: KbAssignableRole) => void;
-  onLookupUser: () => void;
-  onConfirmShare: () => void;
-  notFoundUsername: string | null;
-  onPendingInvited: () => void;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
 }
@@ -413,17 +416,20 @@ function PrivateKbCard({
 
 export function HomeView(props: HomeViewProps) {
   const { theme, language, setLanguage, toggleTheme, t } = useTheme();
-  const { user, siteConfigs } = useAuth();
+  // `logout` is read here rather than taken as a prop: AuthContext already
+  // publishes it, and AuthenticatedApp only renamed it on the way down.
+  const { user, siteConfigs, logout: onLogout } = useAuth();
+  const { onViewProfile, onViewAdmin, onViewAgents } = useAppNav();
+  // The whole sharing concern, including the `handleOpenShare` whose
+  // `e.stopPropagation()` is what keeps the share button from also opening the
+  // KB card it sits in. See SharingContext's header.
+  const sharing = useSharingContext();
   const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
   const {
     kbs, globalKbs, currentKb, availableConfigs,
-    copySuccess, onCopyUserId, onLogout, onViewProfile, onViewAdmin, onViewAgents,
     onCreateKB, onSelectKB, onDeleteKB, removingKb, onCreateGlobalKB, onSubscriptionChange, onOpenKbById, onDeleteGlobalKB,
-    onOpenGlobalKbSettings, onOpenKbSettings, onRenameKB, onOpenShare, onUpdateKBSettings,
-    showShareModal, setShowShareModal, sharingKb, shareUserId, setShareUserId,
-    shareTargetUser, shareLoading, sharePermission, setSharePermission,
-    onLookupUser, onConfirmShare, notFoundUsername, onPendingInvited,
+    onOpenGlobalKbSettings, onOpenKbSettings, onRenameKB, onUpdateKBSettings,
     showSettings, setShowSettings,
   } = props;
 
@@ -465,12 +471,12 @@ export function HomeView(props: HomeViewProps) {
           <User size={16} aria-hidden="true" />
           <span>@{user?.username}</span>
           <button
-            onClick={onCopyUserId}
-            className={`home-view__copy-btn${copySuccess ? ' home-view__copy-btn--success' : ''}`}
+            onClick={sharing.copyUserId}
+            className={`home-view__copy-btn${sharing.copySuccess ? ' home-view__copy-btn--success' : ''}`}
             title={t('copyUsername')}
             aria-label={t('copyUsername')}
           >
-            <span className="icon-swap" key={copySuccess ? 'check' : 'copy'}>{copySuccess ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}</span>
+            <span className="icon-swap" key={sharing.copySuccess ? 'check' : 'copy'}>{sharing.copySuccess ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}</span>
           </button>
         </div>
 
@@ -599,7 +605,7 @@ export function HomeView(props: HomeViewProps) {
                 rtf={rtf}
                 t={t}
                 onSelectKB={onSelectKB}
-                onOpenShare={onOpenShare}
+                onOpenShare={sharing.handleOpenShare}
                 onOpenKbSettings={onOpenKbSettings}
                 onRenameKB={onRenameKB}
                 onDeleteKB={onDeleteKB}
@@ -639,7 +645,7 @@ export function HomeView(props: HomeViewProps) {
               rtf={rtf}
               t={t}
               onSelectKB={onSelectKB}
-              onOpenShare={onOpenShare}
+              onOpenShare={sharing.handleOpenShare}
               onOpenKbSettings={onOpenKbSettings}
               onRenameKB={onRenameKB}
               onDeleteKB={onDeleteKB}
@@ -650,25 +656,35 @@ export function HomeView(props: HomeViewProps) {
       </main>
 
 
+      {/* The members dialog reads the sharing context directly; the same
+          eleven values reach KbWorkspaceModals through KbDataContext.sharing,
+          so the two mount points now spell the dialog the same way. */}
       <Suspense fallback={<LoadingFallback />}>
-        {showShareModal && <MembersModal
-          show={showShareModal}
-          onClose={() => setShowShareModal(false)}
-          sharingKb={sharingKb}
-          shareUserId={shareUserId}
-          setShareUserId={setShareUserId}
-          shareTargetUser={shareTargetUser}
-          shareLoading={shareLoading}
-          sharePermission={sharePermission}
-          setSharePermission={setSharePermission}
-          onLookupUser={onLookupUser}
-          onConfirmShare={onConfirmShare}
-          notFoundUsername={notFoundUsername}
-          onPendingInvited={onPendingInvited}
-          myRole={sharingKb?.myRole ?? 'view'}
+        {sharing.showShareModal && <MembersModal
+          show={sharing.showShareModal}
+          onClose={() => sharing.setShowShareModal(false)}
+          sharingKb={sharing.sharingKb}
+          shareUserId={sharing.shareUserId}
+          setShareUserId={sharing.setShareUserId}
+          shareTargetUser={sharing.shareTargetUser}
+          shareLoading={sharing.shareLoading}
+          sharePermission={sharing.sharePermission}
+          setSharePermission={sharing.setSharePermission}
+          onLookupUser={sharing.lookupUser}
+          onConfirmShare={sharing.confirmShare}
+          notFoundUsername={sharing.notFoundUsername}
+          onPendingInvited={sharing.clearNotFound}
+          myRole={sharing.sharingKb?.myRole ?? 'view'}
         />}
       </Suspense>
 
+      {/* NOT moved to context, and not reachable from this screen either:
+          nothing in the overview sets `showSettings`, so this boundary is
+          dormant here and only `useKbLifecycle` ever closes it. Left exactly
+          as it was — deleting it would be a behaviour change this card is not
+          allowed to make. Recorded on card KI-770 for KI-696 to resolve.
+          // TODO: unreachable from HomeView — confirm with the developer
+          // before removing. */}
       <Suspense fallback={null}>
         {showSettings && <SettingsModal
           show={showSettings}

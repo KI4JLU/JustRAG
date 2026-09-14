@@ -7,7 +7,10 @@ import { HomeView, type HomeViewProps } from './HomeView';
 import { translations } from '../translations';
 import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
+import { AppNavProvider } from '../contexts/AppNavContext';
+import { SharingProvider } from '../contexts/SharingContext';
 import { useKbRemoval } from '../hooks/useKbRemoval';
+import { useSharing } from '../hooks/useSharing';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -65,13 +68,37 @@ async function expandSection(title: string) {
   await userEvent.click(screen.getByRole('button', { name: new RegExp(title, 'i') }));
 }
 
+// The three top-level jumps HomeView reads off AppNavContext since KI-770.
+// Module-level spies: no assertion in this file touches them, and a fresh
+// object per render would only add churn.
+const NAV = { onViewProfile: vi.fn(), onViewAdmin: vi.fn(), onViewAgents: vi.fn() };
+
+// The REAL useSharing hook, published on the context HomeView now reads. It
+// runs in its own component because it calls useToast() and therefore has to
+// sit under ToastProvider, and it is the real hook rather than a stub because
+// the share button's "don't also open the KB" behaviour lives inside it
+// (useSharing.ts:27) — a stub would make every share assertion in this file a
+// statement about the stub.
+function SharingHarness({ children }: { children: React.ReactNode }) {
+  const sharing = useSharing({ username: 'grace' });
+  return <SharingProvider value={sharing}>{children}</SharingProvider>;
+}
+
 // Every render goes through the providers HomeView's subtree actually needs in
 // production. ToastProvider is not optional even for tests that never mean to
 // touch the discovery panel: whether that panel mounts depends on persisted
 // accordion state, so a bare render would fail or pass depending on what ran
 // before it.
 function renderView(ui: React.ReactElement) {
-  return render(<ToastProvider><ModalProvider>{ui}</ModalProvider></ToastProvider>);
+  return render(
+    <ToastProvider>
+      <ModalProvider>
+        <SharingHarness>
+          <AppNavProvider value={NAV}>{ui}</AppNavProvider>
+        </SharingHarness>
+      </ModalProvider>
+    </ToastProvider>
+  );
 }
 
 vi.mock('../contexts/ThemeContext', () => ({
@@ -96,10 +123,13 @@ const authState = vi.hoisted(() => ({ role: 'user' }));
 
 beforeEach(() => { authState.role = 'user'; });
 
+// `logout` is part of the mock since KI-770: HomeView's logout button reads it
+// off this context instead of taking an onLogout prop.
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'user-1', username: 'grace', role: authState.role },
     siteConfigs: {},
+    logout: vi.fn(),
   }),
 }));
 
@@ -121,12 +151,6 @@ const noopProps = {
   globalKbs: [],
   currentKb: null,
   availableConfigs: [],
-  copySuccess: false,
-  onCopyUserId: vi.fn(),
-  onLogout: vi.fn(),
-  onViewProfile: vi.fn(),
-  onViewAdmin: vi.fn(),
-  onViewAgents: vi.fn(),
   onCreateKB: vi.fn(),
   onSelectKB: vi.fn(),
   onDeleteKB: vi.fn(),
@@ -138,21 +162,7 @@ const noopProps = {
   onOpenGlobalKbSettings: vi.fn(),
   onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
-  onOpenShare: vi.fn(),
   onUpdateKBSettings: vi.fn(),
-  showShareModal: false,
-  setShowShareModal: vi.fn(),
-  sharingKb: null,
-  shareUserId: '',
-  setShareUserId: vi.fn(),
-  shareTargetUser: null,
-  shareLoading: false,
-  sharePermission: 'view' as const,
-  setSharePermission: vi.fn(),
-  onLookupUser: vi.fn(),
-  onConfirmShare: vi.fn(),
-  notFoundUsername: null,
-  onPendingInvited: vi.fn(),
   showSettings: false,
   setShowSettings: vi.fn(),
 };

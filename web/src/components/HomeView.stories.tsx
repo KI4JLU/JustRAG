@@ -4,8 +4,11 @@ import { expect, fn, waitFor, within } from 'storybook/test';
 import { HomeView } from './HomeView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
+import { AppNavProvider } from '../contexts/AppNavContext';
+import { SharingProvider } from '../contexts/SharingContext';
+import { useSharing } from '../hooks/useSharing';
 import { apiMockHistory } from '../../.storybook/mockApi';
-import type { KbAssignableRole, KnowledgeBase, User } from '../types';
+import type { KnowledgeBase, User } from '../types';
 
 /* ---------------------------------------------------------------------------
  * CHARACTERIZATION stories for the KB overview (card KI-774).
@@ -34,11 +37,19 @@ import type { KbAssignableRole, KnowledgeBase, User } from '../types';
  * production handler (`useSharing.handleOpenShare`, src/hooks/useSharing.ts:26)
  * opens with `e.stopPropagation()`, and it has to, because the share button
  * sits inside a card whose own onClick selects the KB. `HomeView` does not stop
- * that propagation itself — it delegates it to whoever passes the prop. The
- * harness therefore calls `stopPropagation()` too, and that line is a mirror of
- * production, not a convenience: without it the story would quietly exercise a
- * different app. It is also a coupling KI-770 has to keep when the handler
- * moves into context.
+ * that propagation itself — it delegates it to whoever supplies the handler.
+ *
+ * UPDATE (KI-770, the refactor this file was written to guard). The handler is
+ * no longer a prop: it arrives through `SharingContext`, and the harness now
+ * mounts the REAL `useSharing()` hook instead of the five `useState`s and the
+ * hand-copied `stopPropagation()` line it used to carry. That removes the
+ * mirror rather than re-pointing it — the story exercises production's own
+ * handler, so the coupling can no longer be faithfully reproduced and wrong at
+ * the same time. `SharingDoesNotAlsoOpenTheKb` is the story that pins it, and
+ * it was the one behaviour named in advance as able to break silently. The
+ * only members the harness still overrides are the clipboard pair,
+ * `copyUserId` and `copySuccess` — see `StorySharingProvider` for why those
+ * two cannot be the app's own in a test runner.
  *
  * MOCKING IS AT THE NETWORK BOUNDARY, per the pattern KI-728 established
  * (.storybook/mockApi.ts). `HomeView` itself issues no request — its two KB
@@ -187,22 +198,48 @@ interface HomeViewStoryArgs {
 }
 
 /**
- * Supplies what `AuthenticatedApp.tsx:348-403` supplies, and nothing else.
+ * Runs the production `useSharing()` hook and publishes it, with the one
+ * override a story needs to be able to drive.
  *
- * The four pieces of state below are owned here for the same reason
- * `AdminConfigsTab.stories.tsx` owns four of its own: handed constants, the
- * share dialog could never open and the states that depend on it would be
- * unreachable from a story. Everything that is genuinely the parent's business
- * — creating, deleting, renaming, opening settings — stays a spy, because a
- * story that faked those outcomes would be inventing behaviour rather than
- * recording this component's.
+ * It is a separate component because the hook calls `useToast()` and
+ * `useTheme()`, both of which .storybook/preview.tsx mounts ABOVE the story —
+ * so the hook has to run inside that tree, not beside it.
+ *
+ * EXACTLY TWO MEMBERS ARE OVERRIDDEN, and both for the same reason: they are
+ * the CLIPBOARD pair. `copyUserId` writes to `navigator.clipboard`, which the
+ * runner does not grant and which would make the assertion a statement about
+ * browser permissions; `copySuccess` is the 2s-timer flag that write sets, so
+ * no interaction a story can perform reaches the confirmed state either. Both
+ * were already spies/args before KI-770 and stay exactly as faithful as they
+ * were. Everything else — `handleOpenShare` and its `e.stopPropagation()`
+ * above all — is the app's own.
+ */
+function StorySharingProvider({ username, copySuccess, onCopyUserId, children }: {
+  username: string;
+  copySuccess: boolean;
+  onCopyUserId: () => void;
+  children: React.ReactNode;
+}) {
+  const sharing = useSharing({ username });
+  return (
+    <SharingProvider value={{ ...sharing, copySuccess, copyUserId: onCopyUserId }}>
+      {children}
+    </SharingProvider>
+  );
+}
+
+/**
+ * Supplies what `AuthenticatedApp.tsx`'s `view === 'home'` branch supplies, and
+ * nothing else — as of KI-770 that is 18 props plus two contexts.
+ *
+ * `showSettings` is the one piece of state still owned here, and only because
+ * the prop pair still exists. Everything that is genuinely the parent's
+ * business — creating, deleting, renaming, opening settings — stays a spy,
+ * because a story that faked those outcomes would be inventing behaviour
+ * rather than recording this component's.
  */
 function HomeViewHarness(args: HomeViewStoryArgs) {
-  const [showShareModal, setShowShareModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [sharingKb, setSharingKb] = useState<KnowledgeBase | null>(null);
-  const [shareUserId, setShareUserId] = useState('');
-  const [sharePermission, setSharePermission] = useState<KbAssignableRole>('view');
 
   return (
     <AuthProvider
@@ -213,52 +250,40 @@ function HomeViewHarness(args: HomeViewStoryArgs) {
       siteConfigs={args.siteConfigs}
     >
       <ModalProvider>
-        <HomeView
-          kbs={args.kbs}
-          globalKbs={args.globalKbs}
-          currentKb={null}
-          availableConfigs={[]}
+        <StorySharingProvider
+          username={args.user.username}
           copySuccess={args.copySuccess}
           onCopyUserId={args.onCopyUserId}
-          onLogout={args.onLogout}
-          onViewProfile={args.onViewProfile}
-          onViewAdmin={args.onViewAdmin}
-          onViewAgents={args.onViewAgents}
-          onCreateKB={args.onCreateKB}
-          onSelectKB={args.onSelectKB}
-          onDeleteKB={idle()}
-          removingKb={args.removingKb}
-          onCreateGlobalKB={idle()}
-          onSubscriptionChange={idle()}
-          onOpenKbById={args.onOpenKbById}
-          onDeleteGlobalKB={idle()}
-          onOpenGlobalKbSettings={idle()}
-          onOpenKbSettings={idle()}
-          onRenameKB={idle()}
-          // Mirrors useSharing.handleOpenShare, stopPropagation included — see
-          // the file header for why that single line is not a convenience.
-          onOpenShare={(kb, e) => {
-            e.stopPropagation();
-            setSharingKb(kb);
-            setShowShareModal(true);
-          }}
-          onUpdateKBSettings={idle()}
-          showShareModal={showShareModal}
-          setShowShareModal={setShowShareModal}
-          sharingKb={sharingKb}
-          shareUserId={shareUserId}
-          setShareUserId={setShareUserId}
-          shareTargetUser={null}
-          shareLoading={false}
-          sharePermission={sharePermission}
-          setSharePermission={setSharePermission}
-          onLookupUser={idle()}
-          onConfirmShare={idle()}
-          notFoundUsername={null}
-          onPendingInvited={idle()}
-          showSettings={showSettings}
-          setShowSettings={setShowSettings}
-        />
+        >
+          <AppNavProvider
+            value={{
+              onViewProfile: args.onViewProfile,
+              onViewAdmin: args.onViewAdmin,
+              onViewAgents: args.onViewAgents,
+            }}
+          >
+            <HomeView
+              kbs={args.kbs}
+              globalKbs={args.globalKbs}
+              currentKb={null}
+              availableConfigs={[]}
+              onCreateKB={args.onCreateKB}
+              onSelectKB={args.onSelectKB}
+              onDeleteKB={idle()}
+              removingKb={args.removingKb}
+              onCreateGlobalKB={idle()}
+              onSubscriptionChange={idle()}
+              onOpenKbById={args.onOpenKbById}
+              onDeleteGlobalKB={idle()}
+              onOpenGlobalKbSettings={idle()}
+              onOpenKbSettings={idle()}
+              onRenameKB={idle()}
+              onUpdateKBSettings={idle()}
+              showSettings={showSettings}
+              setShowSettings={setShowSettings}
+            />
+          </AppNavProvider>
+        </StorySharingProvider>
       </ModalProvider>
     </AuthProvider>
   );
@@ -989,5 +1014,71 @@ export const ShareDialogLoadingFallback: Story = {
       'members-modal-title',
     );
     await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
+  },
+};
+
+/* ===========================================================================
+ * The one behaviour KI-770 was told in advance it could break silently
+ * ======================================================================== */
+
+/**
+ * Clicking "Teilen" must open the members dialog and NOT also open the KB.
+ *
+ * WHY THIS STORY EXISTS. The share button sits inside a `<li>` whose own
+ * `onClick` calls `onSelectKB` (HomeView.tsx, `PrivateKbCard`). `HomeView`
+ * never stops that propagation: the `e.stopPropagation()` that makes the two
+ * actions distinguishable lives in `useSharing.handleOpenShare`
+ * (src/hooks/useSharing.ts:27) — i.e. OUTSIDE the component, in the handler its
+ * caller supplies. KI-774's review named this as the single place where moving
+ * the sharing concern into context could change behaviour with every other
+ * story still green, and it was right: nothing else in this file clicks that
+ * button and then looks at what else fired.
+ *
+ * ORACLE, and why it is independent of the code under test. The expectation is
+ * not a number this view produces. It is the pair of `fn()` spies in `args`:
+ * `onSelectKB` is the parent's callback, and the assertion is a count on it.
+ * The handler doing the work is the production hook, mounted by
+ * `StorySharingProvider` — so the story reads the real `useSharing` against a
+ * spy the component cannot reach.
+ *
+ * THE CONTROL CLICK IS LOAD-BEARING. A bare "onSelectKB was not called" would
+ * also pass if the card's own click handler had been lost, or the card never
+ * rendered. So the card body is clicked FIRST and the count asserted at 1; the
+ * share click then has to leave it at 1. One click reaches the parent, the
+ * next one must not.
+ *
+ * Mutation-verified (card KI-770): deleting `e.stopPropagation()` from
+ * useSharing.ts:27 fails this story with `expected 2 to be 1`, and fails no
+ * other story in the suite.
+ */
+export const SharingDoesNotAlsoOpenTheKb: Story = {
+  args: { kbs: [OWNED_ONE] },
+  parameters: {
+    api: { kbMembers: { members: [], pending: [] }, kbInviteLinks: [] },
+  },
+  play: async ({ args, canvas, canvasElement, userEvent }) => {
+    const shareButton = canvas.getByRole('button', { name: 'Teilen' });
+    const card = shareButton.closest('.home-view__kb-card');
+    await expect(card).not.toBeNull();
+
+    /* The control: the freshness line is inert markup inside the card, so a
+     * click on it can only reach the parent through the `<li>`'s own handler.
+     * If this is ever 0, the assertion below stops meaning anything. */
+    const cardBody = (card as HTMLElement).querySelector('.home-view__kb-meta');
+    await expect(cardBody).not.toBeNull();
+    await userEvent.click(cardBody as HTMLElement);
+    await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(shareButton);
+
+    // The dialog did open — so the click was delivered and this is a statement
+    // about propagation, not about a dead button.
+    await waitFor(async () => {
+      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
+    });
+    await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
+
+    // And the KB was not opened on the way.
+    await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
   },
 };
