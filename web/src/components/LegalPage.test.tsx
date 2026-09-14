@@ -1,11 +1,14 @@
 import type { ComponentProps } from 'react';
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LegalPage } from './LegalPage';
 import { ToastProvider } from '../contexts/ToastContext';
 import { ToastContainer } from './ToastContainer';
-import { translations } from '../translations';
+import { translations, type Language } from '../translations';
 
 /* ---------------------------------------------------------------------------
  * There was no test on this file before card KI-693, which replaced its
@@ -48,7 +51,11 @@ import { translations } from '../translations';
 // respect — its `toast` API is a `useMemo` over `useCallback`s with no
 // dependencies, so it is referentially stable across renders.)
 const themeMock = {
-  language: 'en' as const,
+  // Mutable on purpose, and reset to 'en' in beforeEach: the document-outline
+  // suite at the bottom drives BOTH languages out of the asset tree, and the
+  // object's IDENTITY has to stay stable (see above) while its `language`
+  // changes, so this is a property write rather than a fresh object.
+  language: 'en' as Language,
   t: (key: string) => {
     const entry = translations[key as keyof typeof translations];
     return entry ? entry.en : key;
@@ -87,6 +94,7 @@ function stubPendingFetch() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  themeMock.language = 'en';
   // jsdom ships no matchMedia. The real ToastContainer's items call
   // useReducedMotion, which reads it, so rendering an actual toast needs it
   // stubbed (same pattern as HomeView.test.tsx / KbSettingsPanel.test.tsx).
@@ -217,5 +225,74 @@ describe('LegalPage — injected HTML', () => {
       .toThrow('useToast must be used within ToastProvider');
 
     consoleError.mockRestore();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The document outline, driven from the asset tree (cards KI-726 + KI-750).
+ *
+ * The defect: `document.querySelectorAll('h1').length` was **2** on every
+ * legal route in the running app — the page's own title plus the `<h1>` each
+ * document under public/legal/ carried. Two top-level headings give a
+ * screen-reader user two competing "top of document" landmarks (WCAG 1.3.1),
+ * on the very route where JustRAG publishes its accessibility statement.
+ *
+ * KI-750 made the page own the `<h1>` (the design system's `PageHeader`
+ * renders a real heading) and demoted the documents to start at `<h2>`, which
+ * is also what "make all three sites the same layout" asked for: `terms` and
+ * `privacy` each carried an `<h1>`, `accessibility` started at `<h2>` — and
+ * its first heading repeated `t('accessibilityTitle')` verbatim.
+ *
+ * ORACLES, none of them this component:
+ *   - the six documents as they are actually SHIPPED, read off disk with
+ *     `readdirSync` so a seventh document is covered the day it lands (this is
+ *     the "drive it from the actual files rather than a hand-written list"
+ *     that KI-726 asked for);
+ *   - the WAI-ARIA heading role + level mapping, resolved by jsdom and queried
+ *     through testing-library, which is where the COUNT comes from. A count
+ *     fails in BOTH directions: a document that reinstates its `<h1>` gives 2,
+ *     a page that loses its heading gives 0.
+ *   - the loading state's `role="status"` (WAI-ARIA) as the signal that the
+ *     document has actually been injected, so the count is never read off a
+ *     page that is still showing the spinner.
+ *
+ * The fetch is stubbed with the file's REAL bytes and the requested URL is
+ * asserted, so the content under test and the path the component asked for are
+ * the same document — the stub cannot silently answer with the wrong file.
+ * ------------------------------------------------------------------------- */
+// Deliberately NOT `new URL('../../public/legal', import.meta.url)`: Vite
+// recognises that exact pattern statically as an asset URL and rewrites it to
+// a dev-server `http://localhost:…` URL, so `fileURLToPath` throws "The URL
+// must be of scheme file". Same trap, same workaround as
+// ChatView.composer.test.ts:9.
+const LEGAL_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'legal');
+const LEGAL_DOCUMENTS = readdirSync(LEGAL_DIR).filter(name => name.endsWith('.html')).sort();
+
+describe('LegalPage — document outline', () => {
+  it('covers every shipped legal document', () => {
+    // Guards the driver itself: an empty or mis-resolved directory would make
+    // every `it.each` below vacuous.
+    expect(LEGAL_DOCUMENTS.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it.each(LEGAL_DOCUMENTS)('renders exactly one <h1> with %s injected', async file => {
+    const [page, language] = file.replace('.html', '').split('-') as [
+      ComponentProps<typeof LegalPage>['page'],
+      Language,
+    ];
+    themeMock.language = language;
+    const fetchMock = stubFetch(readFileSync(path.join(LEGAL_DIR, file), 'utf8'));
+
+    renderLegalPage({ page, onBack: vi.fn() });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/legal/${file}`));
+    // The spinner is the loading branch; its absence means the sanitised
+    // document is in the DOM.
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    // …and the document's own headings start one level below it, which is the
+    // structural half of "the same layout" for all three routes.
+    expect(screen.getAllByRole('heading', { level: 2 }).length).toBeGreaterThan(0);
   });
 });

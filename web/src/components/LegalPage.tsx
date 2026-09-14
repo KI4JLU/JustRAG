@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { AuthLayout, Button, Spinner } from '@ki4jlu/design-system';
+import { Button, Container, PageHeader, Spinner } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import type { Language } from '../translations';
@@ -51,46 +51,74 @@ export function LegalPage({ page, onBack }: LegalPageProps) {
   }, [page, language, t, toast]);
 
   /* -------------------------------------------------------------------------
-   * Shell: the design system's AuthLayout template (card KI-693). This and
-   * Login are the app's only unauthenticated surfaces, so they share the
-   * template's frame rather than two hand-built ones. The template's slot API
-   * is documented at the top of ../Login.tsx.
+   * Shell: `Container` + `PageHeader` — the design system's PAGE shape (card
+   * KI-750). This replaces `AuthLayout`, which Stage 4a (KI-693) had picked
+   * and which the developer rejected five times running.
    *
-   * Everything this file used to build by hand — full-height page, page
-   * background, horizontal centring, the content column, the page padding —
-   * is the template's root and inner Stack, so all five inline style objects
-   * are deleted. No inline style survives in this file.
+   * WHY THE TEMPLATE WAS WRONG, measured on the running dev server at a
+   * 1600px viewport (walking getComputedStyle up from the <h1>, full chain on
+   * KI-750): `AuthLayout` produced
    *
-   * Two visual consequences only the developer's both-theme QA can accept:
-   *   1. The content column. KI-693 landed on the template's hardcoded
-   *      `max-w-md` (448px) because the width was not reachable through
-   *      `className`, and the developer rejected that at visual QA. The fix
-   *      went where that card said it belonged — a named width on the
-   *      template in the design system — and shipped as v0.24.0's
-   *      `width="prose"` (`max-w-2xl`, 672px), which is what this call site
-   *      now passes (card KI-743). 672px is 48px NARROWER than the
-   *      pre-migration 720px, deliberately: the DS picked `2xl` as the widest
-   *      step still under the WCAG 1.4.8 80-character cap (79.3 characters
-   *      measured in Chromium at its 624px effective text width, against 91.8
-   *      at `3xl`). If it still reads too narrow, the answer is a further
-   *      named step in the design system, not an arbitrary override here.
-   *   2. The "back" control moves from above the heading to directly below
-   *      it, because the heading is now the template's card header and the
-   *      slot order is fixed.
+   *   div  flex flex-col gap-1.5 p-6 text-center                      670px
+   *   div  rounded-xl border … bg-surface-container-lowest            672px
+   *   div  flex flex-col gap-stack-lg w-full max-w-2xl   max-width:   672px
+   *   div  flex min-h-dvh … items-center justify-center              1600px
+   *
+   * i.e. three credential-entry shapes, none of them reachable by changing a
+   * width: the document sat INSIDE a Card, its title was `text-center`, and
+   * the whole thing was vertically centred in the viewport. That is what
+   * "a small mobile-styled container instead of a full page view" described,
+   * and it is why KI-743's correct 448 -> 672px widening did not fix it.
+   * Widening a card cannot make it a page.
+   *
+   * THE WIDTH. `size="content"` is 1000px
+   * (`--max-width-container-content`) — the same 1000px as
+   * `.home-view__grid--main` (HomeView.css:246), which is the width the
+   * developer asked these pages to match. It is a NAMED size, shipped by the
+   * design system in v0.25.0 (card KI-751) precisely so this call site does
+   * not need `className="max-w-[1000px]"`: KI-711 records that
+   * `layout-only-classname` structurally cannot see arbitrary values on
+   * composition components like `Container`, so an override here would have
+   * passed lint silently. The size scale names a ROLE, not a step —
+   * `page` (1440px) / `content` (1000px) / `reading` (672px).
+   *
+   * THE HEADING. `PageHeader` renders a real heading element (level 1 by
+   * default), so the hand-rolled `<h1 className="m-0 text-headline-md …">`
+   * that `AuthLayout`'s `div`-based `CardTitle` forced on every call site is
+   * gone, and so is the `m-0` that neutralised index.css's
+   * `@layer base { h1 { margin: revert } }` — v0.24.0 put that inside the
+   * component. This page therefore owns THE page's only `<h1>`, and the six
+   * documents under public/legal/ start at `<h2>` (card KI-726, done in the
+   * same change: with a real PageHeader the two headings would sit adjacent
+   * and the page would ship visibly broken).
+   *
+   * THE BACK CONTROL sits in `PageHeader`'s `actions` slot — the header row's
+   * right-hand side — as an `outline` Button rather than the previous
+   * `variant="link" className="px-0"`. A link-styled control was right when
+   * it sat inside the card body above the prose; in the header's action area
+   * it would read as a stray piece of body text next to the page title, and
+   * `outline` is the quiet-but-real control the DS offers for a secondary
+   * page action.
+   *
+   * `<main>` stays the landmark and now carries the page ground
+   * (`min-h-dvh bg-surface text-on-surface`) that `AuthLayout`'s root used to
+   * supply; `Container` brings the horizontal page margins
+   * (`px-gutter md:px-margin-page`) and the call site adds the matching
+   * vertical ones — the same combination `DashboardLayout` uses internally,
+   * so the legal routes are laid out like every other page of this app.
    * ----------------------------------------------------------------------- */
   return (
-    <main>
-      <AuthLayout
-        width="prose"
-        /* See ../Login.tsx: CardTitle is a <div>, so the <h1> comes from the
-         * call site, and the two type classes neutralise index.css's
-         * `@layer base` h1 revert rather than re-skinning the template. */
-        title={<h1 className="m-0 text-headline-md font-semibold">{t(titleKeys[page])}</h1>}
-      >
-        <Button variant="link" size="sm" onClick={onBack} className="px-0">
-          <ArrowLeft size={16} />
-          {t('backToHome')}
-        </Button>
+    <main className="min-h-dvh bg-surface text-on-surface">
+      <Container size="content" className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
+        <PageHeader
+          title={t(titleKeys[page])}
+          actions={
+            <Button variant="outline" size="sm" onClick={onBack}>
+              <ArrowLeft size={16} />
+              {t('backToHome')}
+            </Button>
+          }
+        />
 
         {loading ? (
           <div className="flex justify-center py-stack-lg">
@@ -98,11 +126,11 @@ export function LegalPage({ page, onBack }: LegalPageProps) {
           </div>
         ) : (
           <div
-            className="content-fade-in mt-stack-md text-body-base text-on-surface-variant"
+            className="content-fade-in text-body-base text-on-surface-variant"
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
           />
         )}
-      </AuthLayout>
+      </Container>
     </main>
   );
 }

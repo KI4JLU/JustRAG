@@ -3,20 +3,30 @@ import { expect } from 'storybook/test';
 import { LegalPage } from './LegalPage';
 
 /* ---------------------------------------------------------------------------
- * LegalPage on the design system's AuthLayout (card KI-693), so the question
- * that card left open can be judged instead of described: the content column
- * narrowed from a hand-set 720px to the template's `max-w-md` (448px), which
- * sat on AuthLayout's inner Stack and was not reachable through className.
- * The developer rejected 448px at visual QA, the design system added a named
- * width, and this call site now passes `width="prose"` — `max-w-2xl`, 672px
- * (card KI-743). The measurement below is the 672px, from the CSSOM.
+ * LegalPage on the design system's PAGE shape — `Container` + `PageHeader`
+ * (card KI-750), which replaced `AuthLayout` (Stage 4a, card KI-693).
+ *
+ * WHY THE NUMBER IN THE MEASUREMENT BELOW CHANGED, so a reviewer does not read
+ * it as a weakened test: it asserted `672px` up to KI-743, which was
+ * `AuthLayout`'s `width="prose"` (`max-w-2xl`) and was correct for that
+ * template — its independent reviewer confirmed it, and `AuthLayout.prose`
+ * still computes to 672px in v0.25.0. It reads `1000px` here because this card
+ * REPLACED the template, not because anything drifted underneath it: 1000px is
+ * `Container`'s `size="content"` (`--max-width-container-content`, DS v0.25.0,
+ * card KI-751) and it is the same 1000px as `.home-view__grid--main`
+ * (HomeView.css:246) — the width the developer asked these pages to match.
+ * The TECHNIQUE is unchanged and is the part that matters: the computed value
+ * out of the CSSOM, never a class string, because a class assertion passes
+ * even when the utility compiles to nothing.
  *
  * Nothing is mocked here. The component fetches
  * /legal/<page>-<language>.html, and Storybook serves web/public through
  * `staticDirs` while the Vitest browser runner serves it through Vite's
  * publicDir — so these stories render the ACTUAL compliance documents at the
  * actual measure, which is the only thing that makes the width question
- * answerable.
+ * answerable, and the only place the documents' OWN headings are in the DOM
+ * (which is what the single-<h1> assertions below are for; the file-driven
+ * variant over all six documents and both languages is in LegalPage.test.tsx).
  *
  * Language follows the app's own state (seeded to `de` in
  * .storybook/preview.tsx); the DE/EN control lives on Login, so switch it
@@ -35,7 +45,7 @@ import { LegalPage } from './LegalPage';
  * decorators, never under the app's routes. `src/App.unauthenticated.test.tsx`
  * is the guard that can — it renders the real App and clicks through the login
  * footer. These stories answer a different question: how the DOCUMENTS look at
- * the template's measure, in both themes.
+ * the page's measure, in both themes.
  * ------------------------------------------------------------------------- */
 
 const meta = {
@@ -52,7 +62,8 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * Terms of use, and the measurement KI-693 could only reason about.
+ * Terms of use, and the two measurements the AuthLayout cards could only
+ * reason about: the content width, and the absence of the card.
  */
 export const Terms: Story = {
   args: { page: 'terms' },
@@ -65,22 +76,43 @@ export const Terms: Story = {
     // Oracle 2: the browser's own CSSOM. Walk up from the page heading to the
     // first ancestor that constrains width and read the COMPUTED value, so the
     // number comes from the cascade rather than from a class string this repo
-    // wrote. 672px is the `max-w-2xl` behind AuthLayout's `width="prose"`; the
-    // Tailwind scale is the design system's, and Chromium resolves it, so
-    // neither the class nor the number is this repo's own claim. Drop the prop
-    // and the walk finds 448px (`max-w-md`) instead — which is exactly the
-    // state the developer rejected, so this assertion is the regression guard
-    // for it.
-    let node: HTMLElement | null = await canvas.findByRole('heading', {
+    // wrote. 1000px is the `--max-width-container-content` token behind
+    // `Container`'s `size="content"`; the token is the design system's and
+    // Chromium resolves it, so neither the class nor the number is this repo's
+    // own claim. Drop the prop and the walk finds 1440px (`size` falls back to
+    // the cva default `page`) — mutation-verified on KI-750.
+    const heading: HTMLElement = await canvas.findByRole('heading', {
       level: 1,
       name: 'Nutzungsbedingungen',
     });
+    let node: HTMLElement | null = heading;
     let constrained = 'none';
     while (node && constrained === 'none') {
       constrained = getComputedStyle(node).maxWidth;
       node = node.parentElement;
     }
-    await expect(constrained).toBe('672px');
+    await expect(constrained).toBe('1000px');
+
+    // Oracle 3: the developer's ACTUAL complaint — "a small mobile-styled
+    // container instead of a full page view". The document used to sit inside
+    // a DS `Card`, whose own class list is
+    // `rounded-xl border border-outline-variant bg-surface-container-lowest
+    //  … shadow-card` (dist/index.js). So a card in the chain is observable
+    // without naming a class: every ancestor from the heading up to the
+    // <main> landmark must carry NO border and NO shadow. Both values come
+    // out of the CSSOM, and the "no border" half is only meaningful because
+    // Tailwind Preflight resets `*{border:0 solid}` — a `border` utility is
+    // what makes it non-zero.
+    let box: HTMLElement | null = heading;
+    while (box && box.tagName !== 'MAIN') {
+      const style = getComputedStyle(box);
+      await expect(style.borderTopWidth).toBe('0px');
+      await expect(style.boxShadow).toBe('none');
+      box = box.parentElement;
+    }
+    // The walk must actually have reached the landmark, or the two assertions
+    // above could have passed by never running.
+    await expect(box?.tagName).toBe('MAIN');
   },
 };
 
@@ -92,6 +124,18 @@ export const TermsDark: Story = {
 /** The longest of the three documents — the worst case for the measure. */
 export const Privacy: Story = {
   args: { page: 'privacy' },
+  play: async ({ canvas }) => {
+    // Oracle: a heading only privacy-de.html carries, so the real document is
+    // in the DOM …
+    await expect(await canvas.findByRole('heading', { name: 'Allgemeines' })).toBeVisible();
+    // … and then the count of level-1 headings, which is the KI-726 defect in
+    // its natural habitat: the page's own <h1> plus the one the document used
+    // to carry made two. A COUNT fails in both directions — a document that
+    // reinstates its <h1> gives 2, a PageHeader that loses its heading gives 0.
+    // Oracle: the WAI-ARIA heading role + `aria-level` mapping, resolved by
+    // the browser and read through testing-library, not by this repo.
+    await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  },
 };
 
 export const PrivacyDark: Story = {
@@ -101,6 +145,14 @@ export const PrivacyDark: Story = {
 
 export const Accessibility: Story = {
   args: { page: 'accessibility' },
+  play: async ({ canvas }) => {
+    // Same pair as Privacy. This document is the one that used to duplicate
+    // the page title verbatim — its own `<h2>Erklärung zur Barrierefreiheit`
+    // said exactly what `t('accessibilityTitle')` says — so its first heading
+    // is now a section heading.
+    await expect(await canvas.findByRole('heading', { name: 'Nicht barrierefreie Inhalte' })).toBeVisible();
+    await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  },
 };
 
 export const AccessibilityDark: Story = {
