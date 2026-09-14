@@ -107,8 +107,24 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci --workspace=web
-      - name: lint (advisory — 126 pre-existing violations, tracked backlog)
-        continue-on-error: true
+      - name: lint
+        # BLOCKING since the design-system ESLint rules were armed (card
+        # KI-595). It was `continue-on-error: true` with a note about 126
+        # pre-existing violations; measured on this branch the tree is at 0
+        # errors / 28 warnings, so the advisory flag protected nothing and made
+        # the three `design-system/*` rules enforceable only on a developer's
+        # own machine.
+        #
+        # Plain `eslint .` is deliberately the whole gate. It fails on a NEW
+        # violation, and it ALSO exits 2 when web/eslint-suppressions.json
+        # still lists a hit that no longer exists ("There are suppressions left
+        # that do not occur anymore") — that is what makes the 690-entry
+        # catalogue a one-way burn-down counter. Do NOT add
+        # `--prune-suppressions` here: it repairs the catalogue in place and
+        # exits 0, i.e. it removes the very failure this step exists for. The
+        # repair belongs to the developer, as `npm run lint:prune --prefix web`,
+        # committed together with the migration that shrank the count.
+        # `--pass-on-unpruned-suppressions` is set nowhere, on purpose.
         run: cd web && npm run lint
       - name: test
         run: cd web && npm run test

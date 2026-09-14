@@ -106,14 +106,9 @@ Other useful commands:
 ### Frontend lint and the design-system suppressions catalogue
 
 ```bash
-npm run lint --prefix web          # the gate
+npm run lint --prefix web          # the gate; CI runs exactly this, blocking
 npm run lint:prune --prefix web    # repair the catalogue after fixing hits
 ```
-
-> **Note:** the `lint` step in `.github/workflows/ci.yml` is still
-> `continue-on-error: true`, so these rules currently block only locally. Making
-> that step blocking is what turns the catalogue below into a real gate — it is
-> left as a separate, deliberate decision rather than bundled into this change.
 
 `web/eslint.config.js` runs `@ki4jlu/design-system/eslint-plugin` with all three
 rules at `error`: `no-raw-ui-elements`, `no-hardcoded-colors`,
