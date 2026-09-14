@@ -144,6 +144,26 @@ export interface ApiMockParameters {
   agentMetrics?: unknown;
   /** GET /api/kb/{id}/agents — AdminEvalTab's team select, via fetchKbAgents. */
   kbAgents?: unknown;
+
+  /* -- HomeView, axios half (card KI-774).
+   *
+   * The overview receives its own two KB lists as props, so nothing here
+   * feeds the four accordion sections directly. What these four routes serve
+   * are the CHILDREN the overview mounts: the discovery panel (categories +
+   * catalog) and the lazily loaded members dialog. Both reach the backend
+   * through axios, so the adapter above sees them.
+   *
+   * The catalog route is also the oracle for the unmount-while-collapsed
+   * property: with it declared, `apiMockHistory()` below states in requests,
+   * not in markup, that a collapsed section fetches nothing. -- */
+  /** GET /api/kb-categories — KbCatalogPanel's filter tabs. */
+  kbCategories?: unknown;
+  /** GET /api/kb/catalog?q&category — KbCatalogPanel's rows. */
+  kbCatalog?: unknown;
+  /** GET /api/kb/{id}/members — MembersModal's member list. */
+  kbMembers?: unknown;
+  /** GET /api/kb/{id}/invite-links — MembersModal's third tab. */
+  kbInviteLinks?: unknown;
 }
 
 /**
@@ -163,6 +183,17 @@ const URLS = {
   evalGoldenSetJobs: /\/eval\/golden-sets\/jobs(\?|$)/,
   evalGoldenSets: /\/eval\/golden-sets(\?|$)/,
   evalRuns: /\/eval\/runs(\?|$)/,
+  /* HomeView's children (card KI-774). `/api/kb/catalog` is a sibling of the
+   * `/api/kb/{id}/…` routes, not one of them, so no `[^/]+` pattern above can
+   * swallow it and no ordering rule is needed between them. */
+  kbCategories: /\/api\/kb-categories(\?|$)/,
+  kbCatalog: /\/api\/kb\/catalog(\?|$)/,
+  /* Tail-anchored on purpose: MembersModal's writes go to `/members/bulk`,
+   * `/members/{userId}` and `/members/pending/{username}`, which must NOT be
+   * answered by the read handler. They are different verbs as well, but the
+   * anchor is what makes that independent of the verb. */
+  kbMembers: /\/api\/kb\/[^/]+\/members(\?|$)/,
+  kbInviteLinks: /\/api\/kb\/[^/]+\/invite-links(\?|$)/,
 } as const;
 
 /**
@@ -214,9 +245,37 @@ function installFetchMock(routes: Array<[RegExp, unknown]>): () => void {
   };
 }
 
+/**
+ * The adapter the CURRENT story installed, or null between stories.
+ *
+ * Exposed only through `apiMockHistory()` below, so a story can read what was
+ * requested but cannot add handlers behind `beforeEach`'s back.
+ */
+let activeAdapter: MockAdapter | null = null;
+
+/**
+ * The axios request log for the running story, or null outside one.
+ *
+ * `axios-mock-adapter` pushes every request onto `history` BEFORE it looks for
+ * a handler (src/handle_request.js:38), so the log covers passthrough requests
+ * too — it is a record of what the component asked for, not of what this file
+ * chose to answer.
+ *
+ * It exists for one kind of assertion that has no DOM equivalent: that a
+ * request was NOT made. HomeView's discovery section is unmounted while
+ * collapsed, and the visible consequence of that — the catalog being re-read
+ * on every expand — is a property of the request sequence. Markup can show
+ * that the panel is absent; only the log can show that nothing was fetched
+ * for it, and that expanding it twice fetches twice.
+ */
+export function apiMockHistory(): MockAdapter['history'] | null {
+  return activeAdapter?.history ?? null;
+}
+
 /** Installs the handlers and returns the teardown. */
 export function installApiMock(params: ApiMockParameters): () => void {
   const mock = new MockAdapter(axios, { onNoMatch: 'passthrough' });
+  activeAdapter = mock;
 
   if (params.authProviders) {
     mock.onGet(/\/api\/auth\/providers$/).reply(200, params.authProviders);
@@ -287,6 +346,16 @@ export function installApiMock(params: ApiMockParameters): () => void {
    * through to `onNoMatch: 'passthrough'`, i.e. a 404 from the Storybook
    * origin, which the component surfaces as its own error toast. */
 
+  /* -- HomeView's children (card KI-774) ---------------------------------- */
+
+  /* Registration order is irrelevant here: none of the four patterns can
+   * match another's URL, and none of them collides with a pattern registered
+   * above (checked against `/api/kb/{id}/analytics` and its
+   * retrieval-quality twin, the only other `/api/kb/…` readers). */
+  for (const key of ['kbCategories', 'kbCatalog', 'kbMembers', 'kbInviteLinks'] as const) {
+    if (params[key] !== undefined) mock.onGet(URLS[key]).reply(200, params[key]);
+  }
+
   /* -- The authFetch half ------------------------------------------------ */
 
   const fetchRoutes: Array<[RegExp, unknown]> = [];
@@ -299,5 +368,6 @@ export function installApiMock(params: ApiMockParameters): () => void {
   return () => {
     mock.restore();
     restoreFetch?.();
+    activeAdapter = null;
   };
 }
