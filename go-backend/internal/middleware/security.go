@@ -2,16 +2,35 @@ package middleware
 
 import "net/http"
 
-// DefaultCSP is the built-in Content-Security-Policy. The script-src hash
-// covers the inline script Vite emits in the production frontend build. If
-// the frontend build changes that inline content the hash drifts, and
-// CSP-enforcing browsers silently refuse to execute the script — there is no
-// server-side signal of the mismatch. Override via the csp argument to
+// DefaultCSP is the built-in Content-Security-Policy. Its script-src hashes
+// cover the inline scripts of the production frontend build. If an inline
+// script changes and its hash is not regenerated, CSP-enforcing browsers
+// silently refuse to execute it — there is no server-side signal of the
+// mismatch, and the Vite dev server sends no CSP at all, so a broken hash is
+// invisible everywhere except production. Override via the csp argument to
 // SecurityHeaders (wired through the CSP_HEADER env var in internal/config)
 // so a hash drift can be fixed at deploy time without a rebuild.
 //
-// To regenerate the hash after a frontend build, extract the inline script
-// body from web/dist/index.html and sha256/base64 it, e.g.:
+// Two hashes are listed:
+//
+//   - 'sha256-ghIKC6K2…' is the theme/language boot script in web/index.html
+//     (resolves data-theme before first paint, so dark-mode users get no white
+//     flash). TestDefaultCSPCoversIndexHTMLInlineScript recomputes it from that
+//     file on every `go test ./...`, so editing the script without regenerating
+//     the hash is a red test rather than a production-only bug.
+//   - 'sha256-ieoeWczD…' predates this fork's visible git history (it arrives
+//     in the squashed initial commit) and matches NO inline script in the
+//     current production build — `npm run build --prefix web` emits exactly one
+//     inline script, the theme boot script above. It is kept because a hash
+//     entry only ever permits a script whose exact bytes hash to that value, so
+//     it grants nothing, while dropping it is a deploy-visible change to a
+//     directive whose original purpose is no longer recoverable from the repo.
+//     TODO: remove once someone confirms no deployed frontend still ships an
+//     inline script matching it — not yet confirmed.
+//
+// To regenerate a hash after a frontend build, extract the inline script body
+// from web/dist/index.html — the BUILT file, because the browser hashes what it
+// receives — and sha256/base64 it, e.g.:
 //
 //	# grab the text between the inline <script>…</script> tags, no tags, no
 //	# surrounding whitespace trimming beyond what the browser hashes:
@@ -24,7 +43,7 @@ import "net/http"
 // html-to-image library rasterizes the graph by loading an SVG as a data: URL
 // image and drawing it to a canvas. Without this, img-src inherits
 // default-src 'self' and browsers block that image load, failing the export.
-const DefaultCSP = "default-src 'self'; script-src 'self' 'sha256-ieoeWczDHkReVBsRBqaal5AFMlBtNjMzgwKvLqi/tSU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' blob:"
+const DefaultCSP = "default-src 'self'; script-src 'self' 'sha256-ghIKC6K2dzQnJQeXKhXi7iyrCfVnmWtdxiPWmgOzUW0=' 'sha256-ieoeWczDHkReVBsRBqaal5AFMlBtNjMzgwKvLqi/tSU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' blob:"
 
 // SecurityHeaders sets the standard security response headers. emitHSTS
 // gates Strict-Transport-Security: HSTS has no effect over plain HTTP, and

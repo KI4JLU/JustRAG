@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 
 <head>
   <meta charset="UTF-8" />
@@ -12,6 +12,58 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="renderer" content="webkit" />
+
+  <!--
+    Theme + language BEFORE first paint. Without this the document renders in
+    the light default and only flips once React mounts, so every dark-mode user
+    gets a white flash on every load. The design system has no
+    prefers-color-scheme fallback on purpose: it resolves the preference in JS
+    and keys only on [data-theme="dark"] (see the comment above that rule in
+    @ki4jlu/design-system/dist/tokens.css), and it assumes exactly this inline
+    script — which JustRAG never had.
+
+    The resolution order MIRRORS src/hooks/useThemeAndLanguage.ts: a stored
+    'light'/'dark' wins, otherwise prefers-color-scheme; language is a stored
+    'de'/'en', otherwise 'de'. If the two ever disagree the page flips again at
+    mount — a flicker that is worse than the steady bug — so
+    src/indexHtml.theme.test.ts runs this script and the hook against the same
+    inputs and compares them.
+
+    Nothing is written to localStorage here; the hook owns persistence.
+    The body is try/catch'd because localStorage access throws in some privacy
+    modes, and an uncaught exception in <head> would abort the rest of it.
+
+    CSP: this is an INLINE script, so its sha256 has to be in script-src in
+    go-backend/internal/middleware/security.go (DefaultCSP). Change one byte
+    here without regenerating that hash and CSP-enforcing browsers drop the
+    script with no server-side signal — the only symptom is the flash coming
+    back, in production only. TestDefaultCSPCoversIndexHTMLInlineScript in
+    go-backend/internal/middleware/security_test.go makes that a red test.
+  -->
+  <script>
+    (function () {
+      var root = document.documentElement;
+      function apply(theme, lang) {
+        root.setAttribute('data-theme', theme);
+        root.lang = lang;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        // Mirrors the design system's --color-surface, which src/index.css
+        // maps --bg-primary (the body background) onto. The two literals are
+        // pinned against the installed package by src/indexHtml.theme.test.ts.
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#121417' : '#f7fafc');
+      }
+      try {
+        var t = localStorage.getItem('theme');
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        var l = localStorage.getItem('language');
+        apply(t, l === 'en' || l === 'de' ? l : 'de');
+      } catch (e) {
+        apply('light', 'de');
+      }
+    })();
+  </script>
   <!-- Design-system type families: Inter (body/UI), Manrope (headings),
        JetBrains Mono (code/labels). Self-hosted: the @font-face sheet is
        imported from src/index.css and Vite fingerprints the woff2 files into
