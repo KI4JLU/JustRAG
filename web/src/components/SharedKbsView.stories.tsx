@@ -57,7 +57,8 @@ const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
 /** The same person with a system role — KI-782 gates two chrome controls on it. */
 const SYSTEM_ADMIN: User = { id: 'user-1', username: 'grace', role: 'admin' };
 
-/** `imprint` makes the chrome's `contentinfo` landmark render. */
+/** Kept configured on purpose: the chrome must render NO footer even when an
+ * imprint is set (the developer removed it 2026-09-15). */
 const SITE_CONFIGS: Record<string, string> = {
   imprint: 'Impressum · Justus-Liebig-Universitaet Giessen',
 };
@@ -227,7 +228,7 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   await expect(canvas.getAllByRole('main')).toHaveLength(1);
   await expect(canvas.getAllByRole('navigation')).toHaveLength(1);
   await expect(canvas.getByRole('navigation')).toHaveAccessibleName('Hauptnavigation');
-  await expect(canvas.getAllByRole('contentinfo')).toHaveLength(1);
+  await expect(canvas.queryAllByRole('contentinfo')).toHaveLength(0);
 
   // The page heading belongs to the content template inside the shell, not to
   // a page header above it — the design system's heading rule, and the same

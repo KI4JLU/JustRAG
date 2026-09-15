@@ -369,9 +369,6 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
         </Suspense>
       </AppShellLayout>
 
-      {siteConfigs.imprint && (
-        <footer className="home-view__imprint">{siteConfigs.imprint}</footer>
-      )}
     </>
   );
 }

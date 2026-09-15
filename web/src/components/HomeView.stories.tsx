@@ -558,7 +558,11 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   await expect(canvas.getByRole('region', { name: 'Meine Knowledge Bases' }))
     .toContainElement(canvas.getByRole('heading', { level: 1 }));
 
-  await expect(canvas.getAllByRole('contentinfo')).toHaveLength(1);
+  /* ORACLE: the WAI-ARIA landmark mapping. The authenticated chrome renders NO
+   * footer since the developer removed it (2026-09-15) — the legal pages are
+   * reachable from the login screen only — so there is no `contentinfo` here at
+   * all, with or without an imprint configured. */
+  await expect(canvas.queryAllByRole('contentinfo')).toHaveLength(0);
 
   /* The Home nav row's label is NOT `myKBs`. The developer decided that on
    * 2026-09-14: the page `<h1>` and the „Meine KBs" section title already carry
@@ -1104,10 +1108,9 @@ export const UploadedLogoAndCopyConfirmed: Story = {
       await expect(logo).toHaveAttribute('src', `${window.location.origin}/logo-test.svg`);
     }
 
-    /* ORACLE: the WAI-ARIA landmark mapping again. With no imprint there is no
-     * footer and therefore no contentinfo — the same assertion `expectPageFrame`
-     * makes in the opposite direction, which is what makes either of them
-     * falsifiable. */
+    /* ORACLE: the WAI-ARIA landmark mapping again. No contentinfo, and since
+     * the chrome's footer was removed entirely this now holds for every story
+     * rather than only the no-imprint case. */
     await expect(canvas.queryAllByRole('contentinfo')).toHaveLength(0);
 
     /* ORACLE: Chromium's CSSOM, unchanged in kind. `copySuccess` is rendered as

@@ -43,7 +43,6 @@ const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then
 const KbSettingsPanel = lazy(() => import('./components/kb-settings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
 import { OnboardingTour } from './components/OnboardingTour';
-import { Footer } from './components/Footer';
 import { LegalPage } from './components/LegalPage';
 import { viewportHeight } from './utils/viewport';
 
@@ -415,7 +414,6 @@ function AuthenticatedAppInner() {
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
         />
-        <Footer onNavigate={(page) => setView(page)} />
       </motion.div>
       </AppNavProvider>
       </SharingProvider>
@@ -457,7 +455,6 @@ function AuthenticatedAppInner() {
           showSettings={kbSettings.showSettings}
           setShowSettings={kbSettings.setShowSettings}
         />
-        <Footer onNavigate={(page) => setView(page)} />
         <OnboardingHelpButton onClick={() => setShowOnboarding(true)} />
         <OnboardingTour show={showOnboarding} onClose={handleCloseOnboarding} />
       </motion.div>
