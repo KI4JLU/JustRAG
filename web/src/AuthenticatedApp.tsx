@@ -116,7 +116,12 @@ export default function AuthenticatedApp() {
 }
 
 function AuthenticatedAppInner() {
-  const { theme, t } = useTheme();
+  // `resolvedTheme`, not `theme`: since KI-779 `theme` can be `'system'`, and
+  // `data-theme="system"` matches no design-system rule. This attribute is a
+  // NESTED mirror of the one the DS ThemeProvider writes on <html>, so it has
+  // to carry the resolved value or the container would silently stop matching
+  // `[data-theme="dark"]` for every OS-following user.
+  const { resolvedTheme, t } = useTheme();
   const { user, token, updateUser: onUpdateUser } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
@@ -295,7 +300,7 @@ function AuthenticatedAppInner() {
   // shown only for myRole admin|owner.
   if (view === 'kb-settings' && currentKb) {
     return (
-      <div className="app-container" data-theme={theme}>
+      <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', flexDirection: 'column', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
           <div style={{ padding: '1rem 1.5rem 0' }}>
             <button
@@ -318,7 +323,7 @@ function AuthenticatedAppInner() {
 
   if (view === 'profile' && user) {
     return (
-      <div className="app-container" data-theme={theme}>
+      <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
           <Suspense fallback={<LoadingFallback />}>
             <Profile user={user} onBack={viewState.handleGoHome} onUpdateUser={onUpdateUser} />
@@ -334,7 +339,7 @@ function AuthenticatedAppInner() {
 
   if (view === 'agents') {
     return (
-      <div className="app-container" data-theme={theme}>
+      <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
           <Suspense fallback={<LoadingFallback />}>
             <AgentsView

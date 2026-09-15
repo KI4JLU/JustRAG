@@ -4,25 +4,42 @@ import { ToastProvider } from '../src/contexts/ToastContext';
 import { installApiMock, type ApiMockParameters } from './mockApi';
 import './preview.css';
 
+/**
+ * The two schemes the toolbar offers. NOT the app's full theme model, which is
+ * `light | dark | system` since KI-779 — and deliberately so: `system` resolves
+ * against whatever colour scheme the machine running the stories prefers, so a
+ * story pinned to it would assert a different thing on a developer's laptop
+ * than in CI. The toolbar's job is to render each painted scheme
+ * deterministically; `system` is a preference, not a scheme, and it is covered
+ * by src/hooks/useThemeAndLanguage.test.ts instead.
+ */
 type ThemeName = 'light' | 'dark';
 
 /**
  * Bridges the Storybook toolbar selection into the app's REAL theme
  * mechanism, so a story exercises the same runtime the browser does.
  *
- * The app's `useThemeAndLanguage` reads `localStorage['theme']` in its
+ * The mechanism below is UNCHANGED by KI-779, and the reasoning it rests on
+ * still holds verbatim — only the component reading the storage key moved. The
+ * app's `ThemeProvider` now mounts the design system's `ThemeProvider` in
+ * uncontrolled mode, and THAT is what reads `localStorage['theme']` in a
  * `useState` initialiser and writes `data-theme` onto <html> from its own
- * effect; the context exposes `toggleTheme()` but no setter. So the toolbar
- * cannot push a value in — it has to seed the storage key the hook reads and
- * then let the hook initialise from it. That is why the write is here in the
- * decorator body and not in an effect: it must land BEFORE the provider's
+ * effect. It does expose a real `setTheme` now (the DS toggle needs one), but
+ * the toolbar still cannot push a value in from OUT here: nothing above the
+ * provider can call a hook that lives below it. So the seed-then-initialise
+ * route is still the only one, and the write still has to be here in the
+ * decorator body rather than in an effect — it must land BEFORE the provider's
  * state initialiser runs, and a child's initialiser runs after the parent's
  * render body. The write is idempotent.
  *
- * `key={theme}` is what makes the toolbar interactive: the initialiser only
- * runs on mount, so switching the global has to remount the provider. The
- * story itself never touches `data-theme` — the app still sets it, which is
- * the point of testing the real mechanism rather than a picture of it.
+ * `key={theme}` is likewise still load-bearing, and for the same reason: the
+ * initialiser only runs on mount, so switching the global has to remount the
+ * provider. Seeding `'light'`/`'dark'` is also what keeps the stories
+ * deterministic under the tri-state model — both are PINNED choices the DS
+ * provider honours verbatim, so no story's appearance depends on the host's OS
+ * preference. The story itself never touches `data-theme` — the app still sets
+ * it, which is the point of testing the real mechanism rather than a picture
+ * of it.
  */
 const withAppShell: Decorator = (Story, context) => {
   const theme: ThemeName = context.globals.theme === 'dark' ? 'dark' : 'light';

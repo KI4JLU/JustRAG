@@ -332,8 +332,10 @@
  * status, chat, tags, code, the inverted primary/on-primary pair, the elevation
  * ramp's dark opacities, and color-scheme itself.
  *
- * JustRAG sets data-theme on <html> (hooks/useThemeAndLanguage.ts:22), which is
- * the selector the DS keys on, so this works with no theming plumbing here.
+ * data-theme on <html> is set by the design system's own ThemeProvider, which
+ * contexts/ThemeContext.tsx mounts in uncontrolled mode (KI-779) and which
+ * documents itself as the sole writer of that attribute. It is the selector the
+ * DS keys on, so this works with no theming plumbing here.
  * ------------------------------------------------------------------------- */
 
 /* Themed scrollbars */

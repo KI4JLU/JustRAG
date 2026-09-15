@@ -6,7 +6,8 @@ import { Footer } from './Footer';
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
     theme: 'light' as const,
-    toggleTheme: () => {},
+    resolvedTheme: 'light' as const,
+    setTheme: () => {},
     language: 'de' as const,
     setLanguage: () => {},
     t: (key: string) => {

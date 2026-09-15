@@ -106,7 +106,8 @@ vi.mock('../contexts/ThemeContext', () => ({
     theme: 'light',
     language: 'en',
     setLanguage: vi.fn(),
-    toggleTheme: vi.fn(),
+    resolvedTheme: 'light',
+    setTheme: vi.fn(),
     t: (key: string) => {
       const entry = translations[key as keyof typeof translations];
       return entry ? entry.en : key;

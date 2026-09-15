@@ -54,7 +54,8 @@ const setLanguage = vi.fn();
 // object per render would re-run the OIDC-fragment effect forever.
 const themeMock = {
   theme: 'light' as const,
-  toggleTheme: () => {},
+  resolvedTheme: 'light' as const,
+  setTheme: () => {},
   language: 'en' as const,
   setLanguage,
   t: (key: string) => {

@@ -9,11 +9,27 @@
  *
  * Three properties are pinned:
  *
- *  1. The script and src/hooks/useThemeAndLanguage.ts resolve the same theme and
- *     the same language for the same inputs. If they disagree the page flips
- *     again when React mounts — a flicker that is worse than the steady white
- *     flash the script exists to remove. The oracle for each case is the hook
- *     itself, rendered under the same stubs; neither side derives from the other.
+ *  1. The script and the runtime resolve the same theme and the same language
+ *     for the same inputs. If they disagree the page flips again when React
+ *     mounts — a flicker that is worse than the steady white flash the script
+ *     exists to remove.
+ *
+ *     KI-779 changed WHO the runtime is on the theme side. The app's theme is
+ *     now the design system's `ThemeProvider` (tri-state light | dark | system,
+ *     mounted uncontrolled by src/contexts/ThemeContext.tsx), so the oracle for
+ *     the theme cases is that installed provider, rendered under the same
+ *     stubs — not src/hooks/useThemeAndLanguage.ts, which no longer resolves a
+ *     theme at all. The language cases still use the hook. Neither side derives
+ *     from the other in either case.
+ *
+ *     THIS IS ALSO THE CSP ANSWER. Whether the boot script needs a byte change
+ *     for tri-state is not asserted as an opinion anywhere: `themeCases` below
+ *     includes a stored 'system', and if the shipped script disagreed with the
+ *     provider for ANY input it would have to be edited — at which point the
+ *     sha256 test at the bottom of this file goes red until the hash in
+ *     go-backend/internal/middleware/security.go is regenerated. The two tests
+ *     together make "no script change, therefore no new hash" a derived result
+ *     rather than a claim.
  *  2. The two theme-color literals in the script equal the design system's
  *     --color-surface for light and dark. The oracle is the installed
  *     @ki4jlu/design-system package, so a token change turns into a red test
@@ -32,7 +48,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
-import { renderHook } from '@testing-library/react';
+import { render, renderHook } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
+import { ThemeProvider } from '@ki4jlu/design-system';
 import { useThemeAndLanguage } from './hooks/useThemeAndLanguage';
 
 /**
@@ -126,13 +144,36 @@ function scriptResolves(storedTheme: string | null, storedLanguage: string | nul
   return readDocument();
 }
 
-/** What the React hook resolves for the same stubs — the independent oracle. */
+/**
+ * What the design system's ThemeProvider resolves for the same stubs — the
+ * independent oracle for the THEME half since KI-779.
+ *
+ * It is mounted exactly as src/contexts/ThemeContext.tsx mounts it: no `theme`
+ * prop, no `onThemeChange`, default `storageKey`. So this compares the shipped
+ * boot script against the shipped runtime, not against a description of it.
+ */
+function providerResolves(storedTheme: string | null, prefersDark: boolean): Resolved {
+  resetDocument();
+  stubPrefersDark(prefersDark);
+  if (storedTheme !== null) localStorage.setItem('theme', storedTheme);
+  const { unmount } = render(createElement(ThemeProvider, null, null));
+  const resolved = readDocument();
+  unmount();
+  return resolved;
+}
+
+/** The DS provider the app's hook now requires above it. */
+function themeWrapper({ children }: { children: ReactNode }) {
+  return createElement(ThemeProvider, null, children);
+}
+
+/** What the React hook resolves for the same stubs — the oracle for LANGUAGE. */
 function hookResolves(storedTheme: string | null, storedLanguage: string | null, prefersDark: boolean): Resolved {
   resetDocument();
   stubPrefersDark(prefersDark);
   if (storedTheme !== null) localStorage.setItem('theme', storedTheme);
   if (storedLanguage !== null) localStorage.setItem('language', storedLanguage);
-  const { unmount } = renderHook(() => useThemeAndLanguage());
+  const { unmount } = renderHook(() => useThemeAndLanguage(), { wrapper: themeWrapper });
   const resolved = readDocument();
   unmount();
   return resolved;
@@ -147,12 +188,19 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('index.html boot script — agreement with useThemeAndLanguage', () => {
+describe('index.html boot script — agreement with the runtime', () => {
+  /* Every input the storage key can hold, including the two the tri-state
+   * model added: an explicit 'system', and the pinned 'light'/'dark' a
+   * returning user carries over from the old two-state toggle. The OS
+   * preference is set to the OPPOSITE of a pin wherever there is one, so
+   * "honoured the pin" and "fell back to the OS" cannot look alike. */
   const themeCases: Array<{ stored: string | null; prefersDark: boolean }> = [
     { stored: null, prefersDark: true },
     { stored: null, prefersDark: false },
     { stored: 'dark', prefersDark: false },
     { stored: 'light', prefersDark: true },
+    { stored: 'system', prefersDark: true },
+    { stored: 'system', prefersDark: false },
     { stored: 'DARK', prefersDark: false },
     { stored: 'nonsense', prefersDark: true },
     { stored: '', prefersDark: false },
@@ -160,9 +208,9 @@ describe('index.html boot script — agreement with useThemeAndLanguage', () => 
 
   it.each(themeCases)('theme: stored=$stored prefersDark=$prefersDark', ({ stored, prefersDark }) => {
     const fromScript = scriptResolves(stored, null, prefersDark).theme;
-    const fromHook = hookResolves(stored, null, prefersDark).theme;
+    const fromProvider = providerResolves(stored, prefersDark).theme;
     expect(fromScript).toMatch(/^(light|dark)$/);
-    expect(fromScript).toBe(fromHook);
+    expect(fromScript).toBe(fromProvider);
   });
 
   const languageCases: Array<string | null> = [null, 'de', 'en', 'fr', ''];

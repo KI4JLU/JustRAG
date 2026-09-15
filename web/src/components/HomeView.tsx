@@ -415,7 +415,7 @@ function PrivateKbCard({
 }
 
 export function HomeView(props: HomeViewProps) {
-  const { theme, language, setLanguage, toggleTheme, t } = useTheme();
+  const { resolvedTheme, setTheme, language, setLanguage, t } = useTheme();
   // `logout` is read here rather than taken as a prop: AuthContext already
   // publishes it, and AuthenticatedApp only renamed it on the way down.
   const { user, siteConfigs, logout: onLogout } = useAuth();
@@ -498,13 +498,23 @@ export function HomeView(props: HomeViewProps) {
           <Bot size={20} aria-hidden="true" />
         </button>
 
+        {/* The overview's own two-state theme button. KI-779 made the app's
+          * theme model tri-state, but deliberately did NOT turn this control
+          * into a three-way one: KI-696/Stage 7b deletes it outright in favour
+          * of the design system's `ThemeToggle`, which `AppShellLayout`
+          * renders. So it keeps its exact current behaviour and its two
+          * accessible names, and only its inputs change — `resolvedTheme`
+          * instead of `theme`, because `theme` can now be `'system'` and this
+          * button has no icon for that. Pressing it from `system` PINS the
+          * opposite of what is currently painted, which is what the label
+          * already promises. */}
         <button
-          onClick={toggleTheme}
+          onClick={() => setTheme(resolvedTheme === 'light' ? 'dark' : 'light')}
           className="home-view__icon-button"
-          title={theme === 'light' ? t('switchToDark') : t('switchToLight')}
-          aria-label={theme === 'light' ? t('switchToDark') : t('switchToLight')}
+          title={resolvedTheme === 'light' ? t('switchToDark') : t('switchToLight')}
+          aria-label={resolvedTheme === 'light' ? t('switchToDark') : t('switchToLight')}
         >
-          <span className="icon-swap" key={theme}>{theme === 'light' ? <Moon size={20} aria-hidden="true" /> : <Sun size={20} aria-hidden="true" />}</span>
+          <span className="icon-swap" key={resolvedTheme}>{resolvedTheme === 'light' ? <Moon size={20} aria-hidden="true" /> : <Sun size={20} aria-hidden="true" />}</span>
         </button>
 
         <button
