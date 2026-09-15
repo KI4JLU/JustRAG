@@ -220,7 +220,7 @@ function sectionCount(canvas: Canvas): string | null {
 async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   await expect(canvas.getByRole('heading', { level: 1 }))
-    .toHaveTextContent('Geteilte Knowledge Bases');
+    .toHaveTextContent('Geteiltes Wissen');
 
   await expect(canvas.getAllByRole('main')).toHaveLength(1);
   await expect(canvas.getAllByRole('navigation')).toHaveLength(1);
@@ -230,7 +230,7 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   // The page heading belongs to the content template inside the shell, not to
   // a page header above it — the design system's heading rule, and the same
   // fact `HomeView.stories.tsx` pins for the overview.
-  const region = canvas.getByRole('region', { name: 'Geteilte Knowledge Bases' });
+  const region = canvas.getByRole('region', { name: 'Geteiltes Wissen' });
   await expect(region).toContainElement(canvas.getByRole('heading', { level: 1 }));
 
   // An id rename on one side alone breaks the skip link silently, so the
@@ -383,11 +383,11 @@ export const NavRowIsCurrent: Story = {
     const current = canvasElement.querySelectorAll('[aria-current]');
     await expect(current).toHaveLength(1);
     await expect(current[0]).toHaveAttribute('aria-current', 'page');
-    await expect(current[0]).toHaveTextContent('Geteilte Knowledge Bases');
+    await expect(current[0]).toHaveTextContent('Geteiltes Wissen');
 
     // ORACLE: translations.ts. The Overview row exists, is NOT current, and
     // reaches the jump — which is what makes this view leaveable.
-    const overview = canvas.getByRole('button', { name: 'Übersicht' });
+    const overview = canvas.getByRole('button', { name: 'Mein Wissen' });
     await expect(overview).not.toHaveAttribute('aria-current');
     await userEvent.click(overview);
     await expect(args.onViewHome).toHaveBeenCalledTimes(1);

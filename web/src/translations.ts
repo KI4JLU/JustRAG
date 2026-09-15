@@ -48,7 +48,7 @@ export const translations = {
     // problem that also makes `getByRole('button', { name: /^Meine Knowledge
     // Bases/ })` ambiguous. Decided by the developer on 2026-09-14; it amends
     // the slot spec on KI-776, which had said `t('myKBs')`.
-    home: { de: 'Übersicht', en: 'Overview' },
+    home: { de: 'Mein Wissen', en: 'My Knowledge' },
     // The „Geteilte Knowledge Bases" view (KI-783). Three separate keys on
     // purpose, even though two of them read alike today:
     //   - `sharedKbs` is the SIDEBAR ROW and the page <h1>. It is not
@@ -60,10 +60,10 @@ export const translations = {
     //   - the empty state reuses `homeSharedWithMeEmpty`: it is the same
     //     sentence about the same absence, and two wordings for it would be a
     //     translation to keep in sync for nothing.
-    sharedKbs: { de: 'Geteilte Knowledge Bases', en: 'Shared Knowledge Bases' },
+    sharedKbs: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
     sharedKbsDescription: {
-      de: 'Knowledge Bases, die andere mit dir geteilt haben. Deine eigenen findest du unter „Übersicht".',
-      en: 'Knowledge bases other people have shared with you. Your own are under "Overview".',
+      de: 'Knowledge Bases, die andere mit dir geteilt haben. Deine eigenen findest du unter „Mein Wissen".',
+      en: 'Knowledge bases other people have shared with you. Your own are under "My Knowledge".',
     },
     // The three chrome labels AppShellLayout would otherwise render with its
     // German defaults. (Its <ThemeToggle>'s four labels are NOT forwardable —

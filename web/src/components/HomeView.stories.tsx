@@ -539,7 +539,7 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
    * that name, and a third element with it would be both an a11y problem and an
    * ambiguous locator for `sectionTrigger` below. `aria-current` is what marks
    * it as the page one is on, and `NavItem` derives it from `active`. */
-  await expect(canvas.getByRole('button', { name: 'Übersicht' }))
+  await expect(canvas.getByRole('button', { name: 'Mein Wissen' }))
     .toHaveAttribute('aria-current', 'page');
 
   // The skip link is the only in-page jump the overview offers; an id rename on
