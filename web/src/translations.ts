@@ -49,6 +49,22 @@ export const translations = {
     // Bases/ })` ambiguous. Decided by the developer on 2026-09-14; it amends
     // the slot spec on KI-776, which had said `t('myKBs')`.
     home: { de: 'Übersicht', en: 'Overview' },
+    // The „Geteilte Knowledge Bases" view (KI-783). Three separate keys on
+    // purpose, even though two of them read alike today:
+    //   - `sharedKbs` is the SIDEBAR ROW and the page <h1>. It is not
+    //     `homeSharedWithMe` („Mit mir geteilt"), because that string is the
+    //     overview SECTION's title and both can be on screen at once — and
+    //     because the row names a place while the section names a relationship.
+    //   - `sharedKbsDescription` is the page's muted subtitle, the slot
+    //     `kbDescription` fills on the overview.
+    //   - the empty state reuses `homeSharedWithMeEmpty`: it is the same
+    //     sentence about the same absence, and two wordings for it would be a
+    //     translation to keep in sync for nothing.
+    sharedKbs: { de: 'Geteilte Knowledge Bases', en: 'Shared Knowledge Bases' },
+    sharedKbsDescription: {
+      de: 'Knowledge Bases, die andere mit dir geteilt haben. Deine eigenen findest du unter „Übersicht".',
+      en: 'Knowledge bases other people have shared with you. Your own are under "Overview".',
+    },
     // The three chrome labels AppShellLayout would otherwise render with its
     // German defaults. (Its <ThemeToggle>'s four labels are NOT forwardable —
     // design-system gap nhyfbxcfggpr — so those stay German in both

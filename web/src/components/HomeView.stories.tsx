@@ -218,6 +218,7 @@ interface HomeViewStoryArgs {
   onViewProfile: () => void;
   onViewAgents: () => void;
   onViewAdmin: () => void;
+  onViewSharedKbs: () => void;
   onLogout: () => void;
   onCreateKB: () => void;
   onSelectKB: (kb: KnowledgeBase) => void;
@@ -284,6 +285,13 @@ function HomeViewHarness(args: HomeViewStoryArgs) {
         >
           <AppNavProvider
             value={{
+              /* `onViewHome` is an `idle()` spy and not an arg: on THIS view
+                 the Overview row is the current page, so pressing it is a
+                 no-op by construction and no story has anything to assert
+                 about it. `onViewSharedKbs` IS an arg — it is the one jump
+                 KI-783 added that leads somewhere from here. */
+              onViewHome: idle(),
+              onViewSharedKbs: args.onViewSharedKbs,
               onViewProfile: args.onViewProfile,
               onViewAdmin: args.onViewAdmin,
               onViewAgents: args.onViewAgents,
@@ -588,6 +596,7 @@ const meta = {
     onViewProfile: fn(),
     onViewAgents: fn(),
     onViewAdmin: fn(),
+    onViewSharedKbs: fn(),
     onLogout: fn(),
     onCreateKB: fn(),
     onSelectKB: fn(),

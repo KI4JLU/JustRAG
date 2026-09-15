@@ -34,6 +34,7 @@ import { useKbLifecycle } from './hooks/useKbLifecycle';
 
 // Components
 import { HomeView } from './components/HomeView';
+import { SharedKbsView } from './components/SharedKbsView';
 import { KbWorkspaceLayout } from './components/KbWorkspaceLayout';
 import { KbWorkspaceModals } from './components/KbWorkspaceModals';
 
@@ -233,7 +234,11 @@ function AuthenticatedAppInner() {
   // this exists for — only reached the overview after a full page reload.
   const { fetchKBs } = kbMgmt;
   useEffect(() => {
-    if (view === 'home') {
+    // 'shared-kbs' (KI-783) is listed alongside 'home' because it renders the
+    // same `kbs` array: a KB shared with the user while they were elsewhere in
+    // the session would otherwise be missing from the very view that exists to
+    // show it, until a full page reload.
+    if (view === 'home' || view === 'shared-kbs') {
       void fetchKBs({ silent: true });
     }
   }, [view, fetchKBs]);
@@ -266,6 +271,24 @@ function AuthenticatedAppInner() {
       console.error('Failed to update KB settings:', err);
       toast.error(t('settingsUpdateError'));
     }
+  };
+
+  /* The app-level navigation jumps, published to whatever chrome renders the
+   * sidebar. Defined HERE, above the early returns, rather than inside the
+   * 'home' branch where KI-770 put it: since KI-783 there are TWO views that
+   * mount `AppChrome`, and a second inline copy of this object would be two
+   * places for one set of destinations to go stale. `logout` is absent on
+   * purpose — `AuthContext` already publishes it.
+   *
+   * A plain object, not `useMemo`: it was recreated on every render of the
+   * home branch before too, so nothing about re-render behaviour changes, and
+   * a memo here would have to sit above every early return for no gain. */
+  const appNav: AppNavContextValue = {
+    onViewHome: () => setView('home'),
+    onViewSharedKbs: () => setView('shared-kbs'),
+    onViewProfile: () => setView('profile'),
+    onViewAdmin: () => setView('admin'),
+    onViewAgents: () => setView('agents'),
   };
 
   // Early returns for non-KB views
@@ -352,18 +375,50 @@ function AuthenticatedAppInner() {
     );
   }
 
+  /* „Geteilte Knowledge Bases" (KI-783) — a top-level view, not a section.
+   *
+   * It is mounted inside THE SAME two providers as the overview, and that is
+   * load-bearing rather than symmetric-looking: `AppChrome` calls
+   * `useSharingContext()` and `useAppNav()`, both of which THROW without a
+   * provider. `App.authenticated-home.test.tsx` is the route-level guard that
+   * exists because exactly this kind of omission once stayed green in both
+   * component suites; `App.authenticated-shared-kbs.test.tsx` is its twin for
+   * this branch.
+   *
+   * No `OnboardingTour` and no help button here: the tour's steps address the
+   * overview's own elements, so running it over this view would point at
+   * nothing. `Footer` stays, so the legal pages remain reachable. */
+  if (view === 'shared-kbs') {
+    return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
+      <motion.div
+        key="shared-kbs"
+        {...getMotionProps(reducedMotion)}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        <SharedKbsView
+          kbs={kbMgmt.kbs}
+          onSelectKB={kbMgmt.handleSelectKB}
+          onDeleteKB={kbMgmt.handleDeleteKB}
+          removingKb={kbMgmt.removingKb}
+          onOpenKbSettings={kbMgmt.handleOpenKbSettings}
+          onRenameKB={kbMgmt.handleRenameKB}
+        />
+        <Footer onNavigate={(page) => setView(page)} />
+      </motion.div>
+      </AppNavProvider>
+      </SharingProvider>
+    );
+  }
+
   if (view === 'home') {
     // The two overview contexts. `sharing` is the same object the KB
     // workspace half already receives through KbDataContext.sharing — one
     // useSharing() call, two mount points, so the dialog cannot get out of
-    // step between the two halves of the app. `appNav` carries the three
-    // top-level jumps KI-696 relocates into the shell's sidebar; logout is
-    // absent on purpose, since AuthContext already publishes it.
-    const appNav: AppNavContextValue = {
-      onViewProfile: () => setView('profile'),
-      onViewAdmin: () => setView('admin'),
-      onViewAgents: () => setView('agents'),
-    };
+    // step between the two halves of the app.
     return (
       <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>

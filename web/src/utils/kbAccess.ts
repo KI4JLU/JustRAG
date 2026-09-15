@@ -84,3 +84,32 @@ export function canRenameKb(
   if (kb.isGlobal || kb.visibility === 'public') return systemRole === 'admin';
   return kb.myRole === 'owner';
 }
+
+/**
+ * The owned / shared split of `GET /api/kb`.
+ *
+ * `GET /api/kb` returns every PRIVATE KB the caller holds a `kb_members` row
+ * for, and each row carries `myRole` (the raw membership, see `kbMembershipCols`
+ * in `internal/kb/store_pg.go`). Splitting it on the client rather than adding a
+ * second endpoint keeps the overview at one request: a KB I own is mine,
+ * anything else reached me because somebody shared it.
+ *
+ * It lives here, and not inline in a view, because there are now TWO call sites
+ * — the overview's „Mit mir geteilt" section and the „Geteilte Knowledge Bases"
+ * view (KI-783) — and the predicate is invertible in a way that reads the same
+ * either way round. One definition means the two lists cannot disagree about
+ * what „shared" is; two inline copies could, silently and in opposite
+ * directions.
+ *
+ * Order within each list is the server's, unchanged.
+ */
+export function splitKbsByOwnership<K extends Pick<KnowledgeBase, 'myRole'>>(
+  kbs: readonly K[],
+): { ownedKbs: K[]; sharedKbs: K[] } {
+  const ownedKbs: K[] = [];
+  const sharedKbs: K[] = [];
+  for (const kb of kbs) {
+    (kb.myRole === 'owner' ? ownedKbs : sharedKbs).push(kb);
+  }
+  return { ownedKbs, sharedKbs };
+}

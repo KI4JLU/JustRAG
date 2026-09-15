@@ -81,15 +81,24 @@ async function expandSection(title: string) {
   await userEvent.click(screen.getByRole('button', { name: new RegExp(title, 'i') }));
 }
 
-// The three top-level jumps HomeView reads off AppNavContext since KI-770.
-// Module-level spies: no assertion in this file touches them, and a fresh
+// The top-level jumps the chrome around HomeView reads off AppNavContext
+// (three since KI-770, five since KI-783 added the „Geteilte Knowledge Bases"
+// destination and the Overview row's own handler). Module-level spies: a fresh
 // object per render would only add churn.
-const NAV = { onViewProfile: vi.fn(), onViewAdmin: vi.fn(), onViewAgents: vi.fn() };
+const NAV = {
+  onViewHome: vi.fn(),
+  onViewSharedKbs: vi.fn(),
+  onViewProfile: vi.fn(),
+  onViewAdmin: vi.fn(),
+  onViewAgents: vi.fn(),
+};
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
 // a module-level spy that is never reset would carry one test's clicks into the
 // next.
 beforeEach(() => {
+  NAV.onViewHome.mockClear();
+  NAV.onViewSharedKbs.mockClear();
   NAV.onViewProfile.mockClear();
   NAV.onViewAdmin.mockClear();
   NAV.onViewAgents.mockClear();
@@ -257,6 +266,11 @@ describe('HomeView app shell', () => {
     // mocked system role above unlocks, plus the user-menu trigger — i.e. the
     // `nav` and `sidebarFooter` slots both reach the drawer copy.
     expect(drawer.getByRole('button', { name: translations.home.en })).toHaveAttribute('aria-current', 'page');
+    /* ORACLE-LEVEL ADDITION (KI-783), not a locator change: the nav set itself
+       grew by one row. `aria-current` must be on the Overview row and NOT on
+       this one — the overview is the page being rendered — which is the half
+       that a naive `active` wiring gets wrong. */
+    expect(drawer.getByRole('button', { name: translations.sharedKbs.en })).not.toHaveAttribute('aria-current');
     expect(drawer.getByRole('button', { name: translations.myAgents.en })).toBeInTheDocument();
     expect(drawer.getByRole('button', { name: translations.adminSettings.en })).toBeInTheDocument();
     expect(drawer.getByRole('button', { name: /^@grace/ })).toBeInTheDocument();
@@ -273,6 +287,13 @@ describe('HomeView app shell', () => {
 
     await userEvent.click(screen.getByRole('button', { name: translations.adminSettings.en }));
     expect(NAV.onViewAdmin).toHaveBeenCalledTimes(1);
+
+    /* KI-783's new destination, asserted the same way: the row has to reach
+       the jump, not merely exist. This is what makes „the sidebar row has a
+       destination" a fact rather than a claim — the row and the view were
+       added by one card precisely so this could be checked in one place. */
+    await userEvent.click(screen.getByRole('button', { name: translations.sharedKbs.en }));
+    expect(NAV.onViewSharedKbs).toHaveBeenCalledTimes(1);
   });
 });
 

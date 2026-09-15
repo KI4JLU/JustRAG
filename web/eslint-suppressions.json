@@ -104,14 +104,14 @@
       "count": 23
     }
   },
-  "src/components/HomeView.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 10
-    }
-  },
   "src/components/InlineMessageEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 2
+    }
+  },
+  "src/components/KbCard.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 10
     }
   },
   "src/components/KbCatalogPanel.tsx": {

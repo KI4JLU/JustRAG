@@ -3,7 +3,12 @@ import { type MobileTab } from '../components/MobileTabBar';
 import { useSwipeGesture } from './useSwipeGesture';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 
-type ViewType = 'home' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility' | 'agents';
+// `shared-kbs` (KI-783) is „Geteilte Knowledge Bases", a top-level view of its
+// own rather than a section on 'home'. There is no router here: a view is a
+// member of this union, a render branch in AuthenticatedApp, and a nav row
+// wired through AppNavContext. The URL does not change and no history entry is
+// pushed — the existing architecture, not an oversight of this card.
+type ViewType = 'home' | 'shared-kbs' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility' | 'agents';
 type KbViewType = 'chat' | 'dashboard' | 'research' | 'academic_research' | 'workspace' | 'mindmap';
 
 interface UseViewStateParams {
