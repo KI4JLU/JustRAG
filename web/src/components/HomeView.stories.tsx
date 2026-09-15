@@ -438,18 +438,35 @@ async function expectSectionState(panel: HTMLElement, open: boolean) {
  * Where the six controls of the deleted `home-view__actions` row live now.
  *
  * Four of them are `DropdownMenuItem`s in the sidebar's `SidebarUserMenu`, in
- * DOM order. The fifth, „Meine Agenten", became a sidebar `NavItem` and is an
- * ordinary button on the page — it is asserted separately. The sixth was the
- * overview's own theme button, and it is GONE rather than relocated: that is
- * this card's required deletion, and `THEME_CONTROL_NAME` above is what proves
- * the screen does not ship two colour-scheme controls.
+ * DOM order. The fifth, „Meine Agenten", became a sidebar `NavItem` — and
+ * KI-782 then gated that row on `isSystemAdmin`, so for THIS file's ordinary
+ * `USER` fixture it is absent from the screen altogether. That is a behaviour
+ * change, recorded as one: a non-admin no longer reaches the agents view,
+ * because the row was their only way there. The sixth was the overview's own
+ * theme button, and it is GONE rather than relocated: that was KI-776's
+ * required deletion, and `THEME_CONTROL_NAME` above is what proves the screen
+ * does not ship two colour-scheme controls.
  *
  * The language control's German label is an English sentence, because the
  * label names the language it switches to. Pinned as it stands.
+ *
+ * The list is the NON-ADMIN menu. KI-782 moved „Admin-Einstellungen" out of
+ * the nav and into this same menu behind the `isSystemAdmin` gate, so the
+ * admin story asserts a five-item list of its own — and the length check that
+ * follows this one is what keeps the gate falsifiable from this side.
  */
 const USER_MENU_NAMES = [
   'Benutzername kopieren',
   'Mein Profil',
+  'Switch to English',
+  'Abmelden',
+];
+
+/** The same menu as seen by a system admin: Admin sits after the profile. */
+const ADMIN_MENU_NAMES = [
+  'Benutzername kopieren',
+  'Mein Profil',
+  'Admin-Einstellungen',
   'Switch to English',
   'Abmelden',
 ];
@@ -658,22 +675,23 @@ export const Empty: Story = {
       canvas.getByRole('button', { name: 'Neue Knowledge Base erstellen' }),
     ).toBeInTheDocument();
 
-    /* ORACLE: WAI-ARIA accessible names. The five surviving controls of the
-     * deleted `home-view__actions` row, each reachable by name in its NEW home
-     * — which is what this card's acceptance criterion asks for. The totals are
-     * what catch one being dropped on the way.
+    /* ORACLE: WAI-ARIA accessible names. The surviving controls of the deleted
+     * `home-view__actions` row, each reachable by name in its NEW home — which
+     * is what KI-776's acceptance criterion asks for. The totals are what
+     * catch one being dropped on the way.
      *
-     * The queries are scoped on purpose: „Meine Agenten" must now resolve from
-     * the page (it is a sidebar `NavItem`), and the other four only from inside
-     * the open user menu. A document-wide query would hide that difference,
-     * which is the same reason the old version scoped to `.home-view__actions`.
+     * ORACLE-LEVEL CHANGE (KI-782), not a locator one: „Meine Agenten" is no
+     * longer on this screen for an ordinary user. The row is gated on
+     * `isSystemAdmin` and this story's fixture is `USER`, so the assertion
+     * inverts — and the click that used to prove the row reaches
+     * `onViewAgents` moves to `FavoritesAsSystemAdmin`, where the row exists.
+     * Asserting the ABSENCE here rather than deleting the line is the point:
+     * it is the half that distinguishes „gated" from „always visible", and it
+     * is the user-visible loss this card was asked to state plainly.
      *
-     * Clicking the nav row FIRST is not cosmetic: the Radix menu is modal, so
-     * an outside click while it is open is swallowed by its dismiss layer and
-     * would never reach the button. */
-    await expect(canvas.getAllByRole('button', { name: 'Meine Agenten' })).toHaveLength(1);
-    await userEvent.click(canvas.getByRole('button', { name: 'Meine Agenten' }));
-    await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
+     * The query is document-wide (`screen`, not `canvas`) so a row that
+     * escaped into a portal would still be found. */
+    await expect(screen.queryByRole('button', { name: 'Meine Agenten' })).toBeNull();
 
     /* ORACLE: the union pattern in THEME_CONTROL_NAME, matched against the
      * whole canvas. An exact list rather than a length, so a failure names what
@@ -906,7 +924,7 @@ export const FavoritesPopulatedDark: Story = {
  */
 export const FavoritesAsSystemAdmin: Story = {
   args: { globalKbs: [PUBLIC_ONE, PUBLIC_TWO], kbs: [OWNED_ONE], user: SYSTEM_ADMIN },
-  play: async ({ canvas, canvasElement }) => {
+  play: async ({ args, canvas, canvasElement, userEvent }) => {
     await expectPageFrame(canvas, canvasElement);
 
     // ORACLE: src/translations.ts + the fixture's `isPublished: true`.
@@ -915,14 +933,48 @@ export const FavoritesAsSystemAdmin: Story = {
     await expect(canvas.getAllByRole('button', { name: 'Globale Knowledge Base löschen' })).toHaveLength(2);
     await expect(canvas.getByRole('button', { name: 'Globale KB erstellen' })).toBeInTheDocument();
 
-    /* „Admin-Einstellungen" survives as the SAME accessible name in a new home:
-     * it was a floating action button pinned to the page corner, and it is the
-     * third sidebar `NavItem` now. The assertion does not move, and that is the
-     * point of writing it by name — but the control had to be relocated rather
-     * than left in place, because the slot spec puts Admin in the nav and two
-     * buttons with one name would make this very query ambiguous. */
-    await expect(canvas.getByRole('button', { name: 'Admin-Einstellungen' })).toBeInTheDocument();
+    /* THE ADMIN SIDE OF KI-782's TWO GATES, the story that makes them
+     * falsifiable — `Empty` above asserts the same two controls are absent for
+     * an ordinary user, and neither half means anything without the other.
+     *
+     * ORACLE-LEVEL CHANGE, twice over, and the accessible names are unchanged
+     * in both cases — which is exactly why they have to be written down:
+     *  - „Meine Agenten" is now an admin-only sidebar row. It is asserted by a
+     *    CLICK, because `Empty` gave up the only place this file exercised
+     *    `onViewAgents` when the row left the non-admin screen;
+     *  - „Admin-Einstellungen" is no longer a nav row at all. It moved into
+     *    the `SidebarUserMenu`, so the SAME name now resolves to a `menuitem`
+     *    inside a closed Radix dropdown instead of a `button` on the page. The
+     *    `queryByRole('button', …)` line is what proves the old row is gone
+     *    rather than duplicated — two controls with one name would make every
+     *    query for it ambiguous, and the admin console has no other entry
+     *    point since the floating admin button was deleted.
+     *
+     * The nav row is clicked BEFORE the menu is opened: the Radix menu is
+     * modal, so an outside click while it is open is swallowed by its dismiss
+     * layer and would never reach the row. */
+    await expect(canvas.getAllByRole('button', { name: 'Meine Agenten' })).toHaveLength(1);
+    await userEvent.click(canvas.getByRole('button', { name: 'Meine Agenten' }));
+    await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
+
+    await expect(screen.queryByRole('button', { name: 'Admin-Einstellungen' })).toBeNull();
     await expect(canvasElement.querySelector('.home-view__admin-fab')).toBeNull();
+
+    const menu = await openUserMenu(canvas, userEvent);
+    // ORACLE: src/translations.ts, as an ORDERED list. The admin entry sits
+    // between the profile and the language toggle — destinations first, then
+    // the preference, then the session action — and the length is what catches
+    // it being added twice or landing in the wrong menu.
+    const items = menu.getAllByRole('menuitem');
+    await expect(items).toHaveLength(ADMIN_MENU_NAMES.length);
+    for (const [index, name] of ADMIN_MENU_NAMES.entries()) {
+      await expect(items[index]).toHaveAccessibleName(name);
+    }
+
+    // ORACLE: the `args` spy. The name has to resolve to something that acts:
+    // this item is the only route into the admin console.
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Admin-Einstellungen' }));
+    await expect(args.onViewAdmin).toHaveBeenCalledTimes(1);
 
     // The count is the LIST length and is not raised by the create tile.
     await expect(sectionCount(canvas, 'Favoriten')).toBe('2');

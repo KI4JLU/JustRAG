@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn, waitFor, within } from 'storybook/test';
+import { expect, fn, screen, waitFor, within } from 'storybook/test';
 import { SharedKbsView } from './SharedKbsView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
@@ -54,6 +54,8 @@ import type { KnowledgeBase, User } from '../types';
  * ======================================================================== */
 
 const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
+/** The same person with a system role — KI-782 gates two chrome controls on it. */
+const SYSTEM_ADMIN: User = { id: 'user-1', username: 'grace', role: 'admin' };
 
 /** `imprint` makes the chrome's `contentinfo` landmark render. */
 const SITE_CONFIGS: Record<string, string> = {
@@ -392,9 +394,46 @@ export const NavRowIsCurrent: Story = {
     await userEvent.click(overview);
     await expect(args.onViewHome).toHaveBeenCalledTimes(1);
 
-    // The remaining row is unaffected by this card and still routes.
+    /* ORACLE-LEVEL CHANGE (KI-782): „Meine Agenten" is gated on
+     * `isSystemAdmin` and this story's fixture is an ordinary `USER`, so the
+     * row is absent — where it used to be clicked here. The gate lives in
+     * `AppChrome`, which BOTH top-level views render, and that is the fact
+     * this pair of stories is worth keeping: the sibling story below renders
+     * the same view for an admin and finds the row. `screen` rather than
+     * `canvas` so a row that escaped into a portal would still be found. */
+    await expect(screen.queryByRole('button', { name: 'Meine Agenten' })).toBeNull();
+    await expect(args.onViewAgents).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * The same nav, seen by a system admin — the other side of KI-782's gate, on
+ * the SECOND view.
+ *
+ * WHY IT IS HERE AND NOT ONLY IN `HomeView.stories.tsx`. The nav rows and the
+ * user menu come from `AppChrome`, which both views render; a gate wired into
+ * one page instead of the shared chrome would leave the two views with
+ * different navigation, which is the drift the extraction exists to prevent.
+ * That failure is invisible from the overview's stories alone.
+ *
+ * ORACLES: src/translations.ts for the names, the `fn()` spy for the jump, and
+ * WAI-ARIA's button / menuitem role mappings.
+ */
+export const NavRowsAsSystemAdmin: Story = {
+  args: { kbs: [SHARED_EDITOR], user: SYSTEM_ADMIN },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getAllByRole('button', { name: 'Meine Agenten' })).toHaveLength(1);
     await userEvent.click(canvas.getByRole('button', { name: 'Meine Agenten' }));
     await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
+
+    /* „Admin-Einstellungen" is a `menuitem` in the sidebar's user menu since
+     * KI-782, not a nav row — asserted on this view too, because the menu is
+     * the chrome's and a per-page copy would be the same drift. `screen`, not
+     * `canvas`: `DropdownMenuContent` renders through a Radix portal. */
+    await expect(canvas.queryByRole('button', { name: 'Admin-Einstellungen' })).toBeNull();
+    await userEvent.click(canvas.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await expect(menu.getByRole('menuitem', { name: 'Admin-Einstellungen' })).toBeInTheDocument();
   },
 };
 

@@ -272,7 +272,13 @@ describe('HomeView app shell', () => {
        that a naive `active` wiring gets wrong. */
     expect(drawer.getByRole('button', { name: translations.sharedKbs.en })).not.toHaveAttribute('aria-current');
     expect(drawer.getByRole('button', { name: translations.myAgents.en })).toBeInTheDocument();
-    expect(drawer.getByRole('button', { name: translations.adminSettings.en })).toBeInTheDocument();
+    /* ORACLE-LEVEL CHANGE (KI-782), not a locator change: „Admin settings" is
+       no longer a nav row at all. It is a `DropdownMenuItem` inside the user
+       menu, so it is absent from the nav slot in BOTH copies — which is the
+       half of the move that a careless "add it to the menu" edit gets wrong by
+       leaving the row behind and shipping the control twice. The menu itself
+       is asserted in its own test below. */
+    expect(drawer.queryByRole('button', { name: translations.adminSettings.en })).toBeNull();
     expect(drawer.getByRole('button', { name: /^@grace/ })).toBeInTheDocument();
   });
 
@@ -285,15 +291,61 @@ describe('HomeView app shell', () => {
     await userEvent.click(screen.getByRole('button', { name: translations.myAgents.en }));
     expect(NAV.onViewAgents).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(screen.getByRole('button', { name: translations.adminSettings.en }));
-    expect(NAV.onViewAdmin).toHaveBeenCalledTimes(1);
-
     /* KI-783's new destination, asserted the same way: the row has to reach
        the jump, not merely exist. This is what makes „the sidebar row has a
        destination" a fact rather than a claim — the row and the view were
        added by one card precisely so this could be checked in one place. */
     await userEvent.click(screen.getByRole('button', { name: translations.sharedKbs.en }));
     expect(NAV.onViewSharedKbs).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.home.en }));
+    expect(NAV.onViewHome).toHaveBeenCalledTimes(1);
+  });
+
+  /* ---------------------------------------------------------------------
+   * KI-782's role gate, asserted from BOTH sides.
+   *
+   * ORACLE-LEVEL, and stated as such: the nav SET now depends on the caller's
+   * system role. A suite that only rendered the admin case could not tell
+   * „gated" from „always visible", which is why the non-admin case below is
+   * the one carrying the behaviour change — a non-admin loses the agents
+   * screen, since this row is their only entry to it.
+   *
+   * ORACLES: src/translations.ts for every accessible name and WAI-ARIA's
+   * button/menuitem role mappings — neither derived from the component. The
+   * role axis is `authState`, the same mutable fixture the KB-role tests use.
+   * ------------------------------------------------------------------- */
+  it('hides the agents row and the admin entry from a non-admin', async () => {
+    authState.role = 'user';
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    // The two unconditional rows are still there, so a failure here says
+    // "the gate ate the wrong row" rather than "the nav did not render".
+    expect(screen.getByRole('button', { name: translations.home.en })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: translations.sharedKbs.en })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: translations.myAgents.en })).toBeNull();
+
+    // And the admin entry is absent from its NEW home as well, i.e. the move
+    // did not lose the gate on the way into the dropdown.
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.queryByRole('menuitem', { name: translations.adminSettings.en })).toBeNull();
+    expect(menu.getByRole('menuitem', { name: translations.profile.en })).toBeInTheDocument();
+  });
+
+  it('offers the admin entry in the user menu for an admin, and it routes', async () => {
+    authState.role = 'admin';
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+
+    /* ORACLE: the NAV spy. Clicking is the assertion, not rendering: the
+       admin UI has had no other entry point since the floating admin button
+       was deleted, so an item that renders but reaches nothing would lock
+       admins out of the console entirely. */
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.en }));
+    expect(NAV.onViewAdmin).toHaveBeenCalledTimes(1);
   });
 });
 

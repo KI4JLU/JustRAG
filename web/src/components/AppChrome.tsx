@@ -138,9 +138,25 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
    * presses to dismiss the drawer. A handler that re-selects the view one is
    * on is a no-op in state terms and keeps both copies behaving alike.
    *
-   * Row order follows the target nav on KI-782, which owns the rest of that
-   * rework (renaming the Home row, role-gating „Meine Agenten", moving Admin
-   * into the user menu). This card adds only the destination it needs. */
+   * Row order follows the target nav on KI-782, which finished that rework
+   * here: the two KB rows are unconditional, „Meine Agenten" is role-gated,
+   * and Admin left the nav for the user menu below.
+   *
+   * „MEINE AGENTEN" IS ADMIN-ONLY SINCE KI-782, and that is a BEHAVIOUR
+   * change, not a tidy: every non-admin loses the screen, because this row is
+   * their only way to it. The two other call sites of the same jump
+   * (`ChatView`'s `KbAgentsSection` and `KbSettingsPanel`, both behind
+   * `canOpenKbAdvancedSettings`) already require a system role of api-user,
+   * admin or superadmin, so a plain `user` has nothing left. `AgentsView` and
+   * `onViewAgents` stay: the developer reversed the original "remove it"
+   * instruction precisely so the view is HIDDEN rather than orphaned.
+   *
+   * The gate is `isSystemAdmin`, the same predicate the Admin entry uses, so
+   * the app gains no second role convention. Note it is narrower than
+   * `canOpenKbAdvancedSettings`'s system-role triple: an `api-user` who is a
+   * KB admin loses this row while keeping the in-KB "Agent anlegen" links.
+   * // TODO: whether `api-user` should keep the row is not confirmed — it is
+   * recorded on KI-782 rather than decided here. */
   const nav = (
     <>
       <NavItem type="button" active={active === 'home'} onClick={onViewHome}>
@@ -151,14 +167,10 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
         <Users size={20} aria-hidden="true" />
         {t('sharedKbs')}
       </NavItem>
-      <NavItem type="button" onClick={onViewAgents}>
-        <Bot size={20} aria-hidden="true" />
-        {t('myAgents')}
-      </NavItem>
       {isSystemAdmin && (
-        <NavItem type="button" onClick={onViewAdmin}>
-          <Settings size={20} aria-hidden="true" />
-          {t('adminSettings')}
+        <NavItem type="button" onClick={onViewAgents}>
+          <Bot size={20} aria-hidden="true" />
+          {t('myAgents')}
         </NavItem>
       )}
     </>
@@ -187,6 +199,20 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
         <User size={16} aria-hidden="true" />
         {t('profile')}
       </DropdownMenuItem>
+      {/* „Admin-Einstellungen", moved out of the nav by KI-782 with its
+          `isSystemAdmin` gate unchanged. Placed after „Mein Profil" because
+          both are DESTINATIONS — a jump to another view — while the two items
+          below it are a preference and a session action. It is the ONLY route
+          into the admin UI: Stage 7b deleted the floating admin button, so if
+          this item ever stops reaching `onViewAdmin` admins have no way in at
+          all. That is why `App.authenticated-home.test.tsx` clicks it on the
+          real route instead of asserting it renders. */}
+      {isSystemAdmin && (
+        <DropdownMenuItem onSelect={onViewAdmin}>
+          <Settings size={16} aria-hidden="true" />
+          {t('adminSettings')}
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem onSelect={() => setLanguage(language === 'de' ? 'en' : 'de')}>
         <Languages size={16} aria-hidden="true" />
         {t('switchLanguage')}

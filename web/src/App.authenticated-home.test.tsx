@@ -69,6 +69,20 @@ function memoryStorage(): Storage {
   } as Storage;
 }
 
+/**
+ * The signed-in user, written where `App` reads it.
+ *
+ * The SYSTEM ROLE became an axis of this file with KI-782: the sidebar's
+ * agents row and the user menu's admin entry are gated on it, so a fixture
+ * that only ever said `user` could no longer see either control, and one that
+ * only ever said `admin` could not tell a gate from an unconditional render.
+ * Called from `beforeEach` with the ordinary role; the two admin tests
+ * re-seed before they render.
+ */
+function seedUser(role: 'user' | 'admin') {
+  localStorage.setItem('user', JSON.stringify({ id: 'user-1', username: 'grace', role }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // The sidebar's user menu is a Radix dropdown: it measures and captures
@@ -97,7 +111,7 @@ beforeEach(() => {
   // App.tsx makes (App.tsx:37-55), so this is what puts the render on the
   // authenticated route.
   localStorage.setItem('token', 'test-token');
-  localStorage.setItem('user', JSON.stringify({ id: 'user-1', username: 'grace', role: 'user' }));
+  seedUser('user');
   localStorage.setItem('language', 'de');
   // The tour would otherwise open over the overview on a first visit.
   localStorage.setItem('onboardingCompleted', 'true');
@@ -167,8 +181,16 @@ describe('App — the KB overview on the authenticated home route', () => {
      * `SidebarUserMenu` — a CLOSED Radix dropdown, so they are not in the
      * document at all until it is opened. Opening it is therefore part of what
      * this test pins now, and it makes the check strictly stronger: the trigger
-     * has to render, respond, and carry the four handlers behind it. */
-    expect(screen.getByRole('button', { name: translations.myAgents.de })).toBeInTheDocument();
+     * has to render, respond, and carry the four handlers behind it.
+     *
+     * WHAT KI-782 CHANGED HERE, and it is an ORACLE change rather than a
+     * locator one: „Meine Agenten" is gated on `isSystemAdmin`, and this
+     * file's fixture is an ordinary `user`, so the row is now ABSENT on this
+     * route. The `AppNavContext` half of the wiring is therefore checked by
+     * the admin test below, where the row exists; the assertion here is the
+     * BEHAVIOUR change itself — a non-admin's overview no longer offers the
+     * agents screen. */
+    expect(screen.queryByRole('button', { name: translations.myAgents.de })).toBeNull();
 
     // The trigger's accessible name is the username SidebarUserMenu shows,
     // which is the one this file seeds into localStorage above.
@@ -177,6 +199,59 @@ describe('App — the KB overview on the authenticated home route', () => {
     expect(menu.getByRole('menuitem', { name: translations.copyUsername.de })).toBeInTheDocument();
     expect(menu.getByRole('menuitem', { name: translations.profile.de })).toBeInTheDocument();
     expect(menu.getByRole('menuitem', { name: translations.logout.de })).toBeInTheDocument();
+    // The admin entry KI-782 moved into this menu is gated on the same system
+    // role, so an ordinary user must not find it here either.
+    expect(menu.queryByRole('menuitem', { name: translations.adminSettings.de })).toBeNull();
+  });
+
+  /* -----------------------------------------------------------------------
+   * KI-782, the admin side of both gates — on the REAL route.
+   *
+   * Why here and not only in `HomeView.test.tsx`: that suite mocks
+   * `AuthContext` and supplies `AppNavContext` from a harness, so it can say
+   * what `AppChrome` does with a role and a spy, and nothing about what the
+   * assembled app does with a stored user. This file renders `App` with only
+   * the network stubbed, which is the only place the two can be compared.
+   *
+   * The admin console has NO other entry point since Stage 7b deleted the
+   * floating admin button, so the click path is exercised end to end rather
+   * than asserted as a rendered name: the item must reach `setView('admin')`
+   * and the admin view must actually come up.
+   *
+   * ORACLES, both independent of the code under change: src/translations.ts
+   * for every accessible name (`myAgents`, `adminSettings`, `adminDashboard`)
+   * and WAI-ARIA's button / menuitem / heading role mappings.
+   * -------------------------------------------------------------------- */
+  it('shows the agents row to a system admin', async () => {
+    seedUser('admin');
+    render(<App />);
+
+    await findOverviewHeading();
+
+    expect(screen.getByRole('button', { name: translations.myAgents.de })).toBeInTheDocument();
+  });
+
+  it('reaches the admin console from the user menu', async () => {
+    seedUser('admin');
+    render(<App />);
+
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.de }));
+
+    /* ORACLE: translations.ts (`adminDashboard`) + the h1 mapping. `AdminUI`
+     * is a lazy import behind a Suspense boundary, hence the same generous
+     * timeout `findOverviewHeading` explains — a module fetch, not a
+     * behaviour, is what is being waited for. */
+    expect(
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: translations.adminDashboard.de },
+        { timeout: 15000 },
+      ),
+    ).toBeInTheDocument();
   });
 
   /* Card KI-781 gave the onboarding-tour trigger a stable `id` so it can be
