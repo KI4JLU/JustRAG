@@ -128,7 +128,25 @@ jobs:
         run: cd web && npm run lint
       - name: test
         run: cd web && npm run test
+      - name: install chromium for the story suite
+        # Only the browser, and only chromium: vitest.config.ts's `storybook`
+        # project declares exactly one instance. `--with-deps` pulls the shared
+        # libraries the headless browser needs on the runner image.
+        run: cd web && npx playwright install --with-deps chromium
+      - name: test (stories)
+        # ADDED with card KI-780, and the reason is the point of that card.
+        # The story suite is the only place a RESPONSIVE assertion can run:
+        # jsdom implements neither cascade layers nor media queries, so
+        # `npm run test` above cannot tell whether an `lg:` utility actually
+        # applies. It did not run in CI at all until now, which is why a
+        # stylesheet that disabled every `lg:` rule in the app passed every
+        # gate for as long as it did. `ResponsiveCascade.stories.tsx` is the
+        # guard; running it here is what makes it one.
+        run: cd web && npm run test:stories
       - name: build
+        # `npm run build` ends in `node scripts/check-css-cascade.mjs`, which
+        # fails the job if any emitted stylesheet contains an unlayered rule
+        # that shadows a selector from `@layer utilities` (card KI-780).
         run: cd web && npm run build
       - name: CSP inline-script hash drift
         # A stale 'sha256-…' token in middleware.DefaultCSP silently breaks

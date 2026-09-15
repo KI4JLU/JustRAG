@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/check-css-cascade.mjs",
     "lint": "eslint .",
     "lint:prune": "eslint . --prune-suppressions",
     "preview": "vite preview",
@@ -70,6 +70,7 @@
     "globals": "17.7.0",
     "jsdom": "^29.1.1",
     "playwright": "^1.63.0",
+    "postcss": "^8.5.6",
     "sharp": "^0.35.2",
     "storybook": "^10.6.0",
     "svgo": "^4.0.0",

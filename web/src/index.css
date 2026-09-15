@@ -399,49 +399,35 @@ h3 {
   outline-offset: 2px;
 }
 
-.animate-spin {
-  animation: rotation 1s linear infinite;
-}
-
-.h-full {
-  height: 100%;
-}
-
-.flex {
-  display: flex;
-}
-
-.items-center {
-  align-items: center;
-}
-
-.justify-center {
-  justify-content: center;
-}
-
-.fixed {
-  position: fixed;
-}
-
-.inset-0 {
-  inset: 0;
-}
-
-.z-50 {
-  z-index: 50;
-}
-
-.bg-black\/50 {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.text-white {
-  color: #fff;
-}
-
-.flex-shrink-0 {
-  flex-shrink: 0;
-}
+/* DELETED 15.09.2026, card KI-780 — and nothing shaped like them may come
+ * back UNLAYERED.
+ *
+ * Eleven hand-written duplicates of Tailwind utilities used to sit here
+ * (.animate-spin .h-full .flex .items-center .justify-center .fixed .inset-0
+ * .z-50 .bg-black/50 .text-white .flex-shrink-0), plus .sr-only further down,
+ * all declared outside every `@layer`.
+ *
+ * THE MECHANISM: an unlayered rule outranks every rule in a named layer. Not
+ * by source order and not by specificity — by cascade LAYER precedence, which
+ * the spec resolves before either of those and which a media query cannot
+ * escape. So this file's `.flex { display: flex }` beat
+ * `@layer utilities`'s `.lg\:hidden { display: none }` at every viewport
+ * width. The design system's AppShell renders its mobile top bar as
+ * `sticky top-0 z-10 flex items-center … lg:hidden` — two collisions in one
+ * className — so the bar stayed visible above 1024px. That is what the
+ * "double header" report was, and it was NEVER dev-only: measured on
+ * c9b7626, the dev transform and `dist/assets/index-*.css` emit the identical
+ * 12 shadows.
+ *
+ * Tailwind generates every one of these itself, inside `@layer utilities`,
+ * where a `lg:`/`hover:`/`md:` variant can win normally. `.bg-black/50` had
+ * zero call sites in the repo and in the design system, so it is simply gone.
+ *
+ * ENFORCEMENT: web/scripts/check-css-cascade.mjs runs as the last step of
+ * `npm run build` (therefore in CI) and fails on any unlayered rule whose
+ * selector is also emitted inside `@layer utilities`. The behavioural half —
+ * that an `lg:` breakpoint now actually applies — is asserted in a real
+ * browser by src/components/ResponsiveCascade.stories.tsx. */
 
 .notebook-container {
   display: flex;
@@ -1086,16 +1072,6 @@ button.source-card {
   margin-top: auto;
 }
 
-@keyframes rotation {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes ai-streaming-pulse {
 
   0%,
@@ -1674,18 +1650,10 @@ button.source-card {
   top: 8px;
 }
 
-/* Screen Reader Only - Accessibility Utility */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
-}
+/* `.sr-only` is NOT declared here — see the KI-780 note above. Tailwind emits
+ * it into `@layer utilities` with the modern `clip-path: inset(50%)` instead
+ * of the deprecated `clip: rect(...)`, and an unlayered copy here would also
+ * have outranked Tailwind's `.not-sr-only`. */
 
 /* ========================================
    Research Mode Styles
@@ -2410,11 +2378,23 @@ button.source-card {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-spin {
-    animation: none;
+/* The `.animate-spin` half is LAYERED, the `*` half is not, and the split is
+ * deliberate (KI-780). `.animate-spin` has to beat Tailwind's own
+ * `.animate-spin`; inside one layer the later rule wins at equal specificity,
+ * and this block sits after `@import "tailwindcss/utilities.css"
+ * layer(utilities)`, so it does. Unlayered it would ALSO outrank every variant
+ * of that utility, which is the defect this card removed — and
+ * check-css-cascade.mjs would reject it. The `*` rule collides with no utility
+ * selector and carries `!important`, so it stays where it was. */
+@layer utilities {
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spin {
+      animation: none;
+    }
   }
+}
 
+@media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
