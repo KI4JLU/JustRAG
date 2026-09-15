@@ -9,9 +9,12 @@ import type { Language } from '../translations';
  * TRI-STATE SINCE KI-779. `theme` is the user's choice out of
  * `light | dark | system`; `resolvedTheme` is what is actually painted
  * (`light | dark`). The old `toggleTheme()` is gone — there is a real
- * `setTheme(t)` now, because the design system's `ThemeToggle` (which
- * `AppShellLayout` renders unconditionally) is a three-option group and a
- * two-state model would leave its middle option permanently unpressable.
+ * `setTheme(t)` now, because the design system's `ThemeToggle` is a
+ * three-option group and a two-state model would leave its middle option
+ * permanently unpressable. (Until design-system 0.25.0 that toggle was
+ * rendered by `AppShellLayout` itself; since 0.26.0 the consumer mounts it —
+ * `AppChrome`'s sidebar footer, card KI-788 — which changes who renders it,
+ * not what it needs from this provider.)
  *
  * WHY THE DS PROVIDER IS MOUNTED HERE RATHER THAN REIMPLEMENTED.
  * `@ki4jlu/design-system`'s `ThemeProvider` documents itself as the sole

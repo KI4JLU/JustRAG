@@ -122,10 +122,13 @@ function SharingHarness({ children }: { children: React.ReactNode }) {
 // before it.
 // The DESIGN SYSTEM's ThemeProvider, on top of the app providers.
 //
-// It is not decoration and it is not a stub: `AppShellLayout` renders a
-// `ThemeToggle` unconditionally, and that toggle calls the design system's own
-// `useTheme()`, which throws outright without this provider — measured, it is
-// what made all 30 tests in this file fail at once when the shell landed. In
+// It is not decoration and it is not a stub: the chrome renders a
+// `ThemeToggle`, and that toggle calls the design system's own `useTheme()`,
+// which throws outright without this provider — measured, it is what made all
+// 30 tests in this file fail at once when the shell landed. (KI-776 hit it
+// because `AppShellLayout` rendered the toggle itself; since design-system
+// 0.26.0 it is `AppChrome`'s sidebar footer that does — KI-788 — so the
+// dependency is unchanged.) In
 // production the app mounts it inside `contexts/ThemeContext.tsx`'s
 // `ThemeProvider`, which this file replaces with a `vi.mock` factory; so the
 // factory's replacement has to bring it back, or the harness would be missing a
@@ -280,6 +283,42 @@ describe('HomeView app shell', () => {
        is asserted in its own test below. */
     expect(drawer.queryByRole('button', { name: translations.adminSettings.en })).toBeNull();
     expect(drawer.getByRole('button', { name: /^@grace/ })).toBeInTheDocument();
+  });
+
+  /* KI-788, and it is a LIMITATION being recorded rather than a feature.
+   *
+   * The colour-scheme switch carries `id="theme-toggle"` so the tour — or any
+   * script outside React — can address it. An id is a document-level promise,
+   * and `AppShell` renders the SAME sidebar node twice: the sticky desktop
+   * column, plus the drawer copy while the drawer is open. Nothing in
+   * `AppChrome` can tell the two mounts apart, because the design system keeps
+   * `SidebarSurfaceContext` private and exports only `useSidebarCollapsed`.
+   *
+   * So: unique in every closed-drawer state (which is every desktop state and
+   * the mobile default — asserted on the real route in
+   * `App.authenticated-home.test.tsx`), and duplicated while the drawer is
+   * open, with `getElementById` returning the desktop copy that is
+   * `display:none` at that breakpoint. That is pinned here rather than left to
+   * be discovered: if the design system grows a way to de-duplicate, this test
+   * turns red and the limitation is re-read instead of forgotten.
+   *
+   * ORACLES: the DOM's id semantics and WAI-ARIA's dialog role mapping — both
+   * jsdom's, neither this repo's. */
+  it('duplicates the theme toggle id while the mobile drawer is open', async () => {
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    // Closed: the promise holds.
+    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.openNavigation.en }));
+    await screen.findByRole('dialog');
+
+    // Open: two mounts of one node, hence two elements under one id.
+    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(2);
+    // And the one an external script would get is the desktop column's.
+    expect(document.getElementById('theme-toggle')).toBe(
+      document.querySelectorAll('#theme-toggle')[0],
+    );
   });
 
   it('routes the sidebar nav rows to the AppNavContext jumps', async () => {

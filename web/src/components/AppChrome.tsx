@@ -5,6 +5,7 @@ import {
   Logo,
   NavItem,
   SidebarUserMenu,
+  ThemeToggle,
 } from '@ki4jlu/design-system';
 import {
   Settings, User, LogOut, Copy, Check, Bot, Home, Languages, Users,
@@ -57,6 +58,29 @@ const MembersModal = lazy(() => import('./MembersModal').then(module => ({ defau
 
 /** Which top-level view is currently on screen. One row, one `aria-current`. */
 export type AppChromeView = 'home' | 'shared-kbs';
+
+/**
+ * The `id` on the colour-scheme switch's `role="group"` element (card KI-788).
+ *
+ * It is an ADDRESS, not a style hook: the developer asked for a stable anchor
+ * on the control whose accessible name is „Farbschema", so the onboarding tour
+ * — or anything scripting the page from outside React — can point at it. That
+ * is exactly what design-system 0.26.0's new `id` prop is for; the toggle
+ * renders its own DOM, so without the prop the group is unaddressable.
+ *
+ * KNOWN LIMITATION, measured on this card and not hidden: `AppShell` renders
+ * the SAME sidebar node twice — the sticky desktop column plus, while it is
+ * open, the mobile drawer copy — so while that drawer is open two elements
+ * carry this id and `getElementById` returns the desktop one (which is
+ * `display:none` at that breakpoint). Nothing in this file can tell the two
+ * mounts apart: the design system keeps `SidebarSurfaceContext` private and
+ * exports only `useSidebarCollapsed`. The fix belongs in the design system
+ * (export the surface, or let `AppShell` own the de-duplication); until then
+ * the drawer-open case is asserted in `HomeView.test.tsx` so it is a recorded
+ * fact rather than a surprise. It is unique in every closed-drawer state,
+ * which is every desktop state and the mobile default.
+ */
+const THEME_TOGGLE_ID = 'theme-toggle';
 
 export interface AppChromeProps {
   /** The current page; the matching nav row gets `aria-current="page"`. */
@@ -229,6 +253,70 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
     </SidebarUserMenu>
   );
 
+  /* The sidebar footer: the colour-scheme switch, then the user menu.
+   *
+   * WHY THE TOGGLE IS HERE AT ALL (card KI-788). Until design-system 0.25.0,
+   * `AppShellLayout` rendered a `<ThemeToggle />` of its own at the right end
+   * of the page-label bar. 0.26.0 deleted it in favour of the optional
+   * `headerActions` slot, so the bar now renders NO control — and since
+   * omitting the slot is valid, the toggle disappears with no type error and
+   * no failing gate. `headerActions` is deliberately left unset (the search
+   * chrome card owns that slot), and the control is re-mounted here.
+   *
+   * WHY IT IS NEXT TO THE USER MENU AND NOT INSIDE IT — the one place this
+   * card knowingly departs from its own brief, so it is stated in full.
+   *
+   * `SidebarUserMenu`'s children land in a Radix `DropdownMenuContent`, i.e.
+   * inside `role="menu"`. `ThemeToggle` is a `role="group"` of three plain
+   * buttons, and a menu may own only menuitem / menuitemradio /
+   * menuitemcheckbox / group-of-those / separator — so nesting it breaks the
+   * menu's ARIA contract. That alone is arguable; what settles it is that the
+   * control also stops working for keyboard users. Measured against the
+   * installed Radix build with the real components (probe on KI-788, deleted
+   * after it answered):
+   *   - ArrowDown cycles the registered menu items only — focus never lands
+   *     on any of the three theme buttons, because Radix's roving focus
+   *     collects `DropdownMenuItem`s and nothing else;
+   *   - Tab does not move at all: `@radix-ui/react-menu` calls
+   *     `event.preventDefault()` on Tab inside the content
+   *     (node_modules/@radix-ui/react-menu/dist/index.mjs, "Tab" keydown).
+   * A nested toggle is therefore mouse-only, which contradicts the design
+   * system's own documented contract for the component („fully visible and
+   * keyboard-accessible") and would be a regression against 0.25.0, where the
+   * toggle sat in the page-label bar and was reachable with Tab.
+   *
+   * The ARIA-clean way to put a three-way choice INSIDE the menu is three
+   * `menuitemradio`s — which means not using `ThemeToggle` at all and
+   * rebuilding a design-system control out of local parts. That is the thing
+   * this branch exists to stop doing.
+   *
+   * So the switch sits directly above the user row, inside the same footer
+   * block: visually part of the user card, keyboard- and screen-reader-clean,
+   * and one line away from moving into the dropdown if the developer prefers
+   * that trade after visual QA.
+   *
+   * FOR VISUAL QA: the control is tri-state since KI-779 (light / system /
+   * dark), not the old two-state „dark mode" button — three icon buttons in a
+   * pill, permanently visible at the bottom of the sidebar. Whether that reads
+   * right there is a judgement call this card cannot make for the developer.
+   *
+   * The four labels come from `translations.ts` — 0.26.0 is the first version
+   * that lets a consumer pass them, and they were German in an English session
+   * until now. */
+  const sidebarFooter = (
+    <div className="flex flex-col gap-2">
+      <ThemeToggle
+        id={THEME_TOGGLE_ID}
+        className="self-center"
+        themeLabel={t('colorScheme')}
+        lightLabel={t('themeLight')}
+        systemLabel={t('themeSystem')}
+        darkLabel={t('themeDark')}
+      />
+      {userMenu}
+    </div>
+  );
+
   return (
     <>
       {/* Outside the shell so it stays the document's first focusable element;
@@ -238,10 +326,17 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
           cannot be put on the landmark itself. */}
       <a href={`#${contentId}`} className="skip-link">{t('skipToContent')}</a>
 
+      {/* `headerActions` is deliberately NOT passed (card KI-788): the
+          page-label bar carries no control of its own since design-system
+          0.26.0 replaced its hardcoded `ThemeToggle` with that slot, and the
+          toggle moved into the sidebar footer above. The slot stays free for
+          the search chrome card, which is the other 0.26.0 consumer; the bar
+          keeps its `h-16`/64px height either way, which is what
+          `Toast.css`'s `top: 76px` is derived from. */}
       <AppShellLayout
         logo={logo}
         nav={nav}
-        sidebarFooter={userMenu}
+        sidebarFooter={sidebarFooter}
         navLabel={t('mainNavigation')}
         menuLabel={t('openNavigation')}
         drawerLabel={t('navigation')}

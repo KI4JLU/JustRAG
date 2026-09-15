@@ -518,3 +518,45 @@ export const ViewerSeesNoManagementControls: Story = {
     await expect(canvas.getByText('Geteilt (4)')).toBeInTheDocument();
   },
 };
+
+
+/**
+ * The colour-scheme switch is on THIS view too, in the same place (KI-788).
+ *
+ * WHY IT IS NOT ENOUGH TO ASSERT IT ON THE OVERVIEW. The toggle is mounted by
+ * `AppChrome`'s sidebar footer, i.e. by the chrome both top-level views
+ * render — but that is exactly the kind of claim KI-783 created this file to
+ * stop taking on trust: a control wired into one page instead of the shared
+ * chrome leaves the two views with different sidebars, and the overview's
+ * stories cannot see it. The same argument `NavRowsAsSystemAdmin` above makes
+ * for the nav gate.
+ *
+ * It matters more than usual on this card, because design-system 0.26.0 let
+ * the old toggle disappear with no error of any kind: „it renders on the page
+ * I looked at" is precisely the evidence that is not good enough here.
+ *
+ * ORACLES: the DOM's id semantics, WAI-ARIA's group/button mappings, and
+ * src/translations.ts for the four names.
+ */
+export const ThemeToggleIsOnThisViewToo: Story = {
+  args: { kbs: [SHARED_EDITOR] },
+  play: async ({ canvas }) => {
+    const groups = document.querySelectorAll('#theme-toggle');
+    await expect(groups).toHaveLength(1);
+
+    const group = groups[0] as HTMLElement;
+    await expect(group).toHaveAttribute('aria-label', 'Farbschema');
+    await expect(group.closest('[role="menu"]')).toBeNull();
+    await expect(
+      Array.from(group.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Helles Design', 'Systemdesign', 'Dunkles Design']);
+
+    // And it is the only colour-scheme control on the page: the page-label bar
+    // carries none since the template stopped hardcoding one.
+    await expect(
+      canvas.getAllByRole('button', {
+        name: /Helles Design|Systemdesign|Dunkles Design|Wechsle zum (Dunkel|Hell)-Modus/,
+      }),
+    ).toHaveLength(3);
+  },
+};

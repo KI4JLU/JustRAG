@@ -338,27 +338,36 @@ const SECTION_STORAGE_KEYS = SECTION_IDS.map((id) => `justrag.home.section.${id}
  * Every accessible name a colour-scheme control carries in this codebase or in
  * the design system, in one pattern.
  *
- * The union is the point. Today the overview renders its own theme button
- * (`switchToDark` / `switchToLight`); KI-696 deletes it, because
- * `AppShellLayout` mounts the DS `ThemeToggle` unconditionally — a segmented
- * light / system / dark group whose three options are named "Helles Design",
- * "Systemdesign" and "Dunkles Design" (checked against the installed
- * v0.25.0 typings). A pattern that knew only this repo's two labels would go
- * quiet after that swap instead of reporting it, and the failure mode the
- * count exists to catch is precisely the screen that ships BOTH.
+ * The union is the point. The overview used to render its own theme button
+ * (`switchToDark` / `switchToLight`); KI-696 deleted it in favour of the DS
+ * `ThemeToggle` — a segmented light / system / dark group. A pattern that
+ * knew only this repo's two labels would have gone quiet after that swap
+ * instead of reporting it, and the failure mode the count exists to catch is
+ * precisely the screen that ships BOTH.
+ *
+ * KI-788 keeps the pattern and changes WHO renders the group: design-system
+ * 0.26.0 dropped the toggle `AppShellLayout` used to hardcode, so `AppChrome`
+ * constructs it in the sidebar footer — and, for the first time, passes its
+ * labels. The German strings are unchanged (translations.ts deliberately
+ * repeats the DS defaults), so this file's expectations did not move; the
+ * English ones are new and are added to the union so an English session is
+ * matched too.
  */
 const THEME_CONTROL_NAME =
-  /Wechsle zum (Dunkel|Hell)-Modus|Switch to (Dark|Light) Mode|Helles Design|Systemdesign|Dunkles Design/;
+  /Wechsle zum (Dunkel|Hell)-Modus|Switch to (Dark|Light) Mode|Helles Design|Systemdesign|Dunkles Design|Light theme|System theme|Dark theme/;
 
 /**
- * What that pattern finds AFTER the shell migration (KI-776): the design
- * system's `ThemeToggle`, which `AppShellLayout` renders in the page-label bar
- * — a segmented light / system / dark group, in DOM order.
+ * What that pattern finds: the design system's `ThemeToggle`, a segmented
+ * light / system / dark group, in DOM order.
  *
- * The three labels are GERMAN in an English session too, and that is not a
- * mistake in this file: `AppShellLayout` forwards none of `ThemeToggle`'s four
- * label props, so a bilingual consumer cannot translate them. Design-system
- * card `nhyfbxcfggpr`; deliberately not worked around locally.
+ * ORACLE CHANGE (KI-788), not a locator one. Until 0.26.0 these three strings
+ * came from the design system's own defaults, because `AppShellLayout`
+ * rendered the toggle itself and forwarded none of its labels — so they were
+ * German in an English session and this file said so. They now come from
+ * `src/translations.ts`, which is why they can be asserted as a translated
+ * set at all. The German values are byte-identical to the DS defaults on
+ * purpose (see the comment on those keys), so this list did not move: in a
+ * German session, before and after are the same screen.
  */
 const DS_THEME_CONTROL_NAMES = ['Helles Design', 'Systemdesign', 'Dunkles Design'];
 
@@ -695,11 +704,15 @@ export const Empty: Story = {
 
     /* ORACLE: the union pattern in THEME_CONTROL_NAME, matched against the
      * whole canvas. An exact list rather than a length, so a failure names what
-     * it found. The ANSWER is what this card changed: this repo's own two-state
-     * button is deleted, and the design system's three-option `ThemeToggle` —
-     * which `AppShellLayout` renders unconditionally — is the only
-     * colour-scheme control left. A screen that shipped both would return four
-     * names here, which is the failure mode this assertion exists for. */
+     * it found. The ANSWER is what KI-696 changed: this repo's own two-state
+     * button is deleted, and the design system's three-option `ThemeToggle` is
+     * the only colour-scheme control left. A screen that shipped both would
+     * return four names here, which is the failure mode this assertion exists
+     * for — and it is exactly the failure mode KI-788 could have produced,
+     * since design-system 0.26.0 lets the template's toggle disappear with no
+     * error at all while a second one is mounted elsewhere. The list is
+     * unchanged through that card; WHERE the group sits is pinned by
+     * `ThemeToggleLivesInTheSidebarFooter` below. */
     await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
 
     const menu = await openUserMenu(canvas, userEvent);
@@ -1354,5 +1367,125 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
 
     // And the KB was not opened on the way.
     await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
+  },
+};
+
+
+/* ===========================================================================
+ * KI-788 — where the colour-scheme switch lives, and how tall the bar it left
+ * ======================================================================== */
+
+/**
+ * The theme toggle is in the sidebar footer, NOT inside the user menu.
+ *
+ * WHY A STORY AND NOT A UNIT TEST. Two of the three facts below need a real
+ * browser: sequential focus navigation (`Tab`) is a browser behaviour jsdom
+ * only approximates, and it is the whole reason the control is not nested in
+ * the dropdown. The third — that the group is not inside a `role="menu"` — is
+ * checkable anywhere but belongs next to the other two.
+ *
+ * WHAT IT PINS, and why each half matters:
+ *
+ *  1. THE GROUP EXISTS, ONCE, UNDER THE PROMISED ID. Design-system 0.26.0
+ *     deleted `AppShellLayout`'s hardcoded `<ThemeToggle />` in favour of an
+ *     optional `headerActions` slot, so the control can vanish from the app
+ *     with no type error and no failing gate. Presence has to be asserted; it
+ *     cannot be inferred from a green run.
+ *  2. IT IS NOT INSIDE THE MENU. `SidebarUserMenu`'s children land in
+ *     `role="menu"`, whose owned elements may only be menu items — and Radix
+ *     makes that concrete: its roving focus collects `DropdownMenuItem`s only
+ *     and its content handler calls `preventDefault()` on Tab, so a nested
+ *     button group is reachable by mouse alone. `closest('[role="menu"]')`
+ *     is the machine-checkable form of that decision.
+ *  3. KEYBOARD USERS REACH IT. Shift+Tab from the user-menu trigger walks
+ *     backwards through the three options. This is the assertion that would
+ *     have failed had the control been nested, and it is the reason the card's
+ *     „put it in the dropdown" instruction was not followed literally.
+ *
+ * ORACLES, none of them this repo's code: the browser's own focus navigation,
+ * WAI-ARIA's group/button role mappings as testing-library resolves them, the
+ * DOM's id semantics, and `src/translations.ts` for every name.
+ */
+export const ThemeToggleLivesInTheSidebarFooter: Story = {
+  play: async ({ canvas, userEvent }) => {
+    // ORACLE: the DOM's id semantics. Unique means exactly one — and with the
+    // drawer closed (the default) the sidebar is mounted once.
+    const groups = document.querySelectorAll('#theme-toggle');
+    await expect(groups).toHaveLength(1);
+
+    const group = groups[0] as HTMLElement;
+    // ORACLE: WAI-ARIA + translations.ts. `role="group"` named „Farbschema" is
+    // what the developer asked to be able to address by id.
+    await expect(group).toHaveAttribute('role', 'group');
+    await expect(group).toHaveAttribute('aria-label', 'Farbschema');
+
+    // ORACLE: translations.ts, as an ordered list — the group's own three
+    // options and nothing else inside it.
+    await expect(
+      Array.from(group.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')),
+    ).toEqual(DS_THEME_CONTROL_NAMES);
+
+    // (2) It is chrome in the sidebar, not an item of the user menu.
+    await expect(group.closest('[role="menu"]')).toBeNull();
+
+    /* (3) The keyboard path. Starting at the user-menu trigger — the element
+     * that follows the group in the footer — Shift+Tab has to walk back
+     * through dark, system, light. Inside the dropdown this sequence is
+     * impossible: Radix swallows Tab entirely. */
+    const trigger = canvas.getByRole('button', { name: /^@grace/ });
+    trigger.focus();
+    await expect(document.activeElement).toBe(trigger);
+
+    for (const name of [...DS_THEME_CONTROL_NAMES].reverse()) {
+      await userEvent.tab({ shift: true });
+      await expect(document.activeElement).toBe(
+        canvas.getByRole('button', { name }),
+      );
+    }
+  },
+};
+
+/**
+ * The page-label bar is 64px tall — the number `Toast.css` is derived from.
+ *
+ * WHY IT IS RE-MEASURED HERE (card KI-788). `.toast-container { top: 76px }`
+ * is 64px of chrome plus a 12px gap, and 64px was measured against
+ * design-system 0.25.0. 0.26.0 reworked that very bar: the hardcoded
+ * `ThemeToggle` became the optional `headerActions` slot, which this app
+ * leaves unset. Had the rework changed the bar's height, every toast on every
+ * shell view would overlap the chrome — and nothing would have caught it,
+ * because jsdom performs no layout and the unit suite therefore cannot see a
+ * pixel.
+ *
+ * ORACLE: Chromium's own layout, read back through `getBoundingClientRect()`.
+ * Independent of this repo by construction — the bar and its height are the
+ * design system's markup, and the expected number is the constant sitting in
+ * `Toast.css`, not something the component reports about itself. A class-name
+ * assertion would have passed against a utility that compiled to nothing.
+ *
+ * NOT asserted: where the bar sits in the viewport. The story runner's
+ * dev-mode Tailwind emits `.lg:hidden` before `.flex`, so `AppShell`'s mobile
+ * top bar stays visible here and pushes the bar down (HomeView.test.tsx:241
+ * records the same quirk). The HEIGHT is unaffected, and it is the only half
+ * `top: 76px` depends on.
+ */
+export const AppShellGeometry: Story = {
+  play: async ({ canvas }) => {
+    /* The bar is chrome with no role of its own, so it is reached through the
+     * one thing it does carry: the page label, which is a `<p>` (the design
+     * system is explicit that it is never a heading — the page's `<h1>` with
+     * the same text belongs to the content template). */
+    const label = canvas
+      .getAllByText('Meine Knowledge Bases')
+      .find((el) => el.tagName === 'P');
+    await expect(label).toBeDefined();
+
+    // `<p>` -> Container -> the bar itself.
+    const bar = (label as HTMLElement).parentElement?.parentElement;
+    await expect(bar).toBeDefined();
+
+    // ORACLE: Chromium's layout engine. 64px = `h-16`, the number Toast.css
+    // adds its 12px gap to.
+    await expect((bar as HTMLElement).getBoundingClientRect().height).toBe(64);
   },
 };

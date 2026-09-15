@@ -7,9 +7,11 @@
  * while saying nothing about whether THIS APP mounts it. That gap is the
  * KI-740 failure mode verbatim: a provider a test supplies is not a provider
  * production supplies. It is also the exact defect that produced this card —
- * `AppShellLayout` renders the DS `ThemeToggle` unconditionally, and with no
- * DS provider in the tree it throws `useTheme must be used within a
- * ThemeProvider`.
+ * the app chrome renders the DS `ThemeToggle`, and with no DS provider in the
+ * tree it throws `useTheme must be used within a ThemeProvider`. (KI-776 hit
+ * that because `AppShellLayout` rendered the toggle itself; since 0.26.0 it is
+ * `AppChrome`'s sidebar footer that does — KI-788. The dependency is the
+ * same either way, which is why this file did not have to move.)
  *
  * So this file renders the REAL `ThemeProvider` from `contexts/ThemeContext`
  * with the REAL DS `ThemeToggle` inside it, and drives it with real clicks.

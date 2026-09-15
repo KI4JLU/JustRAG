@@ -8,9 +8,18 @@
  * renders it. The developer chose to free that corner permanently.
  *
  * WHY 76px AND NOT 24px. AppShellLayout renders a 64px page-label bar above
- * the page content (`h-16` in the DS template) with the ThemeToggle at its
- * right end. A toast at top:24 would land on that toggle - the same defect in
- * a new corner. 76px = 64px bar + a 12px gap.
+ * the page content (`h-16` in the DS template). A toast at top:24 would land
+ * on it - the same defect in a new corner. 76px = 64px bar + a 12px gap.
+ *
+ * RE-MEASURED ON design-system 0.26.0 (card KI-788), because that release
+ * reworked this exact bar: it replaced the hardcoded ThemeToggle at the bar's
+ * right end with an optional `headerActions` slot, which AppChrome leaves
+ * unset. The bar is therefore EMPTY apart from the page label now - but its
+ * height is unchanged, `flex h-16` in the installed bundle
+ * (node_modules/@ki4jlu/design-system/dist/index.js) and 64px measured in
+ * Chromium by HomeView.stories.tsx's `AppShellGeometry` play function, which
+ * exists so a future bundle that changes it turns a test red instead of
+ * silently sliding toasts over the chrome. So 76px stands, unchanged.
  *
  * `flex-direction` is deliberately NOT changed: with the box anchored at the
  * top it makes the newest toast appear at the anchored edge and push older

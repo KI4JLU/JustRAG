@@ -74,8 +74,8 @@ export interface HomeViewProps {
  * The KB overview.
  *
  * SHELL AND CONTENT ARE TWO TEMPLATES (card KI-776, stage 7b of KI-696).
- * `AppShellLayout` is the chrome — branded sidebar, nav, user menu, the
- * page-label bar and its `ThemeToggle`; `SectionedGridLayout` is the page
+ * `AppShellLayout` is the chrome — branded sidebar, nav, user menu and the
+ * page-label bar; `SectionedGridLayout` is the page
  * content, hung into the shell as `children`, exactly as the design system's
  * COMPONENT_GUIDELINES prescribe ("SectionedGridLayout … *is* an
  * `AppShellLayout` child"). Nothing here rebuilds a page skeleton, and there is
@@ -92,10 +92,12 @@ export interface HomeViewProps {
  * because a KB card's share button exists on both views.
  *
  * WHAT WAS DELETED RATHER THAN MOVED (KI-776):
- *  - the overview's own theme button — `AppShellLayout` renders a
- *    `ThemeToggle` unconditionally, and KI-779 wired that toggle to the app's
- *    real tri-state theme, so keeping this one would ship two controls for one
- *    setting;
+ *  - the overview's own theme button — the shell carries a `ThemeToggle`
+ *    wired to the app's real tri-state theme (KI-779), so keeping this one
+ *    would ship two controls for one setting. Which PART of the shell carries
+ *    it changed with KI-788: design-system 0.26.0 dropped the hardcoded
+ *    toggle from the page-label bar, and `AppChrome` now renders it in the
+ *    sidebar footer above the user menu;
  *  - the whole `home-view__actions` row — its six controls live in the
  *    sidebar's nav (`Meine Agenten`) and user menu (username copy, profile,
  *    language, logout) now;
@@ -114,12 +116,14 @@ export interface HomeViewProps {
  * `AuthenticatedApp` renders its own `<Footer>` as a further sibling.)
  *
  * KNOWN GAP, deliberately not worked around here (design-system card
- * `nhyfbxcfggpr`): `AppShellLayout` forwards none of `ThemeToggle`'s four label
- * props, so that control's labels stay German in an English session; and
- * `SectionedGridLayout` has no width prop, so the page measure is `Container`'s
- * default `page` (1440px) rather than the 1000px this page used to have. A
- * `max-w-*` at the call site would be a guidelines violation, so neither is
- * patched locally.
+ * `nhyfbxcfggpr`): `SectionedGridLayout` has no width prop, so the page measure
+ * is `Container`'s default `page` (1440px) rather than the 1000px this page
+ * used to have. A `max-w-*` at the call site would be a guidelines violation,
+ * so it is not patched locally. The other half of that gap — the theme
+ * toggle's four labels being unforwardable, and therefore German in an English
+ * session — is CLOSED: design-system 0.26.0 removed the template's own
+ * toggle, so `AppChrome` constructs the component and passes the labels
+ * (KI-788).
  */
 export function HomeView(props: HomeViewProps) {
   const { language, t } = useTheme();

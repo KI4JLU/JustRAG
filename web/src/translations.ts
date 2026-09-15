@@ -66,12 +66,32 @@ export const translations = {
       en: 'Knowledge bases other people have shared with you. Your own are under "My Knowledge".',
     },
     // The three chrome labels AppShellLayout would otherwise render with its
-    // German defaults. (Its <ThemeToggle>'s four labels are NOT forwardable —
-    // design-system gap nhyfbxcfggpr — so those stay German in both
-    // languages until the design system ships the props.)
+    // German defaults.
     mainNavigation: { de: 'Hauptnavigation', en: 'Main navigation' },
     openNavigation: { de: 'Navigation öffnen', en: 'Open navigation' },
     navigation: { de: 'Navigation', en: 'Navigation' },
+
+    /* The DS `ThemeToggle`'s four labels (card KI-788).
+     *
+     * They exist because design-system 0.26.0 closed gap `nhyfbxcfggpr` by
+     * DELETION, not by forwarding: `AppShellLayout` no longer renders a
+     * `ThemeToggle` of its own, so the consumer constructs the component and
+     * can finally pass its labels. Until then the control was German in an
+     * English session too (since KI-776), which is the bug these four keys
+     * fix.
+     *
+     * THE GERMAN STRINGS ARE THE DESIGN SYSTEM'S OWN DEFAULTS, byte for byte
+     * ("Farbschema" / "Helles Design" / "Systemdesign" / "Dunkles Design").
+     * Deliberate: a German session must render exactly what it rendered
+     * before this card, so any diff a reviewer or a story sees in DE is a
+     * real change rather than a re-wording. The English side is the new half.
+     *
+     * `colorScheme` names the whole `role="group"`; the other three name its
+     * three option buttons, in the group's own DOM order. */
+    colorScheme: { de: 'Farbschema', en: 'Colour scheme' },
+    themeLight: { de: 'Helles Design', en: 'Light theme' },
+    themeSystem: { de: 'Systemdesign', en: 'System theme' },
+    themeDark: { de: 'Dunkles Design', en: 'Dark theme' },
     switchToDark: { de: 'Wechsle zum Dunkel-Modus', en: 'Switch to Dark Mode' },
     switchToLight: { de: 'Wechsle zum Hell-Modus', en: 'Switch to Light Mode' },
 
