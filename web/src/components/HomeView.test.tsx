@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { ThemeProvider as DesignSystemThemeProvider } from '@ki4jlu/design-system';
 import axios from 'axios';
 import type { KnowledgeBase } from '../types';
 import { HomeView, type HomeViewProps } from './HomeView';
@@ -22,12 +23,12 @@ const mockedAxios = vi.mocked(axios, true);
 
 // A real in-memory Storage, installed fresh per test.
 //
-// KbAccordion persists each section's open state in localStorage, so without
+// useSectionOpen persists each section's open state in localStorage, so without
 // this a test that expands a section decides the starting state of every test
 // after it. That is not hypothetical: it is exactly how this file broke in CI
 // while passing locally — jsdom's localStorage differs between the two
 // environments (locally it is a bare object with no getItem/setItem, so the
-// accordion's try/catch silently fell back to defaultOpen every time and hid
+// hook's try/catch silently fell back to defaultOpen every time and hid
 // the leak). Owning the implementation here removes that difference: the
 // persistence path is genuinely exercised on both machines, and each test
 // starts from the defaults.
@@ -42,6 +43,18 @@ function memoryStorage(): Storage {
     clear: () => { map.clear(); },
   } as Storage;
 }
+
+// Radix measures and captures pointers; jsdom implements neither. The shell
+// brings two Radix widgets to this suite that were not here before KI-776 —
+// the sidebar's `SidebarUserMenu` dropdown and `AppShell`'s mobile drawer — so
+// the same shim the admin suites use (AdminEvalTab.test.tsx:56) is needed here.
+// It enables opening them with a click, nothing more.
+beforeEach(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 beforeEach(() => {
   vi.stubGlobal('matchMedia', (query: string) => ({
@@ -61,9 +74,9 @@ beforeEach(() => {
   mockedAxios.get.mockResolvedValue({ data: [] });
 });
 
-// expandSection clicks an accordion header by its title. The accessible name
-// also carries the item count and the sr-only expand/collapse hint, hence the
-// substring match.
+// expandSection clicks a section's disclosure trigger by its title. The
+// accessible name also carries the item count (`SectionedGridLayout` renders it
+// as a Badge inside the trigger), hence the substring match.
 async function expandSection(title: string) {
   await userEvent.click(screen.getByRole('button', { name: new RegExp(title, 'i') }));
 }
@@ -72,6 +85,15 @@ async function expandSection(title: string) {
 // Module-level spies: no assertion in this file touches them, and a fresh
 // object per render would only add churn.
 const NAV = { onViewProfile: vi.fn(), onViewAdmin: vi.fn(), onViewAgents: vi.fn() };
+
+// Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
+// a module-level spy that is never reset would carry one test's clicks into the
+// next.
+beforeEach(() => {
+  NAV.onViewProfile.mockClear();
+  NAV.onViewAdmin.mockClear();
+  NAV.onViewAgents.mockClear();
+});
 
 // The REAL useSharing hook, published on the context HomeView now reads. It
 // runs in its own component because it calls useToast() and therefore has to
@@ -89,15 +111,28 @@ function SharingHarness({ children }: { children: React.ReactNode }) {
 // touch the discovery panel: whether that panel mounts depends on persisted
 // accordion state, so a bare render would fail or pass depending on what ran
 // before it.
+// The DESIGN SYSTEM's ThemeProvider, on top of the app providers.
+//
+// It is not decoration and it is not a stub: `AppShellLayout` renders a
+// `ThemeToggle` unconditionally, and that toggle calls the design system's own
+// `useTheme()`, which throws outright without this provider — measured, it is
+// what made all 30 tests in this file fail at once when the shell landed. In
+// production the app mounts it inside `contexts/ThemeContext.tsx`'s
+// `ThemeProvider`, which this file replaces with a `vi.mock` factory; so the
+// factory's replacement has to bring it back, or the harness would be missing a
+// provider the real route supplies. (`App.authenticated-home.test.tsx` is the
+// test that checks the real route actually supplies it — a harness can't.)
 function renderView(ui: React.ReactElement) {
   return render(
-    <ToastProvider>
-      <ModalProvider>
-        <SharingHarness>
-          <AppNavProvider value={NAV}>{ui}</AppNavProvider>
-        </SharingHarness>
-      </ModalProvider>
-    </ToastProvider>
+    <DesignSystemThemeProvider>
+      <ToastProvider>
+        <ModalProvider>
+          <SharingHarness>
+            <AppNavProvider value={NAV}>{ui}</AppNavProvider>
+          </SharingHarness>
+        </ModalProvider>
+      </ToastProvider>
+    </DesignSystemThemeProvider>
   );
 }
 
@@ -190,6 +225,56 @@ function renderHomeView(overrides: Partial<HomeViewProps> & { kbs?: KnowledgeBas
   const { kbs = [], globalKbs = [], ...rest } = overrides;
   return renderView(<RealRemovalHomeView kbs={kbs} globalKbs={globalKbs} {...rest} />);
 }
+
+/* ---------------------------------------------------------------------------
+ * The shell KI-776 put this view on.
+ *
+ * `AppShellLayout` renders the sidebar twice — a sticky column from `lg` up and
+ * a Radix Dialog drawer below it — from ONE node, and which of the two is
+ * visible is pure CSS. jsdom applies no stylesheet, so this suite cannot make a
+ * statement about the breakpoint; what it CAN check, and what a story in the
+ * browser runner cannot (measured on this card: the story pipeline's dev-mode
+ * Tailwind output emits `.lg:hidden` before `.flex`, so the top bar never hides
+ * there either), is that the drawer is wired to THIS app's nav and user menu
+ * rather than to an empty slot.
+ *
+ * ORACLES, both independent of the code under test: WAI-ARIA's `dialog` /
+ * `navigation` / `button` role mappings as @testing-library implements them,
+ * and src/translations.ts for every accessible name.
+ * ------------------------------------------------------------------------- */
+describe('HomeView app shell', () => {
+  it('opens the mobile drawer with the same nav rows and user menu as the sidebar', async () => {
+    authState.role = 'admin';
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    // Closed: one navigation landmark, the sticky sidebar's.
+    expect(screen.getAllByRole('navigation')).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.openNavigation.en }));
+
+    const drawer = within(await screen.findByRole('dialog'));
+    // ORACLE: translations.ts. All three nav rows, including the admin one the
+    // mocked system role above unlocks, plus the user-menu trigger — i.e. the
+    // `nav` and `sidebarFooter` slots both reach the drawer copy.
+    expect(drawer.getByRole('button', { name: translations.home.en })).toHaveAttribute('aria-current', 'page');
+    expect(drawer.getByRole('button', { name: translations.myAgents.en })).toBeInTheDocument();
+    expect(drawer.getByRole('button', { name: translations.adminSettings.en })).toBeInTheDocument();
+    expect(drawer.getByRole('button', { name: /^@grace/ })).toBeInTheDocument();
+  });
+
+  it('routes the sidebar nav rows to the AppNavContext jumps', async () => {
+    authState.role = 'admin';
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    // ORACLE: the module-level spies in NAV. The sidebar copy is the first in
+    // the document, so an unscoped query reaches it while the drawer is closed.
+    await userEvent.click(screen.getByRole('button', { name: translations.myAgents.en }));
+    expect(NAV.onViewAgents).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.adminSettings.en }));
+    expect(NAV.onViewAdmin).toHaveBeenCalledTimes(1);
+  });
+});
 
 // The members-dialog trigger used to be gated on kb.userId === user.id
 // (owner-only), which made the whole `admin` tier unreachable from the UI —

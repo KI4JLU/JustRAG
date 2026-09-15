@@ -106,17 +106,12 @@
   },
   "src/components/HomeView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 18
+      "count": 10
     }
   },
   "src/components/InlineMessageEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 2
-    }
-  },
-  "src/components/KbAccordion.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/KbCatalogPanel.tsx": {

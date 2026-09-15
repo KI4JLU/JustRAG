@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn, waitFor, within } from 'storybook/test';
+import { expect, fn, screen, waitFor, within } from 'storybook/test';
 import { HomeView } from './HomeView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
@@ -50,6 +50,33 @@ import type { KnowledgeBase, User } from '../types';
  * only members the harness still overrides are the clipboard pair,
  * `copyUserId` and `copySuccess` — see `StorySharingProvider` for why those
  * two cannot be the app's own in a test runner.
+ *
+ * UPDATE (KI-776, the SECOND refactor this file was written to guard — the move
+ * onto `AppShellLayout` + `SectionedGridLayout`). The harness is unchanged: the
+ * view still takes the same 18 props and the same two contexts. Every edit
+ * below is in a play function, which the header above says needs a reason on
+ * the card — so here is the shape of them, and KI-776 carries the detail.
+ *
+ * Of the assertions that moved, all but two are LOCATOR changes: the same fact,
+ * read off a different element, because the shell owns the `<main>`, the
+ * disclosure panels are the template's, the section count badge is a `Badge`,
+ * and four of the six action-row controls are `menuitem`s inside a closed Radix
+ * dropdown. The two that are genuinely BEHAVIOUR changes are stated as such at
+ * the assertion:
+ *   - the overview's own theme button is DELETED and the design system's
+ *     three-option `ThemeToggle` is the only colour-scheme control left. That
+ *     deletion is this card's whole point, and `THEME_CONTROL_NAME` — written
+ *     before the migration precisely to span both vocabularies — is what turns
+ *     it into evidence rather than a green run;
+ *   - the layout envelope moved: one 1440px `Container` instead of a 1000px box
+ *     per section, and the card grid steps down to two tracks below 1280px.
+ *     Both numbers are pinned with their reason rather than quietly adjusted.
+ *
+ * The four behavioural oracles named in advance as MUST-NOT-CHANGE did not: the
+ * owned/shared split, the unmount-on-collapse property including the second
+ * `/api/kb/catalog` request, `SharingDoesNotAlsoOpenTheKb`, and the
+ * single-`<h1>` count. `SharingDoesNotAlsoOpenTheKb` and
+ * `ShareDialogLoadingFallback` are untouched byte-for-byte.
  *
  * MOCKING IS AT THE NETWORK BOUNDARY, per the pattern KI-728 established
  * (.storybook/mockApi.ts). `HomeView` itself issues no request — its two KB
@@ -295,7 +322,7 @@ function HomeViewHarness(args: HomeViewStoryArgs) {
 
 type Canvas = ReturnType<typeof within>;
 
-/** The four accordion ids, i.e. the localStorage keys `KbAccordion` persists. */
+/** The four section ids, i.e. the localStorage keys `useSectionOpen` persists. */
 const SECTION_IDS = ['favorites', 'discover', 'shared', 'mine'] as const;
 const SECTION_STORAGE_KEYS = SECTION_IDS.map((id) => `justrag.home.section.${id}`);
 
@@ -314,6 +341,18 @@ const SECTION_STORAGE_KEYS = SECTION_IDS.map((id) => `justrag.home.section.${id}
  */
 const THEME_CONTROL_NAME =
   /Wechsle zum (Dunkel|Hell)-Modus|Switch to (Dark|Light) Mode|Helles Design|Systemdesign|Dunkles Design/;
+
+/**
+ * What that pattern finds AFTER the shell migration (KI-776): the design
+ * system's `ThemeToggle`, which `AppShellLayout` renders in the page-label bar
+ * — a segmented light / system / dark group, in DOM order.
+ *
+ * The three labels are GERMAN in an English session too, and that is not a
+ * mistake in this file: `AppShellLayout` forwards none of `ThemeToggle`'s four
+ * label props, so a bilingual consumer cannot translate them. Design-system
+ * card `nhyfbxcfggpr`; deliberately not worked around locally.
+ */
+const DS_THEME_CONTROL_NAMES = ['Helles Design', 'Systemdesign', 'Dunkles Design'];
 
 function themeControlNames(canvas: Canvas): string[] {
   // Annotated rather than inferred: `within` is generic, so `Canvas` above
@@ -335,74 +374,172 @@ function sectionTrigger(canvas: Canvas, title: string): HTMLElement {
   return canvas.getByRole('button', { name: new RegExp(`^${title}`) });
 }
 
-/** The badge rendered next to an accordion title, or null when the section has no count. */
+/**
+ * The count badge rendered next to a section title, or null when the section
+ * has no count.
+ *
+ * LOCATOR CHANGE ONLY (KI-776): the badge used to be
+ * `.home-view__accordion-count`, a class this repo owned; it is now the design
+ * system's `Badge`, whose class names are cva output and none of a consumer's
+ * business. So it is read as the trailing number of the trigger's text — the
+ * same element, found the way a user sees it. The four section titles contain
+ * no digits, so a title can never be mistaken for a count.
+ */
 function sectionCount(canvas: Canvas, title: string): string | null {
-  const badge = sectionTrigger(canvas, title).querySelector('.home-view__accordion-count');
-  return badge === null ? null : badge.textContent;
+  const match = (sectionTrigger(canvas, title).textContent ?? '').trim().match(/(\d+)$/);
+  return match === null ? null : match[1];
 }
 
 /**
- * The overview's own theme button names the scheme it would switch TO, not the
- * one in effect — so its accessible name is a function of the story's theme
- * global and not a constant.
+ * The disclosure panel belonging to one section, found through the trigger's
+ * own `aria-controls` rather than through an id this repo composes.
  *
- * The global is the oracle rather than `document.documentElement`'s
- * `data-theme`: that attribute is written by the provider under test, so
- * reading it back would be the code checking itself. The global is the input
- * .storybook/preview.tsx seeds the run with.
+ * The id moved from `home-section-panel-<id>` to `` `${useId()}-<id>-panel` ``
+ * when `SectionedGridLayout` took over, and a `useId()` value is deliberately
+ * not predictable from the outside. Following the ARIA reference is also the
+ * stronger locator: if it ever dangled, this helper would fail rather than
+ * silently look somewhere else.
  */
-function themeToggleName(globals: { theme?: unknown }): string {
-  return globals.theme === 'dark' ? 'Wechsle zum Hell-Modus' : 'Wechsle zum Dunkel-Modus';
-}
-
-/** The six controls of the `home-view__actions` row, by accessible name, in DOM order. */
-function actionRowNames(globals: { theme?: unknown }): string[] {
-  return [
-    'Benutzername kopieren',
-    'Mein Profil',
-    'Meine Agenten',
-    themeToggleName(globals),
-    // The language control's German label is an English sentence, because the
-    // label names the language it switches to. Pinned as it stands.
-    'Switch to English',
-    'Abmelden',
-  ];
-}
-
-function actionRow(canvasElement: HTMLElement): Canvas {
-  const row = canvasElement.querySelector('.home-view__actions');
-  if (row === null) throw new Error('home-view__actions is not rendered');
-  return within(row as HTMLElement);
+function sectionPanel(canvas: Canvas, canvasElement: HTMLElement, title: string): HTMLElement {
+  const id = sectionTrigger(canvas, title).getAttribute('aria-controls');
+  const panel = id === null ? null : canvasElement.querySelector(`#${CSS.escape(id)}`);
+  if (panel === null) throw new Error(`no panel for section "${title}"`);
+  return panel as HTMLElement;
 }
 
 /**
- * Asserts the page frame that KI-696 replaces: one h1, one main, no nav, and
- * the skip link pointing at the main's own id.
+ * Asserts a section's collapsed/expanded state through the panel, not the class.
  *
- * ORACLE: the WAI-ARIA role mappings for `h1`, `main`, `nav`, `header` and
- * `footer`, resolved by @testing-library/dom's implementation of them — not by
- * anything this repo computes. The counts are what make the assertion
- * directional: `SectionedGridLayout` brings its own `PageHeader` heading and
- * `AppShellLayout` brings a `nav`, so a migration that adds either without
- * removing the one here turns a 1 into a 2 and a 0 into a 1.
+ * WHAT "COLLAPSED" MEANS NOW, and why the assertion had to change shape. The
+ * old `KbAccordion` removed the panel element from the document. The template
+ * keeps it — an `aria-controls` pointing at an id that exists only while open
+ * would be a dangling reference — and carries `hidden`, while UNMOUNTING its
+ * children. The load-bearing half is the unmount (it is what makes expanding
+ * „KBs entdecken" re-read the catalog), so both halves are stated here.
  */
-async function expectPageFrame(canvas: Canvas) {
+async function expectSectionState(panel: HTMLElement, open: boolean) {
+  await expect(panel.hasAttribute('hidden')).toBe(!open);
+  if (open) {
+    await expect(panel.childElementCount).toBeGreaterThan(0);
+  } else {
+    await expect(panel.childElementCount).toBe(0);
+  }
+}
+
+/**
+ * Where the six controls of the deleted `home-view__actions` row live now.
+ *
+ * Four of them are `DropdownMenuItem`s in the sidebar's `SidebarUserMenu`, in
+ * DOM order. The fifth, „Meine Agenten", became a sidebar `NavItem` and is an
+ * ordinary button on the page — it is asserted separately. The sixth was the
+ * overview's own theme button, and it is GONE rather than relocated: that is
+ * this card's required deletion, and `THEME_CONTROL_NAME` above is what proves
+ * the screen does not ship two colour-scheme controls.
+ *
+ * The language control's German label is an English sentence, because the
+ * label names the language it switches to. Pinned as it stands.
+ */
+const USER_MENU_NAMES = [
+  'Benutzername kopieren',
+  'Mein Profil',
+  'Switch to English',
+  'Abmelden',
+];
+
+/**
+ * Opens the sidebar's user menu and scopes queries to it.
+ *
+ * `screen` and not `canvas`: `DropdownMenuContent` renders through a Radix
+ * PORTAL, so the open menu is a child of `document.body` and outside the
+ * story's canvas element entirely. The trigger is matched on the username
+ * because that is what `SidebarUserMenu` puts in its accessible name.
+ */
+async function openUserMenu(
+  canvas: Canvas,
+  userEvent: { click: (el: Element) => Promise<void> },
+): Promise<Canvas> {
+  await userEvent.click(canvas.getByRole('button', { name: /^@grace/ }));
+  return within(await screen.findByRole('menu'));
+}
+
+/**
+ * Asserts the page frame KI-776 put in place: one h1, one main, ONE navigation
+ * landmark, no banner, and the skip link pointing at the content landmark.
+ *
+ * ORACLE, unchanged: the WAI-ARIA role mappings for `h1`, `main`, `nav`,
+ * `header`, `footer` and `section[aria-label]`, resolved by
+ * @testing-library/dom's implementation of them — not by anything this repo
+ * computes. The counts are still what make it directional; three of them moved,
+ * and each moved for a reason that is a fact about the templates:
+ *
+ *  - `navigation` 0 -> 1. `AppShellLayout` mounts a `Sidebar`, and a `Sidebar`
+ *    is a `<nav aria-label>`. The overview genuinely had none before.
+ *  - `banner` 1 -> 0. This view's own `<header>` is deleted, and `AppShell`'s
+ *    top bar is `lg:hidden`, i.e. `display:none` at the runner's 1280px and out
+ *    of the accessibility tree. `PageHeader`'s `<header>` sits inside
+ *    `<section>`/`<main>`, which HTML-AAM maps to `generic`, not `banner`.
+ *  - the skip link's TARGET is no longer the `<main>`. `AppShell` owns the
+ *    `<main>` and spreads consumer props onto its root `<div>`, so the id can
+ *    only be hung on `SectionedGridLayout`'s `<section>`. That the anchor still
+ *    resolves — and resolves to the content landmark — is asserted, which the
+ *    old version did not do.
+ *
+ * `main` 1 and `contentinfo` 1 are unchanged, and the `<h1>` is still the page
+ * title — it is `SectionedGridLayout`'s `PageHeader` rather than this view's own
+ * heading now, and there is still exactly one on the screen.
+ */
+async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   await expect(canvas.getByRole('heading', { level: 1 })).toHaveTextContent('Meine Knowledge Bases');
 
   await expect(canvas.getAllByRole('main')).toHaveLength(1);
-  await expect(canvas.getByRole('main')).toHaveAttribute('id', 'home-main-content');
 
-  // The honest before-state: the overview has no navigation landmark at all.
-  await expect(canvas.queryAllByRole('navigation')).toHaveLength(0);
+  await expect(canvas.getAllByRole('navigation')).toHaveLength(1);
+  await expect(canvas.getByRole('navigation')).toHaveAccessibleName('Hauptnavigation');
 
-  await expect(canvas.getAllByRole('banner')).toHaveLength(1);
+  /* `banner` is deliberately NOT a count any more, and the reason is a
+   * measurement rather than a preference.
+   *
+   * The view's own `<header>` (logo box, `<h1>`, subtitle) is deleted. Two
+   * `<header>`s remain and neither is this repo's: `AppShell`'s below-lg top
+   * bar and `PageHeader`'s. A count over them would be a statement about the
+   * HARNESS, not about the page, for two measured reasons:
+   *   1. @testing-library maps `<header>` to `banner` unconditionally — it does
+   *      not apply HTML-AAM's „not inside main/section" scoping — so
+   *      `PageHeader`'s header counts here although Chromium maps it to
+   *      `generic`;
+   *   2. in this runner the shell's top bar is NOT hidden: measured in the
+   *      story pipeline, Tailwind's dev output emits `.lg\:hidden` BEFORE
+   *      `.flex` (rule 623 vs 694), so `.flex` wins on source order and the bar
+   *      renders at every width. The production stylesheet has them the right
+   *      way round (byte 42387 vs 13506 in `dist/assets/index-*.css`), so this
+   *      is a dev-mode JIT ordering artifact and not a defect in the app — but
+   *      it does mean no story in this file can assert a `lg:` breakpoint.
+   *
+   * What replaces it is the fact the deletion was FOR, and it holds in both
+   * environments: the page heading is inside the content landmark, not in a
+   * page header above it. That is the design system's heading rule verbatim —
+   * „the page heading belongs to the content template hung inside the shell".
+   */
+  await expect(canvas.getByRole('region', { name: 'Meine Knowledge Bases' }))
+    .toContainElement(canvas.getByRole('heading', { level: 1 }));
+
   await expect(canvas.getAllByRole('contentinfo')).toHaveLength(1);
 
-  // The skip link is the only in-page jump the overview offers, and its target
-  // is the main above — an id rename on one side alone breaks it silently.
+  /* The Home nav row's label is NOT `myKBs`. The developer decided that on
+   * 2026-09-14: the page `<h1>` and the „Meine KBs" section title already carry
+   * that name, and a third element with it would be both an a11y problem and an
+   * ambiguous locator for `sectionTrigger` below. `aria-current` is what marks
+   * it as the page one is on, and `NavItem` derives it from `active`. */
+  await expect(canvas.getByRole('button', { name: 'Übersicht' }))
+    .toHaveAttribute('aria-current', 'page');
+
+  // The skip link is the only in-page jump the overview offers; an id rename on
+  // one side alone breaks it silently, so the target is resolved, not assumed.
   const skip = canvas.getByRole('link', { name: 'Zum Inhalt springen' });
   await expect(skip).toHaveAttribute('href', '#home-main-content');
+  await expect(canvasElement.querySelector('#home-main-content'))
+    .toBe(canvas.getByRole('region', { name: 'Meine Knowledge Bases' }));
 }
 
 /* ===========================================================================
@@ -418,7 +555,7 @@ const meta = {
   /**
    * Determinism for two pieces of state the view reads from localStorage.
    *
-   * `KbAccordion` persists each section's open/closed state under
+   * `useSectionOpen` persists each section's open/closed state under
    * `justrag.home.section.<id>`, so a story that expands a section would
    * otherwise decide the starting state of every story after it — and in the
    * browser runner that storage is shared across the whole origin, not per
@@ -471,27 +608,26 @@ type Story = StoryObj<typeof meta>;
  * which nothing but the frame is on the screen.
  */
 export const Empty: Story = {
-  play: async ({ args, canvas, canvasElement, globals, userEvent }) => {
-    await expectPageFrame(canvas);
+  play: async ({ args, canvas, canvasElement, userEvent }) => {
+    await expectPageFrame(canvas, canvasElement);
 
     /* ORACLE: the German source strings in src/translations.ts, read back out
-     * of the rendered document. Four sections, two of them open — and the open
-     * ones are the two the component marks `defaultOpen`. */
-    for (const [title, expanded] of [
-      ['Favoriten', 'true'],
-      ['KBs entdecken', 'false'],
-      ['Mit mir geteilt', 'false'],
-      ['Meine Knowledge Bases', 'true'],
+     * of the rendered document, plus the WAI-ARIA disclosure contract. Four
+     * sections, two of them open — and the open ones are the two `HomeView`
+     * seeds `useSectionOpen` with `true`. The state is asserted twice over:
+     * once on the trigger (`aria-expanded`) and once on the panel it controls
+     * (`hidden` + whether its children are mounted), because the second half is
+     * the one the discovery section's re-fetch depends on. */
+    for (const [title, open] of [
+      ['Favoriten', true],
+      ['KBs entdecken', false],
+      ['Mit mir geteilt', false],
+      ['Meine Knowledge Bases', true],
     ] as const) {
-      await expect(sectionTrigger(canvas, title)).toHaveAttribute('aria-expanded', expanded);
+      await expect(sectionTrigger(canvas, title))
+        .toHaveAttribute('aria-expanded', String(open));
+      await expectSectionState(sectionPanel(canvas, canvasElement, title), open);
     }
-
-    /* ORACLE: the ARIA mapping for `role="region"` with `aria-labelledby`,
-     * which `KbAccordion` puts on the PANEL and not on the section. A closed
-     * section contributes no region because its panel is not in the document
-     * at all — so this count is the open/closed state read through the
-     * accessibility tree rather than through a class name. */
-    await expect(canvas.getAllByRole('region')).toHaveLength(2);
 
     // ORACLE: the fixture. Empty lists, so both counted sections read zero.
     await expect(sectionCount(canvas, 'Favoriten')).toBe('0');
@@ -513,34 +649,47 @@ export const Empty: Story = {
       canvas.getByRole('button', { name: 'Neue Knowledge Base erstellen' }),
     ).toBeInTheDocument();
 
-    /* ORACLE: WAI-ARIA accessible names. Exactly six controls in the action
-     * row, each reachable by name. KI-696 relocates all six into the shell's
-     * `nav` / `sidebarFooter`, so their survival IS that migration's test —
-     * and the total is what catches one being dropped on the way.
+    /* ORACLE: WAI-ARIA accessible names. The five surviving controls of the
+     * deleted `home-view__actions` row, each reachable by name in its NEW home
+     * — which is what this card's acceptance criterion asks for. The totals are
+     * what catch one being dropped on the way.
      *
-     * The row is scoped with `within` on purpose: after the move these names
-     * must still resolve, but no longer from inside this container, and a
-     * document-wide query would hide that difference. */
-    const row = actionRow(canvasElement);
-    for (const name of actionRowNames(globals)) {
-      await expect(row.getAllByRole('button', { name })).toHaveLength(1);
-    }
-    await expect(row.getAllByRole('button')).toHaveLength(6);
+     * The queries are scoped on purpose: „Meine Agenten" must now resolve from
+     * the page (it is a sidebar `NavItem`), and the other four only from inside
+     * the open user menu. A document-wide query would hide that difference,
+     * which is the same reason the old version scoped to `.home-view__actions`.
+     *
+     * Clicking the nav row FIRST is not cosmetic: the Radix menu is modal, so
+     * an outside click while it is open is swallowed by its dismiss layer and
+     * would never reach the button. */
+    await expect(canvas.getAllByRole('button', { name: 'Meine Agenten' })).toHaveLength(1);
+    await userEvent.click(canvas.getByRole('button', { name: 'Meine Agenten' }));
+    await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
 
     /* ORACLE: the union pattern in THEME_CONTROL_NAME, matched against the
-     * whole canvas. An exact list rather than a length, so a failure names
-     * what it found. Today: one control, this repo's own. */
-    await expect(themeControlNames(canvas)).toEqual([themeToggleName(globals)]);
+     * whole canvas. An exact list rather than a length, so a failure names what
+     * it found. The ANSWER is what this card changed: this repo's own two-state
+     * button is deleted, and the design system's three-option `ThemeToggle` —
+     * which `AppShellLayout` renders unconditionally — is the only
+     * colour-scheme control left. A screen that shipped both would return four
+     * names here, which is the failure mode this assertion exists for. */
+    await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
 
-    /* ORACLE: the spies in `args`. Three of the six are wired straight to a
-     * parent callback, and the click path — real pointer events through the
-     * real button — is what proves the name resolves to something that acts. */
-    await userEvent.click(row.getByRole('button', { name: 'Mein Profil' }));
-    await expect(args.onViewProfile).toHaveBeenCalledTimes(1);
-    await userEvent.click(row.getByRole('button', { name: 'Meine Agenten' }));
-    await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
-    await userEvent.click(row.getByRole('button', { name: 'Benutzername kopieren' }));
+    const menu = await openUserMenu(canvas, userEvent);
+    for (const name of USER_MENU_NAMES) {
+      await expect(menu.getAllByRole('menuitem', { name })).toHaveLength(1);
+    }
+    await expect(menu.getAllByRole('menuitem')).toHaveLength(4);
+
+    /* ORACLE: the spies in `args`. The click path — real pointer events through
+     * the real menu item — is what proves the name resolves to something that
+     * acts. Copy comes first because `HomeView` calls `preventDefault()` on its
+     * `onSelect` and the menu therefore stays open; „Mein Profil" closes it, so
+     * nothing may be asserted through `menu` after it. */
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Benutzername kopieren' }));
     await expect(args.onCopyUserId).toHaveBeenCalledTimes(1);
+    await userEvent.click(menu.getByRole('menuitem', { name: 'Mein Profil' }));
+    await expect(args.onViewProfile).toHaveBeenCalledTimes(1);
 
     // ORACLE: the fixture user. An ordinary role gets neither the admin
     // floating action nor the create-a-public-KB tile.
@@ -549,28 +698,35 @@ export const Empty: Story = {
 
     /* THE LAYOUT ENVELOPE, and the reason it is read from the CSSOM.
      *
-     * ORACLE: Chromium's own computed style. A class-name assertion would pass
-     * against a utility that compiles to nothing, which is the failure mode a
-     * template swap produces; a computed value cannot.
+     * ORACLE, unchanged: Chromium's own computed style. A class-name assertion
+     * would pass against a utility that compiles to nothing, which is the
+     * failure mode a template swap produces; a computed value cannot.
      *
-     * What is stated here is the shape KI-696 replaces: `main` is a bare block
-     * that constrains nothing, and the 1000px measure lives on each individual
-     * section instead. `SectionedGridLayout` inverts that — it owns the
-     * measure — so both numbers move, and moving them silently is what this
-     * catches. */
-    const root = canvasElement.querySelector('.home-view');
-    await expect(root).not.toBeNull();
-    const rootStyle = getComputedStyle(root as HTMLElement);
-    await expect(rootStyle.textAlign).toBe('center');
-    await expect(rootStyle.paddingInlineStart).toBe('16px');
+     * The NUMBERS moved, and the old version of this block said in advance that
+     * they would: „SectionedGridLayout inverts that — it owns the measure — so
+     * both numbers move, and moving them silently is what this catches." So
+     * here is what they moved to, stated rather than dropped:
+     *
+     *  - the page column is now ONE `Container` inside the content template,
+     *    not a 1000px box repeated per section — and its measure is 1440px,
+     *    because `SectionedGridLayout` exposes no width prop and its `Container`
+     *    falls to the cva default `page`. That regression is known and accepted
+     *    for now (design-system card `nhyfbxcfggpr`); forcing it back with a
+     *    `max-w-*` at the call site is a documented review FAIL, so the number
+     *    is pinned here instead, where the developer's visual QA can weigh it;
+     *  - `main` is a flex column that fills the shell, not a bare block;
+     *  - the page is no longer centre-aligned text: the templates align start. */
+    await expect(canvasElement.querySelector('.home-view')).toBeNull();
 
     const mainStyle = getComputedStyle(canvas.getByRole('main'));
-    await expect(mainStyle.display).toBe('block');
-    await expect(mainStyle.maxWidth).toBe('none');
+    await expect(mainStyle.display).toBe('flex');
+    await expect(mainStyle.flexDirection).toBe('column');
 
-    const section = canvasElement.querySelector('.home-view__section');
-    await expect(section).not.toBeNull();
-    await expect(getComputedStyle(section as HTMLElement).maxWidth).toBe('1000px');
+    const container = canvas
+      .getByRole('region', { name: 'Meine Knowledge Bases' })
+      .firstElementChild;
+    await expect(container).not.toBeNull();
+    await expect(getComputedStyle(container as HTMLElement).maxWidth).toBe('1440px');
   },
 };
 
@@ -596,7 +752,7 @@ export const EmptyDark: Story = {
 export const OwnedOnly: Story = {
   args: { kbs: [OWNED_ONE, OWNED_TWO, OWNED_THREE] },
   play: async ({ canvas, canvasElement }) => {
-    await expectPageFrame(canvas);
+    await expectPageFrame(canvas, canvasElement);
 
     // ORACLE: the fixture — three rows, every one of them `myRole: 'owner'`.
     await expect(sectionCount(canvas, 'Meine Knowledge Bases')).toBe('3');
@@ -630,17 +786,34 @@ export const OwnedOnly: Story = {
     await expect(canvas.getAllByRole('button', { name: 'Knowledge Base löschen' })).toHaveLength(3);
     await expect(canvas.queryByRole('button', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
 
-    /* ORACLE: Chromium's CSSOM. The grid track list is the layout envelope of
-     * the card area — `repeat(auto-fill, minmax(280px, 1fr))` resolved against
-     * the 1000px section measure at the runner's fixed 1280px viewport
-     * (vitest.config.ts:99). Three tracks, and the count is what a different
-     * template would change. */
-    const grid = canvasElement.querySelector('.home-view__grid');
+    /* ORACLE: Chromium's CSSOM, unchanged. The grid track list is the layout
+     * envelope of the card area. It used to be this repo's own
+     * `repeat(auto-fill, minmax(280px, 1fr))` on `.home-view__grid`; it is now
+     * the design system's `Grid cols={3}`, i.e. a declared column count that
+     * collapses at TAILWIND's breakpoints rather than at a width-per-card rule
+     * of ours. The grid is located through the panel the section trigger
+     * controls, because the class it used to answer to is gone.
+     *
+     * THE TRACK COUNT MOVED, 3 -> 2, and that is a real visual change rather
+     * than a test detail. Measured: the story canvas is 1200px wide (not the
+     * 1280 of vitest.config.ts:99 — vitest browser mode renders the story in an
+     * iframe narrower than the browser viewport), and `Grid cols={3}` is
+     * `grid-cols-1 md:grid-cols-2 xl:grid-cols-3`, whose `xl` step starts at
+     * 1280px. The old `repeat(auto-fill, minmax(280px, 1fr))` against a 1000px
+     * section fitted three tracks at this width. So between roughly 1024 and
+     * 1280px the card grid now reflows one step earlier than it used to; at
+     * 1280 and above it is three columns again, which this runner cannot show.
+     * Pinned as the measured value, with the reason, rather than quietly
+     * adjusted — the developer's visual QA is where that band is judged.
+     *
+     * The gap is unchanged at 24px: `Grid`'s default `gap-gutter` resolves to
+     * the same 1.5rem the hand-written grid used. */
+    const grid = sectionPanel(canvas, canvasElement, 'Meine Knowledge Bases').firstElementChild;
     await expect(grid).not.toBeNull();
     const gridStyle = getComputedStyle(grid as HTMLElement);
     await expect(gridStyle.display).toBe('grid');
     await expect(gridStyle.gap).toBe('24px');
-    await expect(gridStyle.gridTemplateColumns.split(' ')).toHaveLength(3);
+    await expect(gridStyle.gridTemplateColumns.split(' ')).toHaveLength(2);
   },
 };
 
@@ -654,8 +827,8 @@ export const OwnedOnly: Story = {
  */
 export const FavoritesPopulated: Story = {
   args: { globalKbs: [PUBLIC_ONE, PUBLIC_TWO], kbs: [OWNED_ONE] },
-  play: async ({ canvas, canvasElement, globals }) => {
-    await expectPageFrame(canvas);
+  play: async ({ canvas, canvasElement }) => {
+    await expectPageFrame(canvas, canvasElement);
 
     // ORACLE: the fixture.
     await expect(sectionCount(canvas, 'Favoriten')).toBe('2');
@@ -697,16 +870,17 @@ export const FavoritesPopulated: Story = {
     await expect(canvas.queryByRole('button', { name: 'Globale Knowledge Base löschen' })).toBeNull();
     await expect(canvas.queryByRole('button', { name: 'Globale KB erstellen' })).toBeNull();
 
-    const favoriteCards = canvasElement
-      .querySelectorAll('#home-section-panel-favorites .home-view__kb-card');
+    const favoriteCards = sectionPanel(canvas, canvasElement, 'Favoriten')
+      .querySelectorAll('.home-view__kb-card');
     await expect(favoriteCards).toHaveLength(2);
     for (const card of favoriteCards) {
       await expect(card).toHaveAttribute('role', 'button');
     }
 
     // Still exactly one colour-scheme control once the page carries content —
-    // the same count assertion as in `Empty`, re-checked in both themes here.
-    await expect(themeControlNames(canvas)).toEqual([themeToggleName(globals)]);
+    // the same assertion as in `Empty`, re-checked in both themes here. One
+    // control, three options; not this repo's button beside it.
+    await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
   },
 };
 
@@ -723,22 +897,30 @@ export const FavoritesPopulatedDark: Story = {
  */
 export const FavoritesAsSystemAdmin: Story = {
   args: { globalKbs: [PUBLIC_ONE, PUBLIC_TWO], kbs: [OWNED_ONE], user: SYSTEM_ADMIN },
-  play: async ({ canvas }) => {
-    await expectPageFrame(canvas);
+  play: async ({ canvas, canvasElement }) => {
+    await expectPageFrame(canvas, canvasElement);
 
     // ORACLE: src/translations.ts + the fixture's `isPublished: true`.
     await expect(canvas.getAllByText('Veröffentlicht')).toHaveLength(2);
     await expect(canvas.getAllByRole('button', { name: 'Einstellungen bearbeiten' })).toHaveLength(2);
     await expect(canvas.getAllByRole('button', { name: 'Globale Knowledge Base löschen' })).toHaveLength(2);
     await expect(canvas.getByRole('button', { name: 'Globale KB erstellen' })).toBeInTheDocument();
+
+    /* „Admin-Einstellungen" survives as the SAME accessible name in a new home:
+     * it was a floating action button pinned to the page corner, and it is the
+     * third sidebar `NavItem` now. The assertion does not move, and that is the
+     * point of writing it by name — but the control had to be relocated rather
+     * than left in place, because the slot spec puts Admin in the nav and two
+     * buttons with one name would make this very query ambiguous. */
     await expect(canvas.getByRole('button', { name: 'Admin-Einstellungen' })).toBeInTheDocument();
+    await expect(canvasElement.querySelector('.home-view__admin-fab')).toBeNull();
 
     // The count is the LIST length and is not raised by the create tile.
     await expect(sectionCount(canvas, 'Favoriten')).toBe('2');
 
-    // Still one theme control, and still six controls in the action row: the
-    // admin branch adds a floating button, not a seventh row control.
-    await expect(themeControlNames(canvas)).toEqual(['Wechsle zum Dunkel-Modus']);
+    // Still exactly one colour-scheme control: the admin branch adds a nav row,
+    // not a second toggle.
+    await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
   },
 };
 
@@ -754,18 +936,23 @@ export const FavoritesAsSystemAdmin: Story = {
 export const SharedWithMe: Story = {
   args: { kbs: [OWNED_ONE, SHARED_ONE] },
   play: async ({ canvas, canvasElement, userEvent }) => {
-    await expectPageFrame(canvas);
+    await expectPageFrame(canvas, canvasElement);
 
     // ORACLE: the fixture — one row with `myRole: 'owner'`, one with 'edit'.
     await expect(sectionCount(canvas, 'Meine Knowledge Bases')).toBe('1');
     await expect(sectionCount(canvas, 'Mit mir geteilt')).toBe('1');
 
-    // The shared card is not merely hidden while the section is collapsed.
-    await expect(canvasElement.querySelector('#home-section-panel-shared')).toBeNull();
+    /* The shared card is not merely hidden while the section is collapsed —
+     * unchanged as a PROPERTY, changed in how it is read. The panel element
+     * itself now stays in the document (so `aria-controls` never dangles) and
+     * only its children are unmounted, so „collapsed" is asserted as `hidden`
+     * plus an empty panel, and confirmed a second way through the card's own
+     * accessible name being absent from the whole canvas. */
+    await expectSectionState(sectionPanel(canvas, canvasElement, 'Mit mir geteilt'), false);
     await expect(canvas.queryByRole('button', { name: /Fakultaetsprotokolle/ })).toBeNull();
 
     await userEvent.click(sectionTrigger(canvas, 'Mit mir geteilt'));
-    await expect(canvasElement.querySelector('#home-section-panel-shared')).not.toBeNull();
+    await expectSectionState(sectionPanel(canvas, canvasElement, 'Mit mir geteilt'), true);
 
     // ORACLE: the fixture name, once the section is open.
     await expect(
@@ -825,15 +1012,23 @@ export const UploadedLogoAndCopyConfirmed: Story = {
     siteConfigs: { logo_path: '/logo-test.svg' },
     copySuccess: true,
   },
-  play: async ({ canvas, canvasElement }) => {
+  play: async ({ canvas, userEvent }) => {
     /* ORACLE: `window.location.origin`, read from the browser. The app builds
      * this src as `API_BASE_URL + logo_path`, and .storybook/env.ts pins
      * API_BASE_URL to the serving origin — so the expected value is composed
      * from the browser's own property and the fixture, never from the app's
      * constant. The file is real (web/public/logo-test.svg), served by the
      * runner's publicDir, so this is a resolving image and not a broken one. */
-    const logo = canvas.getByAltText('Website-Logo');
-    await expect(logo).toHaveAttribute('src', `${window.location.origin}/logo-test.svg`);
+    /* TWO copies, not one, and that is the shell rather than a bug: `AppShell`
+     * renders the `logo` node both in the sidebar header and in the below-lg
+     * top bar, and hides one of them per breakpoint with CSS. `getAllBy*` does
+     * not filter on visibility, so both are in this result — asserting the
+     * count is how that stays a stated fact instead of a surprise. */
+    const logos = canvas.getAllByAltText('Website-Logo');
+    await expect(logos).toHaveLength(2);
+    for (const logo of logos) {
+      await expect(logo).toHaveAttribute('src', `${window.location.origin}/logo-test.svg`);
+    }
 
     /* ORACLE: the WAI-ARIA landmark mapping again. With no imprint there is no
      * footer and therefore no contentinfo — the same assertion `expectPageFrame`
@@ -841,24 +1036,29 @@ export const UploadedLogoAndCopyConfirmed: Story = {
      * falsifiable. */
     await expect(canvas.queryAllByRole('contentinfo')).toHaveLength(0);
 
-    /* ORACLE: Chromium's CSSOM. `copySuccess` is rendered purely as colour
-     * (`.home-view__copy-btn--success` sets the accent), so the check is that
-     * the confirmed control computes to a DIFFERENT colour than an ordinary
-     * icon button beside it. Comparing two live elements rather than asserting
-     * one literal value keeps the assertion true under a token change and
-     * false under a lost prop — and it cannot be satisfied by a class name
-     * that compiles to nothing. */
-    const row = actionRow(canvasElement);
-    const copyButton = row.getByRole('button', { name: 'Benutzername kopieren' });
-    const profileButton = row.getByRole('button', { name: 'Mein Profil' });
-    await expect(getComputedStyle(copyButton).color).not.toBe(
-      getComputedStyle(profileButton).color,
-    );
+    /* ORACLE: Chromium's CSSOM, unchanged in kind. `copySuccess` is rendered as
+     * colour AND as an icon swap, and both halves are pinned so a partial
+     * rewrite that keeps one and drops the other still fails.
+     *
+     * WHAT MOVED: the control is a `DropdownMenuItem` in the sidebar's user menu
+     * now, so the colour is carried by the CHECK ICON (`text-success`, a
+     * semantic token) instead of by `.home-view__copy-btn--success` on a button
+     * this repo styled. It has to be: colouring a design-system component from
+     * the call site is a re-skin the guidelines forbid, and lint only warns on
+     * it. So the comparison is icon-against-icon rather than button-against-
+     * button — still two LIVE elements rather than one literal value, which is
+     * what keeps it true under a token change and false under a lost prop. */
+    const menu = await openUserMenu(canvas, userEvent);
+    const copyItem = menu.getByRole('menuitem', { name: 'Benutzername kopieren' });
+    const profileItem = menu.getByRole('menuitem', { name: 'Mein Profil' });
 
-    // The icon swaps with the same prop; both halves are pinned so a partial
-    // rewrite that keeps the colour and drops the icon still fails.
-    await expect(copyButton.querySelector('.lucide-check')).not.toBeNull();
-    await expect(copyButton.querySelector('.lucide-copy')).toBeNull();
+    const copyIcon = copyItem.querySelector('.lucide-check');
+    const profileIcon = profileItem.querySelector('svg');
+    await expect(copyIcon).not.toBeNull();
+    await expect(copyItem.querySelector('.lucide-copy')).toBeNull();
+    await expect(getComputedStyle(copyIcon as Element).color).not.toBe(
+      getComputedStyle(profileIcon as Element).color,
+    );
   },
 };
 
@@ -869,7 +1069,7 @@ export const UploadedLogoAndCopyConfirmed: Story = {
  */
 export const RemovalInFlight: Story = {
   args: { kbs: [OWNED_ONE], globalKbs: [PUBLIC_ONE], removingKb: true },
-  play: async ({ canvas }) => {
+  play: async ({ canvas, userEvent }) => {
     /* ORACLE: the HTML `disabled` semantics, resolved by jest-dom's
      * `toBeDisabled` against the element's own state — not against a class.
      * The two controls carry different labels because they do different
@@ -881,7 +1081,17 @@ export const RemovalInFlight: Story = {
     // Controls that are NOT removals stay live, which is what makes the
     // assertion above about `removingKb` rather than about a disabled page.
     await expect(canvas.getByRole('button', { name: 'Teilen' })).toBeEnabled();
-    await expect(canvas.getByRole('button', { name: 'Abmelden' })).toBeEnabled();
+
+    /* „Abmelden" is a `DropdownMenuItem` in the sidebar's user menu now, so it
+     * has to be opened to be seen, and `toBeEnabled` is the wrong matcher for
+     * it: jest-dom only reads `disabled` on form elements and would pass on a
+     * `role="menuitem"` div no matter what. Radix's own `data-disabled` /
+     * `aria-disabled` is what it actually sets, so that is what is asserted —
+     * a matcher that cannot fail is not a test. */
+    const menu = await openUserMenu(canvas, userEvent);
+    const logout = menu.getByRole('menuitem', { name: 'Abmelden' });
+    await expect(logout).not.toHaveAttribute('data-disabled');
+    await expect(logout).not.toHaveAttribute('aria-disabled', 'true');
   },
 };
 
@@ -916,13 +1126,13 @@ export const DiscoverSectionMountsOnExpand: Story = {
 
     const trigger = sectionTrigger(canvas, 'KBs entdecken');
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(canvasElement.querySelector('#home-section-panel-discover')).toBeNull();
+    await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), false);
     await expect(canvas.queryByLabelText('Name oder Beschreibung suchen…')).toBeNull();
     await expect(catalogRequests()).toBe(0);
 
     await userEvent.click(trigger);
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expect(canvasElement.querySelector('#home-section-panel-discover')).not.toBeNull();
+    await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), true);
 
     // The panel's search field is its own, and it appears with the mount.
     await expect(canvas.getByLabelText('Name oder Beschreibung suchen…')).toBeInTheDocument();
@@ -933,9 +1143,12 @@ export const DiscoverSectionMountsOnExpand: Story = {
       await expect(catalogRequests()).toBe(1);
     });
 
-    // Collapsing takes the panel out of the document again.
+    /* Collapsing unmounts the panel's body again — the property this whole
+     * story exists for, and the one `SectionedGridLayout` documents as
+     * deliberate. The panel ELEMENT survives (hidden), which is why it is
+     * asserted as empty rather than as absent. */
     await userEvent.click(trigger);
-    await expect(canvasElement.querySelector('#home-section-panel-discover')).toBeNull();
+    await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), false);
     await expect(canvas.queryByText('Bibliothek Bestandskatalog')).toBeNull();
 
     /* The property this whole story exists for: the SECOND expand issues a

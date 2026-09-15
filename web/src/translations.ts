@@ -39,6 +39,23 @@ export const translations = {
     newKB: { de: 'Neue Knowledge Base', en: 'New Knowledge Base' },
     profile: { de: 'Mein Profil', en: 'My Profile' },
     logout: { de: 'Abmelden', en: 'Logout' },
+
+    // App shell (AppShellLayout, card KI-776).
+    //
+    // `home` is DELIBERATELY not `myKBs`. The sidebar's Home row, the page
+    // <h1> and the "Meine KBs" section title would otherwise be three
+    // elements with the same accessible name on one screen — a real a11y
+    // problem that also makes `getByRole('button', { name: /^Meine Knowledge
+    // Bases/ })` ambiguous. Decided by the developer on 2026-09-14; it amends
+    // the slot spec on KI-776, which had said `t('myKBs')`.
+    home: { de: 'Übersicht', en: 'Overview' },
+    // The three chrome labels AppShellLayout would otherwise render with its
+    // German defaults. (Its <ThemeToggle>'s four labels are NOT forwardable —
+    // design-system gap nhyfbxcfggpr — so those stay German in both
+    // languages until the design system ships the props.)
+    mainNavigation: { de: 'Hauptnavigation', en: 'Main navigation' },
+    openNavigation: { de: 'Navigation öffnen', en: 'Open navigation' },
+    navigation: { de: 'Navigation', en: 'Navigation' },
     switchToDark: { de: 'Wechsle zum Dunkel-Modus', en: 'Switch to Dark Mode' },
     switchToLight: { de: 'Wechsle zum Hell-Modus', en: 'Switch to Light Mode' },
 
@@ -382,8 +399,6 @@ export const translations = {
     homeFavoritesEmpty: { de: 'Noch keine Favoriten — unter „KBs entdecken" findest du alle öffentlichen Wissensdatenbanken.', en: 'No favorites yet — "Discover KBs" below lists every public knowledge base.' },
     homeSharedWithMe: { de: 'Mit mir geteilt', en: 'Shared with me' },
     homeSharedWithMeEmpty: { de: 'Dir wurde noch keine Knowledge Base freigegeben.', en: 'Nobody has shared a knowledge base with you yet.' },
-    expandSection: { de: 'Bereich aufklappen', en: 'Expand section' },
-    collapseSection: { de: 'Bereich zuklappen', en: 'Collapse section' },
 
     // Global Knowledge Bases
     globalKBs: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },

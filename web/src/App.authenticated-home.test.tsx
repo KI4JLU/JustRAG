@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
 import { translations } from './translations';
@@ -70,6 +71,14 @@ function memoryStorage(): Storage {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The sidebar's user menu is a Radix dropdown: it measures and captures
+  // pointers, and jsdom implements neither. Same shim the admin suites use
+  // (AdminEvalTab.test.tsx:56) — it enables opening the menu with a click,
+  // nothing more.
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: false,
     media: query,
@@ -148,11 +157,25 @@ describe('App — the KB overview on the authenticated home route', () => {
      * button reads `SharingContext`, profile and agents read `AppNavContext`,
      * and logout reads `AuthContext.logout` instead of an `onLogout` prop. A
      * provider mounted but empty, or a handler wired to the wrong member,
-     * still renders a button; what this pins is that the real app supplies all
-     * four sources on this route. */
-    expect(screen.getByRole('button', { name: translations.copyUsername.de })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: translations.profile.de })).toBeInTheDocument();
+     * still renders a control; what this pins is that the real app supplies all
+     * four sources on this route.
+     *
+     * WHERE THEY ARE SINCE KI-776, and why three of the four assertions had to
+     * change SHAPE while the oracle did not. The shell moved them out of a flat
+     * action row: „Meine Agenten" is a sidebar `NavItem`, i.e. still a button on
+     * the page, while copy / profile / logout are `DropdownMenuItem`s inside
+     * `SidebarUserMenu` — a CLOSED Radix dropdown, so they are not in the
+     * document at all until it is opened. Opening it is therefore part of what
+     * this test pins now, and it makes the check strictly stronger: the trigger
+     * has to render, respond, and carry the four handlers behind it. */
     expect(screen.getByRole('button', { name: translations.myAgents.de })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: translations.logout.de })).toBeInTheDocument();
+
+    // The trigger's accessible name is the username SidebarUserMenu shows,
+    // which is the one this file seeds into localStorage above.
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.getByRole('menuitem', { name: translations.copyUsername.de })).toBeInTheDocument();
+    expect(menu.getByRole('menuitem', { name: translations.profile.de })).toBeInTheDocument();
+    expect(menu.getByRole('menuitem', { name: translations.logout.de })).toBeInTheDocument();
   });
 });
