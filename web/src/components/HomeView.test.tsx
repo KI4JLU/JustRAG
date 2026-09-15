@@ -321,6 +321,93 @@ describe('HomeView app shell', () => {
     );
   });
 
+  /* ---------------------------------------------------------------------
+   * The minimise toggle, and the mobile drawer's relationship to it (KI-789).
+   *
+   * WHAT THIS FILE CAN SAY, AND WHAT IT DELIBERATELY CANNOT. jsdom applies no
+   * stylesheet, so nothing here is a statement about width or about text being
+   * painted — `AppShellCollapsed` in `HomeView.stories.tsx` measures those in
+   * Chromium. What jsdom CAN see is the DOM contract, and the two facts below
+   * are exactly that:
+   *
+   *  1. EVERY NAV ROW KEEPS AN ACCESSIBLE NAME, and it is now an `aria-label`
+   *     rather than the visible text. This is the a11y risk of the whole
+   *     feature, and it has a silent failure mode in both directions:
+   *     `NavItem` collapses only a row it was given a `label` for, so a row
+   *     missing one keeps rendering full width next to collapsed neighbours
+   *     (no error, no warning, no type failure); and a row that collapsed
+   *     without one would lose its name entirely. Asserting the `aria-label`
+   *     — not merely that the name resolves — is what distinguishes the
+   *     collapsed row from a row that quietly declined to collapse. All three
+   *     rows, hence the admin fixture.
+   *
+   *  2. THE MOBILE DRAWER IS UNAFFECTED, which is the known-risk half.
+   *     `AppShell` renders ONE sidebar node twice, and the drawer copy
+   *     suppresses both the toggle and the collapsed width by design (its
+   *     `SidebarSurfaceContext`), so a user who minimised the column on the
+   *     desktop must still get a full-width, toggle-less drawer on mobile. The
+   *     `#theme-toggle` duplication recorded in the test above is also checked
+   *     to be unchanged at exactly two — collapsing must not add a third
+   *     element under that id.
+   *
+   * ORACLES: `src/translations.ts` for every name, and WAI-ARIA's button /
+   * dialog role mappings plus the DOM's id semantics as jsdom implements them.
+   * Neither is derived from this repo's components.
+   * ------------------------------------------------------------------- */
+  it('collapses the sidebar without taking a name off any nav row', async () => {
+    authState.role = 'admin';
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    const nav = within(screen.getByRole('navigation', { name: translations.mainNavigation.en }));
+    const ROWS = [translations.home.en, translations.sharedKbs.en, translations.myAgents.en];
+
+    // Expanded: the visible text IS the name, so there is no aria-label to
+    // override it (and none to drift from it).
+    for (const name of ROWS) {
+      expect(nav.getByRole('button', { name })).not.toHaveAttribute('aria-label');
+    }
+
+    await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
+
+    // Collapsed: same three names, now carried by aria-label. A row that had
+    // refused to collapse would still resolve by name and would fail here.
+    for (const name of ROWS) {
+      expect(nav.getByRole('button', { name })).toHaveAttribute('aria-label', name);
+    }
+
+    // The user menu is the only route to sign-out, so it has to survive too.
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.getByRole('menuitem', { name: translations.logout.en })).toBeInTheDocument();
+  });
+
+  it('leaves the mobile drawer full width and toggle-less while the sidebar is minimised', async () => {
+    authState.role = 'admin';
+    renderView(<HomeView kbs={[]} {...noopProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
+    // One toggle while the drawer is closed: the desktop column's.
+    expect(screen.getAllByRole('button', { name: translations.expandNavigation.en })).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.openNavigation.en }));
+    const drawer = within(await screen.findByRole('dialog'));
+
+    // The drawer copy carries NO toggle, in either direction — a minimise
+    // control inside a full-height modal would have nothing to minimise.
+    expect(drawer.queryByRole('button', { name: translations.expandNavigation.en })).toBeNull();
+    expect(drawer.queryByRole('button', { name: translations.collapseNavigation.en })).toBeNull();
+
+    // And its rows are the EXPANDED form: no aria-label, i.e. the visible text
+    // is still their name — while the desktop copy behind it stays collapsed.
+    for (const name of [translations.home.en, translations.sharedKbs.en, translations.myAgents.en]) {
+      expect(drawer.getByRole('button', { name })).not.toHaveAttribute('aria-label');
+    }
+
+    // The known `#theme-toggle` duplication is unchanged at two mounts —
+    // collapsing neither removes the desktop copy nor adds a third.
+    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(2);
+  });
+
   it('routes the sidebar nav rows to the AppNavContext jumps', async () => {
     authState.role = 'admin';
     renderView(<HomeView kbs={[]} {...noopProps} />);

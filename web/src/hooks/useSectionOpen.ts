@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { STORAGE_NAMESPACE, useStoredFlag } from './useStoredFlag';
 
 /**
  * Per-section open/closed state for the KB overview's collapsible sections.
@@ -10,30 +10,13 @@ import { useCallback, useState } from 'react';
  * moved here, byte-for-byte: same storage prefix, same values, same fallback
  * behaviour, so no user loses a section state across the migration.
  *
- * localStorage access is wrapped because it throws outright in Safari's private
- * mode and under a blocked-cookies policy — a storage failure must cost the
- * user a remembered preference, never the whole overview. (Carried over from
- * `KbAccordion.readStored`; the comment is the reason, not decoration.)
+ * KI-789 EXTRACTED THE MECHANISM, NOT THE BEHAVIOUR. The `localStorage`
+ * read/write pair (and the reason it is wrapped in try/catch) now lives in
+ * `useStoredFlag.ts`, so the sidebar's collapsed state could reuse it instead
+ * of hand-rolling a second one. The key, the stored `'1'`/`'0'` values and the
+ * read-once-per-mount semantics are unchanged.
  */
-const STORAGE_PREFIX = 'justrag.home.section.';
-
-function readStored(id: string, fallback: boolean): boolean {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_PREFIX + id);
-    if (raw === null) return fallback;
-    return raw === '1';
-  } catch {
-    return fallback;
-  }
-}
-
-function writeStored(id: string, open: boolean): void {
-  try {
-    window.localStorage.setItem(STORAGE_PREFIX + id, open ? '1' : '0');
-  } catch {
-    // See readStored: a preference that cannot be persisted is not an error.
-  }
-}
+const STORAGE_PREFIX = `${STORAGE_NAMESPACE}home.section.`;
 
 export interface SectionOpenState {
   isOpen: boolean;
@@ -45,14 +28,6 @@ export interface SectionOpenState {
  * @param defaultOpen open state on first visit, before the user ever toggled it.
  */
 export function useSectionOpen(id: string, defaultOpen: boolean): SectionOpenState {
-  // The initialiser runs once per mount, which is what makes a remount pick up
-  // the stored value — the property `HomeView.test.tsx` pins across an unmount.
-  const [isOpen, setIsOpen] = useState(() => readStored(id, defaultOpen));
-
-  const onOpenChange = useCallback((next: boolean) => {
-    writeStored(id, next);
-    setIsOpen(next);
-  }, [id]);
-
+  const [isOpen, onOpenChange] = useStoredFlag(STORAGE_PREFIX + id, defaultOpen);
   return { isOpen, onOpenChange };
 }

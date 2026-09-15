@@ -71,6 +71,23 @@ export const translations = {
     openNavigation: { de: 'Navigation öffnen', en: 'Open navigation' },
     navigation: { de: 'Navigation', en: 'Navigation' },
 
+    /* The two labels of the sidebar's minimise toggle (card KI-789).
+     *
+     * `Sidebar` owns that toggle and names it from whichever of the pair
+     * matches the CURRENT state — `collapseNavigation` while the column is
+     * wide (pressing it minimises), `expandNavigation` while it is minimised.
+     * Both are passed because the design system's defaults are German, and a
+     * control whose accessible name stays German in an English session is the
+     * exact gap KI-788 had to fix for `ThemeToggle` after the fact. It is free
+     * to avoid here.
+     *
+     * THE GERMAN STRINGS ARE THE DESIGN SYSTEM'S OWN DEFAULTS, byte for byte
+     * („Navigation einklappen" / „Navigation ausklappen", sidebar.tsx) — same
+     * rule the four `ThemeToggle` keys above follow, so a German session reads
+     * exactly what the component would have rendered on its own. */
+    collapseNavigation: { de: 'Navigation einklappen', en: 'Collapse navigation' },
+    expandNavigation: { de: 'Navigation ausklappen', en: 'Expand navigation' },
+
     /* The DS `ThemeToggle`'s four labels (card KI-788).
      *
      * They exist because design-system 0.26.0 closed gap `nhyfbxcfggpr` by

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
@@ -180,6 +180,96 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(overview).not.toHaveAttribute('aria-current');
     await userEvent.click(overview);
     expect(await findOverviewHeading()).toBeInTheDocument();
+  });
+
+  /* ---------------------------------------------------------------------
+   * The minimised sidebar, on the real route (card KI-789).
+   *
+   * WHY IT IS HERE AND NOT IN A COMPONENT SUITE. Three of the four claims can
+   * only be made where the whole app is mounted:
+   *  - „both views pick it up" is a statement about `AppChrome` being the ONE
+   *    shell both branches of `AuthenticatedApp` mount. A component suite
+   *    renders one view and could not tell a shared chrome from two copies
+   *    that happen to agree;
+   *  - „survives a reload" is a statement about a fresh mount reading
+   *    `localStorage` back, which is what `unmount()` + a second `render`
+   *    reproduces — the closest a jsdom suite gets to F5, and the only half of
+   *    the claim a test can make (the browser's own restart is not testable
+   *    here, and is not asserted);
+   *  - the state is genuinely persisted, rather than held in a module-level
+   *    variable that would survive a remount for the wrong reason. The
+   *    `localStorage` key is read directly and spelled out, so a renamed key
+   *    is a failure rather than a silent loss of everyone's preference.
+   *
+   * ORACLES, none of them this repo's code: `translations.ts` for the two
+   * toggle names and the nav rows, WAI-ARIA's `aria-expanded` /
+   * `aria-controls` contract as testing-library and jsdom resolve them, and
+   * the `'1'`/`'0'` encoding this app has stored booleans under since Stage 7b
+   * (`useSectionOpen`), written out here rather than imported.
+   *
+   * NOT asserted here: that the column actually gets narrower, or that the row
+   * labels stop being painted. jsdom applies no stylesheet and would agree
+   * with anything; `AppShellCollapsed` in `HomeView.stories.tsx` measures both
+   * in Chromium.
+   * ------------------------------------------------------------------- */
+  it('remembers the minimised sidebar across the view switch and a remount', async () => {
+    const first = render(<App />);
+    await findOverviewHeading();
+
+    /* ORACLE: translations.ts. The toggle exists at all only because
+       `AppChrome` passes `onCollapsedChange` — `Sidebar` renders none without
+       a handler, with no type error and no failing gate — so its presence is
+       asserted, never inferred. It is named for what pressing it does. */
+    const toggle = screen.getByRole('button', { name: translations.collapseNavigation.de });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    // ORACLE: WAI-ARIA. `aria-controls` must RESOLVE to the navigation
+    // landmark it expands; `Sidebar` mints that id per mount with `useId`, so
+    // nothing outside the design system can supply it.
+    const nav = screen.getByRole('navigation', { name: translations.mainNavigation.de });
+    expect(toggle.getAttribute('aria-controls')).toBe(nav.id);
+
+    await userEvent.click(toggle);
+
+    // Same control, other direction — it has to survive collapsing, because it
+    // is the only way back out.
+    expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
+      .toBe(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    /* ORACLE: the storage encoding above. This is the fact the remount below
+       depends on; asserting only the remount would pass just as well against a
+       module-level variable. */
+    expect(localStorage.getItem('justrag.chrome.sidebar.collapsed')).toBe('1');
+
+    /* THE A11Y CLAIM. Every nav row keeps its accessible name in the collapsed
+       state — `NavItem` moves it from the visible text to `aria-label`, and
+       only for rows that were given a `label`. A row missing one does not
+       fail: it silently refuses to collapse. Both rows an ordinary user has
+       are checked; the admin-gated third is checked in HomeView.test.tsx and
+       in `AppShellCollapsed`. ORACLE: translations.ts. */
+    for (const name of [translations.home.de, translations.sharedKbs.de]) {
+      expect(within(nav).getByRole('button', { name })).toBeInTheDocument();
+    }
+
+    // The second view, mounting the SAME `AppChrome`.
+    await userEvent.click(within(nav).getByRole('button', { name: translations.sharedKbs.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de });
+    expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
+      .toHaveAttribute('aria-expanded', 'false');
+
+    // The reload. A fresh tree, the same storage.
+    first.unmount();
+    render(<App />);
+    await findOverviewHeading();
+    expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
+      .toHaveAttribute('aria-expanded', 'false');
+
+    // And back out, so the preference is a toggle rather than a trap.
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.de }));
+    expect(screen.getByRole('button', { name: translations.collapseNavigation.de }))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(localStorage.getItem('justrag.chrome.sidebar.collapsed')).toBe('0');
   });
 
   it('shows the empty state rather than the overview when nothing is shared', async () => {

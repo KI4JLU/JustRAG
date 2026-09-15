@@ -335,6 +335,19 @@ const SECTION_IDS = ['favorites', 'discover', 'shared', 'mine'] as const;
 const SECTION_STORAGE_KEYS = SECTION_IDS.map((id) => `justrag.home.section.${id}`);
 
 /**
+ * The fifth remembered preference (card KI-789): the sidebar's collapsed width.
+ *
+ * Spelled out rather than imported from `useSidebarCollapse.ts`, for the same
+ * reason the four section keys above are: the key is a promise to the browser,
+ * and a story that read it from the hook could not tell a renamed key from a
+ * kept one. It is cleared with the others in `beforeEach`, because the story
+ * runner shares one origin across the whole file — a story that collapses the
+ * column would otherwise decide the starting state of every story after it.
+ */
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'justrag.chrome.sidebar.collapsed';
+const CHROME_STORAGE_KEYS = [...SECTION_STORAGE_KEYS, SIDEBAR_COLLAPSED_STORAGE_KEY];
+
+/**
  * Every accessible name a colour-scheme control carries in this codebase or in
  * the design system, in one pattern.
  *
@@ -609,10 +622,10 @@ const meta = {
    * argument preview.tsx makes for the theme global.
    */
   beforeEach: async () => {
-    SECTION_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+    CHROME_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     localStorage.setItem('language', 'de');
     return () => {
-      SECTION_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+      CHROME_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     };
   },
   args: {
@@ -1490,5 +1503,145 @@ export const AppShellGeometry: Story = {
     // ORACLE: Chromium's layout engine. 64px = `h-16`, the number Toast.css
     // adds its 12px gap to.
     await expect((bar as HTMLElement).getBoundingClientRect().height).toBe(64);
+  },
+};
+
+/**
+ * The sidebar minimises to an 80px icon column, and comes back (card KI-789).
+ *
+ * WHY A STORY AND NOT A UNIT TEST. Every claim below is about LAYOUT, and
+ * jsdom applies no stylesheet: it would report the collapsed column, the
+ * hidden row labels and the theme switch at zero and agree with anything. The
+ * two failure modes this feature actually has are both invisible to it —
+ *   - a `w-(--width-sidebar-collapsed)` utility that compiled to nothing, so
+ *     the column keeps its full width while every assertion about classes and
+ *     ARIA still passes;
+ *   - a nav row whose text is a bare text node rather than an element, which
+ *     `NavItem`'s `[&>*:not(svg)]:hidden` cannot hide — the row then renders
+ *     its label into an 80px column and overflows, with the correct
+ *     `aria-label` sitting on it the whole time.
+ * The unit suite owns the behaviour (`HomeView.test.tsx`); this owns the pixels.
+ *
+ * WHAT IT PINS.
+ *  1. The toggle is there, named from `translations.ts`, and its
+ *     `aria-controls` resolves to the `<nav>` it actually expands. `Sidebar`
+ *     mints that id with `useId` per mount, so nothing outside the design
+ *     system can supply or verify it except by resolving it like this.
+ *  2. Pressing it narrows the column from 256px to 80px, and pressing it again
+ *     restores it. The numbers are the design system's published tokens
+ *     (`--width-sidebar: 16rem`, `--width-sidebar-collapsed: 5rem`, tokens.css)
+ *     at the 16px root font this app never overrides.
+ *  3. EVERY nav row keeps its accessible name while its visible text goes. This
+ *     is the a11y risk of the whole feature: `NavItem` only collapses a row it
+ *     was given a `label` for, so a row missing one silently stays wide instead
+ *     of failing — and a row that collapsed WITHOUT one would lose its name
+ *     altogether. Both halves are asserted, on all three rows, which is why the
+ *     admin fixture is used.
+ *  4. The footer survives. `SidebarUserMenu` is the only route to sign-out, so
+ *     it is opened and its items counted at 80px; and the colour-scheme switch
+ *     stays inside the column's box rather than spilling over the page.
+ *  5. The choice is written to `localStorage` — the storage half of "survives a
+ *     reload". The remount half is `HomeView.test.tsx`'s.
+ *
+ * ORACLES, none of them this repo's code: Chromium's layout engine through
+ * `getBoundingClientRect()`, WAI-ARIA's role and accessible-name mappings as
+ * testing-library resolves them, the design system's published width tokens,
+ * and `src/translations.ts` for every name.
+ */
+export const AppShellCollapsed: Story = {
+  args: { user: SYSTEM_ADMIN },
+  play: async ({ canvas, userEvent }) => {
+    /* ORACLE: translations.ts. The toggle is named for what pressing it DOES,
+       so the expanded column offers „einklappen". Its presence is not a given:
+       `Sidebar` renders no toggle at all unless the consumer passes
+       `onCollapsedChange`, with no type error and no failing gate if it does
+       not — which is the whole failure mode this card exists to close. */
+    const collapseToggle = canvas.getByRole('button', { name: 'Navigation einklappen' });
+    await expect(collapseToggle).toHaveAttribute('aria-expanded', 'true');
+
+    // ORACLE: WAI-ARIA + translations.ts. `aria-controls` has to RESOLVE — the
+    // id is minted inside `Sidebar` by `useId`, so a dangling one would be
+    // invisible to any assertion that only read the attribute's value.
+    const nav = canvas.getByRole('navigation', { name: 'Hauptnavigation' });
+    await expect(collapseToggle.getAttribute('aria-controls')).toBe(nav.id);
+
+    const aside = collapseToggle.closest('aside') as HTMLElement;
+    await expect(aside).not.toBeNull();
+    // ORACLE: Chromium's layout + the DS token `--width-sidebar: 16rem`.
+    await expect(aside.getBoundingClientRect().width).toBe(256);
+
+    /* The three rows, and the two facts about each. Names first, while the
+       column is wide, so the collapsed assertions below are a comparison
+       against a state this story established rather than an assumption. */
+    const ROWS = ['Mein Wissen', 'Geteiltes Wissen', 'Meine Agenten'];
+    for (const name of ROWS) {
+      await expect(within(nav).getByRole('button', { name })).toBeVisible();
+    }
+
+    await userEvent.click(collapseToggle);
+
+    // ORACLE: Chromium's layout + the DS token `--width-sidebar-collapsed: 5rem`.
+    await expect(aside.getBoundingClientRect().width).toBe(80);
+
+    // ORACLE: translations.ts. The same control, now named for the other
+    // direction — it has to survive collapsing, since it is the way back.
+    const expandToggle = canvas.getByRole('button', { name: 'Navigation ausklappen' });
+    await expect(expandToggle).toBe(collapseToggle);
+    await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
+
+    for (const name of ROWS) {
+      /* (a) THE NAME SURVIVES. `getByRole` resolves the accessible name
+         through the a11y tree, so this passes only if `NavItem` put the
+         `label` on as `aria-label` — the visible text is gone by now. */
+      const row = within(nav).getByRole('button', { name });
+      /* (b) THE TEXT IS ACTUALLY OFF THE SCREEN, and therefore the row really
+         is the icon-only form. Two readings, because either alone is weak:
+         the row's own rendered width is what a bare text node would fail (it
+         stays painted and pushes the row past the 80px column), and
+         `not.toBeVisible()` is what a `display:none` that never applied would
+         fail. The `<span>` stays in the DOM — `NavItem` hides it with CSS
+         rather than unmounting it — so „gone" here means not rendered, not
+         absent. `<= 80` rather than an exact number because the row carries
+         the column's padding, which is the design system's to choose. */
+      await expect(row.getBoundingClientRect().width).toBeLessThanOrEqual(80);
+      await expect(within(row).getByText(name)).not.toBeVisible();
+    }
+
+    /* (4) The footer at 80px. The colour-scheme switch first: it is the widest
+       thing in that footer and the design system gives it no collapsed form,
+       so "does it still fit in the column" is a question only a browser can
+       answer. ORACLE: Chromium's layout, comparing two boxes it measured. */
+    const themeGroup = document.querySelector('#theme-toggle') as HTMLElement;
+    await expect(themeGroup).not.toBeNull();
+    const asideBox = aside.getBoundingClientRect();
+    const themeBox = themeGroup.getBoundingClientRect();
+    await expect(themeBox.left).toBeGreaterThanOrEqual(asideBox.left);
+    await expect(themeBox.right).toBeLessThanOrEqual(asideBox.right);
+
+    /* And sign-out is still reachable. `SidebarUserMenu` shrinks to the avatar
+       and keeps its name as `sr-only`, so the SAME `/^@grace/` locator every
+       other story uses has to keep working — that is the design system's
+       stated contract for the collapsed trigger, re-derived here rather than
+       trusted. ORACLE: translations.ts, as the ordered admin menu. */
+    const menu = await openUserMenu(canvas, userEvent);
+    const items = menu.getAllByRole('menuitem');
+    await expect(items).toHaveLength(ADMIN_MENU_NAMES.length);
+    for (const [index, name] of ADMIN_MENU_NAMES.entries()) {
+      await expect(items[index]).toHaveAccessibleName(name);
+    }
+    await expect(menu.getByRole('menuitem', { name: 'Abmelden' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+
+    // (5) ORACLE: the key literal above and `useStoredFlag`'s documented
+    // '1'/'0' encoding — the same one `useSectionOpen` has used since Stage 7b.
+    await expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('1');
+
+    // And back. A one-way toggle would satisfy every assertion above.
+    await userEvent.click(expandToggle);
+    await expect(aside.getBoundingClientRect().width).toBe(256);
+    await expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('0');
+    for (const name of ROWS) {
+      await expect(within(nav).getByRole('button', { name })).toBeVisible();
+    }
   },
 };

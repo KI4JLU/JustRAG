@@ -200,6 +200,19 @@ type Canvas = ReturnType<typeof within>;
 /** The one section id this view persists, i.e. its localStorage key. */
 const SECTION_STORAGE_KEY = 'justrag.home.section.sharedview';
 
+/**
+ * The second key this view's chrome reads (card KI-789): the sidebar's
+ * collapsed width, remembered by `AppChrome` and therefore shared with the
+ * overview. Spelled out rather than imported, like the key above — a story
+ * that read it from the hook could not tell a renamed key from a kept one.
+ * It is reset with the section key because storage in the browser runner is
+ * per ORIGIN: `HomeView.stories.tsx` minimises the column in one of its
+ * stories, and without this line that would decide the starting width of every
+ * story in THIS file.
+ */
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'justrag.chrome.sidebar.collapsed';
+const CHROME_STORAGE_KEYS = [SECTION_STORAGE_KEY, SIDEBAR_COLLAPSED_STORAGE_KEY];
+
 /** The page's single disclosure, found by the title a user reads. */
 function sectionTrigger(canvas: Canvas): HTMLElement {
   return canvas.getByRole('button', { name: /^Mit mir geteilt/ });
@@ -262,9 +275,9 @@ const meta = {
    * i.e. after its state initialiser has already read the key.
    */
   beforeEach: async () => {
-    localStorage.removeItem(SECTION_STORAGE_KEY);
+    CHROME_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     localStorage.setItem('language', 'de');
-    return () => { localStorage.removeItem(SECTION_STORAGE_KEY); };
+    return () => { CHROME_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key)); };
   },
   args: {
     kbs: [],

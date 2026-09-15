@@ -15,6 +15,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { useSharingContext } from '../contexts/SharingContext';
+import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { KBCardSkeleton } from './Skeleton';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
@@ -133,6 +134,14 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
   // Only the clipboard pair and the dialog's own open state are read here; the
   // rest of the sharing concern belongs to the KB cards on the page.
   const sharing = useSharingContext();
+  /* The minimise toggle's state (card KI-789). `Sidebar` is controlled and
+     remembers nothing by design, so the app owns this and persists it — see
+     `useSidebarCollapse.ts` for why it goes through the same `localStorage`
+     convention as the overview's sections rather than a second one. It is read
+     HERE, in the one component that mounts the shell, so both views
+     (`HomeView`, `SharedKbsView`) get the same remembered column without
+     either of them knowing the toggle exists. */
+  const sidebar = useSidebarCollapse();
 
   const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
@@ -180,21 +189,41 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
    * `canOpenKbAdvancedSettings`'s system-role triple: an `api-user` who is a
    * KB admin loses this row while keeping the in-KB "Agent anlegen" links.
    * // TODO: whether `api-user` should keep the row is not confirmed — it is
-   * recorded on KI-782 rather than decided here. */
+   * recorded on KI-782 rather than decided here.
+   *
+   * WHY EVERY ROW CARRIES `label` AND WRAPS ITS TEXT IN A `<span>` (KI-789).
+   * Two separate requirements of design-system 0.27.0's collapsed form, and
+   * missing either one is silent:
+   *   - `label` is what PERMITS the row to collapse at all. `NavItem` collapses
+   *     only when it was told its own name (`collapsed = sidebarCollapsed &&
+   *     label !== undefined`) and otherwise keeps rendering full width — it
+   *     declines rather than guessing, because dropping the visible text
+   *     without an `aria-label` to replace it would strip the row of its
+   *     accessible name. A row missing `label` therefore does not throw, does
+   *     not warn, and does not fail a type check: it just refuses to minimise
+   *     while its neighbours do.
+   *   - the `<span>` is what makes it look collapsed. The collapsed variant
+   *     hides element children (`[&>*:not(svg)]:hidden`) and CSS has no
+   *     selector for a bare text node, so `{t('home')}` on its own would stay
+   *     visible in an 80px column. `AppShellCollapsed` in HomeView.stories.tsx
+   *     measures that in Chromium, because jsdom applies no stylesheet and the
+   *     unit suite cannot see it.
+   * The label and the visible text are the same `t()` call, so they cannot
+   * drift. */
   const nav = (
     <>
-      <NavItem type="button" active={active === 'home'} onClick={onViewHome}>
+      <NavItem type="button" label={t('home')} active={active === 'home'} onClick={onViewHome}>
         <Home size={20} aria-hidden="true" />
-        {t('home')}
+        <span>{t('home')}</span>
       </NavItem>
-      <NavItem type="button" active={active === 'shared-kbs'} onClick={onViewSharedKbs}>
+      <NavItem type="button" label={t('sharedKbs')} active={active === 'shared-kbs'} onClick={onViewSharedKbs}>
         <Users size={20} aria-hidden="true" />
-        {t('sharedKbs')}
+        <span>{t('sharedKbs')}</span>
       </NavItem>
       {isSystemAdmin && (
-        <NavItem type="button" onClick={onViewAgents}>
+        <NavItem type="button" label={t('myAgents')} onClick={onViewAgents}>
           <Bot size={20} aria-hidden="true" />
-          {t('myAgents')}
+          <span>{t('myAgents')}</span>
         </NavItem>
       )}
     </>
@@ -303,11 +332,41 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
    * The four labels come from `translations.ts` — 0.26.0 is the first version
    * that lets a consumer pass them, and they were German in an English session
    * until now. */
+  /* THE TWO LAYOUT CLASSES BELOW EXIST FOR THE 80px COLUMN (card KI-789), and
+   * they are layout exceptions, not skin — the only thing `className` is for
+   * on a design-system component.
+   *
+   * MEASURED, not assumed: at design-system 0.28.0 `ThemeToggle` is 102px wide
+   * (a 1px border + `p-1` + three `p-1.5` buttons around 16px icons + two 4px
+   * gaps) and has no collapsed form of its own. The collapsed sidebar footer
+   * offers 64px of content box, and `justify-center` centred the 102px block
+   * over it — so before this the switch hung 11px past BOTH edges of the
+   * column, over the page content on one side and over the shell's border on
+   * the other. `AppShellCollapsed` in HomeView.stories.tsx is the measurement;
+   * it fails at −11 without these classes.
+   *
+   * WHY WRAP RATHER THAN HIDE. Hiding the switch while collapsed was the other
+   * option and it is what the design system does to the collapse toggle inside
+   * the mobile drawer. It was not taken: since 0.26.0 this control is the
+   * app's ONLY colour-scheme affordance (`headerActions` is deliberately
+   * unset), so hiding it would make minimising the sidebar lossy — the same
+   * argument the design system itself makes for keeping `SidebarUserMenu` in
+   * the collapsed column. `w-full min-w-0` gives the footer's width to the
+   * block instead of letting it size to its content, and `flex-wrap` lets the
+   * three options stack inside it.
+   *
+   * FOR VISUAL QA: the consequence is that the switch becomes a taller, three-
+   * row pill in the collapsed column. That it FITS is asserted; whether it
+   * READS well at 80px is a judgement call this card cannot make for the
+   * developer, and the alternative is one line away.
+   * // TODO: whether the design system should grow a collapsed form for
+   * `ThemeToggle` is not decided here — it is written on KI-789 for the
+   * design-system board to pick up. */
   const sidebarFooter = (
-    <div className="flex flex-col gap-2">
+    <div className="flex w-full min-w-0 flex-col items-center gap-2">
       <ThemeToggle
         id={THEME_TOGGLE_ID}
-        className="self-center"
+        className="max-w-full flex-wrap justify-center self-center"
         themeLabel={t('colorScheme')}
         lightLabel={t('themeLight')}
         systemLabel={t('themeSystem')}
@@ -341,6 +400,10 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
         menuLabel={t('openNavigation')}
         drawerLabel={t('navigation')}
         pageLabel={pageLabel}
+        collapsed={sidebar.collapsed}
+        onCollapsedChange={sidebar.onCollapsedChange}
+        collapseLabel={t('collapseNavigation')}
+        expandLabel={t('expandNavigation')}
       >
         {children}
 
