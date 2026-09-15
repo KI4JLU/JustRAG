@@ -1,7 +1,25 @@
-/* Toast Container - fixed bottom-right */
+/* Toast Container - fixed top-right, below the app-shell chrome.
+ *
+ * WHY NOT BOTTOM-RIGHT (card KI-781). This container and the onboarding-tour
+ * trigger (#onboarding-tour-trigger, AuthenticatedApp.tsx) were pinned to the
+ * IDENTICAL bottom:24/right:24. Toasts carry z-index 4000 and pointer-events
+ * auto, the button z-index 100 — so every toast covered the 44x44 button and
+ * swallowed its clicks for the 4000-6000ms it lives, on the one view that
+ * renders it. The developer chose to free that corner permanently.
+ *
+ * WHY 76px AND NOT 24px. AppShellLayout renders a 64px page-label bar above
+ * the page content (`h-16` in the DS template) with the ThemeToggle at its
+ * right end. A toast at top:24 would land on that toggle - the same defect in
+ * a new corner. 76px = 64px bar + a 12px gap.
+ *
+ * `flex-direction` is deliberately NOT changed: with the box anchored at the
+ * top it makes the newest toast appear at the anchored edge and push older
+ * ones down, which is the conventional top-anchored behaviour (and what the
+ * design system's own toast viewport does). Stack order is out of scope here.
+ */
 .toast-container {
   position: fixed;
-  bottom: 24px;
+  top: 76px;
   right: 24px;
   z-index: 4000;
   display: flex;
@@ -70,10 +88,21 @@
   background: var(--bg-hover);
 }
 
-/* Mobile: full-width bottom-center */
+/* Mobile: full-width, and deliberately still BOTTOM-anchored.
+ *
+ * Below `lg` the top edge carries the DS's sticky mobile top bar AND the 64px
+ * page-label bar on the shell views, while the KB workspace has neither and
+ * shows ChatView's own header instead - so no single top offset clears the
+ * chrome on every view. The bottom already does: 72px clears both the 60px
+ * MobileTabBar and the tour trigger, whose top edge sits at 68px. The corner
+ * this card set out to free is therefore free here without moving anything.
+ */
 @media (max-width: 1023px) {
   .toast-container {
-    bottom: 72px; /* above MobileTabBar */
+    /* Cancel the desktop top anchor. With `top` AND `bottom` both set and no
+     * height, the container would stretch the full viewport height. */
+    top: auto;
+    bottom: 72px; /* above MobileTabBar; also clears the tour trigger (68px) */
     right: 12px;
     left: 12px;
     max-width: none;

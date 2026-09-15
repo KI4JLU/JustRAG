@@ -62,13 +62,21 @@ function OnboardingHelpButton({ onClick }: { onClick: () => void }) {
   const { t } = useTheme();
   return (
     <button
+      /* Stable app-level anchor (card KI-781). Names the element's ROLE — the
+       * control that opens the onboarding tour — not its look or its corner,
+       * both of which this card just proved are unstable. Must stay unique in
+       * the document; App.authenticated-home.test.tsx asserts that. */
+      id="onboarding-tour-trigger"
       onClick={onClick}
       title={t('onboardingReopenTour')}
       aria-label={t('onboardingReopenTour')}
       style={{
         position: 'fixed',
         bottom: '24px',
-        left: '24px',
+        /* Bottom-RIGHT since KI-781. The toast container used to be pinned to
+         * the identical bottom:24/right:24 and moved to the top (Toast.css);
+         * check that file before putting anything else in this corner. */
+        right: '24px',
         width: '44px',
         height: '44px',
         borderRadius: '50%',
