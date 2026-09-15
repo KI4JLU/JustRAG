@@ -1,7 +1,7 @@
 import { lazy, Suspense, memo, useCallback, useRef, useEffect, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import {
-  ArrowLeft, BookOpen, Brain, Sun, Moon, Send,
+  ArrowLeft, BookOpen, Brain, Send,
   BarChart2, MessageSquare, UserPlus, X, Search, GitBranch, Settings, Check, Trash2, SlidersHorizontal, Network,
   UploadCloud, Globe, FlaskConical, Sparkles, ChevronDown, FileText, Bot, Users,
 } from 'lucide-react';
@@ -60,7 +60,7 @@ const chatSuspenseFallback = (
 );
 
 const ChatViewComp = () => {
-  const { resolvedTheme, setTheme, language, setLanguage, t } = useTheme();
+  const { language, setLanguage, t } = useTheme();
   const { user, siteConfigs } = useAuth();
   const isMobile = useIsMobileContext();
   const reducedMotion = useReducedMotion();
@@ -277,18 +277,6 @@ const ChatViewComp = () => {
           <BackgroundJobsIndicator />
           {!isMobile && (
             <>
-              {/* Two-state by design, like HomeView's — see the comment there.
-                * KI-779 only swaps the inputs: `theme` can now be `'system'`,
-                * which this button has no icon or label for, so it reads
-                * `resolvedTheme` and pins the opposite of what is painted. */}
-              <button
-                onClick={() => setTheme(resolvedTheme === 'light' ? 'dark' : 'light')}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', padding: '4px' }}
-                title={resolvedTheme === 'light' ? t('switchToDark') : t('switchToLight')}
-                aria-label={resolvedTheme === 'light' ? t('switchToDark') : t('switchToLight')}
-              >
-                <span className="icon-swap" key={resolvedTheme}>{resolvedTheme === 'light' ? <Moon size={20} aria-hidden="true" /> : <Sun size={20} aria-hidden="true" />}</span>
-              </button>
               <button
                 onClick={() => setLanguage(language === 'de' ? 'en' : 'de')}
                 style={{

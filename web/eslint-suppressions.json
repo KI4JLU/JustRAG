@@ -71,7 +71,7 @@
   },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 24
+      "count": 23
     }
   },
   "src/components/ComparisonView.tsx": {
