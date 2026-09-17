@@ -193,6 +193,7 @@ export const Healthy: Story = {
  * the CPU gauge deliberately above its own max so the clamp is visible.
  */
 export const Degraded: Story = {
+  tags: ['a11y-dark'],
   parameters: {
     api: { systemHealthLive: DEGRADED, systemHealthHistory: HISTORY },
   },

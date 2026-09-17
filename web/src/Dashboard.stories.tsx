@@ -144,6 +144,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Populated: Story = {
+  tags: ['a11y-dark'],
   parameters: {
     api: { kbAnalytics: ANALYTICS, kbRetrievalQuality: RETRIEVAL_QUALITY },
   },

@@ -12,6 +12,7 @@
     "test": "vitest run --project=unit",
     "test:watch": "vitest --project=unit",
     "test:stories": "vitest run --project=storybook",
+    "test:stories:dark-a11y": "vitest run --project=storybook-dark-a11y",
     "test:all": "vitest run",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"

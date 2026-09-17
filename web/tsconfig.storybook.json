@@ -19,5 +19,5 @@
    * @vitest/browser/context, but an unreferenced .d.ts is dead weight, and the
    * first story test that reaches for the browser context would otherwise fail
    * to typecheck for a reason nobody would look for here. */
-  "include": [".storybook", "vitest.config.ts", "vitest.shims.d.ts"]
+  "include": [".storybook", ".storybook-dark", "vitest.config.ts", "vitest.shims.d.ts"]
 }

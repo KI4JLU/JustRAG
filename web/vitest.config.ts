@@ -9,7 +9,8 @@ import { STORYBOOK_ENV_DEFINE, STORYBOOK_ENV_PREFIX } from './.storybook/env';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 /* ---------------------------------------------------------------------------
- * Two projects, deliberately separated (card KI-725).
+ * Three projects, deliberately separated (card KI-725; the third added when the
+ * dark twin stories were removed).
  *
  * `projects: [...]` was produced by `storybook add @storybook/addon-vitest`;
  * the jsdom half below is the file's previous flat `test` block moved verbatim
@@ -31,6 +32,66 @@ const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(file
  * plugin, so `.storybook/preview.css` -> `src/index.css` really compiles. A
  * visual story rendered without the app's stylesheet would be worthless.
  * ------------------------------------------------------------------------- */
+
+/**
+ * The browser project, parameterised by Storybook config dir. Two instances
+ * below: `storybook` (every story, light mode, a11y as sidebar markers) and
+ * `storybook-dark-a11y` (the `a11y-dark`-tagged stories only, dark mode,
+ * axe violations fail). The browser, viewport, CSS and env settings are
+ * identical by construction — one function, two calls — so the dark run can
+ * never disagree with the light run about anything but theme and gate.
+ * .storybook/dark/preview.tsx explains the two overrides.
+ */
+function storybookProject(name: string, configDir: string, tags?: { include: string[] }) {
+  return {
+    extends: true as const,
+    plugins: [
+      // Compiles src/index.css (Tailwind 4 layers + the design system's
+      // `@theme` tokens) for the browser project. vite.config.ts has this
+      // plugin for the app build and .storybook/vite.config.ts has it for
+      // Storybook itself; the browser test runner is the third place Vite
+      // runs, and it needs its own instance.
+      tailwindcss(),
+      // The plugin will run tests for the stories defined in your Storybook config
+      // See options at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon#storybooktest
+      storybookTest({
+        configDir: path.join(dirname, configDir),
+        ...(tags ? { tags } : {})
+      })],
+    // Same same-origin API base, and the same deliberate refusal to read the
+    // developer's own VITE_* env, that Storybook itself uses. Both settings
+    // and the measurement behind them: .storybook/env.ts.
+    envPrefix: STORYBOOK_ENV_PREFIX,
+    define: STORYBOOK_ENV_DEFINE,
+    optimizeDeps: {
+      // aria-query is CJS-only; browser mode serves modules through Vite's
+      // dev server, which cannot expose its named exports unless the package
+      // is pre-bundled. Symptom without this: every *.stories.tsx fails with
+      // "does not provide an export named 'elementRoles'".
+      include: ['aria-query', '@testing-library/dom', '@testing-library/user-event']
+    },
+    test: {
+      name,
+      // Explicit, not inherited: the jsdom project switches CSS processing
+      // off and a story without the stylesheet renders unstyled.
+      css: true,
+      browser: {
+        enabled: true,
+        headless: true,
+        provider: playwright({}),
+        // Desktop, explicitly: every story here is a full PAGE, and the
+        // LegalPage story measures the content column's computed max-width.
+        // At the browser-mode default (414px wide) the column would be
+        // narrower than its own max-width and that measurement would be
+        // meaningless.
+        viewport: { width: 1280, height: 800 },
+        instances: [{
+          browser: 'chromium' as const
+        }]
+      }
+    }
+  };
+}
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
@@ -56,52 +117,9 @@ export default defineConfig({
         setupFiles: ['src/test/setup.ts'],
         include: ['src/**/*.test.{ts,tsx}']
       }
-    }, {
-      extends: true,
-      plugins: [
-      // Compiles src/index.css (Tailwind 4 layers + the design system's
-      // `@theme` tokens) for the browser project. vite.config.ts has this
-      // plugin for the app build and .storybook/vite.config.ts has it for
-      // Storybook itself; the browser test runner is the third place Vite
-      // runs, and it needs its own instance.
-      tailwindcss(),
-      // The plugin will run tests for the stories defined in your Storybook config
-      // See options at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon#storybooktest
-      storybookTest({
-        configDir: path.join(dirname, '.storybook')
-      })],
-      // Same same-origin API base, and the same deliberate refusal to read the
-      // developer's own VITE_* env, that Storybook itself uses. Both settings
-      // and the measurement behind them: .storybook/env.ts.
-      envPrefix: STORYBOOK_ENV_PREFIX,
-      define: STORYBOOK_ENV_DEFINE,
-      optimizeDeps: {
-        // aria-query is CJS-only; browser mode serves modules through Vite's
-        // dev server, which cannot expose its named exports unless the package
-        // is pre-bundled. Symptom without this: every *.stories.tsx fails with
-        // "does not provide an export named 'elementRoles'".
-        include: ['aria-query', '@testing-library/dom', '@testing-library/user-event']
-      },
-      test: {
-        name: 'storybook',
-        // Explicit, not inherited: the jsdom project switches CSS processing
-        // off and a story without the stylesheet renders unstyled.
-        css: true,
-        browser: {
-          enabled: true,
-          headless: true,
-          provider: playwright({}),
-          // Desktop, explicitly: every story here is a full PAGE, and the
-          // LegalPage story measures the content column's computed max-width.
-          // At the browser-mode default (414px wide) the column would be
-          // narrower than its own max-width and that measurement would be
-          // meaningless.
-          viewport: { width: 1280, height: 800 },
-          instances: [{
-            browser: 'chromium'
-          }]
-        }
-      }
-    }]
+    },
+    storybookProject('storybook', '.storybook'),
+    storybookProject('storybook-dark-a11y', '.storybook-dark', { include: ['a11y-dark'] })
+    ]
   }
 });

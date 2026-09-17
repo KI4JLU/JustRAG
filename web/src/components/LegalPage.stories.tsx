@@ -66,6 +66,7 @@ type Story = StoryObj<typeof meta>;
  * reason about: the content width, and the absence of the card.
  */
 export const Terms: Story = {
+  tags: ['a11y-dark'],
   args: { page: 'terms' },
   play: async ({ canvas }) => {
     // Oracle 1: a heading that exists only in public/legal/terms-de.html, so

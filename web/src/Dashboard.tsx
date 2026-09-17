@@ -712,7 +712,7 @@ export default function Dashboard({ kbId, kbName }: DashboardProps) {
                                                 <td style={{ padding: '0.5rem', color: 'var(--text-primary)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {q.content.length > 80 ? q.content.substring(0, 80) + '...' : q.content}
                                                 </td>
-                                                <td style={{ padding: '0.5rem', textAlign: 'right', color: '#c0392b', fontWeight: 500 }}>
+                                                <td style={{ padding: '0.5rem', textAlign: 'right', color: 'var(--color-error)', fontWeight: 500 }}>
                                                     {Number(q.avgScore).toFixed(3)}
                                                 </td>
                                                 <td style={{ padding: '0.5rem', textAlign: 'right', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>

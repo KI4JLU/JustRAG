@@ -469,6 +469,7 @@ export const FormEdit: Story = {
  * and which no browser has rendered since.
  */
 export const FormValidationErrors: Story = {
+    tags: ['a11y-dark'],
     args: {
         showForm: true,
         editingId: null,

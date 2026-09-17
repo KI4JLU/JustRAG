@@ -116,9 +116,9 @@
 }
 
 .home-view__badge--public {
-  color: #15803d;
-  background: #dcfce7;
-  border: 1px solid #15803d;
+  color: var(--color-on-success-container);
+  background: var(--color-success-container);
+  border: 1px solid var(--color-success);
 }
 
 .home-view__mini-icon {

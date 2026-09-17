@@ -52,6 +52,7 @@ type Story = StoryObj<typeof meta>;
 
 /** SSO only — the state the developer had to fake in DevTools to review. */
 export const SsoOnly: Story = {
+  tags: ['a11y-dark'],
   parameters: {
     api: { authProviders: { providers: [OIDC], localAuthEnabled: false } },
   },
@@ -118,6 +119,7 @@ export const UploadedLogo: Story = {
  * per row. Nothing is injected.
  */
 export const FieldValidationErrors: Story = {
+  tags: ['a11y-dark'],
   parameters: {
     api: { authProviders: { providers: [], localAuthEnabled: true } },
   },
@@ -141,6 +143,7 @@ export const FieldValidationErrors: Story = {
  * sent.
  */
 export const RejectedCredentials: Story = {
+  tags: ['a11y-dark'],
   parameters: {
     api: {
       authProviders: { providers: [], localAuthEnabled: true },

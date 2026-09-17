@@ -897,6 +897,7 @@ export const OwnedOnly: Story = {
  * default, so this is what most people meet first.
  */
 export const FavoritesPopulated: Story = {
+  tags: ['a11y-dark'],
   args: { globalKbs: [PUBLIC_ONE, PUBLIC_TWO], kbs: [OWNED_ONE] },
   play: async ({ canvas, canvasElement }) => {
     await expectPageFrame(canvas, canvasElement);
