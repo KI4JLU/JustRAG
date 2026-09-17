@@ -14,6 +14,7 @@ import { KbDataProvider, type KbDataContextValue } from './contexts/KbDataContex
 import { KbLayoutProvider, type KbLayoutContextValue } from './contexts/KbLayoutContext';
 import { AppNavProvider, type AppNavContextValue } from './contexts/AppNavContext';
 import { SharingProvider } from './contexts/SharingContext';
+import { KbSearchProvider } from './contexts/KbSearchContext';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 
 // Hooks
@@ -25,6 +26,7 @@ import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
 import { useJoinRedeem } from './hooks/useJoinRedeem';
 import { useSharing } from './hooks/useSharing';
+import { useKbSearchState } from './hooks/useKbSearchState';
 import { useRssFeeds } from './hooks/useRssFeeds';
 import { useConfluenceSources } from './hooks/useConfluenceSources';
 import { useGitRepoSources } from './hooks/useGitRepoSources';
@@ -210,6 +212,15 @@ function AuthenticatedAppInner() {
   useJoinRedeem({ openKbById: kbMgmt.handleOpenKbById });
 
   const sharing = useSharing({ username: user?.username });
+
+  /* The KB catalog search (card KI-787). Held HERE rather than inside a
+     provider component, exactly like `sharing` and `appNav` below: the overview
+     and „Geteilte Knowledge Bases" are two separate `return`s from this
+     component, and typing on the second one navigates to the first WITH the
+     query applied — behaviour that must not depend on how React reconciles two
+     sibling branches. It also carries „KBs entdecken"'s open state, because a
+     keystroke has to expand that section; see `useKbSearchState`. */
+  const kbSearch = useKbSearchState();
 
   // Lifecycle effects
   useKbLifecycle({
@@ -399,6 +410,7 @@ function AuthenticatedAppInner() {
     return (
       <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
       <motion.div
         key="shared-kbs"
         {...getMotionProps(reducedMotion)}
@@ -415,6 +427,7 @@ function AuthenticatedAppInner() {
           onRenameKB={kbMgmt.handleRenameKB}
         />
       </motion.div>
+      </KbSearchProvider>
       </AppNavProvider>
       </SharingProvider>
     );
@@ -428,6 +441,7 @@ function AuthenticatedAppInner() {
     return (
       <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
       <motion.div
         key="home"
         {...getMotionProps(reducedMotion)}
@@ -458,6 +472,7 @@ function AuthenticatedAppInner() {
         <OnboardingHelpButton onClick={() => setShowOnboarding(true)} />
         <OnboardingTour show={showOnboarding} onClose={handleCloseOnboarding} />
       </motion.div>
+      </KbSearchProvider>
       </AppNavProvider>
       </SharingProvider>
     );

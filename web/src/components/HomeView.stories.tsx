@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, screen, waitFor, within } from 'storybook/test';
 import { HomeView } from './HomeView';
@@ -6,6 +6,8 @@ import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
 import { SharingProvider } from '../contexts/SharingContext';
+import { KbSearchProvider } from '../contexts/KbSearchContext';
+import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSharing } from '../hooks/useSharing';
 import { apiMockHistory } from '../../.storybook/mockApi';
 import type { KnowledgeBase, User } from '../types';
@@ -266,6 +268,21 @@ function StorySharingProvider({ username, copySuccess, onCopyUserId, children }:
  * because a story that faked those outcomes would be inventing behaviour
  * rather than recording this component's.
  */
+/**
+ * The REAL `useKbSearchState` behind `KbSearchContext` (card KI-787).
+ *
+ * The chrome's search field and „KBs entdecken" are two ends of one value, and
+ * the behaviour worth looking at in a browser — typing expands the collapsed
+ * section — lives in the hook between them. A story that stubbed it would show
+ * a field that cannot do the one thing this card added. It also owns the
+ * section's `localStorage` key now, which is why the stories that clear that
+ * key still work unchanged.
+ */
+function StoryKbSearchProvider({ children }: { children: ReactNode }) {
+  const kbSearch = useKbSearchState();
+  return <KbSearchProvider value={kbSearch}>{children}</KbSearchProvider>;
+}
+
 function HomeViewHarness(args: HomeViewStoryArgs) {
   const [showSettings, setShowSettings] = useState(false);
 
@@ -297,6 +314,7 @@ function HomeViewHarness(args: HomeViewStoryArgs) {
               onViewAgents: args.onViewAgents,
             }}
           >
+            <StoryKbSearchProvider>
             <HomeView
               kbs={args.kbs}
               globalKbs={args.globalKbs}
@@ -317,6 +335,7 @@ function HomeViewHarness(args: HomeViewStoryArgs) {
               showSettings={showSettings}
               setShowSettings={setShowSettings}
             />
+            </StoryKbSearchProvider>
           </AppNavProvider>
         </StorySharingProvider>
       </ModalProvider>
@@ -1217,15 +1236,22 @@ export const DiscoverSectionMountsOnExpand: Story = {
     const trigger = sectionTrigger(canvas, 'KBs entdecken');
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), false);
-    await expect(canvas.queryByLabelText('Name oder Beschreibung suchen…')).toBeNull();
     await expect(catalogRequests()).toBe(0);
+
+    /* The search field is NOT a sign of the panel since KI-787: it lives in
+       the chrome bar and is on screen whether the section is open or not.
+       Asserting it is absent here would now assert the opposite of the card.
+       What still distinguishes „mounted" from „not mounted" is the request
+       count above and the rows below. */
+    await expect(canvas.getAllByLabelText('Name oder Beschreibung suchen…')).toHaveLength(1);
 
     await userEvent.click(trigger);
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), true);
 
-    // The panel's search field is its own, and it appears with the mount.
-    await expect(canvas.getByLabelText('Name oder Beschreibung suchen…')).toBeInTheDocument();
+    /* And expanding it adds no SECOND field: the panel kept none of its own
+       when KI-787 moved the one field into the chrome. */
+    await expect(canvas.getAllByLabelText('Name oder Beschreibung suchen…')).toHaveLength(1);
 
     // ORACLE: the mocked catalog rows. The fetch is debounced, hence `findBy`.
     await expect(await canvas.findByText('Bibliothek Bestandskatalog')).toBeInTheDocument();
@@ -1462,22 +1488,39 @@ export const ThemeToggleLivesInTheSidebarFooter: Story = {
 };
 
 /**
- * The page-label bar is 64px tall — the number `Toast.css` is derived from.
+ * The chrome bar is 64px tall, and the search field is centred in it.
  *
- * WHY IT IS RE-MEASURED HERE (card KI-788). `.toast-container { top: 76px }`
- * is 64px of chrome plus a 12px gap, and 64px was measured against
- * design-system 0.25.0. 0.26.0 reworked that very bar: the hardcoded
- * `ThemeToggle` became the optional `headerActions` slot, which this app
- * leaves unset. Had the rework changed the bar's height, every toast on every
- * shell view would overlap the chrome — and nothing would have caught it,
- * because jsdom performs no layout and the unit suite therefore cannot see a
- * pixel.
+ * WHY THE HEIGHT IS RE-MEASURED HERE (cards KI-788, then KI-787).
+ * `.toast-container { top: 76px }` is 64px of chrome plus a 12px gap. 64px was
+ * measured against design-system 0.25.0; 0.26.0 replaced the bar's hardcoded
+ * `ThemeToggle` with the optional `headerActions` slot, and 0.29.0 made
+ * `pageLabel` optional and renders NO element for it when omitted — which is
+ * how this app draws the bar since KI-787. That is the bar rebuilt twice under
+ * a constant this repo depends on. Had either release changed the height,
+ * every toast on every shell view would overlap the chrome, and nothing would
+ * have caught it: jsdom performs no layout, so the unit suite cannot see a
+ * pixel of this.
+ *
+ * WHY THE CENTRING IS MEASURED HERE AND NOWHERE ELSE. „Centred" is the one
+ * thing KI-787 could get wrong while every unit test and every type check
+ * stayed green. The trap is documented on both sides: `Input` forwards
+ * `className` to the inner `<input>`, which an icon field wraps in a
+ * full-width `<span>`; the input is inline-block in there and `margin: auto`
+ * computes to `0px`, so `className="w-full max-w-md mx-auto"` ON THE INPUT
+ * leaves the field 207.5px left of centre (measured on design-system KI-798).
+ * `AppChrome` therefore puts those utilities on a wrapper `<div>` — and this
+ * is the assertion that fails if somebody ever "simplifies" that away.
  *
  * ORACLE: Chromium's own layout, read back through `getBoundingClientRect()`.
- * Independent of this repo by construction — the bar and its height are the
- * design system's markup, and the expected number is the constant sitting in
- * `Toast.css`, not something the component reports about itself. A class-name
- * assertion would have passed against a utility that compiled to nothing.
+ * Independent of this repo by construction — the bar, the field and their box
+ * model are the design system's; the expected height is the constant sitting
+ * in `Toast.css`, and the expected centre is the BAR's own centre, computed
+ * from the bar's rect rather than from anything the app reports about itself.
+ * A class-name assertion would pass against a utility that compiled to
+ * nothing, which is exactly the failure being guarded.
+ *
+ * TOLERANCE: 1px on the centre offset, for sub-pixel rounding at viewport
+ * widths that do not divide evenly. The defect this catches is ~207px.
  *
  * NOT asserted: where the bar sits in the viewport. The story runner's
  * dev-mode Tailwind emits `.lg:hidden` before `.flex`, so `AppShell`'s mobile
@@ -1487,22 +1530,62 @@ export const ThemeToggleLivesInTheSidebarFooter: Story = {
  */
 export const AppShellGeometry: Story = {
   play: async ({ canvas }) => {
-    /* The bar is chrome with no role of its own, so it is reached through the
-     * one thing it does carry: the page label, which is a `<p>` (the design
-     * system is explicit that it is never a heading — the page's `<h1>` with
-     * the same text belongs to the content template). */
-    const label = canvas
-      .getAllByText('Meine Knowledge Bases')
-      .find((el) => el.tagName === 'P');
-    await expect(label).toBeDefined();
+    /* The bar is chrome with no role of its own. Since KI-787 it carries no
+     * page label either, so it is reached through the only thing left in it:
+     * the search field's wrapper — the node that IS the flex item, and the
+     * node the centring utilities have to be on. */
+    const field = canvas.getByTestId('app-chrome-search');
 
-    // `<p>` -> Container -> the bar itself.
-    const bar = (label as HTMLElement).parentElement?.parentElement;
+    // wrapper -> headerActions region -> Container -> the bar itself.
+    const bar = field.parentElement?.parentElement?.parentElement;
     await expect(bar).toBeDefined();
 
     // ORACLE: Chromium's layout engine. 64px = `h-16`, the number Toast.css
-    // adds its 12px gap to.
-    await expect((bar as HTMLElement).getBoundingClientRect().height).toBe(64);
+    // adds its 12px gap to. Re-measured against design-system 0.29.0, with no
+    // `pageLabel` and a filled `headerActions`.
+    const barRect = (bar as HTMLElement).getBoundingClientRect();
+    await expect(barRect.height).toBe(64);
+
+    // ORACLE: the bar's own centre. The field is centred in the bar, not
+    // pushed to its right edge by `headerActions`' `justify-end`.
+    const fieldRect = field.getBoundingClientRect();
+    const offset = (fieldRect.left + fieldRect.right) / 2 - (barRect.left + barRect.right) / 2;
+    await expect(Math.abs(offset)).toBeLessThanOrEqual(1);
+
+    // And it is a real box, not a zero-width one that would be "centred" by
+    // accident: `max-w-md` is 28rem/448px, and the utility has to have
+    // compiled for that to hold.
+    await expect(fieldRect.width).toBeGreaterThan(0);
+    await expect(fieldRect.width).toBeLessThanOrEqual(448);
+  },
+};
+
+/**
+ * The chrome's search field drives the catalog, and „KBs entdecken" opens for
+ * it (card KI-787).
+ *
+ * WHY A STORY AS WELL AS A UNIT TEST. `HomeView.test.tsx` asserts the same
+ * behaviour against jsdom, where the collapsed section's body is simply absent
+ * from the tree. In a browser the disclosure is animated and its panel element
+ * stays in the DOM while its children do not, so "expanded" is a visual claim
+ * there; this is where that claim is checked against a rendered page.
+ *
+ * ORACLES: `aria-expanded` on the disclosure trigger (WAI-ARIA, implemented by
+ * the design system, not by this app) and the catalog rows that only exist
+ * while the panel is mounted. Neither is a value the app reports about itself.
+ */
+export const ChromeSearchOpensDiscovery: Story = {
+  play: async ({ canvas, userEvent }) => {
+    // The section's stored state is already cleared by the meta's `beforeEach`
+    // (CHROME_STORAGE_KEYS), so this starts from the closed default.
+    const trigger = canvas.getByRole('button', { name: /KBs entdecken/i });
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.type(canvas.getByTestId('app-chrome-search').querySelector('input')!, 'Recht');
+
+    await waitFor(async () => {
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    });
   },
 };
 

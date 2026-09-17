@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
@@ -286,4 +286,57 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
      * would not distinguish the two screens. */
     expect(screen.getByText(translations.homeSharedWithMeEmpty.de)).toBeInTheDocument();
   });
+
+  /* -------------------------------------------------------------------------
+   * The chrome's catalog search on a view that has no catalog (card KI-787).
+   *
+   * `KbSearchContext` is a third required context, and this branch mounts it
+   * separately from the home branch — so „the overview works" says nothing
+   * about this one. What the field DOES here is the card's one reversible
+   * assumption: typing navigates to the overview with the query applied,
+   * chosen over hiding the field (a control that vanishes between views reads
+   * as a bug) and over leaving it inert (a control that lies).
+   *
+   * // TODO: the navigate-on-type behaviour is the PM's assumption on KI-787,
+   * // not a developer ruling — not yet confirmed.
+   *
+   * ORACLES: translations.ts for the accessible name, WAI-ARIA's h1 mapping
+   * for which page is on screen, and the recorded request URL for „the query
+   * survived the jump". The last one is the half that a heading assertion
+   * alone would miss: navigating with the query DROPPED would look identical.
+   * ---------------------------------------------------------------------- */
+  it('carries the chrome search here too, and typing lands on the overview with the query applied', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: translations.sharedKbs.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de });
+
+    /* One keystroke is all it takes, and it is all this call can deliver: the
+       jump swaps the whole view branch, so the element `type()` was handed is
+       detached before the second character. That is not a quirk of the test —
+       it is the remount a real user's second keystroke hits too, which is why
+       the chrome hands the caret back (`focusPending`). */
+    await userEvent.type(screen.getByLabelText(translations.catalogSearchPlaceholder.de), 'R');
+
+    // Back on the overview...
+    expect(
+      await screen.findByRole('heading', { level: 1, name: translations.myKBs.de }),
+    ).toBeInTheDocument();
+
+    /* ...and the user can keep typing without touching the mouse. ORACLE:
+       `userEvent.keyboard` types into whatever the DOCUMENT says is focused —
+       it is handed no element. It therefore reaches the rebuilt field only if
+       the caret was really moved there; otherwise these four characters go to
+       `<body>` and the query stays „R". */
+    await userEvent.keyboard('echt');
+    expect(screen.getByLabelText(translations.catalogSearchPlaceholder.de)).toHaveValue('Recht');
+
+    // ...and the query drove the catalog: only the panel fires this, and it
+    // only exists while „KBs entdecken" is expanded, which the keystroke did.
+    await waitFor(
+      () => { expect(mockedGet).toHaveBeenCalledWith(expect.stringContaining('q=Recht')); },
+      { timeout: 2000 },
+    );
+  }, 20000);
 });

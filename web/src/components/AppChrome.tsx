@@ -1,20 +1,22 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import {
   AppShellLayout,
   DropdownMenuItem,
+  Input,
   Logo,
   NavItem,
   SidebarUserMenu,
   ThemeToggle,
 } from '@ki4jlu/design-system';
 import {
-  Settings, User, LogOut, Copy, Check, Bot, Home, Languages, Users,
+  Settings, User, LogOut, Copy, Check, Bot, Home, Languages, Search, Users,
 } from 'lucide-react';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { useSharingContext } from '../contexts/SharingContext';
+import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { KBCardSkeleton } from './Skeleton';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
@@ -49,8 +51,15 @@ const MembersModal = lazy(() => import('./MembersModal').then(module => ({ defau
  *    `HomeView`'s `SettingsModal` stays in `HomeView`.
  *  - It reads no props from the page. Every value comes from a context the
  *    route already mounts (`ThemeContext`, `AuthContext`, `AppNavContext`,
- *    `SharingContext`), which is what keeps KI-770's rule intact: a new
- *    destination in the sidebar needs no new prop on any page component.
+ *    `SharingContext`, and since KI-787 `KbSearchContext`), which is what keeps
+ *    KI-770's rule intact: a new destination in the sidebar — or a new control
+ *    in the bar — needs no new prop on any page component. KI-787 is the case
+ *    that tested it: the catalog search moved INTO this file and `HomeView`'s
+ *    signature did not change by one prop.
+ *  - Since KI-787 it no longer takes a `pageLabel`. The bar showed „Meine
+ *    Knowledge Bases" directly above the content template's `<h1>` with the
+ *    same words; design-system 0.29.0 made the prop optional and renders no
+ *    element when it is omitted, so the bar is now the search field alone.
  *
  * ACTIVE STATE. `active` names the current page, and `NavItem`'s `active` prop
  * is what emits `aria-current="page"`. Exactly one row may carry it, which is
@@ -93,8 +102,6 @@ export interface AppChromeProps {
    * landmark itself.
    */
   contentId: string;
-  /** Text of the shell's page-label bar. */
-  pageLabel: string;
   /** Page content — the content template, plus any page-owned modal. */
   children: ReactNode;
 }
@@ -125,12 +132,17 @@ function roleLabel(role: string | undefined, t: (k: string) => string): string {
   }
 }
 
-export function AppChrome({ active, contentId, pageLabel, children }: AppChromeProps) {
+export function AppChrome({ active, contentId, children }: AppChromeProps) {
   const { language, setLanguage, t } = useTheme();
   // `logout` is read here rather than taken as a prop: AuthContext already
   // publishes it, and AuthenticatedApp only renamed it on the way down.
   const { user, siteConfigs, logout: onLogout } = useAuth();
   const { onViewHome, onViewSharedKbs, onViewProfile, onViewAdmin, onViewAgents } = useAppNav();
+  // The catalog search, which lives in the chrome bar since KI-787. Read from
+  // a context for the same reason everything else here is: this component
+  // takes no props from the page.
+  const { query, setQuery, focusPending, requestFocus, consumeFocus } = useKbSearch();
+  const searchRef = useRef<HTMLInputElement>(null);
   // Only the clipboard pair and the dialog's own open state are read here; the
   // rest of the sharing concern belongs to the KB cards on the page.
   const sharing = useSharingContext();
@@ -142,6 +154,30 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
      (`HomeView`, `SharedKbsView`) get the same remembered column without
      either of them knowing the toggle exists. */
   const sidebar = useSidebarCollapse();
+
+  /* Hand the caret back to the search field after a jump (card KI-787).
+   *
+   * Typing on „Geteilte Knowledge Bases" navigates to the overview, and that
+   * swaps one branch of `AuthenticatedApp` for the other — so THIS component,
+   * the field and `searchRef` are all rebuilt. Measured while writing
+   * `App.authenticated-shared-kbs.test.tsx`: without this, a user typing
+   * „Recht" lands on the overview with „R" in the box, focus on `<body>`, and
+   * the remaining four keystrokes dropped on the floor. The flag is state on
+   * the context rather than a ref precisely because no ref survives that
+   * remount.
+   *
+   * `setSelectionRange` puts the caret AFTER the character that caused the
+   * jump; `focus()` alone selects nothing and would leave it at position 0 in
+   * some browsers, i.e. the next letter would land in front of the first. */
+  useEffect(() => {
+    if (!focusPending) return;
+    const el = searchRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+    consumeFocus();
+  }, [focusPending, consumeFocus]);
 
   const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
@@ -287,10 +323,12 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
    * WHY THE TOGGLE IS HERE AT ALL (card KI-788). Until design-system 0.25.0,
    * `AppShellLayout` rendered a `<ThemeToggle />` of its own at the right end
    * of the page-label bar. 0.26.0 deleted it in favour of the optional
-   * `headerActions` slot, so the bar now renders NO control — and since
-   * omitting the slot is valid, the toggle disappears with no type error and
-   * no failing gate. `headerActions` is deliberately left unset (the search
-   * chrome card owns that slot), and the control is re-mounted here.
+   * `headerActions` slot, so the bar now renders NO control of the template's
+   * own — and since omitting the slot is valid, the toggle disappeared with no
+   * type error and no failing gate. KI-787 has since filled that slot with the
+   * catalog search, so the bar is not empty any more; the toggle stays HERE
+   * either way, because the slot holds one control and the developer chose the
+   * search for it.
    *
    * WHY IT IS NEXT TO THE USER MENU AND NOT INSIDE IT — the one place this
    * card knowingly departs from its own brief, so it is stated in full.
@@ -348,8 +386,8 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
    * WHY WRAP RATHER THAN HIDE. Hiding the switch while collapsed was the other
    * option and it is what the design system does to the collapse toggle inside
    * the mobile drawer. It was not taken: since 0.26.0 this control is the
-   * app's ONLY colour-scheme affordance (`headerActions` is deliberately
-   * unset), so hiding it would make minimising the sidebar lossy — the same
+   * app's ONLY colour-scheme affordance (`headerActions` carries the search
+   * field, not a toggle), so hiding it would make minimising the sidebar lossy — the same
    * argument the design system itself makes for keeping `SidebarUserMenu` in
    * the collapsed column. `w-full min-w-0` gives the footer's width to the
    * block instead of letting it size to its content, and `flex-wrap` lets the
@@ -362,6 +400,64 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
    * // TODO: whether the design system should grow a collapsed form for
    * `ThemeToggle` is not decided here — it is written on KI-789 for the
    * design-system board to pick up. */
+  /* THE CHROME BAR'S ONE CONTROL: the KB catalog search (card KI-787).
+   *
+   * IT IS A MOVE, NOT A NEW FEATURE. This is the field that used to sit inside
+   * the „KBs entdecken" accordion on the overview; `KbCatalogPanel` no longer
+   * renders one, so there is exactly one search box in the app and exactly one
+   * `query`. The 250 ms debounce and the `GET /api/kb/catalog?q=` request stay
+   * in the panel, where the fetch is — a second debounce here would only make
+   * the first one's timing unobservable.
+   *
+   * THE LAYOUT CLASSES ARE ON THE WRAPPER `<div>`, NOT ON `<Input>`, AND THAT
+   * IS THE ONE WAY TO GET THIS VISUALLY WRONG. `Input` forwards `className` to
+   * the inner `<input>`; with a `leadingIcon` that input is wrapped in a
+   * full-width `<span class="relative block w-full">`, and inside it the input
+   * is an inline-block box whose `margin: auto` computes to `0px`. Measured on
+   * the design-system side (KI-798): the field landed 207.5px left of the bar's
+   * centre. The classes must sit on the node that IS the flex item of
+   * `headerActions`' region, which is this wrapper. `AppShellGeometry` in
+   * `HomeView.stories.tsx` re-measures the centring in Chromium, because jsdom
+   * performs no layout and the unit suite cannot see a pixel of it.
+   *
+   * NOTHING HERE IS A HEADING. The bar is chrome; the page's `<h1>` belongs to
+   * the content template (design-system KI-736). The accessible name is the
+   * same `t('catalogSearchPlaceholder')` the placeholder uses — reused rather
+   * than a second key, so the two cannot drift and translators see one string.
+   *
+   * ON „GETEILTE KNOWLEDGE BASES" THE FIELD STILL WORKS, and typing jumps to
+   * the overview with the query already applied (`onViewHome` comes off
+   * `AppNavContext`, which publishes it for the sidebar row). The alternative
+   * was hiding the field on that view; a control that vanishes between views
+   * reads as a bug, and a control that is present but inert lies. The jump is
+   * made HERE rather than in the context because `active` is the only place in
+   * the app that knows which view is on screen.
+   * The jump rebuilds this whole component, so the caret is handed over
+   * explicitly through `focusPending` — see the effect above.
+   *
+   * // TODO: this navigate-on-type behaviour is the PM's assumption on KI-787,
+   * // not a developer ruling — not yet confirmed. Reversing it means deciding
+   * // between hiding the field here and leaving it inert, and takes the
+   * // `focusPending` handoff with it. */
+  const headerSearch = (
+    <div className="w-full max-w-md mx-auto" data-testid="app-chrome-search">
+      <Input
+        ref={searchRef}
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          if (active !== 'home') {
+            onViewHome();
+            requestFocus();
+          }
+        }}
+        placeholder={t('catalogSearchPlaceholder')}
+        aria-label={t('catalogSearchPlaceholder')}
+        leadingIcon={<Search aria-hidden="true" />}
+      />
+    </div>
+  );
+
   const sidebarFooter = (
     <div className="flex w-full min-w-0 flex-col items-center gap-2">
       <ThemeToggle
@@ -385,13 +481,17 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
           cannot be put on the landmark itself. */}
       <a href={`#${contentId}`} className="skip-link">{t('skipToContent')}</a>
 
-      {/* `headerActions` is deliberately NOT passed (card KI-788): the
-          page-label bar carries no control of its own since design-system
-          0.26.0 replaced its hardcoded `ThemeToggle` with that slot, and the
-          toggle moved into the sidebar footer above. The slot stays free for
-          the search chrome card, which is the other 0.26.0 consumer; the bar
-          keeps its `h-16`/64px height either way, which is what
-          `Toast.css`'s `top: 76px` is derived from. */}
+      {/* `headerActions` is the search field (card KI-787) and `pageLabel` is
+          gone. KI-788 left this slot free and said so; this is the card that
+          fills it. The `ThemeToggle` stays in the sidebar footer above — the
+          slot holds one control, and the developer chose the search.
+
+          THE BAR'S HEIGHT IS UNCHANGED at `h-16`/64px with no label and a
+          filled slot — the design system states it for all four combinations
+          and `AppShellGeometry` in `HomeView.stories.tsx` re-measures it in
+          Chromium against the installed 0.29.0. That number is what
+          `Toast.css`'s `top: 76px` (64 + 12) is derived from, so a bundle that
+          changed it would slide every toast onto the chrome. */}
       <AppShellLayout
         logo={logo}
         nav={nav}
@@ -399,7 +499,7 @@ export function AppChrome({ active, contentId, pageLabel, children }: AppChromeP
         navLabel={t('mainNavigation')}
         menuLabel={t('openNavigation')}
         drawerLabel={t('navigation')}
-        pageLabel={pageLabel}
+        headerActions={headerSearch}
         collapsed={sidebar.collapsed}
         onCollapsedChange={sidebar.onCollapsedChange}
         collapseLabel={t('collapseNavigation')}

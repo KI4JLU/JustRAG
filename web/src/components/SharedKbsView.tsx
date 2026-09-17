@@ -150,7 +150,7 @@ export function SharedKbsView({
   ];
 
   return (
-    <AppChrome active="shared-kbs" contentId={CONTENT_ID} pageLabel={t('sharedKbs')}>
+    <AppChrome active="shared-kbs" contentId={CONTENT_ID}>
       <SectionedGridLayout
         id={CONTENT_ID}
         label={t('sharedKbs')}

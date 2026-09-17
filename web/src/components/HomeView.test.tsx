@@ -10,8 +10,10 @@ import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
 import { SharingProvider } from '../contexts/SharingContext';
+import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbRemoval } from '../hooks/useKbRemoval';
 import { useSharing } from '../hooks/useSharing';
+import { useKbSearchState } from '../hooks/useKbSearchState';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -115,6 +117,23 @@ function SharingHarness({ children }: { children: React.ReactNode }) {
   return <SharingProvider value={sharing}>{children}</SharingProvider>;
 }
 
+/**
+ * The REAL `useKbSearchState`, published on the context the chrome's search
+ * field and the discovery panel both read (card KI-787).
+ *
+ * Real, not a stub, for the same reason `SharingHarness` is: the behaviour
+ * this card adds lives INSIDE the hook — writing a non-empty query expands
+ * „KBs entdecken", which is what makes the header field reach a panel that is
+ * unmounted while the section is closed. A stubbed `{ query, setQuery }` would
+ * turn every assertion about that into a statement about the stub. It also
+ * owns the section's `localStorage` key now, so it has to sit inside
+ * `renderView` — the remount test above unmounts the whole tree.
+ */
+function KbSearchHarness({ children }: { children: React.ReactNode }) {
+  const kbSearch = useKbSearchState();
+  return <KbSearchProvider value={kbSearch}>{children}</KbSearchProvider>;
+}
+
 // Every render goes through the providers HomeView's subtree actually needs in
 // production. ToastProvider is not optional even for tests that never mean to
 // touch the discovery panel: whether that panel mounts depends on persisted
@@ -140,7 +159,9 @@ function renderView(ui: React.ReactElement) {
       <ToastProvider>
         <ModalProvider>
           <SharingHarness>
-            <AppNavProvider value={NAV}>{ui}</AppNavProvider>
+            <AppNavProvider value={NAV}>
+              <KbSearchHarness>{ui}</KbSearchHarness>
+            </AppNavProvider>
           </SharingHarness>
         </ModalProvider>
       </ToastProvider>
@@ -671,7 +692,6 @@ describe('HomeView discovery accordion', () => {
 
     await expandSection(translations.discoverKbs.en);
 
-    expect(await screen.findByLabelText(translations.catalogSearchPlaceholder.en)).toBeInTheDocument();
     await waitFor(() => {
       expect(mockedAxios.get).toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog'));
     });
@@ -690,6 +710,108 @@ describe('HomeView discovery accordion', () => {
     const globalKb: KnowledgeBase = { ...baseKb, id: 'gkb-1', isGlobal: true };
     renderView(<HomeView kbs={[]} {...noopProps} globalKbs={[globalKb]} />);
     expect(screen.getAllByRole('button', { name: new RegExp(translations.discoverKbs.en, 'i') })).toHaveLength(1);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The catalog search in the chrome bar (card KI-787).
+ *
+ * WHAT THE CARD ACTUALLY ASKED FOR: a MOVE. The field that used to sit inside
+ * „KBs entdecken" is now the shell's top bar, and the bar's page label is gone
+ * — so „there is exactly one of it" is as much of the requirement as „it
+ * works", and every test below has a negative half for that reason.
+ *
+ * ORACLES, none of them restating a constant the components also read:
+ *  - `translations.ts` for the accessible name and the section title. The test
+ *    reads the table; the components look the key up. A renamed key fails
+ *    both, a re-worded string fails neither — which is correct, the wording is
+ *    not what is under test.
+ *  - the rendered DOM for „how many search fields exist" and „is the section's
+ *    body mounted": `getAllByLabelText(...).length` and the presence of the
+ *    catalog's own nodes, counted off the document rather than off any value
+ *    the component reports about itself.
+ *  - `mockedAxios.get`'s recorded URLs for „the keystroke reached the fetch".
+ *    The request is the panel's observable output and the URL is assembled
+ *    from the query — a component that rendered the letters but never searched
+ *    fails here and nowhere else.
+ *  - WAI-ARIA's `h1` -> heading mapping for the page title that STAYS, against
+ *    `getAllByText` for the label that GOES. Those two together are what
+ *    „removed the duplicate, kept the real one" means; asserting only the
+ *    absence would also pass if the page had lost its heading entirely.
+ * ------------------------------------------------------------------------ */
+describe('HomeView chrome search (KI-787)', () => {
+  // The file's outer beforeEach re-arms `axios.get` but does not clear its
+  // call log, and two tests below assert that the catalog was NOT fetched
+  // yet — an assertion the preceding test's calls would answer for them.
+  beforeEach(() => { mockedAxios.get.mockClear(); });
+
+  it('renders exactly one catalog search field, and it is not inside the discovery section', async () => {
+    renderView(<HomeView kbs={[]} {...noopProps} globalKbs={[]} />);
+
+    // Collapsed section, and the field is already there: it cannot be the
+    // panel's, because the panel is not mounted.
+    expect(screen.getAllByLabelText(translations.catalogSearchPlaceholder.en)).toHaveLength(1);
+
+    await expandSection(translations.discoverKbs.en);
+    await waitFor(() => {
+      expect(mockedAxios.get).toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog'));
+    });
+
+    // Expanding it did NOT add a second one — the panel kept none of its own.
+    expect(screen.getAllByLabelText(translations.catalogSearchPlaceholder.en)).toHaveLength(1);
+  });
+
+  it('expands the collapsed discovery section when the header field is typed into, and searches', async () => {
+    renderView(<HomeView kbs={[]} {...noopProps} globalKbs={[]} />);
+
+    // The section starts closed (useSectionOpen('discover', false)) and its
+    // body is unmounted, so nothing has been fetched.
+    expect(mockedAxios.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog'));
+
+    await userEvent.type(screen.getByLabelText(translations.catalogSearchPlaceholder.en), 'Recht');
+
+    // ORACLE: the request URL. Reaching it at all proves the section expanded,
+    // because the component that fires it only exists while it is open.
+    await waitFor(() => {
+      expect(mockedAxios.get).toHaveBeenCalledWith(expect.stringContaining('q=Recht'));
+    });
+
+    // And the disclosure really is open, not just mounted: the trigger says so.
+    expect(screen.getByRole('button', { name: new RegExp(translations.discoverKbs.en, 'i') }))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('leaves a closed section closed when the query is cleared back to empty', async () => {
+    renderView(<HomeView kbs={[]} {...noopProps} globalKbs={[]} />);
+
+    const field = screen.getByLabelText(translations.catalogSearchPlaceholder.en);
+    await userEvent.type(field, 'x');
+    expect(screen.getByRole('button', { name: new RegExp(translations.discoverKbs.en, 'i') }))
+      .toHaveAttribute('aria-expanded', 'true');
+
+    // Clearing is not a request to open anything, so the section the user
+    // closes afterwards stays closed — the field must not re-open it.
+    await userEvent.click(screen.getByRole('button', { name: new RegExp(translations.discoverKbs.en, 'i') }));
+    await userEvent.clear(field);
+    expect(screen.getByRole('button', { name: new RegExp(translations.discoverKbs.en, 'i') }))
+      .toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('shows the page title once — as the content template\'s h1, with no chrome label repeating it', async () => {
+    renderView(<HomeView kbs={[]} {...noopProps} globalKbs={[]} />);
+
+    // The heading stays: it is the page's own, owned by SectionedGridLayout.
+    expect(await screen.findByRole('heading', { level: 1, name: translations.myKBs.en })).toBeInTheDocument();
+
+    /* And nothing else says it in the chrome. The design system is explicit
+       that `pageLabel` is a `<p>` and never a heading, so „the bar's label is
+       gone" is exactly „no <p> carries these words" — the same locator
+       `AppShellGeometry` uses to find the bar in Chromium. Counting ALL
+       elements with the text would be wrong rather than stricter: the „Meine
+       KBs" SECTION header legitimately repeats it one level down, and did
+       before this card too. */
+    const asParagraph = screen.getAllByText(translations.myKBs.en).filter(el => el.tagName === 'P');
+    expect(asParagraph).toEqual([]);
   });
 });
 

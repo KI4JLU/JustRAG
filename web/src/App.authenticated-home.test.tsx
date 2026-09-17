@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
@@ -430,5 +430,55 @@ describe('App — the KB overview on the authenticated home route', () => {
     const trigger = document.getElementById('onboarding-tour-trigger');
     expect(trigger?.tagName).toBe('BUTTON');
     expect(trigger).toHaveAccessibleName(translations.onboardingReopenTour.de);
+  });
+
+  /* -------------------------------------------------------------------------
+   * KI-787 added a THIRD required context, `KbSearchContext`, and put its one
+   * consumer in the chrome — so this file's whole reason for existing applies
+   * to it verbatim. `useKbSearch()` throws without a provider; the provider is
+   * mounted in exactly one place (`AuthenticatedApp`'s two view branches); and
+   * `HomeView.test.tsx` and the story file both supply their own harness, so
+   * both would stay green if the route forgot it. The test below is the only
+   * thing in the repo that can see the real mount.
+   * ---------------------------------------------------------------------- */
+  it('mounts KbSearchContext on the route, so the chrome search renders and searches', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    // ORACLE: translations.ts for the accessible name. Its presence means
+    // `useKbSearch()` resolved during the real render — had the provider been
+    // missing, AppChrome would have thrown and the heading above would not
+    // exist either.
+    const field = screen.getByLabelText(translations.catalogSearchPlaceholder.de);
+
+    // ORACLE: ErrorBoundary's own fallback copy, as the negative check.
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+
+    /* ORACLE: the recorded request URL. This is the half a render assertion
+       cannot give: the field, the context, the overview's collapsed „KBs
+       entdecken" section and the panel's debounced fetch are four separate
+       pieces, and only the request proves they are connected end to end on the
+       real route. The section starts closed and its body unmounted, so this
+       also pins KI-787's deliberate behaviour change — typing expands it. */
+    expect(mockedGet).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog'));
+    await userEvent.type(field, 'Recht');
+    await waitFor(
+      () => { expect(mockedGet).toHaveBeenCalledWith(expect.stringContaining('q=Recht')); },
+      { timeout: 2000 },
+    );
+  }, 20000);
+
+  /* KI-787 also DELETED the chrome's page label, which had rendered „Meine
+   * Knowledge Bases" as a `<p>` directly above the content template's `<h1>`
+   * with the same words. ORACLE: translations.ts plus the design system's own
+   * rule that `pageLabel` is a `<p>` and never a heading — so „the label is
+   * gone" is „no <p> carries that text", while the `<h1>` this file already
+   * waits for proves the page kept its real title. */
+  it('shows the page title only as the content template\'s h1, with no chrome label above it', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    const asParagraph = screen.getAllByText(translations.myKBs.de).filter(el => el.tagName === 'P');
+    expect(asParagraph).toEqual([]);
   });
 });

@@ -9,6 +9,7 @@ import type { KnowledgeBase, SafeAIConfig } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSharingContext } from '../contexts/SharingContext';
+import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSectionOpen } from '../hooks/useSectionOpen';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
@@ -155,9 +156,17 @@ export function HomeView(props: HomeViewProps) {
   // Controlled disclosure state, one per section, with the same localStorage
   // keys and the same first-visit defaults the deleted `KbAccordion` used.
   const favoritesOpen = useSectionOpen('favorites', true);
-  const discoverOpen = useSectionOpen('discover', false);
   const sharedOpen = useSectionOpen('shared', false);
   const mineOpen = useSectionOpen('mine', true);
+  /* „KBs entdecken" is the one section whose open state is NOT owned here
+     (card KI-787). Its `useSectionOpen('discover', false)` moved into
+     `useKbSearchState`, one level up in `AuthenticatedApp`, because the search
+     field that drives this section now lives in the shell's top bar: typing
+     while the section is collapsed has to expand it, and the panel is
+     unmounted while it is, so the keystroke would otherwise reach nothing. The
+     key, the stored values and the closed-on-first-visit default are
+     unchanged — only the caller moved. */
+  const { discoverOpen, setDiscoverOpen } = useKbSearch();
 
   /* The three body shapes are picked HERE, per section, because the template
      deliberately refuses to derive "empty" from `items` — its own doc block
@@ -229,8 +238,8 @@ export function HomeView(props: HomeViewProps) {
       id: 'discover',
       title: t('discoverKbs'),
       icon: <Search size={20} color="var(--text-secondary)" aria-hidden="true" />,
-      isOpen: discoverOpen.isOpen,
-      onOpenChange: discoverOpen.onOpenChange,
+      isOpen: discoverOpen,
+      onOpenChange: setDiscoverOpen,
       body: <KbCatalogPanel onSubscriptionChange={onSubscriptionChange} onOpenKb={onOpenKbById} />,
     },
     /* Private KBs somebody else shared with me.
@@ -281,7 +290,7 @@ export function HomeView(props: HomeViewProps) {
   ];
 
   return (
-    <AppChrome active="home" contentId="home-main-content" pageLabel={t('myKBs')}>
+    <AppChrome active="home" contentId="home-main-content">
       <SectionedGridLayout
         id="home-main-content"
         label={t('myKBs')}

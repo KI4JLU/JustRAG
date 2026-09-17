@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Loader2, Globe, Star } from 'lucide-react';
+import { Loader2, Globe, Star } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
+import { useKbSearch } from '../contexts/KbSearchContext';
 import type { KbCatalogEntry, KbCategory } from '../types';
 
 interface KbCatalogPanelProps {
@@ -21,8 +22,8 @@ const SEARCH_DEBOUNCE_MS = 250;
 const INITIAL_VISIBLE = 8;
 
 /**
- * The discovery surface: search, category tabs and a favorites toggle over
- * every public KB the caller may discover. It lives inline in the Home
+ * The discovery surface: the search RESULTS, category tabs and a favorites
+ * toggle over every public KB the caller may discover. It lives inline in the Home
  * overview's "KBs entdecken" accordion, which unmounts it while collapsed —
  * so both fetches below re-run each time the section is expanded, and a KB
  * published after the page loaded appears without a reload.
@@ -31,17 +32,35 @@ const INITIAL_VISIBLE = 8;
  * ever writes an opt-out (no membership change, no chat deletion), so every
  * KB removed there lands back here — including a staged one the caller
  * curates, which GET /api/kb/catalog lists to its members for that reason.
+ *
+ * IT NO LONGER OWNS THE SEARCH FIELD (card KI-787). The developer moved that
+ * one field into the shell's top bar — a move, not a copy: there is no input
+ * here any more, and no second `query` state. What stayed is everything the
+ * REQUEST needs: the 250 ms debounce below, the category filter, and the
+ * `q=`/`category=` assembly. The query itself arrives through
+ * `KbSearchContext`, which also explains why a keystroke can reach this
+ * component at all while „KBs entdecken" starts collapsed — writing the query
+ * expands the section, and expanding it is what mounts this panel.
  */
 export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCatalogPanelProps) {
     const { t } = useTheme();
     const toast = useToast();
+    const { query } = useKbSearch();
     const [entries, setEntries] = useState<KbCatalogEntry[]>([]);
     const [categories, setCategories] = useState<KbCategory[]>([]);
-    const [query, setQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [pending, setPending] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
-    const [expanded, setExpanded] = useState(false);
+    /* The fold is stored as WHICH FILTER it was opened for, not as a boolean
+       (card KI-787). It used to be a boolean that `changeQuery` and
+       `changeCategory` each reset, which stopped working the moment the query
+       started arriving from outside this component: there is no setter here to
+       hang the reset on any more. Storing the filter the user expanded FOR
+       makes „a new result set is folded again" a derived fact rather than a
+       side effect somebody has to remember to fire — and it needs no effect,
+       so it cannot cascade a render. Same observable behaviour: changing the
+       query or the category re-closes the fold. */
+    const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
     // GET /api/kb-categories is authentication-only (its /api/admin/ twin
     // serves the same list to the curation UI). It used to be fetched from the
@@ -66,20 +85,12 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
         return () => clearTimeout(handle);
     }, [query, activeCategory]);
 
-    // A new filter is a new result set, so the fold closes again — otherwise
-    // switching tabs after expanding once would silently keep every later
-    // result set unfolded. Done in the two setters rather than in an effect on
-    // [query, activeCategory]: they are the only ways the filter changes, and
-    // an effect here would be a cascading render (react-hooks/set-state-in-effect).
-    const changeQuery = useCallback((next: string) => {
-        setQuery(next);
-        setExpanded(false);
-    }, []);
-
-    const changeCategory = useCallback((next: string | null) => {
-        setActiveCategory(next);
-        setExpanded(false);
-    }, []);
+    // The identity of the current result set, and therefore of the fold. Two
+    // fields joined by a character neither can contain on its own — a category
+    // is a uuid and the query is free text, so the newline keeps „a\nb" from
+    // colliding with „a" + „\nb".
+    const filterKey = `${query}\n${activeCategory ?? ''}`;
+    const expanded = expandedFor === filterKey;
 
     const toggle = useCallback(async (entry: KbCatalogEntry) => {
         const next = !entry.subscribed;
@@ -116,23 +127,6 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
 
     return (
         <div className="home-view__catalog">
-            <div className="input-group" style={{ marginBottom: '1rem' }}>
-                <div style={{ position: 'relative' }}>
-                    <Search
-                        size={16}
-                        aria-hidden="true"
-                        style={{ position: 'absolute', insetInlineStart: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }}
-                    />
-                    <input
-                        value={query}
-                        onChange={e => changeQuery(e.target.value)}
-                        placeholder={t('catalogSearchPlaceholder')}
-                        aria-label={t('catalogSearchPlaceholder')}
-                        style={{ width: '100%', padding: '0.75rem 0.75rem 0.75rem 2.25rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                    />
-                </div>
-            </div>
-
             {/* Tabs, not chips: the filter is single-select and always has
                 exactly one active value, which is what a tab strip states and
                 a row of toggle chips does not. "Alle" is the leftmost tab
@@ -142,7 +136,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
                     <button
                         type="button"
                         role="tab"
-                        onClick={() => changeCategory(null)}
+                        onClick={() => setActiveCategory(null)}
                         aria-selected={activeCategory === null}
                         className={`kb-catalog__tab${activeCategory === null ? ' kb-catalog__tab--active' : ''}`}
                     >
@@ -153,7 +147,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
                             key={c.id}
                             type="button"
                             role="tab"
-                            onClick={() => changeCategory(c.id)}
+                            onClick={() => setActiveCategory(c.id)}
                             aria-selected={activeCategory === c.id}
                             className={`kb-catalog__tab${activeCategory === c.id ? ' kb-catalog__tab--active' : ''}`}
                         >
@@ -226,14 +220,14 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
                 </ul>
                 {hidden > 0 && (
                     <div className="kb-catalog__more">
-                        <button type="button" className="secondary-button" onClick={() => setExpanded(true)}>
+                        <button type="button" className="secondary-button" onClick={() => setExpandedFor(filterKey)}>
                             {t('catalogShowMore').replace('{n}', String(hidden))}
                         </button>
                     </div>
                 )}
                 {expanded && entries.length > INITIAL_VISIBLE && (
                     <div className="kb-catalog__more">
-                        <button type="button" className="secondary-button" onClick={() => setExpanded(false)}>
+                        <button type="button" className="secondary-button" onClick={() => setExpandedFor(null)}>
                             {t('catalogShowLess')}
                         </button>
                     </div>

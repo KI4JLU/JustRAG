@@ -5,7 +5,9 @@ import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
 import { SharingProvider } from '../contexts/SharingContext';
+import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useSharing } from '../hooks/useSharing';
+import { useKbSearchState } from '../hooks/useKbSearchState';
 import type { KnowledgeBase, User } from '../types';
 
 /* ---------------------------------------------------------------------------
@@ -156,6 +158,17 @@ function StorySharingProvider({ username, children }: { username: string; childr
   return <SharingProvider value={sharing}>{children}</SharingProvider>;
 }
 
+/**
+ * The real `useKbSearchState` (card KI-787). The chrome renders the catalog
+ * search on this view too, and what it does HERE — navigate to the overview
+ * with the query applied — is the behaviour `ChromeSearchNavigatesHome` below
+ * asserts, so the hook has to be the real one.
+ */
+function StoryKbSearchProvider({ children }: { children: React.ReactNode }) {
+  const kbSearch = useKbSearchState();
+  return <KbSearchProvider value={kbSearch}>{children}</KbSearchProvider>;
+}
+
 function SharedKbsHarness(args: SharedKbsStoryArgs) {
   return (
     <AuthProvider
@@ -176,14 +189,16 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
               onViewAgents: args.onViewAgents,
             }}
           >
-            <SharedKbsView
-              kbs={args.kbs}
-              onSelectKB={args.onSelectKB}
-              onDeleteKB={idle()}
-              removingKb={args.removingKb}
-              onOpenKbSettings={idle()}
-              onRenameKB={idle()}
-            />
+            <StoryKbSearchProvider>
+              <SharedKbsView
+                kbs={args.kbs}
+                onSelectKB={args.onSelectKB}
+                onDeleteKB={idle()}
+                removingKb={args.removingKb}
+                onOpenKbSettings={idle()}
+                onRenameKB={idle()}
+              />
+            </StoryKbSearchProvider>
           </AppNavProvider>
         </StorySharingProvider>
       </ModalProvider>
@@ -572,5 +587,37 @@ export const ThemeToggleIsOnThisViewToo: Story = {
         name: /Helles Design|Systemdesign|Dunkles Design|Wechsle zum (Dunkel|Hell)-Modus/,
       }),
     ).toHaveLength(3);
+  },
+};
+
+/**
+ * The chrome's catalog search is on this view too, and typing jumps Home
+ * (card KI-787).
+ *
+ * WHY THE FIELD IS HERE AT ALL. It is chrome, drawn by `AppChrome` for both
+ * top-level views — and this view has no catalog. The two ways out were hiding
+ * it here or leaving it inert; a control that vanishes between views reads as a
+ * bug, and one that is present but does nothing lies. So it navigates to the
+ * overview with the query already applied.
+ *
+ * // TODO: this is the PM's assumption on KI-787, not a developer ruling —
+ * // not yet confirmed. If it is reversed, this story is the thing to delete.
+ *
+ * ORACLE: the `onViewHome` spy in `args`, which is the PARENT's callback —
+ * this view cannot reach it and cannot fake it. The field being found by its
+ * accessible name is the second half: a jump wired to a control nobody can
+ * address would pass an assertion about the spy alone.
+ */
+export const ChromeSearchNavigatesHome: Story = {
+  args: { kbs: [SHARED_EDITOR] },
+  play: async ({ args, canvas, userEvent }) => {
+    const field = canvas.getByLabelText('Name oder Beschreibung suchen…');
+    await expect(args.onViewHome).not.toHaveBeenCalled();
+
+    await userEvent.type(field, 'R');
+
+    await waitFor(async () => {
+      await expect(args.onViewHome).toHaveBeenCalled();
+    });
   },
 };

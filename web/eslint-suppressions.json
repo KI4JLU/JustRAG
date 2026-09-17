@@ -116,7 +116,7 @@
   },
   "src/components/KbCatalogPanel.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 7
+      "count": 6
     }
   },
   "src/components/KbHeaderTitle.tsx": {
