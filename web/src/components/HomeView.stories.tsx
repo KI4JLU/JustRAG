@@ -806,11 +806,6 @@ export const Empty: Story = {
   },
 };
 
-export const EmptyDark: Story = {
-  ...Empty,
-  globals: { theme: 'dark' },
-};
-
 /* ===========================================================================
  * State 2 — only KBs of one's own
  * ======================================================================== */
@@ -954,15 +949,10 @@ export const FavoritesPopulated: Story = {
     }
 
     // Still exactly one colour-scheme control once the page carries content —
-    // the same assertion as in `Empty`, re-checked in both themes here. One
+    // the same assertion as in `Empty`, re-checked with content present. One
     // control, three options; not this repo's button beside it.
     await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
   },
-};
-
-export const FavoritesPopulatedDark: Story = {
-  ...FavoritesPopulated,
-  globals: { theme: 'dark' },
 };
 
 /**

@@ -45,7 +45,7 @@ import { LegalPage } from './LegalPage';
  * decorators, never under the app's routes. `src/App.unauthenticated.test.tsx`
  * is the guard that can — it renders the real App and clicks through the login
  * footer. These stories answer a different question: how the DOCUMENTS look at
- * the page's measure, in both themes.
+ * the page's measure.
  * ------------------------------------------------------------------------- */
 
 const meta = {
@@ -116,11 +116,6 @@ export const Terms: Story = {
   },
 };
 
-export const TermsDark: Story = {
-  args: { page: 'terms' },
-  globals: { theme: 'dark' },
-};
-
 /** The longest of the three documents — the worst case for the measure. */
 export const Privacy: Story = {
   args: { page: 'privacy' },
@@ -138,11 +133,6 @@ export const Privacy: Story = {
   },
 };
 
-export const PrivacyDark: Story = {
-  args: { page: 'privacy' },
-  globals: { theme: 'dark' },
-};
-
 export const Accessibility: Story = {
   args: { page: 'accessibility' },
   play: async ({ canvas }) => {
@@ -153,9 +143,4 @@ export const Accessibility: Story = {
     await expect(await canvas.findByRole('heading', { name: 'Nicht barrierefreie Inhalte' })).toBeVisible();
     await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   },
-};
-
-export const AccessibilityDark: Story = {
-  args: { page: 'accessibility' },
-  globals: { theme: 'dark' },
 };

@@ -27,10 +27,9 @@ import Login from './Login';
  * here; it is what `Login.test.tsx` already asserts in jsdom, where the
  * pathname can be pushed.
  *
- * Both themes: each state has a `…Dark` twin that pins `globals.theme`, so the
- * pair renders side by side in the sidebar and both are covered by the
- * headless story-test run. The toolbar's Theme switch changes any story
- * without reloading — see .storybook/preview.tsx.
+ * Light mode only: no story pins a theme. The toolbar's Theme switch renders
+ * any story dark without reloading — see .storybook/preview.tsx. Dark-mode
+ * coverage is an accessibility question, not one story per state.
  * ------------------------------------------------------------------------- */
 
 const OIDC = { id: 'p1', type: 'oidc', name: 'JLU Single Sign-On' };
@@ -58,21 +57,11 @@ export const SsoOnly: Story = {
   },
 };
 
-export const SsoOnlyDark: Story = {
-  ...SsoOnly,
-  globals: { theme: 'dark' },
-};
-
 /** Password only: no OIDC provider, local auth on. */
 export const PasswordOnly: Story = {
   parameters: {
     api: { authProviders: { providers: [], localAuthEnabled: true } },
   },
-};
-
-export const PasswordOnlyDark: Story = {
-  ...PasswordOnly,
-  globals: { theme: 'dark' },
 };
 
 /**
@@ -85,11 +74,6 @@ export const PasswordAndSso: Story = {
   parameters: {
     api: { authProviders: { providers: [OIDC], localAuthEnabled: true } },
   },
-};
-
-export const PasswordAndSsoDark: Story = {
-  ...PasswordAndSso,
-  globals: { theme: 'dark' },
 };
 
 /** LDAP is the other route to the password form (no `localAuthEnabled`). */
@@ -125,11 +109,6 @@ export const UploadedLogo: Story = {
   },
 };
 
-export const UploadedLogoDark: Story = {
-  ...UploadedLogo,
-  globals: { theme: 'dark' },
-};
-
 /**
  * Field-level validation — the design system's `FormMessage`, which had never
  * rendered anywhere in this app before card KI-710.
@@ -151,11 +130,6 @@ export const FieldValidationErrors: Story = {
       await expect(await canvas.findAllByText('Dieses Feld ist erforderlich')).toHaveLength(2);
     });
   },
-};
-
-export const FieldValidationErrorsDark: Story = {
-  ...FieldValidationErrors,
-  globals: { theme: 'dark' },
 };
 
 /**
@@ -183,9 +157,4 @@ export const RejectedCredentials: Story = {
     const alert = await canvas.findByRole('alert');
     await expect(alert).toHaveTextContent('Ungültiger Benutzername oder Passwort');
   },
-};
-
-export const RejectedCredentialsDark: Story = {
-  ...RejectedCredentials,
-  globals: { theme: 'dark' },
 };

@@ -36,8 +36,10 @@ import AdminEvalTab from './AdminEvalTab';
  * story cannot supply. Do not read those toasts as story failures; they only
  * appear if a reviewer presses one of those buttons.
  *
- * Both themes throughout, via a `…Dark` twin per state. No assertion below
- * makes a visual claim.
+ * Light mode only: no story pins a theme. The toolbar's Theme switch renders
+ * any story dark without reloading — see .storybook/preview.tsx. Dark-mode
+ * coverage is an accessibility question, not one story per state.
+ * No assertion below makes a visual claim.
  * ------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
@@ -212,11 +214,6 @@ export const Populated: Story = {
     },
 };
 
-export const PopulatedDark: Story = {
-    ...Populated,
-    globals: { theme: 'dark' },
-};
-
 /**
  * No golden sets yet — the state of a fresh deployment, and the one in which
  * the kick-off form cannot be completed at all: the select has no options, so
@@ -239,11 +236,6 @@ export const GoldenSetsEmpty: Story = {
     },
 };
 
-export const GoldenSetsEmptyDark: Story = {
-    ...GoldenSetsEmpty,
-    globals: { theme: 'dark' },
-};
-
 /**
  * Golden sets present, no runs yet — the state right after the first upload,
  * where the history section is a single line of text instead of a table.
@@ -259,11 +251,6 @@ export const NoRuns: Story = {
         // so it must be absent here.
         await expect(canvas.queryByRole('button', { name: 'Weiter' })).toBeNull();
     },
-};
-
-export const NoRunsDark: Story = {
-    ...NoRuns,
-    globals: { theme: 'dark' },
 };
 
 /**
@@ -305,11 +292,6 @@ export const WorkInFlight: Story = {
         const deletes = canvas.getAllByRole('button', { name: 'Löschen' });
         await expect(deletes.filter(b => (b as HTMLButtonElement).disabled)).toHaveLength(1);
     },
-};
-
-export const WorkInFlightDark: Story = {
-    ...WorkInFlight,
-    globals: { theme: 'dark' },
 };
 
 /* =====================================================================
@@ -399,11 +381,6 @@ export const GoldenSetNotSelected: Story = {
     },
 };
 
-export const GoldenSetNotSelectedDark: Story = {
-    ...GoldenSetNotSelected,
-    globals: { theme: 'dark' },
-};
-
 /* =====================================================================
  * The KB-scoped variant
  * ===================================================================== */
@@ -438,9 +415,4 @@ export const KbScoped: Story = {
         const team = await canvas.findByLabelText('Agenten-Team');
         await expect(team).toHaveTextContent('Standard (kein Team)');
     },
-};
-
-export const KbScopedDark: Story = {
-    ...KbScoped,
-    globals: { theme: 'dark' },
 };

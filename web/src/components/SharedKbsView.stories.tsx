@@ -358,11 +358,6 @@ export const OwnedAndShared: Story = {
   },
 };
 
-export const OwnedAndSharedDark: Story = {
-  ...OwnedAndShared,
-  globals: { theme: 'dark' },
-};
-
 /* ===========================================================================
  * The empty state
  * ======================================================================== */

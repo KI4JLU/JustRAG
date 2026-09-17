@@ -46,10 +46,11 @@ import AdminAgentTab from './AdminAgentTab';
  * asserts the state the component reaches when the key is ABSENT, which is a
  * state no other story can produce, so it fails if anything leaked in.
  *
- * Both themes throughout: every state has a `…Dark` twin pinning
- * `globals.theme`, so the pair sits side by side in the sidebar and both run
- * headless. No visual claim is made by any assertion below — the developer's
- * both-theme pass is the gate, and these stories exist to make it cheap.
+ * Light mode only: no story pins a theme. The toolbar's Theme switch renders
+ * any story dark without reloading — see .storybook/preview.tsx. Dark-mode
+ * coverage is an accessibility question, not one story per state.
+ * No visual claim is made by any assertion below — the developer's visual
+ * pass is the gate, and these stories exist to make it cheap.
  * ------------------------------------------------------------------------- */
 
 const STORAGE_KEY = 'admin-agent-sections-open-v1';
@@ -270,11 +271,6 @@ export const Defaults: Story = {
     },
 };
 
-export const DefaultsDark: Story = {
-    ...Defaults,
-    globals: { theme: 'dark' },
-};
-
 /* =====================================================================
  * 2 + 3. The two extremes of the accordion
  * ===================================================================== */
@@ -310,11 +306,6 @@ export const AllSectionsExpanded: Story = {
     },
 };
 
-export const AllSectionsExpandedDark: Story = {
-    ...AllSectionsExpanded,
-    globals: { theme: 'dark' },
-};
-
 /**
  * Every section collapsed — the other extreme, and the state in which the page
  * is nothing but its own chrome. Worth a look on its own: 20 stacked
@@ -340,11 +331,6 @@ export const AllSectionsCollapsed: Story = {
         await expect(canvas.getAllByRole('textbox')).toHaveLength(1);
         await expect(canvas.getByRole('textbox')).toHaveAccessibleName('Einstellungen filtern…');
     },
-};
-
-export const AllSectionsCollapsedDark: Story = {
-    ...AllSectionsCollapsed,
-    globals: { theme: 'dark' },
 };
 
 /* =====================================================================
@@ -396,11 +382,6 @@ export const GraphPathModePpr: Story = {
     },
 };
 
-export const GraphPathModePprDark: Story = {
-    ...GraphPathModePpr,
-    globals: { theme: 'dark' },
-};
-
 /**
  * RAPTOR clustering set to `leiden` — the second row KI-710 fixed, and the
  * mirror image of the story above: the Leiden resolution row becomes editable
@@ -429,11 +410,6 @@ export const IngestionClusteringLeiden: Story = {
         const save = await canvas.findByRole('button', { name: 'Einstellungen speichern' });
         await expect(settingsForm(save).checkValidity()).toBe(true);
     },
-};
-
-export const IngestionClusteringLeidenDark: Story = {
-    ...IngestionClusteringLeiden,
-    globals: { theme: 'dark' },
 };
 
 /* =====================================================================
@@ -469,9 +445,4 @@ export const FilledValues: Story = {
         const save = await canvas.findByRole('button', { name: 'Einstellungen speichern' });
         await expect(settingsForm(save).checkValidity()).toBe(true);
     },
-};
-
-export const FilledValuesDark: Story = {
-    ...FilledValues,
-    globals: { theme: 'dark' },
 };

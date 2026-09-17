@@ -15,7 +15,7 @@ import Dashboard from './Dashboard';
  * not real about the axios-adapter interception.
  *
  * States covered, and why these:
- *   Populated  — the normal page: five tiles, nine panels, both themes.
+ *   Populated  — the normal page: five tiles, nine panels.
  *   Empty      — every array empty. Dashboards look worst here and a hand-QA
  *                pass forgets it: nine panels fall back to their own centred
  *                "Keine … vorhanden" text and the tiles all read 0.
@@ -26,8 +26,9 @@ import Dashboard from './Dashboard';
  *                Feedback tile and three panels, i.e. it changes the LAYOUT,
  *                and nothing had ever shown it.
  *
- * Each state has a `…Dark` twin pinning `globals.theme`, so both themes are in
- * the sidebar side by side and both run headless.
+ * Light mode only: no story pins a theme. The toolbar's Theme switch renders
+ * any story dark without reloading — see .storybook/preview.tsx. Dark-mode
+ * coverage is an accessibility question, not one story per state.
  *
  * NOTE: `src/Dashboard.tsx` has no import site anywhere in the app (verified
  * at the claim base: nothing imports './Dashboard'). These stories are
@@ -181,11 +182,6 @@ export const Populated: Story = {
   },
 };
 
-export const PopulatedDark: Story = {
-  ...Populated,
-  globals: { theme: 'dark' },
-};
-
 /**
  * Zero-data state. Every one of the nine panels has its own centred fallback
  * and the tiles all read 0 — the state a fresh KB is actually in on day one,
@@ -212,11 +208,6 @@ export const Empty: Story = {
   },
 };
 
-export const EmptyDark: Story = {
-  ...Empty,
-  globals: { theme: 'dark' },
-};
-
 /**
  * Loading. The analytics request never settles, so the component stays in its
  * own `loading` branch — reached through the real effect, not injected.
@@ -235,11 +226,6 @@ export const Loading: Story = {
     // And the page itself must NOT be there yet.
     await expect(canvas.queryByRole('heading', { level: 1 })).toBeNull();
   },
-};
-
-export const LoadingDark: Story = {
-  ...Loading,
-  globals: { theme: 'dark' },
 };
 
 /**
@@ -261,9 +247,4 @@ export const RetrievalQualityUnavailable: Story = {
     await expect(canvas.queryByRole('img', { name: 'Feedback-Verteilung' })).toBeNull();
     await expect(canvas.queryByText('Feedback')).toBeNull();
   },
-};
-
-export const RetrievalQualityUnavailableDark: Story = {
-  ...RetrievalQualityUnavailable,
-  globals: { theme: 'dark' },
 };

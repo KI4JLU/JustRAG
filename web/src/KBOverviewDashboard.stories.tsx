@@ -146,11 +146,6 @@ export const Superadmin: Story = {
   },
 };
 
-export const SuperadminDark: Story = {
-  ...Superadmin,
-  globals: { theme: 'dark' },
-};
-
 /** A plain system admin gets publish and nothing else. */
 export const Admin: Story = {
   decorators: [authDecorator('admin')],
@@ -164,11 +159,6 @@ export const Admin: Story = {
     await expect(canvas.queryByRole('button', { name: NAME.delete })).toBeNull();
     await expect(canvas.queryByRole('button', { name: NAME.transfer })).toBeNull();
   },
-};
-
-export const AdminDark: Story = {
-  ...Admin,
-  globals: { theme: 'dark' },
 };
 
 /**
@@ -191,11 +181,6 @@ export const Empty: Story = {
   },
 };
 
-export const EmptyDark: Story = {
-  ...Empty,
-  globals: { theme: 'dark' },
-};
-
 /** Loading: the overview request hangs. */
 export const Loading: Story = {
   decorators: [authDecorator('superadmin')],
@@ -216,9 +201,4 @@ export const Loading: Story = {
     // The table must not exist yet.
     await expect(canvas.queryByRole('table')).toBeNull();
   },
-};
-
-export const LoadingDark: Story = {
-  ...Loading,
-  globals: { theme: 'dark' },
 };

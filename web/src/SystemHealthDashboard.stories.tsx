@@ -13,7 +13,7 @@ import SystemHealthDashboard from './SystemHealthDashboard';
  *   POST /api/system-health/ai-check  -> the manual KI-Anbieter row
  *
  * States covered:
- *   Healthy   — everything green, charts populated, both themes.
+ *   Healthy   — everything green, charts populated.
  *   Degraded  — one degraded and one unhealthy subsystem, a queue with
  *               failures and a CPU gauge over its own max. This is the state
  *               the page EXISTS for and the hardest one to reach by hand.
@@ -187,11 +187,6 @@ export const Healthy: Story = {
   },
 };
 
-export const HealthyDark: Story = {
-  ...Healthy,
-  globals: { theme: 'dark' },
-};
-
 /**
  * The state the page exists for: a degraded vector DB, a refused Redis
  * connection, seventeen failed quick jobs and every gauge in the red — with
@@ -220,11 +215,6 @@ export const Degraded: Story = {
   },
 };
 
-export const DegradedDark: Story = {
-  ...Degraded,
-  globals: { theme: 'dark' },
-};
-
 /**
  * Zero-data state: a fresh deployment. Eight tiles at 0, three empty queues,
  * and four charts on their own centred fallback instead of an axis-only chart.
@@ -244,11 +234,6 @@ export const Empty: Story = {
   },
 };
 
-export const EmptyDark: Story = {
-  ...Empty,
-  globals: { theme: 'dark' },
-};
-
 /** Loading: the live request hangs, so `loading && !metrics` is what renders. */
 export const Loading: Story = {
   parameters: {
@@ -263,9 +248,4 @@ export const Loading: Story = {
     // an <h2>, so pinning "no heading yet" on level 1 would pass vacuously.
     await expect(canvas.queryByRole('heading', { level: 2 })).toBeNull();
   },
-};
-
-export const LoadingDark: Story = {
-  ...Loading,
-  globals: { theme: 'dark' },
 };

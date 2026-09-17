@@ -74,7 +74,7 @@ import AdminConfigsTab from './AdminConfigsTab';
  * rotate, the active config has no accent border, and two spacing rules are
  * missing. That is a property of the standalone mount, NOT of production — do
  * not file it as a visual defect. Everything else (the DS controls, the
- * FieldRow composition, the fieldset/legend blocks, both themes) is exactly
+ * FieldRow composition, the fieldset/legend blocks) is exactly
  * what production renders. Moving those five rules out of AdminUI.tsx would be
  * a component change, which this card explicitly forbids; it is written up as
  * an open question instead.
@@ -349,11 +349,6 @@ export const ConfigsList: Story = {
     },
 };
 
-export const ConfigsListDark: Story = {
-    ...ConfigsList,
-    globals: { theme: 'dark' },
-};
-
 /**
  * No configurations — a fresh deployment, before anyone has entered a
  * provider. The per-job selects still render, with nothing but the
@@ -368,11 +363,6 @@ export const ConfigsEmpty: Story = {
         await expect(await canvas.findByText('Keine Konfigurationen gefunden.')).toBeInTheDocument();
         await expect(canvas.queryByRole('button', { name: 'Konfiguration bearbeiten' })).toBeNull();
     },
-};
-
-export const ConfigsEmptyDark: Story = {
-    ...ConfigsEmpty,
-    globals: { theme: 'dark' },
 };
 
 /**
@@ -408,11 +398,6 @@ export const Loading: Story = {
     },
 };
 
-export const LoadingDark: Story = {
-    ...Loading,
-    globals: { theme: 'dark' },
-};
-
 /* =====================================================================
  * The config form
  * ===================================================================== */
@@ -434,11 +419,6 @@ export const FormCreate: Story = {
         // button must NOT render (its condition is `length > 1`).
         await expect(canvas.queryByRole('button', { name: 'Modell entfernen' })).toBeNull();
     },
-};
-
-export const FormCreateDark: Story = {
-    ...FormCreate,
-    globals: { theme: 'dark' },
 };
 
 /**
@@ -480,11 +460,6 @@ export const FormEdit: Story = {
         ).toHaveValue(1024);
         await expect(canvas.getAllByRole('button', { name: 'Modell entfernen' })).toHaveLength(4);
     },
-};
-
-export const FormEditDark: Story = {
-    ...FormEdit,
-    globals: { theme: 'dark' },
 };
 
 /**
@@ -530,11 +505,6 @@ export const FormValidationErrors: Story = {
     },
 };
 
-export const FormValidationErrorsDark: Story = {
-    ...FormValidationErrors,
-    globals: { theme: 'dark' },
-};
-
 /* =====================================================================
  * The connection-test banner, in each of its three states
  * ===================================================================== */
@@ -561,11 +531,6 @@ export const ConnectionTesting: Story = {
     },
 };
 
-export const ConnectionTestingDark: Story = {
-    ...ConnectionTesting,
-    globals: { theme: 'dark' },
-};
-
 /** `healthy` — success, with the measured latency the banner appends. */
 export const ConnectionHealthy: Story = {
     args: {
@@ -576,11 +541,6 @@ export const ConnectionHealthy: Story = {
         // string. 214 is a number this file chose.
         await expect(await canvas.findByText('Verbindung erfolgreich (214ms)')).toBeInTheDocument();
     },
-};
-
-export const ConnectionHealthyDark: Story = {
-    ...ConnectionHealthy,
-    globals: { theme: 'dark' },
 };
 
 /**
@@ -619,9 +579,4 @@ export const ConnectionFailed: Story = {
             ).toBeNull();
         });
     },
-};
-
-export const ConnectionFailedDark: Story = {
-    ...ConnectionFailed,
-    globals: { theme: 'dark' },
 };
