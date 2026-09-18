@@ -128,6 +128,30 @@ func kbMembershipCols(userIDParam string) string {
        (SELECT COUNT(*)::int FROM kb_members WHERE kb_id = kb.id)         AS member_count`
 }
 
+// kbUserFilterCols surfaces the caller's own per-user topic filters
+// (migration 0068, owned by internal/kbfilters): whether this KB is starred,
+// and which of the caller's own categories it carries. Joined into the list
+// queries rather than fetched per row afterwards — the chip row filters
+// client-side off one payload, and a follow-up request per card is exactly
+// the N+1 the card metadata above already avoids.
+//
+// Same shape and the same reason as kbMembershipCols: it needs a "the caller"
+// bind parameter, which the Create/Update RETURNING clauses have no place
+// for, so it stays out of kbSelectCols. Correlates against `kb.id`, so the
+// caller's FROM clause must alias knowledge_bases as `kb`.
+//
+// COALESCE to an empty array, never NULL: the scan target is []string, and
+// the JSON the frontend maps over must be [] rather than null.
+func kbUserFilterCols(userIDParam string) string {
+	return `,
+       EXISTS (SELECT 1 FROM kb_favourites fav
+               WHERE fav.kb_id = kb.id AND fav.user_id = ` + userIDParam + `) AS is_favourite,
+       COALESCE((SELECT array_agg(ucl.category_id::text)
+                 FROM kb_user_category_links ucl
+                 WHERE ucl.kb_id = kb.id AND ucl.user_id = ` + userIDParam + `),
+                ARRAY[]::text[]) AS user_category_ids`
+}
+
 func toKBRow(r kbFullRow) KBRow {
 	return KBRow{
 		ID:             r.ID,
@@ -153,6 +177,10 @@ func toKBRow(r kbFullRow) KBRow {
 		OwnerFirstName: r.OwnerFirstName,
 		OwnerLastName:  r.OwnerLastName,
 		OwnerUsername:  r.OwnerUsername,
+		// Non-nil so every KBRow serialises userCategoryIds as [] and never
+		// null, including the single-row fetches that do not run
+		// kbUserFilterCols at all.
+		UserCategoryIDs: []string{},
 	}
 }
 
@@ -168,6 +196,8 @@ type kbListRow struct {
 	LastActivityAt      *time.Time `db:"last_activity_at"`
 	MyRole              *string    `db:"my_role"`
 	MemberCount         int        `db:"member_count"`
+	IsFavourite         bool       `db:"is_favourite"`
+	UserCategoryIDs     []string   `db:"user_category_ids"`
 }
 
 func toKBRowWithStats(r kbListRow) KBRow {
@@ -179,6 +209,10 @@ func toKBRowWithStats(r kbListRow) KBRow {
 	row.LastActivityAt = r.LastActivityAt
 	row.MyRole = r.MyRole
 	row.MemberCount = r.MemberCount
+	row.IsFavourite = r.IsFavourite
+	if r.UserCategoryIDs != nil {
+		row.UserCategoryIDs = r.UserCategoryIDs
+	}
 	return row
 }
 
@@ -234,7 +268,7 @@ func (s *PGStore) ListKnowledgeBases(ctx context.Context, userID string, limit, 
 		SELECT ` + kbSelectCols + `,
 		       u.first_name AS owner_first_name,
 		       u.last_name  AS owner_last_name,
-		       u.username   AS owner_username` + kbStatsCols + kbMembershipCols("$1") + `
+		       u.username   AS owner_username` + kbStatsCols + kbMembershipCols("$1") + kbUserFilterCols("$1") + `
 		FROM knowledge_bases kb
 		LEFT JOIN users u ON kb.user_id = u.id` + kbStatsJoins + `
 		WHERE kb.visibility = 'private'
@@ -287,7 +321,7 @@ func (s *PGStore) ListGlobalKnowledgeBases(ctx context.Context, userID string, i
 	var sql string
 	if isAdmin {
 		sql = `
-			SELECT ` + kbSelectColsNoAlias + kbStatsCols + kbMembershipCols("$1") + `
+			SELECT ` + kbSelectColsNoAlias + kbStatsCols + kbMembershipCols("$1") + kbUserFilterCols("$1") + `
 			FROM knowledge_bases kb` + kbStatsJoins + `
 			WHERE visibility = 'public'
 			ORDER BY created_at DESC
@@ -299,7 +333,7 @@ func (s *PGStore) ListGlobalKnowledgeBases(ctx context.Context, userID string, i
 		// emitted and index-driven sorting/pagination survives (see the
 		// comment on ListKnowledgeBases above for the full rationale).
 		sql = `
-			SELECT ` + kbSelectColsNoAlias + kbStatsCols + kbMembershipCols("$1") + `
+			SELECT ` + kbSelectColsNoAlias + kbStatsCols + kbMembershipCols("$1") + kbUserFilterCols("$1") + `
 			FROM knowledge_bases kb` + kbStatsJoins + `
 			WHERE visibility = 'public'
 			  -- An explicit opt-out hides the tile for everyone, members
@@ -345,8 +379,16 @@ func (s *PGStore) ListGlobalKnowledgeBases(ctx context.Context, userID string, i
 }
 
 // GetKnowledgeBase returns a single KB in the same shape the list endpoints
-// produce — base columns, owner attribution, card stats and the caller's own
-// membership. Returns (nil, nil) when no such KB exists.
+// produce — base columns, owner attribution, card stats, the caller's own
+// membership and their own topic filters. Returns (nil, nil) when no such KB
+// exists.
+//
+// The topic-filter columns are here because this query shares kbListRow with
+// the list queries, and pgx's by-name row scan requires every field of the
+// target struct to be present in the result set. Splitting the struct to keep
+// two near-identical scan shapes in sync would cost more than the two
+// correlated subqueries do — and "the same shape the list endpoints produce"
+// is the documented contract of this function.
 //
 // It deliberately carries **no** visibility predicate of its own. Access is
 // the route's job: the handler sits on kbViewChain, whose
@@ -364,7 +406,8 @@ func (s *PGStore) GetKnowledgeBase(ctx context.Context, kbID, userID string) (*K
 		SELECT ` + kbSelectCols + `,
 		       u.first_name AS owner_first_name,
 		       u.last_name  AS owner_last_name,
-		       u.username   AS owner_username` + kbStatsCols + kbMembershipCols("$2") + `
+		       u.username   AS owner_username` + kbStatsCols + kbMembershipCols("$2") +
+		kbUserFilterCols("$2") + `
 		FROM knowledge_bases kb
 		LEFT JOIN users u ON kb.user_id = u.id` + kbStatsJoins + `
 		WHERE kb.id = $1`

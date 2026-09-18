@@ -272,6 +272,15 @@ export interface KnowledgeBase {
     // kb_members row (e.g. a published global KB nobody explicitly joined).
     myRole?: KbRole;
     memberCount?: number;
+    // The caller's own topic filters, joined into GET /api/kb,
+    // GET /api/kb/global and GET /api/kb/{id} (migration 0068). They are on
+    // the payload rather than behind a per-card request because the chip row
+    // filters client-side off one response. userCategoryIds are the CALLER's
+    // private categories (GET /api/kb-user-categories) — unrelated to the
+    // admin-curated catalog taxonomy in KbCategory. Both are optional here
+    // only because CreateKnowledgeBase's response cannot carry them.
+    isFavourite?: boolean;
+    userCategoryIds?: string[];
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
     visibility?: 'private' | 'public';
@@ -581,11 +590,28 @@ export interface KbCatalogEntry {
     description?: string | null;
     subscribed: boolean;
     categoryIds: string[];
+    // The caller's own topic filters (migration 0068). isFavourite is
+    // orthogonal to subscribed above: subscribed answers "is this tile in my
+    // overview", isFavourite "did I star it for the Favoriten chip".
+    isFavourite: boolean;
+    userCategoryIds: string[];
 }
 
 // GET /api/admin/kb-categories row — system-admin only; used to render the
 // catalog's optional filter chips.
 export interface KbCategory {
+    id: string;
+    name: string;
+    sortOrder: number;
+}
+
+// GET /api/kb-user-categories row — the caller's OWN categories, the chips
+// between "Favoriten" and the "+" in the shell's filter row. Same shape as
+// KbCategory but a different table and a different rule: KbCategory is one
+// system-admin-curated taxonomy over public KBs, these belong to one user and
+// may point at any topic that user can see. POST/PATCH take { name, sortOrder };
+// assignment is PUT/DELETE /api/kb/{id}/user-categories/{catId}.
+export interface KbUserCategory {
     id: string;
     name: string;
     sortOrder: number;

@@ -67,6 +67,17 @@ type KBRow struct {
 	// owner. Zero/nil on single-row fetches (create / get-by-id).
 	MyRole      *string `json:"myRole"`
 	MemberCount int     `json:"memberCount"`
+
+	// Per-user topic filters for the shell's chip row (migration 0068, owned
+	// by internal/kbfilters) — populated by the read queries as joins rather
+	// than follow-up requests, because the chip row filters the whole payload
+	// client-side and a request per card would be an N+1 on every view.
+	// Populated by ListKnowledgeBases, ListGlobalKnowledgeBases and
+	// GetKnowledgeBase; false/empty on CreateKnowledgeBase's RETURNING row,
+	// which cannot correlate against a caller. UserCategoryIDs is never nil,
+	// so the JSON is [] and never null.
+	IsFavourite     bool     `json:"isFavourite"`
+	UserCategoryIDs []string `json:"userCategoryIds"`
 }
 
 // ---------------------------------------------------------------------------
