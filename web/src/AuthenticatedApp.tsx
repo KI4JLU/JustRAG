@@ -411,10 +411,24 @@ function AuthenticatedAppInner() {
    * overview's own elements, so running it over this view would point at
    * nothing. `Footer` stays, so the legal pages remain reachable. */
   if (view === 'tools') {
+    /* THE SAME THREE PROVIDERS AS EVERY OTHER VIEW, even though the page itself
+       is a placeholder that renders no topic and no search target.
+ 
+       They are not the VIEW's dependencies, they are `AppChrome`'s: the shell
+       reads `useKbSearch` for the top-bar field and `useSharingContext` for the
+       members dialog it mounts, on every page that wraps itself in it. Shipping
+       this branch with `AppNavProvider` alone threw
+       „useKbSearch must be used within KbSearchProvider" the moment the row was
+       clicked — the placeholder had nothing to do with it. Any future view that
+       renders `AppChrome` needs all three. */
     return (
+      <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
         <ToolsView />
+      </KbSearchProvider>
       </AppNavProvider>
+      </SharingProvider>
     );
   }
 

@@ -116,6 +116,38 @@ function findOverviewHeading() {
 }
 
 describe('App — the „Geteilte Knowledge Bases" view on the authenticated route', () => {
+  /* ---------------------------------------------------------------------
+   * Every shell view reaches its page from its nav row.
+   *
+   * WHY THIS EXISTS, and it is a bug that already shipped: the „Werkzeuge"
+   * branch was written with `AppNavProvider` alone, on the reasoning that a
+   * placeholder rendering no topic and no search target needs nothing else.
+   * It threw „useKbSearch must be used within KbSearchProvider" the moment the
+   * row was clicked — because the providers are not the VIEW's dependencies,
+   * they are `AppChrome`'s, and every one of these pages wraps itself in it.
+   *
+   * A component test cannot catch that: its harness mounts the providers
+   * itself, so it proves the view works GIVEN them, never that the route
+   * supplies them. Only the real route can, which is what this file is for.
+   *
+   * ORACLE: translations.ts for both names, and WAI-ARIA's h1 mapping. A
+   * missing provider throws during render, so there is no heading to find —
+   * the assertion needs no error matcher to be about the crash.
+   * ------------------------------------------------------------------- */
+  it.each([
+    ['discoverTopics'] as const,
+    ['tools'] as const,
+  ])('reaches the %s view from its nav row with every provider mounted', async (key) => {
+    render(<App />);
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: translations[key].de }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: translations[key].de }),
+    ).toBeInTheDocument();
+  });
+
   it('reaches the view from the sidebar row with every provider it consumes mounted', async () => {
     render(<App />);
     await findOverviewHeading();
