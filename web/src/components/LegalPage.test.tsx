@@ -1,4 +1,5 @@
 import type { ComponentProps } from 'react';
+import { stubViewport } from '../test/viewport';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -98,16 +99,7 @@ beforeEach(() => {
   // jsdom ships no matchMedia. The real ToastContainer's items call
   // useReducedMotion, which reads it, so rendering an actual toast needs it
   // stubbed (same pattern as HomeView.test.tsx / KbSettingsPanel.test.tsx).
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  stubViewport();
 });
 
 describe('LegalPage — page structure', () => {

@@ -35,8 +35,10 @@ import { useKbSettings } from './hooks/useKbSettings';
 import { useKbLifecycle } from './hooks/useKbLifecycle';
 
 // Components
-import { HomeView } from './components/HomeView';
-import { SharedKbsView } from './components/SharedKbsView';
+import { MyTopicsView } from './components/MyTopicsView';
+import { SharedTopicsView } from './components/SharedTopicsView';
+import { DiscoverView } from './components/DiscoverView';
+import { ToolsView } from './components/ToolsView';
 import { KbWorkspaceLayout } from './components/KbWorkspaceLayout';
 import { KbWorkspaceModals } from './components/KbWorkspaceModals';
 
@@ -138,7 +140,7 @@ function AuthenticatedAppInner() {
   const reducedMotion = useReducedMotion();
 
   // Local state kept here to avoid circular deps with useKnowledgeBases
-  const [view, setView] = useState<ViewType>('home');
+  const [view, setView] = useState<ViewType>('my-topics');
   const [kbView, setKbView] = useState<KbViewType>('chat');
   const [currentKb, setCurrentKb] = useState<KnowledgeBase | null>(null);
 
@@ -252,11 +254,12 @@ function AuthenticatedAppInner() {
   // this exists for — only reached the overview after a full page reload.
   const { fetchKBs } = kbMgmt;
   useEffect(() => {
-    // 'shared-kbs' (KI-783) is listed alongside 'home' because it renders the
-    // same `kbs` array: a KB shared with the user while they were elsewhere in
-    // the session would otherwise be missing from the very view that exists to
-    // show it, until a full page reload.
-    if (view === 'home' || view === 'shared-kbs') {
+    // All three topic views, because all three render `kbs`/`globalKbs`: a
+    // topic shared or published while the user was elsewhere in the session
+    // would otherwise be missing from the very view that exists to show it,
+    // until a full page reload. 'tools' is deliberately absent — it renders no
+    // topic, so landing on it is not a reason to refetch.
+    if (view === 'my-topics' || view === 'shared-topics' || view === 'discover') {
       void fetchKBs({ silent: true });
     }
   }, [view, fetchKBs]);
@@ -293,7 +296,7 @@ function AuthenticatedAppInner() {
 
   /* The app-level navigation jumps, published to whatever chrome renders the
    * sidebar. Defined HERE, above the early returns, rather than inside the
-   * 'home' branch where KI-770 put it: since KI-783 there are TWO views that
+   * 'my-topics' branch where KI-770 put it: there are now FOUR views that
    * mount `AppChrome`, and a second inline copy of this object would be two
    * places for one set of destinations to go stale. `logout` is absent on
    * purpose — `AuthContext` already publishes it.
@@ -302,11 +305,12 @@ function AuthenticatedAppInner() {
    * home branch before too, so nothing about re-render behaviour changes, and
    * a memo here would have to sit above every early return for no gain. */
   const appNav: AppNavContextValue = {
-    onViewHome: () => setView('home'),
-    onViewSharedKbs: () => setView('shared-kbs'),
+    onViewMyTopics: () => setView('my-topics'),
+    onViewSharedTopics: () => setView('shared-topics'),
+    onViewDiscover: () => setView('discover'),
+    onViewTools: () => setView('tools'),
     onViewProfile: () => setView('profile'),
     onViewAdmin: () => setView('admin'),
-    onViewAgents: () => setView('agents'),
   };
 
   // Early returns for non-KB views
@@ -406,19 +410,53 @@ function AuthenticatedAppInner() {
    * No `OnboardingTour` and no help button here: the tour's steps address the
    * overview's own elements, so running it over this view would point at
    * nothing. `Footer` stays, so the legal pages remain reachable. */
-  if (view === 'shared-kbs') {
+  if (view === 'tools') {
+    // No SharingProvider and no KbSearchProvider: the placeholder renders no
+    // topic card and no search target. `AppNavProvider` is what the shell's
+    // nav rows need, and it is the only one this view mounts.
+    return (
+      <AppNavProvider value={appNav}>
+        <ToolsView />
+      </AppNavProvider>
+    );
+  }
+
+  if (view === 'discover') {
     return (
       <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
       <motion.div
-        key="shared-kbs"
+        key="discover"
         {...getMotionProps(reducedMotion)}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.2 }}
       >
-        <SharedKbsView
+        <DiscoverView
+          onSubscriptionChange={() => { kbMgmt.fetchKBs(); }}
+          onOpenKbById={kbMgmt.handleOpenKbById}
+        />
+      </motion.div>
+      </KbSearchProvider>
+      </AppNavProvider>
+      </SharingProvider>
+    );
+  }
+
+  if (view === 'shared-topics') {
+    return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
+      <motion.div
+        key="shared-topics"
+        {...getMotionProps(reducedMotion)}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        <SharedTopicsView
           kbs={kbMgmt.kbs}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
@@ -433,7 +471,7 @@ function AuthenticatedAppInner() {
     );
   }
 
-  if (view === 'home') {
+  if (view === 'my-topics') {
     // The two overview contexts. `sharing` is the same object the KB
     // workspace half already receives through KbDataContext.sharing — one
     // useSharing() call, two mount points, so the dialog cannot get out of
@@ -443,26 +481,20 @@ function AuthenticatedAppInner() {
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
       <motion.div
-        key="home"
+        key="my-topics"
         {...getMotionProps(reducedMotion)}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.2 }}
       >
-        <HomeView
+        <MyTopicsView
           kbs={kbMgmt.kbs}
-          globalKbs={kbMgmt.globalKbs}
           currentKb={currentKb}
           availableConfigs={kbSettings.availableConfigs}
           onCreateKB={kbMgmt.handleCreateKB}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}
-          onCreateGlobalKB={kbMgmt.handleCreateGlobalKB}
-          onSubscriptionChange={() => { kbMgmt.fetchKBs(); }}
-          onOpenKbById={kbMgmt.handleOpenKbById}
-          onDeleteGlobalKB={kbMgmt.handleDeleteGlobalKB}
-          onOpenGlobalKbSettings={kbMgmt.handleOpenGlobalKbSettings}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
           onUpdateKBSettings={handleUpdateKBSettings}

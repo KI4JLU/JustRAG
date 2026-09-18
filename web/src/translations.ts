@@ -65,11 +65,87 @@ export const translations = {
       de: 'Knowledge Bases, die andere mit dir geteilt haben. Deine eigenen findest du unter „Mein Wissen".',
       en: 'Knowledge bases other people have shared with you. Your own are under "My Knowledge".',
     },
+
+    /* The four content views of the shell (18.09.2026).
+     *
+     * THE SCREENS KEEP THEIR GERMAN NAMES — „Mein Wissen", „Geteiltes Wissen",
+     * „Werkzeuge" — because those are what the developer called them. What is
+     * new is the ENTITY: a knowledge base is a „Thema" / „topic" on these four
+     * pages. The rename is deliberately scoped to them (developer ruling): the
+     * KB settings panel, the workspace, the admin console and every toast still
+     * say Knowledge Base, so `myKBs` / `newKB` / `createNewKb` above stay and
+     * are still used there. Two vocabularies coexist until the rest follows.
+     *
+     * `home` and `sharedKbs` are kept above rather than renamed: they are the
+     * same strings, still referenced by the tour and the legal footer. */
+    myTopics: { de: 'Mein Wissen', en: 'My Knowledge' },
+    myTopicsDescription: {
+      de: 'Deine privaten Themen und Quellen. Du kannst dein Wissen jederzeit mit anderen teilen.',
+      en: 'Your private topics and sources. You can share your knowledge with others at any time.',
+    },
+    newTopic: { de: 'Neues Thema', en: 'New topic' },
+
+    sharedTopics: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
+    sharedTopicsDescription: {
+      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben.',
+      en: 'Topics other people have shared with you or with your groups.',
+    },
+
+    /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
+     * Two keys rather than one string with a newline: the heading is rendered
+     * as an element of its own, and a `\n` in a translation cannot carry that.
+     * It replaces `homeSharedWithMeEmpty`, which stated the absence („Dir wurde
+     * noch keine Knowledge Base freigegeben.") where this states the way out —
+     * the page now offers an action, so the empty state names it. */
+
+    /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
+     * Two keys rather than one string with a newline: the heading is rendered
+     * as an element of its own, and a `\n` in a translation cannot carry that.
+     *
+     * The body names sharing, which this page deliberately offers no control
+     * for: sharing a topic adds it to somebody ELSE's „Geteiltes Wissen", so a
+     * button here would be an action with no visible result. The sentence
+     * points at „Mein Wissen", where the share control lives on the card. */
+    /* The tile on „Geteiltes Wissen". It NAVIGATES — to „Entdecken" — rather
+     * than creating anything, which is why it is „hinzufügen" and not „neu":
+     * there is nothing this page can create. A „Wissen teilen" tile was tried
+     * in this slot first and removed, because sharing a topic adds it to
+     * somebody else's list; going to the catalog is the one thing a user can do
+     * from here that ends with a new topic in front of them. */
+    addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
+
+    /* The section heading for the global half. „Global sichtbar" and not
+     * „Öffentlich": a public topic is visible to everyone signed in, not to the
+     * open internet, and „öffentlich" would promise the second. */
+    globallyVisible: { de: 'Global sichtbar', en: 'Globally visible' },
+
+    discoverTopics: { de: 'Entdecken', en: 'Discover' },
+    discoverTopicsDescription: {
+      de: 'Entdecke Themen, die von Mitgliedern der JLU für alle bereitgestellt wurden.',
+      en: 'Discover topics that JLU members have made available to everyone.',
+    },
+
+    tools: { de: 'Werkzeuge', en: 'Tools' },
+    toolsDescription: {
+      de: 'Ausgewählte Werkzeuge aus dem Arbeitsbereich ziehen hierher um. Noch ist die Seite ein Platzhalter.',
+      en: 'Selected tools from the workspace area will move here. For now this page is a placeholder.',
+    },
+    newTool: { de: 'Neues Werkzeug', en: 'New tool' },
     // The three chrome labels AppShellLayout would otherwise render with its
     // German defaults.
     mainNavigation: { de: 'Hauptnavigation', en: 'Main navigation' },
-    openNavigation: { de: 'Navigation öffnen', en: 'Open navigation' },
     navigation: { de: 'Navigation', en: 'Navigation' },
+
+    /* The narrow-screen tab bar (design-system 0.30.0).
+     *
+     * `openNavigation` is GONE with the drawer it opened. Below `lg` the shell
+     * no longer overlays a modal copy of the sidebar — it shows one area at a
+     * time and switches between them with a `BottomTabBar`, so the nav column
+     * is reached by selecting its tab, not by opening anything. Two tabs here
+     * because this app has two areas: the nav column and the page. */
+    navigationTab: { de: 'Navigation', en: 'Navigation' },
+    contentTab: { de: 'Inhalt', en: 'Content' },
+    switchArea: { de: 'Bereich wechseln', en: 'Switch area' },
 
     /* The two labels of the sidebar's minimise toggle (card KI-789).
      *
@@ -451,13 +527,10 @@ export const translations = {
     homeFavorites: { de: 'Favoriten', en: 'Favorites' },
     homeFavoritesEmpty: { de: 'Noch keine Favoriten — unter „KBs entdecken" findest du alle öffentlichen Wissensdatenbanken.', en: 'No favorites yet — "Discover KBs" below lists every public knowledge base.' },
     homeSharedWithMe: { de: 'Mit mir geteilt', en: 'Shared with me' },
-    homeSharedWithMeEmpty: { de: 'Dir wurde noch keine Knowledge Base freigegeben.', en: 'Nobody has shared a knowledge base with you yet.' },
 
     // Global Knowledge Bases
     globalKBs: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },
     globalBadge: { de: 'Global', en: 'Global' },
-    createGlobalKB: { de: 'Globale KB erstellen', en: 'Create Global KB' },
-    globalKbNamePrompt: { de: 'Name der globalen Knowledge Base:', en: 'Name for the global Knowledge Base:' },
     confirmDeleteGlobalKb: { de: 'Diese globale Knowledge Base wirklich löschen? Alle Dateien und Chats werden gelöscht.', en: 'Delete this global Knowledge Base? All files and chats will be deleted.' },
     deleteGlobalKb: { de: 'Globale Knowledge Base löschen', en: 'Delete global Knowledge Base' },
     deleteKb: { de: 'Knowledge Base löschen', en: 'Delete knowledge base' },
@@ -478,7 +551,16 @@ export const translations = {
     discoverKbs: { de: 'KBs entdecken', en: 'Discover KBs' },
     catalogTitle: { de: 'Öffentliche Wissensdatenbanken', en: 'Public knowledge bases' },
     catalogSearchPlaceholder: { de: 'Name oder Beschreibung suchen…', en: 'Search name or description…' },
-    catalogEmpty: { de: 'Keine öffentlichen Wissensdatenbanken gefunden.', en: 'No public knowledge bases found.' },
+    /* The catalog's empty state. Two keys, because it renders as a heading and
+     * a line under it — a `\n` in one string cannot carry that. It replaces the
+     * flat „Keine öffentlichen Wissensdatenbanken gefunden.", which reported a
+     * failed lookup; this says the shelf is empty and will fill, which is the
+     * true statement on a page whose content other people supply. */
+    catalogEmptyTitle: { de: 'Keine weiteren Themen verfügbar', en: 'No further topics available' },
+    catalogEmptyBody: {
+      de: 'Sobald neue Themen für alle Mitglieder der JLU bereitgestellt werden, findest du sie hier.',
+      en: 'As soon as new topics are made available to all JLU members, you will find them here.',
+    },
     catalogAllCategories: { de: 'Alle', en: 'All' },
     catalogCategoryTabs: { de: 'Kategorien filtern', en: 'Filter by category' },
     // Der Katalog zeigt zunaechst nur die erste Seite; {n} ist die Zahl der
@@ -706,7 +788,6 @@ export const translations = {
     kbRoleAdmin: { de: 'Admin', en: 'Admin' },
     kbRoleOwner: { de: 'Besitzer', en: 'Owner' },
     copyUsername: { de: 'Benutzername kopieren', en: 'Copy username' },
-    websiteLogo: { de: 'Website-Logo', en: 'Website Logo' },
 
     // Inline Editor
     saveAndSubmit: { de: 'Speichern & Absenden', en: 'Save & Submit' },
@@ -805,8 +886,6 @@ export const translations = {
     // Admin errors
     settingsSaved: { de: 'Einstellungen erfolgreich gespeichert', en: 'Settings saved successfully' },
     settingsSaveError: { de: 'Fehler beim Speichern der Einstellungen', en: 'Error saving settings' },
-    logoUploaded: { de: 'Logo erfolgreich hochgeladen', en: 'Logo uploaded successfully' },
-    logoUploadError: { de: 'Logo-Upload fehlgeschlagen', en: 'Logo upload failed' },
     userDeleteError: { de: 'Fehler beim Löschen des Benutzers', en: 'Error deleting user' },
     reembedError: { de: 'Fehler beim Starten der Neueinbettung', en: 'Failed to trigger re-embedding' },
     providersFetchError: { de: 'Fehler beim Laden der Provider', en: 'Error loading providers' },
@@ -831,7 +910,6 @@ export const translations = {
     confirmDeleteConfig: { de: 'Bist du sicher, dass du diese Konfiguration löschen möchtest?', en: 'Are you sure you want to delete this configuration?' },
     confirmDeleteProvider: { de: 'Bist du sicher, dass du diesen Anbieter löschen möchtest?', en: 'Are you sure you want to delete this provider?' },
     confirmReembedAll: { de: 'Alle Dateien in allen Knowledge Bases werden neu verarbeitet. Das kann lange dauern und beeinträchtigt vorübergehend die Suchqualität.\n\nBist du sicher?', en: 'This will re-process all files across ALL knowledge bases. This may take a long time and will temporarily affect search quality.\n\nAre you sure you want to continue?' },
-    globalKbCreateError: { de: 'Fehler beim Erstellen der globalen Knowledge Base', en: 'Error creating global knowledge base' },
     globalKbDeleteError: { de: 'Fehler beim Löschen der globalen Knowledge Base', en: 'Error deleting global knowledge base' },
 
     // Export errors
@@ -1099,7 +1177,6 @@ export const translations = {
     providerNameRequired: { de: 'Anbietername ist erforderlich', en: 'Provider name is required' },
     ldapUrlRequired: { de: 'LDAP URL ist erforderlich', en: 'LDAP URL is required' },
     searchBaseRequired: { de: 'Suchbasis ist erforderlich', en: 'Search base is required' },
-    logoPreview: { de: 'Logo-Vorschau', en: 'Logo preview' },
     // active already defined in RSS Feeds section
     add: { de: 'Hinzufügen', en: 'Add' },
     connectionTesting: { de: 'Verbindung wird getestet...', en: 'Testing connection...' },
@@ -1687,8 +1764,6 @@ export const translations = {
 
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
-    siteLogo: { de: 'Website-Logo (SVG oder PNG)', en: 'Site Logo (SVG or PNG)' },
-    siteLogoHelp: { de: 'SVG wird für beste Qualität empfohlen. Wird in der Seitenleiste und auf dem Anmeldebildschirm angezeigt.', en: 'SVG recommended for best quality. Shown in the sidebar and on the login screen.' },
     chatFooterLabel: { de: 'Text f\u00fcr Chat-Fu\u00dfzeile', en: 'Chat Footer Text' },
     // chatFooter already defined in Chat Area section
     chatFooterPlaceholder: { de: 'Text, der unter der Chat-Oberfläche angezeigt wird', en: 'Text displayed below the chat interface' },

@@ -23,22 +23,24 @@ import { createContext, useContext, type ReactNode } from 'react';
  *
  * Deliberately NOT extended to the legal pages (`Footer` keeps its own
  * `onNavigate`) or to `handleGoHome`/`handleViewHome` (KB-workspace
- * navigation, already on `KbCoreContext`). `onViewHome` below is NOT those
+ * navigation, already on `KbCoreContext`). `onViewMyTopics` below is NOT those
  * two: they also reset `kbView` and close the settings panel on the way out of
- * a KB workspace, while this one is a plain jump between two chrome-level
- * views that never entered one.
+ * a KB workspace, while this one is a plain jump between chrome-level views
+ * that never entered one.
  */
 export interface AppNavContextValue {
-  /** The KB overview — the sidebar's „Übersicht" row. */
-  onViewHome: () => void;
-  /** The „Geteilte Knowledge Bases" view (KI-783). */
-  onViewSharedKbs: () => void;
+  /** „Mein Wissen" — the topics this user owns. */
+  onViewMyTopics: () => void;
+  /** „Geteiltes Wissen" — private shares plus globally visible topics. */
+  onViewSharedTopics: () => void;
+  /** „Entdecken" — the catalog of global topics not held yet. */
+  onViewDiscover: () => void;
+  /** „Werkzeuge" — placeholder for the workspace tools that move here. */
+  onViewTools: () => void;
   /** The signed-in user's own profile screen. */
   onViewProfile: () => void;
   /** The system-admin console. Rendered only for admin/superadmin. */
   onViewAdmin: () => void;
-  /** The user's agents screen. */
-  onViewAgents: () => void;
 }
 
 const AppNavContext = createContext<AppNavContextValue | null>(null);

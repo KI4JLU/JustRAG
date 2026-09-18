@@ -1,4 +1,5 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { stubViewport } from '../../test/viewport';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KbSettingsPanel } from './KbSettingsPanel';
@@ -82,16 +83,7 @@ beforeEach(() => {
     removeItem: () => {},
     clear: () => {},
   });
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  stubViewport();
   global.fetch = vi.fn(async (url: string, opts?: RequestInit) => {
     if (opts?.method === 'POST' && String(url).endsWith('/reembed')) {
       return { ok: true, json: async () => ({ queued: 3 }) } as Response;

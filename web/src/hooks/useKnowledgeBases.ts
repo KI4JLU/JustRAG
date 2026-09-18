@@ -14,7 +14,7 @@ interface UseKnowledgeBasesParams {
   setCurrentKb: Dispatch<SetStateAction<KnowledgeBase | null>>;
   setIsPro: (isPro: boolean) => void;
   setKbView: (view: 'chat' | 'dashboard' | 'research' | 'workspace' | 'mindmap') => void;
-  setView: (view: 'home' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
+  setView: (view: 'my-topics' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
   setSelectedContent: (content: GeneratedContent | null) => void;
   setGeneratedContent: (content: GeneratedContent[]) => void;
 }
@@ -172,17 +172,13 @@ export function useKnowledgeBases({
     await fetchKBs();
   }, [removeKb, handleGoHome, toast, t, fetchKBs]);
 
-  const handleCreateGlobalKB = async () => {
-    const name = await showPrompt(t('globalKbNamePrompt'));
-    if (!name) return;
-    try {
-      const res = await axios.post(`${API_BASE_URL}/api/admin/global-kbs`, { name });
-      setGlobalKbs(prev => [res.data, ...prev]);
-    } catch (err: unknown) {
-      console.error('Failed to create global KB:', err);
-      toast.error(t('kbCreateError'));
-    }
-  };
+  /* `handleCreateGlobalKB` stood here and is deleted (developer ruling,
+     18.09.2026): a topic is not CREATED global, it is created private and
+     promoted. It POSTed /api/admin/global-kbs, which the „Globale KB erstellen"
+     tile on „Geteiltes Wissen" was the only caller of. Promotion is the admin
+     KB overview's publish action (POST /api/admin/kb/{id}/publish, gated on
+     admin|superadmin in `KBOverviewDashboard`). The backend endpoint is
+     untouched — this removes the app's path to it, not the route. */
 
   const handleDeleteGlobalKB = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -216,6 +212,6 @@ export function useKnowledgeBases({
   return {
     kbs, setKbs, globalKbs, setGlobalKbs,
     fetchKBs, handleCreateKB, handleSelectKB, handleOpenKbById, handleRenameKB, handleDeleteKB, removingKb,
-    handleCreateGlobalKB, handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
+    handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
   };
 }

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AppShellLayout,
   DropdownMenuItem,
@@ -7,11 +7,12 @@ import {
   NavItem,
   SidebarUserMenu,
   ThemeToggle,
+  type MobilePaneTab,
 } from '@ki4jlu/design-system';
 import {
-  Settings, User, LogOut, Copy, Check, Bot, Home, Languages, Search, Users,
+  Settings, User, LogOut, Copy, Check, Home, Languages, Search, Users,
+  LayoutGrid, Menu, Compass, Wrench,
 } from 'lucide-react';
-import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
@@ -67,7 +68,7 @@ const MembersModal = lazy(() => import('./MembersModal').then(module => ({ defau
  * ------------------------------------------------------------------------- */
 
 /** Which top-level view is currently on screen. One row, one `aria-current`. */
-export type AppChromeView = 'home' | 'shared-kbs';
+export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover' | 'tools';
 
 /**
  * The `id` on the colour-scheme switch's `role="group"` element (card KI-788).
@@ -78,17 +79,18 @@ export type AppChromeView = 'home' | 'shared-kbs';
  * is exactly what design-system 0.26.0's new `id` prop is for; the toggle
  * renders its own DOM, so without the prop the group is unaddressable.
  *
- * KNOWN LIMITATION, measured on this card and not hidden: `AppShell` renders
- * the SAME sidebar node twice — the sticky desktop column plus, while it is
- * open, the mobile drawer copy — so while that drawer is open two elements
- * carry this id and `getElementById` returns the desktop one (which is
- * `display:none` at that breakpoint). Nothing in this file can tell the two
- * mounts apart: the design system keeps `SidebarSurfaceContext` private and
- * exports only `useSidebarCollapsed`. The fix belongs in the design system
- * (export the surface, or let `AppShell` own the de-duplication); until then
- * the drawer-open case is asserted in `HomeView.test.tsx` so it is a recorded
- * fact rather than a surprise. It is unique in every closed-drawer state,
- * which is every desktop state and the mobile default.
+ * THE OLD DUPLICATION IS GONE (design-system 0.30.0). `AppShell` used to mount
+ * the same sidebar node twice — the sticky column plus the mobile drawer copy
+ * — so while that drawer was open two elements carried this id and
+ * `getElementById` returned the `display:none` one. There is no drawer any
+ * more: below `lg` the shell shows one area at a time behind a `BottomTabBar`,
+ * so every node is mounted once and the id is unique in every state.
+ *
+ * WHAT REPLACES IT, and it is a narrower caveat: the switch is rendered only
+ * while the nav column is EXPANDED (see `sidebarFooter`), so in the collapsed
+ * rail there is no `#theme-toggle` at all. An external script that addresses it
+ * has to cope with absence rather than with ambiguity — which is the better of
+ * the two failure modes, and is asserted in `HomeView.test.tsx`.
  */
 const THEME_TOGGLE_ID = 'theme-toggle';
 
@@ -136,8 +138,8 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
   const { language, setLanguage, t } = useTheme();
   // `logout` is read here rather than taken as a prop: AuthContext already
   // publishes it, and AuthenticatedApp only renamed it on the way down.
-  const { user, siteConfigs, logout: onLogout } = useAuth();
-  const { onViewHome, onViewSharedKbs, onViewProfile, onViewAdmin, onViewAgents } = useAppNav();
+  const { user, logout: onLogout } = useAuth();
+  const { onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools, onViewProfile, onViewAdmin } = useAppNav();
   // The catalog search, which lives in the chrome bar since KI-787. Read from
   // a context for the same reason everything else here is: this component
   // takes no props from the page.
@@ -154,6 +156,28 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
      (`HomeView`, `SharedKbsView`) get the same remembered column without
      either of them knowing the toggle exists. */
   const sidebar = useSidebarCollapse();
+
+  /* Which area the narrow-screen tab bar is showing (design-system 0.30.0).
+   *
+   * NOT PERSISTED, unlike the sidebar width. The column width is a lasting
+   * preference; which of two areas you last looked at on a phone is a position
+   * in a session, and restoring it days later would drop a returning user on
+   * the nav column instead of their content. Defaults to the page for the same
+   * reason.
+   *
+   * `activeMobileTab` is the SINGLE input that decides the area — the design
+   * system does no derivation of its own — so anything this app wants to imply
+   * from it stays here. Today that is one thing: selecting a nav row switches
+   * back to the content, because on a phone the nav column is a menu you leave
+   * once you have chosen, and staying on it after a choice reads as a dead tap.
+   * On a wide screen the tab bar is not rendered at all and this is inert. */
+  const [mobileTab, setMobileTab] = useState('page');
+  const showContent = () => setMobileTab('page');
+
+  const mobileTabs: MobilePaneTab[] = [
+    { id: 'nav', icon: <Menu aria-hidden="true" />, label: t('navigationTab'), pane: 'left' },
+    { id: 'page', icon: <LayoutGrid aria-hidden="true" />, label: t('contentTab'), pane: 'main' },
+  ];
 
   /* Hand the caret back to the search field after a jump (card KI-787).
    *
@@ -181,21 +205,24 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
 
   const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
-  /* The `logo` slot. An operator-uploaded logo still wins (card KI-719, the
-     pattern Login established); the fallback is the design system's own
-     wordmark rather than a lucide book icon, so it is readable text on the
-     brand tokens. NOTE: `AppShell` renders this node TWICE — once in the
-     sidebar header, once in the below-lg top bar — so the document holds two
-     copies, only one of them visible per breakpoint. */
-  const logo = siteConfigs.logo_path ? (
-    <img
-      src={`${API_BASE_URL}${siteConfigs.logo_path}`}
-      alt={t('websiteLogo')}
-      className="h-10 max-w-full object-contain"
-    />
-  ) : (
-    <Logo product="RAG" />
-  );
+  /* The `logo` slot: the design system's wordmark, built from the product name
+     („JLU [RAG]"), always.
+ 
+     THE `siteConfigs.logo_path` OVERRIDE IS GONE (developer ruling, 17.09.2026:
+     logo upload is deprecated, the logo is built from the app name). It used to
+     win here when an operator had uploaded an image (card KI-719, the pattern
+     Login established), with the wordmark only as a fallback. Removing the
+     branch means the shell renders real TEXT on the brand tokens in every
+     deployment — which is what a screen reader reads as „JLU RAG" without any
+     `alt`, and what themes correctly in both colour schemes.
+ 
+     SCOPE, so this is not mistaken for a finished deprecation: only the shell
+     is changed. `Login.tsx`, `SourcesPanel.tsx`, the admin upload UI in
+     `AdminSiteTab.tsx`/`AdminUI.tsx` and the backend's `logo_path` key
+     (`internal/siteconfig`) still exist and still work.
+     // TODO: removing the upload end to end — admin surface and the site-config
+     // key with it — is not decided here. */
+  const logo = <Logo product="RAG" />;
 
   /* The nav rows.
    *
@@ -211,21 +238,17 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    * here: the two KB rows are unconditional, „Meine Agenten" is role-gated,
    * and Admin left the nav for the user menu below.
    *
-   * „MEINE AGENTEN" IS ADMIN-ONLY SINCE KI-782, and that is a BEHAVIOUR
-   * change, not a tidy: every non-admin loses the screen, because this row is
-   * their only way to it. The two other call sites of the same jump
-   * (`ChatView`'s `KbAgentsSection` and `KbSettingsPanel`, both behind
-   * `canOpenKbAdvancedSettings`) already require a system role of api-user,
-   * admin or superadmin, so a plain `user` has nothing left. `AgentsView` and
-   * `onViewAgents` stay: the developer reversed the original "remove it"
-   * instruction precisely so the view is HIDDEN rather than orphaned.
+   * „MEINE AGENTEN" IS GONE FROM THE NAV (developer ruling, 18.09.2026). It was
+   * an admin-only row since KI-782, and it is now no row at all.
    *
-   * The gate is `isSystemAdmin`, the same predicate the Admin entry uses, so
-   * the app gains no second role convention. Note it is narrower than
-   * `canOpenKbAdvancedSettings`'s system-role triple: an `api-user` who is a
-   * KB admin loses this row while keeping the in-KB "Agent anlegen" links.
-   * // TODO: whether `api-user` should keep the row is not confirmed — it is
-   * recorded on KI-782 rather than decided here.
+   * THIS ORPHANS NOTHING, which is the reason it can simply go: `AgentsView`
+   * keeps two routes, both in-KB and both behind `canOpenKbAdvancedSettings` —
+   * `ChatView`'s `KbAgentsSection` and `KbSettingsPanel`'s „Agent anlegen".
+   * What changes is that an admin reaches the screen through a KB instead of
+   * from anywhere. A plain `user` had no route before this and has none now.
+   * `AppNavContext.onViewAgents` went with the row (this was its only reader);
+   * the identically-named `KbCoreContext.onViewAgents` is a different value and
+   * is what `ChatView` still uses.
    *
    * WHY EVERY ROW CARRIES `label` AND WRAPS ITS TEXT IN A `<span>` (KI-789).
    * Two separate requirements of design-system 0.27.0's collapsed form, and
@@ -241,27 +264,52 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    *   - the `<span>` is what makes it look collapsed. The collapsed variant
    *     hides element children (`[&>*:not(svg)]:hidden`) and CSS has no
    *     selector for a bare text node, so `{t('home')}` on its own would stay
-   *     visible in an 80px column. `AppShellCollapsed` in HomeView.stories.tsx
-   *     measures that in Chromium, because jsdom applies no stylesheet and the
-   *     unit suite cannot see it.
+   *     visible in the rail. The design system measures that in Chromium in its
+   *     own `WithCollapsibleColumns` story — the rail is its geometry — because
+   *     jsdom applies no stylesheet and the unit suite cannot see it.
    * The label and the visible text are the same `t()` call, so they cannot
    * drift. */
+  /* Every row hands the tab bar back to the content — see `showContent` above.
+     It is appended to the existing handler rather than wrapped around it, so
+     the navigation itself stays exactly what each row already did. */
   const nav = (
     <>
-      <NavItem type="button" label={t('home')} active={active === 'home'} onClick={onViewHome}>
+      <NavItem
+        type="button"
+        label={t('myTopics')}
+        active={active === 'my-topics'}
+        onClick={() => { onViewMyTopics(); showContent(); }}
+      >
         <Home size={20} aria-hidden="true" />
-        <span>{t('home')}</span>
+        <span>{t('myTopics')}</span>
       </NavItem>
-      <NavItem type="button" label={t('sharedKbs')} active={active === 'shared-kbs'} onClick={onViewSharedKbs}>
+      <NavItem
+        type="button"
+        label={t('sharedTopics')}
+        active={active === 'shared-topics'}
+        onClick={() => { onViewSharedTopics(); showContent(); }}
+      >
         <Users size={20} aria-hidden="true" />
-        <span>{t('sharedKbs')}</span>
+        <span>{t('sharedTopics')}</span>
       </NavItem>
-      {isSystemAdmin && (
-        <NavItem type="button" label={t('myAgents')} onClick={onViewAgents}>
-          <Bot size={20} aria-hidden="true" />
-          <span>{t('myAgents')}</span>
-        </NavItem>
-      )}
+      <NavItem
+        type="button"
+        label={t('discoverTopics')}
+        active={active === 'discover'}
+        onClick={() => { onViewDiscover(); showContent(); }}
+      >
+        <Compass size={20} aria-hidden="true" />
+        <span>{t('discoverTopics')}</span>
+      </NavItem>
+      <NavItem
+        type="button"
+        label={t('tools')}
+        active={active === 'tools'}
+        onClick={() => { onViewTools(); showContent(); }}
+      >
+        <Wrench size={20} aria-hidden="true" />
+        <span>{t('tools')}</span>
+      </NavItem>
     </>
   );
 
@@ -370,36 +418,6 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    * The four labels come from `translations.ts` — 0.26.0 is the first version
    * that lets a consumer pass them, and they were German in an English session
    * until now. */
-  /* THE TWO LAYOUT CLASSES BELOW EXIST FOR THE 80px COLUMN (card KI-789), and
-   * they are layout exceptions, not skin — the only thing `className` is for
-   * on a design-system component.
-   *
-   * MEASURED, not assumed: at design-system 0.28.0 `ThemeToggle` is 102px wide
-   * (a 1px border + `p-1` + three `p-1.5` buttons around 16px icons + two 4px
-   * gaps) and has no collapsed form of its own. The collapsed sidebar footer
-   * offers 64px of content box, and `justify-center` centred the 102px block
-   * over it — so before this the switch hung 11px past BOTH edges of the
-   * column, over the page content on one side and over the shell's border on
-   * the other. `AppShellCollapsed` in HomeView.stories.tsx is the measurement;
-   * it fails at −11 without these classes.
-   *
-   * WHY WRAP RATHER THAN HIDE. Hiding the switch while collapsed was the other
-   * option and it is what the design system does to the collapse toggle inside
-   * the mobile drawer. It was not taken: since 0.26.0 this control is the
-   * app's ONLY colour-scheme affordance (`headerActions` carries the search
-   * field, not a toggle), so hiding it would make minimising the sidebar lossy — the same
-   * argument the design system itself makes for keeping `SidebarUserMenu` in
-   * the collapsed column. `w-full min-w-0` gives the footer's width to the
-   * block instead of letting it size to its content, and `flex-wrap` lets the
-   * three options stack inside it.
-   *
-   * FOR VISUAL QA: the consequence is that the switch becomes a taller, three-
-   * row pill in the collapsed column. That it FITS is asserted; whether it
-   * READS well at 80px is a judgement call this card cannot make for the
-   * developer, and the alternative is one line away.
-   * // TODO: whether the design system should grow a collapsed form for
-   * `ThemeToggle` is not decided here — it is written on KI-789 for the
-   * design-system board to pick up. */
   /* THE CHROME BAR'S ONE CONTROL: the KB catalog search (card KI-787).
    *
    * IT IS A MOVE, NOT A NEW FEATURE. This is the field that used to sit inside
@@ -409,45 +427,53 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    * in the panel, where the fetch is — a second debounce here would only make
    * the first one's timing unobservable.
    *
-   * THE LAYOUT CLASSES ARE ON THE WRAPPER `<div>`, NOT ON `<Input>`, AND THAT
-   * IS THE ONE WAY TO GET THIS VISUALLY WRONG. `Input` forwards `className` to
-   * the inner `<input>`; with a `leadingIcon` that input is wrapped in a
-   * full-width `<span class="relative block w-full">`, and inside it the input
-   * is an inline-block box whose `margin: auto` computes to `0px`. Measured on
-   * the design-system side (KI-798): the field landed 207.5px left of the bar's
-   * centre. The classes must sit on the node that IS the flex item of
-   * `headerActions`' region, which is this wrapper. `AppShellGeometry` in
-   * `HomeView.stories.tsx` re-measures the centring in Chromium, because jsdom
-   * performs no layout and the unit suite cannot see a pixel of it.
+   * IT IS IN THE `search` SLOT, NOT `headerActions` (design-system 0.30.0), AND
+   * THE WIDTH CAP AND CENTRING ARE NO LONGER OURS. The old recipe here was
+   * `w-full max-w-md mx-auto` on this wrapper, which centres the field in the
+   * space the page label LEAVES — so it only looked centred when there was no
+   * label, and a field that shifts sideways when the page name changes was the
+   * bug that recipe could not avoid. 0.30.0 made the bar three regions and
+   * centres this one on the BAR; passing the cap again would fight it.
+   *
+   * `w-full` stays, and it is still on the wrapper rather than on `<Input>`:
+   * `Input` forwards `className` to the inner `<input>`, and with a
+   * `leadingIcon` that input sits inside a `relative block w-full` span as an
+   * inline-block box — a cap put there would not be the flex item the bar
+   * measures. `AppShellGeometry` in `HomeView.stories.tsx` re-measures the
+   * centring in Chromium, because jsdom performs no layout and the unit suite
+   * cannot see a pixel of it.
    *
    * NOTHING HERE IS A HEADING. The bar is chrome; the page's `<h1>` belongs to
    * the content template (design-system KI-736). The accessible name is the
    * same `t('catalogSearchPlaceholder')` the placeholder uses — reused rather
    * than a second key, so the two cannot drift and translators see one string.
    *
-   * ON „GETEILTE KNOWLEDGE BASES" THE FIELD STILL WORKS, and typing jumps to
-   * the overview with the query already applied (`onViewHome` comes off
-   * `AppNavContext`, which publishes it for the sidebar row). The alternative
-   * was hiding the field on that view; a control that vanishes between views
-   * reads as a bug, and a control that is present but inert lies. The jump is
-   * made HERE rather than in the context because `active` is the only place in
-   * the app that knows which view is on screen.
-   * The jump rebuilds this whole component, so the caret is handed over
-   * explicitly through `focusPending` — see the effect above.
+   * IT SEARCHES THE CATALOG, SO TYPING JUMPS TO „ENTDECKEN" — on every view
+   * except that one, with the query already applied. It used to jump to the
+   * overview and expand the „KBs entdecken" section there; the catalog is its
+   * own view since 18.09.2026, so the destination moved with it and the
+   * section-expanding half is gone entirely.
+   *
+   * The alternative was hiding the field off its own view; a control that
+   * vanishes between views reads as a bug, and a control that is present but
+   * inert lies. The jump is made HERE rather than in the context because
+   * `active` is the only place in the app that knows which view is on screen.
+   * It rebuilds this whole component, so the caret is handed over explicitly
+   * through `focusPending` — see the effect above.
    *
    * // TODO: this navigate-on-type behaviour is the PM's assumption on KI-787,
    * // not a developer ruling — not yet confirmed. Reversing it means deciding
    * // between hiding the field here and leaving it inert, and takes the
    * // `focusPending` handoff with it. */
   const headerSearch = (
-    <div className="w-full max-w-md mx-auto" data-testid="app-chrome-search">
+    <div className="w-full" data-testid="app-chrome-search">
       <Input
         ref={searchRef}
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
-          if (active !== 'home') {
-            onViewHome();
+          if (active !== 'discover') {
+            onViewDiscover();
             requestFocus();
           }
         }}
@@ -458,16 +484,45 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
     </div>
   );
 
+  /* THE COLLAPSED RAIL SHOWS THE AVATAR AND NOTHING ELSE — developer ruling,
+   * 17.09.2026, and it reverses what the block above argues for.
+   *
+   * Design-system 0.30.0 replaced the 80px icon column with a 60px rail, and
+   * gave `SidePanel` a `footer` that survives into it (DS PR #30) — so the
+   * user menu, the only route to sign-out, stays reachable while collapsed and
+   * `SidebarUserMenu` renders there as its avatar alone.
+   *
+   * `ThemeToggle` does NOT come along. It is 102px wide with no collapsed form
+   * of its own: it overflowed even the old 80px column by 11px per side, and
+   * would overflow a 60px rail by 21px. The old answer was to let it wrap into
+   * a taller three-row pill; at 60px that is three stacked icon buttons, and
+   * the developer asked for the avatar alone instead. So the switch is
+   * rendered only while the column is expanded.
+   *
+   * THE COST IS REAL AND IS THE DEVELOPER'S CALL: minimising the sidebar now
+   * hides the app's only colour-scheme affordance until it is expanded again
+   * (`headerActions` carries the search, not a toggle). It is one line to
+   * reverse, and the `#theme-toggle` consequence is written on the constant
+   * above.
+   * // TODO: whether the design system should grow a collapsed form for
+   * `ThemeToggle` is not decided here — it belongs on the design-system board. */
   const sidebarFooter = (
     <div className="flex w-full min-w-0 flex-col items-center gap-2">
-      <ThemeToggle
-        id={THEME_TOGGLE_ID}
-        className="max-w-full flex-wrap justify-center self-center"
-        themeLabel={t('colorScheme')}
-        lightLabel={t('themeLight')}
-        systemLabel={t('themeSystem')}
-        darkLabel={t('themeDark')}
-      />
+      {/* No `className` on the toggle. It carried `max-w-full flex-wrap
+          justify-center self-center`, which existed for one reason: the 102px
+          control did not fit the old 80px collapsed column, so it was made to
+          wrap into a three-row pill there. It is not rendered while collapsed
+          at all now, and the expanded column is 256px — the wrapper's
+          `items-center` is all the centring it needs. */}
+      {!sidebar.collapsed && (
+        <ThemeToggle
+          id={THEME_TOGGLE_ID}
+          themeLabel={t('colorScheme')}
+          lightLabel={t('themeLight')}
+          systemLabel={t('themeSystem')}
+          darkLabel={t('themeDark')}
+        />
+      )}
       {userMenu}
     </div>
   );
@@ -481,29 +536,47 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
           cannot be put on the landmark itself. */}
       <a href={`#${contentId}`} className="skip-link">{t('skipToContent')}</a>
 
-      {/* `headerActions` is the search field (card KI-787) and `pageLabel` is
-          gone. KI-788 left this slot free and said so; this is the card that
-          fills it. The `ThemeToggle` stays in the sidebar footer above — the
-          slot holds one control, and the developer chose the search.
+      {/* Migrated to design-system 0.30.0. Four props are gone and one state
+          inverted; each line below is the reason, because none of them is a
+          rename.
 
-          THE BAR'S HEIGHT IS UNCHANGED at `h-16`/64px with no label and a
-          filled slot — the design system states it for all four combinations
-          and `AppShellGeometry` in `HomeView.stories.tsx` re-measures it in
-          Chromium against the installed 0.29.0. That number is what
-          `Toast.css`'s `top: 76px` (64 + 12) is derived from, so a bundle that
-          changed it would slide every toast onto the chrome. */}
+          `menuLabel` / `drawerLabel` went with the drawer they named. Below
+          `lg` the shell shows one area at a time behind a `BottomTabBar`, so
+          there is nothing to open and nothing to label — `mobileTabs` +
+          `mobileTabBarLabel` replace them, and they are REQUIRED: without tabs
+          the nav column has no route at all on a narrow screen.
+
+          `collapsed` → `leftOpen`, AND THE MEANING INVERTS. The inversion is
+          done HERE, at the call site, and deliberately not inside
+          `useSidebarCollapse`: that hook's `localStorage` key is
+          `…chrome.sidebar.collapsed` and it already holds a value for every
+          user who has ever minimised the column. Flipping the hook would
+          reinterpret every stored `true` as its opposite — a silent,
+          per-user, one-way data change. Two `!` here cost nothing and touch no
+          stored state.
+
+          The search moved from `headerActions` to `search` — see the block
+          above the field for why the centring could not stay ours.
+
+          THE BAR'S HEIGHT IS UNCHANGED at `h-16`/64px in every combination of
+          the three regions; `AppShellGeometry` in `HomeView.stories.tsx`
+          re-measures it in Chromium. That number is what `Toast.css`'s
+          `top: 76px` (64 + 12) is derived from, so a bundle that changed it
+          would slide every toast onto the chrome. */}
       <AppShellLayout
         logo={logo}
         nav={nav}
         sidebarFooter={sidebarFooter}
         navLabel={t('mainNavigation')}
-        menuLabel={t('openNavigation')}
-        drawerLabel={t('navigation')}
-        headerActions={headerSearch}
-        collapsed={sidebar.collapsed}
-        onCollapsedChange={sidebar.onCollapsedChange}
+        search={headerSearch}
+        leftOpen={!sidebar.collapsed}
+        onLeftOpenChange={(isOpen) => sidebar.onCollapsedChange(!isOpen)}
         collapseLabel={t('collapseNavigation')}
         expandLabel={t('expandNavigation')}
+        mobileTabs={mobileTabs}
+        activeMobileTab={mobileTab}
+        onMobileTabChange={setMobileTab}
+        mobileTabBarLabel={t('switchArea')}
       >
         {children}
 

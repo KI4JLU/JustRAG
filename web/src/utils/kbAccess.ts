@@ -94,12 +94,43 @@ export function canRenameKb(
  * second endpoint keeps the overview at one request: a KB I own is mine,
  * anything else reached me because somebody shared it.
  *
- * It lives here, and not inline in a view, because there are now TWO call sites
- * — the overview's „Mit mir geteilt" section and the „Geteilte Knowledge Bases"
- * view (KI-783) — and the predicate is invertible in a way that reads the same
- * either way round. One definition means the two lists cannot disagree about
- * what „shared" is; two inline copies could, silently and in opposite
- * directions.
+ * It lives here, and not inline in a view, because there are TWO call sites —
+ * `MyTopicsView` and `SharedTopicsView` — and the predicate is invertible in a
+ * way that reads the same either way round. One definition means the two lists
+ * cannot disagree about what „shared" is; two inline copies could, silently and
+ * in opposite directions.
+ *
+ * ===========================================================================
+ * THE VISIBILITY MODEL THE THREE VIEWS IMPLEMENT (developer ruling, 18.09.2026)
+ * ===========================================================================
+ *
+ * „Mein Wissen"      topics that belong to me — INCLUDING the ones I own and
+ *                    have shared with somebody. Sharing grants another person a
+ *                    `kb_members` row; it does not touch mine, so `myRole` stays
+ *                    `owner` and the topic stays here. A shared-out topic does
+ *                    NOT move and does NOT appear twice.
+ *
+ * „Geteiltes Wissen" topics OTHERS shared with me. Strictly the complement:
+ *                    every row whose `myRole` is not `owner`. My own shared
+ *                    topics are absent by construction, which is the half a
+ *                    naive „show everything with more than one member" would
+ *                    get wrong.
+ *
+ * „Entdecken"        global topics. Promotion TRANSFERS OWNERSHIP TO THE SYSTEM:
+ *                    `kbvisibility.Publish` sets `visibility='public'`, demotes
+ *                    the owner's `kb_members` row from `owner` to `admin` — the
+ *                    maintainer — and NULLs `knowledge_bases.user_id`, all in
+ *                    one transaction (`internal/kbvisibility/store_pg.go`).
+ *
+ * WHY A PROMOTED TOPIC LEAVES BOTH LISTS ABOVE, AND WHY THIS FUNCTION IS NOT
+ * WHAT REMOVES IT. `GET /api/kb` filters `WHERE kb.visibility = 'private'`
+ * (`internal/kb/store_pg.go`), so a published topic is not in `kbs` at all and
+ * never reaches this split. That matters for the ex-owner in particular: they
+ * still hold a membership row, now `admin`, so WITHOUT the server-side filter
+ * they would land in `sharedKbs` and the topic would show up under „Geteiltes
+ * Wissen" — a topic the system owns, listed as something a person shared. The
+ * filter is the guard; this function must never grow a visibility branch that
+ * duplicates it, or the two could disagree.
  *
  * Order within each list is the server's, unchanged.
  */

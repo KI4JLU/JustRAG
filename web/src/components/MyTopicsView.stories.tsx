@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, screen, waitFor, within } from 'storybook/test';
-import { HomeView } from './HomeView';
+import { MyTopicsView } from './MyTopicsView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
@@ -9,7 +9,6 @@ import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSharing } from '../hooks/useSharing';
-import { apiMockHistory } from '../../.storybook/mockApi';
 import type { KnowledgeBase, User } from '../types';
 
 /* ---------------------------------------------------------------------------
@@ -24,10 +23,10 @@ import type { KnowledgeBase, User } from '../types';
  * repaired here.
  *
  * WHAT IS THE SEAM, AND WHAT IS THE CHARACTERIZATION.
- * `HomeView` takes 38 props today; KI-770 replaces most of them with context.
+ * `MyTopicsView` takes 38 props today; KI-770 replaces most of them with context.
  * A story bound to those 38 names would therefore have to be rewritten by the
  * very refactor it is supposed to guard, and "the stories still pass" would
- * mean nothing. So the wiring lives in `HomeViewHarness` below — one component
+ * mean nothing. So the wiring lives in `MyTopicsViewHarness` below — one component
  * whose body is expected to change with the refactor — and the characterization
  * lives in the play functions, which are expected NOT to. When KI-770 or KI-696
  * lands, the harness may be rewritten; an edit to a play function is a
@@ -38,7 +37,7 @@ import type { KnowledgeBase, User } from '../types';
  * The one place that distinction nearly broke down is `onOpenShare`: the
  * production handler (`useSharing.handleOpenShare`, src/hooks/useSharing.ts:26)
  * opens with `e.stopPropagation()`, and it has to, because the share button
- * sits inside a card whose own onClick selects the KB. `HomeView` does not stop
+ * sits inside a card whose own onClick selects the KB. `MyTopicsView` does not stop
  * that propagation itself — it delegates it to whoever supplies the handler.
  *
  * UPDATE (KI-770, the refactor this file was written to guard). The handler is
@@ -81,21 +80,21 @@ import type { KnowledgeBase, User } from '../types';
  * `ShareDialogLoadingFallback` are untouched byte-for-byte.
  *
  * MOCKING IS AT THE NETWORK BOUNDARY, per the pattern KI-728 established
- * (.storybook/mockApi.ts). `HomeView` itself issues no request — its two KB
+ * (.storybook/mockApi.ts). `MyTopicsView` itself issues no request — its two KB
  * lists arrive as props — but two of its children do, and both are answered
  * there rather than replaced: the discovery panel (`/api/kb-categories`,
  * `/api/kb/catalog`) and the lazily loaded members dialog
  * (`/api/kb/{id}/members`, `/api/kb/{id}/invite-links`).
  *
- * THE TWO CONTEXTS ARE THE REAL ONES. `HomeView` reads `useTheme` and
+ * THE TWO CONTEXTS ARE THE REAL ONES. `MyTopicsView` reads `useTheme` and
  * `useAuth`. `ThemeProvider` comes from .storybook/preview.tsx and runs the
  * app's own `useThemeAndLanguage` hook, storage seeding and all. `AuthProvider`
  * is mounted by the harness because it takes its user and its site config as
  * PROPS — there is no request behind it to intercept, so passing fixtures to
  * the real provider is the network boundary for it. Neither hook is stubbed.
- * That differs from the sibling unit suite: `HomeView.test.tsx` replaces both
+ * That differs from the sibling unit suite: `MyTopicsView.test.tsx` replaces both
  * `../contexts/ThemeContext` and `../contexts/AuthContext` with `vi.mock`
- * factories (HomeView.test.tsx:77 and :99). That is reported on card KI-774,
+ * factories (MyTopicsView.test.tsx:77 and :99). That is reported on card KI-774,
  * not extended here, and nothing in this file mocks the toast context.
  *
  * WHAT A STORY IN THIS FILE STRUCTURALLY CANNOT CATCH. Storybook renders a
@@ -131,9 +130,9 @@ import type { KnowledgeBase, User } from '../types';
  * ======================================================================== */
 
 const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
-const SYSTEM_ADMIN: User = { id: 'user-1', username: 'grace', role: 'admin' };
 
-/** No `logo_path`, so the header falls to its icon; `imprint` makes the footer render. */
+/** `imprint` makes the footer render. (The shell's logo is the design system's
+ *  name-built wordmark in every case — `logo_path` no longer overrides it.) */
 const SITE_CONFIGS: Record<string, string> = {
   imprint: 'Impressum · Justus-Liebig-Universitaet Giessen',
 };
@@ -160,47 +159,10 @@ const OWNED_ONE = privateKb({ id: 'kb-own-1', name: 'Mikrobiologie Notizen', fil
 const OWNED_TWO = privateKb({ id: 'kb-own-2', name: 'Pruefungsprotokolle' });
 const OWNED_THREE = privateKb({ id: 'kb-own-3', name: 'Seminar Datenethik' });
 
-/**
- * A KB somebody else owns. `myRole` is what the overview splits on, and the
- * differing `userId` is what makes the owner line render on the card.
- */
-const SHARED_ONE = privateKb({
-  id: 'kb-shared-1',
-  name: 'Fakultaetsprotokolle',
-  myRole: 'edit',
-  userId: 'user-9',
-  ownerFirstName: 'Ada',
-  ownerLastName: 'Lovelace',
-  memberCount: 3,
-});
 
-function publicKb(over: Partial<KnowledgeBase> & { id: string; name: string }): KnowledgeBase {
-  return {
-    ...privateKb(over),
-    visibility: 'public',
-    isPublished: true,
-    myRole: undefined,
-    userId: null,
-    ...over,
-  };
-}
 
-const PUBLIC_ONE = publicKb({ id: 'kb-pub-1', name: 'Campus Handbuch', headerText: 'Alles zum Studienstart' });
-const PUBLIC_TWO = publicKb({ id: 'kb-pub-2', name: 'IT-Sicherheitsmeldungen' });
 
-/** Structural mirror of one `GET /api/kb/catalog` row. */
-interface StoryCatalogEntry {
-  id: string;
-  name: string;
-  description: string | null;
-  subscribed: boolean;
-  categoryIds: string[];
-}
 
-const CATALOG: StoryCatalogEntry[] = [
-  { id: 'kb-cat-1', name: 'Bibliothek Bestandskatalog', description: 'Alle Praesenzbestaende', subscribed: false, categoryIds: [] },
-  { id: 'kb-cat-2', name: 'Mensa Speiseplaene', description: null, subscribed: true, categoryIds: [] },
-];
 
 /* ===========================================================================
  * The harness
@@ -209,7 +171,7 @@ const CATALOG: StoryCatalogEntry[] = [
 /** Handlers no assertion in this file reads. Kept as spies so the Actions panel still shows them. */
 const idle = () => fn();
 
-interface HomeViewStoryArgs {
+interface MyTopicsViewStoryArgs {
   kbs: KnowledgeBase[];
   globalKbs: KnowledgeBase[];
   user: User;
@@ -218,7 +180,6 @@ interface HomeViewStoryArgs {
   removingKb: boolean;
   onCopyUserId: () => void;
   onViewProfile: () => void;
-  onViewAgents: () => void;
   onViewAdmin: () => void;
   onViewSharedKbs: () => void;
   onLogout: () => void;
@@ -283,7 +244,7 @@ function StoryKbSearchProvider({ children }: { children: ReactNode }) {
   return <KbSearchProvider value={kbSearch}>{children}</KbSearchProvider>;
 }
 
-function HomeViewHarness(args: HomeViewStoryArgs) {
+function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
   const [showSettings, setShowSettings] = useState(false);
 
   return (
@@ -302,33 +263,27 @@ function HomeViewHarness(args: HomeViewStoryArgs) {
         >
           <AppNavProvider
             value={{
-              /* `onViewHome` is an `idle()` spy and not an arg: on THIS view
-                 the Overview row is the current page, so pressing it is a
-                 no-op by construction and no story has anything to assert
-                 about it. `onViewSharedKbs` IS an arg — it is the one jump
-                 KI-783 added that leads somewhere from here. */
-              onViewHome: idle(),
-              onViewSharedKbs: args.onViewSharedKbs,
+              /* `onViewMyTopics` is an `idle()` spy and not an arg: on THIS
+                 view its row is the current page, so pressing it is a no-op by
+                 construction and no story has anything to assert about it. The
+                 other three lead somewhere from here. */
+              onViewMyTopics: idle(),
+              onViewSharedTopics: args.onViewSharedKbs,
+              onViewDiscover: idle(),
+              onViewTools: idle(),
               onViewProfile: args.onViewProfile,
               onViewAdmin: args.onViewAdmin,
-              onViewAgents: args.onViewAgents,
             }}
           >
             <StoryKbSearchProvider>
-            <HomeView
+            <MyTopicsView
               kbs={args.kbs}
-              globalKbs={args.globalKbs}
               currentKb={null}
               availableConfigs={[]}
               onCreateKB={args.onCreateKB}
               onSelectKB={args.onSelectKB}
               onDeleteKB={idle()}
               removingKb={args.removingKb}
-              onCreateGlobalKB={idle()}
-              onSubscriptionChange={idle()}
-              onOpenKbById={args.onOpenKbById}
-              onDeleteGlobalKB={idle()}
-              onOpenGlobalKbSettings={idle()}
               onOpenKbSettings={idle()}
               onRenameKB={idle()}
               onUpdateKBSettings={idle()}
@@ -411,69 +366,9 @@ function themeControlNames(canvas: Canvas): string[] {
   return controls.map((el) => el.getAttribute('aria-label') ?? el.textContent ?? '');
 }
 
-/**
- * One accordion header, found by the title it shows.
- *
- * The accessible name is title + count + the sr-only expand/collapse hint, so
- * the match is anchored at the start rather than exact. Reaching for the
- * heading text is deliberate: it is what a user reads, and it survives the
- * markup changes KI-696 makes around it.
- */
-function sectionTrigger(canvas: Canvas, title: string): HTMLElement {
-  return canvas.getByRole('button', { name: new RegExp(`^${title}`) });
-}
 
-/**
- * The count badge rendered next to a section title, or null when the section
- * has no count.
- *
- * LOCATOR CHANGE ONLY (KI-776): the badge used to be
- * `.home-view__accordion-count`, a class this repo owned; it is now the design
- * system's `Badge`, whose class names are cva output and none of a consumer's
- * business. So it is read as the trailing number of the trigger's text — the
- * same element, found the way a user sees it. The four section titles contain
- * no digits, so a title can never be mistaken for a count.
- */
-function sectionCount(canvas: Canvas, title: string): string | null {
-  const match = (sectionTrigger(canvas, title).textContent ?? '').trim().match(/(\d+)$/);
-  return match === null ? null : match[1];
-}
 
-/**
- * The disclosure panel belonging to one section, found through the trigger's
- * own `aria-controls` rather than through an id this repo composes.
- *
- * The id moved from `home-section-panel-<id>` to `` `${useId()}-<id>-panel` ``
- * when `SectionedGridLayout` took over, and a `useId()` value is deliberately
- * not predictable from the outside. Following the ARIA reference is also the
- * stronger locator: if it ever dangled, this helper would fail rather than
- * silently look somewhere else.
- */
-function sectionPanel(canvas: Canvas, canvasElement: HTMLElement, title: string): HTMLElement {
-  const id = sectionTrigger(canvas, title).getAttribute('aria-controls');
-  const panel = id === null ? null : canvasElement.querySelector(`#${CSS.escape(id)}`);
-  if (panel === null) throw new Error(`no panel for section "${title}"`);
-  return panel as HTMLElement;
-}
 
-/**
- * Asserts a section's collapsed/expanded state through the panel, not the class.
- *
- * WHAT "COLLAPSED" MEANS NOW, and why the assertion had to change shape. The
- * old `KbAccordion` removed the panel element from the document. The template
- * keeps it — an `aria-controls` pointing at an id that exists only while open
- * would be a dangling reference — and carries `hidden`, while UNMOUNTING its
- * children. The load-bearing half is the unmount (it is what makes expanding
- * „KBs entdecken" re-read the catalog), so both halves are stated here.
- */
-async function expectSectionState(panel: HTMLElement, open: boolean) {
-  await expect(panel.hasAttribute('hidden')).toBe(!open);
-  if (open) {
-    await expect(panel.childElementCount).toBeGreaterThan(0);
-  } else {
-    await expect(panel.childElementCount).toBe(0);
-  }
-}
 
 /**
  * Where the six controls of the deleted `home-view__actions` row live now.
@@ -503,14 +398,6 @@ const USER_MENU_NAMES = [
   'Abmelden',
 ];
 
-/** The same menu as seen by a system admin: Admin sits after the profile. */
-const ADMIN_MENU_NAMES = [
-  'Benutzername kopieren',
-  'Mein Profil',
-  'Admin-Einstellungen',
-  'Switch to English',
-  'Abmelden',
-];
 
 /**
  * Opens the sidebar's user menu and scopes queries to it.
@@ -556,7 +443,7 @@ async function openUserMenu(
  */
 async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   await expect(canvas.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-  await expect(canvas.getByRole('heading', { level: 1 })).toHaveTextContent('Meine Knowledge Bases');
+  await expect(canvas.getByRole('heading', { level: 1 })).toHaveTextContent('Mein Wissen');
 
   await expect(canvas.getAllByRole('main')).toHaveLength(1);
 
@@ -587,7 +474,7 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
    * page header above it. That is the design system's heading rule verbatim —
    * „the page heading belongs to the content template hung inside the shell".
    */
-  await expect(canvas.getByRole('region', { name: 'Meine Knowledge Bases' }))
+  await expect(canvas.getByRole('region', { name: 'Mein Wissen' }))
     .toContainElement(canvas.getByRole('heading', { level: 1 }));
 
   /* ORACLE: the WAI-ARIA landmark mapping. The authenticated chrome renders NO
@@ -607,9 +494,9 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   // The skip link is the only in-page jump the overview offers; an id rename on
   // one side alone breaks it silently, so the target is resolved, not assumed.
   const skip = canvas.getByRole('link', { name: 'Zum Inhalt springen' });
-  await expect(skip).toHaveAttribute('href', '#home-main-content');
-  await expect(canvasElement.querySelector('#home-main-content'))
-    .toBe(canvas.getByRole('region', { name: 'Meine Knowledge Bases' }));
+  await expect(skip).toHaveAttribute('href', '#my-topics-content');
+  await expect(canvasElement.querySelector('#my-topics-content'))
+    .toBe(canvas.getByRole('region', { name: 'Mein Wissen' }));
 }
 
 /* ===========================================================================
@@ -617,8 +504,8 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
  * ======================================================================== */
 
 const meta = {
-  title: 'Views/HomeView',
-  component: HomeViewHarness,
+  title: 'Views/MyTopicsView',
+  component: MyTopicsViewHarness,
   // The overview is a full page, and two assertions read computed layout off
   // it; the default padded canvas would add an envelope the app never has.
   parameters: { layout: 'fullscreen' },
@@ -630,7 +517,7 @@ const meta = {
    * otherwise decide the starting state of every story after it — and in the
    * browser runner that storage is shared across the whole origin, not per
    * file. The unit suite hit this exact leak once already
-   * (HomeView.test.tsx:20).
+   * (MyTopicsView.test.tsx:20).
    *
    * `language` is the second: `useThemeAndLanguage` initialises it from the
    * same storage and falls back to German, and every string asserted below is
@@ -656,7 +543,6 @@ const meta = {
     removingKb: false,
     onCopyUserId: fn(),
     onViewProfile: fn(),
-    onViewAgents: fn(),
     onViewAdmin: fn(),
     onViewSharedKbs: fn(),
     onLogout: fn(),
@@ -664,7 +550,7 @@ const meta = {
     onSelectKB: fn(),
     onOpenKbById: fn(),
   },
-} satisfies Meta<typeof HomeViewHarness>;
+} satisfies Meta<typeof MyTopicsViewHarness>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -682,43 +568,21 @@ export const Empty: Story = {
   play: async ({ args, canvas, canvasElement, userEvent }) => {
     await expectPageFrame(canvas, canvasElement);
 
-    /* ORACLE: the German source strings in src/translations.ts, read back out
-     * of the rendered document, plus the WAI-ARIA disclosure contract. Four
-     * sections, two of them open — and the open ones are the two `HomeView`
-     * seeds `useSectionOpen` with `true`. The state is asserted twice over:
-     * once on the trigger (`aria-expanded`) and once on the panel it controls
-     * (`hidden` + whether its children are mounted), because the second half is
-     * the one the discovery section's re-fetch depends on. */
-    for (const [title, open] of [
-      ['Favoriten', true],
-      ['KBs entdecken', false],
-      ['Mit mir geteilt', false],
-      ['Meine Knowledge Bases', true],
-    ] as const) {
-      await expect(sectionTrigger(canvas, title))
-        .toHaveAttribute('aria-expanded', String(open));
-      await expectSectionState(sectionPanel(canvas, canvasElement, title), open);
-    }
-
-    // ORACLE: the fixture. Empty lists, so both counted sections read zero.
-    await expect(sectionCount(canvas, 'Favoriten')).toBe('0');
-    await expect(sectionCount(canvas, 'Mit mir geteilt')).toBe('0');
-    await expect(sectionCount(canvas, 'Meine Knowledge Bases')).toBe('0');
-    // The discovery section is the one without a count: it never receives one.
-    await expect(sectionCount(canvas, 'KBs entdecken')).toBeNull();
-
-    /* ORACLE: src/translations.ts again. Favourites shows its empty-state line;
-     * "Meine KBs" has none and shows the create tile instead. The shared
-     * section's empty line is ABSENT even though the section is empty, because
-     * the section is collapsed and a collapsed section renders nothing at all —
-     * the same unmount property the discovery story pins in requests. */
-    await expect(canvas.getByText(/^Noch keine Favoriten/)).toBeInTheDocument();
+    /* ONE FLAT GRID, NO SECTIONS (18.09.2026). This block used to assert four
+       section triggers, their `aria-expanded`, their panels' `hidden` state and
+       three count badges — the whole disclosure contract. None of it exists any
+       more: the page is a `PageHeader` plus a `Grid`, and „remove all tabs" is
+       exactly the removal of the thing those assertions described.
+ 
+       What survives as a claim is the one the empty page can still make: the
+       create tile is on it, and nothing else is. A user with no topics must not
+       land on a bare page — the tile IS the empty state here, which is why
+       `TopicGridPage` renders no `emptyState` when a create cell is present. */
+    await expect(canvas.queryByRole('button', { name: /Favoriten|entdecken|Mit mir geteilt/ })).toBeNull();
+    await expect(canvas.getByRole('button', { name: 'Neues Thema' })).toBeInTheDocument();
     await expect(
-      canvas.queryByText('Dir wurde noch keine Knowledge Base freigegeben.'),
+      canvas.queryByRole('button', { name: /^Knowledge Base öffnen:/ }),
     ).toBeNull();
-    await expect(
-      canvas.getByRole('button', { name: 'Neue Knowledge Base erstellen' }),
-    ).toBeInTheDocument();
 
     /* ORACLE: WAI-ARIA accessible names. The surviving controls of the deleted
      * `home-view__actions` row, each reachable by name in its NEW home — which
@@ -729,7 +593,7 @@ export const Empty: Story = {
      * longer on this screen for an ordinary user. The row is gated on
      * `isSystemAdmin` and this story's fixture is `USER`, so the assertion
      * inverts — and the click that used to prove the row reaches
-     * `onViewAgents` moves to `FavoritesAsSystemAdmin`, where the row exists.
+     * (The agents row was removed from the nav on 18.09.2026.)
      * Asserting the ABSENCE here rather than deleting the line is the point:
      * it is the half that distinguishes „gated" from „always visible", and it
      * is the user-visible loss this card was asked to state plainly.
@@ -759,7 +623,7 @@ export const Empty: Story = {
 
     /* ORACLE: the spies in `args`. The click path — real pointer events through
      * the real menu item — is what proves the name resolves to something that
-     * acts. Copy comes first because `HomeView` calls `preventDefault()` on its
+     * acts. Copy comes first because `MyTopicsView` calls `preventDefault()` on its
      * `onSelect` and the menu therefore stays open; „Mein Profil" closes it, so
      * nothing may be asserted through `menu` after it. */
     await userEvent.click(menu.getByRole('menuitem', { name: 'Benutzername kopieren' }));
@@ -799,7 +663,7 @@ export const Empty: Story = {
     await expect(mainStyle.flexDirection).toBe('column');
 
     const container = canvas
-      .getByRole('region', { name: 'Meine Knowledge Bases' })
+      .getByRole('region', { name: 'Mein Wissen' })
       .firstElementChild;
     await expect(container).not.toBeNull();
     await expect(getComputedStyle(container as HTMLElement).maxWidth).toBe('1440px');
@@ -813,7 +677,7 @@ export const Empty: Story = {
 /**
  * Three KBs, all owned. This is the state that pins the client-side split:
  * `GET /api/kb` is one request and the overview sorts its rows into "Meine
- * KBs" and "Mit mir geteilt" on `myRole === 'owner'` alone (HomeView.tsx:441).
+ * KBs" and "Mit mir geteilt" on `myRole === 'owner'` alone (MyTopicsView.tsx:441).
  *
  * The two count badges are the assertion, and they are deliberately read
  * WITHOUT expanding the shared section: a closed accordion still shows its
@@ -825,10 +689,10 @@ export const OwnedOnly: Story = {
   play: async ({ canvas, canvasElement }) => {
     await expectPageFrame(canvas, canvasElement);
 
-    // ORACLE: the fixture — three rows, every one of them `myRole: 'owner'`.
-    await expect(sectionCount(canvas, 'Meine Knowledge Bases')).toBe('3');
-    await expect(sectionCount(canvas, 'Mit mir geteilt')).toBe('0');
-    await expect(sectionCount(canvas, 'Favoriten')).toBe('0');
+    /* The three count badges that were asserted here are gone with the
+       sections that carried them. The count is now the grid's own length, read
+       off the cards below — a weaker claim than a badge only in that it cannot
+       catch a miscounted badge, and there is no badge left to miscount. */
 
     // ORACLE: the fixture names, through the accessible name of each card's
     // own open control. The create tile is a fourth item in the same list.
@@ -879,7 +743,12 @@ export const OwnedOnly: Story = {
      *
      * The gap is unchanged at 24px: `Grid`'s default `gap-gutter` resolves to
      * the same 1.5rem the hand-written grid used. */
-    const grid = sectionPanel(canvas, canvasElement, 'Meine Knowledge Bases').firstElementChild;
+    /* Reached through the page region rather than a section panel: there is no
+       disclosure between the region and the grid any more, so the grid is the
+       last element of the region's own container. */
+    const grid = canvas
+      .getByRole('region', { name: 'Mein Wissen' })
+      .querySelector(':scope > div > div:last-child');
     await expect(grid).not.toBeNull();
     const gridStyle = getComputedStyle(grid as HTMLElement);
     await expect(gridStyle.display).toBe('grid');
@@ -892,207 +761,12 @@ export const OwnedOnly: Story = {
  * State 3 — favourites populated
  * ======================================================================== */
 
-/**
- * Two public KBs in Favoriten, seen by an ordinary user. The section is open by
- * default, so this is what most people meet first.
- */
-export const FavoritesPopulated: Story = {
-  tags: ['a11y-dark'],
-  args: { globalKbs: [PUBLIC_ONE, PUBLIC_TWO], kbs: [OWNED_ONE] },
-  play: async ({ canvas, canvasElement }) => {
-    await expectPageFrame(canvas, canvasElement);
 
-    // ORACLE: the fixture.
-    await expect(sectionCount(canvas, 'Favoriten')).toBe('2');
-
-    /* ORACLE: WAI-ARIA accessible names built from the fixture names, and an
-     * ASYMMETRY between the two card kinds that is worth stating precisely.
-     *
-     * A public card puts `role="button"` on the list item itself and gives it
-     * the full "Knowledge Base öffnen: X" name, while the name button nested
-     * inside it carries no label at all and is announced as the bare KB name.
-     * A private card is the other way round: the item is
-     * `role="presentation"` and the nested button carries the full name. So
-     * the same KB answers to two DIFFERENT names here and to one there, and
-     * two controls on a public card do exactly the same thing.
-     *
-     * Pinned as it stands; the duplication is written up on card KI-774. */
-    for (const name of ['Campus Handbuch', 'IT-Sicherheitsmeldungen']) {
-      await expect(
-        canvas.getAllByRole('button', { name: `Knowledge Base öffnen: ${name}` }),
-      ).toHaveLength(1);
-      await expect(canvas.getAllByRole('button', { name })).toHaveLength(1);
-    }
-
-    // ORACLE: src/translations.ts. The filled star on a favourite is a pure
-    // favourites toggle; one per card, and nothing else on the card offers it.
-    await expect(
-      canvas.getAllByRole('button', { name: 'Aus Favoriten entfernen' }),
-    ).toHaveLength(2);
-
-    // ORACLE: the fixture's `visibility: 'public'`, through `visibilityState`.
-    await expect(canvas.getAllByText('Öffentlich')).toHaveLength(2);
-    await expect(canvas.getByText('Alles zum Studienstart')).toBeInTheDocument();
-
-    /* ORACLE: the fixture user's role. The publish badge and the two
-     * settings/delete controls on a public card are system-admin only, and an
-     * ordinary user must see none of them — including on a KB nobody owns. */
-    await expect(canvas.queryByText('Veröffentlicht')).toBeNull();
-    await expect(canvas.queryByRole('button', { name: 'Einstellungen bearbeiten' })).toBeNull();
-    await expect(canvas.queryByRole('button', { name: 'Globale Knowledge Base löschen' })).toBeNull();
-    await expect(canvas.queryByRole('button', { name: 'Globale KB erstellen' })).toBeNull();
-
-    const favoriteCards = sectionPanel(canvas, canvasElement, 'Favoriten')
-      .querySelectorAll('.home-view__kb-card');
-    await expect(favoriteCards).toHaveLength(2);
-    for (const card of favoriteCards) {
-      await expect(card).toHaveAttribute('role', 'button');
-    }
-
-    // Still exactly one colour-scheme control once the page carries content —
-    // the same assertion as in `Empty`, re-checked with content present. One
-    // control, three options; not this repo's button beside it.
-    await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
-  },
-};
-
-/**
- * The same two favourites seen by a system admin — the branch that adds the
- * publish badge, the per-card settings and delete pair, the create tile, and
- * the floating admin action. Four separate `isSystemAdmin` reads in one view,
- * and KI-770 moves the role that drives them out of props into context.
- */
-export const FavoritesAsSystemAdmin: Story = {
-  args: { globalKbs: [PUBLIC_ONE, PUBLIC_TWO], kbs: [OWNED_ONE], user: SYSTEM_ADMIN },
-  play: async ({ args, canvas, canvasElement, userEvent }) => {
-    await expectPageFrame(canvas, canvasElement);
-
-    // ORACLE: src/translations.ts + the fixture's `isPublished: true`.
-    await expect(canvas.getAllByText('Veröffentlicht')).toHaveLength(2);
-    await expect(canvas.getAllByRole('button', { name: 'Einstellungen bearbeiten' })).toHaveLength(2);
-    await expect(canvas.getAllByRole('button', { name: 'Globale Knowledge Base löschen' })).toHaveLength(2);
-    await expect(canvas.getByRole('button', { name: 'Globale KB erstellen' })).toBeInTheDocument();
-
-    /* THE ADMIN SIDE OF KI-782's TWO GATES, the story that makes them
-     * falsifiable — `Empty` above asserts the same two controls are absent for
-     * an ordinary user, and neither half means anything without the other.
-     *
-     * ORACLE-LEVEL CHANGE, twice over, and the accessible names are unchanged
-     * in both cases — which is exactly why they have to be written down:
-     *  - „Meine Agenten" is now an admin-only sidebar row. It is asserted by a
-     *    CLICK, because `Empty` gave up the only place this file exercised
-     *    `onViewAgents` when the row left the non-admin screen;
-     *  - „Admin-Einstellungen" is no longer a nav row at all. It moved into
-     *    the `SidebarUserMenu`, so the SAME name now resolves to a `menuitem`
-     *    inside a closed Radix dropdown instead of a `button` on the page. The
-     *    `queryByRole('button', …)` line is what proves the old row is gone
-     *    rather than duplicated — two controls with one name would make every
-     *    query for it ambiguous, and the admin console has no other entry
-     *    point since the floating admin button was deleted.
-     *
-     * The nav row is clicked BEFORE the menu is opened: the Radix menu is
-     * modal, so an outside click while it is open is swallowed by its dismiss
-     * layer and would never reach the row. */
-    await expect(canvas.getAllByRole('button', { name: 'Meine Agenten' })).toHaveLength(1);
-    await userEvent.click(canvas.getByRole('button', { name: 'Meine Agenten' }));
-    await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
-
-    await expect(screen.queryByRole('button', { name: 'Admin-Einstellungen' })).toBeNull();
-    await expect(canvasElement.querySelector('.home-view__admin-fab')).toBeNull();
-
-    const menu = await openUserMenu(canvas, userEvent);
-    // ORACLE: src/translations.ts, as an ORDERED list. The admin entry sits
-    // between the profile and the language toggle — destinations first, then
-    // the preference, then the session action — and the length is what catches
-    // it being added twice or landing in the wrong menu.
-    const items = menu.getAllByRole('menuitem');
-    await expect(items).toHaveLength(ADMIN_MENU_NAMES.length);
-    for (const [index, name] of ADMIN_MENU_NAMES.entries()) {
-      await expect(items[index]).toHaveAccessibleName(name);
-    }
-
-    // ORACLE: the `args` spy. The name has to resolve to something that acts:
-    // this item is the only route into the admin console.
-    await userEvent.click(menu.getByRole('menuitem', { name: 'Admin-Einstellungen' }));
-    await expect(args.onViewAdmin).toHaveBeenCalledTimes(1);
-
-    // The count is the LIST length and is not raised by the create tile.
-    await expect(sectionCount(canvas, 'Favoriten')).toBe('2');
-
-    // Still exactly one colour-scheme control: the admin branch adds a nav row,
-    // not a second toggle.
-    await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
-  },
-};
 
 /* ===========================================================================
  * State 4 — a KB somebody shared with me
  * ======================================================================== */
 
-/**
- * One owned KB and one that arrived through a membership. The shared section is
- * closed on first visit, so this story also records what "closed" means here:
- * the panel is not in the document, and expanding it is a mount.
- */
-export const SharedWithMe: Story = {
-  args: { kbs: [OWNED_ONE, SHARED_ONE] },
-  play: async ({ canvas, canvasElement, userEvent }) => {
-    await expectPageFrame(canvas, canvasElement);
-
-    // ORACLE: the fixture — one row with `myRole: 'owner'`, one with 'edit'.
-    await expect(sectionCount(canvas, 'Meine Knowledge Bases')).toBe('1');
-    await expect(sectionCount(canvas, 'Mit mir geteilt')).toBe('1');
-
-    /* The shared card is not merely hidden while the section is collapsed —
-     * unchanged as a PROPERTY, changed in how it is read. The panel element
-     * itself now stays in the document (so `aria-controls` never dangles) and
-     * only its children are unmounted, so „collapsed" is asserted as `hidden`
-     * plus an empty panel, and confirmed a second way through the card's own
-     * accessible name being absent from the whole canvas. */
-    await expectSectionState(sectionPanel(canvas, canvasElement, 'Mit mir geteilt'), false);
-    await expect(canvas.queryByRole('button', { name: /Fakultaetsprotokolle/ })).toBeNull();
-
-    await userEvent.click(sectionTrigger(canvas, 'Mit mir geteilt'));
-    await expectSectionState(sectionPanel(canvas, canvasElement, 'Mit mir geteilt'), true);
-
-    // ORACLE: the fixture name, once the section is open.
-    await expect(
-      await canvas.findByRole('button', { name: 'Knowledge Base öffnen: Fakultaetsprotokolle' }),
-    ).toBeInTheDocument();
-
-    /* ORACLE: src/translations.ts (`sharedBy` = "von {name}") composed with the
-     * fixture's owner names. The line renders only because the KB's `userId`
-     * differs from the signed-in user's — the same comparison the card makes. */
-    await expect(canvas.getByText('von Ada Lovelace')).toBeInTheDocument();
-
-    /* ORACLE: the fixture's `memberCount: 3` with a private visibility, which
-     * `visibilityBadge` renders with the count appended. */
-    await expect(canvas.getByText('Geteilt (3)')).toBeInTheDocument();
-
-    /* ORACLE: the role ladder in src/utils/kbAccess.ts as the CARD applies it.
-     * An 'edit' member may neither manage members, nor rename, nor open the
-     * advanced settings, and their remove action is "leave", not "delete" —
-     * while the owned KB beside it offers the opposite. Both halves are
-     * asserted, so a change that widened the gate in either direction fails. */
-    await expect(canvas.getAllByRole('button', { name: 'Teilen' })).toHaveLength(1);
-    await expect(canvas.getAllByRole('button', { name: 'Knowledge Base umbenennen' })).toHaveLength(1);
-    await expect(
-      canvas.getByRole('button', { name: 'Aus meiner Ansicht entfernen' }),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getAllByRole('button', { name: 'Knowledge Base löschen' }),
-    ).toHaveLength(1);
-
-    /* ORACLE: `canOpenKbAdvancedSettings` needs a SYSTEM role as well as a KB
-     * one, and this fixture user has the plain 'user' role — so the sliders
-     * control is offered on neither card, not even the one they own. Asserted
-     * because it is the half of that predicate a KB-role-only rewrite would
-     * drop without any other story noticing. */
-    await expect(
-      canvas.queryByRole('button', { name: 'RAG-Einstellungen und Workflow' }),
-    ).toBeNull();
-  },
-};
 
 /* ===========================================================================
  * Two prop-to-DOM mappings KI-770 has to carry across
@@ -1104,33 +778,21 @@ export const SharedWithMe: Story = {
  * ======================================================================== */
 
 /**
- * `siteConfigs.logo_path` set and `imprint` unset — the other half of both
- * conditionals in the page frame — together with `copySuccess`, the prop that
- * turns the copy control into its confirmed state.
+ * `copySuccess` — the prop that turns the copy control into its confirmed
+ * state — with `imprint` unset, the other half of that conditional.
+ *
+ * THE LOGO HALF IS GONE. This story used to set `siteConfigs.logo_path` and
+ * assert the uploaded `<img>` that overrode the wordmark in the shell header.
+ * Logo upload is deprecated (developer ruling, 17.09.2026): the shell builds
+ * its logo from the app name, so `AppChrome` renders the design system's
+ * `Logo` unconditionally and there is no image branch left to cover. The
+ * assertion was also carrying a stale fact of its own — it expected TWO copies,
+ * from the pre-0.30.0 shell that mounted the node in the sidebar and in the
+ * mobile top bar at once.
  */
-export const UploadedLogoAndCopyConfirmed: Story = {
-  args: {
-    siteConfigs: { logo_path: '/logo-test.svg' },
-    copySuccess: true,
-  },
+export const CopyConfirmed: Story = {
+  args: { copySuccess: true },
   play: async ({ canvas, userEvent }) => {
-    /* ORACLE: `window.location.origin`, read from the browser. The app builds
-     * this src as `API_BASE_URL + logo_path`, and .storybook/env.ts pins
-     * API_BASE_URL to the serving origin — so the expected value is composed
-     * from the browser's own property and the fixture, never from the app's
-     * constant. The file is real (web/public/logo-test.svg), served by the
-     * runner's publicDir, so this is a resolving image and not a broken one. */
-    /* TWO copies, not one, and that is the shell rather than a bug: `AppShell`
-     * renders the `logo` node both in the sidebar header and in the below-lg
-     * top bar, and hides one of them per breakpoint with CSS. `getAllBy*` does
-     * not filter on visibility, so both are in this result — asserting the
-     * count is how that stays a stated fact instead of a surprise. */
-    const logos = canvas.getAllByAltText('Website-Logo');
-    await expect(logos).toHaveLength(2);
-    for (const logo of logos) {
-      await expect(logo).toHaveAttribute('src', `${window.location.origin}/logo-test.svg`);
-    }
-
     /* ORACLE: the WAI-ARIA landmark mapping again. No contentinfo, and since
      * the chrome's footer was removed entirely this now holds for every story
      * rather than only the no-imprint case. */
@@ -1168,14 +830,16 @@ export const UploadedLogoAndCopyConfirmed: Story = {
  * The prop reaches four separate call sites today.
  */
 export const RemovalInFlight: Story = {
-  args: { kbs: [OWNED_ONE], globalKbs: [PUBLIC_ONE], removingKb: true },
+  args: { kbs: [OWNED_ONE], removingKb: true },
   play: async ({ canvas, userEvent }) => {
     /* ORACLE: the HTML `disabled` semantics, resolved by jest-dom's
      * `toBeDisabled` against the element's own state — not against a class.
-     * The two controls carry different labels because they do different
-     * things (a favourite is dropped, an owned KB is deleted), and both are
-     * driven by the one boolean. */
-    await expect(canvas.getByRole('button', { name: 'Aus Favoriten entfernen' })).toBeDisabled();
+     *
+     * ONE CONTROL, NOT TWO. „Aus Favoriten entfernen" was asserted here as
+     * well, from a `globalKbs` fixture — a global topic is not on this page any
+     * more, so that half moved to `SharedTopicsView` with the card that offers
+     * it. The boolean is the same one, and this is still the assertion that it
+     * reaches a removal control. */
     await expect(canvas.getByRole('button', { name: 'Knowledge Base löschen' })).toBeDisabled();
 
     // Controls that are NOT removals stay live, which is what makes the
@@ -1199,80 +863,13 @@ export const RemovalInFlight: Story = {
  * The discovery section — closed AND unmounted
  * ======================================================================== */
 
-/**
- * "KBs entdecken" is the one section whose collapsed state is load-bearing
- * rather than cosmetic: `KbCatalogPanel` fetches on mount, so unmounting it on
- * collapse is what makes every expand re-read the catalog — and that is why a
- * KB published after the page loaded appears without a reload.
- *
- * Markup can only show that the panel is absent. The request log is what shows
- * that NOTHING was fetched for it and that a second expand fetches again, so
- * this story reads `apiMockHistory()` as well as the DOM.
- */
-export const DiscoverSectionMountsOnExpand: Story = {
-  parameters: {
-    api: { kbCatalog: CATALOG, kbCategories: [] },
-  },
-  play: async ({ canvas, canvasElement, userEvent }) => {
-    const history = apiMockHistory();
-    await expect(history).not.toBeNull();
-
-    /* ORACLE: axios-mock-adapter's request log, which records every request
-     * before it looks for a handler. It is independent of the component in the
-     * strongest sense available here — it counts what left the app, not what
-     * the app decided to draw. */
-    const catalogRequests = () =>
-      (history ?? []).filter((config) => /\/api\/kb\/catalog/.test(config.url ?? '')).length;
-
-    const trigger = sectionTrigger(canvas, 'KBs entdecken');
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), false);
-    await expect(catalogRequests()).toBe(0);
-
-    /* The search field is NOT a sign of the panel since KI-787: it lives in
-       the chrome bar and is on screen whether the section is open or not.
-       Asserting it is absent here would now assert the opposite of the card.
-       What still distinguishes „mounted" from „not mounted" is the request
-       count above and the rows below. */
-    await expect(canvas.getAllByLabelText('Name oder Beschreibung suchen…')).toHaveLength(1);
-
-    await userEvent.click(trigger);
-    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), true);
-
-    /* And expanding it adds no SECOND field: the panel kept none of its own
-       when KI-787 moved the one field into the chrome. */
-    await expect(canvas.getAllByLabelText('Name oder Beschreibung suchen…')).toHaveLength(1);
-
-    // ORACLE: the mocked catalog rows. The fetch is debounced, hence `findBy`.
-    await expect(await canvas.findByText('Bibliothek Bestandskatalog')).toBeInTheDocument();
-    await waitFor(async () => {
-      await expect(catalogRequests()).toBe(1);
-    });
-
-    /* Collapsing unmounts the panel's body again — the property this whole
-     * story exists for, and the one `SectionedGridLayout` documents as
-     * deliberate. The panel ELEMENT survives (hidden), which is why it is
-     * asserted as empty rather than as absent. */
-    await userEvent.click(trigger);
-    await expectSectionState(sectionPanel(canvas, canvasElement, 'KBs entdecken'), false);
-    await expect(canvas.queryByText('Bibliothek Bestandskatalog')).toBeNull();
-
-    /* The property this whole story exists for: the SECOND expand issues a
-     * SECOND request. A section that was merely hidden would not. */
-    await userEvent.click(trigger);
-    await waitFor(async () => {
-      await expect(catalogRequests()).toBe(2);
-    });
-  },
-};
 
 /* ===========================================================================
  * State 5 — the loading state
  * ======================================================================== */
 
 /**
- * `LoadingFallback` (HomeView.tsx:65) — three `KBCardSkeleton`s in a list
+ * `LoadingFallback` (MyTopicsView.tsx:65) — three `KBCardSkeleton`s in a list
  * marked `aria-busy`. It has exactly one trigger: the `Suspense` boundary
  * around the lazily imported members dialog, shown while that chunk is in
  * flight. So the honest way to reach it is to open the dialog, which is what
@@ -1345,7 +942,7 @@ export const ShareDialogLoadingFallback: Story = {
  * Clicking "Teilen" must open the members dialog and NOT also open the KB.
  *
  * WHY THIS STORY EXISTS. The share button sits inside a `<li>` whose own
- * `onClick` calls `onSelectKB` (HomeView.tsx, `PrivateKbCard`). `HomeView`
+ * `onClick` calls `onSelectKB` (MyTopicsView.tsx, `PrivateKbCard`). `MyTopicsView`
  * never stops that propagation: the `e.stopPropagation()` that makes the two
  * actions distinguishable lives in `useSharing.handleOpenShare`
  * (src/hooks/useSharing.ts:27) — i.e. OUTSIDE the component, in the handler its
@@ -1441,8 +1038,9 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
  */
 export const ThemeToggleLivesInTheSidebarFooter: Story = {
   play: async ({ canvas, userEvent }) => {
-    // ORACLE: the DOM's id semantics. Unique means exactly one — and with the
-    // drawer closed (the default) the sidebar is mounted once.
+    // ORACLE: the DOM's id semantics. Unique means exactly one — and since
+    // design-system 0.30.0 the shell mounts every node once in every state,
+    // so there is no arrangement in which this could be two.
     const groups = document.querySelectorAll('#theme-toggle');
     await expect(groups).toHaveLength(1);
 
@@ -1492,15 +1090,16 @@ export const ThemeToggleLivesInTheSidebarFooter: Story = {
  * have caught it: jsdom performs no layout, so the unit suite cannot see a
  * pixel of this.
  *
- * WHY THE CENTRING IS MEASURED HERE AND NOWHERE ELSE. „Centred" is the one
- * thing KI-787 could get wrong while every unit test and every type check
- * stayed green. The trap is documented on both sides: `Input` forwards
- * `className` to the inner `<input>`, which an icon field wraps in a
- * full-width `<span>`; the input is inline-block in there and `margin: auto`
- * computes to `0px`, so `className="w-full max-w-md mx-auto"` ON THE INPUT
- * leaves the field 207.5px left of centre (measured on design-system KI-798).
- * `AppChrome` therefore puts those utilities on a wrapper `<div>` — and this
- * is the assertion that fails if somebody ever "simplifies" that away.
+ * WHY THE CENTRING IS STILL MEASURED HERE, now that the template does it.
+ * Design-system 0.30.0 added the bar's `search` region, which supplies the
+ * `max-w-md` cap and centres the field on the BAR — so the old local recipe
+ * (`w-full max-w-md mx-auto` on a wrapper, because `Input` forwards `className`
+ * to an inline-block inner input whose `margin: auto` computes to `0px`) is
+ * gone from this repo along with the trap it worked around. What is left for
+ * this story to catch is the half that is still this app's: passing the field
+ * to the wrong slot. `headerActions` renders at the bar's RIGHT end, takes no
+ * cap, and looks entirely correct in every unit test and type check — the
+ * offset below is the only thing that sees it.
  *
  * ORACLE: Chromium's own layout, read back through `getBoundingClientRect()`.
  * Independent of this repo by construction — the bar, the field and their box
@@ -1515,16 +1114,15 @@ export const ThemeToggleLivesInTheSidebarFooter: Story = {
  *
  * NOT asserted: where the bar sits in the viewport. The story runner's
  * dev-mode Tailwind emits `.lg:hidden` before `.flex`, so `AppShell`'s mobile
- * top bar stays visible here and pushes the bar down (HomeView.test.tsx:241
+ * top bar stays visible here and pushes the bar down (MyTopicsView.test.tsx:241
  * records the same quirk). The HEIGHT is unaffected, and it is the only half
  * `top: 76px` depends on.
  */
 export const AppShellGeometry: Story = {
   play: async ({ canvas }) => {
-    /* The bar is chrome with no role of its own. Since KI-787 it carries no
-     * page label either, so it is reached through the only thing left in it:
-     * the search field's wrapper — the node that IS the flex item, and the
-     * node the centring utilities have to be on. */
+    /* The bar is chrome with no role of its own, and carries no page label, so
+     * it is reached by walking up from the search field's wrapper — the node
+     * that IS the flex item of the bar's centre region. */
     const field = canvas.getByTestId('app-chrome-search');
 
     // wrapper -> headerActions region -> Container -> the bar itself.
@@ -1532,190 +1130,21 @@ export const AppShellGeometry: Story = {
     await expect(bar).toBeDefined();
 
     // ORACLE: Chromium's layout engine. 64px = `h-16`, the number Toast.css
-    // adds its 12px gap to. Re-measured against design-system 0.29.0, with no
-    // `pageLabel` and a filled `headerActions`.
+    // adds its 12px gap to. Re-measured against design-system 0.31.0, with no
+    // `pageLabel` and the field in the `search` region.
     const barRect = (bar as HTMLElement).getBoundingClientRect();
     await expect(barRect.height).toBe(64);
 
-    // ORACLE: the bar's own centre. The field is centred in the bar, not
-    // pushed to its right edge by `headerActions`' `justify-end`.
+    // ORACLE: the bar's own centre. This is what fails if the field is handed
+    // to `headerActions` instead of `search` — that region is `justify-end`.
     const fieldRect = field.getBoundingClientRect();
     const offset = (fieldRect.left + fieldRect.right) / 2 - (barRect.left + barRect.right) / 2;
     await expect(Math.abs(offset)).toBeLessThanOrEqual(1);
 
     // And it is a real box, not a zero-width one that would be "centred" by
-    // accident: `max-w-md` is 28rem/448px, and the utility has to have
-    // compiled for that to hold.
+    // accident. 448px = `max-w-md` (28rem), the cap the template applies.
     await expect(fieldRect.width).toBeGreaterThan(0);
     await expect(fieldRect.width).toBeLessThanOrEqual(448);
   },
 };
 
-/**
- * The chrome's search field drives the catalog, and „KBs entdecken" opens for
- * it (card KI-787).
- *
- * WHY A STORY AS WELL AS A UNIT TEST. `HomeView.test.tsx` asserts the same
- * behaviour against jsdom, where the collapsed section's body is simply absent
- * from the tree. In a browser the disclosure is animated and its panel element
- * stays in the DOM while its children do not, so "expanded" is a visual claim
- * there; this is where that claim is checked against a rendered page.
- *
- * ORACLES: `aria-expanded` on the disclosure trigger (WAI-ARIA, implemented by
- * the design system, not by this app) and the catalog rows that only exist
- * while the panel is mounted. Neither is a value the app reports about itself.
- */
-export const ChromeSearchOpensDiscovery: Story = {
-  play: async ({ canvas, userEvent }) => {
-    // The section's stored state is already cleared by the meta's `beforeEach`
-    // (CHROME_STORAGE_KEYS), so this starts from the closed default.
-    const trigger = canvas.getByRole('button', { name: /KBs entdecken/i });
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-
-    await userEvent.type(canvas.getByTestId('app-chrome-search').querySelector('input')!, 'Recht');
-
-    await waitFor(async () => {
-      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    });
-  },
-};
-
-/**
- * The sidebar minimises to an 80px icon column, and comes back (card KI-789).
- *
- * WHY A STORY AND NOT A UNIT TEST. Every claim below is about LAYOUT, and
- * jsdom applies no stylesheet: it would report the collapsed column, the
- * hidden row labels and the theme switch at zero and agree with anything. The
- * two failure modes this feature actually has are both invisible to it —
- *   - a `w-(--width-sidebar-collapsed)` utility that compiled to nothing, so
- *     the column keeps its full width while every assertion about classes and
- *     ARIA still passes;
- *   - a nav row whose text is a bare text node rather than an element, which
- *     `NavItem`'s `[&>*:not(svg)]:hidden` cannot hide — the row then renders
- *     its label into an 80px column and overflows, with the correct
- *     `aria-label` sitting on it the whole time.
- * The unit suite owns the behaviour (`HomeView.test.tsx`); this owns the pixels.
- *
- * WHAT IT PINS.
- *  1. The toggle is there, named from `translations.ts`, and its
- *     `aria-controls` resolves to the `<nav>` it actually expands. `Sidebar`
- *     mints that id with `useId` per mount, so nothing outside the design
- *     system can supply or verify it except by resolving it like this.
- *  2. Pressing it narrows the column from 256px to 80px, and pressing it again
- *     restores it. The numbers are the design system's published tokens
- *     (`--width-sidebar: 16rem`, `--width-sidebar-collapsed: 5rem`, tokens.css)
- *     at the 16px root font this app never overrides.
- *  3. EVERY nav row keeps its accessible name while its visible text goes. This
- *     is the a11y risk of the whole feature: `NavItem` only collapses a row it
- *     was given a `label` for, so a row missing one silently stays wide instead
- *     of failing — and a row that collapsed WITHOUT one would lose its name
- *     altogether. Both halves are asserted, on all three rows, which is why the
- *     admin fixture is used.
- *  4. The footer survives. `SidebarUserMenu` is the only route to sign-out, so
- *     it is opened and its items counted at 80px; and the colour-scheme switch
- *     stays inside the column's box rather than spilling over the page.
- *  5. The choice is written to `localStorage` — the storage half of "survives a
- *     reload". The remount half is `HomeView.test.tsx`'s.
- *
- * ORACLES, none of them this repo's code: Chromium's layout engine through
- * `getBoundingClientRect()`, WAI-ARIA's role and accessible-name mappings as
- * testing-library resolves them, the design system's published width tokens,
- * and `src/translations.ts` for every name.
- */
-export const AppShellCollapsed: Story = {
-  args: { user: SYSTEM_ADMIN },
-  play: async ({ canvas, userEvent }) => {
-    /* ORACLE: translations.ts. The toggle is named for what pressing it DOES,
-       so the expanded column offers „einklappen". Its presence is not a given:
-       `Sidebar` renders no toggle at all unless the consumer passes
-       `onCollapsedChange`, with no type error and no failing gate if it does
-       not — which is the whole failure mode this card exists to close. */
-    const collapseToggle = canvas.getByRole('button', { name: 'Navigation einklappen' });
-    await expect(collapseToggle).toHaveAttribute('aria-expanded', 'true');
-
-    // ORACLE: WAI-ARIA + translations.ts. `aria-controls` has to RESOLVE — the
-    // id is minted inside `Sidebar` by `useId`, so a dangling one would be
-    // invisible to any assertion that only read the attribute's value.
-    const nav = canvas.getByRole('navigation', { name: 'Hauptnavigation' });
-    await expect(collapseToggle.getAttribute('aria-controls')).toBe(nav.id);
-
-    const aside = collapseToggle.closest('aside') as HTMLElement;
-    await expect(aside).not.toBeNull();
-    // ORACLE: Chromium's layout + the DS token `--width-sidebar: 16rem`.
-    await expect(aside.getBoundingClientRect().width).toBe(256);
-
-    /* The three rows, and the two facts about each. Names first, while the
-       column is wide, so the collapsed assertions below are a comparison
-       against a state this story established rather than an assumption. */
-    const ROWS = ['Mein Wissen', 'Geteiltes Wissen', 'Meine Agenten'];
-    for (const name of ROWS) {
-      await expect(within(nav).getByRole('button', { name })).toBeVisible();
-    }
-
-    await userEvent.click(collapseToggle);
-
-    // ORACLE: Chromium's layout + the DS token `--width-sidebar-collapsed: 5rem`.
-    await expect(aside.getBoundingClientRect().width).toBe(80);
-
-    // ORACLE: translations.ts. The same control, now named for the other
-    // direction — it has to survive collapsing, since it is the way back.
-    const expandToggle = canvas.getByRole('button', { name: 'Navigation ausklappen' });
-    await expect(expandToggle).toBe(collapseToggle);
-    await expect(expandToggle).toHaveAttribute('aria-expanded', 'false');
-
-    for (const name of ROWS) {
-      /* (a) THE NAME SURVIVES. `getByRole` resolves the accessible name
-         through the a11y tree, so this passes only if `NavItem` put the
-         `label` on as `aria-label` — the visible text is gone by now. */
-      const row = within(nav).getByRole('button', { name });
-      /* (b) THE TEXT IS ACTUALLY OFF THE SCREEN, and therefore the row really
-         is the icon-only form. Two readings, because either alone is weak:
-         the row's own rendered width is what a bare text node would fail (it
-         stays painted and pushes the row past the 80px column), and
-         `not.toBeVisible()` is what a `display:none` that never applied would
-         fail. The `<span>` stays in the DOM — `NavItem` hides it with CSS
-         rather than unmounting it — so „gone" here means not rendered, not
-         absent. `<= 80` rather than an exact number because the row carries
-         the column's padding, which is the design system's to choose. */
-      await expect(row.getBoundingClientRect().width).toBeLessThanOrEqual(80);
-      await expect(within(row).getByText(name)).not.toBeVisible();
-    }
-
-    /* (4) The footer at 80px. The colour-scheme switch first: it is the widest
-       thing in that footer and the design system gives it no collapsed form,
-       so "does it still fit in the column" is a question only a browser can
-       answer. ORACLE: Chromium's layout, comparing two boxes it measured. */
-    const themeGroup = document.querySelector('#theme-toggle') as HTMLElement;
-    await expect(themeGroup).not.toBeNull();
-    const asideBox = aside.getBoundingClientRect();
-    const themeBox = themeGroup.getBoundingClientRect();
-    await expect(themeBox.left).toBeGreaterThanOrEqual(asideBox.left);
-    await expect(themeBox.right).toBeLessThanOrEqual(asideBox.right);
-
-    /* And sign-out is still reachable. `SidebarUserMenu` shrinks to the avatar
-       and keeps its name as `sr-only`, so the SAME `/^@grace/` locator every
-       other story uses has to keep working — that is the design system's
-       stated contract for the collapsed trigger, re-derived here rather than
-       trusted. ORACLE: translations.ts, as the ordered admin menu. */
-    const menu = await openUserMenu(canvas, userEvent);
-    const items = menu.getAllByRole('menuitem');
-    await expect(items).toHaveLength(ADMIN_MENU_NAMES.length);
-    for (const [index, name] of ADMIN_MENU_NAMES.entries()) {
-      await expect(items[index]).toHaveAccessibleName(name);
-    }
-    await expect(menu.getByRole('menuitem', { name: 'Abmelden' })).toBeInTheDocument();
-    await userEvent.keyboard('{Escape}');
-
-    // (5) ORACLE: the key literal above and `useStoredFlag`'s documented
-    // '1'/'0' encoding — the same one `useSectionOpen` has used since Stage 7b.
-    await expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('1');
-
-    // And back. A one-way toggle would satisfy every assertion above.
-    await userEvent.click(expandToggle);
-    await expect(aside.getBoundingClientRect().width).toBe(256);
-    await expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('0');
-    for (const name of ROWS) {
-      await expect(within(nav).getByRole('button', { name })).toBeVisible();
-    }
-  },
-};

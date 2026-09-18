@@ -105,7 +105,6 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [uploading, setUploading] = useState(false);
     const [connectionTest, setConnectionTest] = useState<{
         configId: string;
         status: 'testing' | 'healthy' | 'unhealthy';
@@ -202,26 +201,6 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
         } catch {
             setSiteConfigs(prev);
             toast.error(t('settingsSaveError'));
-        }
-    };
-
-    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files?.[0]) return;
-        setUploading(true);
-        const formData = new FormData();
-        formData.append('logo', e.target.files[0]);
-
-        try {
-            const res = await axios.post(`${API_BASE_URL}/api/site-config/logo`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            setSiteConfigs(prev => ({ ...prev, logo_path: res.data.logoPath }));
-            toast.success(t('logoUploaded'));
-        } catch (error: unknown) {
-            console.error('Logo upload failed:', error);
-            toast.error(t('logoUploadError'));
-        } finally {
-            setUploading(false);
         }
     };
 
@@ -604,8 +583,6 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                             siteConfigs={siteConfigs}
                             setSiteConfigs={setSiteConfigs}
                             onSubmit={handleSiteConfigSubmit}
-                            onLogoUpload={handleLogoUpload}
-                            uploading={uploading}
                         />
                     )}
 

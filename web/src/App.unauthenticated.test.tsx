@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { stubViewport } from './test/viewport';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
@@ -76,16 +77,7 @@ function stubDocumentFetch() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  stubViewport();
   vi.stubGlobal('localStorage', memoryStorage());
   window.history.replaceState(null, '', '/');
 

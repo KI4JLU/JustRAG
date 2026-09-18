@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { stubViewport } from './test/viewport';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
@@ -93,16 +94,7 @@ beforeEach(() => {
   Element.prototype.setPointerCapture = vi.fn();
   Element.prototype.releasePointerCapture = vi.fn();
   Element.prototype.scrollIntoView = vi.fn();
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  stubViewport();
   vi.stubGlobal('localStorage', memoryStorage());
   vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
   window.history.replaceState(null, '', '/');
@@ -142,7 +134,7 @@ afterEach(() => {
 function findOverviewHeading() {
   return screen.findByRole(
     'heading',
-    { level: 1, name: translations.myKBs.de },
+    { level: 1, name: translations.myTopics.de },
     { timeout: 15000 },
   );
 }
@@ -174,23 +166,20 @@ describe('App — the KB overview on the authenticated home route', () => {
      * still renders a control; what this pins is that the real app supplies all
      * four sources on this route.
      *
-     * WHERE THEY ARE SINCE KI-776, and why three of the four assertions had to
-     * change SHAPE while the oracle did not. The shell moved them out of a flat
-     * action row: „Meine Agenten" is a sidebar `NavItem`, i.e. still a button on
-     * the page, while copy / profile / logout are `DropdownMenuItem`s inside
+     * WHERE THEY ARE SINCE KI-776, and why the assertions had to change SHAPE
+     * while the oracle did not. The shell moved them out of a flat action row:
+     * copy / profile / logout are `DropdownMenuItem`s inside
      * `SidebarUserMenu` — a CLOSED Radix dropdown, so they are not in the
      * document at all until it is opened. Opening it is therefore part of what
      * this test pins now, and it makes the check strictly stronger: the trigger
-     * has to render, respond, and carry the four handlers behind it.
+     * has to render, respond, and carry the handlers behind it.
      *
-     * WHAT KI-782 CHANGED HERE, and it is an ORACLE change rather than a
-     * locator one: „Meine Agenten" is gated on `isSystemAdmin`, and this
-     * file's fixture is an ordinary `user`, so the row is now ABSENT on this
-     * route. The `AppNavContext` half of the wiring is therefore checked by
-     * the admin test below, where the row exists; the assertion here is the
-     * BEHAVIOUR change itself — a non-admin's overview no longer offers the
-     * agents screen. */
-    expect(screen.queryByRole('button', { name: translations.myAgents.de })).toBeNull();
+     * „MEINE AGENTEN" IS NO LONGER ONE OF THEM. KI-782 gated the row on
+     * `isSystemAdmin`, and this assertion pinned its absence for the ordinary
+     * `user` this file seeds. On 18.09.2026 the row was removed outright, so
+     * the absence is no longer a statement about a gate and the assertion says
+     * nothing about this route that the admin case would not also say. Deleted
+     * rather than kept as a tautology. */
 
     // The trigger's accessible name is the username SidebarUserMenu shows,
     // which is the one this file seeds into localStorage above.
@@ -219,18 +208,14 @@ describe('App — the KB overview on the authenticated home route', () => {
    * and the admin view must actually come up.
    *
    * ORACLES, both independent of the code under change: src/translations.ts
-   * for every accessible name (`myAgents`, `adminSettings`, `adminDashboard`)
-   * and WAI-ARIA's button / menuitem / heading role mappings.
+   * for every accessible name (`adminSettings`, `adminDashboard`) and
+   * WAI-ARIA's button / menuitem / heading role mappings.
+   *
+   * („shows the agents row to a system admin" sat here and is deleted: the row
+   * was removed from the nav on 18.09.2026. `AgentsView` keeps its two in-KB
+   * routes, both behind `canOpenKbAdvancedSettings`, and neither is on this
+   * route to assert.)
    * -------------------------------------------------------------------- */
-  it('shows the agents row to a system admin', async () => {
-    seedUser('admin');
-    render(<App />);
-
-    await findOverviewHeading();
-
-    expect(screen.getByRole('button', { name: translations.myAgents.de })).toBeInTheDocument();
-  });
-
   it('reaches the admin console from the user menu', async () => {
     seedUser('admin');
     render(<App />);
@@ -384,7 +369,7 @@ describe('App — the KB overview on the authenticated home route', () => {
 
     await screen.findByRole(
       'heading',
-      { level: 1, name: translations.myKBs.en },
+      { level: 1, name: translations.myTopics.en },
       { timeout: 15000 },
     );
 
@@ -478,7 +463,7 @@ describe('App — the KB overview on the authenticated home route', () => {
     render(<App />);
     await findOverviewHeading();
 
-    const asParagraph = screen.getAllByText(translations.myKBs.de).filter(el => el.tagName === 'P');
+    const asParagraph = screen.getAllByText(translations.myTopics.de).filter(el => el.tagName === 'P');
     expect(asParagraph).toEqual([]);
   });
 });

@@ -112,7 +112,7 @@ function KbCategoryChips({ kbId, categories, assigned, loadFailed, onChange, t }
 export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabProps) {
     const { t } = useTheme();
     const toast = useToast();
-    const { showPrompt, showConfirm } = useModalContext();
+    const { showConfirm } = useModalContext();
     const { user } = useAuth();
     const [globalKbs, setGlobalKbs] = useState<GlobalKbRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -171,17 +171,13 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
             .catch(() => setCategories([]));
     }, []);
 
-    const handleCreate = async () => {
-        const name = await showPrompt(t('globalKbNamePrompt'));
-        if (!name) return;
-        try {
-            const res = await axios.post(`${API_BASE_URL}/api/admin/global-kbs`, { name });
-            setGlobalKbs(prev => [res.data, ...prev]);
-        } catch (err: unknown) {
-            console.error(err);
-            toast.error(t('globalKbCreateError'));
-        }
-    };
+    /* `handleCreate` stood here and is deleted (developer ruling, 18.09.2026):
+       a topic is not CREATED global, it is created private and PROMOTED. It
+       POSTed /api/admin/global-kbs — the same direct-creation route the
+       „Globale KB erstellen" tile on „Geteiltes Wissen" used, and the last one
+       left in the app. Promotion is the admin KB overview's publish action
+       (`KBOverviewDashboard`, POST /api/admin/kb/{id}/publish, admin or
+       superadmin). The backend endpoint is untouched. */
 
     const handleDelete = async (id: string) => {
         if (!await showConfirm(t('confirmDeleteGlobalKb'))) return;
@@ -243,9 +239,6 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
         <section className="admin-content">
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', alignItems: 'center' }}>
                 <h2 style={{ color: 'var(--text-primary)', margin: 0 }}>{t('publicKnowledgeBases')}</h2>
-                <button onClick={handleCreate} style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <Plus size={18} /> {t('create')}
-                </button>
             </div>
             {loading ? (
                 <p style={{ color: 'var(--text-secondary)' }}>{t('loading')}</p>

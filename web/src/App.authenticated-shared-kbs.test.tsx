@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { stubViewport } from './test/viewport';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
@@ -76,16 +77,7 @@ beforeEach(() => {
   Element.prototype.setPointerCapture = vi.fn();
   Element.prototype.releasePointerCapture = vi.fn();
   Element.prototype.scrollIntoView = vi.fn();
-  vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
+  stubViewport();
   vi.stubGlobal('localStorage', memoryStorage());
   vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
   window.history.replaceState(null, '', '/');
@@ -118,7 +110,7 @@ afterEach(() => {
 function findOverviewHeading() {
   return screen.findByRole(
     'heading',
-    { level: 1, name: translations.myKBs.de },
+    { level: 1, name: translations.myTopics.de },
     { timeout: 15000 },
   );
 }
@@ -130,7 +122,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
 
     // ORACLE: translations.ts. The row the developer's nav spec names, on the
     // page the app boots to, NOT yet the current page.
-    const row = screen.getByRole('button', { name: translations.sharedKbs.de });
+    const row = screen.getByRole('button', { name: translations.sharedTopics.de });
     expect(row).not.toHaveAttribute('aria-current');
 
     await userEvent.click(row);
@@ -141,13 +133,13 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
      * is also the only assertion in the repo that proves the union member, the
      * render branch and the context wiring line up. */
     expect(
-      await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de }),
+      await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de }),
     ).toBeInTheDocument();
 
     // And the overview is gone — a branch that fell through to 'home' would
     // otherwise satisfy nothing above except by accident.
     expect(
-      screen.queryByRole('heading', { level: 1, name: translations.myKBs.de }),
+      screen.queryByRole('heading', { level: 1, name: translations.myTopics.de }),
     ).not.toBeInTheDocument();
 
     // ORACLE: ErrorBoundary's own fallback copy. Belt and braces — a context
@@ -159,24 +151,26 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     render(<App />);
     await findOverviewHeading();
 
-    await userEvent.click(screen.getByRole('button', { name: translations.sharedKbs.de }));
-    await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de });
+    await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
 
     /* ORACLE: WAI-ARIA's `aria-current` contract plus translations.ts. Exactly
      * one element on the page may claim to be the current one, and it has to be
      * the row just used. Asserted as the full set rather than a single positive
      * check, because "and drops off the others" is the half a careless `active`
-     * wiring gets wrong — and the `AppShell` renders its nav TWICE (sidebar +
-     * mobile drawer), so a second copy of the attribute is a live possibility
-     * rather than a hypothetical. */
+     * wiring gets wrong. It used to guard a second risk too — the shell mounted
+     * its nav twice (sidebar + mobile drawer) until design-system 0.30.0, so a
+     * duplicate `aria-current` was a live possibility. One mount per node now;
+     * the count assertion stays, because it is what would catch a regression
+     * back to two. */
     const current = document.querySelectorAll('[aria-current]');
     expect(current).toHaveLength(1);
-    expect(current[0]).toHaveTextContent(translations.sharedKbs.de);
+    expect(current[0]).toHaveTextContent(translations.sharedTopics.de);
 
     // ORACLE: translations.ts. The way back exists, is not current, and works —
     // without it this view would be a dead end in an app that has no router and
     // therefore no browser Back.
-    const overview = screen.getByRole('button', { name: translations.home.de });
+    const overview = screen.getByRole('button', { name: translations.myTopics.de });
     expect(overview).not.toHaveAttribute('aria-current');
     await userEvent.click(overview);
     expect(await findOverviewHeading()).toBeInTheDocument();
@@ -208,9 +202,11 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
    * (`useSectionOpen`), written out here rather than imported.
    *
    * NOT asserted here: that the column actually gets narrower, or that the row
-   * labels stop being painted. jsdom applies no stylesheet and would agree
-   * with anything; `AppShellCollapsed` in `HomeView.stories.tsx` measures both
-   * in Chromium.
+   * labels stop being painted. jsdom applies no stylesheet and would agree with
+   * anything. Those are the rail's geometry, i.e. the design system's — its own
+   * `WithCollapsibleColumns` story measures them in Chromium. (This used to
+   * point at `AppShellCollapsed` in `HomeView.stories.tsx`, which measured the
+   * 80px `Sidebar` column; it was deleted with the column it measured.)
    * ------------------------------------------------------------------- */
   it('remembers the minimised sidebar across the view switch and a remount', async () => {
     const first = render(<App />);
@@ -223,19 +219,41 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     const toggle = screen.getByRole('button', { name: translations.collapseNavigation.de });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
-    // ORACLE: WAI-ARIA. `aria-controls` must RESOLVE to the navigation
-    // landmark it expands; `Sidebar` mints that id per mount with `useId`, so
-    // nothing outside the design system can supply it.
+    /* ORACLE: WAI-ARIA. `aria-controls` must RESOLVE to the region the toggle
+       expands, and that region must be the one holding the navigation.
+       It is a CONTAINMENT check, not an id equality one: since design-system
+       0.30.0 the column is a `SidePanel`, whose toggle points at the pane BODY
+       (an id minted per mount with `useId`) rather than at the `<nav>` itself,
+       which the old `Sidebar` did. Nothing outside the design system can supply
+       that id either way, so the oracle is unchanged in strength. */
     const nav = screen.getByRole('navigation', { name: translations.mainNavigation.de });
-    expect(toggle.getAttribute('aria-controls')).toBe(nav.id);
+    const controlled = document.getElementById(toggle.getAttribute('aria-controls')!);
+    expect(controlled).not.toBeNull();
+    expect(controlled).toContainElement(nav);
+
+    /* RE-QUERIED after every collapse, never captured once. Design-system
+       0.31.0 MOVES the nav between two mount points — the column body while
+       expanded, the rail's `collapsedPreview` while collapsed — so React
+       unmounts one `<nav>` and mounts another, and `nav` above is detached the
+       moment the toggle is pressed. Queries against it would then read a stale
+       tree. The move is deliberate (a second mount would duplicate every `id`
+       and `aria-current` in a row) and this is its cost. */
+    const navNow = () =>
+      screen.getByRole('navigation', { name: translations.mainNavigation.de });
 
     await userEvent.click(toggle);
 
-    // Same control, other direction — it has to survive collapsing, because it
-    // is the only way back out.
-    expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
-      .toBe(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    /* A control in the other direction, and it has to be REACHABLE, because it
+       is the only way back out. Not the same ELEMENT any more: `Sidebar` kept
+       one toggle in its header row across the collapse, but since design-system
+       0.30.0 the column is a `SidePanel`, which renders the collapse control in
+       the body's header row and the expand control in the rail — two buttons,
+       one on screen at a time. Identity was never the claim; reachability is,
+       and `toBeVisible` is what states it (the collapsed body is `hidden`, so a
+       control left in it would still be IN the document). */
+    const expand = screen.getByRole('button', { name: translations.expandNavigation.de });
+    expect(expand).toBeVisible();
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
 
     /* ORACLE: the storage encoding above. This is the fact the remount below
        depends on; asserting only the remount would pass just as well against a
@@ -246,15 +264,15 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
        state — `NavItem` moves it from the visible text to `aria-label`, and
        only for rows that were given a `label`. A row missing one does not
        fail: it silently refuses to collapse. Both rows an ordinary user has
-       are checked; the admin-gated third is checked in HomeView.test.tsx and
-       in `AppShellCollapsed`. ORACLE: translations.ts. */
-    for (const name of [translations.home.de, translations.sharedKbs.de]) {
-      expect(within(nav).getByRole('button', { name })).toBeInTheDocument();
+       are checked; the admin-gated third is checked in HomeView.test.tsx.
+       ORACLE: translations.ts. */
+    for (const name of [translations.myTopics.de, translations.sharedTopics.de]) {
+      expect(within(navNow()).getByRole('button', { name })).toHaveAttribute('aria-label', name);
     }
 
     // The second view, mounting the SAME `AppChrome`.
-    await userEvent.click(within(nav).getByRole('button', { name: translations.sharedKbs.de }));
-    await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de });
+    await userEvent.click(within(navNow()).getByRole('button', { name: translations.sharedTopics.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
     expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
       .toHaveAttribute('aria-expanded', 'false');
 
@@ -276,41 +294,45 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     render(<App />);
     await findOverviewHeading();
 
-    await userEvent.click(screen.getByRole('button', { name: translations.sharedKbs.de }));
-    await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de });
+    await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
 
     /* ORACLE: translations.ts. `GET /api/kb` answers `[]` here, so the split
-     * yields no shared rows and the view has to say so. It shares this string
-     * with the overview's section deliberately (one sentence for one absence),
-     * which is why the heading above is asserted first — the string alone
-     * would not distinguish the two screens. */
-    expect(screen.getByText(translations.homeSharedWithMeEmpty.de)).toBeInTheDocument();
+     * yields no shared rows — and what an empty page shows is the
+     * „Thema hinzufügen" tile, which is both its content in this state and the
+     * only move available from it. A placeholder sentence sat above the tile
+     * for one round and was removed as a restatement of it.
+     *
+     * The heading is asserted above, which is what keeps this a statement about
+     * THIS view rather than about any page with an add button. */
+    expect(screen.getByRole('button', { name: translations.addTopic.de })).toBeInTheDocument();
   });
 
   /* -------------------------------------------------------------------------
    * The chrome's catalog search on a view that has no catalog (card KI-787).
    *
    * `KbSearchContext` is a third required context, and this branch mounts it
-   * separately from the home branch — so „the overview works" says nothing
-   * about this one. What the field DOES here is the card's one reversible
-   * assumption: typing navigates to the overview with the query applied,
-   * chosen over hiding the field (a control that vanishes between views reads
-   * as a bug) and over leaving it inert (a control that lies).
+   * separately — so „the overview works" says nothing about this one. What the
+   * field DOES here is navigate to „Entdecken" with the query applied, chosen
+   * over hiding the field (a control that vanishes between views reads as a
+   * bug) and over leaving it inert (a control that lies).
    *
-   * // TODO: the navigate-on-type behaviour is the PM's assumption on KI-787,
-   * // not a developer ruling — not yet confirmed.
+   * THE DESTINATION CHANGED ON 18.09.2026. It used to be the overview, whose
+   * „KBs entdecken" section held the catalog; the catalog is its own view now,
+   * so the field goes there. The mechanism it no longer needs is the section
+   * expansion — the panel mounts with the page.
    *
    * ORACLES: translations.ts for the accessible name, WAI-ARIA's h1 mapping
    * for which page is on screen, and the recorded request URL for „the query
    * survived the jump". The last one is the half that a heading assertion
    * alone would miss: navigating with the query DROPPED would look identical.
    * ---------------------------------------------------------------------- */
-  it('carries the chrome search here too, and typing lands on the overview with the query applied', async () => {
+  it('carries the chrome search here too, and typing lands on Entdecken with the query applied', async () => {
     render(<App />);
     await findOverviewHeading();
 
-    await userEvent.click(screen.getByRole('button', { name: translations.sharedKbs.de }));
-    await screen.findByRole('heading', { level: 1, name: translations.sharedKbs.de });
+    await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
 
     /* One keystroke is all it takes, and it is all this call can deliver: the
        jump swaps the whole view branch, so the element `type()` was handed is
@@ -319,9 +341,9 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
        the chrome hands the caret back (`focusPending`). */
     await userEvent.type(screen.getByLabelText(translations.catalogSearchPlaceholder.de), 'R');
 
-    // Back on the overview...
+    // ...and it lands on „Entdecken", not back on the overview.
     expect(
-      await screen.findByRole('heading', { level: 1, name: translations.myKBs.de }),
+      await screen.findByRole('heading', { level: 1, name: translations.discoverTopics.de }),
     ).toBeInTheDocument();
 
     /* ...and the user can keep typing without touching the mouse. ORACLE:
@@ -333,7 +355,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(screen.getByLabelText(translations.catalogSearchPlaceholder.de)).toHaveValue('Recht');
 
     // ...and the query drove the catalog: only the panel fires this, and it
-    // only exists while „KBs entdecken" is expanded, which the keystroke did.
+    // mounts with the page the keystroke navigated to.
     await waitFor(
       () => { expect(mockedGet).toHaveBeenCalledWith(expect.stringContaining('q=Recht')); },
       { timeout: 2000 },

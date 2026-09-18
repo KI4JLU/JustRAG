@@ -74,6 +74,29 @@ describe('KbCatalogPanel', () => {
         });
     });
 
+    /* The empty shelf, which had no test at all before 18.09.2026.
+     *
+     * ORACLE: the two translation KEYS, which is what this file's `t` renders
+     * — it echoes the key back (see `tMock`), so every assertion here selects
+     * by key or by role rather than by translated text. The German and English
+     * wording is pinned in translations.ts, not here.
+     *
+     * Both keys are asserted because they say different things: the title
+     * states what is (nothing here), the body what will change it (somebody
+     * publishing one). A rewrite that dropped the second would leave a bare
+     * negative on the one page whose content other people supply — which is
+     * how the old single key read, and why it was replaced.
+     */
+    it('says the shelf is empty and will fill, when the catalog returns nothing', async () => {
+        mockedAxios.get.mockImplementation((url: string) =>
+            Promise.resolve({ data: url.includes('/api/kb-categories') ? [{ id: 'c1', name: 'IT', sortOrder: 1 }] : [] }),
+        );
+        renderPanel();
+
+        expect(await screen.findByText('catalogEmptyTitle')).toBeInTheDocument();
+        expect(screen.getByText('catalogEmptyBody')).toBeInTheDocument();
+    });
+
     it('lists catalog entries', async () => {
         renderPanel();
         expect(await screen.findByText('IT-Handbuch')).toBeInTheDocument();

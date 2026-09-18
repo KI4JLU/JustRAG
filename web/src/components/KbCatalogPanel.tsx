@@ -160,7 +160,17 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
             {loading ? (
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'start' }}>{t('loading')}</p>
             ) : entries.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'start' }}>{t('catalogEmpty')}</p>
+                /* A heading and a line, not one sentence: the first states
+                   what is (nothing here), the second what will change it
+                   (somebody publishing one). The old flat string reported a
+                   failed lookup, which is the wrong reading of an empty shelf
+                   whose content other people supply. */
+                <div className="flex flex-col gap-stack-sm">
+                    <p className="m-0 font-headline-sm text-headline-sm-mobile text-on-surface">
+                        {t('catalogEmptyTitle')}
+                    </p>
+                    <p className="m-0 text-on-surface-variant">{t('catalogEmptyBody')}</p>
+                </div>
             ) : (
                 <>
                 <ul className="home-view__grid">

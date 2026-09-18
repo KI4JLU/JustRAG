@@ -111,7 +111,7 @@
   },
   "src/components/KbCard.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 10
+      "count": 6
     }
   },
   "src/components/KbCatalogPanel.tsx": {
@@ -296,7 +296,7 @@
   },
   "src/components/admin/AdminGlobalKbsTab.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 6
+      "count": 5
     }
   },
   "src/components/admin/AdminMCPSection.tsx": {
@@ -311,7 +311,7 @@
   },
   "src/components/admin/AdminSiteTab.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 6
+      "count": 5
     }
   },
   "src/components/admin/AdminUnpublishDialog.tsx": {

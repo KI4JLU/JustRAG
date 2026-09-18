@@ -1,6 +1,5 @@
 import {
-  BookOpen, Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, Star,
-  SlidersHorizontal,
+  BookOpen, Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal,
 } from 'lucide-react';
 import type { KnowledgeBase } from '../types';
 import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
@@ -139,12 +138,30 @@ function KbCardChips({ kb, t }: { kb: KnowledgeBase; t: T }) {
  * list, so every cell in this file is a `<div>` now. The visual card chrome is
  * unchanged: it is still `.source-card` + `.home-view__create-card`.
  */
-export function CreateCell({ onClick, label, text }: { onClick: () => void; label: string; text: string }) {
+/**
+ * The create tile. `onClick` is optional ONLY together with `disabled`: a tile
+ * with neither is a button that looks live and swallows the click, which is
+ * the failure mode `ToolsView`'s placeholder would otherwise have. `disabled`
+ * is the HTML attribute, so the control is announced as unavailable rather
+ * than merely styled as such.
+ */
+export function CreateCell({
+  onClick,
+  label,
+  text,
+  disabled = false,
+}: {
+  onClick?: () => void;
+  label: string;
+  text: string;
+  disabled?: boolean;
+}) {
   return (
     <div className="source-card home-view__create-card">
       <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
         aria-label={label}
         className="home-view__create-button"
       >
@@ -155,109 +172,13 @@ export function CreateCell({ onClick, label, text }: { onClick: () => void; labe
   );
 }
 
-export interface PublicKbCardProps {
-  kb: KnowledgeBase;
-  isSystemAdmin: boolean;
-  removingKb: boolean;
-  rtf: Intl.RelativeTimeFormat;
-  t: T;
-  onSelectKB: (kb: KnowledgeBase) => void;
-  onOpenGlobalKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onDeleteGlobalKB: (id: string, e: React.MouseEvent) => void;
-  onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-}
+/* `PublicKbCard` and `PublicKbCardProps` stood here and are deleted
+   (18.09.2026). It was the tile of the „Favoriten" section, then of „Global
+   sichtbar" on „Geteiltes Wissen"; both are gone, and global topics are drawn
+   by the catalog's own card in „Entdecken" now. Its two admin actions are not
+   lost — editing a global topic is `AdminGlobalKbsTab`, deleting one is the
+   admin KB overview. */
 
-// PublicKbCard is one tile in the Favoriten section. System admins get the
-// settings/delete pair on top of the shared card chrome.
-export function PublicKbCard({
-  kb, isSystemAdmin, removingKb, rtf, t,
-  onSelectKB, onOpenGlobalKbSettings, onDeleteGlobalKB, onDeleteKB,
-}: PublicKbCardProps) {
-  return (
-    <div
-      className="source-card home-view__kb-card"
-      role="button"
-      tabIndex={0}
-      aria-label={`${t('openKb')}: ${kb.name}`}
-      onClick={() => onSelectKB(kb)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelectKB(kb);
-        }
-      }}
-    >
-      <div className="home-view__card-top">
-        <Globe size={20} color="var(--accent-primary)" aria-hidden="true" />
-        <div className="home-view__badge-row">
-          {isSystemAdmin && (
-            <div className={`home-view__badge home-view__badge--publish ${kb.isPublished ? 'home-view__badge--published' : 'home-view__badge--unpublished'}`}>
-              {kb.isPublished ? t('published') : t('unpublished')}
-            </div>
-          )}
-
-          <VisibilityBadge kb={kb} t={t} />
-
-          {isSystemAdmin && (
-            <>
-              <button
-                onClick={(e) => onOpenGlobalKbSettings(kb, e)}
-                className="home-view__mini-icon"
-                title={t('editSettings')}
-                aria-label={t('editSettings')}
-              >
-                <Pencil size={16} aria-hidden="true" />
-              </button>
-              <button
-                onClick={(e) => onDeleteGlobalKB(kb.id, e)}
-                className="home-view__mini-icon"
-                title={t('delete')}
-                aria-label={t('deleteGlobalKb')}
-              >
-                <Trash2 size={16} aria-hidden="true" />
-              </button>
-            </>
-          )}
-
-          {/* A favorites toggle, and nothing more. It is offered to everyone,
-              system admins included — their overview query is the same one
-              everybody else gets (kb.Handler.ListGlobalKnowledgeBases passes
-              isAdmin=false), so the action sticks. removeKb (useKbRemoval)
-              routes every public KB through the unsubscribe branch regardless
-              of myRole: no membership is dropped, no chats are deleted, and
-              the KB stays listed under "KBs entdecken". Deleting the KB
-              outright is the separate Trash2 above, gated on isSystemAdmin. */}
-          <button
-            onClick={(e) => onDeleteKB(kb, e)}
-            className="home-view__mini-icon"
-            disabled={removingKb}
-            title={t('removeFromFavorites')}
-            aria-label={t('removeFromFavorites')}
-          >
-            <Star size={16} aria-hidden="true" fill="currentColor" />
-          </button>
-        </div>
-      </div>
-
-      <div className="source-title home-view__kb-name">
-        <button
-          type="button"
-          className="text-button home-view__kb-name-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectKB(kb);
-          }}
-        >
-          {kb.name}
-        </button>
-      </div>
-
-      {kb.headerText && <div className="home-view__kb-header-text">{kb.headerText}</div>}
-      <div className="source-meta home-view__kb-meta">{lastActiveLabel(kb, rtf, t)}</div>
-      <KbCardChips kb={kb} t={t} />
-    </div>
-  );
-}
 
 export interface PrivateKbCardProps {
   kb: KnowledgeBase;

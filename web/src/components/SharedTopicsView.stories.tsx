@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, screen, waitFor, within } from 'storybook/test';
-import { SharedKbsView } from './SharedKbsView';
+import { SharedTopicsView } from './SharedTopicsView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
@@ -56,8 +56,6 @@ import type { KnowledgeBase, User } from '../types';
  * ======================================================================== */
 
 const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
-/** The same person with a system role — KI-782 gates two chrome controls on it. */
-const SYSTEM_ADMIN: User = { id: 'user-1', username: 'grace', role: 'admin' };
 
 /** Kept configured on purpose: the chrome must render NO footer even when an
  * imprint is set (the developer removed it 2026-09-15). */
@@ -148,7 +146,7 @@ interface SharedKbsStoryArgs {
   onSelectKB: (kb: KnowledgeBase) => void;
   onViewHome: () => void;
   onViewSharedKbs: () => void;
-  onViewAgents: () => void;
+  onViewDiscover: () => void;
 }
 
 function StorySharingProvider({ username, children }: { username: string; children: React.ReactNode }) {
@@ -182,15 +180,16 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
         <StorySharingProvider username={args.user.username}>
           <AppNavProvider
             value={{
-              onViewHome: args.onViewHome,
-              onViewSharedKbs: args.onViewSharedKbs,
+              onViewMyTopics: args.onViewHome,
+              onViewSharedTopics: args.onViewSharedKbs,
+              onViewDiscover: args.onViewDiscover,
+              onViewTools: idle(),
               onViewProfile: idle(),
               onViewAdmin: idle(),
-              onViewAgents: args.onViewAgents,
             }}
           >
             <StoryKbSearchProvider>
-              <SharedKbsView
+              <SharedTopicsView
                 kbs={args.kbs}
                 onSelectKB={args.onSelectKB}
                 onDeleteKB={idle()}
@@ -228,17 +227,6 @@ const SECTION_STORAGE_KEY = 'justrag.home.section.sharedview';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'justrag.chrome.sidebar.collapsed';
 const CHROME_STORAGE_KEYS = [SECTION_STORAGE_KEY, SIDEBAR_COLLAPSED_STORAGE_KEY];
 
-/** The page's single disclosure, found by the title a user reads. */
-function sectionTrigger(canvas: Canvas): HTMLElement {
-  return canvas.getByRole('button', { name: /^Mit mir geteilt/ });
-}
-
-/** The count badge, read as the trailing number of the trigger's text. */
-function sectionCount(canvas: Canvas): string | null {
-  const match = (sectionTrigger(canvas).textContent ?? '').trim().match(/(\d+)$/);
-  return match === null ? null : match[1];
-}
-
 /**
  * The frame this view shares with the overview: one `<h1>`, one `<main>`, one
  * navigation landmark, one `contentinfo`, the `<h1>` inside the content region,
@@ -268,8 +256,8 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   // target is resolved rather than assumed — and it is this view's OWN id, not
   // the overview's.
   const skip = canvas.getByRole('link', { name: 'Zum Inhalt springen' });
-  await expect(skip).toHaveAttribute('href', '#shared-kbs-main-content');
-  await expect(canvasElement.querySelector('#shared-kbs-main-content')).toBe(region);
+  await expect(skip).toHaveAttribute('href', '#shared-topics-content');
+  await expect(canvasElement.querySelector('#shared-topics-content')).toBe(region);
 }
 
 /* ===========================================================================
@@ -277,7 +265,7 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
  * ======================================================================== */
 
 const meta = {
-  title: 'Views/SharedKbsView',
+  title: 'Views/SharedTopicsView',
   component: SharedKbsHarness,
   parameters: { layout: 'fullscreen' },
   /**
@@ -302,7 +290,7 @@ const meta = {
     onSelectKB: fn(),
     onViewHome: fn(),
     onViewSharedKbs: fn(),
-    onViewAgents: fn(),
+    onViewDiscover: fn(),
   },
 } satisfies Meta<typeof SharedKbsHarness>;
 
@@ -327,8 +315,10 @@ export const OwnedAndShared: Story = {
   play: async ({ canvas, canvasElement }) => {
     await expectPageFrame(canvas, canvasElement);
 
-    // ORACLE: the fixture. Four rows in, two of them with a non-owner myRole.
-    await expect(sectionCount(canvas)).toBe('2');
+    /* The count badge that stood here went with the section (18.09.2026). The
+       partition is asserted by the two loops below instead — which name the
+       rows rather than counting them, and would therefore also catch a count
+       that was right for the wrong reason. */
 
     // ORACLE: the fixture names, through each card's own open control.
     for (const name of SHARED_NAMES) {
@@ -374,16 +364,17 @@ export const NothingSharedWithMe: Story = {
   play: async ({ canvas, canvasElement }) => {
     await expectPageFrame(canvas, canvasElement);
 
-    // ORACLE: the fixture — two rows, both `myRole: 'owner'`.
-    await expect(sectionCount(canvas)).toBe('0');
+    /* ORACLE: src/translations.ts. The tile IS the empty state — a placeholder
+       above it was removed as a restatement of it — so an empty page is the
+       heading, the subtitle and this one control. „Thema hinzufügen" leaves for
+       the catalog; the „Wissen teilen" tile that briefly stood in this slot is
+       asserted absent, because sharing adds a topic to somebody else's list and
+       never to this one. */
+    await expect(canvas.getByRole('button', { name: 'Thema hinzufügen' })).toBeInTheDocument();
+    await expect(canvas.queryByText('Wissen gemeinsam nutzen')).toBeNull();
+    await expect(canvas.queryByRole('button', { name: 'Wissen teilen' })).toBeNull();
 
-    // ORACLE: src/translations.ts (`homeSharedWithMeEmpty`), the same sentence
-    // the overview's section uses for the same absence.
-    await expect(
-      canvas.getByText('Dir wurde noch keine Knowledge Base freigegeben.'),
-    ).toBeInTheDocument();
-
-    // No card at all — including neither of the two owned ones.
+    // No KB card at all — including neither of the two owned ones.
     await expect(canvasElement.querySelectorAll('.home-view__kb-card')).toHaveLength(0);
   },
 };
@@ -418,48 +409,23 @@ export const NavRowIsCurrent: Story = {
     await userEvent.click(overview);
     await expect(args.onViewHome).toHaveBeenCalledTimes(1);
 
-    /* ORACLE-LEVEL CHANGE (KI-782): „Meine Agenten" is gated on
-     * `isSystemAdmin` and this story's fixture is an ordinary `USER`, so the
-     * row is absent — where it used to be clicked here. The gate lives in
-     * `AppChrome`, which BOTH top-level views render, and that is the fact
-     * this pair of stories is worth keeping: the sibling story below renders
-     * the same view for an admin and finds the row. `screen` rather than
-     * `canvas` so a row that escaped into a portal would still be found. */
+    /* „Meine Agenten" was asserted absent here, as the non-admin side of
+     * KI-782's gate. The row was removed from the nav entirely on 18.09.2026,
+     * so its absence is no longer evidence of a gate and the paired
+     * `NavRowsAsSystemAdmin` story that clicked it is gone with it. `screen`
+     * rather than `canvas` so a row that escaped into a portal would still be
+     * found. */
     await expect(screen.queryByRole('button', { name: 'Meine Agenten' })).toBeNull();
-    await expect(args.onViewAgents).not.toHaveBeenCalled();
   },
 };
 
-/**
- * The same nav, seen by a system admin — the other side of KI-782's gate, on
- * the SECOND view.
- *
- * WHY IT IS HERE AND NOT ONLY IN `HomeView.stories.tsx`. The nav rows and the
- * user menu come from `AppChrome`, which both views render; a gate wired into
- * one page instead of the shared chrome would leave the two views with
- * different navigation, which is the drift the extraction exists to prevent.
- * That failure is invisible from the overview's stories alone.
- *
- * ORACLES: src/translations.ts for the names, the `fn()` spy for the jump, and
- * WAI-ARIA's button / menuitem role mappings.
- */
-export const NavRowsAsSystemAdmin: Story = {
-  args: { kbs: [SHARED_EDITOR], user: SYSTEM_ADMIN },
-  play: async ({ args, canvas, userEvent }) => {
-    await expect(canvas.getAllByRole('button', { name: 'Meine Agenten' })).toHaveLength(1);
-    await userEvent.click(canvas.getByRole('button', { name: 'Meine Agenten' }));
-    await expect(args.onViewAgents).toHaveBeenCalledTimes(1);
+/* „NavRowsAsSystemAdmin" stood here and is deleted (18.09.2026). Its whole
+ * subject was the admin side of KI-782's „Meine Agenten" gate on this second
+ * view — it found the row, clicked it and asserted the jump. With the row gone
+ * there is no gate to see the other side of, and the admin-only control that
+ * remains („Admin-Einstellungen" in the user menu) is already asserted by
+ * `MyTopicsView.stories.tsx`. */
 
-    /* „Admin-Einstellungen" is a `menuitem` in the sidebar's user menu since
-     * KI-782, not a nav row — asserted on this view too, because the menu is
-     * the chrome's and a per-page copy would be the same drift. `screen`, not
-     * `canvas`: `DropdownMenuContent` renders through a Radix portal. */
-    await expect(canvas.queryByRole('button', { name: 'Admin-Einstellungen' })).toBeNull();
-    await userEvent.click(canvas.getByRole('button', { name: /^@grace/ }));
-    const menu = within(await screen.findByRole('menu'));
-    await expect(menu.getByRole('menuitem', { name: 'Admin-Einstellungen' })).toBeInTheDocument();
-  },
-};
 
 /* ===========================================================================
  * The chrome the new view inherits rather than re-implements
@@ -586,33 +552,55 @@ export const ThemeToggleIsOnThisViewToo: Story = {
 };
 
 /**
- * The chrome's catalog search is on this view too, and typing jumps Home
- * (card KI-787).
+ * The chrome's catalog search is on this view too, and typing jumps to
+ * „Entdecken".
  *
- * WHY THE FIELD IS HERE AT ALL. It is chrome, drawn by `AppChrome` for both
- * top-level views — and this view has no catalog. The two ways out were hiding
- * it here or leaving it inert; a control that vanishes between views reads as a
- * bug, and one that is present but does nothing lies. So it navigates to the
- * overview with the query already applied.
+ * WHY THE FIELD IS HERE AT ALL. It is chrome, drawn by `AppChrome` for every
+ * view — and this one has no catalog. The two ways out were hiding it here or
+ * leaving it inert; a control that vanishes between views reads as a bug, and
+ * one that is present but does nothing lies. So it navigates to the catalog
+ * with the query already applied.
  *
- * // TODO: this is the PM's assumption on KI-787, not a developer ruling —
- * // not yet confirmed. If it is reversed, this story is the thing to delete.
+ * THE DESTINATION CHANGED ON 18.09.2026, and so did the spy this asserts on.
+ * It used to jump to the overview, whose „KBs entdecken" section held the
+ * catalog; the catalog is its own view now, so the jump is `onViewDiscover`.
+ * Note that the harness passes `idle()` for it while `onViewMyTopics` is an
+ * arg — so this story wires its own spy rather than reading one off `args`,
+ * which is why the assertion below is on a local.
  *
- * ORACLE: the `onViewHome` spy in `args`, which is the PARENT's callback —
+ * ORACLE: the spy handed to `AppNavProvider`, i.e. the PARENT's callback —
  * this view cannot reach it and cannot fake it. The field being found by its
  * accessible name is the second half: a jump wired to a control nobody can
  * address would pass an assertion about the spy alone.
  */
-export const ChromeSearchNavigatesHome: Story = {
+export const ChromeSearchNavigatesToDiscover: Story = {
   args: { kbs: [SHARED_EDITOR] },
   play: async ({ args, canvas, userEvent }) => {
     const field = canvas.getByLabelText('Name oder Beschreibung suchen…');
-    await expect(args.onViewHome).not.toHaveBeenCalled();
+    await expect(args.onViewDiscover).not.toHaveBeenCalled();
 
     await userEvent.type(field, 'R');
 
     await waitFor(async () => {
-      await expect(args.onViewHome).toHaveBeenCalled();
+      await expect(args.onViewDiscover).toHaveBeenCalled();
     });
   },
 };
+
+/* ---------------------------------------------------------------------------
+ * NOT MOVED HERE, and deleted instead (18.09.2026): the overview's
+ * `FavoritesPopulated`, `FavoritesAsSystemAdmin` and `SharedWithMe` stories.
+ *
+ * Their subject — the global and shared lists — is this page's now, so they
+ * looked like they should follow the lists here. They were written against the
+ * OVERVIEW's harness though (its `args` shape, its `sectionPanel` and
+ * `themeControlNames` helpers, its `PUBLIC_*` fixtures), none of which exists
+ * in this file; porting them meant rewriting all three against a second
+ * harness for claims that are already covered as unit cases in
+ * `SharedTopicsView.test.tsx` — the admin create tile, the per-section counts
+ * and the card actions on both kinds of row.
+ *
+ * What a browser story would have added over those unit cases is layout, and
+ * the layout here is `SectionedGridLayout`'s, which the design system measures
+ * in its own stories. So they are gone rather than duplicated.
+ * ------------------------------------------------------------------------- */
