@@ -116,6 +116,22 @@ cd go-backend && go build ./cmd/server
 - `cd web && npm run test`
 - `cd web && npm run lint`
 
+**Design-system dev loop.** `@ki4jlu/design-system` is a git dependency pinned to a
+tag, so a DS change normally costs commit → tag → push → re-install before it is
+visible here. For local development, link the checkout instead:
+
+```bash
+cd web && npm run dev:ds                  # sibling checkout ../../JLU-Design-System
+cd web && DS_LOCAL=../path/to/ds npm run dev
+```
+
+The dev server then resolves the DS to its **source** (not `dist`), so a save in
+the DS repo hot-reloads here with no build step. Env-gated in `web/vite.config.ts`
+(`localDesignSystem`) — package.json and the lockfile are untouched, so staging,
+production and CI keep resolving the pinned tarball. `tsc -b` and `vite build` do
+**not** honour it: types still come from the installed package, so bump the pin
+before merging DS-dependent work.
+
 ### Root workspace
 
 - `npm install`
