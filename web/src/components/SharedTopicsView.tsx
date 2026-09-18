@@ -8,6 +8,8 @@ import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
 import { CreateCell, PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
+import { TopicFilterBar } from './TopicFilterBar';
+import { useTopicFilters } from '../hooks/useTopicFilters';
 
 /* ---------------------------------------------------------------------------
  * „Geteiltes Wissen" — the topics somebody else shared with you. One flat grid.
@@ -77,6 +79,7 @@ export interface SharedTopicsViewProps {
   removingKb: boolean;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
 
 export function SharedTopicsView({
@@ -86,6 +89,7 @@ export function SharedTopicsView({
   removingKb,
   onOpenKbSettings,
   onRenameKB,
+  onToggleFavourite,
 }: SharedTopicsViewProps) {
   const { language, t } = useTheme();
   const { user } = useAuth();
@@ -98,6 +102,8 @@ export function SharedTopicsView({
 
   const { sharedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
 
+  const filters = useTopicFilters();
+
   return (
     <AppChrome active="shared-topics" contentId={CONTENT_ID}>
       <TopicGridPage
@@ -105,9 +111,14 @@ export function SharedTopicsView({
         title={t('sharedTopics')}
         description={t('sharedTopicsDescription')}
         createCell={
-          <CreateCell onClick={onViewDiscover} label={t('addTopic')} text={t('addTopic')} />
+          <CreateCell
+            onClick={onViewDiscover}
+            label={t('addTopic')}
+            text={t('addTopic')}
+          />
         }
-        items={sharedKbs.map(kb => (
+        filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
+        items={filters.apply(sharedKbs).map(kb => (
           <PrivateKbCard
             key={kb.id}
             kb={kb}
@@ -118,6 +129,7 @@ export function SharedTopicsView({
             t={t}
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
+            onToggleFavourite={onToggleFavourite}
             onOpenKbSettings={onOpenKbSettings}
             onRenameKB={onRenameKB}
             onDeleteKB={onDeleteKB}

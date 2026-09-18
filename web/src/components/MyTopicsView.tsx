@@ -7,6 +7,8 @@ import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
 import { CreateCell, PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
+import { TopicFilterBar } from './TopicFilterBar';
+import { useTopicFilters } from '../hooks/useTopicFilters';
 import './HomeView.css';
 
 const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
@@ -50,6 +52,7 @@ export interface MyTopicsViewProps {
   removingKb: boolean;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onUpdateKBSettings: (data: Record<string, unknown>) => void;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
@@ -65,6 +68,7 @@ export function MyTopicsView({
   removingKb,
   onOpenKbSettings,
   onRenameKB,
+  onToggleFavourite,
   onUpdateKBSettings,
   showSettings,
   setShowSettings,
@@ -82,6 +86,8 @@ export function MyTopicsView({
      already carries. Only the owned half is this page's. */
   const { ownedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
 
+  const filters = useTopicFilters();
+
   return (
     <AppChrome active="my-topics" contentId="my-topics-content">
       <TopicGridPage
@@ -89,9 +95,14 @@ export function MyTopicsView({
         title={t('myTopics')}
         description={t('myTopicsDescription')}
         createCell={
-          <CreateCell onClick={onCreateKB} label={t('newTopic')} text={t('newTopic')} />
+          <CreateCell
+            onClick={onCreateKB}
+            label={t('newTopic')}
+            text={t('newTopic')}
+          />
         }
-        items={ownedKbs.map(kb => (
+        filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} showOwnership />}
+        items={filters.apply(ownedKbs).map(kb => (
           <PrivateKbCard
             key={kb.id}
             kb={kb}
@@ -102,6 +113,7 @@ export function MyTopicsView({
             t={t}
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
+            onToggleFavourite={onToggleFavourite}
             onOpenKbSettings={onOpenKbSettings}
             onRenameKB={onRenameKB}
             onDeleteKB={onDeleteKB}

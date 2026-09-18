@@ -217,6 +217,7 @@ const noopProps = {
   onOpenGlobalKbSettings: vi.fn(),
   onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
+  onToggleFavourite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
   showSettings: false,
   setShowSettings: vi.fn(),

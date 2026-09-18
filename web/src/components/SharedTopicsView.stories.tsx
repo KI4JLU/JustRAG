@@ -196,6 +196,7 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
                 removingKb={args.removingKb}
                 onOpenKbSettings={idle()}
                 onRenameKB={idle()}
+                onToggleFavourite={idle()}
               />
             </StoryKbSearchProvider>
           </AppNavProvider>

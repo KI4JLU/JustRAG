@@ -1,6 +1,7 @@
 import {
-  BookOpen, Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal,
+  BookOpen, Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star,
 } from 'lucide-react';
+import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
@@ -54,13 +55,6 @@ function lastActiveLabel(
 // Owner, deshalb <= 1 und nicht === 0. Single source of truth for the
 // three-way branch — text, CSS class and icon all derive from this instead
 // of each re-implementing their own kb.visibility === 'public' check.
-type VisibilityState = 'public' | 'shared' | 'personal';
-
-function visibilityState(kb: KnowledgeBase): VisibilityState {
-  if (kb.visibility === 'public') return 'public';
-  return (kb.memberCount ?? 1) > 1 ? 'shared' : 'personal';
-}
-
 // Der Zaehler steht ausserhalb der Uebersetzung, weil t() keine
 // Interpolation kann.
 function visibilityBadge(kb: KnowledgeBase, t: T): string {
@@ -194,32 +188,56 @@ export interface PrivateKbCardProps {
   t: T;
   onSelectKB: (kb: KnowledgeBase) => void;
   onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
 
-// PrivateKbCard is one tile in "Meine KBs", in "Mit mir geteilt", and — since
-// KI-783 — in the „Geteilte Knowledge Bases" view. The same card in all three,
-// since the only difference between them is the caller's own role, which the
-// card already reads off myRole.
-export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, onSelectKB, onOpenShare, onOpenKbSettings, onRenameKB, onDeleteKB,
-}: PrivateKbCardProps) {
+/**
+ * The favourite star, its own component because the two layouts put it in
+ * different places: the card keeps it among the other icon actions, the list
+ * row renders it FIRST, ahead of the title.
+ *
+ * It is ungated on purpose — the caller's own private flag, not a permission.
+ * The label names what pressing it DOES, so it flips with the state: a single
+ * „Favorit" would leave a screen-reader user guessing the direction, while
+ * `aria-pressed` carries the state itself.
+ */
+function FavouriteButton({
+  kb, t, onToggleFavourite,
+}: Pick<PrivateKbCardProps, 'kb' | 't' | 'onToggleFavourite'>) {
   return (
-    // Card-level click is a mouse convenience (role="presentation"); the
-    // accessible control is the KB-name button below, which carries the
-    // label and the keyboard path.
-    <div
-      className="source-card home-view__kb-card"
-      role="presentation"
-      onClick={() => onSelectKB(kb)}
+    <button
+      onClick={(e) => onToggleFavourite(kb, e)}
+      className="home-view__mini-icon"
+      aria-pressed={kb.isFavourite === true}
+      title={kb.isFavourite ? t('removeFavourite') : t('addFavourite')}
+      aria-label={kb.isFavourite ? t('removeFavourite') : t('addFavourite')}
     >
-      <div className="home-view__card-top">
-        <BookOpen size={20} color="var(--text-secondary)" aria-hidden="true" />
-        <div className="home-view__badge-row">
-          <VisibilityBadge kb={kb} t={t} />
+      <Star size={16} aria-hidden="true" fill={kb.isFavourite ? 'currentColor' : 'none'} />
+    </button>
+  );
+}
 
+/**
+ * The per-card action buttons, extracted so the card and the compact list row
+ * render ONE copy rather than two that could drift. Every gate below is the
+ * shared predicate the rest of the app uses — none of them is re-derived here.
+ */
+function KbCardActions({
+  kb, systemRole, removingKb, t, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  includeFavourite = true,
+}: Pick<PrivateKbCardProps,
+  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavourite'
+  | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>
+  & {
+    /** The list row renders the star FIRST instead, so it opts out here. */
+    includeFavourite?: boolean;
+  }) {
+  return (
+    <>
+      {includeFavourite && <FavouriteButton kb={kb} t={t} onToggleFavourite={onToggleFavourite} />}
           {canManageMembers(kb) && (
             <button
               onClick={(e) => onOpenShare(kb, e)}
@@ -283,22 +301,59 @@ export function PrivateKbCard({
           >
             <Trash2 size={16} aria-hidden="true" />
           </button>
+    </>
+  );
+}
+
+// PrivateKbCard is one tile in „Mein Wissen" and in „Geteiltes Wissen" — the
+// same card in both, since the only difference between them is the caller's own
+// role, which the card already reads off myRole.
+export function PrivateKbCard({
+  kb, currentUserId, systemRole, removingKb, rtf, t, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB,
+}: PrivateKbCardProps) {
+  const actions = (
+    <KbCardActions
+      kb={kb}
+      systemRole={systemRole}
+      removingKb={removingKb}
+      t={t}
+      onOpenShare={onOpenShare}
+      onToggleFavourite={onToggleFavourite}
+      onOpenKbSettings={onOpenKbSettings}
+      onRenameKB={onRenameKB}
+      onDeleteKB={onDeleteKB}
+    />
+  );
+
+  const nameButton = (
+    <button
+      type="button"
+      className="text-button home-view__kb-name-btn"
+      aria-label={`${t('openKb')}: ${kb.name}`}
+      onClick={(e) => { e.stopPropagation(); onSelectKB(kb); }}
+    >
+      {kb.name}
+    </button>
+  );
+
+  return (
+    // Card-level click is a mouse convenience (role="presentation"); the
+    // accessible control is the KB-name button below, which carries the
+    // label and the keyboard path.
+    <div
+      className="source-card home-view__kb-card"
+      role="presentation"
+      onClick={() => onSelectKB(kb)}
+    >
+      <div className="home-view__card-top">
+        <BookOpen size={20} color="var(--text-secondary)" aria-hidden="true" />
+        <div className="home-view__badge-row">
+          <VisibilityBadge kb={kb} t={t} />
+          {actions}
         </div>
       </div>
 
-      <div className="source-title home-view__kb-name">
-        <button
-          type="button"
-          className="text-button home-view__kb-name-btn"
-          aria-label={`${t('openKb')}: ${kb.name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectKB(kb);
-          }}
-        >
-          {kb.name}
-        </button>
-      </div>
+      <div className="source-title home-view__kb-name">{nameButton}</div>
 
       <div className="home-view__meta-row">
         <div className="source-meta home-view__kb-meta">{lastActiveLabel(kb, rtf, t)}</div>

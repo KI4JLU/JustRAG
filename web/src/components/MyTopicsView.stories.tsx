@@ -286,6 +286,7 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
               removingKb={args.removingKb}
               onOpenKbSettings={idle()}
               onRenameKB={idle()}
+          onToggleFavourite={idle()}
               onUpdateKBSettings={idle()}
               showSettings={showSettings}
               setShowSettings={setShowSettings}
@@ -578,7 +579,10 @@ export const Empty: Story = {
        create tile is on it, and nothing else is. A user with no topics must not
        land on a bare page — the tile IS the empty state here, which is why
        `TopicGridPage` renders no `emptyState` when a create cell is present. */
-    await expect(canvas.queryByRole('button', { name: /Favoriten|entdecken|Mit mir geteilt/ })).toBeNull();
+    /* „Favoriten" is no longer in this list: it is a FILTER CHIP now, and a
+       legitimate one — the assertion is about the removed SECTION headers, so
+       matching the chip's label would fail for the wrong reason. */
+    await expect(canvas.queryByRole('button', { name: /entdecken|Mit mir geteilt/ })).toBeNull();
     await expect(canvas.getByRole('button', { name: 'Neues Thema' })).toBeInTheDocument();
     await expect(
       canvas.queryByRole('button', { name: /^Knowledge Base öffnen:/ }),
@@ -717,7 +721,14 @@ export const OwnedOnly: Story = {
     // ORACLE: the fixture. `memberCount: 1` and a private visibility resolve to
     // the "personal" badge; the owner gets the outright-delete label, not the
     // leave-my-view one.
-    await expect(canvas.getAllByText('Persönlich')).toHaveLength(3);
+    /* Scoped to the CARDS. „Persönlich" is a filter chip on this page as well
+       now, so an unscoped query counts four — three badges and the chip — and
+       fails for a reason that has nothing to do with the badges. The chip lives
+       in the filter row, a sibling of the grid. */
+    const badges = Array.from(cards).flatMap((card) =>
+      Array.from(card.querySelectorAll('.home-view__badge')),
+    ).filter((b) => b.textContent?.includes('Persönlich'));
+    await expect(badges).toHaveLength(3);
     await expect(canvas.getAllByRole('button', { name: 'Knowledge Base löschen' })).toHaveLength(3);
     await expect(canvas.queryByRole('button', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
 

@@ -411,9 +411,6 @@ function AuthenticatedAppInner() {
    * overview's own elements, so running it over this view would point at
    * nothing. `Footer` stays, so the legal pages remain reachable. */
   if (view === 'tools') {
-    // No SharingProvider and no KbSearchProvider: the placeholder renders no
-    // topic card and no search target. `AppNavProvider` is what the shell's
-    // nav rows need, and it is the only one this view mounts.
     return (
       <AppNavProvider value={appNav}>
         <ToolsView />
@@ -463,6 +460,7 @@ function AuthenticatedAppInner() {
           removingKb={kbMgmt.removingKb}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
+          onToggleFavourite={kbMgmt.handleToggleFavourite}
         />
       </motion.div>
       </KbSearchProvider>
@@ -497,6 +495,7 @@ function AuthenticatedAppInner() {
           removingKb={kbMgmt.removingKb}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
+          onToggleFavourite={kbMgmt.handleToggleFavourite}
           onUpdateKBSettings={handleUpdateKBSettings}
           showSettings={kbSettings.showSettings}
           setShowSettings={kbSettings.setShowSettings}

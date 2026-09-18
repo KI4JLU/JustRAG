@@ -40,17 +40,24 @@ export interface TopicGridPageProps {
    * under a long list would be unreachable on the page it belongs to.
    */
   createCell?: ReactNode;
+  /**
+   * The filter chip row, between the header and the grid — chrome that belongs
+   * to the page rather than to the list, which is why it is a slot here and not
+   * something each view renders around this component. Omitted, nothing is
+   * rendered and the grid moves up.
+   */
+  filterBar?: ReactNode;
   /** The cards. */
   items: ReactNode[];
-  /* NO `emptyState`. All three callers answer an empty list the same way — with
-     the create tile, which is in the grid — so none of them needs one.
-     „Geteiltes Wissen" briefly carried a placeholder above its tile and the
-     developer removed it: on a page whose only control is that tile, a sentence
-     beside it describes what the tile already says.
-
-     „Entdecken" is not a counter-example. Its empty state belongs to
-     `KbCatalogPanel`, which owns the list and the request behind it, and that
-     page does not use this component at all. */
+  /**
+   * Shown ABOVE the grid when there are no items — it does not replace it, so a
+   * page with a create tile never hides the way out of being empty.
+   *
+   * „Werkzeuge" is the caller: its tile is disabled, so without this the page
+   * would be one greyed-out control and no explanation of why. „Mein Wissen"
+   * and „Geteiltes Wissen" pass none — their tiles speak for themselves.
+   */
+  emptyState?: ReactNode;
 }
 
 export function TopicGridPage({
@@ -58,12 +65,16 @@ export function TopicGridPage({
   title,
   description,
   createCell,
+  filterBar,
   items,
+  emptyState,
 }: TopicGridPageProps) {
   return (
     <section id={id} aria-label={title} className="flex flex-col">
       <Container className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
         <PageHeader title={title} description={description} />
+        {filterBar}
+        {items.length === 0 && emptyState}
         {/* `auto`, not a number: the numbered variants are a BREAKPOINT ladder,
             so `cols={3}` renders two columns everywhere from 768 to 1279px. A
             wall of cards wants the count to follow the container — which also

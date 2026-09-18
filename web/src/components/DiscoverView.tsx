@@ -2,6 +2,8 @@ import { Container, PageHeader } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { AppChrome } from './AppChrome';
 import KbCatalogPanel from './KbCatalogPanel';
+import { TopicFilterBar } from './TopicFilterBar';
+import { useTopicFilters } from '../hooks/useTopicFilters';
 
 /* ---------------------------------------------------------------------------
  * „Entdecken" — the catalog of global topics you do NOT hold yet (developer
@@ -40,13 +42,22 @@ export interface DiscoverViewProps {
 
 export function DiscoverView({ onSubscriptionChange, onOpenKbById }: DiscoverViewProps) {
   const { t } = useTheme();
+  const filters = useTopicFilters();
 
   return (
     <AppChrome active="discover" contentId={CONTENT_ID}>
       <section id={CONTENT_ID} aria-label={t('discoverTopics')} className="flex flex-col">
         <Container className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
           <PageHeader title={t('discoverTopics')} description={t('discoverTopicsDescription')} />
-          <KbCatalogPanel onSubscriptionChange={onSubscriptionChange} onOpenKb={onOpenKbById} />
+          {/* The row is the same chrome the other three views carry. The panel
+              owns its own list and request, so the ACTIVE chip is handed down
+              rather than applied here — see `KbCatalogPanel`. */}
+          <TopicFilterBar filters={filters} label={t('filterTopics')} />
+          <KbCatalogPanel
+            onSubscriptionChange={onSubscriptionChange}
+            onOpenKb={onOpenKbById}
+            topicFilter={filters.active}
+          />
         </Container>
       </section>
     </AppChrome>

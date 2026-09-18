@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbSearch } from '../contexts/KbSearchContext';
+import { FILTER_ALL, FILTER_FAVOURITES } from '../hooks/useTopicFilters';
 import type { KbCatalogEntry, KbCategory } from '../types';
 
 interface KbCatalogPanelProps {
@@ -14,6 +15,18 @@ interface KbCatalogPanelProps {
     onSubscriptionChange: () => void;
     /** Opens a KB known only by its id — the catalog rows carry nothing else. */
     onOpenKb: (id: string) => void;
+    /**
+     * The active chip from the page's `TopicFilterBar` — `FILTER_ALL`,
+     * `FILTER_FAVOURITES`, or one of the caller's category ids.
+     *
+     * It arrives as a prop rather than being read from a context here because
+     * this panel owns its own list: the catalog is a REQUEST, not the `kbs`
+     * array the other views filter, so applying the chip is its job and not the
+     * page's. Every catalog row already carries `isFavourite` and
+     * `userCategoryIds` (migration 0068), so it stays a client-side filter over
+     * the response and adds no request.
+     */
+    topicFilter?: string;
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -42,7 +55,7 @@ const INITIAL_VISIBLE = 8;
  * component at all while „KBs entdecken" starts collapsed — writing the query
  * expands the section, and expanding it is what mounts this panel.
  */
-export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCatalogPanelProps) {
+export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFilter }: KbCatalogPanelProps) {
     const { t } = useTheme();
     const toast = useToast();
     const { query } = useKbSearch();
@@ -118,12 +131,24 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
         }
     }, [onSubscriptionChange, toast, t]);
 
+    /* The page's chip, applied to the response.
+     *
+     * BEFORE the fold, deliberately: folding first and filtering after would
+     * make „show N more" a count of rows the filter had already removed, and a
+     * favourite sitting at position 9 would be unreachable behind a button that
+     * claimed to reveal it. */
+    const filtered = topicFilter === undefined || topicFilter === FILTER_ALL
+        ? entries
+        : topicFilter === FILTER_FAVOURITES
+            ? entries.filter(e => e.isFavourite)
+            : entries.filter(e => e.userCategoryIds.includes(topicFilter));
+
     // The catalog can hold every public KB in the deployment; showing all of
     // them at once buries the four sections below it. The fold is client-side
     // on purpose — the request is already capped at 200 rows, and paginating
     // the fetch would make the count in the button a guess.
-    const visible = expanded ? entries : entries.slice(0, INITIAL_VISIBLE);
-    const hidden = expanded ? 0 : entries.length - visible.length;
+    const visible = expanded ? filtered : filtered.slice(0, INITIAL_VISIBLE);
+    const hidden = expanded ? 0 : filtered.length - visible.length;
 
     return (
         <div className="home-view__catalog">
@@ -159,7 +184,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
 
             {loading ? (
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'start' }}>{t('loading')}</p>
-            ) : entries.length === 0 ? (
+            ) : filtered.length === 0 ? (
                 /* A heading and a line, not one sentence: the first states
                    what is (nothing here), the second what will change it
                    (somebody publishing one). The old flat string reported a
@@ -235,7 +260,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb }: KbCat
                         </button>
                     </div>
                 )}
-                {expanded && entries.length > INITIAL_VISIBLE && (
+                {expanded && filtered.length > INITIAL_VISIBLE && (
                     <div className="kb-catalog__more">
                         <button type="button" className="secondary-button" onClick={() => setExpandedFor(null)}>
                             {t('catalogShowLess')}

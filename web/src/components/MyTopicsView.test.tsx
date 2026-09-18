@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubViewport } from '../test/viewport';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider as DesignSystemThemeProvider } from '@ki4jlu/design-system';
 import axios from 'axios';
@@ -219,6 +219,7 @@ const noopProps = {
   onOpenGlobalKbSettings: vi.fn(),
   onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
+  onToggleFavourite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
   showSettings: false,
   setShowSettings: vi.fn(),
@@ -646,10 +647,194 @@ describe('MyTopicsView rename trigger', () => {
 // KB; public ones arrive through GET /api/kb/global, i.e. the `globalKbs` prop.
 // The earlier version of this file passed `kbs: [{ visibility: 'public' }]` —
 // a shape the backend cannot produce — and so kept a dead badge branch green.
+/* The badge, and only the badge.
+ *
+ * „Persönlich" and „Geteilt" are FILTER CHIPS on this page as well now, so an
+ * unscoped `getByText(/persönlich/i)` matches two elements — the chip and the
+ * badge — and fails for a reason that has nothing to do with the badge. These
+ * queries are scoped to the card list; the chips live in the filter row above
+ * it, which is a sibling of the grid rather than part of it. */
+function inCards() {
+  const card = document.querySelector('.home-view__kb-card');
+  if (card === null) throw new Error('no KB card rendered');
+  return within(card as HTMLElement);
+}
+
+/* ---------------------------------------------------------------------------
+ * Favourites lead the list, whatever the filter.
+ *
+ * ORACLE: the fixture's own order, inverted. The two topics are given in
+ * NON-favourite-first order (`plain` before `starred`), so a view that simply
+ * rendered `kbs` as it received them would fail — which is what makes this a
+ * statement about the ordering rather than about the fixture.
+ *
+ * Read off the DOM in document order via the cards' own name buttons, not off
+ * any value the component reports about itself.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * The filter row: selecting, and clearing by pressing the same chip again.
+ *
+ * ORACLE: which cards are on screen, read off the DOM — not the chip's own
+ * `aria-pressed`, which would only say the row agrees with itself. A filter
+ * that highlighted correctly and filtered nothing passes that and fails this.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Managing categories: add, rename, delete.
+ *
+ * WHY IT MATTERS THAT ALL THREE ARE HERE: the „+" chip was create-only for a
+ * while, so a typo was permanent and an unwanted category could not be removed
+ * — the `PATCH` and `DELETE` endpoints existed the whole time with nothing
+ * calling them. These cases are what stop that regressing.
+ *
+ * ORACLE: the recorded axios calls — METHOD and URL — which is the observable
+ * output of each action, plus the chip row's own contents for what the user
+ * ends up seeing. Asserting the dialog's internal state instead would pass
+ * against a dialog that never made a request.
+ * ------------------------------------------------------------------------- */
+describe('MyTopicsView category manager', () => {
+  const CATEGORY = { id: 'cat-1', name: 'Forschung', sortOrder: 0 };
+
+  beforeEach(() => {
+    mockedAxios.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url.includes('/api/kb-user-categories') ? [CATEGORY] : [] }),
+    );
+    mockedAxios.post.mockResolvedValue({ data: { id: 'cat-2', name: 'Lehre', sortOrder: 0 } });
+    mockedAxios.patch.mockResolvedValue({ data: { ...CATEGORY, name: 'Projekte' } });
+    mockedAxios.delete.mockResolvedValue({ status: 204 });
+  });
+
+  async function openManager() {
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+    // The existing category has to have arrived, or the list is empty for a
+    // reason that has nothing to do with the action under test.
+    await screen.findByRole('button', { name: CATEGORY.name });
+    await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
+    return within(await screen.findByRole('dialog'));
+  }
+
+  it('creates one, and it appears as a chip', async () => {
+    const dialog = await openManager();
+
+    await userEvent.type(dialog.getByLabelText(translations.newCategoryPrompt.en), 'Lehre');
+    await userEvent.click(dialog.getByRole('button', { name: translations.add.en }));
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/api/kb-user-categories'),
+      expect.objectContaining({ name: 'Lehre' }),
+    );
+    /* Closed first: Radix marks everything outside an open dialog
+       `aria-hidden`, so the chip row is genuinely unreachable to a screen
+       reader — and to `getByRole` — until it is. Asserting through the dialog
+       would have been asserting against the wrong document state. Closing is
+       also the real flow.
+ 
+       And the chip row gained it, which is the point: the hook owns the list,
+       not the dialog, so the two cannot disagree about what exists. */
+    await userEvent.keyboard('{Escape}');
+    expect(await screen.findByRole('button', { name: 'Lehre' })).toBeInTheDocument();
+  });
+
+  it('renames one through PATCH', async () => {
+    const dialog = await openManager();
+
+    await userEvent.click(dialog.getByRole('button', { name: `${translations.renameCategory.en}: ${CATEGORY.name}` }));
+    const field = dialog.getByLabelText(translations.renameCategory.en);
+    await userEvent.clear(field);
+    await userEvent.type(field, 'Projekte');
+    await userEvent.click(dialog.getByRole('button', { name: translations.save.en }));
+
+    expect(mockedAxios.patch).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/kb-user-categories/${CATEGORY.id}`),
+      expect.objectContaining({ name: 'Projekte' }),
+    );
+    await userEvent.keyboard('{Escape}');
+    expect(await screen.findByRole('button', { name: 'Projekte' })).toBeInTheDocument();
+  });
+
+  it('asks before deleting, and only then calls DELETE', async () => {
+    const dialog = await openManager();
+
+    await userEvent.click(dialog.getByRole('button', { name: `${translations.deleteCategory.en}: ${CATEGORY.name}` }));
+    // The question is in the row itself — no second modal on top of this one.
+    expect(dialog.getByText(translations.confirmDeleteCategory.en)).toBeInTheDocument();
+    expect(mockedAxios.delete).not.toHaveBeenCalled();
+
+    await userEvent.click(dialog.getByRole('button', { name: translations.delete.en }));
+
+    expect(mockedAxios.delete).toHaveBeenCalledWith(
+      expect.stringContaining(`/api/kb-user-categories/${CATEGORY.id}`),
+    );
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: CATEGORY.name })).toBeNull();
+    });
+  });
+});
+
+describe('MyTopicsView filter chips', () => {
+  const personal: KnowledgeBase = { ...baseKb, id: 'kb-p', name: 'Nur ich', myRole: 'owner', memberCount: 1 };
+  const shared: KnowledgeBase = { ...baseKb, id: 'kb-s', name: 'Mit Team', myRole: 'owner', memberCount: 4 };
+
+  function names(): string[] {
+    return Array.from(document.querySelectorAll('.home-view__kb-name-btn')).map(el => el.textContent ?? '');
+  }
+
+  it('narrows to the chosen chip and clears on a second press', async () => {
+    renderView(<MyTopicsView kbs={[personal, shared]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+    expect(names()).toHaveLength(2);
+
+    const personalChip = screen.getByRole('button', { name: translations.filterPersonal.en });
+    await userEvent.click(personalChip);
+    expect(names()).toEqual(['Nur ich']);
+
+    /* The same chip again — not „Alle" — and the full list is back. This is the
+       half that distinguishes a toggle from a plain radio row. */
+    await userEvent.click(screen.getByRole('button', { name: translations.filterPersonal.en }));
+    expect(names()).toHaveLength(2);
+  });
+
+  it('is a no-op to press Alle while it is already active', async () => {
+    renderView(<MyTopicsView kbs={[personal, shared]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+
+    await userEvent.click(screen.getByRole('button', { name: translations.filterAll.en }));
+    expect(names()).toHaveLength(2);
+  });
+});
+
+describe('MyTopicsView ordering', () => {
+  const plain: KnowledgeBase = { ...baseKb, id: 'kb-plain', name: 'Zuletzt', myRole: 'owner', isFavourite: false };
+  const starred: KnowledgeBase = { ...baseKb, id: 'kb-star', name: 'Zuerst', myRole: 'owner', isFavourite: true };
+
+  function renderedOrder(): string[] {
+    return Array.from(document.querySelectorAll('.home-view__kb-name-btn'))
+      .map(el => el.textContent ?? '');
+  }
+
+  it('puts a favourite ahead of a topic given before it', async () => {
+    renderView(<MyTopicsView kbs={[plain, starred]} {...noopProps} />);
+    await screen.findByText('Zuletzt');
+
+    expect(renderedOrder()).toEqual(['Zuerst', 'Zuletzt']);
+  });
+
+  it('leaves the order alone when nothing is starred', async () => {
+    renderView(<MyTopicsView kbs={[plain, { ...starred, isFavourite: false }]} {...noopProps} />);
+    await screen.findByText('Zuletzt');
+
+    // The server's order is the only ordering promise the API makes, so an
+    // all-or-nothing list must come through untouched.
+    expect(renderedOrder()).toEqual(['Zuletzt', 'Zuerst']);
+  });
+});
+
 describe('KB visibility badge', () => {
   it('shows "personal" for a private KB with only the owner', async () => {
     renderMyTopicsView({ kbs: [{ ...baseKb, id: 'kb-1', name: 'Meine KB', visibility: 'private', memberCount: 1, myRole: 'owner' }] });
-    expect(await screen.findByText(/persönlich|personal/i)).toBeInTheDocument();
+    // The harness's `t` answers in English, so wait on the fixture's own name.
+    await screen.findByText('Meine KB');
+    expect(inCards().getByText(/persönlich|personal/i)).toBeInTheDocument();
   });
 
   it('shows the member count for a shared private KB', async () => {

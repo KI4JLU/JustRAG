@@ -114,6 +114,59 @@ export const translations = {
      * from here that ends with a new topic in front of them. */
     addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
 
+    /* The filter chip row above every view's list (migration 0068).
+     *
+     * „Alle" here and `catalogAllCategories` below are NOT the same string to
+     * reuse: that one labels the catalog's admin-curated taxonomy tab, this one
+     * the caller's own filter. They read alike today and are free to diverge. */
+    filterAll: { de: 'Alle', en: 'All' },
+    filterFavourites: { de: 'Favoriten', en: 'Favourites' },
+    /* „Mein Wissen" only. The words match the card badge's own two states
+       (`visibilityPersonal` / `visibilityShared`) deliberately — the chip and
+       the badge describe the same fact, so they say the same word. */
+    filterPersonal: { de: 'Persönlich', en: 'Personal' },
+    filterShared: { de: 'Geteilt', en: 'Shared' },
+    manageCategories: { de: 'Kategorien verwalten', en: 'Manage categories' },
+    manageCategoriesTitle: { de: 'Kategorien verwalten', en: 'Manage categories' },
+    manageCategoriesBody: {
+      de: 'Deine eigenen Kategorien. Sie gelten nur für dich und lassen sich jedem Thema zuordnen, das du sehen kannst.',
+      en: 'Your own categories. They are yours alone and can be attached to any topic you can see.',
+    },
+    noCategoriesYet: { de: 'Noch keine Kategorien angelegt.', en: 'No categories yet.' },
+    renameCategory: { de: 'Kategorie umbenennen', en: 'Rename category' },
+    deleteCategory: { de: 'Kategorie löschen', en: 'Delete category' },
+    confirmDeleteCategory: { de: 'Kategorie wirklich löschen?', en: 'Delete this category?' },
+    categoryActionError: {
+      de: 'Aktion fehlgeschlagen. Gibt es die Kategorie schon?',
+      en: 'Action failed. Does the category already exist?',
+    },
+    newCategoryPrompt: { de: 'Name der neuen Kategorie', en: 'Name of the new category' },
+    newCategoryError: {
+      de: 'Kategorie konnte nicht angelegt werden. Gibt es sie schon?',
+      en: 'Could not create the category. Does it already exist?',
+    },
+    filterTopics: { de: 'Themen filtern', en: 'Filter topics' },
+    viewMode: { de: 'Ansicht', en: 'View' },
+    viewModeCards: { de: 'Karten', en: 'Cards' },
+    viewModeList: { de: 'Liste', en: 'List' },
+
+    /* The star on a topic card. Two labels, because the control's accessible
+     * name has to say what pressing it DOES — a single „Favorit" would leave a
+     * screen-reader user guessing which way it goes. */
+    addFavourite: { de: 'Zu Favoriten hinzufügen', en: 'Add to favourites' },
+    removeFavourite: { de: 'Aus Favoriten entfernen', en: 'Remove from favourites' },
+    favouriteError: {
+      de: 'Favorit konnte nicht gespeichert werden.',
+      en: 'Could not save the favourite.',
+    },
+
+    /* „Werkzeuge" placeholder content. */
+    toolsEmptyTitle: { de: 'Noch keine Werkzeuge', en: 'No tools yet' },
+    toolsEmptyBody: {
+      de: 'Ausgewählte Werkzeuge aus dem Arbeitsbereich ziehen hierher um. Sobald das erste verfügbar ist, findest du es an dieser Stelle.',
+      en: 'Selected tools from the workspace area will move here. As soon as the first one is available, you will find it in this place.',
+    },
+
     /* The section heading for the global half. „Global sichtbar" and not
      * „Öffentlich": a public topic is visible to everyone signed in, not to the
      * open internet, and „öffentlich" would promise the second. */

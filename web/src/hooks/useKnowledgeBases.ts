@@ -180,6 +180,36 @@ export function useKnowledgeBases({
      admin|superadmin in `KBOverviewDashboard`). The backend endpoint is
      untouched — this removes the app's path to it, not the route. */
 
+  /* The star on a topic card (migration 0068).
+   *
+   * OPTIMISTIC, and it reverts. The row existence IS the flag server-side, so
+   * there is nothing to reconcile beyond a boolean — and a star that waited for
+   * a round trip would feel broken on a list the user is scanning. On failure
+   * the previous value goes back and the toast says so, rather than leaving the
+   * UI claiming something the server refused.
+   *
+   * Both lists are patched: a public topic lives in `globalKbs` and a private
+   * one in `kbs`, and the card does not know which list it came from. */
+  const handleToggleFavourite = useCallback(async (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !kb.isFavourite;
+    const patch = (list: KnowledgeBase[]) =>
+      list.map(row => (row.id === kb.id ? { ...row, isFavourite: next } : row));
+    setKbs(patch);
+    setGlobalKbs(patch);
+    try {
+      const url = `${API_BASE_URL}/api/kb/${kb.id}/favourite`;
+      if (next) await axios.put(url);
+      else await axios.delete(url);
+    } catch {
+      const revert = (list: KnowledgeBase[]) =>
+        list.map(row => (row.id === kb.id ? { ...row, isFavourite: !next } : row));
+      setKbs(revert);
+      setGlobalKbs(revert);
+      toast.error(t('favouriteError'));
+    }
+  }, [toast, t]);
+
   const handleDeleteGlobalKB = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!await showConfirm(t('confirmDeleteGlobalKb'))) return;
@@ -212,6 +242,6 @@ export function useKnowledgeBases({
   return {
     kbs, setKbs, globalKbs, setGlobalKbs,
     fetchKBs, handleCreateKB, handleSelectKB, handleOpenKbById, handleRenameKB, handleDeleteKB, removingKb,
-    handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
+    handleToggleFavourite, handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
   };
 }
