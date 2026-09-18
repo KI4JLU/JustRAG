@@ -1,5 +1,5 @@
-import { FilterChips } from '@ki4jlu/design-system';
-import { Star } from 'lucide-react';
+import { FilterChips, SegmentedControl } from '@ki4jlu/design-system';
+import { LayoutGrid, List, Star } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useState } from 'react';
 import { CategoryManagerModal } from './CategoryManagerModal';
@@ -20,6 +20,14 @@ import {
  * „ALLE" AND „FAVORITEN" ARE ALWAYS FIRST and are not categories — their ids
  * are the two literals in `useTopicFilters`, which cannot collide with a UUID.
  * The user's categories follow in the server's order.
+ *
+ * THE VIEW TOGGLE SITS IN THE SAME ROW BUT NOT IN THE SAME GROUP. Visually it
+ * is the right-hand end of one strip, which is what the developer asked for.
+ * Semantically it is a second control: the chip group is named „Themen
+ * filtern", and a card/list switch is not a filter — announcing it as one more
+ * member of that group would be a lie to a screen reader. So the row is a flex
+ * container holding two named controls, and `justify-between` is what puts the
+ * toggle on the right.
  *
  * „+" OPENS THE CATEGORY MANAGER. It used to call `showPrompt` — one string,
  * create-only — which left a typo permanent and an unwanted category
@@ -50,8 +58,9 @@ export function TopicFilterBar({ filters, label, showOwnership = false }: TopicF
   const [managing, setManaging] = useState(false);
 
   return (
-    <>
+    <div className="flex items-center gap-stack-md">
     <FilterChips
+      className="min-w-0 flex-1"
       aria-label={label}
       value={filters.active}
       /* Pressing the ACTIVE chip clears it back to „Alle" (developer ruling).
@@ -80,6 +89,21 @@ export function TopicFilterBar({ filters, label, showOwnership = false }: TopicF
       ]}
     />
 
+      {/* `shrink-0` so the chips scroll past it rather than squeezing it: the
+          toggle is the row's fixed end, the filter strip is the elastic half. */}
+      <SegmentedControl
+        className="shrink-0"
+        aria-label={t('viewMode')}
+        value={filters.viewMode}
+        onValueChange={(v) => filters.setViewMode(v as 'card' | 'list')}
+        /* Icon-only (design-system 0.33.0): the label stays the accessible
+           name and is rendered sr-only, so the control is two glyphs to the eye
+           and still answers to „Karten" / „Liste". */
+        options={[
+          { value: 'card', label: t('viewModeCards'), icon: <LayoutGrid className="h-4 w-4" aria-hidden="true" /> },
+          { value: 'list', label: t('viewModeList'), icon: <List className="h-4 w-4" aria-hidden="true" /> },
+        ]}
+      />
 
       <CategoryManagerModal
         show={managing}
@@ -89,6 +113,6 @@ export function TopicFilterBar({ filters, label, showOwnership = false }: TopicF
         onRename={filters.renameCategory}
         onDelete={filters.deleteCategory}
       />
-    </>
+    </div>
   );
 }

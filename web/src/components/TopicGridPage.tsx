@@ -50,6 +50,14 @@ export interface TopicGridPageProps {
   /** The cards. */
   items: ReactNode[];
   /**
+   * `list` renders ONE column at any width; `card` fills as many as fit.
+   *
+   * It is a column count and not a different card, deliberately: a list view
+   * that swapped the tile for a row would be a second card component to keep in
+   * step with the first, for a difference the user asked to see as density.
+   */
+  viewMode?: 'card' | 'list';
+  /**
    * Shown ABOVE the grid when there are no items — it does not replace it, so a
    * page with a create tile never hides the way out of being empty.
    *
@@ -68,6 +76,7 @@ export function TopicGridPage({
   filterBar,
   items,
   emptyState,
+  viewMode = 'card',
 }: TopicGridPageProps) {
   return (
     <section id={id} aria-label={title} className="flex flex-col">
@@ -80,7 +89,14 @@ export function TopicGridPage({
             wall of cards wants the count to follow the container — which also
             keeps following it when the shell's nav column collapses, a width
             change no viewport breakpoint can see. */}
-        <Grid cols="auto">
+        {/* `sm` in list view: cards need the gutter to read as separate
+            objects, stacked rows do not — at 24px apart they read as unrelated
+            bands rather than one list. The value is the design system's own
+            gap scale, not a literal. */}
+        <Grid
+          cols={viewMode === 'list' ? 1 : 'auto'}
+          gap={viewMode === 'list' ? 'sm' : 'gutter'}
+        >
           {createCell}
           {items}
         </Grid>

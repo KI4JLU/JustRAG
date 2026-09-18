@@ -46,9 +46,11 @@ export function ToolsView() {
             disabled
             label={t('newTool')}
             text={t('newTool')}
+            compact={filters.viewMode === 'list'}
           />
         }
         filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
+        viewMode={filters.viewMode}
         items={[]}
         /* Named content rather than a bare page: the create tile is disabled,
            so without this the page would be one greyed-out control and no

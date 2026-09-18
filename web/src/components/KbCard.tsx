@@ -94,13 +94,21 @@ function canManageMembers(kb: KnowledgeBase): boolean {
 // KbCardChips is the compact metadata slice on each Home KB card (improvement
 // #6): up to two scent chips (files · messages) plus a single needs-attention
 // chip (failed, else processing). Lucide icons (#2), status tokens (#1).
-function KbCardChips({ kb, t }: { kb: KnowledgeBase; t: T }) {
+/**
+ * `compact` drops `.home-view__chip-row`, whose `margin-top: var(--space-2)` is
+ * stacked-card spacing: in the list ROW that margin pushes the chips below the
+ * row's centre line. It cannot be overridden with a utility — the rule is
+ * unlayered and Tailwind's utilities are in `@layer utilities`, so the
+ * unlayered one wins (`scripts/check-css-cascade.mjs` gates on that) — so the
+ * compact form carries no legacy class at all.
+ */
+function KbCardChips({ kb, t, compact = false }: { kb: KnowledgeBase; t: T; compact?: boolean }) {
   const processing = kb.processingFileCount ?? 0;
   const files = kb.fileCount ?? 0;
   const messages = kb.turnCount ?? 0;
   if (files === 0 && messages === 0 && processing === 0) return null;
   return (
-    <div className="home-view__chip-row">
+    <div className={compact ? 'flex shrink-0 items-center gap-stack-sm' : 'home-view__chip-row'}>
       {files > 0 && (
         <span className="home-view__chip">
           <FileText size={12} aria-hidden="true" />
@@ -144,12 +152,52 @@ export function CreateCell({
   label,
   text,
   disabled = false,
+  compact = false,
 }: {
   onClick?: () => void;
   label: string;
   text: string;
   disabled?: boolean;
+  /** One list row instead of a tile — matches `PrivateKbCard`'s compact form. */
+  compact?: boolean;
 }) {
+  /* THE COMPACT TILE IS THE SAME HEIGHT AS A LIST ROW, and neither states one.
+ 
+     Both are `px-gutter py-stack-sm` around a single 24px line box, so the two
+     heights are equal by construction rather than by a number kept in step:
+       - a row's tallest children are its mini-icon buttons (4px padding around
+         a 16px icon = 24px) and its name (`text-body-base`, 16px x 1.5 = 24px);
+       - this tile's line is the same 16px icon and the same type token.
+     Change the type scale or the icon size and both move together.
+ 
+     It uses `.home-view__create-row`, a sibling of `.home-view__create-card`
+     that repeats the tile's three appearance declarations (dashed border,
+     --bg-secondary, --accent-primary) and drops its shape — the `min-height`
+     and the centred column. A modifier ON the tile class would not work: that
+     rule and `.source-card`'s `padding: 1rem` are unlayered, so no utility
+     could override them, and the row needs different padding. */
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className="home-view__create-row"
+      >
+        {/* The icon sits in the SAME 24px box as a row's leading star
+            (`home-view__mini-icon` = 4px around a 16px glyph), which is what
+            makes this label and a topic's title start at the same x. Matching
+            it with a padding value instead would tie the two together through a
+            number nobody would think to keep in step. */}
+        <span className="home-view__mini-icon flex shrink-0 items-center justify-center">
+          <Plus size={16} aria-hidden="true" />
+        </span>
+        <span className="truncate">{text}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="source-card home-view__create-card">
       <button
@@ -189,6 +237,8 @@ export interface PrivateKbCardProps {
   onSelectKB: (kb: KnowledgeBase) => void;
   onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  /** One compact line instead of a card — the list view. */
+  compact?: boolean;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
@@ -309,7 +359,7 @@ function KbCardActions({
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  kb, currentUserId, systemRole, removingKb, rtf, t, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
   const actions = (
     <KbCardActions
@@ -325,6 +375,24 @@ export function PrivateKbCard({
     />
   );
 
+  /* The same set minus the star, which the list row renders up front. Built
+     from the same component as the card's, so the two orders cannot drift into
+     two different action sets. */
+  const compactActions = (
+    <KbCardActions
+      kb={kb}
+      systemRole={systemRole}
+      removingKb={removingKb}
+      t={t}
+      onOpenShare={onOpenShare}
+      onToggleFavourite={onToggleFavourite}
+      onOpenKbSettings={onOpenKbSettings}
+      onRenameKB={onRenameKB}
+      onDeleteKB={onDeleteKB}
+      includeFavourite={false}
+    />
+  );
+
   const nameButton = (
     <button
       type="button"
@@ -335,6 +403,53 @@ export function PrivateKbCard({
       {kb.name}
     </button>
   );
+
+  /* THE LIST ROW. One line, everything on one vertical centre.
+   *
+     IT SHARES NO CLASS WITH THE CARD, and that is the fix rather than a style
+     preference. `.source-card` (padding 1rem, margin-bottom 1rem),
+     `.source-title` (margin-bottom .25rem), `.home-view__kb-name`
+     (margin-top 1rem) and `.home-view__kb-meta` (margin-top .5rem) are all
+     STACKED-CARD spacing: inside a flex row those top margins push their child
+     down and defeat `items-center`, which is what tilted the row off its
+     baseline.
+ 
+     They cannot be overridden with a utility either. Those rules are UNLAYERED
+     while Tailwind's utilities sit in `@layer utilities`, so an unlayered rule
+     wins regardless of order — the repo gates on exactly that
+     (`scripts/check-css-cascade.mjs`). So the row is built from tokens only,
+     and carries no legacy class at all.
+ 
+     No fixed height: `items-center` on a row whose children have none makes the
+     height the tallest child plus the token padding. `p-stack-md` is one value
+     on all four sides (developer ruling) — a row is small enough that an
+     asymmetric inset reads as a mistake rather than as rhythm. */
+  if (compact) {
+    return (
+      <div
+        className="flex cursor-pointer items-center gap-stack-md rounded-action border border-outline-variant bg-surface-container-lowest p-stack-md transition-colors hover:border-primary"
+        role="presentation"
+        onClick={() => onSelectKB(kb)}
+      >
+        {/* FIRST in the row, ahead of the title (developer ruling). It is also
+            what aligns the title with the create tile's label: both rows are
+            `p-stack-md`, and this button and that tile's icon box are the same
+            24px square, so the two texts start at one x. */}
+        <FavouriteButton kb={kb} t={t} onToggleFavourite={onToggleFavourite} />
+        <div className="flex min-w-0 flex-1 items-center font-body-base text-body-base text-on-surface">
+          <span className="truncate">{nameButton}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-stack-sm">
+          <KbCardChips kb={kb} t={t} compact />
+          <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
+            {lastActiveLabel(kb, rtf, t)}
+          </span>
+          <VisibilityBadge kb={kb} t={t} />
+          {compactActions}
+        </div>
+      </div>
+    );
+  }
 
   return (
     // Card-level click is a mouse convenience (role="presentation"); the

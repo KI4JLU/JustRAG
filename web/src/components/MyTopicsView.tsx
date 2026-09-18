@@ -99,9 +99,11 @@ export function MyTopicsView({
             onClick={onCreateKB}
             label={t('newTopic')}
             text={t('newTopic')}
+            compact={filters.viewMode === 'list'}
           />
         }
         filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} showOwnership />}
+        viewMode={filters.viewMode}
         items={filters.apply(ownedKbs).map(kb => (
           <PrivateKbCard
             key={kb.id}
@@ -114,6 +116,7 @@ export function MyTopicsView({
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
             onToggleFavourite={onToggleFavourite}
+            compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}
             onRenameKB={onRenameKB}
             onDeleteKB={onDeleteKB}

@@ -40,6 +40,49 @@
   color: var(--accent-primary);
 }
 
+/* The list-view form of the create tile.
+ *
+ * It repeats `.home-view__create-card`'s three appearance declarations
+ * verbatim — dashed border, --bg-secondary, --accent-primary — because the
+ * developer asked the row to MIRROR the card, and the two must stay the same
+ * colour. What it does not take is the tile's shape: no `min-height`, no
+ * centred column.
+ *
+ * Written here rather than as Tailwind utilities on the element because
+ * `.source-card`'s `padding: 1rem` and this file's rules are UNLAYERED, so a
+ * utility cannot override them (scripts/check-css-cascade.mjs gates on that).
+ * The height stays underived: padding plus one line box, which is what makes it
+ * equal to a topic row without either side naming a number. */
+.home-view__create-row {
+  display: flex;
+  align-items: center;
+  /* The DESIGN SYSTEM's token, not this file's --space-*: the topic row beside
+     it uses the same one, which is what makes the two rows share a rhythm and
+     start their text at the same x. ONE value on all four sides (developer
+     ruling) — a row is small enough that an asymmetric inset reads as a
+     mistake rather than as rhythm. */
+  gap: var(--spacing-stack-md);
+  width: 100%;
+  inline-size: 100%;
+  padding: var(--spacing-stack-md);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--shape-md);
+  background: var(--bg-secondary);
+  color: var(--accent-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.home-view__create-row:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+}
+
+.home-view__create-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .home-view__create-card-btn {
   width: 100%;
   inline-size: 100%;

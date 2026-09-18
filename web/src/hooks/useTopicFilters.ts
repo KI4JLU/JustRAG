@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
+import { STORAGE_NAMESPACE, useStoredFlag } from './useStoredFlag';
 import type { KbUserCategory, KnowledgeBase } from '../types';
 import { visibilityState } from '../utils/kbVisibility';
 
@@ -41,6 +42,18 @@ export const FILTER_FAVOURITES = 'favourites';
 export const FILTER_PERSONAL = 'personal';
 export const FILTER_SHARED = 'shared';
 
+/**
+ * Card or list. Stored as a BOOLEAN („is it the list?") rather than a string,
+ * because `useStoredFlag` is this app's one persistence convention and a second
+ * one for a two-valued choice would be a second thing to keep working.
+ *
+ * One key for all four views, not one each: „I prefer lists" is a statement
+ * about the person, not about the page they happened to set it on.
+ */
+export const VIEW_MODE_KEY = `${STORAGE_NAMESPACE}topics.listView`;
+
+export type TopicViewMode = 'card' | 'list';
+
 /* FAVOURITES FIRST, whatever the filter (developer ruling). The create tile
    is rendered by the page and always precedes the list, so „first" here means
    first among the topics — directly after that button.
@@ -67,11 +80,14 @@ export interface TopicFilterState {
   deleteCategory: (id: string) => Promise<void>;
   /** Applies `active` to a list. Identity when the chip is „Alle". */
   apply: (kbs: KnowledgeBase[]) => KnowledgeBase[];
+  viewMode: TopicViewMode;
+  setViewMode: (mode: TopicViewMode) => void;
 }
 
 export function useTopicFilters(): TopicFilterState {
   const [active, setActive] = useState<string>(FILTER_ALL);
   const [categories, setCategories] = useState<KbUserCategory[]>([]);
+  const [listView, setListView] = useStoredFlag(VIEW_MODE_KEY, false);
 
   const load = useCallback(async () => {
     try {
@@ -135,12 +151,15 @@ export function useTopicFilters(): TopicFilterState {
     return favouritesFirst(kbs.filter(kb => kb.userCategoryIds?.includes(active) === true));
   }, [active]);
 
+  const viewMode: TopicViewMode = listView ? 'list' : 'card';
+  const setViewMode = useCallback((mode: TopicViewMode) => setListView(mode === 'list'), [setListView]);
+
   return useMemo(
     () => ({
       active, setActive, categories,
       createCategory, renameCategory, deleteCategory,
-      apply,
+      apply, viewMode, setViewMode,
     }),
-    [active, categories, createCategory, renameCategory, deleteCategory, apply],
+    [active, categories, createCategory, renameCategory, deleteCategory, apply, viewMode, setViewMode],
   );
 }

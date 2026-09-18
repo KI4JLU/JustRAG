@@ -115,9 +115,11 @@ export function SharedTopicsView({
             onClick={onViewDiscover}
             label={t('addTopic')}
             text={t('addTopic')}
+            compact={filters.viewMode === 'list'}
           />
         }
         filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
+        viewMode={filters.viewMode}
         items={filters.apply(sharedKbs).map(kb => (
           <PrivateKbCard
             key={kb.id}
@@ -130,6 +132,7 @@ export function SharedTopicsView({
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
             onToggleFavourite={onToggleFavourite}
+            compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}
             onRenameKB={onRenameKB}
             onDeleteKB={onDeleteKB}
