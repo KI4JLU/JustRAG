@@ -64,7 +64,12 @@ export function TopicGridPage({
     <section id={id} aria-label={title} className="flex flex-col">
       <Container className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
         <PageHeader title={title} description={description} />
-        <Grid>
+        {/* `auto`, not a number: the numbered variants are a BREAKPOINT ladder,
+            so `cols={3}` renders two columns everywhere from 768 to 1279px. A
+            wall of cards wants the count to follow the container — which also
+            keeps following it when the shell's nav column collapses, a width
+            change no viewport breakpoint can see. */}
+        <Grid cols="auto">
           {createCell}
           {items}
         </Grid>
