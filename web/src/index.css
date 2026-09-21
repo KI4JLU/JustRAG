@@ -514,7 +514,13 @@ button.source-card {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-secondary);
+  /* No background of its own (21.09.2026). `AppShell` paints its `<main>`
+     `bg-surface` and the two columns + bar `bg-surface-container-lowest` —
+     the HomeView pattern. This rule used to set `var(--bg-secondary)`, which
+     IS `--color-surface-container-lowest`, so the chat painted the sidebar
+     tone over the main area and the three regions read as one slab with two
+     1px lines through it. Letting the shell's surface show is the fix; the
+     shell is the source of truth for which region has which tone. */
   position: relative;
   /* min-width:0 is the keystone of the action-bar overflow fix: a flex:1 item
      defaults to min-width:auto, so this panel otherwise refuses to shrink below

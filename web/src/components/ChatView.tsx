@@ -1,8 +1,8 @@
 import { lazy, Suspense, memo, useCallback, useRef, useEffect, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import {
-  ArrowLeft, BookOpen, Brain, Send,
-  BarChart2, MessageSquare, UserPlus, X, Search, GitBranch, Settings, Check, Trash2, SlidersHorizontal, Network,
+  Brain, Send,
+  X, Search, GitBranch, Settings, Check, Trash2,
   UploadCloud, Globe, FlaskConical, Sparkles, ChevronDown, FileText, Bot, Users,
 } from 'lucide-react';
 import { AnchoredPopover } from './AnchoredPopover';
@@ -23,12 +23,9 @@ import { useMessageSections } from '../hooks/useMessageSections';
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { viewportHeight } from '../utils/viewport';
 import { canOpenKbAdvancedSettings } from '../utils/kbAccess';
 import { BranchTreeNav } from './BranchTreeNav';
-import { KbHeaderTitle } from './KbHeaderTitle';
 import { MessageSkeleton } from './Skeleton';
-import { BackgroundJobsIndicator } from './BackgroundJobsIndicator';
 import { registerJob, unregisterJob } from '../utils/jobRegistry';
 
 const Dashboard = lazy(() => import('../Dashboard'));
@@ -60,21 +57,21 @@ const chatSuspenseFallback = (
 );
 
 const ChatViewComp = () => {
-  const { language, setLanguage, t } = useTheme();
+  const { language, t } = useTheme();
   const { user, siteConfigs } = useAuth();
   const isMobile = useIsMobileContext();
   const reducedMotion = useReducedMotion();
 
   const {
-    currentKb, availableConfigs, kbView, setKbView, handleGoHome, handleUpdateKBSettings, onViewAgents,
-    scopedMindmapMessageId, onViewGraphForMessage, onCloseMindmap, onShowWholeKb, kbMgmt,
+    currentKb, availableConfigs, kbView, setKbView, handleUpdateKBSettings, onViewAgents,
+    scopedMindmapMessageId, onViewGraphForMessage, onCloseMindmap, onShowWholeKb,
   } = useKbCore();
   const {
     chat, enhance, setEnhance, reasoningEnabled, setReasoningEnabled,
     setResearchRunning, setAcademicResearchRunning,
     agentSelection, setAgentSelection,
   } = useKbChat();
-  const { fileMgmt, webTools, content, sharing, handleSelectContent } = useKbData();
+  const { fileMgmt, webTools, content, handleSelectContent } = useKbData();
   const { sidebar } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
@@ -139,7 +136,6 @@ const ChatViewComp = () => {
   } = fileMgmt;
   const { handlePreviewSource, handlePdfSourceOpen, setToolTab } = webTools;
   const { handleGenerate, selectedContent } = content;
-  const { handleOpenShare } = sharing;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
@@ -189,167 +185,16 @@ const ChatViewComp = () => {
     return undefined;
   }, [kbAgentOptions]);
 
-  const viewTabStyle = (active: boolean): React.CSSProperties => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: isMobile ? '0' : '6px',
-    padding: isMobile ? '6px 8px' : '6px 12px',
-    minHeight: isMobile ? '44px' : undefined,
-    borderRadius: '6px',
-    border: 'none',
-    background: active ? 'var(--bg-primary)' : 'transparent',
-    color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    fontWeight: 500,
-    transition: 'all 0.2s',
-  });
 
   return (
-    <div className="chat-area" style={isMobile ? { height: viewportHeight('calc(100dvh - 60px)', 'calc(100vh - 60px)') } : undefined}>
-      <header className="chat-header" style={isMobile ? { padding: '0.75rem' } : undefined}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', minWidth: 0 }}>
-          {/* Zurück steht links von Symbol und Titel — also ganz am Anfang der
-              Kopfleiste. Bis 2026-08 saß der Desktop-Knopf in der Quellenleiste;
-              seit die nach rechts gewandert ist, lag er auf der falschen Seite
-              des Bildschirms und weit weg vom Titel, zu dem er gehört.
-              `handleGoHome` und nicht `handleViewHome`: Verlassen setzt kbView
-              auf 'chat' zurück, sonst landet man beim nächsten Öffnen der KB
-              wieder im zuletzt gewählten Reiter (z.B. 'workspace'). */}
-          <button
-            onClick={handleGoHome}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', color: 'var(--text-secondary)' }}
-            title={t('backToOverview')}
-            aria-label={t('backToOverview')}
-          >
-            <ArrowLeft size={20} aria-hidden="true" />
-          </button>
-          {!isMobile && (
-            <div style={{ padding: '8px', background: 'var(--tag-bg)', borderRadius: '8px', color: 'var(--accent-primary)' }}>
-              <BookOpen size={20} aria-hidden="true" />
-            </div>
-          )}
-          <KbHeaderTitle kb={currentKb} systemRole={user?.role} onRename={kbMgmt.handleRenameKB} compact={isMobile} />
-          <div style={{ display: 'flex', marginLeft: isMobile ? '4px' : '24px', gap: '4px', background: 'var(--bg-secondary)', padding: '4px', borderRadius: '8px' }}>
-            <button onClick={() => setKbView('chat')} style={viewTabStyle(kbView === 'chat')} aria-current={kbView === 'chat' ? 'page' : undefined} aria-label="Chat">
-              <MessageSquare size={16} aria-hidden="true" />
-              {!isMobile && 'Chat'}
-            </button>
-            {currentKb?.isGlobal && (user?.role === 'admin' || user?.role === 'superadmin') && (
-              <button onClick={() => setKbView('dashboard')} style={viewTabStyle(kbView === 'dashboard')} aria-current={kbView === 'dashboard' ? 'page' : undefined} aria-label={t('analytics')}>
-                <BarChart2 size={16} aria-hidden="true" />
-                {!isMobile && t('analytics')}
-              </button>
-            )}
-            <button
-              onClick={() => setKbView('research')}
-              style={viewTabStyle(kbView === 'research')}
-              title={t('research')}
-              aria-current={kbView === 'research' ? 'page' : undefined}
-              aria-label={t('research')}
-            >
-              <Search size={16} aria-hidden="true" />
-              {!isMobile && t('research')}
-            </button>
-            <button
-              onClick={() => setKbView('mindmap')}
-              style={viewTabStyle(kbView === 'mindmap')}
-              title={t('mindMap')}
-              aria-current={kbView === 'mindmap' ? 'page' : undefined}
-              aria-label={t('mindMap')}
-            >
-              <Network size={16} aria-hidden="true" />
-              {!isMobile && t('mindMap')}
-            </button>
-            <button
-              onClick={() => setKbView('workspace')}
-              style={viewTabStyle(kbView === 'workspace')}
-              title={t('workspace')}
-              aria-current={kbView === 'workspace' ? 'page' : undefined}
-              aria-label={t('workspace')}
-            >
-              <Sparkles size={16} aria-hidden="true" />
-              {!isMobile && t('workspace')}
-            </button>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '16px' }}>
-          <BackgroundJobsIndicator />
-          {!isMobile && (
-            <>
-              <button
-                onClick={() => setLanguage(language === 'de' ? 'en' : 'de')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: 'var(--text-secondary)',
-                  padding: '4px',
-                  fontWeight: 600,
-                  fontSize: '0.85rem'
-                }}
-                title={t('switchLanguage')}
-                aria-label={t('switchLanguage')}
-              >
-                {language.toUpperCase()}
-              </button>
-              {canTuneKB && (
-                <button
-                  type="button"
-                  onClick={() => setShowKbSettings(true)}
-                  style={{
-                    background: showKbSettings ? 'var(--tag-bg)' : 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    color: showKbSettings ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                    padding: '4px',
-                    borderRadius: '6px',
-                  }}
-                  title={t('kbTuning')}
-                  aria-label={t('kbTuning')}
-                  aria-pressed={showKbSettings}
-                >
-                  <SlidersHorizontal size={20} aria-hidden="true" />
-                </button>
-              )}
-              {/* Deliberately NO KB-settings trigger here (2026-08-12): users
-                  are not meant to control their KB's AI provider or models.
-                  Consequence: SettingsModal is unreachable again. It is kept
-                  because it holds the ONLY UI for provider + chat/embedding/
-                  rerank/tts model selection, which an operator surface will
-                  need. To revive: render a button calling setShowSettings(true).
-                  Agent controls are NOT here — they live in the composer's
-                  system-prompt panel. */}
-            </>
-          )}
-          {currentKb?.userId === user?.id && (
-            <button
-              type="button"
-              onClick={(e) => handleOpenShare(currentKb, e)}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                color: 'var(--text-secondary)',
-                padding: '4px',
-              }}
-              title={t('shareKb')}
-              aria-label={t('shareKb')}
-            >
-              <UserPlus size={20} aria-hidden="true" />
-            </button>
-          )}
-        </div>
-      </header>
-
-
-      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="chat-area">
+      {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
+          Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
+          „Hauptinhalt"-Sprungziel für Screenreader. Die eigene Höhenrechnung
+          (`calc(100dvh - 60px)` auf Mobil) ist mit der `MobileTabBar` gegangen,
+          die sie freihielt — die Shell reserviert die Höhe ihrer Leiste jetzt
+          selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {
           kbView === 'chat' ? (
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
@@ -1016,7 +861,7 @@ const ChatViewComp = () => {
             </Suspense>
           )
         }
-      </main>
+      </div>
       {showKbSettings && currentKb && (
         <div
           className="modal-overlay"

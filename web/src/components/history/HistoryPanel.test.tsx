@@ -12,28 +12,19 @@ const handleDeleteGeneratedContent = vi.fn();
 
 let activeChatId: string | null = null;
 
-const shellProps: Record<string, unknown> = {};
-
-vi.mock('../sidebar-shell/SidebarShell', () => ({
-  SidebarShell: (props: Record<string, unknown>) => {
-    Object.assign(shellProps, props);
-    return <aside>{props.children as React.ReactNode}</aside>;
-  },
+// Der Einklapp-Zustand kommt vom `SidePanel` des Design-Systems, nicht aus dem
+// App-Zustand. Nur diesen einen Export ersetzen — `Button` und alles andere
+// bleiben die ausgelieferten Komponenten (`importOriginal`).
+let collapsed = false;
+vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useSidebarCollapsed: () => collapsed,
 }));
+
 vi.mock('../../contexts/MobileContext', () => ({ useIsMobileContext: () => false }));
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 vi.mock('../../contexts/KbCoreContext', () => ({
   useKbCore: () => ({ currentKb: { id: 'kb1' }, setKbView, handleGoHome: vi.fn() }),
-}));
-// Links/Rechts-Werte bewusst unterschiedlich, damit ein Test, der versehentlich
-// die rechten Sidebar-Felder verdrahtet, an isOpen/width erkennbar rot wird.
-vi.mock('../../contexts/KbLayoutContext', () => ({
-  useKbLayout: () => ({
-    sidebar: {
-      isLeftSidebarOpen: true, leftSidebarWidth: 320, setIsLeftSidebarOpen: vi.fn(),
-      isRightSidebarOpen: false, rightSidebarWidth: 500,
-    },
-  }),
 }));
 vi.mock('../../contexts/KbChatContext', () => ({
   useKbChat: () => ({
@@ -60,7 +51,7 @@ vi.mock('../../contexts/KbDataContext', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   activeChatId = null;
-  for (const k of Object.keys(shellProps)) delete shellProps[k];
+  collapsed = false;
 });
 
 describe('HistoryPanel', () => {
@@ -112,11 +103,20 @@ describe('HistoryPanel', () => {
     expect(setKbView).toHaveBeenCalledWith('chat');
   });
 
-  it('hängt an der LINKEN Seitenleiste', () => {
-    render(<HistoryPanel />);
-    expect(shellProps.side).toBe('left');
-    expect(shellProps.isOpen).toBe(true);      // aus dem useKbLayout-Mock: isLeftSidebarOpen
-    expect(shellProps.width).toBe(320);        // leftSidebarWidth, nicht rightSidebarWidth (500)
+  it('bringt keinen eigenen Rahmen mehr mit — die Spalte gehört der Shell', () => {
+    // Bis zum Umzug auf `AppShellLayout` brachte dieses Panel seinen eigenen
+    // `SidebarShell` mit: ein <aside> mit eigener Breite, eigenem Einklapp-
+    // Knopf und eigenem Zustand. Die Shell stellt jetzt genau diesen Rahmen
+    // (ihr `SidePanel`), und zwei ineinander steckende Rahmen hießen zwei
+    // Knöpfe und zwei Breiten für eine Spalte.
+    //
+    // Der Oracle ist NICHT die Ausgabe dieser Komponente, sondern die
+    // Zuständigkeit: `KbWorkspaceLayout` hängt das Panel in `nav` ein und
+    // führt links `isLeftSidebarOpen` — geprüft in KbWorkspaceLayout.test.tsx.
+    // Hier bleibt die Gegenprobe: das Panel selbst führt nichts davon.
+    const { container } = render(<HistoryPanel />);
+    expect(container.querySelector('aside')).toBeNull();
+    expect(screen.getByText('history')).toBeInTheDocument();
   });
 
   it('löscht ein Artefakt über handleDeleteGeneratedContent, nicht über handleDeleteChat', async () => {
@@ -131,5 +131,46 @@ describe('HistoryPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'deleteItem Budget?' }));
     expect(handleDeleteChat).toHaveBeenCalledWith('c1', expect.anything());
     expect(handleDeleteGeneratedContent).not.toHaveBeenCalled();
+  });
+
+  /* Die eingeklappte 60px-Schiene.
+   *
+   * `AppShellLayout` rendert `nav` in BEIDEN Zuständen — ausgeklappt als
+   * Spalteninhalt, eingeklappt als `collapsedPreview`. Ohne eigenen Zweig
+   * landete deshalb das ganze Panel in 60px Breite, mit Überschrift,
+   * Datumszeilen und Löschknöpfen. Genau das prüfen die Abwesenheits-
+   * Assertionen unten; sie sind die Regression, nicht die Symbolzahl.
+   */
+  it('zeigt eingeklappt ein Symbol je Verlaufseintrag, sonst nichts', () => {
+    collapsed = true;
+    render(<HistoryPanel />);
+
+    // Ein Knopf je Eintrag, benannt nach seinem Titel — in 60px ist kein Platz
+    // für Text, ein Knopf ohne zugänglichen Namen wäre für Screenreader leer.
+    // ORACLE: dieselben vier Titel, die der ausgeklappte Test oben in
+    // derselben Reihenfolge erwartet.
+    const names = screen.getAllByRole('button').map(b => b.getAttribute('aria-label'));
+    expect(names).toEqual(['Analyse: Budget', 'Zero-Trust', 'Paper', 'Budget?']);
+
+    // Und nichts von der ausgeklappten Ansicht.
+    expect(screen.queryByText('history')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('history-item-title')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'newChat' })).not.toBeInTheDocument();
+  });
+
+  it('öffnet aus der Schiene denselben Eintrag wie aus der Liste', async () => {
+    collapsed = true;
+    render(<HistoryPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'Analyse: Budget' }));
+    expect(handleSelectContent).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }));
+    expect(setKbView).toHaveBeenCalledWith('workspace');
+  });
+
+  it('markiert den offenen Chat in der Schiene', () => {
+    collapsed = true;
+    activeChatId = 'c1';
+    render(<HistoryPanel />);
+    expect(screen.getByRole('button', { name: 'Budget?' })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: 'Zero-Trust' })).not.toHaveAttribute('aria-current');
   });
 });

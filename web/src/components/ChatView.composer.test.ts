@@ -28,36 +28,51 @@ describe('ChatView-Composer', () => {
   });
 });
 
-// Der Zurückknopf saß bis 2026-08 in der Quellenleiste. Seit die im
-// UI-Organisationsrework nach rechts gewandert ist, stand er auf der falschen
-// Bildschirmseite — weit weg von Symbol und Titel, zu denen er gehört. Er
-// steht jetzt ganz links in der Kopfleiste der KB-Ansicht, auf Desktop wie auf
-// Mobil (vorher war es ein Entweder-oder: Mobil Zurück, Desktop Symbol).
+// Der Zurückknopf saß bis 2026-08 in der Quellenleiste, dann in ChatViews
+// eigener `chat-header`. Diese Kopfleiste gibt es nicht mehr: seit der Umzug
+// auf `AppShellLayout` die Chrome-Leiste der Shell zur einzigen macht, steht
+// der Knopf in `KbWorkspaceLayout.tsx` und wird als `pageLabel` eingehängt.
+// Der Wächter zieht mit ihm um — bliebe er auf ChatView.tsx stehen, wäre er
+// ab sofort dauerhaft rot, ohne dass am Knopf etwas fehlt.
 //
 // Textwächter, kein Render-Test: ChatView zieht ein gutes Dutzend Kontexte und
-// hat deshalb repo-weit keinen Render-Harness. Der zweite Test unten hält den
-// Wächter davon ab, vakuum-grün zu werden.
+// hat deshalb repo-weit keinen Render-Harness. Die Vakuum-Assertion in jedem
+// Block hält den Wächter davon ab, grün zu werden, weil er ins Leere liest.
 const sourcesPanel = readFileSync(
   path.join(here, 'sources', 'SourcesPanel.tsx'),
   'utf8',
 );
+const workspaceLayout = readFileSync(
+  path.join(here, 'KbWorkspaceLayout.tsx'),
+  'utf8',
+);
 
 describe('Zurück-Knopf in der KB-Kopfleiste', () => {
-  it('steht in der Kopfleiste und ist nicht mehr an isMobile gebunden', () => {
+  it('steht in der Chrome-Leiste der Shell und ist nicht mehr an isMobile gebunden', () => {
     // Der Knopf trägt backToOverview und ruft handleGoHome (nicht
     // handleViewHome — sonst bleibt kbView auf dem zuletzt gewählten Reiter
     // stehen und die KB öffnet sich beim nächsten Mal nicht im Chat).
-    expect(src).toContain('ArrowLeft');
-    expect(src).toContain("aria-label={t('backToOverview')}");
-    expect(src).toContain('onClick={handleGoHome}');
-    // Das Symbol ist die Desktop-Variante, der Knopf nicht. Die alte Form war
-    // ein Ternär — Mobil Zurück ODER Desktop Symbol —, und genau die darf
-    // nicht zurückkommen: sie ist der Zustand, in dem der Desktop keinen
-    // Zurückknopf hat. `{!isMobile && (` als Wächter wäre wirkungslos, den
-    // Ausdruck gibt es in dieser Datei an drei weiteren Stellen (per Mutation
-    // geprüft: die Assertion blieb grün).
-    expect(src).not.toContain('isMobile ? (');
-    expect(src).not.toContain("aria-label={t('back')}");
+    expect(workspaceLayout).toContain('ArrowLeft');
+    expect(workspaceLayout).toContain("aria-label={t('backToOverview')}");
+    expect(workspaceLayout).toContain('onClick={handleGoHome}');
+    // Eine Sicht, ein Knopf: die alte Form war ein Ternär — Mobil Zurück ODER
+    // Desktop Symbol —, und genau die darf nicht zurückkommen, sie ist der
+    // Zustand, in dem der Desktop keinen Zurückknopf hat. In dieser Datei ist
+    // die Assertion scharf, weil sie `isMobile` überhaupt nicht mehr kennt:
+    // die Fallunterscheidung Desktop/Mobil gehört seit dem Umzug der Shell.
+    expect(workspaceLayout).not.toContain('isMobile');
+    // Vakuum-Schutz für DIESE Datei: sie wird wirklich gelesen.
+    expect(workspaceLayout).toContain('export function KbWorkspaceLayout');
+  });
+
+  it('ist aus ChatViews eigener Kopfleiste verschwunden', () => {
+    // Zwei Zurückknöpfe auf einem Bildschirm wären keine gemeldete Störung,
+    // sie sähen nur nach Doppelung aus. Die ganze `chat-header` ist weg —
+    // geprüft am Klassennamen, den nur sie trug.
+    expect(src).not.toContain('chat-header');
+    expect(src).not.toContain("aria-label={t('backToOverview')}");
+    // Vakuum-Schutz: die Datei wird wirklich gelesen.
+    expect(src).toContain('const ChatViewComp');
   });
 
   it('ist aus der Quellenleiste verschwunden', () => {

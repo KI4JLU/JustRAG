@@ -2,6 +2,7 @@ import React, { memo, useCallback, useMemo } from 'react';
 import {
     MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft,
 } from 'lucide-react';
+import { Button, useSidebarCollapsed } from '@ki4jlu/design-system';
 import type { ChatEntry, GeneratedContent } from '../../types';
 import { artifactTypeLabel } from '../../utils/artifactTypes';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -9,8 +10,6 @@ import { useIsMobileContext } from '../../contexts/MobileContext';
 import { useKbCore } from '../../contexts/KbCoreContext';
 import { useKbChat } from '../../contexts/KbChatContext';
 import { useKbData } from '../../contexts/KbDataContext';
-import { useKbLayout } from '../../contexts/KbLayoutContext';
-import { SidebarShell } from '../sidebar-shell/SidebarShell';
 import { ContentRowSkeleton } from '../Skeleton';
 import { buildHistoryItems, type HistoryItem, type HistoryKind } from './historyItems';
 import '../sidebar-primitives.css';
@@ -26,10 +25,14 @@ const KIND_ICON: Record<HistoryKind, typeof MessageSquare> = {
 const HistoryPanelComp: React.FC = () => {
     const { t } = useTheme();
     const isMobile = useIsMobileContext();
+    // TRUE, sobald `SidePanel` die Spalte als 60px-Schiene rendert. Nicht
+    // `sidebar.isLeftSidebarOpen`: unterhalb `lg` zeigt die Shell die Spalte
+    // bildschirmfüllend und IGNORIERT den Einklapp-Zustand — wer sich auf den
+    // App-Zustand verließe, bekäme dort die Schiene über die volle Breite.
+    const collapsed = useSidebarCollapsed();
     const { currentKb, setKbView, handleGoHome } = useKbCore();
     const { chat } = useKbChat();
     const { content, handleSelectContent } = useKbData();
-    const { sidebar } = useKbLayout();
 
     const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleNewChat } = chat;
     const { generatedContent, generating, handleDeleteGeneratedContent, podcastProgress } = content;
@@ -73,22 +76,53 @@ const HistoryPanelComp: React.FC = () => {
             : item.kind === 'academic' ? t('historyKindAcademic')
             : t('chat');
 
+    /* DIE EINGEKLAPPTE SCHIENE (60px).
+     *
+     * `AppShellLayout` rendert `nav` in BEIDEN Zuständen — ausgeklappt als
+     * Spalteninhalt, eingeklappt als `collapsedPreview` der Schiene. Ohne
+     * diesen Zweig landete also das ganze Verlaufspanel in 60px Breite:
+     * Überschrift, Datumszeilen und Löschknöpfe, umbrochen bis zur
+     * Unleserlichkeit. Das war der falsche Zustand.
+     *
+     * Ein Symbol je Eintrag, und zwar das Symbol SEINER ART (`KIND_ICON`) —
+     * dieselbe Zuordnung wie in der ausgeklappten Liste, damit ein Eintrag
+     * beim Ein- und Ausklappen nicht das Symbol wechselt. Der Titel steht im
+     * `aria-label` und im `title`, weil in der Schiene kein Text hinpasst und
+     * ein Knopf ohne zugänglichen Namen für Screenreader leer wäre.
+     *
+     * Der „Neuer Chat"-Knopf kommt NICHT mit: er ist nicht Teil dessen, was
+     * hier angefragt war. Er ist damit erst nach dem Ausklappen erreichbar.
+     * // TODO: ob die Schiene ihn tragen soll, ist nicht entschieden.
+     */
+    if (collapsed) {
+        return (
+            <ul className="history-panel__rail">
+                {items.map(item => {
+                    const Icon = KIND_ICON[item.kind];
+                    const isActive = item.kind !== 'artifact' && item.id === activeChatId;
+                    return (
+                        <li key={`${item.kind}-${item.id}`}>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openItem(item)}
+                                className={isActive ? 'history-panel__rail-item--active' : undefined}
+                                title={item.title}
+                                aria-label={item.title}
+                                aria-current={isActive ? 'true' : undefined}
+                            >
+                                <Icon size={18} aria-hidden="true" />
+                            </Button>
+                        </li>
+                    );
+                })}
+            </ul>
+        );
+    }
+
     return (
-        <SidebarShell
-            side="left"
-            isOpen={sidebar.isLeftSidebarOpen}
-            width={sidebar.leftSidebarWidth}
-            onExpand={() => sidebar.setIsLeftSidebarOpen(true)}
-            onCollapse={() => sidebar.setIsLeftSidebarOpen(false)}
-            expandLabel={t('expandHistorySidebar')}
-            collapseLabel={t('collapseHistorySidebar')}
-            collapsedPreview={
-                <>
-                    <div className="sidebar-ui__collapsed-divider" />
-                    <MessageSquare size={20} color="var(--accent-primary)" />
-                </>
-            }
-        >
+        <>
             {isMobile && (
                 <div className="history-panel__mobile-header">
                     <button onClick={handleGoHome} className="history-panel__back" aria-label={t('back')}>
@@ -163,7 +197,7 @@ const HistoryPanelComp: React.FC = () => {
                     )}
                 </ul>
             </div>
-        </SidebarShell>
+        </>
     );
 };
 

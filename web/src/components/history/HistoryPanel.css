@@ -1,9 +1,18 @@
+/* KEINE EIGENE POLSTERUNG. `AppShellLayout` legt den `nav`-Slot in
+   <nav class="flex flex-col gap-2 p-4">, also sind 16px Einrückung schon da,
+   bevor diese Datei etwas sagt. Die 1.5rem, die hier bis zum Umzug standen,
+   kamen oben drauf: 40px, wo die rechte Spalte bei 0 anfängt (ihr `content`
+   wird von `AppShell` in ein <div> OHNE Polsterung gelegt). Gemessen in
+   Chromium, `KbColumnHeadingBaseline` in `KbWorkspaceLayout.stories.tsx`.
+
+   Die Spalte wird dadurch schmaler eingerückt als vorher — das ist die
+   Einrückung, die die Shell für ihre Navigationsspalte vorsieht, und die Liste
+   folgt ihr jetzt, statt eine zweite daraufzusetzen. */
 .history-panel {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 1.5rem;
   overflow-y: auto;
 }
 
@@ -64,4 +73,26 @@
     min-width: 44px;
     min-height: 44px;
   }
+}
+
+/* Die eingeklappte 60px-Schiene: ein Symbol je Verlaufseintrag.
+   `SidePanel` zentriert und scrollt die Schiene bereits (`items-center`,
+   `overflow-y-auto`), also setzt diese Liste nur ihre eigenen Abstände und
+   verzichtet auf die Aufzählungszeichen. */
+.history-panel__rail {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Nur der aktive Zustand ist unsere Regel — Größe, Rahmen und Hover kommen
+   vom `Button` des Design-Systems (`variant="ghost" size="icon"`). */
+.history-panel__rail-item--active {
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
 }

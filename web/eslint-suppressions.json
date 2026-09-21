@@ -71,7 +71,7 @@
   },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 23
+      "count": 14
     }
   },
   "src/components/ComparisonView.tsx": {
@@ -446,7 +446,7 @@
   },
   "src/components/sidebar/SourcesSection.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 17
+      "count": 16
     }
   },
   "src/components/sidebar/WebSearchModal.tsx": {
@@ -456,7 +456,7 @@
   },
   "src/components/sources/SourcesPanel.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 2
+      "count": 1
     }
   }
 }
