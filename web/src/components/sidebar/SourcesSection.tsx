@@ -28,7 +28,6 @@ interface SourcesSectionProps {
     onDeleteGitRepoSource: (sourceId: string) => void;
     onSyncGitRepoNow: (sourceId: string) => void;
     onRetryFile: (id: string) => void;
-    onRetryAllFailed: () => void;
 }
 
 // Maps files.error_stage values (backend vocabulary, see
@@ -50,14 +49,13 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
-    onRetryFile, onRetryAllFailed
+    onRetryFile
 }) => {
     const { t } = useTheme();
 
     const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
     const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
-    const failedCount = files.filter(f => f.status === 'error').length;
     const errorLabel = (file: FileEntry) => {
         if (file.errorStage && ERROR_STAGE_KEYS[file.errorStage]) return t(ERROR_STAGE_KEYS[file.errorStage]);
         return file.errorMessage || t('fileErrorUnknown');
@@ -65,19 +63,6 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 
     return (
         <div className="sidebar-left__files-section">
-            <div className="sidebar-left__files-header sidebar-ui__section-header">
-                <h2 className="sidebar-left__files-title">{t('sources')}</h2>
-                {failedCount > 0 && (
-                    <button
-                        onClick={onRetryAllFailed}
-                        className="text-button sidebar-left__retry-all-failed"
-                        title={t('retryAllFailed')}
-                    >
-                        <RefreshCw size={12} aria-hidden="true" /> {t('retryAllFailed')} ({failedCount})
-                    </button>
-                )}
-            </div>
-
             <ul className="sidebar-left__files-list sidebar-ui__list">
                 {nonRssFiles.map(file => (
                     <li key={file.id} className="source-card sidebar-left__file-card">

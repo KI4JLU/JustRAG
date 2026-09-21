@@ -305,6 +305,9 @@ export const translations = {
     // File ingestion errors + retry
     retrySource: { de: 'Erneut verarbeiten', en: 'Retry' },
     retryAllFailed: { de: 'Fehlgeschlagene erneut verarbeiten', en: 'Retry failed' },
+    // Visible label of the bulk-retry button; the count follows it. The long
+    // form above stays as its tooltip.
+    retryAllFailedShort: { de: 'Erneut versuchen', en: 'Retry all' },
     retryRequestFailed: { de: 'Erneute Verarbeitung konnte nicht gestartet werden', en: 'Could not restart processing' },
     fileErrorUnsupportedType: { de: 'Dateityp wird nicht unterstützt', en: 'Unsupported file type' },
     fileErrorParse: { de: 'Datei konnte nicht gelesen werden', en: 'The file could not be parsed' },

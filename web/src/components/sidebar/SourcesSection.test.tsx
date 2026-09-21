@@ -39,7 +39,6 @@ const baseProps = {
   onDeleteGitRepoSource: vi.fn(),
   onSyncGitRepoNow: vi.fn(),
   onRetryFile: vi.fn(),
-  onRetryAllFailed: vi.fn(),
 };
 
 describe('SourcesSection error display + retry', () => {
@@ -66,23 +65,20 @@ describe('SourcesSection error display + retry', () => {
     expect(screen.getByText('fileErrorUnknown')).toBeInTheDocument();
   });
 
-  it('hides retry controls when nothing failed', () => {
+  it('hides the per-file retry control when nothing failed', () => {
     render(<SourcesSection {...baseProps} files={[makeFile({})]} />);
-    expect(screen.queryByText(/retryAllFailed/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retrySource/ })).not.toBeInTheDocument();
   });
 
-  it('shows the bulk retry button with the failed count and fires the callback', async () => {
-    const onRetryAllFailed = vi.fn();
-    const files = [
-      makeFile({ id: 'f-1', status: 'error' }),
-      makeFile({ id: 'f-2', name: 'b.pdf', status: 'error' }),
-      makeFile({ id: 'f-3', name: 'c.pdf' }),
-    ];
-    render(<SourcesSection {...baseProps} files={files} onRetryAllFailed={onRetryAllFailed} />);
-
-    const btn = screen.getByRole('button', { name: /retryAllFailed \(2\)/ });
-    await userEvent.click(btn);
-    expect(onRetryAllFailed).toHaveBeenCalledTimes(1);
+  it('no longer carries the section heading or the bulk retry button', () => {
+    // Both moved into the right column's h-16 header row, which the shell
+    // renders and `KbWorkspaceLayout` fills — see SourcesHeader.test.tsx.
+    // Asserted here rather than only there because a SECOND copy left behind
+    // in the scrolling list is exactly what this move must not produce, and
+    // nothing in SourcesHeader's own test can see it.
+    const files = [makeFile({ id: 'f-1', status: 'error' }), makeFile({ id: 'f-2', name: 'b.pdf', status: 'error' })];
+    render(<SourcesSection {...baseProps} files={files} />);
+    expect(screen.queryByRole('heading', { name: 'sources' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/retryAllFailed/)).not.toBeInTheDocument();
   });
 });

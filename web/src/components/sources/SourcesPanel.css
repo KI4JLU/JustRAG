@@ -15,50 +15,6 @@
   flex-direction: column;
 }
 
-.sidebar-left__header-wrap {
-  flex: none;
-  padding: 1.5rem 1.5rem 0;
-}
-
-.sidebar-left__header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-}
-
-.sidebar-left__brand-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.sidebar-left__brand-button {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 48px;
-  padding: 0;
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.sidebar-left__brand-logo {
-  height: 100%;
-  max-width: 180px;
-  object-fit: contain;
-}
-
-.sidebar-left__brand-fallback {
-  display: flex;
-  align-items: center;
-  padding: 6px;
-  border-radius: 8px;
-  color: var(--accent-primary);
-  background: var(--tag-bg);
-}
-
 .sidebar-left__overview-btn {
   display: flex;
   align-items: center;
@@ -84,21 +40,28 @@
   border-color: transparent;
 }
 
+/* 1rem seitlich, nicht 1.5rem: das ist die Einrückung, die `AppShellLayout`
+   der linken Spalte über `<nav class="… p-4">` gibt. Die rechte Spalte bekommt
+   von `AppShell` gar keine und muss dieselbe Zahl von Hand tragen, sonst
+   stehen die beiden Listen unterschiedlich weit vom Rand. */
 .sidebar-left__files-section {
   flex: 1;
   overflow-y: auto;
-  padding: 0 1.5rem 1.5rem;
+  padding: 0 1rem 1.5rem;
 }
 
+/* Eine Zeile zwischen „Quellen hinzufügen" und der Quellenliste, mit der
+   Einrückung der Spalte (1rem, wie `.sources-grid` und
+   `.sidebar-left__files-section`). Zentriert (Entwickler, 21.09.2026):
+   als einzelne Aktion zwischen zwei Blöcken sitzt der Knopf auf deren
+   Mittelachse, nicht an einem Rand. Kein `space-between` mehr — die
+   Überschrift, die es einmal trennte, ist weg. */
 .sidebar-left__files-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  margin-bottom: 1rem;
-}
-
-.sidebar-left__files-title {
-  margin: 0;
+  padding: 0 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .sidebar-left__upload-btn {

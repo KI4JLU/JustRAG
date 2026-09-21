@@ -1,20 +1,12 @@
 import React, { memo, useState, useCallback } from 'react';
-import {
-    BookOpen, Link, Globe, Bot, FileText, Search,
-    Rss
-} from 'lucide-react';
 import type { RssFeed } from '../../types';
-import { API_BASE_URL } from '../../api';
-import { useTheme } from '../../contexts/ThemeContext';
-import { useAuth } from '../../contexts/AuthContext';
 import { useIsMobileContext } from '../../contexts/MobileContext';
 import { useKbCore } from '../../contexts/KbCoreContext';
 import { useKbData } from '../../contexts/KbDataContext';
-import { useKbLayout } from '../../contexts/KbLayoutContext';
-import { SidebarShell } from '../sidebar-shell/SidebarShell';
 import '../sidebar-primitives.css';
 import { RssFeedEntriesModal } from '../RssFeedEntriesModal';
 import { SourcesSection } from '../sidebar/SourcesSection';
+import { SourcesHeader } from './SourcesHeader';
 import { SourcesGrid } from '../sidebar/SourcesGrid';
 import type { SourceType } from '../sidebar/SourcesGrid';
 import { CrawlModal } from '../sidebar/CrawlModal';
@@ -26,10 +18,8 @@ import { ACCEPTED_FILE_TYPES } from '../../constants';
 import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
-    const { t } = useTheme();
-    const { siteConfigs } = useAuth();
     const isMobile = useIsMobileContext();
-    const { currentKb, setKbView, handleGoHome } = useKbCore();
+    const { currentKb, setKbView } = useKbCore();
     const {
         fileMgmt, webTools,
         rssFeeds, rssLoading, addRssFeed, updateRssFeed, deleteRssFeed, pollFeedNow,
@@ -39,13 +29,12 @@ const SourcesPanelComp: React.FC = () => {
         saveConfluenceConnection, addConfluenceSource,
         fetchConfluenceSpaces, fetchConfluenceSpacePages, fetchConfluencePageChildren, fetchConfluenceAllSpacePages,
     } = useKbData();
-    const { sidebar } = useKbLayout();
 
     const {
         files, fileInputRef,
         handleToggleFileSelection, handleToggleFilesSelection,
         handleDownloadFile, handleDeleteFile, handleFileUpload,
-        retryFile, retryAllFailed,
+        retryFile,
         isDragging, textSourceTitle, setTextSourceTitle,
         textSourceContent, setTextSourceContent,
         handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd,
@@ -66,7 +55,6 @@ const SourcesPanelComp: React.FC = () => {
 
     const [activeSourceModal, setActiveSourceModal] = useState<SourceType | null>(null);
     const [viewingFeed, setViewingFeed] = useState<RssFeed | null>(null);
-    const nonRssFiles = files.filter(f => f.origin !== 'rss');
     const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
     const handleSourceSelect = useCallback((type: SourceType) => {
@@ -104,32 +92,7 @@ const SourcesPanelComp: React.FC = () => {
     }
 
     return (
-        <SidebarShell
-            side="right"
-            isOpen={sidebar.isRightSidebarOpen}
-            width={sidebar.rightSidebarWidth}
-            onExpand={() => sidebar.setIsRightSidebarOpen(true)}
-            onCollapse={() => sidebar.setIsRightSidebarOpen(false)}
-            expandLabel={t('expandSourcesSidebar')}
-            collapseLabel={t('collapseSourcesSidebar')}
-            collapsedPreview={
-                <>
-                    <div className="sidebar-ui__collapsed-divider" />
-                    <BookOpen size={20} color="var(--accent-primary)" />
-                    {nonRssFiles.slice(0, 5).map(f => (
-                        <div key={f.id} title={f.name} className="sidebar-left__collapsed-file-icon">
-                            {f.origin === 'websearch' ? <Link size={16} aria-hidden="true" />
-                                : f.origin === 'crawl' ? <Globe size={16} aria-hidden="true" />
-                                : f.origin === 'research' ? <Bot size={16} aria-hidden="true" />
-                                : f.origin === 'rss' ? <Rss size={16} aria-hidden="true" />
-                                : <FileText size={16} aria-hidden="true" />}
-                        </div>
-                    ))}
-                    <div className="sidebar-left__spacer" />
-                    {!isGlobal && <Search size={20} color="var(--text-secondary)" />}
-                </>
-            }
-        >
+        <>
             <div
                 className="sidebar-left__sources"
                 style={{
@@ -138,25 +101,6 @@ const SourcesPanelComp: React.FC = () => {
                     overflow: isMobile ? 'auto' : undefined,
                 }}
             >
-                <div className="sidebar-left__header-wrap">
-                    <div className="sidebar-left__header-row">
-                        <div className="sidebar-left__brand-row">
-                            <button
-                                onClick={handleGoHome}
-                                className="sidebar-left__brand-button"
-                                aria-label={t('goToHome')}
-                            >
-                                {siteConfigs.logo_path ? (
-                                    <img src={`${API_BASE_URL}${siteConfigs.logo_path}`} alt="" className="sidebar-left__brand-logo" />
-                                ) : (
-                                    <div className="sidebar-left__brand-fallback">
-                                        <BookOpen size={24} aria-hidden="true" />
-                                    </div>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
 
                 {!isGlobal && (
                     <SourcesGrid
@@ -177,6 +121,11 @@ const SourcesPanelComp: React.FC = () => {
                     />
                 )}
 
+                {/* Zwischen „Quellen hinzufügen" und der Liste, nicht in der
+                    Kopfzeile der Spalte (Entwickler, 21.09.2026): dort war der
+                    Knopf im eingeklappten Zustand unerreichbar und stand ohne
+                    Bezug zur Liste, deren Einträge er wiederholt. */}
+                <SourcesHeader />
                 <SourcesSection
                     files={files}
                     onPreviewSource={handlePreviewSource}
@@ -194,7 +143,6 @@ const SourcesPanelComp: React.FC = () => {
                     onDeleteConfluenceSource={deleteConfluenceSource}
                     onSyncConfluenceNow={syncConfluenceNow}
                     onRetryFile={retryFile}
-                    onRetryAllFailed={retryAllFailed}
                     gitRepoSources={gitRepoSources}
                     onUpdateGitRepoSource={updateGitRepoSource}
                     onDeleteGitRepoSource={deleteGitRepoSource}
@@ -273,7 +221,7 @@ const SourcesPanelComp: React.FC = () => {
                 onDrop={handleDrop}
                 isDragging={isDragging}
             />
-        </SidebarShell>
+        </>
     );
 };
 

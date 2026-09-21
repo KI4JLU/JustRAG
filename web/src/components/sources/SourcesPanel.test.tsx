@@ -15,9 +15,6 @@ vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ siteConfigs: {}
 vi.mock('../../contexts/KbCoreContext', () => ({
   useKbCore: () => ({ currentKb: { id: 'kb1', isGlobal: false }, setKbView: vi.fn(), handleGoHome: vi.fn(), handleViewHome: vi.fn() }),
 }));
-vi.mock('../../contexts/KbLayoutContext', () => ({
-  useKbLayout: () => ({ sidebar: { isRightSidebarOpen: true, rightSidebarWidth: 500, setIsRightSidebarOpen: vi.fn() } }),
-}));
 vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: { files: [], fileInputRef: { current: null }, showUploadModal: false, setShowUploadModal: vi.fn() },
@@ -27,9 +24,19 @@ vi.mock('../../contexts/KbDataContext', () => ({
 }));
 
 describe('SourcesPanel', () => {
-  it('rendert in der rechten Spalte', () => {
+  it('bringt keinen eigenen Rahmen mehr mit — die rechte Spalte gehört der Shell', () => {
+    // Bis zum Umzug auf `AppShellLayout` trug dieses Panel seinen eigenen
+    // `SidebarShell`: <aside class="sidebar-shell--right"> mit eigener Breite,
+    // eigenem Einklapp-Knopf und eigenem Zustand. Die Shell stellt diesen
+    // Rahmen jetzt als `rightPanel` — zwei ineinander steckende Rahmen wären
+    // zwei Knöpfe und zwei Breiten für eine Spalte.
+    //
+    // Der Oracle ist die Zuständigkeit, nicht die Ausgabe dieser Komponente:
+    // dass die Spalte rechts hängt und `isRightSidebarOpen` führt, prüft
+    // KbWorkspaceLayout.test.tsx am `rightPanel`-Prop. Hier steht die
+    // Gegenprobe, dass das Panel selbst nichts davon mitbringt.
     const { container } = render(<SourcesPanel />);
-    expect(container.querySelector('aside')).toHaveClass('sidebar-shell--right');
+    expect(container.querySelector('aside')).toBeNull();
     expect(screen.getByTestId('sources-section')).toBeInTheDocument();
   });
 });
