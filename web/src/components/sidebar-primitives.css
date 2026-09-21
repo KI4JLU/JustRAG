@@ -57,6 +57,7 @@
 
 .sidebar-ui__item-main {
   flex: 1;
+  min-width: 0;
 }
 
 .sidebar-ui__item-title {

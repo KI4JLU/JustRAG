@@ -514,6 +514,12 @@ button.source-card {
   flex: 1;
   display: flex;
   flex-direction: column;
+  /* Die Spalte sperrt ihren Scroller ein: ohne min-height:0 wächst ein flex:1
+     in `<main>` (selbst ein Scroller) mit dem Inhalt mit, und dann scrollt
+     `<main>`, nicht `.messages-container`. Ersetzt das Zwischen-<div>, das
+     genau diese Regeln als Inline-Style trug. */
+  min-height: 0;
+  overflow: hidden;
   /* No background of its own (21.09.2026). `AppShell` paints its `<main>`
      `bg-surface` and the two columns + bar `bg-surface-container-lowest` —
      the HomeView pattern. This rule used to set `var(--bg-secondary)`, which
@@ -541,40 +547,71 @@ button.source-card {
   background: color-mix(in srgb, var(--accent-primary) 2%, transparent);
 }
 
-.messages-container {
-  flex: 1;
-  overflow-y: auto;
-  /* Vertical-only padding. This element is the react-virtuoso scroller, which
-     sizes its virtualized item list to the scroller's clientWidth (padding
-     INCLUDED). Horizontal padding here therefore becomes pure right-side
-     overflow: every message row is shifted right by the left padding and runs
-     past the scroller's right edge, clipping the right-aligned answer-footer
-     action bar. Keep horizontal insets off the scroller — the max-width:80%
-     centering below already provides the side gutters. */
-  padding: 2rem 0;
+/* Chat-Zeile (Nachrichtenspalte + BranchTreeNav) und Nachrichtenspalte. Der
+   Scroller darunter ist die VOLLE Spaltenbreite; die 80%-Lesespalte liegt auf
+   seinen Kindern (`> *`). Vorher trug der Scroller selbst `max-width: 80%;
+   margin: 0 auto` — das Mausrad über den seitlichen Rändern traf dann nur den
+   nicht scrollenden Elternkasten, und die Seite scrollte nur, wenn der Zeiger
+   über der Nachrichtenspalte stand. */
+.chat-row {
   display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  max-width: 80%;
-  margin: 0 auto;
-  width: 100%;
-  /* Complete the min-width:0 chain from .chat-area down to the message column,
-     so no intermediate flex link can let a wide descendant re-expand the row. */
+  flex: 1;
+  min-height: 0;
   min-width: 0;
 }
 
-/* The horizontal message gutter lives on the virtuoso item list (the element
-   virtuoso sizes and lays items out within), NOT on the scroller above —
-   padding on the scroller overflows the right edge and clips the action bar.
-   data-testid is emitted by react-virtuoso in production builds, not just tests. */
-.messages-container [data-testid="virtuoso-item-list"] {
+.chat-column {
+  --chat-column-max: 56rem;
+  --chat-message-max: 700px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  /* Der Scroller ist die VOLLE Spaltenbreite (Mausrad greift überall) und
+     trägt KEINE waagerechte Polsterung: virtuosos Viewport ist inline
+     `position:absolute; width:100%` und liefe rechts hinaus. Die Lesespalte
+     entsteht eine Ebene tiefer, auf den Kindern des Viewports (Item-Liste und
+     Footer), die normal im Fluss liegen und sich mit `margin: 0 auto`
+     zentrieren lassen. */
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Die zentrierte Lesespalte: Item-Liste und Footer von virtuoso, und der
+   leere Zustand, der ohne virtuoso direkt im Scroller liegt. Keine senkrechte
+   Polsterung — virtuoso setzt paddingTop/Bottom inline auf der Item-Liste für
+   die Virtualisierung. */
+.messages-container [data-viewport-type] > *,
+.messages-container > .empty-state {
   box-sizing: border-box;
-  padding-left: 2rem;
-  padding-right: 2rem;
+  width: 100%;
+  max-width: var(--chat-column-max, 56rem);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+/* Ein Eintrag = eine Flex-Zeile, damit `align-self` der Blase greift:
+   Nutzer rechts, Antwort links. Der Abstand zwischen Nachrichten liegt hier
+   (virtuoso misst die Höhe des Eintrags, Polsterung eingeschlossen). */
+.messages-container [data-testid="virtuoso-item-list"] > [data-index] {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 0;
 }
 
 .message-bubble {
-  max-width: 100%;
+  max-width: min(var(--chat-message-max, 700px), 100%);
   width: fit-content;
   /* min-width:0 breaks the flex overflow chain: flex children default to
      min-width:auto, which lets an unbreakable wide block (code fence, wide
@@ -585,21 +622,20 @@ button.source-card {
 
 .message-user {
   align-self: flex-end;
+  margin-left: auto;
   background-color: var(--accent-primary);
   color: var(--accent-on-primary);
   padding: 0.75rem 1.25rem;
   border-radius: var(--shape-xl) var(--shape-xl) var(--shape-sm) var(--shape-xl);
-  max-width: 85%;
 }
 
 .message-ai {
   align-self: flex-start;
+  margin-right: auto;
   color: var(--text-primary);
   background-color: transparent;
-  border-left: 3px solid var(--accent-primary);
   padding: 0.75rem 1rem 0.75rem 1.25rem;
   border-radius: 0;
-  max-width: 100%;
   width: 100%;
   min-width: 0;
 }
@@ -2272,17 +2308,14 @@ button.source-card {
    Mobile Layout (< 1024px)
    ======================================== */
 @media (max-width: 1023px) {
-  .messages-container {
-    max-width: 100%;
-    /* Vertical-only — horizontal padding on the virtuoso scroller overflows the
-       right edge and clips the action bar (see the desktop rule above). */
-    padding: 0.75rem 0;
-    gap: 1rem;
-  }
-
-  .messages-container [data-testid="virtuoso-item-list"] {
+  .messages-container [data-viewport-type] > *,
+  .messages-container > .empty-state {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
+  }
+
+  .messages-container [data-testid="virtuoso-item-list"] > [data-index] {
+    padding: 0.5rem 0;
   }
 
   .input-container {

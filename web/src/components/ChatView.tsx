@@ -194,8 +194,9 @@ const ChatViewComp = () => {
           (`calc(100dvh - 60px)` auf Mobil) ist mit der `MobileTabBar` gegangen,
           die sie freihielt — die Shell reserviert die Höhe ihrer Leiste jetzt
           selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {
+      {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
+          `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
+      {
           kbView === 'chat' ? (
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
@@ -218,8 +219,8 @@ const ChatViewComp = () => {
                 </div>
               </Suspense>
             ) : (
-              <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>
+              <div className="chat-row">
+                <div className="chat-column">
                   {chat.messages.length === 0 ? (
                     <div
                       className="messages-container"
@@ -860,8 +861,7 @@ const ChatViewComp = () => {
               </div>
             </Suspense>
           )
-        }
-      </div>
+      }
       {showKbSettings && currentKb && (
         <div
           className="modal-overlay"

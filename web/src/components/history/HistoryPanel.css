@@ -8,12 +8,25 @@
    Die Spalte wird dadurch schmaler eingerückt als vorher — das ist die
    Einrückung, die die Shell für ihre Navigationsspalte vorsieht, und die Liste
    folgt ihr jetzt, statt eine zweite daraufzusetzen. */
+/* KEIN EIGENER SCROLLER. Die Shell-Spalte (`SidePanel`, `overflow-y-auto`)
+   scrollt bereits; ein zweiter hier und ein dritter auf der Liste schnitten
+   den Hover-Hub der Karten (`translateY(-2px)` + Schatten) an ihrer Kante ab
+   und zeichneten eine waagerechte Rollleiste. `overflow-x: clip` hält die
+   Breite, ohne einen Scroll-Container zu erzeugen (anders als `hidden`). */
 .history-panel {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow-x: clip;
+  /* Der Clip-Rand liegt 4px AUSSERHALB der Spalte (Polsterung, durch den
+     negativen Rand neutralisiert): der „Neuer Chat"-Knopf wächst bei Hover um
+     `scale(1.05)` an der rechten Kante und wurde sonst dort abgeschnitten. */
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+
+.history-panel .sidebar-ui__list--stack {
+  flex: none;
+  overflow: visible;
 }
 
 .history-panel__item-title {
