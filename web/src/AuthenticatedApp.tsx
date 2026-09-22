@@ -144,20 +144,9 @@ function AuthenticatedAppInner() {
   const [kbView, setKbView] = useState<KbViewType>('chat');
   const [currentKb, setCurrentKb] = useState<KnowledgeBase | null>(null);
 
-  // Query-scoped mindmap: which answer's subgraph the mindmap view is scoped to.
-  const [scopedMindmapMessageId, setScopedMindmapMessageId] = useState<string | null>(null);
-
-  const handleViewGraphForMessage = useCallback((messageId: string) => {
-    setScopedMindmapMessageId(messageId);
-    setKbView('mindmap');
-  }, [setKbView]);
-
-  const onCloseMindmap = useCallback(() => { setScopedMindmapMessageId(null); setKbView('chat'); }, [setKbView]);
-  const onShowWholeKb = useCallback(() => { setScopedMindmapMessageId(null); }, []); // stays in mindmap; messageId=null reloads full graph
-
   // New extracted hooks
   const kbSettings = useKbSettings();
-  const viewState = useViewState({ setView, kbView, setKbView, setShowSettings: kbSettings.setShowSettings });
+  const viewState = useViewState({ setView, setKbView, setShowSettings: kbSettings.setShowSettings });
 
   // Onboarding Tour
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('onboardingCompleted'));
@@ -174,8 +163,6 @@ function AuthenticatedAppInner() {
     currentKb, files: fileMgmt.files, enhance: kbSettings.enhance,
     reasoningEnabled: kbSettings.reasoningEnabled, reasoningLevel: kbSettings.reasoningLevel,
     agentSelection: kbSettings.agentSelection, setAgentSelection: kbSettings.setAgentSelection,
-    onResearchLoaded: () => setKbView('research'),
-    onAcademicResearchLoaded: () => setKbView('academic_research'),
   });
 
   const webTools = useWebTools({
@@ -269,9 +256,10 @@ function AuthenticatedAppInner() {
   // (which are recreated each render and would defeat the memoization).
   const { setSelectedContent } = content;
 
+  // Wählt ein Artefakt nur noch aus — die Workspace-Ansicht, die es zeigte,
+  // ist seit dem 22.09.2026 nicht erreichbar (KbViewType = 'chat').
   const handleSelectContent = useCallback((item: GeneratedContent) => {
     setSelectedContent(item);
-    setKbView('workspace');
   }, [setSelectedContent]);
 
   const handleUpdateKBSettings = async (data: Record<string, unknown>) => {
@@ -537,10 +525,6 @@ function AuthenticatedAppInner() {
     availableConfigs: kbSettings.availableConfigs,
     kbView,
     setKbView,
-    scopedMindmapMessageId,
-    onViewGraphForMessage: handleViewGraphForMessage,
-    onCloseMindmap,
-    onShowWholeKb,
     kbMgmt,
     handleGoHome: viewState.handleGoHome,
     handleViewHome: viewState.handleViewHome,

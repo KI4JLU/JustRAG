@@ -14,42 +14,38 @@ import { deriveActiveMobileTab } from '../utils/activeMobileTab';
  * AuthenticatedApp, and a nav row wired through AppNavContext. The URL does not
  * change and no history entry is pushed — the existing architecture. */
 type ViewType = 'my-topics' | 'shared-topics' | 'discover' | 'tools' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility' | 'agents';
-type KbViewType = 'chat' | 'dashboard' | 'research' | 'academic_research' | 'workspace' | 'mindmap';
+/* NUR 'chat' (Entwickler, 22.09.2026): die KB-Ansicht ist der Chat. Die
+ * früheren Werte 'dashboard' | 'research' | 'academic_research' |
+ * 'workspace' | 'mindmap' sind absichtlich aus dem Typ gestrichen — die
+ * Komponenten dahinter (Dashboard, ResearchMode, AcademicMode,
+ * StudioWorkspace, MindMapView) bleiben im Repo und werden später als Tools
+ * angebunden, dürfen bis dahin aber von nirgends erreichbar sein. Der Typ
+ * ist die Sperre: ein `setKbView('workspace')` kompiliert nicht mehr. */
+type KbViewType = 'chat';
 
 interface UseViewStateParams {
   setView: React.Dispatch<React.SetStateAction<ViewType>>;
-  kbView: KbViewType;
   setKbView: React.Dispatch<React.SetStateAction<KbViewType>>;
   setShowSettings: (val: boolean) => void;
 }
 
 export type { ViewType, KbViewType };
 
-export function useViewState({ setView, kbView, setKbView, setShowSettings }: UseViewStateParams) {
+export function useViewState({ setView, setKbView, setShowSettings }: UseViewStateParams) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
 
-  const TAB_ORDER: MobileTab[] = useMemo(() => ['history', 'chat', 'workspace', 'files'], []);
+  const TAB_ORDER: MobileTab[] = useMemo(() => ['history', 'chat', 'files'], []);
 
-  // 'chat' und 'workspace' rendern dieselbe ChatView und unterscheiden sich
-  // nur über kbView (siehe handleMobileTabChange in KbWorkspaceLayout, das
-  // dieselbe Regel für Tab-Klicks anwendet). setMobileTab wird hier von den
-  // Swipe-Handlern direkt aufgerufen statt über KbWorkspaceLayout zu gehen —
-  // ohne diesen Abgleich würde ein Swipe auf den Workspace-Reiter den zuletzt
-  // gesetzten kbView zeigen (z.B. 'research') statt den Workspace.
+  // Der Reiter „chat" setzt kbView explizit zurück; ein anderer Wert als
+  // 'chat' existiert seit dem 22.09.2026 nicht mehr (siehe KbViewType).
   const applyTab = useCallback((tab: MobileTab) => {
-    if (tab === 'workspace') setKbView('workspace');
     if (tab === 'chat') setKbView('chat');
     setMobileTab(tab);
   }, [setKbView]);
 
-  // The swipe's starting point is the *displayed* tab (same derivation
-  // KbWorkspaceLayout uses to decide what to render), not the raw
-  // `mobileTab` state — those two can drift, e.g. ChatView's own Workspace
-  // tab (icon-only on mobile) calls setKbView('workspace') directly without
-  // going through applyTab/setMobileTab. Indexing TAB_ORDER by the stale
-  // `mobileTab` in that state left a left-swipe dead and a right-swipe
-  // skipping Chat.
-  const activeTab = deriveActiveMobileTab(mobileTab, kbView);
+  // Derselbe Ableitungsweg wie in KbWorkspaceLayout, damit Swipe-Start und
+  // gerenderter Reiter nicht auseinanderlaufen.
+  const activeTab = deriveActiveMobileTab(mobileTab);
 
   const swipeLeft = useCallback(() => {
     const i = TAB_ORDER.indexOf(activeTab);

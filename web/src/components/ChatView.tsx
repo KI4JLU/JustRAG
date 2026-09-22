@@ -26,14 +26,8 @@ import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { canOpenKbAdvancedSettings } from '../utils/kbAccess';
 import { BranchTreeNav } from './BranchTreeNav';
 import { MessageSkeleton } from './Skeleton';
-import { registerJob, unregisterJob } from '../utils/jobRegistry';
 
-const Dashboard = lazy(() => import('../Dashboard'));
-const ResearchMode = lazy(() => import('./ResearchMode'));
-const AcademicMode = lazy(() => import('./AcademicMode'));
 const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
-const StudioWorkspace = lazy(() => import('./Studio/StudioWorkspace').then(module => ({ default: module.StudioWorkspace })));
-const MindMapView = lazy(() => import('./MindMap/MindMapView').then(module => ({ default: module.MindMapView })));
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
 
 // Attaches a DOM element to a ref owned by useChat (messagesContainerRef /
@@ -63,15 +57,13 @@ const ChatViewComp = () => {
   const reducedMotion = useReducedMotion();
 
   const {
-    currentKb, availableConfigs, kbView, setKbView, handleUpdateKBSettings, onViewAgents,
-    scopedMindmapMessageId, onViewGraphForMessage, onCloseMindmap, onShowWholeKb,
+    currentKb, availableConfigs, handleUpdateKBSettings, onViewAgents,
   } = useKbCore();
   const {
     chat, enhance, setEnhance, reasoningEnabled, setReasoningEnabled,
-    setResearchRunning, setAcademicResearchRunning,
     agentSelection, setAgentSelection,
   } = useKbChat();
-  const { fileMgmt, webTools, content, handleSelectContent } = useKbData();
+  const { fileMgmt, webTools } = useKbData();
   const { sidebar } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
@@ -118,24 +110,11 @@ const ChatViewComp = () => {
   // through.
   const canTuneKB = canOpenKbAdvancedSettings(currentKb, user?.role);
 
-  const handleResearchRunningChange = useCallback((running: boolean) => {
-    setResearchRunning(running);
-    if (running) registerJob(currentKb?.id || '', currentKb?.name || '', 'research');
-    else unregisterJob(currentKb?.id || '', 'research');
-  }, [currentKb?.id, currentKb?.name, setResearchRunning]);
-
-  const handleAcademicResearchRunningChange = useCallback((running: boolean) => {
-    setAcademicResearchRunning(running);
-    if (running) registerJob(currentKb?.id || '', currentKb?.name || '', 'academicResearch');
-    else unregisterJob(currentKb?.id || '', 'academicResearch');
-  }, [currentKb?.id, currentKb?.name, setAcademicResearchRunning]);
-
   const {
     hasFiles, selectedFileCount, fileInputRef,
     isDragging, handleDragOver, handleDragEnter, handleDragLeave, handleDrop,
   } = fileMgmt;
   const { handlePreviewSource, handlePdfSourceOpen, setToolTab } = webTools;
-  const { handleGenerate, selectedContent } = content;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
@@ -196,8 +175,12 @@ const ChatViewComp = () => {
           selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
       {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
           `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
+      {/* Nur der Chat (22.09.2026). Die Zweige für 'research',
+          'academic_research', 'workspace', 'mindmap' und das Dashboard sind
+          hier gestrichen; die Komponenten bleiben im Repo für die spätere
+          Anbindung als Tools. `KbViewType` ist auf 'chat' verengt, also gibt
+          es nichts mehr zu verzweigen. */}
       {
-          kbView === 'chat' ? (
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
                 <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -421,7 +404,6 @@ const ChatViewComp = () => {
                             isEditing={chat.editingMessageId === msg.id}
                             onEditCancel={handleEditCancel}
                             onPreviewSource={handlePreviewSource}
-                            onViewGraph={msg.role === 'ai' ? onViewGraphForMessage : undefined}
                             kbId={currentKb?.id}
                             questionText={questionText}
                             resolveAttribution={resolveAttribution}
@@ -767,100 +749,6 @@ const ChatViewComp = () => {
                 )}
               </div>
             )
-          ) : kbView === 'research' ? (
-            <Suspense fallback={chatSuspenseFallback}>
-              <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', padding: '1rem' }}>
-                <ResearchMode
-                  key={chat.loadedResearchSession?.id || 'new'}
-                  kbId={currentKb?.id || ''}
-                  onClose={() => setKbView('chat')}
-                  loadedSession={chat.loadedResearchSession}
-                  onSessionSaved={() => {
-                    if (currentKb) chat.fetchChats(currentKb.id);
-                  }}
-                  onClearSession={() => chat.setLoadedResearchSession(null)}
-                  onRunningChange={handleResearchRunningChange}
-                />
-              </div>
-            </Suspense>
-          ) : kbView === 'academic_research' ? (
-            <Suspense fallback={chatSuspenseFallback}>
-              <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', padding: '1rem' }}>
-                <AcademicMode
-                  key={chat.loadedAcademicSession?.id || 'new'}
-                  kbId={currentKb?.id || ''}
-                  onClose={() => setKbView('chat')}
-                  loadedSession={chat.loadedAcademicSession}
-                  onSessionSaved={() => {
-                    if (currentKb) chat.fetchChats(currentKb.id);
-                  }}
-                  onClearSession={() => chat.setLoadedAcademicSession(null)}
-                  onRunningChange={handleAcademicResearchRunningChange}
-                />
-              </div>
-            </Suspense>
-          ) : kbView === 'workspace' ? (
-            <Suspense fallback={chatSuspenseFallback}>
-              <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden' }}>
-                <StudioWorkspace
-                  kbId={currentKb?.id || ''}
-                  onGenerate={handleGenerate}
-                  onClose={() => setKbView('chat')}
-                  selectedItem={selectedContent ?? null}
-                  hasFiles={hasFiles}
-                  onAnalysisCreated={(item) => {
-                    if (currentKb) content.fetchGeneratedContent(currentKb.id);
-                    handleSelectContent(item);
-                  }}
-                  onStartComparison={async (v) => {
-                    // Switch to Chat only on success: on a failed upload the
-                    // user stays in the Workspace with the dialog open (see
-                    // StudioWorkspace's `started !== false` check) and the
-                    // toast explaining why, instead of being yanked to an
-                    // empty chat. The returned boolean also has to travel
-                    // back up (not just void the promise) — StudioWorkspace
-                    // awaits it to decide whether to close the dialog.
-                    const started = await chat.startComparison(v);
-                    if (started) setKbView('chat');
-                    return started;
-                  }}
-                />
-              </div>
-            </Suspense>
-          ) : kbView === 'mindmap' ? (
-            <Suspense fallback={chatSuspenseFallback}>
-              <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden' }}>
-                <MindMapView
-                  key={currentKb?.id || 'mindmap'}
-                  kbId={currentKb?.id || ''}
-                  messageId={scopedMindmapMessageId}
-                  onAskAbout={(name) => {
-                    setKbView('chat');
-                    // Restore the history sidebar (left), not Sources: this
-                    // mirrors the pre-rework intent of bringing back
-                    // whichever sidebar the mindmap had displaced, and
-                    // history is the closer analog now that Sources lives on
-                    // the right permanently.
-                    sidebar.setIsLeftSidebarOpen(true);
-                    chat.handleFollowUpClick(`${t('mindMapAskPrompt')} ${name}`);
-                  }}
-                  onOpenSource={(fileId, fileName) => handlePreviewSource(fileId, fileName)}
-                  onClose={() => {
-                    onCloseMindmap();
-                    // See onAskAbout above: restore history (left), not Sources.
-                    sidebar.setIsLeftSidebarOpen(true);
-                  }}
-                  onShowWholeKb={onShowWholeKb}
-                />
-              </div>
-            </Suspense>
-          ) : (
-            <Suspense fallback={chatSuspenseFallback}>
-              <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <Dashboard kbId={currentKb?.id || ''} kbName={currentKb?.name || ''} />
-              </div>
-            </Suspense>
-          )
       }
       {showKbSettings && currentKb && (
         <div

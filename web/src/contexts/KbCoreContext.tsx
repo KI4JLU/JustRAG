@@ -7,17 +7,8 @@ export interface KbCoreContextValue {
   isPro: boolean;
   availableConfigs: SafeAIConfig[];
   kbView: string;
-  setKbView: (view: 'chat' | 'dashboard' | 'research' | 'academic_research' | 'workspace' | 'mindmap') => void;
-  // Query-scoped mindmap: the message id whose per-answer subgraph the mindmap
-  // view should load (null = whole-KB graph). Owned by AuthenticatedApp.
-  scopedMindmapMessageId: string | null;
-  // Opens the mindmap scoped to a specific answer (sets the scoped id + switches
-  // to the mindmap view).
-  onViewGraphForMessage: (messageId: string) => void;
-  // Clears the scoped id and returns to chat.
-  onCloseMindmap: () => void;
-  // Clears the scoped id but stays in the mindmap view (reload the whole-KB graph).
-  onShowWholeKb: () => void;
+  /** Nur 'chat' — siehe `KbViewType` in useViewState.ts (22.09.2026). */
+  setKbView: (view: 'chat') => void;
   kbMgmt: ReturnType<typeof useKnowledgeBases>;
   handleGoHome: () => void;
   handleViewHome: () => void;

@@ -1,22 +1,14 @@
 import type { MobileTab } from '../components/MobileTabBar';
 
 /**
- * Derives which mobile tab is actually displayed, given the raw `mobileTab`
- * state and the current `kbView`.
+ * Which mobile tab is displayed. 'history' and 'files' render their own
+ * panel; everything else is the chat — since 22.09.2026 the KB has exactly
+ * one main-area view (`KbViewType = 'chat'`), so the former re-derivation
+ * from `kbView` ('chat' vs 'workspace') has nothing left to decide.
  *
- * `mobileTab` and `kbView` can drift: 'chat' and 'workspace' both render
- * `ChatView` and are told apart only by `kbView`, but `ChatView`'s own header
- * tabs (icon-only on mobile) call `setKbView('workspace')` directly — they
- * don't go through the tab-bar/swipe path that keeps `mobileTab` in sync. So
- * for those two raw values the *displayed* tab has to be re-derived from
- * `kbView`, not trusted at face value. 'history' and 'files' render their own
- * panel and are never ambiguous.
- *
- * Shared by `KbWorkspaceLayout` (which content to render) and `useViewState`
- * (where a swipe should start counting from) so the two can't drift from each
- * other the way `mobileTab` and `kbView` themselves can.
+ * Shared by `KbWorkspaceLayout` and `useViewState` so the two cannot drift.
  */
-export function deriveActiveMobileTab(mobileTab: MobileTab, kbView: string): MobileTab {
+export function deriveActiveMobileTab(mobileTab: MobileTab): MobileTab {
     if (mobileTab === 'history' || mobileTab === 'files') return mobileTab;
-    return kbView === 'workspace' ? 'workspace' : 'chat';
+    return 'chat';
 }

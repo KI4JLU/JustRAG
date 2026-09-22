@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { AppShellLayout, Button, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
-import { ArrowLeft, FolderOpen, History, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowLeft, FolderOpen, History, MessageSquare } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useKbCore } from '../contexts/KbCoreContext';
@@ -56,39 +56,22 @@ interface KbWorkspaceLayoutProps {
 export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: KbWorkspaceLayoutProps) {
   const { t } = useTheme();
   const { user } = useAuth();
-  const { currentKb, kbView, setKbView, handleGoHome, kbMgmt } = useKbCore();
+  const { currentKb, setKbView, handleGoHome, kbMgmt } = useKbCore();
   const { sidebar } = useKbLayout();
 
-  // 'chat' und 'workspace' rendern beide ChatView; welcher Inhalt erscheint,
-  // entscheidet kbView. Ein Reiterwechsel muss kbView deshalb explizit
-  // mitziehen, sonst zeigt der Workspace-Reiter den zuletzt gesetzten kbView
-  // (z.B. 'research' aus dem Verlauf) statt den Workspace.
+  // Der Reiter „chat" setzt kbView explizit; andere kbView-Werte gibt es
+  // seit dem 22.09.2026 nicht mehr (KbViewType = 'chat').
   const handleMobileTabChange = useCallback((tab: string) => {
-    if (tab === 'workspace') setKbView('workspace');
     if (tab === 'chat') setKbView('chat');
     setMobileTab(tab as MobileTab);
   }, [setKbView, setMobileTab]);
 
   // Der aktive Reiter wird ABGELEITET, nicht als zweiter Zustand geführt.
-  // 'history' und 'files' zeigen ein eigenes Panel, also gewinnt dort die
-  // Reiterwahl. 'chat' und 'workspace' rendern beide ChatView und
-  // unterscheiden sich nur durch kbView — deshalb entscheidet dort kbView.
-  //
-  // `useViewState`'s swipe handlers apply the same derivation (via the same
-  // shared helper) when computing where a swipe starts — otherwise the swipe
-  // cursor drifts from what's actually on screen in exactly that state.
-  const activeMobileTab: MobileTab = deriveActiveMobileTab(mobileTab, kbView);
+  // 'history' und 'files' zeigen ein eigenes Panel, alles andere ist der
+  // Chat — seit dem 22.09.2026 die einzige Ansicht des Hauptbereichs.
+  // `useViewState` leitet für den Swipe-Start über denselben Helfer ab.
+  const activeMobileTab: MobileTab = deriveActiveMobileTab(mobileTab);
 
-  /* Die Quellenleiste wird im Workspace ausgeblendet, aber NICHT zugeklappt:
-   * `setIsRightSidebarOpen(false)` (so lief es bis 2026-08) ließ sie nach dem
-   * Verlassen des Workspace zugeklappt zurück, weil niemand sie wieder öffnete.
-   *
-   * Seit Design-System 0.37.0 sagt die App das direkt: `showRight` nimmt die
-   * Spalte aus der DESKTOP-Anordnung, ohne `isOpen` anzurühren, und wird
-   * unterhalb `lg` von der Shell ignoriert — dort zeigt der Reiter „Quellen"
-   * die Spalte weiterhin. Bis 0.36.0 musste die App `rightPanel` weglassen
-   * und den Mobil-Fall (`activeMobileTab === 'files'`) selbst abfangen. */
-  const showSources = kbView !== 'workspace';
 
   /* Welcher Reiter welchen Bereich zeigt, ist Daten — die Shell leitet nichts
    * ab. Reihenfolge und Symbole sind die der abgelösten `MobileTabBar`, damit
@@ -96,15 +79,14 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   const mobileTabs: MobilePaneTab[] = useMemo(() => [
     { id: 'history', icon: <History aria-hidden="true" />, label: t('tabHistory'), pane: 'left' },
     { id: 'chat', icon: <MessageSquare aria-hidden="true" />, label: t('tabChat'), pane: 'main' },
-    { id: 'workspace', icon: <Sparkles aria-hidden="true" />, label: t('tabWorkspace'), pane: 'main' },
     { id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' },
   ], [t]);
 
   /* Was vom `chat-header` übrig ist: der Zurück-Knopf und der KB-Name.
    *
    * `handleGoHome` und nicht `handleViewHome`: Verlassen setzt kbView auf
-   * 'chat' zurück, sonst landet man beim nächsten Öffnen der KB wieder im
-   * zuletzt gewählten Reiter (z.B. 'workspace').
+   * 'chat' zurück (heute der einzige Wert; die Regel bleibt für die
+   * spätere Tool-Anbindung).
    *
    * Kein Heading — die Leiste ist Chrome, die Überschrift der Seite gehört dem
    * Inhalt. `KbHeaderTitle` rendert `<span>`s, passt also hinein. */
@@ -161,7 +143,6 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       }}
       collapseLabel={t('collapseHistorySidebar')}
       expandLabel={t('expandHistorySidebar')}
-      showRight={showSources}
       rightPanel={{
         content: <SourcesPanel />,
         label: t('sources'),

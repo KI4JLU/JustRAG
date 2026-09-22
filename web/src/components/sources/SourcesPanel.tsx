@@ -58,10 +58,6 @@ const SourcesPanelComp: React.FC = () => {
     const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
     const handleSourceSelect = useCallback((type: SourceType) => {
-        if (type === 'academic') {
-            setKbView('academic_research');
-            return;
-        }
         if (type === 'upload') {
             setShowUploadModal(true);
             return;

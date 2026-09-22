@@ -3,7 +3,7 @@ import {
     MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft,
 } from 'lucide-react';
 import { Button, useSidebarCollapsed } from '@ki4jlu/design-system';
-import type { ChatEntry, GeneratedContent } from '../../types';
+import type { ChatEntry } from '../../types';
 import { artifactTypeLabel } from '../../utils/artifactTypes';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useIsMobileContext } from '../../contexts/MobileContext';
@@ -32,25 +32,26 @@ const HistoryPanelComp: React.FC = () => {
     const collapsed = useSidebarCollapsed();
     const { currentKb, setKbView, handleGoHome } = useKbCore();
     const { chat } = useKbChat();
-    const { content, handleSelectContent } = useKbData();
+    const { content } = useKbData();
 
     const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleNewChat } = chat;
-    const { generatedContent, generating, handleDeleteGeneratedContent, podcastProgress } = content;
+    const { generatedContent, generating, podcastProgress } = content;
 
+    // Nur Chats (Entwickler, 22.09.2026). Artefakte öffneten die Workspace-
+    // Ansicht, Recherche- und Academic-Einträge die Bericht-Ansichten — alle
+    // drei sind nicht erreichbar (KbViewType = 'chat'). `handleSelectChat`
+    // lädt einen Recherche-Eintrag zudem NICHT als Chat (eigener Zweig in
+    // useChat.ts, kehrt ohne activeChatId zurück), der Klick wäre also tot.
+    // Die Daten bleiben auf dem Server und kommen mit der Tool-Anbindung
+    // zurück.
     const items = useMemo(
-        () => buildHistoryItems({ chats, generatedContent }),
+        () => buildHistoryItems({ chats, generatedContent }).filter(item => item.kind === 'chat'),
         [chats, generatedContent],
     );
 
-    // Ein Klick öffnet immer den Reiter, in dem der Eintrag lebt. Artefakte
-    // gehen in den Workspace, Recherchen in den Bericht-Reiter — die Liste ist
-    // vereint, die Zielansichten sind es nicht.
+    // Jeder Eintrag öffnet den Chat — es gibt seit dem 22.09.2026 keine
+    // andere Ansicht (KbViewType = 'chat').
     const openItem = useCallback((item: HistoryItem) => {
-        if (item.kind === 'artifact') {
-            handleSelectContent(item.source as GeneratedContent);
-            setKbView('workspace');
-            return;
-        }
         // Den bereits offenen Chat NICHT neu laden: handleSelectChat setzt
         // chatSwitchingRef, holt die Nachrichten neu und baut den Baum neu auf
         // (useChat.ts) — bei einer laufenden Antwort überschreibt das lokalen
@@ -59,15 +60,12 @@ const HistoryPanelComp: React.FC = () => {
         if (item.id !== activeChatId) {
             handleSelectChat(item.source as ChatEntry);
         }
-        setKbView(item.kind === 'research' ? 'research'
-            : item.kind === 'academic' ? 'academic_research'
-            : 'chat');
-    }, [handleSelectContent, handleSelectChat, setKbView, activeChatId]);
+        setKbView('chat');
+    }, [handleSelectChat, setKbView, activeChatId]);
 
     const deleteItem = useCallback((item: HistoryItem, e: React.MouseEvent) => {
-        if (item.kind === 'artifact') handleDeleteGeneratedContent(item.id, e);
-        else handleDeleteChat(item.id, e);
-    }, [handleDeleteGeneratedContent, handleDeleteChat]);
+        handleDeleteChat(item.id, e);
+    }, [handleDeleteChat]);
 
     const label = (item: HistoryItem) =>
         item.kind === 'artifact' && item.artifactType

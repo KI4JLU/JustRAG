@@ -55,31 +55,18 @@ beforeEach(() => {
 });
 
 describe('HistoryPanel', () => {
-  it('zeigt alle vier Arten in einer Liste, chronologisch', () => {
+  it('zeigt nur Chats — keine Artefakte, Recherchen oder Academic-Sitzungen (22.09.2026)', () => {
+    // Der Mock enthält alle vier Arten (g1 Artefakt, r1 Recherche, a1
+    // Academic, c1 Chat). Nur der Chat erscheint: die drei anderen öffneten
+    // Ansichten, die nicht mehr erreichbar sind, und `handleSelectChat`
+    // würde eine Recherche ohnehin nicht als Chat laden.
     render(<HistoryPanel />);
     const titles = screen.getAllByTestId('history-item-title').map(e => e.textContent);
-    expect(titles).toEqual(['Analyse: Budget', 'Zero-Trust', 'Paper', 'Budget?']);
-  });
-
-  it('öffnet ein Artefakt im Workspace-Reiter', async () => {
-    render(<HistoryPanel />);
-    await userEvent.click(screen.getByText('Analyse: Budget'));
-    expect(handleSelectContent).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }));
-    expect(setKbView).toHaveBeenCalledWith('workspace');
-  });
-
-  it('öffnet eine Recherche im Bericht-Reiter, nicht im Workspace', async () => {
-    render(<HistoryPanel />);
-    await userEvent.click(screen.getByText('Zero-Trust'));
-    expect(handleSelectChat).toHaveBeenCalledWith(expect.objectContaining({ id: 'r1' }));
-    expect(setKbView).toHaveBeenCalledWith('research');
-    expect(setKbView).not.toHaveBeenCalledWith('workspace');
-  });
-
-  it('öffnet eine Academic-Session im Academic-Reiter', async () => {
-    render(<HistoryPanel />);
-    await userEvent.click(screen.getByText('Paper'));
-    expect(setKbView).toHaveBeenCalledWith('academic_research');
+    expect(titles).toEqual(['Budget?']);
+    for (const hidden of ['Analyse: Budget', 'Zero-Trust', 'Paper']) {
+      expect(screen.queryByText(hidden)).not.toBeInTheDocument();
+    }
+    expect(handleSelectContent).not.toHaveBeenCalled();
   });
 
   it('öffnet einen Chat im Chat-Reiter', async () => {
@@ -119,13 +106,6 @@ describe('HistoryPanel', () => {
     expect(screen.getByText('history')).toBeInTheDocument();
   });
 
-  it('löscht ein Artefakt über handleDeleteGeneratedContent, nicht über handleDeleteChat', async () => {
-    render(<HistoryPanel />);
-    await userEvent.click(screen.getByRole('button', { name: 'deleteItem Analyse: Budget' }));
-    expect(handleDeleteGeneratedContent).toHaveBeenCalledWith('g1', expect.anything());
-    expect(handleDeleteChat).not.toHaveBeenCalled();
-  });
-
   it('löscht einen Chat über handleDeleteChat, nicht über handleDeleteGeneratedContent', async () => {
     render(<HistoryPanel />);
     await userEvent.click(screen.getByRole('button', { name: 'deleteItem Budget?' }));
@@ -151,7 +131,7 @@ describe('HistoryPanel', () => {
     // ORACLE: dieselben vier Titel, die der ausgeklappte Test oben in
     // derselben Reihenfolge erwartet.
     const names = screen.getAllByRole('button').map(b => b.getAttribute('aria-label'));
-    expect(names).toEqual(['newChat', 'Analyse: Budget', 'Zero-Trust', 'Paper', 'Budget?']);
+    expect(names).toEqual(['newChat', 'Budget?']);
     await userEvent.click(screen.getByRole('button', { name: 'newChat' }));
     expect(handleNewChat).toHaveBeenCalled();
 
@@ -163,9 +143,9 @@ describe('HistoryPanel', () => {
   it('öffnet aus der Schiene denselben Eintrag wie aus der Liste', async () => {
     collapsed = true;
     render(<HistoryPanel />);
-    await userEvent.click(screen.getByRole('button', { name: 'Analyse: Budget' }));
-    expect(handleSelectContent).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }));
-    expect(setKbView).toHaveBeenCalledWith('workspace');
+    await userEvent.click(screen.getByRole('button', { name: 'Budget?' }));
+    expect(handleSelectChat).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
+    expect(setKbView).toHaveBeenCalledWith('chat');
   });
 
   it('markiert den offenen Chat in der Schiene', () => {
@@ -173,6 +153,6 @@ describe('HistoryPanel', () => {
     activeChatId = 'c1';
     render(<HistoryPanel />);
     expect(screen.getByRole('button', { name: 'Budget?' })).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByRole('button', { name: 'Zero-Trust' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'newChat' })).not.toHaveAttribute('aria-current');
   });
 });

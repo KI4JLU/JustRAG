@@ -30,14 +30,16 @@ function setup(initialKbView: KbViewType = 'chat') {
       setKbViewSpy(v);
       setKbViewState(v);
     };
-    return useViewState({ setView, kbView, setKbView, setShowSettings });
+    void kbView;
+    return useViewState({ setView, setKbView, setShowSettings });
   });
   return { result, setKbView: setKbViewSpy };
 }
 
 // dx = end.x - start.x. dx < 0 (drag left) triggers onSwipeLeft, which in
 // useViewState advances TAB_ORDER forward. dx > 0 (drag right) triggers
-// onSwipeRight, which moves backward. TAB_ORDER = [history, chat, workspace, files].
+// onSwipeRight, which moves backward. TAB_ORDER = [history, chat, files] (no
+// workspace tab since 22.09.2026 — the KB has one main-area view, the chat).
 function swipeLeft(result: ReturnType<typeof setup>['result']) {
   act(() => {
     result.current.swipeHandlers.onTouchStart(touchStart(200));
@@ -68,32 +70,20 @@ describe('useViewState swipe navigation', () => {
     expect(setKbView).not.toHaveBeenCalled();
   });
 
-  it('Swipe links von chat landet auf workspace und ruft setKbView("workspace")', () => {
+  it('Swipe links von chat landet direkt auf files (kein Workspace-Reiter mehr), ohne setKbView', () => {
     const { result, setKbView } = setup();
     swipeLeft(result);
-    expect(result.current.mobileTab).toBe('workspace');
-    expect(setKbView).toHaveBeenCalledWith('workspace');
-  });
-
-  it('Swipe links erneut landet auf files, OHNE kbView von "workspace" wegzubewegen', () => {
-    const { result, setKbView } = setup();
-    swipeLeft(result); // chat -> workspace
-    expect(result.current.mobileTab).toBe('workspace');
-    expect(setKbView).toHaveBeenCalledWith('workspace');
-
-    setKbView.mockClear();
-    swipeLeft(result); // workspace -> files
     expect(result.current.mobileTab).toBe('files');
     expect(setKbView).not.toHaveBeenCalled();
   });
 
-  it('Swipe rechts von workspace kehrt zu chat zurück und ruft setKbView("chat")', () => {
+  it('Swipe rechts von files kehrt zu chat zurück und ruft setKbView("chat")', () => {
     const { result, setKbView } = setup();
-    swipeLeft(result); // chat -> workspace
-    expect(result.current.mobileTab).toBe('workspace');
+    swipeLeft(result); // chat -> files
+    expect(result.current.mobileTab).toBe('files');
 
     setKbView.mockClear();
-    swipeRight(result); // workspace -> chat
+    swipeRight(result); // files -> chat
     expect(result.current.mobileTab).toBe('chat');
     expect(setKbView).toHaveBeenCalledWith('chat');
   });
@@ -111,39 +101,12 @@ describe('useViewState swipe navigation', () => {
 
   it('Swipe links an der Grenze "files" ist ein No-op', () => {
     const { result, setKbView } = setup();
-    swipeLeft(result); // chat -> workspace
-    swipeLeft(result); // workspace -> files
+    swipeLeft(result); // chat -> files
     expect(result.current.mobileTab).toBe('files');
 
     setKbView.mockClear();
     swipeLeft(result); // files -> files (Grenze)
     expect(result.current.mobileTab).toBe('files');
     expect(setKbView).not.toHaveBeenCalled();
-  });
-
-  // Fix wave item 4: ChatView's own Workspace tab (icon-only on mobile) calls
-  // setKbView('workspace') directly, bypassing applyTab — so mobileTab can
-  // stay at its default 'chat' while kbView is already 'workspace'. Before
-  // this fix, swipeLeft/swipeRight indexed TAB_ORDER by the stale mobileTab
-  // ('chat') instead of the displayed tab ('workspace'), leaving a left swipe
-  // dead (it "advanced" to the already-shown workspace tab) and a right swipe
-  // skipping straight past chat to history.
-  describe('driftete mobileTab/kbView (ChatViews eigener Workspace-Tab)', () => {
-    it('Swipe links folgt dem angezeigten Tab (workspace) statt dem veralteten mobileTab (chat)', () => {
-      const { result, setKbView } = setup('workspace');
-      expect(result.current.mobileTab).toBe('chat'); // roher State, gedriftet
-
-      swipeLeft(result);
-      expect(result.current.mobileTab).toBe('files');
-      expect(setKbView).not.toHaveBeenCalled();
-    });
-
-    it('Swipe rechts kehrt von workspace zu chat zurück, statt chat zu überspringen', () => {
-      const { result, setKbView } = setup('workspace');
-
-      swipeRight(result);
-      expect(result.current.mobileTab).toBe('chat');
-      expect(setKbView).toHaveBeenCalledWith('chat');
-    });
   });
 });

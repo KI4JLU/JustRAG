@@ -43,15 +43,17 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
 
     const items = useMemo(() => {
         const confluenceEnabled = siteConfigs?.confluence_enabled === 'true';
-        const academicEnabled = siteConfigs?.academic_search_enabled === 'true';
         const gitRepoEnabled = siteConfigs?.git_repo_enabled === 'true';
         return gridItems.filter(i => {
             if (i.type === 'confluence' && !confluenceEnabled) return false;
-            if (i.type === 'academic' && !academicEnabled) return false;
+            // 'academic' öffnete die Academic-Research-Ansicht; die ist seit
+            // dem 22.09.2026 nicht erreichbar (KbViewType = 'chat'), also
+            // fehlt die Kachel — unabhängig von academic_search_enabled.
+            if (i.type === 'academic') return false;
             if (i.type === 'gitrepo' && !gitRepoEnabled) return false;
             return true;
         });
-    }, [siteConfigs?.confluence_enabled, siteConfigs?.academic_search_enabled, siteConfigs?.git_repo_enabled]);
+    }, [siteConfigs?.confluence_enabled, siteConfigs?.git_repo_enabled]);
 
     const webSearchEnabled = siteConfigs?.web_search_enabled === 'true';
 

@@ -93,7 +93,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const renderLayout = (mobileTab: 'history' | 'chat' | 'workspace' | 'files' = 'chat', setMobileTab = vi.fn()) => {
+const renderLayout = (mobileTab: 'history' | 'chat' | 'files' = 'chat', setMobileTab = vi.fn()) => {
   const result = render(
     <KbWorkspaceLayout mobileTab={mobileTab} setMobileTab={setMobileTab} swipeHandlers={noSwipe} />,
   );
@@ -126,12 +126,11 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
     expect(shellProps.rightPanel?.resize?.onWidthChange).toBe(setRightSidebarWidth);
   });
 
-  it('gibt der Shell die vier Reiter mit ihrer Bereichszuordnung', () => {
+  it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung — kein Workspace mehr', () => {
     renderLayout();
     expect(shellProps.mobileTabs?.map(tab => [tab.id, tab.pane])).toEqual([
       ['history', 'left'],
       ['chat', 'main'],
-      ['workspace', 'main'],
       ['files', 'right'],
     ]);
   });
@@ -144,60 +143,32 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
 });
 
 describe('KbWorkspaceLayout Quellen-Sichtbarkeit', () => {
-  it('nimmt die Quellenspalte im Workspace per showRight heraus, statt sie zuzuklappen', () => {
-    // `showRight={false}` (DS 0.37.0) ist der von der Shell vorgesehene Weg
-    // und rührt `isRightSidebarOpen` nicht an. `setIsRightSidebarOpen(false)`
-    // (so lief es bis 2026-08) ließ die Leiste nach dem Verlassen des
-    // Workspace zugeklappt zurück, weil niemand sie wieder öffnete.
-    kbView = 'chat';
-    const { rerender } = render(
-      <KbWorkspaceLayout mobileTab="chat" setMobileTab={vi.fn()} swipeHandlers={noSwipe} />,
-    );
+  it('nimmt die Quellenspalte nie heraus — es gibt keine Workspace-Ansicht mehr (22.09.2026)', () => {
+    // Bis zum 22.09.2026 blendete `showRight={false}` die Spalte im Workspace
+    // aus. Die Ansicht ist nicht mehr erreichbar (KbViewType = 'chat'), also
+    // gibt es keinen Zustand, in dem die Spalte fehlen dürfte.
+    renderLayout();
     expect(screen.getByTestId('sources-panel')).toBeInTheDocument();
-
-    kbView = 'workspace';
-    rerender(<KbWorkspaceLayout mobileTab="chat" setMobileTab={vi.fn()} swipeHandlers={noSwipe} />);
-    expect(screen.queryByTestId('sources-panel')).not.toBeInTheDocument();
-    expect(shellProps.showRight).toBe(false);
-    // Das Panel selbst bleibt übergeben — nur die Desktop-Anordnung lässt es
-    // aus. Das ist es, was den Mobil-Reiter „Quellen" am Leben hält.
-    expect(shellProps.rightPanel).toBeDefined();
-
-    kbView = 'chat';
-    rerender(<KbWorkspaceLayout mobileTab="chat" setMobileTab={vi.fn()} swipeHandlers={noSwipe} />);
-    expect(screen.getByTestId('sources-panel')).toBeInTheDocument();
+    expect(shellProps.showRight).toBeUndefined();
     expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
-  });
-
-  it('überlässt den Mobil-Fall der Shell: rightPanel ist auch im Workspace übergeben', () => {
-    // Unterhalb `lg` ignoriert `AppShell` `showRight` (DS 0.37.0), also zeigt
-    // der Reiter „Quellen" die Spalte weiterhin — solange die App das Panel
-    // übergibt. Bis 0.36.0 fing die App das selbst ab
-    // (`activeMobileTab === 'files'`); diese Ableitung ist weg.
-    kbView = 'workspace';
-    renderLayout('files');
-    expect(shellProps.rightPanel).toBeDefined();
-    expect(shellProps.showRight).toBe(false);
   });
 });
 
 describe('KbWorkspaceLayout Reiter-Ableitung', () => {
-  it('zieht kbView beim Reiterwechsel mit', async () => {
+  it('zieht kbView beim Wechsel auf „chat" mit', async () => {
     const setMobileTab = vi.fn();
     renderLayout('chat', setMobileTab);
-    shellProps.onMobileTabChange?.('workspace');
-    expect(setKbView).toHaveBeenCalledWith('workspace');
-    expect(setMobileTab).toHaveBeenCalledWith('workspace');
+    shellProps.onMobileTabChange?.('chat');
+    expect(setKbView).toHaveBeenCalledWith('chat');
+    expect(setMobileTab).toHaveBeenCalledWith('chat');
   });
 
-  it('GUARD (#1): bei mobileTab="chat" aber kbView="workspace" meldet die Shell "workspace" als aktiv', () => {
-    kbView = 'workspace';
+  it('meldet für „chat" immer „chat" als aktiv — kbView hat keinen zweiten Wert mehr', () => {
     renderLayout('chat');
-    expect(shellProps.activeMobileTab).toBe('workspace');
+    expect(shellProps.activeMobileTab).toBe('chat');
   });
 
   it('lässt „history" und „files" unangetastet — die sind nie mehrdeutig', () => {
-    kbView = 'workspace';
     renderLayout('history');
     expect(shellProps.activeMobileTab).toBe('history');
   });
