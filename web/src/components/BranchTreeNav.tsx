@@ -10,9 +10,10 @@ interface BranchTreeNavProps {
     onSelectBranch: (leafId: string) => void;
 }
 
-/** Check if there are any branch points in the tree */
+/** Check if there are any branch points in the tree: a message with more
+ *  than one child. Without one the rail has nothing to navigate and stays
+ *  unmounted (a lone chat is not a tree). */
 function hasBranches(map: Map<string, Message>): boolean {
-    if (map.size > 0) return true; // DEBUG: Force show
     for (const msg of map.values()) {
         if (msg.childIds && msg.childIds.length > 1) return true;
     }
