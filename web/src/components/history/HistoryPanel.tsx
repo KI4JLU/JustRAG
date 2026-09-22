@@ -90,13 +90,25 @@ const HistoryPanelComp: React.FC = () => {
      * `aria-label` und im `title`, weil in der Schiene kein Text hinpasst und
      * ein Knopf ohne zugänglichen Namen für Screenreader leer wäre.
      *
-     * Der „Neuer Chat"-Knopf kommt NICHT mit: er ist nicht Teil dessen, was
-     * hier angefragt war. Er ist damit erst nach dem Ausklappen erreichbar.
-     * // TODO: ob die Schiene ihn tragen soll, ist nicht entschieden.
+     * Der „Neuer Chat"-Knopf kommt mit (Entwickler, 22.09.2026): oben in der
+     * Schiene, vor der Liste, so wie er ausgeklappt über ihr steht. Ein
+     * gefüllter 32px-Knopf (`Button size="icon"`, 16px Symbol) — dieselbe
+     * Gestalt wie ausgeklappt, damit er beim Ein- und Ausklappen nicht die
+     * Form wechselt.
      */
     if (collapsed) {
         return (
-            <ul className="history-panel__rail">
+            <>
+                <Button
+                    type="button"
+                    size="icon"
+                    onClick={handleNewChat}
+                    title={t('newChat')}
+                    aria-label={t('newChat')}
+                >
+                    <Plus size={16} aria-hidden="true" />
+                </Button>
+                <ul className="history-panel__rail">
                 {items.map(item => {
                     const Icon = KIND_ICON[item.kind];
                     const isActive = item.kind !== 'artifact' && item.id === activeChatId;
@@ -117,7 +129,8 @@ const HistoryPanelComp: React.FC = () => {
                         </li>
                     );
                 })}
-            </ul>
+                </ul>
+            </>
         );
     }
 

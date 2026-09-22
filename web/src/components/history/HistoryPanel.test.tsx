@@ -141,21 +141,23 @@ describe('HistoryPanel', () => {
    * Datumszeilen und Löschknöpfen. Genau das prüfen die Abwesenheits-
    * Assertionen unten; sie sind die Regression, nicht die Symbolzahl.
    */
-  it('zeigt eingeklappt ein Symbol je Verlaufseintrag, sonst nichts', () => {
+  it('zeigt eingeklappt „Neuer Chat" und ein Symbol je Verlaufseintrag, sonst nichts', async () => {
     collapsed = true;
     render(<HistoryPanel />);
 
-    // Ein Knopf je Eintrag, benannt nach seinem Titel — in 60px ist kein Platz
-    // für Text, ein Knopf ohne zugänglichen Namen wäre für Screenreader leer.
+    // „Neuer Chat" zuerst, dann ein Knopf je Eintrag, benannt nach seinem
+    // Titel — in 60px ist kein Platz für Text, ein Knopf ohne zugänglichen
+    // Namen wäre für Screenreader leer.
     // ORACLE: dieselben vier Titel, die der ausgeklappte Test oben in
     // derselben Reihenfolge erwartet.
     const names = screen.getAllByRole('button').map(b => b.getAttribute('aria-label'));
-    expect(names).toEqual(['Analyse: Budget', 'Zero-Trust', 'Paper', 'Budget?']);
+    expect(names).toEqual(['newChat', 'Analyse: Budget', 'Zero-Trust', 'Paper', 'Budget?']);
+    await userEvent.click(screen.getByRole('button', { name: 'newChat' }));
+    expect(handleNewChat).toHaveBeenCalled();
 
     // Und nichts von der ausgeklappten Ansicht.
     expect(screen.queryByText('history')).not.toBeInTheDocument();
     expect(screen.queryByTestId('history-item-title')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'newChat' })).not.toBeInTheDocument();
   });
 
   it('öffnet aus der Schiene denselben Eintrag wie aus der Liste', async () => {
