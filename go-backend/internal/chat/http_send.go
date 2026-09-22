@@ -57,8 +57,12 @@ type sendMessageRequest struct {
 	Enhance          string   `json:"enhance"` // "rewrite", "expand", "spell", or ""
 	ReasoningEnabled bool     `json:"reasoningEnabled"`
 	ReasoningLevel   string   `json:"reasoningLevel"` // "low", "medium", "high"
-	AttachmentID     string   `json:"attachmentId"`
-	ComparisonModes  []string `json:"comparisonModes"`
+	// WebSearch is the user's per-turn opt-in (the "Websuche" capability in
+	// the composer): the answer LLM gets the web_search tool for this turn
+	// even when chat_answer_tools_enabled is off. See web_search_turn.go.
+	WebSearch       bool     `json:"webSearch"`
+	AttachmentID    string   `json:"attachmentId"`
+	ComparisonModes []string `json:"comparisonModes"`
 	// RegenerateOfMessageID names an AI message to answer again. The turn
 	// then carries no question of its own: the stored question is re-answered
 	// and the new answer becomes a sibling of the named one. Overrides
@@ -263,6 +267,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Current-date line for date-aware answers (empty when disabled).
 	dateLine := SystemPromptDateLine(ctx, h.siteConfigReader, lang)
+
+	// Web search was switched on for this turn: refuse up front when the
+	// server cannot honour it, instead of streaming an answer that quietly
+	// went without. The frontend shows this message in the answer bubble.
+	if body.WebSearch {
+		if reason := h.webSearchUnavailable(ctx); reason != "" {
+			httputil.WriteErrorCtx(ctx, w, http.StatusUnprocessableEntity, reason)
+			return
+		}
+	}
 
 	// Guard the uuid `messages` columns against client placeholder ids: a
 	// non-uuid parent (e.g. "temp-error-…" left by a failed send) triggers
@@ -511,6 +525,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		lang:               lang,
 		userMessage:        body.Message,
 		reasoningLevel:     reasoningLevel,
+		webSearch:          body.WebSearch,
 		userMsgID:          userMsg.ID,
 		chatCtx:            chatCtx,
 		bufferedTrajectory: bufferedTrajectory,
@@ -1275,20 +1290,20 @@ func (h *Handler) tryDeepChat(
 	// carries the same kind of team-synthesised content via KbSystemPrompt,
 	// so it needs the same exclusion as a pure OrchTeam turn — not just
 	// "orch != OrchTeam", which teamAuthoredTurn is what makes this drop.
-	useAnswerTools := !teamAuthoredTurn(orch, comparisonTeamAnswered) && ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
-	// answerToolsDispatcher/catalog default to the unrestricted pair; a
-	// per-route allowlist (W6-R8) narrows both together below so the catalog
-	// projection and the dispatch boundary can never drift apart.
-	var answerToolsDispatcher ToolDispatcher = h.toolDispatcher
-	var catalog []ai.ChatTool
+	// answerTurnTools resolves the base catalog (admin flag and/or the user's
+	// per-turn web-search opt-in); a per-route allowlist (W6-R8) then narrows
+	// dispatcher and catalog together so the catalog projection and the
+	// dispatch boundary can never drift apart.
+	answerToolsDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, kbID, body.WebSearch, teamAuthoredTurn(orch, comparisonTeamAnswered))
 	if useAnswerTools {
-		mcpDisp, _ := h.toolDispatcher.(*MCPDispatcher)
-		if mcpDisp != nil {
-			catalog = mcpDisp.AnswerToolCatalog(kbID)
-		}
 		byRoute := ChatAnswerToolsByRoute(ctx, h.siteConfigReader)
 		if allow, ok, decision, reason := resolveAnswerToolsRoute(byRoute, queryType, orchIn.IsGlobalSynthesis); ok {
-			answerToolsDispatcher, catalog = restrictToolsForRoute(h.toolDispatcher, catalog, allow, true)
+			answerToolsDispatcher, catalog = restrictToolsForRoute(answerToolsDispatcher, catalog, allow, true)
+			if !hasTool(catalog, webSearchToolName) {
+				// The route allowlist dropped web_search: don't tell the
+				// answer LLM to use a tool it no longer has.
+				webSearchHint = ""
+			}
 			routeEvt := TrajectoryEvent{
 				Stage:    "answer_tools_route",
 				Decision: decision,
@@ -1325,7 +1340,7 @@ func (h *Handler) tryDeepChat(
 			AIResolver:      h.aiResolver,
 			KbID:            kbID,
 			ChatID:          chatID,
-			SystemPrompt:    chatCtx.SystemPrompt,
+			SystemPrompt:    chatCtx.SystemPrompt + webSearchHint,
 			UserPrompt:      body.Message,
 			History:         answerHistory,
 			Tools:           catalog,
@@ -1414,6 +1429,7 @@ func (h *Handler) tryDeepChat(
 		// restriction (or fix-round-2's unknown-query-type case) can
 		// leave useAnswerTools true while this is false.
 		"answer_tools_path", runAnswerTools,
+		"web_search_requested", body.WebSearch,
 		"tool_calls", toolCallsThisTurn,
 	)
 	observability.RecordCompletion(true, time.Since(deepChatStart).Seconds())

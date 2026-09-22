@@ -529,6 +529,7 @@ type chatResponseParams struct {
 	lang               string
 	userMessage        string
 	reasoningLevel     string
+	webSearch          bool
 	userMsgID          string
 	chatCtx            *ChatContext
 	bufferedTrajectory []map[string]any
@@ -619,6 +620,7 @@ func (h *Handler) handleTransformFollowUp(
 		lang:               lang,
 		userMessage:        body.Message,
 		reasoningLevel:     resolveReasoningLevel(body),
+		webSearch:          body.WebSearch,
 		userMsgID:          userMsg.ID,
 		chatCtx:            chatCtx,
 		bufferedTrajectory: bufferedTrajectory,
@@ -682,20 +684,20 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
 		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
-	useAnswerTools := ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
-	// answerToolsDispatcher/catalog default to the unrestricted pair; a
-	// per-route allowlist (W6-R8) narrows both together below so the catalog
-	// projection and the dispatch boundary can never drift apart.
-	var answerToolsDispatcher ToolDispatcher = h.toolDispatcher
-	var catalog []ai.ChatTool
+	// answerTurnTools resolves the base catalog (admin flag and/or the user's
+	// per-turn web-search opt-in); a per-route allowlist (W6-R8) then narrows
+	// dispatcher and catalog together so the catalog projection and the
+	// dispatch boundary can never drift apart.
+	answerToolsDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, p.kbID, p.webSearch, false)
 	if useAnswerTools {
-		mcpDisp, _ := h.toolDispatcher.(*MCPDispatcher)
-		if mcpDisp != nil {
-			catalog = mcpDisp.AnswerToolCatalog(p.kbID)
-		}
 		byRoute := ChatAnswerToolsByRoute(ctx, h.siteConfigReader)
 		if allow, ok, decision, reason := resolveAnswerToolsRoute(byRoute, p.queryType, p.isGlobalSynthesis); ok {
-			answerToolsDispatcher, catalog = restrictToolsForRoute(h.toolDispatcher, catalog, allow, true)
+			answerToolsDispatcher, catalog = restrictToolsForRoute(answerToolsDispatcher, catalog, allow, true)
+			if !hasTool(catalog, webSearchToolName) {
+				// The route allowlist dropped web_search: don't tell the
+				// answer LLM to use a tool it no longer has.
+				webSearchHint = ""
+			}
 			routeEvt := TrajectoryEvent{
 				Stage:    "answer_tools_route",
 				Decision: decision,
@@ -732,7 +734,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			AIResolver:      h.aiResolver,
 			KbID:            p.kbID,
 			ChatID:          p.chatID,
-			SystemPrompt:    systemPrompt,
+			SystemPrompt:    systemPrompt + webSearchHint,
 			UserPrompt:      p.userMessage,
 			History:         p.history,
 			Tools:           catalog,
@@ -817,6 +819,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		// restriction (or fix-round-2's unknown-query-type case) can
 		// leave useAnswerTools true while this is false.
 		"answer_tools_path", runAnswerTools,
+		"web_search_requested", p.webSearch,
 		"tool_calls", toolCallsThisTurn,
 	)
 	p.span.SetAttributes(
