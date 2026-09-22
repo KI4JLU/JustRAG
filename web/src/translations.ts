@@ -371,6 +371,7 @@ export const translations = {
     capabilities: { de: 'Fähigkeiten', en: 'Capabilities' },
     webSearchTool: { de: 'Websuche', en: 'Web search' },
     webSearchToolOff: { de: 'Websuche deaktivieren', en: 'Turn web search off' },
+    webSearchToolActive: { de: 'Websuche aktiv — zum Deaktivieren klicken', en: 'Web search on — click to turn off' },
     enhanceNeedsDraft: { de: 'Tippe zuerst einen Entwurf, um ihn zu verbessern.', en: 'Type a draft first to improve it.' },
     activeSources: { de: 'Aktive Quellen', en: 'Active sources' },
     reasoningMode: { de: 'Gedankengang-Modus', en: 'Reasoning Mode' },

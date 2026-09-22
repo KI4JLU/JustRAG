@@ -24,7 +24,7 @@ import {
   PromptInput, PromptInputAdaptiveTextarea, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment,
-  Badge, DropdownMenuLabel, DropdownMenuSeparator,
+  DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
@@ -646,24 +646,23 @@ const ChatViewComp = () => {
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
                         {webSearch && (
-                          <Badge
-                            id="chat-composer-web-search-badge"
-                            appearance="filled"
-                            tone="success"
-                            className="ml-1 gap-1.5"
-                          >
-                            <Globe size={14} aria-hidden="true" />
-                            {t('webSearchTool')}
-                            <button
-                              type="button"
-                              onClick={() => setWebSearch(false)}
-                              aria-label={t('webSearchToolOff')}
-                              title={t('webSearchToolOff')}
-                              className="inline-flex size-5 items-center justify-center rounded-full hover:bg-on-success-container/10"
-                            >
-                              <X size={12} aria-hidden="true" />
-                            </button>
-                          </Badge>
+                          /* Web search is on: a compact, pressed icon control next to the +.
+                             The globe swaps to an X on hover/focus — one click switches it off. */
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <PromptInputButton
+                                id="chat-composer-web-search-badge"
+                                className="group/ws size-10"
+                                aria-pressed="true"
+                                aria-label={t('webSearchToolOff')}
+                                onClick={() => setWebSearch(false)}
+                              >
+                                <Globe aria-hidden="true" className="group-hover/ws:hidden group-focus-visible/ws:hidden" />
+                                <X aria-hidden="true" className="hidden group-hover/ws:block group-focus-visible/ws:block" />
+                              </PromptInputButton>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('webSearchToolActive')}</TooltipContent>
+                          </Tooltip>
                         )}
                       </InputGroupAddon>
                       <PromptInputAdaptiveTextarea
