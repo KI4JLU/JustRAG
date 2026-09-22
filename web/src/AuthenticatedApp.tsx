@@ -155,13 +155,15 @@ function AuthenticatedAppInner() {
 
   // Sidebar resize
   const sidebar = useSidebarResize();
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
 
   // Existing hooks
   const fileMgmt = useFileManagement({ currentKb });
 
   const chat = useChat({
     currentKb, files: fileMgmt.files, enhance: kbSettings.enhance,
-    reasoningEnabled: kbSettings.reasoningEnabled, reasoningLevel: kbSettings.reasoningLevel,
+    reasoningEnabled: kbSettings.reasoningEnabled, webSearchEnabled: kbSettings.webSearchEnabled,
+    reasoningLevel: kbSettings.reasoningLevel,
     agentSelection: kbSettings.agentSelection, setAgentSelection: kbSettings.setAgentSelection,
   });
 
@@ -538,6 +540,8 @@ function AuthenticatedAppInner() {
     setEnhance: kbSettings.setEnhance,
     reasoningEnabled: kbSettings.reasoningEnabled,
     setReasoningEnabled: kbSettings.setReasoningEnabled,
+    webSearchEnabled: kbSettings.webSearchEnabled,
+    setWebSearchEnabled: kbSettings.setWebSearchEnabled,
     reasoningLevel: kbSettings.reasoningLevel,
     setReasoningLevel: kbSettings.setReasoningLevel,
     showSettings: kbSettings.showSettings,
@@ -588,6 +592,8 @@ function AuthenticatedAppInner() {
 
   const layoutValue: KbLayoutContextValue = {
     sidebar,
+    systemPromptOpen,
+    setSystemPromptOpen,
   };
 
   return (

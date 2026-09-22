@@ -56,8 +56,12 @@ type sendMessageRequest struct {
 	Enhance          string   `json:"enhance"` // "rewrite", "expand", "spell", or ""
 	ReasoningEnabled bool     `json:"reasoningEnabled"`
 	ReasoningLevel   string   `json:"reasoningLevel"` // "low", "medium", "high"
-	AttachmentID     string   `json:"attachmentId"`
-	ComparisonModes  []string `json:"comparisonModes"`
+	// WebSearch is the user's per-turn opt-in (the "Websuche" capability in
+	// the composer): the answer LLM gets the web_search tool for this turn
+	// even when chat_answer_tools_enabled is off. See web_search_turn.go.
+	WebSearch       bool     `json:"webSearch"`
+	AttachmentID    string   `json:"attachmentId"`
+	ComparisonModes []string `json:"comparisonModes"`
 	// RegenerateOfMessageID names an AI message to answer again. The turn
 	// then carries no question of its own: the stored question is re-answered
 	// and the new answer becomes a sibling of the named one. Overrides
@@ -239,6 +243,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Current-date line for date-aware answers (empty when disabled).
 	dateLine := SystemPromptDateLine(ctx, h.siteConfigReader, lang)
+
+	// Web search was switched on for this turn: refuse up front when the
+	// server cannot honour it, instead of streaming an answer that quietly
+	// went without. The frontend shows this message in the answer bubble.
+	if body.WebSearch {
+		if reason := h.webSearchUnavailable(ctx); reason != "" {
+			httputil.WriteErrorCtx(ctx, w, http.StatusUnprocessableEntity, reason)
+			return
+		}
+	}
 
 	// Guard the uuid `messages` columns against client placeholder ids: a
 	// non-uuid parent (e.g. "temp-error-…" left by a failed send) triggers
@@ -439,6 +453,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		lang:               lang,
 		userMessage:        body.Message,
 		reasoningLevel:     reasoningLevel,
+		webSearch:          body.WebSearch,
 		userMsgID:          userMsg.ID,
 		chatCtx:            chatCtx,
 		bufferedTrajectory: bufferedTrajectory,
@@ -968,7 +983,7 @@ func (h *Handler) tryDeepChat(
 	// carries the same kind of team-synthesised content via KbSystemPrompt,
 	// so it needs the same exclusion as a pure OrchTeam turn — not just
 	// "orch != OrchTeam", which teamAuthoredTurn is what makes this drop.
-	useAnswerTools := !teamAuthoredTurn(orch, comparisonTeamAnswered) && ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
+	answerDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, kbID, body.WebSearch, teamAuthoredTurn(orch, comparisonTeamAnswered))
 	if useAnswerTools {
 		answerTrace := func(stage, decision, reason string, details map[string]any) {
 			payload := map[string]any{
@@ -981,20 +996,15 @@ func (h *Handler) tryDeepChat(
 			}
 			writeSSE(ctx, w, payload)
 		}
-		mcpDisp, _ := h.toolDispatcher.(*MCPDispatcher)
-		var catalog []ai.ChatTool
-		if mcpDisp != nil {
-			catalog = mcpDisp.AnswerToolCatalog(kbID)
-		}
 		err = RunAnswerWithTools(ctx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
 			KbID:            kbID,
 			ChatID:          chatID,
-			SystemPrompt:    chatCtx.SystemPrompt,
+			SystemPrompt:    chatCtx.SystemPrompt + webSearchHint,
 			UserPrompt:      body.Message,
 			History:         answerHistory,
 			Tools:           catalog,
-			Dispatcher:      h.toolDispatcher,
+			Dispatcher:      answerDispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
 			ReasoningEffort: reasoningLevel,
 			Temperature:     ChatAnswerTemperature(ctx, h.siteConfigReader),
@@ -1053,6 +1063,7 @@ func (h *Handler) tryDeepChat(
 		"stream", true,
 		"deep_chat", true,
 		"answer_tools_path", useAnswerTools,
+		"web_search_requested", body.WebSearch,
 		"tool_calls", toolCallsThisTurn,
 	)
 	observability.RecordCompletion(true, time.Since(deepChatStart).Seconds())

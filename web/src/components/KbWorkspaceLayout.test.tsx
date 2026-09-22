@@ -51,7 +51,11 @@ vi.mock('./history/HistoryPanel', () => ({ HistoryPanel: () => <div data-testid=
 vi.mock('./ChatView', () => ({ ChatView: () => <div data-testid="chat-view" /> }));
 vi.mock('./KbHeaderTitle', () => ({ KbHeaderTitle: () => <span data-testid="kb-header-title" /> }));
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: { role: 'user' } }) }));
+// Wer schaut: Standard ist ein fremder Nutzer ohne KB-Rolle. Tests, die den
+// Eigentümer oder einen KB-Admin brauchen, setzen `authUser` / `kbExtra` um.
+let authUser: { id?: string; role: string } = { role: 'user' };
+let kbExtra: Record<string, unknown> = {};
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser }) }));
 
 const handleGoHome = vi.fn();
 let kbView = 'chat';
@@ -59,7 +63,7 @@ const setKbView = vi.fn();
 
 vi.mock('../contexts/KbCoreContext', () => ({
   useKbCore: () => ({
-    currentKb: { id: 'kb1', name: 'TEST' },
+    currentKb: { id: 'kb1', name: 'TEST', ...kbExtra },
     kbView,
     setKbView,
     handleGoHome,
@@ -71,6 +75,7 @@ const setIsLeftSidebarOpen = vi.fn();
 const setIsRightSidebarOpen = vi.fn();
 const setLeftSidebarWidth = vi.fn();
 const setRightSidebarWidth = vi.fn();
+const setSystemPromptOpen = vi.fn();
 
 // Links/Rechts bewusst UNTERSCHIEDLICH: eine Verdrahtung, die den linken
 // Zustand in die rechte Spalte schreibt, wird daran rot statt plausibel.
@@ -82,6 +87,8 @@ vi.mock('../contexts/KbLayoutContext', () => ({
       setIsLeftSidebarOpen, setIsRightSidebarOpen,
       setLeftSidebarWidth, setRightSidebarWidth,
     },
+    systemPromptOpen: false,
+    setSystemPromptOpen,
   }),
 }));
 
@@ -90,6 +97,8 @@ const noSwipe = { onTouchStart: vi.fn(), onTouchEnd: vi.fn() };
 beforeEach(() => {
   shellProps = {};
   kbView = 'chat';
+  authUser = { role: 'user' };
+  kbExtra = {};
   vi.clearAllMocks();
 });
 
@@ -184,9 +193,37 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     // Der alte Reiter-Block (Chat / Bericht / Mindmap / Workspace) und die
     // rechte Knopfgruppe (Sprache, Teilen, KB-Einstellungen) sind mit der
     // `chat-header` gegangen und haben hier keinen Ersatz — das ist Absicht
-    // und Aufgabe der Folgekarte.
+    // und Aufgabe der Folgekarte. Rechts steht seit dem 22.09.2026 nur das
+    // System-Prompt-Zahnrad, und das auch nur für Eigentümer und KB-Admins:
+    // ein fremder Nutzer ohne KB-Rolle sieht dort nichts.
     expect(screen.queryByRole('button', { name: 'mindMap' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shareKb' })).not.toBeInTheDocument();
+    expect(shellProps.headerActions).toBeUndefined();
+  });
+
+  it('zeigt dem Eigentümer das System-Prompt-Zahnrad und schaltet damit den Editor', async () => {
+    authUser = { id: 'u1', role: 'user' };
+    kbExtra = { userId: 'u1' };
+    renderLayout();
+    render(<div>{shellProps.headerActions}</div>);
+    const gear = screen.getByRole('button', { name: 'systemPromptLabel' });
+    expect(gear).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(gear);
+    expect(setSystemPromptOpen).toHaveBeenCalledWith(true);
+  });
+
+  it('zeigt einem KB-Admin ohne Eigentum das Zahnrad ebenfalls', () => {
+    authUser = { id: 'u2', role: 'user' };
+    kbExtra = { userId: 'u1', myRole: 'admin' };
+    renderLayout();
+    render(<div>{shellProps.headerActions}</div>);
+    expect(screen.getByRole('button', { name: 'systemPromptLabel' })).toBeInTheDocument();
+  });
+
+  it('verbirgt das Zahnrad vor einem Nutzer, dessen id nur zufällig fehlt (kein Eigentum aus undefined === undefined)', () => {
+    authUser = { role: 'user' };
+    kbExtra = { userId: undefined };
+    renderLayout();
     expect(shellProps.headerActions).toBeUndefined();
   });
 

@@ -1,11 +1,10 @@
 import { lazy, Suspense, memo, useCallback, useRef, useEffect, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import {
-  Brain, Send,
-  X, Search, GitBranch, Settings, Check, Trash2,
-  UploadCloud, Globe, FlaskConical, Sparkles, ChevronDown, FileText, Bot, Users,
+  Brain, ArrowUp,
+  X, Search, GitBranch, Check, Trash2,
+  UploadCloud, Globe, FlaskConical, WandSparkles, Loader2, FileText, Bot, Users,
 } from 'lucide-react';
-import { AnchoredPopover } from './AnchoredPopover';
 import { motion } from 'framer-motion';
 import type { Message } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
@@ -20,10 +19,18 @@ import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { useMessageSections } from '../hooks/useMessageSections';
+import {
+  InputGroupAddon,
+  PromptInput, PromptInputAdaptiveTextarea, PromptInputButton, PromptInputSubmit,
+  PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
+  PromptInputAttachments, PromptInputAttachment,
+  Badge, DropdownMenuLabel, DropdownMenuSeparator,
+} from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { canOpenKbAdvancedSettings } from '../utils/kbAccess';
+import { canOpenKbAdvancedSettings, hasKbAdminRole } from '../utils/kbAccess';
+import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
 import { MessageSkeleton } from './Skeleton';
 
@@ -60,11 +67,12 @@ const ChatViewComp = () => {
     currentKb, availableConfigs, handleUpdateKBSettings, onViewAgents,
   } = useKbCore();
   const {
-    chat, enhance, setEnhance, reasoningEnabled, setReasoningEnabled,
+    chat, reasoningEnabled, setReasoningEnabled,
+    webSearchEnabled: webSearch, setWebSearchEnabled: setWebSearch,
     agentSelection, setAgentSelection,
   } = useKbChat();
   const { fileMgmt, webTools } = useKbData();
-  const { sidebar } = useKbLayout();
+  const { sidebar, systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
   const kbAgentOptions = useKbAgents(currentKb?.id);
@@ -80,12 +88,60 @@ const ChatViewComp = () => {
     else if (defAgent) setAgentSelection({ agentId: defAgent.id });
   }, [kbAgentOptions, chat.activeChatId, setAgentSelection]);
 
-  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
   const [systemPromptDraft, setSystemPromptDraft] = useState(currentKb?.systemPrompt || '');
   const [showKbSettings, setShowKbSettings] = useState(false);
-  // §8 composer: "✦ Verbessern ▾" dropdown holding rewrite/expand/spell.
-  const [showEnhanceMenu, setShowEnhanceMenu] = useState(false);
-  const enhanceBtnRef = useRef<HTMLButtonElement>(null);
+  // Improve the UNSENT draft in place (rewrite / expand / spell) via
+  // POST /api/enhance, so the user can revise before sending. The old
+  // behaviour — flagging the message and letting the chat stream enhance it
+  // after send — is no longer driven from the composer; `enhance` in
+  // KbChatContext stays null and the stream sends it as such.
+  const [enhancing, setEnhancing] = useState<'rewrite' | 'expand' | 'spell' | null>(null);
+  const handleEnhanceDraft = useCallback(async (mode: 'rewrite' | 'expand' | 'spell') => {
+    const kbId = currentKb?.id;
+    const draft = chat.userMessageInput.trim();
+    if (!draft || enhancing) return;
+    setEnhancing(mode);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/enhance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: draft, type: mode, kbId, language }),
+      });
+      if (!res.ok) throw new Error(`enhance failed: ${res.status}`);
+      const data = await res.json() as { enhanced?: string };
+      if (data.enhanced?.trim()) chat.setUserMessageInput(data.enhanced.trim());
+      chat.textareaRef.current?.focus();
+    } catch (err) {
+      console.error('Draft enhancement failed:', err);
+    } finally {
+      setEnhancing(null);
+    }
+  }, [chat, currentKb, enhancing, language]);
+
+  // One-line mode keeps the text between the two control groups, which float
+  // over the bottom corners of the frame; the textarea reserves their measured
+  // width (+ edge offset and a gap). Measured, not hard-coded — the right
+  // group changes with the agent chip, the reasoning toggle and the source
+  // count. Once the text wraps, the textarea moves above the controls instead.
+  const [notch, setNotch] = useState({ left: 0, right: 0 });
+  const observeNotch = useCallback((side: 'left' | 'right') => (el: HTMLDivElement | null) => {
+    if (!el) return;
+    const apply = () => setNotch(n => {
+      const w = Math.ceil(el.getBoundingClientRect().width) + 12 + 8;
+      return n[side] === w ? n : { ...n, [side]: w };
+    });
+    apply();
+    // Deferred to the next frame: reacting synchronously inside the observer
+    // callback re-lays out the frame in the same tick and trips
+    // "ResizeObserver loop completed with undelivered notifications".
+    let frame = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(apply);
+    });
+    ro.observe(el);
+    return () => { cancelAnimationFrame(frame); ro.disconnect(); };
+  }, []);
 
   // Reset the draft whenever the KB (or its stored prompt) changes — done
   // during render with a prev-comparison instead of an effect, per
@@ -109,6 +165,9 @@ const ChatViewComp = () => {
   // button now appears exactly where kbAdvancedChain would let the request
   // through.
   const canTuneKB = canOpenKbAdvancedSettings(currentKb, user?.role);
+  // System prompt: owners and KB admins (the gear in the chrome bar,
+  // KbWorkspaceLayout, uses the same predicate).
+  const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
 
   const {
     hasFiles, selectedFileCount, fileInputRef,
@@ -459,7 +518,7 @@ const ChatViewComp = () => {
                         </button>
                       </div>
                     )}
-                    {showSystemPrompt && currentKb && currentKb.userId === user?.id && (
+                    {showSystemPrompt && currentKb && canEditSystemPrompt && (
                       <div style={{ marginBottom: '0.75rem', width: '100%' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                           <label htmlFor="chat-system-prompt" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -548,69 +607,103 @@ const ChatViewComp = () => {
                         {t('chatDisabledNoSources')}
                       </div>
                     )}
-                    <form className="input-wrapper" onSubmit={chat.handleSendMessage} style={noSources ? { opacity: 0.55, pointerEvents: 'none' } : undefined}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {currentKb && currentKb.userId === user?.id && (
-                          <button
-                            type="button"
-                            onClick={() => setShowSystemPrompt(!showSystemPrompt)}
-                            className="settings-toggle"
-                            style={{
-                              position: 'static',
-                              color: showSystemPrompt || currentKb.systemPrompt ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                              background: showSystemPrompt || currentKb.systemPrompt ? 'var(--tag-bg)' : 'transparent',
-                              padding: '4px',
-                              borderRadius: '6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'all 0.2s',
-                              border: showSystemPrompt || currentKb.systemPrompt ? '1px solid var(--accent-primary)' : '1px solid transparent',
-                            }}
-                            title={t('systemPromptLabel')}
-                            aria-label={t('systemPromptLabel')}
-                            aria-pressed={showSystemPrompt}
+                    <PromptInput
+                      id="chat-composer"
+                      shape="pill"
+                      multiple
+                      onSubmit={(_message, e) => chat.handleSendMessage(e)}
+                      className={noSources ? 'pointer-events-none opacity-55' : undefined}
+                      aria-disabled={noSources || undefined}
+                    >
+                      {/* Attached files: a header row above the input line, present only while files are attached */}
+                      <PromptInputAttachments id="chat-composer-attachments" className="order-first basis-full flex-nowrap overflow-x-auto border-b border-outline-variant px-3 pt-3 pb-2">
+                        {(file) => <PromptInputAttachment data={file} className="shrink-0" />}
+                      </PromptInputAttachments>
+                      <InputGroupAddon id="chat-composer-actions" align="inline-start" ref={observeNotch('left')} className="absolute bottom-1 left-3 p-0">
+                        {/* + — attach photos or files (menu grows with further actions) */}
+                        <PromptInputActionMenu>
+                          <PromptInputActionMenuTrigger
+                            id="chat-composer-attach-trigger"
+                            className="size-10"
+                            title={t('attachFiles')}
+                            aria-label={t('attachFiles')}
+                          />
+                          <PromptInputActionMenuContent id="chat-composer-attach-menu" align="start">
+                            <PromptInputActionAddAttachments id="chat-composer-attach-files" label={t('attachFiles')} />
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>{t('capabilities')}</DropdownMenuLabel>
+                            <PromptInputActionMenuItem
+                              id="chat-composer-web-search-toggle"
+                              role="menuitemcheckbox"
+                              aria-checked={webSearch}
+                              selected={webSearch}
+                              onSelect={() => setWebSearch(!webSearch)}
+                            >
+                              <Globe className="mr-2 size-4" aria-hidden="true" />
+                              <span className="flex-1">{t('webSearchTool')}</span>
+                              {webSearch && <Check size={14} aria-hidden="true" />}
+                            </PromptInputActionMenuItem>
+                          </PromptInputActionMenuContent>
+                        </PromptInputActionMenu>
+                        {webSearch && (
+                          <Badge
+                            id="chat-composer-web-search-badge"
+                            appearance="filled"
+                            tone="success"
+                            className="ml-1 gap-1.5"
                           >
-                            <Settings size={20} aria-hidden="true" />
-                          </button>
+                            <Globe size={14} aria-hidden="true" />
+                            {t('webSearchTool')}
+                            <button
+                              type="button"
+                              onClick={() => setWebSearch(false)}
+                              aria-label={t('webSearchToolOff')}
+                              title={t('webSearchToolOff')}
+                              className="inline-flex size-5 items-center justify-center rounded-full hover:bg-on-success-container/10"
+                            >
+                              <X size={12} aria-hidden="true" />
+                            </button>
+                          </Badge>
                         )}
+                      </InputGroupAddon>
+                      <PromptInputAdaptiveTextarea
+                        id="chat-message-input"
+                        ref={(el: HTMLTextAreaElement | null) => { attachHookRef(chat.textareaRef, el); }}
+                        aria-label={t('chatPlaceholder')}
+                        className="px-4 text-base leading-normal"
+                        enterKeyHint="send"
+                        placeholder={currentKb?.name ? t('chatPlaceholderContextual').replace('{{name}}', currentKb.name) : t('chatPlaceholder')}
+                        value={chat.userMessageInput}
+                        onChange={(e) => chat.setUserMessageInput(e.target.value)}
+                        rows={1}
+                        inlineLeft={notch.left}
+                        inlineRight={notch.right}
+                        laneHeight={48}
+                        maxHeight={240}
+                      />
+                      <InputGroupAddon id="chat-composer-tools" align="inline-end" ref={observeNotch('right')} className="absolute right-3 bottom-1 gap-1 p-0">
                         {(() => {
                           const selectedConfig = availableConfigs.find(c => c.id === currentKb?.aiConfigId) || availableConfigs.find(c => c.is_active);
                           const model = currentKb?.chatModel || (selectedConfig ? selectedConfig.chat_models[0] : null);
                           const isReasoningCapable = selectedConfig?.reasoning_models?.includes(model || '') || false;
-
                           if (!isReasoningCapable) return null;
-
                           return (
-                            <button
-                              type="button"
+                            <PromptInputButton
+                              id="chat-composer-reasoning-toggle"
                               onClick={() => {
                                 triggerHaptic(HAPTIC_PATTERNS.toggle);
                                 setReasoningEnabled(!reasoningEnabled);
-                              }}
-                              className="settings-toggle"
-                              style={{
-                                position: 'static',
-                                color: reasoningEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                                background: reasoningEnabled ? 'var(--tag-bg)' : 'transparent',
-                                padding: '4px',
-                                borderRadius: '6px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'all 0.2s',
-                                border: reasoningEnabled ? '1px solid var(--accent-primary)' : '1px solid transparent'
                               }}
                               title={t('reasoningMode')}
                               aria-label={t('reasoningToggle')}
                               aria-pressed={reasoningEnabled}
                             >
-                              <Brain size={20} aria-hidden="true" />
-                            </button>
+                              <Brain aria-hidden="true" />
+                            </PromptInputButton>
                           );
                         })()}
                         {(agentSelection.teamId || agentSelection.agentId) && (
-                          <span className="agent-active-chip">
+                          <span id="chat-composer-agent-chip" className="agent-active-chip">
                             {agentSelection.teamId ? <Users size={13} aria-hidden="true" /> : <Bot size={13} aria-hidden="true" />}
                             {t('agentActiveChip')}{' '}
                             {agentSelection.teamId
@@ -618,120 +711,52 @@ const ChatViewComp = () => {
                               : kbAgentOptions.agents.find(x => x.id === agentSelection.agentId)?.name}
                           </span>
                         )}
-                        {/* N Quellen ▾ — which sources are active; opens the sources sidebar */}
-                        <button
-                          type="button"
-                          onClick={() => sidebar.setIsRightSidebarOpen(true)}
-                          className="settings-toggle"
-                          style={{
-                            position: 'static',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            color: 'var(--text-secondary)',
-                            background: 'transparent',
-                            border: '1px solid transparent',
-                            fontSize: '0.78rem',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={t('activeSources')}
-                          aria-label={t('activeSources')}
-                        >
-                          <FileText size={16} aria-hidden="true" />
-                          <span>{selectedFileCount}</span>
-                          <ChevronDown size={12} aria-hidden="true" />
-                        </button>
-                      </div>
-                      <label htmlFor="chat-message-input" className="sr-only">{t('chatPlaceholder')}</label>
-                      <textarea
-                        id="chat-message-input"
-                        ref={(el) => { attachHookRef(chat.textareaRef, el); }}
-                        className="chat-input"
-                        enterKeyHint="send"
-                        placeholder={currentKb?.name ? t('chatPlaceholderContextual').replace('{{name}}', currentKb.name) : t('chatPlaceholder')}
-                        value={chat.userMessageInput}
-                        onChange={(e) => chat.setUserMessageInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            chat.handleSendMessage(e);
-                          }
-                        }}
-                        rows={1}
-                      />
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {/* ✦ Verbessern ▾ — rewrite / expand / spell; enabled only once a draft is typed */}
-                        <button
-                          ref={enhanceBtnRef}
-                          type="button"
-                          onClick={() => setShowEnhanceMenu(o => !o)}
-                          disabled={!chat.userMessageInput.trim()}
-                          className="settings-toggle"
-                          style={{
-                            position: 'static',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            color: enhance ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                            background: enhance ? 'var(--tag-bg)' : 'transparent',
-                            border: enhance ? '1px solid var(--accent-primary)' : '1px solid transparent',
-                            cursor: chat.userMessageInput.trim() ? 'pointer' : 'not-allowed',
-                            opacity: chat.userMessageInput.trim() ? 1 : 0.5,
-                            fontSize: '0.8rem',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={chat.userMessageInput.trim() ? t('enhanceLabel') : t('enhanceNeedsDraft')}
-                          aria-label={t('enhanceLabel')}
-                          aria-haspopup="menu"
-                          aria-expanded={showEnhanceMenu}
-                        >
-                          <Sparkles size={16} aria-hidden="true" />
-                          {!isMobile && <span>{t('enhanceLabel')}</span>}
-                          <ChevronDown size={12} aria-hidden="true" />
-                        </button>
-                        <AnchoredPopover
-                          open={showEnhanceMenu}
-                          triggerRef={enhanceBtnRef}
-                          onClose={() => setShowEnhanceMenu(false)}
-                          placement="top"
-                          align="end"
-                          width={190}
-                          role="menu"
-                          ariaLabel={t('enhanceLabel')}
-                        >
-                          <div style={{ padding: '4px' }}>
+                        {/* ✦ Improve the draft in place — rewrite / expand / spell; needs a draft */}
+                        <PromptInputActionMenu>
+                          <PromptInputActionMenuTrigger
+                            id="chat-composer-enhance-trigger"
+                            disabled={!chat.userMessageInput.trim() || enhancing !== null}
+                            title={chat.userMessageInput.trim() ? t('enhanceTooltip') : t('enhanceNeedsDraft')}
+                            aria-label={t('enhanceTooltip')}
+                            aria-busy={enhancing !== null || undefined}
+                          >
+                            {enhancing
+                              ? <Loader2 className="animate-spin" aria-hidden="true" />
+                              : <WandSparkles aria-hidden="true" />}
+                          </PromptInputActionMenuTrigger>
+                          <PromptInputActionMenuContent id="chat-composer-enhance-menu" align="end">
                             {(['rewrite', 'expand', 'spell'] as const).map(m => (
-                              <button
+                              <PromptInputActionMenuItem
                                 key={m}
-                                type="button"
-                                role="menuitemcheckbox"
-                                aria-checked={enhance === m}
-                                onClick={() => { setEnhance(enhance === m ? null : m); setShowEnhanceMenu(false); }}
-                                style={{
-                                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                  width: '100%', textAlign: 'left', background: 'none', border: 'none',
-                                  padding: '6px 10px', cursor: 'pointer', borderRadius: '4px',
-                                  color: enhance === m ? 'var(--accent-primary)' : 'var(--text-primary)',
-                                  fontSize: '0.85rem', fontFamily: 'inherit',
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--tag-bg)'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+                                id={`chat-composer-enhance-${m}`}
+                                onSelect={() => { void handleEnhanceDraft(m); }}
                               >
                                 {m === 'rewrite' ? t('rewrite') : m === 'expand' ? t('expand') : t('spell')}
-                                {enhance === m && <Check size={14} aria-hidden="true" />}
-                              </button>
+                              </PromptInputActionMenuItem>
                             ))}
-                          </div>
-                        </AnchoredPopover>
-                        <button type="submit" className="send-button" disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()} aria-label={t('sendMessage')}>
-                          <Send size={18} aria-hidden="true" />
-                        </button>
-                      </div>
-                    </form>
+                          </PromptInputActionMenuContent>
+                        </PromptInputActionMenu>
+                        {/* N sources active — a label, not a control */}
+                        <span
+                          id="chat-composer-sources-count"
+                          className="inline-flex items-center gap-1 whitespace-nowrap px-2 text-sm text-on-surface-variant"
+                          title={t('activeSources')}
+                          aria-label={`${selectedFileCount} ${t('sources')}`}
+                        >
+                          <FileText size={16} aria-hidden="true" />
+                          <span aria-hidden="true">{selectedFileCount}</span>
+                        </span>
+                        <PromptInputSubmit
+                          id="chat-composer-submit"
+                          className="size-10"
+                          status={chat.loading ? 'submitted' : undefined}
+                          disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()}
+                          aria-label={t('sendMessage')}
+                        >
+                          <ArrowUp aria-hidden="true" />
+                        </PromptInputSubmit>
+                      </InputGroupAddon>
+                    </PromptInput>
                     <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       {siteConfigs.chat_footer || t('chatFooter')}
                     </div>

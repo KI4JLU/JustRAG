@@ -3,6 +3,10 @@ import type { useSidebarResize } from '../hooks/useSidebarResize';
 
 export interface KbLayoutContextValue {
   sidebar: ReturnType<typeof useSidebarResize>;
+  /** The system-prompt editor above the composer: toggled from the chrome bar
+   *  (KbWorkspaceLayout), rendered by ChatView — hence shared here. */
+  systemPromptOpen: boolean;
+  setSystemPromptOpen: (open: boolean) => void;
 }
 
 const KbLayoutContext = createContext<KbLayoutContextValue | null>(null);

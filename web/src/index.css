@@ -2623,3 +2623,10 @@ button.source-card {
   background: var(--error-bg);
   color: var(--error-text);
 }
+/* The composer is a design-system InputGroup: it draws its own focus state
+ * (primary border + focus ring on the frame). The global unlayered
+ * `:focus-visible` outline above would add a second, inner box around the
+ * textarea and every tool button, so it is switched off inside the frame. */
+#chat-composer :focus-visible {
+  outline: none;
+}

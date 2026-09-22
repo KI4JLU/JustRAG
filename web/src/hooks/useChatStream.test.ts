@@ -60,6 +60,7 @@ function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: s
     files,
     enhance: null,
     reasoningEnabled: false,
+    webSearchEnabled: false,
     reasoningLevel: 'low',
     // The "stale" selection: what a plain state closure would still hold if
     // a caller only called setAgentSelection() (which lands on the NEXT

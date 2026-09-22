@@ -440,6 +440,7 @@ type chatResponseParams struct {
 	lang               string
 	userMessage        string
 	reasoningLevel     string
+	webSearch          bool
 	userMsgID          string
 	chatCtx            *ChatContext
 	bufferedTrajectory []map[string]any
@@ -506,6 +507,7 @@ func (h *Handler) handleTransformFollowUp(
 		lang:               lang,
 		userMessage:        body.Message,
 		reasoningLevel:     resolveReasoningLevel(body),
+		webSearch:          body.WebSearch,
 		userMsgID:          userMsg.ID,
 		chatCtx:            chatCtx,
 		bufferedTrajectory: bufferedTrajectory,
@@ -569,7 +571,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			writeSSE(ctx, w, map[string]string{"reasoning": e.Reasoning})
 		}
 	}
-	useAnswerTools := ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
+	answerDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, p.kbID, p.webSearch, false)
 	if useAnswerTools {
 		answerTrace := func(stage, decision, reason string, details map[string]any) {
 			payload := map[string]any{
@@ -582,20 +584,15 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			}
 			writeSSE(ctx, w, payload)
 		}
-		mcpDisp, _ := h.toolDispatcher.(*MCPDispatcher)
-		var catalog []ai.ChatTool
-		if mcpDisp != nil {
-			catalog = mcpDisp.AnswerToolCatalog(p.kbID)
-		}
 		err := RunAnswerWithTools(ctx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
 			KbID:            p.kbID,
 			ChatID:          p.chatID,
-			SystemPrompt:    systemPrompt,
+			SystemPrompt:    systemPrompt + webSearchHint,
 			UserPrompt:      p.userMessage,
 			History:         p.history,
 			Tools:           catalog,
-			Dispatcher:      h.toolDispatcher,
+			Dispatcher:      answerDispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
 			ReasoningEffort: p.reasoningLevel,
 			Temperature:     ChatAnswerTemperature(ctx, h.siteConfigReader),
@@ -651,6 +648,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		"low_confidence", len(sources) < 3,
 		"stream", true,
 		"answer_tools_path", useAnswerTools,
+		"web_search_requested", p.webSearch,
 		"tool_calls", toolCallsThisTurn,
 	)
 	p.span.SetAttributes(

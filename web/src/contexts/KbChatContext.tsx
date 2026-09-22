@@ -8,6 +8,8 @@ export interface KbChatContextValue {
   setEnhance: (val: 'rewrite' | 'expand' | 'spell' | null) => void;
   reasoningEnabled: boolean;
   setReasoningEnabled: (val: boolean) => void;
+  webSearchEnabled: boolean;
+  setWebSearchEnabled: (val: boolean) => void;
   reasoningLevel: 'low' | 'medium' | 'high';
   setReasoningLevel: (val: 'low' | 'medium' | 'high') => void;
   showSettings: boolean;

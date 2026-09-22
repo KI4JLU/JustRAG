@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { AppShellLayout, Button, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
-import { ArrowLeft, FolderOpen, History, MessageSquare } from 'lucide-react';
+import { ArrowLeft, FolderOpen, History, MessageSquare, Settings } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useKbCore } from '../contexts/KbCoreContext';
@@ -12,6 +12,7 @@ import { KbHeaderTitle } from './KbHeaderTitle';
 import { type MobileTab } from './MobileTabBar';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
+import { hasKbAdminRole } from '../utils/kbAccess';
 
 interface KbWorkspaceLayoutProps {
   mobileTab: MobileTab;
@@ -57,7 +58,25 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   const { t } = useTheme();
   const { user } = useAuth();
   const { currentKb, setKbView, handleGoHome, kbMgmt } = useKbCore();
-  const { sidebar } = useKbLayout();
+  const { sidebar, systemPromptOpen, setSystemPromptOpen } = useKbLayout();
+
+  // The system-prompt gear: owners and KB admins only (same predicate as the
+  // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
+  const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
+  const headerActions = canEditSystemPrompt ? (
+    <Button
+      id="kb-header-system-prompt-toggle"
+      type="button"
+      variant="ghost"
+      size="icon"
+      onClick={() => setSystemPromptOpen(!systemPromptOpen)}
+      title={t('systemPromptLabel')}
+      aria-label={t('systemPromptLabel')}
+      aria-pressed={systemPromptOpen || Boolean(currentKb.systemPrompt)}
+    >
+      <Settings size={20} aria-hidden="true" />
+    </Button>
+  ) : undefined;
 
   // Der Reiter „chat" setzt kbView explizit; andere kbView-Werte gibt es
   // seit dem 22.09.2026 nicht mehr (KbViewType = 'chat').
@@ -132,6 +151,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       nav={<HistoryPanel />}
       navLabel={t('history')}
       pageLabel={pageLabel}
+      headerActions={headerActions}
       leftOpen={sidebar.isLeftSidebarOpen}
       onLeftOpenChange={sidebar.setIsLeftSidebarOpen}
       leftWidth={sidebar.leftSidebarWidth}

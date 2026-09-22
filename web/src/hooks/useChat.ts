@@ -60,6 +60,7 @@ interface UseChatParams {
   files: FileEntry[];
   enhance: 'rewrite' | 'expand' | 'spell' | null;
   reasoningEnabled: boolean;
+  webSearchEnabled: boolean;
   reasoningLevel: 'low' | 'medium' | 'high';
   agentSelection: AgentSelection;
   setAgentSelection: (val: AgentSelection) => void;
@@ -69,7 +70,7 @@ interface UseChatParams {
 
 export function useChat({
   currentKb, files, enhance,
-  reasoningEnabled, reasoningLevel, agentSelection, setAgentSelection,
+  reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, setAgentSelection,
   onResearchLoaded, onAcademicResearchLoaded,
 }: UseChatParams) {
   const { language, t } = useTheme();
@@ -149,7 +150,7 @@ export function useChat({
   // Compose: SSE streaming
   const stream = useChatStream({
     currentKb, files, enhance,
-    reasoningEnabled, reasoningLevel, agentSelection, language,
+    reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language,
     setMessageTree, messageTreeRef, setActiveLeafId,
     activeChatIdRef, activeChatId, setActiveChatId, setChats,
     fetchChats, fetchChatsTimerRef,
@@ -186,13 +187,10 @@ export function useChat({
     }
   }, []);
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, [userMessageInput]);
+  // Textarea height: sized by the design-system composer itself
+  // (`field-sizing: content` in PromptInputAdaptiveTextarea, 22.09.2026) —
+  // writing an explicit height here fought that and made the one-line /
+  // multi-line switch flicker.
 
   const handleSelectChat = useCallback(async (chat: ChatEntry) => {
     if (chat.type === 'research') {

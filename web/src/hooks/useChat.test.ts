@@ -99,6 +99,7 @@ function renderUseChat(files: FileEntry[] = [{ id: 'f1', selected: true } as Fil
     files,
     enhance: null,
     reasoningEnabled: false,
+    webSearchEnabled: false,
     reasoningLevel: 'low',
     agentSelection: {},
     setAgentSelection,
