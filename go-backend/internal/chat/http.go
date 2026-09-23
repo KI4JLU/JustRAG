@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -442,6 +443,64 @@ func (h *Handler) DeleteChat(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeleteChat(r.Context(), chatID); err != nil {
 		logctx.From(r.Context()).Error("chat.delete: delete chat", "error", err, "chat_id", chatID, "user_id", user.ID)
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to delete chat")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/chats/{id}
+// ---------------------------------------------------------------------------
+
+// renameChatRequest is the parsed JSON body for PATCH /api/chats/{id}.
+type renameChatRequest struct {
+	Title string `json:"title"`
+}
+
+// maxChatTitleLen caps a user-chosen chat title; auto-generated titles are
+// far shorter, and the history list truncates anyway.
+const maxChatTitleLen = 200
+
+// RenameChat handles PATCH /api/chats/{id}: sets a user-chosen title after
+// verifying the chat belongs to the caller. Auth is enforced by middleware.
+func (h *Handler) RenameChat(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var body renameChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "title is required")
+		return
+	}
+	if len(title) > maxChatTitleLen {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "title too long")
+		return
+	}
+
+	chatID := r.PathValue("id")
+	chat, err := h.store.GetChatByID(r.Context(), chatID)
+	if err != nil {
+		logctx.From(r.Context()).Error("chat.rename: get chat", "error", err, "chat_id", chatID, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to fetch chat")
+		return
+	}
+	if chat == nil || chat.UserID != user.ID {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+
+	if err := h.store.UpdateChatTitle(r.Context(), chatID, title); err != nil {
+		logctx.From(r.Context()).Error("chat.rename: update title", "error", err, "chat_id", chatID, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to rename chat")
 		return
 	}
 

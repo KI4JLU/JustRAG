@@ -105,6 +105,10 @@ func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *
 	return nil
 }
 
+func (m *mockStore) UpdateChatTitle(_ context.Context, _, _ string) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Helper: create a Handler with nil AI / search dependencies (sufficient for
 // request-validation tests that never reach the AI call).

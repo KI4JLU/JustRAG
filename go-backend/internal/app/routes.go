@@ -1108,6 +1108,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 	// Chat — messages and deletion (auth only, ownership checked in handler)
 	rc.mux.Handle("GET /api/chats/{id}/messages", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetMessages)))
 	rc.mux.Handle("DELETE /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.DeleteChat)))
+	rc.mux.Handle("PATCH /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RenameChat)))
 
 	// Chat — send message (KB view permission). The rate limiter wraps the
 	// auth chain from the outside so unauthenticated requests don't consume

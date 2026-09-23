@@ -222,6 +222,17 @@ func (s *PGStore) DeleteChat(ctx context.Context, chatID string) error {
 	return nil
 }
 
+// UpdateChatTitle renames a chat (user-chosen title from the history list).
+func (s *PGStore) UpdateChatTitle(ctx context.Context, chatID, title string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE chats SET title = $2, updated_at = now() WHERE id = $1`,
+		chatID, title)
+	if err != nil {
+		return fmt.Errorf("UpdateChatTitle: %w", err)
+	}
+	return nil
+}
+
 // UpdateChatAgentSelection persists the sticky per-chat team/agent pick.
 // NULLs clear it (picker back to Standard).
 func (s *PGStore) UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error {

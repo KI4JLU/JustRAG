@@ -202,6 +202,7 @@ type Store interface {
 	GetChatByID(ctx context.Context, chatID string) (*ChatRow, error)
 	CreateChat(ctx context.Context, kbID, userID, title string) (*ChatRow, error)
 	DeleteChat(ctx context.Context, chatID string) error
+	UpdateChatTitle(ctx context.Context, chatID, title string) error
 	GetChatMessages(ctx context.Context, chatID string) ([]MessageRow, error)
 	GetMessageAncestors(ctx context.Context, messageID, chatID string) ([]MessageRow, error)
 	AddMessage(ctx context.Context, params AddMessageParams) (*MessageRow, error)

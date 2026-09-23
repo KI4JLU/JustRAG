@@ -122,6 +122,10 @@ func (a chatStoreAdapter) UpdateChatAgentSelection(_ context.Context, _ string, 
 	return nil
 }
 
+func (a chatStoreAdapter) UpdateChatTitle(_ context.Context, _, _ string) error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
