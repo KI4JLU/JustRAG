@@ -8,6 +8,7 @@ const handleSelectChat = vi.fn();
 const handleSelectContent = vi.fn();
 const handleNewChat = vi.fn();
 const handleDeleteChat = vi.fn();
+const handleRenameChat = vi.fn();
 const handleDeleteGeneratedContent = vi.fn();
 
 let activeChatId: string | null = null;
@@ -34,7 +35,7 @@ vi.mock('../../contexts/KbChatContext', () => ({
         { id: 'r1', title: 'Zero-Trust', createdAt: '2026-08-14T00:00:00Z', type: 'research' },
         { id: 'a1', title: 'Paper', createdAt: '2026-08-12T00:00:00Z', type: 'academic_research' },
       ],
-      activeChatId, handleSelectChat, handleDeleteChat, handleNewChat,
+      activeChatId, handleSelectChat, handleDeleteChat, handleRenameChat, handleNewChat,
     },
   }),
 }));
@@ -67,6 +68,15 @@ describe('HistoryPanel', () => {
       expect(screen.queryByText(hidden)).not.toBeInTheDocument();
     }
     expect(handleSelectContent).not.toHaveBeenCalled();
+  });
+
+  it('gruppiert die Chats nach Tag statt je Zeile ein Datum zu zeigen', () => {
+    render(<HistoryPanel />);
+    // Fixture chats are all from August 2026 (see mock): one group per day,
+    // labelled with the long date, and no per-row date text.
+    const labels = screen.getAllByRole('heading', { level: 3 }).map(h => h.textContent);
+    expect(labels).toEqual(['August 10, 2026']);
+    expect(screen.queryByText(/8\/10\/2026|10\.8\.2026/)).not.toBeInTheDocument();
   });
 
   it('öffnet einen Chat im Chat-Reiter', async () => {
@@ -106,11 +116,30 @@ describe('HistoryPanel', () => {
     expect(screen.getByText('history')).toBeInTheDocument();
   });
 
-  it('löscht einen Chat über handleDeleteChat, nicht über handleDeleteGeneratedContent', async () => {
+  it('löscht einen Chat aus dem Aktionsmenü über handleDeleteChat, nicht über handleDeleteGeneratedContent', async () => {
     render(<HistoryPanel />);
-    await userEvent.click(screen.getByRole('button', { name: 'deleteItem Budget?' }));
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /deleteItem/ }));
     expect(handleDeleteChat).toHaveBeenCalledWith('c1', expect.anything());
     expect(handleDeleteGeneratedContent).not.toHaveBeenCalled();
+  });
+
+  it('öffnet den Chat beim Klick auf die Kartenfläche, nicht aber über das Aktionsmenü', async () => {
+    render(<HistoryPanel />);
+    await userEvent.click(screen.getByText('August 10, 2026').nextElementSibling!.querySelector('li')!);
+    expect(handleSelectChat).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /renameChat/ }));
+    expect(handleSelectChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('benennt einen Chat aus dem Aktionsmenü um', async () => {
+    render(<HistoryPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /renameChat/ }));
+    expect(handleRenameChat).toHaveBeenCalledWith('c1', 'Budget?');
   });
 
   /* Die eingeklappte 60px-Schiene.

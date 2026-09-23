@@ -1,10 +1,12 @@
 import React, { memo, useCallback, useMemo } from 'react';
 import {
-    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft,
+    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, MoreVertical, Pencil,
 } from 'lucide-react';
-import { Button, useSidebarCollapsed } from '@ki4jlu/design-system';
+import {
+    Button, useSidebarCollapsed,
+    DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from '@ki4jlu/design-system';
 import type { ChatEntry } from '../../types';
-import { artifactTypeLabel } from '../../utils/artifactTypes';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useIsMobileContext } from '../../contexts/MobileContext';
 import { useKbCore } from '../../contexts/KbCoreContext';
@@ -12,6 +14,8 @@ import { useKbChat } from '../../contexts/KbChatContext';
 import { useKbData } from '../../contexts/KbDataContext';
 import { ContentRowSkeleton } from '../Skeleton';
 import { buildHistoryItems, type HistoryItem, type HistoryKind } from './historyItems';
+import { groupHistoryByDay } from './historyGroups';
+import { isCardControlClick } from '../sidebar/cardClick';
 import '../sidebar-primitives.css';
 import './HistoryPanel.css';
 
@@ -23,7 +27,7 @@ const KIND_ICON: Record<HistoryKind, typeof MessageSquare> = {
 };
 
 const HistoryPanelComp: React.FC = () => {
-    const { t } = useTheme();
+    const { t, language } = useTheme();
     const isMobile = useIsMobileContext();
     // TRUE, sobald `SidePanel` die Spalte als 60px-Schiene rendert. Nicht
     // `sidebar.isLeftSidebarOpen`: unterhalb `lg` zeigt die Shell die Spalte
@@ -34,7 +38,7 @@ const HistoryPanelComp: React.FC = () => {
     const { chat } = useKbChat();
     const { content } = useKbData();
 
-    const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleNewChat } = chat;
+    const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleRenameChat, handleNewChat } = chat;
     const { generatedContent, generating, podcastProgress } = content;
 
     // Nur Chats (Entwickler, 22.09.2026). Artefakte öffneten die Workspace-
@@ -48,6 +52,9 @@ const HistoryPanelComp: React.FC = () => {
         () => buildHistoryItems({ chats, generatedContent }).filter(item => item.kind === 'chat'),
         [chats, generatedContent],
     );
+
+    // Day separators instead of a date on every row (developer, 23.09.2026).
+    const groups = useMemo(() => groupHistoryByDay(items, t, language), [items, t, language]);
 
     // Jeder Eintrag öffnet den Chat — es gibt seit dem 22.09.2026 keine
     // andere Ansicht (KbViewType = 'chat').
@@ -63,16 +70,15 @@ const HistoryPanelComp: React.FC = () => {
         setKbView('chat');
     }, [handleSelectChat, setKbView, activeChatId]);
 
-    const deleteItem = useCallback((item: HistoryItem, e: React.MouseEvent) => {
-        handleDeleteChat(item.id, e);
+    // Radix hands `onSelect` a DOM Event; the handler only needs
+    // stopPropagation, which both share.
+    const deleteItem = useCallback((item: HistoryItem, e: Event) => {
+        handleDeleteChat(item.id, e as unknown as React.MouseEvent);
     }, [handleDeleteChat]);
 
-    const label = (item: HistoryItem) =>
-        item.kind === 'artifact' && item.artifactType
-            ? artifactTypeLabel(item.artifactType, t)
-            : item.kind === 'research' ? t('historyKindResearch')
-            : item.kind === 'academic' ? t('historyKindAcademic')
-            : t('chat');
+    const renameItem = useCallback((item: HistoryItem) => {
+        handleRenameChat(item.id, item.title);
+    }, [handleRenameChat]);
 
     /* DIE EINGEKLAPPTE SCHIENE (60px).
      *
@@ -169,39 +175,54 @@ const HistoryPanelComp: React.FC = () => {
                 )}
 
                 <ul className="sidebar-ui__list sidebar-ui__list--stack">
-                    {items.map(item => {
-                        const Icon = KIND_ICON[item.kind];
-                        const isActive = item.kind !== 'artifact' && item.id === activeChatId;
-                        return (
-                            <li
-                                key={`${item.kind}-${item.id}`}
-                                className={`source-card sidebar-ui__item-card${isActive ? ' history-panel__item--active' : ''}`}
-                            >
-                                <div className="sidebar-ui__item-row">
-                                    <div className="sidebar-ui__item-main">
-                                        <button
-                                            data-testid="history-item-title"
-                                            onClick={() => openItem(item)}
-                                            className="text-button source-title sidebar-ui__item-title history-panel__item-title"
+                    {groups.map(group => (
+                        <li key={group.day} className="history-panel__group">
+                            <h3 className="history-panel__group-label">{group.label}</h3>
+                            <ul className="sidebar-ui__list history-panel__group-list">
+                                {group.items.map(item => {
+                                    const Icon = KIND_ICON[item.kind];
+                                    const isActive = item.kind !== 'artifact' && item.id === activeChatId;
+                                    return (
+                                                                                // Whole-plane click is a pointer convenience; the title button inside is the keyboard path.
+                                        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+                                        <li
+                                            key={`${item.kind}-${item.id}`}
+                                            className={`source-card history-panel__item${isActive ? ' history-panel__item--active' : ''}`}
+                                            onClick={(e) => { if (!isCardControlClick(e)) openItem(item); }}
                                         >
-                                            <Icon size={14} className="flex-shrink-0" aria-hidden="true" />
-                                            {item.title}
-                                        </button>
-                                        <div className="source-meta sidebar-ui__item-meta">
-                                            {label(item)} • {new Date(item.createdAt).toLocaleDateString()}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={(e) => deleteItem(item, e)}
-                                        className="settings-toggle sidebar-ui__item-delete"
-                                        aria-label={`${t('deleteItem')} ${item.title}`}
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                            </li>
-                        );
-                    })}
+                                            <button
+                                                data-testid="history-item-title"
+                                                onClick={() => openItem(item)}
+                                                className="text-button source-title sidebar-ui__item-title history-panel__item-title"
+                                                title={item.title}
+                                            >
+                                                <Icon size={14} className="flex-shrink-0" aria-hidden="true" />
+                                                <span className="history-panel__item-title-text">{item.title}</span>
+                                            </button>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" aria-label={`${t('chatActions')} ${item.title}`}>
+                                                        <MoreVertical size={16} aria-hidden="true" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onSelect={() => renameItem(item)}>
+                                                        <Pencil size={16} aria-hidden="true" />
+                                                        {t('renameChat')}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem variant="destructive" onSelect={(e) => deleteItem(item, e)}>
+                                                        <Trash2 size={16} aria-hidden="true" />
+                                                        {t('deleteItem')}
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </li>
+                    ))}
 
                     {items.length === 0 && !generating && (
                         <li className="sidebar-ui__empty">{t('noHistory')}</li>

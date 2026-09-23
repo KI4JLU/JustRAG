@@ -75,7 +75,7 @@ export function useChat({
 }: UseChatParams) {
   const { language, t } = useTheme();
 
-  const { showConfirm } = useModalContext();
+  const { showConfirm, showPrompt } = useModalContext();
   const toast = useToast();
 
   // Compose: message tree state and navigation
@@ -328,6 +328,23 @@ export function useChat({
       toast.error(t('deleteChatError'));
     }
   }, [handleNewChat, showConfirm, t, toast]);
+
+  // Rename from the history list: prompt with the current title, optimistic
+  // update, roll back on a failed PATCH.
+  const handleRenameChat = useCallback(async (id: string, currentTitle: string) => {
+    const next = await showPrompt(t('renameChatPrompt'), currentTitle, t('renameChat'));
+    if (next === null) return;
+    const title = next.trim();
+    if (!title || title === currentTitle) return;
+    let snapshot: ChatEntry[] = [];
+    setChats(prev => { snapshot = prev; return prev.map(c => c.id === id ? { ...c, title } : c); });
+    try {
+      await axios.patch(`${API_BASE_URL}/api/chats/${id}`, { title });
+    } catch {
+      setChats(snapshot);
+      toast.error(t('renameChatError'));
+    }
+  }, [showPrompt, t, toast]);
 
   // Orchestrating send: clears input, resets UI state, delegates to stream hook
   const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null) => {
@@ -582,6 +599,7 @@ export function useChat({
     handleSelectChat,
     handleNewChat,
     handleDeleteChat,
+    handleRenameChat,
     handleSendMessage,
     handleSwitchBranch,
     handleStartEdit,
@@ -619,6 +637,7 @@ export function useChat({
     handleSelectChat,
     handleNewChat,
     handleDeleteChat,
+    handleRenameChat,
     handleSendMessage,
     handleSwitchBranch,
     handleStartEdit,
