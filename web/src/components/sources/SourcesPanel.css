@@ -9,10 +9,16 @@
   flex: 1;
 }
 
+/* A flex column, so the list below the grid gets the remaining height and
+   scrolls on its own (`.sidebar-left__files-section`). Without `display: flex`
+   the `flex: 1` on the list did nothing: it grew to its content and the
+   `overflow: hidden` here simply cut it off — that was the "can't scroll" bug. */
 .sidebar-left__sources {
+  display: flex;
   flex: none;
-  overflow: hidden;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-left__overview-btn {
@@ -46,6 +52,7 @@
    stehen die beiden Listen unterschiedlich weit vom Rand. */
 .sidebar-left__files-section {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 1rem 1.5rem;
 }
@@ -82,22 +89,21 @@
   border-bottom-color: transparent;
 }
 
+/* One flat row per source: origin icon, name (+ status when it is news),
+   actions menu, selection checkbox on the right edge. */
 .sidebar-left__file-card {
-  cursor: default;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
 }
 
 .sidebar-left__file-row {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.sidebar-left__file-checkbox {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  cursor: pointer;
-  accent-color: var(--accent-primary);
 }
 
 .sidebar-left__file-origin-icon {
@@ -115,6 +121,11 @@
   min-width: 0;
 }
 
+.sidebar-left__file-main .source-title {
+  margin-bottom: 0;
+}
+
+/* Feed / Confluence / Git cards still carry a title row with a status tag. */
 .sidebar-left__file-top-row {
   display: flex;
   justify-content: space-between;
@@ -131,17 +142,6 @@
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-primary);
-}
-
-.sidebar-left__file-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.sidebar-left__file-action {
-  position: static;
-  padding: 4px;
-  opacity: 0.5;
 }
 
 .sidebar-left__file-meta-row {
@@ -289,20 +289,7 @@
     min-height: 44px;
   }
 
-  .sidebar-left__file-checkbox {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  .sidebar-left__file-action {
-    min-width: 44px;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .sidebar-left__research-cancel {
+      .sidebar-left__research-cancel {
     min-width: 44px;
     min-height: 44px;
     padding: 6px 12px;
@@ -429,4 +416,21 @@
 .sidebar-left__rss-feed-actions button:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+/* No hover underline (developer, 23.09.2026): the card is the click target.
+   Two classes to outrank the unlayered `.text-button:hover` in index.css. */
+.sidebar-left__file-card .sidebar-left__file-name:hover {
+  text-decoration: none;
+}
+
+/* Hover is a tint, not a lift (developer, 23.09.2026) — the same
+   `surface-container-high` the composer's menu items use (`--bg-hover`).
+   Overrides the global `.source-card:hover` transform/shadow/border. */
+@media (hover: hover) {
+  .sidebar-left__files-section .sidebar-left__file-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm);
+    border-color: var(--border-color);
+    background: var(--bg-hover);
+  }
 }

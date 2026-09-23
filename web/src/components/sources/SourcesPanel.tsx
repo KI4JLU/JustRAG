@@ -32,7 +32,7 @@ const SourcesPanelComp: React.FC = () => {
 
     const {
         files, fileInputRef,
-        handleToggleFileSelection, handleToggleFilesSelection,
+        handleToggleFilesSelection,
         handleDownloadFile, handleDeleteFile, handleFileUpload,
         retryFile,
         isDragging, textSourceTitle, setTextSourceTitle,
@@ -125,7 +125,6 @@ const SourcesPanelComp: React.FC = () => {
                 <SourcesSection
                     files={files}
                     onPreviewSource={handlePreviewSource}
-                    onToggleFileSelection={handleToggleFileSelection}
                     onToggleFilesSelection={handleToggleFilesSelection}
                     onDownloadFile={handleDownloadFile}
                     onDeleteFile={handleDeleteFile}

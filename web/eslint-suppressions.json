@@ -71,7 +71,7 @@
   },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 9
+      "count": 8
     }
   },
   "src/components/ComparisonView.tsx": {
@@ -187,11 +187,6 @@
   "src/components/OnboardingTour.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 7
-    }
-  },
-  "src/components/PdfPreviewModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/PreviewModal.tsx": {
@@ -376,7 +371,7 @@
   },
   "src/components/history/HistoryPanel.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 4
+      "count": 3
     }
   },
   "src/components/kb-settings/KbSettingsPanel.tsx": {
@@ -446,7 +441,7 @@
   },
   "src/components/sidebar/SourcesSection.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 16
+      "count": 11
     }
   },
   "src/components/sidebar/WebSearchModal.tsx": {

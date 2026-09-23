@@ -1,9 +1,29 @@
+import type React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SourcesSection } from './SourcesSection';
 import type { FileEntry } from '../../types';
 
+// The hover preview (HoverCard + FilePreview) is DS 0.42.0; the pinned package
+// under vitest may be older, and the preview is not what this file tests.
+// Everything else stays the shipped design-system export (`importOriginal`).
+vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  HoverCard: ({ children }: { children: React.ReactNode }) => children,
+  HoverCardTrigger: ({ children }: { children: React.ReactNode }) => children,
+  HoverCardContent: () => null,
+  FilePreview: () => null,
+  preloadPdfjs: () => undefined,
+  renderPdfFirstPage: () => Promise.resolve(''),
+}));
+// No preview fetches in a unit test: the cache would hit the network.
+vi.mock('../../hooks/sourcePreviews', () => ({
+  useSourcePreviews: () => undefined,
+  useSourcePreview: () => ({ image: undefined, pending: false }),
+  preloadSourcePreview: () => Promise.resolve(null),
+  canPreviewSource: () => false,
+}));
 vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (key: string) => key }),
 }));
@@ -63,6 +83,47 @@ describe('SourcesSection error display + retry', () => {
 
     expect(screen.getByText('Strange failure')).toBeInTheDocument();
     expect(screen.getByText('fileErrorUnknown')).toBeInTheDocument();
+  });
+
+  it('shows no status line for a finished upload, only for queued files', () => {
+    render(<SourcesSection {...baseProps} files={[makeFile({}), makeFile({ id: 'f-9', name: 'q.pdf', status: 'pending' })]} />);
+    expect(screen.queryByText(/completed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/upload/)).not.toBeInTheDocument();
+    expect(screen.getByText('fileStatusPending')).toBeInTheDocument();
+  });
+
+  it('keeps download and delete behind the per-file actions menu', async () => {
+    const onDownloadFile = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onDownloadFile={onDownloadFile} />);
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(screen.getByRole('menuitem', { name: /delete/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('menuitem', { name: /download/ }));
+    expect(onDownloadFile).toHaveBeenCalledWith('f-1');
+  });
+
+  it('puts the selection checkbox on the card and toggles through the bulk handler', async () => {
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onToggleFilesSelection={onToggleFilesSelection} />);
+    const box = screen.getByRole('checkbox', { name: 'selectSource doc.pdf' });
+    expect(box).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(box);
+    expect(onToggleFilesSelection).toHaveBeenCalledWith(['f-1'], false);
+  });
+
+  it('previews on a click anywhere on the card, but not on its controls', async () => {
+    const onPreviewSource = vi.fn();
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onPreviewSource={onPreviewSource} onToggleFilesSelection={onToggleFilesSelection} />);
+    await userEvent.click(screen.getByRole('listitem'));
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /download/ }));
+    expect(onToggleFilesSelection).toHaveBeenCalledTimes(1);
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
   });
 
   it('hides the per-file retry control when nothing failed', () => {
