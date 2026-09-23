@@ -27,6 +27,9 @@ type mockStore struct {
 	messages []chat.MessageRow
 	err      error
 
+	// title passed to the most recent UpdateChatTitle call
+	renamedTo string
+
 	// captured args from the most recent UpdateMessageFeedback call
 	lastUserID   string
 	lastFeedback *string
@@ -85,6 +88,11 @@ func (m *mockStore) UpdateMessageTraceID(_ context.Context, _ string, _ string) 
 
 func (m *mockStore) GetKBSystemPrompt(_ context.Context, _ string) (*string, error) {
 	return nil, nil
+}
+
+func (m *mockStore) UpdateChatTitle(_ context.Context, _ string, title string) error {
+	m.renamedTo = title
+	return nil
 }
 
 func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
@@ -261,6 +269,61 @@ func TestDeleteChat_OtherUser_404(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: RenameChat
+// ---------------------------------------------------------------------------
+
+func TestRenameChat_OK(t *testing.T) {
+	chatRow := makeChat("chat-1", "kb-1", "user-1")
+	store := &mockStore{chat: &chatRow}
+	h := chat.NewHandler(store, nil, nil)
+
+	req := withUser(newRequest(http.MethodPatch, "/api/chats/chat-1", map[string]string{"title": "  Budget 2027 "}), testUser())
+	rr := httptest.NewRecorder()
+	h.RenameChat(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.renamedTo != "Budget 2027" {
+		t.Fatalf("expected trimmed title persisted, got %q", store.renamedTo)
+	}
+}
+
+func TestRenameChat_EmptyTitle_400(t *testing.T) {
+	chatRow := makeChat("chat-1", "kb-1", "user-1")
+	store := &mockStore{chat: &chatRow}
+	h := chat.NewHandler(store, nil, nil)
+
+	req := withUser(newRequest(http.MethodPatch, "/api/chats/chat-1", map[string]string{"title": "   "}), testUser())
+	rr := httptest.NewRecorder()
+	h.RenameChat(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	if store.renamedTo != "" {
+		t.Fatalf("store must not be touched, got %q", store.renamedTo)
+	}
+}
+
+func TestRenameChat_OtherUser_404(t *testing.T) {
+	chatRow := makeChat("chat-1", "kb-1", "user-1")
+	store := &mockStore{chat: &chatRow}
+	h := chat.NewHandler(store, nil, nil)
+
+	req := withUser(newRequest(http.MethodPatch, "/api/chats/chat-1", map[string]string{"title": "x"}), otherUser())
+	rr := httptest.NewRecorder()
+	h.RenameChat(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+	if store.renamedTo != "" {
+		t.Fatalf("store must not be touched, got %q", store.renamedTo)
 	}
 }
 
