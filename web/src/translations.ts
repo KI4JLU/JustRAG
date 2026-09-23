@@ -6,6 +6,8 @@ export const translations = {
     confirm: { de: 'Bestätigen', en: 'Confirm' },
     delete: { de: 'Löschen', en: 'Delete' },
     download: { de: 'Herunterladen', en: 'Download' },
+    sourceActions: { de: 'Aktionen für', en: 'Actions for' },
+    fileStatusPending: { de: 'Wartet auf Verarbeitung', en: 'Waiting for processing' },
     error: { de: 'Fehler', en: 'Error' },
     ok: { de: 'OK', en: 'OK' },
     save: { de: 'Speichern', en: 'Save' },
@@ -709,6 +711,12 @@ export const translations = {
     exportCsv: { de: 'CSV exportieren', en: 'Export CSV' },
     exportPng: { de: 'PNG exportieren', en: 'Export PNG' },
     deleteItem: { de: 'Löschen', en: 'Delete' },
+    chatActions: { de: 'Aktionen für', en: 'Actions for' },
+    today: { de: 'Heute', en: 'Today' },
+    yesterday: { de: 'Gestern', en: 'Yesterday' },
+    renameChat: { de: 'Chat umbenennen', en: 'Rename chat' },
+    renameChatPrompt: { de: 'Neuer Titel für den Chat:', en: 'New title for the chat:' },
+    renameChatError: { de: 'Fehler beim Umbenennen des Chats', en: 'Error renaming chat' },
 
     // Verification badge
     verificationVerified: { de: 'Verifiziert', en: 'Verified' },
@@ -943,6 +951,13 @@ export const translations = {
     audioLoadError: { de: 'Fehler beim Laden des Audios', en: 'Error loading audio' },
     pageLoadError: { de: 'Seite konnte nicht geladen werden', en: 'Failed to load page' },
     pdfLoadError: { de: 'Fehler beim Laden der PDF-Datei', en: 'Error loading PDF file' },
+    pdfLoading: { de: 'PDF wird geladen…', en: 'Loading PDF…' },
+    zoomIn: { de: 'Vergrößern', en: 'Zoom in' },
+    zoomOut: { de: 'Verkleinern', en: 'Zoom out' },
+    previousPage: { de: 'Vorherige Seite', en: 'Previous page' },
+    nextPage: { de: 'Nächste Seite', en: 'Next page' },
+    fullscreen: { de: 'Vollbild', en: 'Full screen' },
+    exitFullscreen: { de: 'Vollbild beenden', en: 'Exit full screen' },
     contentFetchFallback: { de: 'Vollständiger Inhalt konnte nicht geladen werden. Vorschau wird stattdessen verwendet.', en: 'Could not load full content. Using preview instead.' },
 
     // Admin errors
