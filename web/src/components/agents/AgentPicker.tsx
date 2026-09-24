@@ -1,4 +1,6 @@
 import { useId } from 'react';
+import { fieldVariants } from '@ki4jlu/design-system';
+import '../panel-section.css';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKbAgents } from '../../hooks/useKbAgents';
 import type { KbAgents } from './api';
@@ -44,10 +46,12 @@ export function AgentPicker({ kbId, selection, onSelect, options: provided }: Pr
     : selection.agentId ? `agent:${selection.agentId}` : '';
 
   return (
-    <div style={{ marginTop: '0.75rem' }}>
-      <label htmlFor={selectId} className="form-hint" style={{ display: 'block', fontWeight: 600 }}>
+    <div className="flex flex-col gap-1">
+      <label htmlFor={selectId} className="panel-section__subtitle">
         {t('agentPicker')}
       </label>
+      {/* Native select on the DS field skin: callers and tests read its value
+          directly (WorkspacePromptDialog), which a Radix Select would not offer. */}
       <select
         id={selectId}
         value={value}
@@ -57,11 +61,7 @@ export function AgentPicker({ kbId, selection, onSelect, options: provided }: Pr
           else if (v.startsWith('agent:')) onSelect({ agentId: v.slice(6) });
           else onSelect({});
         }}
-        style={{
-          width: '100%', padding: '0.5rem', borderRadius: '4px',
-          border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
-          color: 'var(--text-primary)',
-        }}
+        className={fieldVariants()}
       >
         <option value="">{t('agentPickerStandard')}</option>
         {options.teams.length > 0 && (
