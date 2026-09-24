@@ -84,3 +84,17 @@
 .history-panel__new-chat {
   border-radius: var(--ui-radius-control, var(--radius-action));
 }
+
+/* Heading + „Neuer Chat" stick to the top of the column's scroller
+   (`SidePanel`'s `overflow-y-auto`). `top: -1rem` cancels the nav's 16px top
+   padding, so the block sits flush at the top edge instead of leaving a strip
+   where cards show through; its own padding restores the spacing. The
+   background is the column's (`SidePanel`: surface-container-lowest). */
+.history-panel__sticky {
+  position: sticky;
+  top: -1rem;
+  z-index: 1;
+  margin: -1rem -4px 0;
+  padding: 1rem 4px 1rem;
+  background: var(--color-surface-container-lowest);
+}

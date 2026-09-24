@@ -162,15 +162,19 @@ const HistoryPanelComp: React.FC = () => {
             )}
 
             <div className="history-panel">
-                <div className="sidebar-ui__section-header">
-                    <h2 className="sidebar-ui__section-title">{t('history')}</h2>
+                {/* Sticky, like „Quellen hinzufügen" on the right: heading and
+                    „Neuer Chat" stay put while the chats scroll under them. */}
+                <div className="history-panel__sticky">
+                    <div className="sidebar-ui__section-header">
+                        <h2 className="sidebar-ui__section-title">{t('history')}</h2>
+                    </div>
+                    {/* Full-width labelled action under the heading; the collapsed rail
+                        keeps the icon-only form of the same filled button. */}
+                    <Button type="button" onClick={handleNewChat} className="history-panel__new-chat w-full">
+                        <Plus size={16} aria-hidden="true" />
+                        {t('newChat')}
+                    </Button>
                 </div>
-                {/* Full-width labelled action under the heading; the collapsed rail
-                    keeps the icon-only form of the same filled button. */}
-                <Button type="button" onClick={handleNewChat} className="history-panel__new-chat mb-4 w-full">
-                    <Plus size={16} aria-hidden="true" />
-                    {t('newChat')}
-                </Button>
 
                 {selecting && (
                     <SidebarSelectionBar
