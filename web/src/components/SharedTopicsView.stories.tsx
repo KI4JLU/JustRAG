@@ -529,26 +529,16 @@ export const ViewerSeesNoManagementControls: Story = {
  * ORACLES: the DOM's id semantics, WAI-ARIA's group/button mappings, and
  * src/translations.ts for the four names.
  */
-export const ThemeToggleIsOnThisViewToo: Story = {
+export const SettingsMenuIsOnThisViewToo: Story = {
   args: { kbs: [SHARED_EDITOR] },
-  play: async ({ canvas }) => {
-    const groups = document.querySelectorAll('#theme-toggle');
-    await expect(groups).toHaveLength(1);
+  play: async ({ canvas, userEvent }) => {
+    // No colour-scheme control on the page itself: it is a user-menu item.
+    await expect(canvas.queryAllByRole('button', { name: /Helles Design|Systemdesign|Dunkles Design/ })).toHaveLength(0);
 
-    const group = groups[0] as HTMLElement;
-    await expect(group).toHaveAttribute('aria-label', 'Farbschema');
-    await expect(group.closest('[role="menu"]')).toBeNull();
-    await expect(
-      Array.from(group.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')),
-    ).toEqual(['Helles Design', 'Systemdesign', 'Dunkles Design']);
-
-    // And it is the only colour-scheme control on the page: the page-label bar
-    // carries none since the template stopped hardcoding one.
-    await expect(
-      canvas.getAllByRole('button', {
-        name: /Helles Design|Systemdesign|Dunkles Design|Wechsle zum (Dunkel|Hell)-Modus/,
-      }),
-    ).toHaveLength(3);
+    await userEvent.click(canvas.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await expect(menu.getByRole('menuitem', { name: 'Einstellungen' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
   },
 };
 

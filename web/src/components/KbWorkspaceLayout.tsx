@@ -14,6 +14,7 @@ import { type MobileTab } from './MobileTabBar';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { hasKbAdminRole } from '../utils/kbAccess';
+import { AppUserMenu } from './AppUserMenu';
 
 interface KbWorkspaceLayoutProps {
   mobileTab: MobileTab;
@@ -153,6 +154,9 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       navLabel={t('history')}
       pageLabel={pageLabel}
       headerActions={headerActions}
+      // The same user menu as every other sidebar (account, language, colour
+      // scheme, Style); it stays reachable in the collapsed rail as the avatar.
+      sidebarFooter={<AppUserMenu />}
       leftOpen={sidebar.isLeftSidebarOpen}
       onLeftOpenChange={sidebar.setIsLeftSidebarOpen}
       leftWidth={sidebar.leftSidebarWidth}

@@ -344,20 +344,6 @@ const CHROME_STORAGE_KEYS = [...SECTION_STORAGE_KEYS, SIDEBAR_COLLAPSED_STORAGE_
 const THEME_CONTROL_NAME =
   /Wechsle zum (Dunkel|Hell)-Modus|Switch to (Dark|Light) Mode|Helles Design|Systemdesign|Dunkles Design|Light theme|System theme|Dark theme/;
 
-/**
- * What that pattern finds: the design system's `ThemeToggle`, a segmented
- * light / system / dark group, in DOM order.
- *
- * ORACLE CHANGE (KI-788), not a locator one. Until 0.26.0 these three strings
- * came from the design system's own defaults, because `AppShellLayout`
- * rendered the toggle itself and forwarded none of its labels — so they were
- * German in an English session and this file said so. They now come from
- * `src/translations.ts`, which is why they can be asserted as a translated
- * set at all. The German values are byte-identical to the DS defaults on
- * purpose (see the comment on those keys), so this list did not move: in a
- * German session, before and after are the same screen.
- */
-const DS_THEME_CONTROL_NAMES = ['Helles Design', 'Systemdesign', 'Dunkles Design'];
 
 function themeControlNames(canvas: Canvas): string[] {
   // Annotated rather than inferred: `within` is generic, so `Canvas` above
@@ -392,10 +378,10 @@ function themeControlNames(canvas: Canvas): string[] {
  * admin story asserts a five-item list of its own — and the length check that
  * follows this one is what keeps the gate falsifiable from this side.
  */
-const USER_MENU_NAMES = [
-  'Benutzername kopieren',
+const USER_MENU_NAMES: (string | RegExp)[] = [
   'Mein Profil',
-  'Switch to English',
+  // Opens the settings window with the appearance preferences (24.09.2026).
+  'Einstellungen',
   'Abmelden',
 ];
 
@@ -607,31 +593,22 @@ export const Empty: Story = {
     await expect(screen.queryByRole('button', { name: 'Meine Agenten' })).toBeNull();
 
     /* ORACLE: the union pattern in THEME_CONTROL_NAME, matched against the
-     * whole canvas. An exact list rather than a length, so a failure names what
-     * it found. The ANSWER is what KI-696 changed: this repo's own two-state
-     * button is deleted, and the design system's three-option `ThemeToggle` is
-     * the only colour-scheme control left. A screen that shipped both would
-     * return four names here, which is the failure mode this assertion exists
-     * for — and it is exactly the failure mode KI-788 could have produced,
-     * since design-system 0.26.0 lets the template's toggle disappear with no
-     * error at all while a second one is mounted elsewhere. The list is
-     * unchanged through that card; WHERE the group sits is pinned by
-     * `ThemeToggleLivesInTheSidebarFooter` below. */
-    await expect(themeControlNames(canvas)).toEqual(DS_THEME_CONTROL_NAMES);
+     * whole canvas while the menu is CLOSED. Since 24.09.2026 the colour
+     * scheme is a user-menu item (asserted with the menu below), so the page
+     * itself carries no colour-scheme control at all — a second one mounted
+     * elsewhere would show up here. */
+    await expect(themeControlNames(canvas)).toEqual([]);
 
     const menu = await openUserMenu(canvas, userEvent);
     for (const name of USER_MENU_NAMES) {
       await expect(menu.getAllByRole('menuitem', { name })).toHaveLength(1);
     }
-    await expect(menu.getAllByRole('menuitem')).toHaveLength(4);
+    await expect(menu.getAllByRole('menuitem')).toHaveLength(USER_MENU_NAMES.length);
 
-    /* ORACLE: the spies in `args`. The click path — real pointer events through
+    /* ORACLE: the spy in `args`. The click path — real pointer events through
      * the real menu item — is what proves the name resolves to something that
-     * acts. Copy comes first because `MyTopicsView` calls `preventDefault()` on its
-     * `onSelect` and the menu therefore stays open; „Mein Profil" closes it, so
-     * nothing may be asserted through `menu` after it. */
-    await userEvent.click(menu.getByRole('menuitem', { name: 'Benutzername kopieren' }));
-    await expect(args.onCopyUserId).toHaveBeenCalledTimes(1);
+     * acts; „Mein Profil" closes the menu, so nothing is asserted through
+     * `menu` after it. */
     await userEvent.click(menu.getByRole('menuitem', { name: 'Mein Profil' }));
     await expect(args.onViewProfile).toHaveBeenCalledTimes(1);
 
@@ -778,62 +755,6 @@ export const OwnedOnly: Story = {
  * State 4 — a KB somebody shared with me
  * ======================================================================== */
 
-
-/* ===========================================================================
- * Two prop-to-DOM mappings KI-770 has to carry across
- *
- * Neither is one of the five states the card enumerates. They are here because
- * the 38-prop rewrite is exactly the kind of change that drops a boolean on
- * the way into context, and a boolean that no longer reaches its control fails
- * silently: the screen still renders, it just stops responding.
- * ======================================================================== */
-
-/**
- * `copySuccess` — the prop that turns the copy control into its confirmed
- * state — with `imprint` unset, the other half of that conditional.
- *
- * THE LOGO HALF IS GONE. This story used to set `siteConfigs.logo_path` and
- * assert the uploaded `<img>` that overrode the wordmark in the shell header.
- * Logo upload is deprecated (developer ruling, 17.09.2026): the shell builds
- * its logo from the app name, so `AppChrome` renders the design system's
- * `Logo` unconditionally and there is no image branch left to cover. The
- * assertion was also carrying a stale fact of its own — it expected TWO copies,
- * from the pre-0.30.0 shell that mounted the node in the sidebar and in the
- * mobile top bar at once.
- */
-export const CopyConfirmed: Story = {
-  args: { copySuccess: true },
-  play: async ({ canvas, userEvent }) => {
-    /* ORACLE: the WAI-ARIA landmark mapping again. No contentinfo, and since
-     * the chrome's footer was removed entirely this now holds for every story
-     * rather than only the no-imprint case. */
-    await expect(canvas.queryAllByRole('contentinfo')).toHaveLength(0);
-
-    /* ORACLE: Chromium's CSSOM, unchanged in kind. `copySuccess` is rendered as
-     * colour AND as an icon swap, and both halves are pinned so a partial
-     * rewrite that keeps one and drops the other still fails.
-     *
-     * WHAT MOVED: the control is a `DropdownMenuItem` in the sidebar's user menu
-     * now, so the colour is carried by the CHECK ICON (`text-success`, a
-     * semantic token) instead of by `.home-view__copy-btn--success` on a button
-     * this repo styled. It has to be: colouring a design-system component from
-     * the call site is a re-skin the guidelines forbid, and lint only warns on
-     * it. So the comparison is icon-against-icon rather than button-against-
-     * button — still two LIVE elements rather than one literal value, which is
-     * what keeps it true under a token change and false under a lost prop. */
-    const menu = await openUserMenu(canvas, userEvent);
-    const copyItem = menu.getByRole('menuitem', { name: 'Benutzername kopieren' });
-    const profileItem = menu.getByRole('menuitem', { name: 'Mein Profil' });
-
-    const copyIcon = copyItem.querySelector('.lucide-check');
-    const profileIcon = profileItem.querySelector('svg');
-    await expect(copyIcon).not.toBeNull();
-    await expect(copyItem.querySelector('.lucide-copy')).toBeNull();
-    await expect(getComputedStyle(copyIcon as Element).color).not.toBe(
-      getComputedStyle(profileIcon as Element).color,
-    );
-  },
-};
 
 /**
  * `removingKb` — the in-flight guard. One removal is running, so every remove
@@ -1013,77 +934,39 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
 
 
 /* ===========================================================================
- * KI-788 — where the colour-scheme switch lives, and how tall the bar it left
+ * Where the colour scheme and the Style live: the settings window
  * ======================================================================== */
 
 /**
- * The theme toggle is in the sidebar footer, NOT inside the user menu.
+ * „Einstellungen" is a user-menu item, reachable by keyboard, and it opens
+ * the settings window with the appearance preferences.
  *
- * WHY A STORY AND NOT A UNIT TEST. Two of the three facts below need a real
- * browser: sequential focus navigation (`Tab`) is a browser behaviour jsdom
- * only approximates, and it is the whole reason the control is not nested in
- * the dropdown. The third — that the group is not inside a `role="menu"` — is
- * checkable anywhere but belongs next to the other two.
+ * WHY A STORY. Real focus handling: Radix collects only menu items into its
+ * roving focus and swallows Tab (KI-788), so the arrow keys have to reach the
+ * item, and the dialog has to take focus after the menu hands it back.
  *
- * WHAT IT PINS, and why each half matters:
- *
- *  1. THE GROUP EXISTS, ONCE, UNDER THE PROMISED ID. Design-system 0.26.0
- *     deleted `AppShellLayout`'s hardcoded `<ThemeToggle />` in favour of an
- *     optional `headerActions` slot, so the control can vanish from the app
- *     with no type error and no failing gate. Presence has to be asserted; it
- *     cannot be inferred from a green run.
- *  2. IT IS NOT INSIDE THE MENU. `SidebarUserMenu`'s children land in
- *     `role="menu"`, whose owned elements may only be menu items — and Radix
- *     makes that concrete: its roving focus collects `DropdownMenuItem`s only
- *     and its content handler calls `preventDefault()` on Tab, so a nested
- *     button group is reachable by mouse alone. `closest('[role="menu"]')`
- *     is the machine-checkable form of that decision.
- *  3. KEYBOARD USERS REACH IT. Shift+Tab from the user-menu trigger walks
- *     backwards through the three options. This is the assertion that would
- *     have failed had the control been nested, and it is the reason the card's
- *     „put it in the dropdown" instruction was not followed literally.
- *
- * ORACLES, none of them this repo's code: the browser's own focus navigation,
- * WAI-ARIA's group/button role mappings as testing-library resolves them, the
- * DOM's id semantics, and `src/translations.ts` for every name.
+ * ORACLES: the browser's focus navigation, WAI-ARIA's menu/menuitem/dialog
+ * mapping, and src/translations.ts for the names.
  */
-export const ThemeToggleLivesInTheSidebarFooter: Story = {
+export const SettingsOpenFromTheUserMenu: Story = {
   play: async ({ canvas, userEvent }) => {
-    // ORACLE: the DOM's id semantics. Unique means exactly one — and since
-    // design-system 0.30.0 the shell mounts every node once in every state,
-    // so there is no arrangement in which this could be two.
-    const groups = document.querySelectorAll('#theme-toggle');
-    await expect(groups).toHaveLength(1);
-
-    const group = groups[0] as HTMLElement;
-    // ORACLE: WAI-ARIA + translations.ts. `role="group"` named „Farbschema" is
-    // what the developer asked to be able to address by id.
-    await expect(group).toHaveAttribute('role', 'group');
-    await expect(group).toHaveAttribute('aria-label', 'Farbschema');
-
-    // ORACLE: translations.ts, as an ordered list — the group's own three
-    // options and nothing else inside it.
-    await expect(
-      Array.from(group.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')),
-    ).toEqual(DS_THEME_CONTROL_NAMES);
-
-    // (2) It is chrome in the sidebar, not an item of the user menu.
-    await expect(group.closest('[role="menu"]')).toBeNull();
-
-    /* (3) The keyboard path. Starting at the user-menu trigger — the element
-     * that follows the group in the footer — Shift+Tab has to walk back
-     * through dark, system, light. Inside the dropdown this sequence is
-     * impossible: Radix swallows Tab entirely. */
     const trigger = canvas.getByRole('button', { name: /^@grace/ });
     trigger.focus();
-    await expect(document.activeElement).toBe(trigger);
+    await userEvent.keyboard('{Enter}');
+    const menu = within(await screen.findByRole('menu'));
 
-    for (const name of [...DS_THEME_CONTROL_NAMES].reverse()) {
-      await userEvent.tab({ shift: true });
-      await expect(document.activeElement).toBe(
-        canvas.getByRole('button', { name }),
-      );
+    const item = menu.getByRole('menuitem', { name: 'Einstellungen' });
+    for (let i = 0; i < 8 && document.activeElement !== item; i++) {
+      await userEvent.keyboard('{ArrowDown}');
     }
+    await expect(document.activeElement).toBe(item);
+
+    await userEvent.keyboard('{Enter}');
+    const dialog = within(await screen.findByRole('dialog', { name: 'Einstellungen' }));
+    await expect(dialog.getByRole('heading', { level: 2, name: 'Allgemein' })).toBeInTheDocument();
+    await expect(dialog.getByRole('combobox', { name: 'Darstellung' })).toBeInTheDocument();
+    await waitFor(() => expect(dialog.getByRole('searchbox').closest('[role="dialog"]')).toContainElement(document.activeElement as HTMLElement));
+    await userEvent.keyboard('{Escape}');
   },
 };
 

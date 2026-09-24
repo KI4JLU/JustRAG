@@ -309,48 +309,31 @@ describe('AppChrome, through the view that mounts it', () => {
     expect(screen.queryByRole('complementary', { name: translations.mainNavigation.en })).toBeNull();
   });
 
-  /* KI-788, and since design-system 0.30.0 it records a PROMISE KEPT rather
-   * than a limitation.
-   *
-   * The colour-scheme switch carries `id="theme-toggle"` so the tour — or any
-   * script outside React — can address it. An id is a document-level promise,
-   * and the old shell broke it: it mounted the same sidebar node twice, so
-   * while the drawer was open two elements carried the id and `getElementById`
-   * returned the `display:none` desktop copy. There is no second mount any
-   * more, in either arrangement.
-   *
-   * What replaced the ambiguity is ABSENCE, and it is this app's own doing:
-   * `AppChrome` renders the switch only while the column is expanded, because
-   * the developer asked for the avatar alone in the 60px rail. So the count is
-   * 1 or 0, never 2 — and a script that addresses it has to cope with absence.
-   * That is pinned here rather than left to be discovered.
-   *
-   * ORACLE: the DOM's id semantics — jsdom's, not this repo's. */
-  it('keeps the theme toggle id unique in every arrangement', async () => {
+  /* The user menu — and with it language, colour scheme and Style — is
+   * reachable in every arrangement: expanded, collapsed to the rail (where
+   * `SidebarUserMenu` renders as its avatar), and on a narrow screen.
+   * ORACLE: WAI-ARIA's menu/menuitem mapping and translations.ts. */
+  it('keeps the user menu with its settings item reachable in every arrangement', async () => {
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+    const schemeItem = translations.settings.en;
 
-    // Desktop, column expanded: the promise holds.
-    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: schemeItem })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
 
-    // Collapsed to the rail: gone, not duplicated.
     await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
-    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(0);
-
-    // And back.
-    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
-    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: schemeItem })).toBeInTheDocument();
   });
 
-  it('mounts the theme toggle once on a narrow screen too', async () => {
+  it('mounts the user menu once on a narrow screen too', async () => {
     stubViewport(false);
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
     const tabBar = within(screen.getByRole('navigation', { name: translations.switchArea.en }));
     await userEvent.click(tabBar.getByRole('button', { name: translations.navigationTab.en }));
 
-    /* The narrow arrangement renders the column's `footer`, and it is the only
-       mount of it — this is the exact state that used to produce two. */
-    expect(document.querySelectorAll('#theme-toggle')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^@grace/ })).toHaveLength(1);
   });
 
   /* ---------------------------------------------------------------------

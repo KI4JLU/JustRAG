@@ -597,6 +597,8 @@ function AuthenticatedAppInner() {
   };
 
   return (
+    // Nav for the sidebar's user menu (AppUserMenu: profile, admin), as on every page.
+    <AppNavProvider value={appNav}>
     <KbCoreProvider value={coreValue}>
       <KbChatProvider value={chatValue}>
         <KbDataProvider value={dataValue}>
@@ -615,5 +617,6 @@ function AuthenticatedAppInner() {
         </KbDataProvider>
       </KbChatProvider>
     </KbCoreProvider>
+    </AppNavProvider>
   );
 }

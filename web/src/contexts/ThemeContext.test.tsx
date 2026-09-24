@@ -102,6 +102,8 @@ function painted(): string | null {
   return document.documentElement.getAttribute('data-theme');
 }
 
+const CONTRAST_QUERY = '(prefers-contrast: more), (forced-colors: active)';
+
 function pressedOption(): string | undefined {
   return [LIGHT, SYSTEM, DARK].find(
     (name) => screen.getByRole('button', { name }).getAttribute('aria-pressed') === 'true',
@@ -114,6 +116,12 @@ beforeEach(() => {
   prefersDark = false;
   vi.stubGlobal('localStorage', storageMock);
   vi.stubGlobal('matchMedia', (q: string) => {
+    // The appearance provider (mounted by ThemeProvider since 24.09.2026)
+    // asks the OS about contrast; answered "not requested", inert. Any
+    // OTHER unexpected query still fails loudly.
+    if (q === CONTRAST_QUERY) {
+      return { matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {} };
+    }
     if (q !== DARK_QUERY) throw new Error(`unexpected media query: ${q}`);
     return mediaQueryList;
   });

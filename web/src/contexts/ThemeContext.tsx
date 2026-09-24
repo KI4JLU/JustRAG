@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import { ThemeProvider as DesignSystemThemeProvider, UiShapeProvider, type Theme, type ResolvedTheme } from '@ki4jlu/design-system';
+import { ThemeProvider as DesignSystemThemeProvider, AppearanceProvider, type Theme, type ResolvedTheme } from '@ki4jlu/design-system';
 import { useThemeAndLanguage } from '../hooks/useThemeAndLanguage';
 import type { Language } from '../translations';
 
@@ -67,7 +67,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   return (
     <DesignSystemThemeProvider>
       <ThemeAndLanguageBridge>
-        <UiShapeProvider>{children}</UiShapeProvider>
+        <AppearanceProvider>{children}</AppearanceProvider>
       </ThemeAndLanguageBridge>
     </DesignSystemThemeProvider>
   );
