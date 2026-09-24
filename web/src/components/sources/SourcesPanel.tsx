@@ -3,7 +3,7 @@ import type { RssFeed } from '../../types';
 import { useKbCore } from '../../contexts/KbCoreContext';
 import { useKbData } from '../../contexts/KbDataContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { SidebarPanel } from '@ki4jlu/design-system';
+import { FileDropzone, SidebarPanel, useWindowFileDrag } from '@ki4jlu/design-system';
 import '../sidebar-primitives.css';
 import { RssFeedEntriesModal } from '../RssFeedEntriesModal';
 import { SourcesSection } from '../sidebar/SourcesSection';
@@ -32,13 +32,13 @@ const SourcesPanelComp: React.FC = () => {
     } = useKbData();
 
     const {
-        files, fileInputRef,
+        files, filesLoaded, fileInputRef,
         handleToggleFilesSelection,
         handleDownloadFile, handleDeleteFile, handleFileUpload,
         retryFile,
         isDragging, textSourceTitle, setTextSourceTitle,
         textSourceContent, setTextSourceContent,
-        handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd,
+        handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd, uploadFiles,
         showUploadModal, setShowUploadModal,
     } = fileMgmt;
 
@@ -52,6 +52,13 @@ const SourcesPanelComp: React.FC = () => {
     } = webTools;
 
     const isGlobal = currentKb?.isGlobal;
+    // Files dragged anywhere over the workspace turn the source list into a
+    // dropzone (not for the global KB, which takes no uploads here).
+    const fileDragActive = useWindowFileDrag(!isGlobal);
+    // A KB with no sources at all keeps the dropzone as its list (the empty
+    // workspace placeholder); it opens the file picker on click / Enter too.
+    const noSourcesYet = !isGlobal && filesLoaded && files.length === 0
+        && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0;
     const handleOpenWorkspace = useCallback(() => setShowWebWorkspace(true), [setShowWebWorkspace]);
 
     const [activeSourceModal, setActiveSourceModal] = useState<SourceType | null>(null);
@@ -119,6 +126,17 @@ const SourcesPanelComp: React.FC = () => {
                     </>
                 )}
             >
+                {fileDragActive || noSourcesYet ? (
+                    <FileDropzone
+                        id="sources-dropzone"
+                        className="h-full min-h-48"
+                        title={fileDragActive ? t('dropFilesHere') : t('dropzoneTitle')}
+                        hint={t('dropzoneTypes')}
+                        onFiles={uploadFiles}
+                        onBrowse={() => fileInputRef.current?.click()}
+                        aria-label={t('uploadFile')}
+                    />
+                ) : (
                 <SourcesSection
                     files={files}
                     onPreviewSource={handlePreviewSource}
@@ -140,6 +158,7 @@ const SourcesPanelComp: React.FC = () => {
                     onDeleteGitRepoSource={deleteGitRepoSource}
                     onSyncGitRepoNow={syncGitRepoNow}
                 />
+                )}
             </SidebarPanel>
 
             <input

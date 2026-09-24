@@ -2,8 +2,8 @@ import { lazy, Suspense, memo, useCallback, useRef, useEffect, useMemo, useState
 import { Virtuoso } from 'react-virtuoso';
 import {
   Brain, ArrowUp,
-  X, Search, GitBranch, Check,
-  UploadCloud, Globe, FlaskConical, WandSparkles, Loader2, FileText, Bot, Users,
+  X, GitBranch, Check,
+  Globe, WandSparkles, Loader2, FileText, Bot, Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Message } from '../types';
@@ -73,7 +73,7 @@ const ChatViewComp = () => {
     agentSelection, setAgentSelection,
   } = useKbChat();
   const { fileMgmt, webTools } = useKbData();
-  const { sidebar, systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt } = useKbLayout();
+  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
   const kbAgentOptions = useKbAgents(currentKb?.id);
@@ -170,10 +170,9 @@ const ChatViewComp = () => {
   const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
 
   const {
-    hasFiles, filesLoaded, selectedFileCount, fileInputRef,
-    isDragging, handleDragOver, handleDragEnter, handleDragLeave, handleDrop,
+    hasFiles, filesLoaded, selectedFileCount,
   } = fileMgmt;
-  const { handlePreviewSource, handlePdfSourceOpen, setToolTab } = webTools;
+  const { handlePreviewSource, handlePdfSourceOpen } = webTools;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
@@ -200,28 +199,6 @@ const ChatViewComp = () => {
     const seen = new Set(configured.map(p => p.trim().toLowerCase()));
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
   }, [currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, siteConfigs.example_prompts, generatedPrompts]);
-  const openWebTool = useCallback((tab: 'websearch' | 'crawl' | 'research') => {
-    setToolTab(tab);
-    sidebar.setIsRightSidebarOpen(true);
-  }, [setToolTab, sidebar]);
-
-  const webToolBtnStyle: React.CSSProperties = {
-    display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-    padding: '0.55rem 0.9rem', borderRadius: '8px',
-    border: '1px solid var(--border-color)', background: 'var(--bg-primary)',
-    color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.85rem',
-    fontFamily: 'inherit', transition: 'border-color 0.15s, background 0.15s, transform 0.15s',
-  };
-  const webToolHoverIn = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.currentTarget.style.borderColor = 'var(--accent-primary)';
-    e.currentTarget.style.background = 'var(--tag-bg)';
-    e.currentTarget.style.transform = 'translateY(-2px)';
-  };
-  const webToolHoverOut = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.currentTarget.style.borderColor = 'var(--border-color)';
-    e.currentTarget.style.background = 'var(--bg-primary)';
-    e.currentTarget.style.transform = 'translateY(0)';
-  };
 
   const initialRenderRef = useRef(true);
   useEffect(() => {
@@ -355,11 +332,6 @@ const ChatViewComp = () => {
                         >
                           <X size={14} />
                         </button>
-                      </div>
-                    )}
-                    {noSources && (
-                      <div style={{ textAlign: 'center', marginBottom: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                        {t('chatDisabledNoSources')}
                       </div>
                     )}
                     <PromptInput
@@ -499,15 +471,36 @@ const ChatViewComp = () => {
                           <FileText size={16} aria-hidden="true" />
                           <span aria-hidden="true">{selectedFileCount}</span>
                         </span>
-                        <PromptInputSubmit
-                          id="chat-composer-submit"
-                          className="size-10"
-                          status={chat.loading ? 'submitted' : undefined}
-                          disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()}
-                          aria-label={t('sendMessage')}
-                        >
-                          <ArrowUp aria-hidden="true" />
-                        </PromptInputSubmit>
+                        {noSources ? (
+                          // Why sending is off, on the send button. aria-disabled, not
+                          // disabled: a disabled button takes no hover or focus, so the
+                          // tooltip could never open. type="button" keeps it from submitting;
+                          // pointer-events-auto lifts it out of the dimmed composer.
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <PromptInputSubmit
+                                id="chat-composer-submit"
+                                type="button"
+                                className="pointer-events-auto size-10 opacity-60"
+                                aria-disabled="true"
+                                aria-label={t('sendMessage')}
+                              >
+                                <ArrowUp aria-hidden="true" />
+                              </PromptInputSubmit>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('chatDisabledNoSources')}</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <PromptInputSubmit
+                            id="chat-composer-submit"
+                            className="size-10"
+                            status={chat.loading ? 'submitted' : undefined}
+                            disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()}
+                            aria-label={t('sendMessage')}
+                          >
+                            <ArrowUp aria-hidden="true" />
+                          </PromptInputSubmit>
+                        )}
                       </InputGroupAddon>
                     </PromptInput>
                     {suggestionsEnabled && chat.messages.length === 0 && !noSources && (
@@ -556,69 +549,12 @@ const ChatViewComp = () => {
                           </div>
                         ) : null}
                         {noSources ? (
-                          <div style={{ width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: isMobile ? '0 0.5rem' : undefined }}>
-                            <div>
-                              <h1 style={{ fontSize: isMobile ? '1.4rem' : '1.75rem', marginBottom: '0.5rem' }}>{t('emptyAddFirstSourceTitle')}</h1>
-                              <p style={{ margin: 0 }}>{t('emptyAddFirstSourceSubtitle')}</p>
-                            </div>
-
-                            {/* Drag-and-drop drop zone — wired to the existing file-upload handlers */}
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => fileInputRef.current?.click()}
-                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
-                              onDragOver={handleDragOver}
-                              onDragEnter={handleDragEnter}
-                              onDragLeave={handleDragLeave}
-                              onDrop={handleDrop}
-                              aria-label={t('uploadFile')}
-                              style={{
-                                border: `2px dashed ${isDragging ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                                borderRadius: '12px',
-                                padding: '2rem 1.5rem',
-                                background: isDragging ? 'var(--tag-bg)' : 'var(--bg-primary)',
-                                cursor: 'pointer',
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem',
-                                transition: 'border-color 0.2s, background 0.2s',
-                              }}
-                            >
-                              <UploadCloud size={32} aria-hidden="true" style={{ color: 'var(--accent-primary)' }} />
-                              <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                                {t('dropzoneTitle')} <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{t('dropzoneBrowse')}</span>
-                              </div>
-                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('dropzoneTypes')}</div>
-                            </div>
-
-                            {/* "ODER AUS DEM WEB" divider */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-secondary)' }}>
-                              <span style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                              <span style={{ fontSize: '0.7rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{t('orFromWeb')}</span>
-                              <span style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                              <button type="button" onClick={() => openWebTool('websearch')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
-                                <Search size={16} aria-hidden="true" /> {t('websearch')}
-                              </button>
-                              <button type="button" onClick={() => openWebTool('crawl')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
-                                <Globe size={16} aria-hidden="true" /> {t('emptyWebCrawl')}
-                              </button>
-                              <button type="button" onClick={() => openWebTool('research')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
-                                <FlaskConical size={16} aria-hidden="true" /> {t('research')}
-                              </button>
-                            </div>
-
-                            {/* Studio value-framing chips */}
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>{t('studioAfterwards')}</div>
-                              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center', opacity: 0.65 }}>
-                                {[t('flashcards'), t('slides'), t('podcast'), t('chart')].map(label => (
-                                  <span key={label} className="source-tag" style={{ marginTop: 0 }}>{label}</span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
+                          // Adding sources happens in the sources column, which shows its
+                          // dropzone while the KB is empty — the centre only says so.
+                          <>
+                            <h1>{t('emptyAddFirstSourceTitle')}</h1>
+                            <p>{t('emptyAddFirstSourceSubtitle')}</p>
+                          </>
                         ) : (
                           <>
                             <h1>{currentKb?.name}</h1>

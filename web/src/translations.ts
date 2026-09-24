@@ -279,12 +279,8 @@ export const translations = {
     emptyAddFirstSourceTitle: { de: 'Füge deine erste Quelle hinzu', en: 'Add your first source' },
     emptyAddFirstSourceSubtitle: { de: 'Lade ein Dokument hoch oder hol dir Inhalte aus dem Web — danach kannst du Fragen stellen.', en: 'Upload a document or pull in content from the web — then you can start asking questions.' },
     dropzoneTitle: { de: 'Dateien hierher ziehen', en: 'Drag files here' },
-    dropzoneBrowse: { de: 'oder durchsuchen', en: 'or browse' },
     dropzoneTypes: { de: 'PDF · DOCX · TXT · MD · PPTX — bis 50 MB', en: 'PDF · DOCX · TXT · MD · PPTX — up to 50 MB' },
-    orFromWeb: { de: 'Oder aus dem Web', en: 'Or from the web' },
-    emptyWebCrawl: { de: 'Webseite crawlen', en: 'Crawl website' },
-    studioAfterwards: { de: 'Danach kannst du erstellen:', en: 'Then you can create:' },
-    chatDisabledNoSources: { de: 'Füge zuerst eine Quelle hinzu, um zu chatten…', en: 'Add a source first to start chatting…' },
+    chatDisabledNoSources: { de: 'Füge zuerst eine Quelle hinzu, um zu chatten.', en: 'Add a source first to start chatting.' },
     addSourceCta: { de: 'Quelle hinzufügen', en: 'Add source' },
 
     // Web Tools

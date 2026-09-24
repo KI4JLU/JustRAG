@@ -227,6 +227,14 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     await uploadFilesBatch(droppedFiles);
   }, [currentKb, uploadFilesBatch]);
 
+  // Files dropped on a dropzone that is not a React drag target of this hook
+  // (the sources panel's DS FileDropzone).
+  const uploadFiles = useCallback(async (dropped: File[]) => {
+    if (dropped.length === 0 || !currentKb) return;
+    setShowUploadModal(false);
+    await uploadFilesBatch(dropped);
+  }, [currentKb, uploadFilesBatch]);
+
   const handleTextSourceAdd = useCallback(async () => {
     if (!currentKb || !textSourceContent.trim()) return;
 
@@ -251,7 +259,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
 
   return useMemo(() => ({
     files, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
-    fetchFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
+    fetchFiles, uploadFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     showUploadModal, setShowUploadModal,
     isDragging, textSourceTitle, setTextSourceTitle,
@@ -260,7 +268,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   }), [
     files, uploading, hasFiles, filesLoaded, selectedFileCount,
     showUploadModal, isDragging, textSourceTitle, textSourceContent,
-    fetchFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
+    fetchFiles, uploadFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd
   ]);
