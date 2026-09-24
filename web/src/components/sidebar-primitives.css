@@ -29,10 +29,15 @@
   background: var(--border-color);
 }
 
+/* 32px row: the height the right column's heading is aligned to
+   (`.sources-grid__title`). It used to come from the 32px "new chat" icon
+   button in this row; that button is now a full-width one below the heading,
+   so the row carries the height itself. */
 .sidebar-ui__section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 32px;
   margin-bottom: 1.5rem;
 }
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
 import { AppShellLayout, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
-import { History, MessageSquare, Plus } from 'lucide-react';
+import { History, MessageSquare } from 'lucide-react';
 import './sidebar-primitives.css';
 import './history/HistoryPanel.css';
 import './sidebar/SourcesGrid.css';
@@ -52,13 +52,6 @@ const HistoryHeading = () => (
   <div className="history-panel">
     <div className="sidebar-ui__section-header">
       <h2 className="sidebar-ui__section-title" data-testid="left-heading">Verlauf</h2>
-      {/* eslint-disable-next-line design-system/no-raw-ui-elements --
-          copied verbatim from HistoryPanel.tsx, which still uses a raw button
-          here. A `Button` in its place would measure a different row height
-          and the story would stop describing the app. */}
-      <button className="send-button history-panel__new-chat-btn" aria-label="Neuer Chat">
-        <Plus size={16} />
-      </button>
     </div>
   </div>
 );

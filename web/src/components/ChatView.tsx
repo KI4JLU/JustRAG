@@ -2,7 +2,7 @@ import { lazy, Suspense, memo, useCallback, useRef, useEffect, useState } from '
 import { Virtuoso } from 'react-virtuoso';
 import {
   Brain, ArrowUp,
-  X, Search, GitBranch, Check, Trash2,
+  X, Search, GitBranch, Check,
   UploadCloud, Globe, FlaskConical, WandSparkles, Loader2, FileText, Bot, Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -13,8 +13,7 @@ import { useIsMobileContext } from '../contexts/MobileContext';
 import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
-import KbAgentsSection from './agents/KbAgentsSection';
-import AgentPicker from './agents/AgentPicker';
+import { SystemPromptPanel } from './SystemPromptPanel';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
@@ -29,7 +28,7 @@ import {
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { canOpenKbAdvancedSettings, hasKbAdminRole } from '../utils/kbAccess';
+import { hasKbAdminRole } from '../utils/kbAccess';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
 import { MessageSkeleton } from './Skeleton';
@@ -64,7 +63,7 @@ const ChatViewComp = () => {
   const reducedMotion = useReducedMotion();
 
   const {
-    currentKb, availableConfigs, handleUpdateKBSettings, onViewAgents,
+    currentKb, availableConfigs, handleUpdateKBSettings,
   } = useKbCore();
   const {
     chat, reasoningEnabled, setReasoningEnabled,
@@ -164,7 +163,6 @@ const ChatViewComp = () => {
   // through the same ladder kbaccess.EffectiveRole applies server-side, so the
   // button now appears exactly where kbAdvancedChain would let the request
   // through.
-  const canTuneKB = canOpenKbAdvancedSettings(currentKb, user?.role);
   // System prompt: owners and KB admins (the gear in the chrome bar,
   // KbWorkspaceLayout, uses the same predicate).
   const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
@@ -240,7 +238,29 @@ const ChatViewComp = () => {
           Anbindung als Tools. `KbViewType` ist auf 'chat' verengt, also gibt
           es nichts mehr zu verzweigen. */}
       {
-            chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
+            showSystemPrompt && currentKb && canEditSystemPrompt ? (
+              // The KB behaviour editor takes the whole content area while open.
+              <SystemPromptPanel
+                draft={systemPromptDraft}
+                onDraftChange={setSystemPromptDraft}
+                onSave={() => {
+                  const newValue = systemPromptDraft || null;
+                  if (newValue !== (currentKb.systemPrompt || null)) {
+                    handleUpdateKBSettings({ systemPrompt: newValue });
+                  }
+                  setShowSystemPrompt(false);
+                }}
+                onDelete={() => {
+                  setSystemPromptDraft('');
+                  handleUpdateKBSettings({ systemPrompt: null });
+                  setShowSystemPrompt(false);
+                }}
+                onClose={() => {
+                  setSystemPromptDraft(currentKb.systemPrompt || '');
+                  setShowSystemPrompt(false);
+                }}
+              />
+            ) : chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
                 <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                   <ComparisonView
@@ -518,90 +538,6 @@ const ChatViewComp = () => {
                         </button>
                       </div>
                     )}
-                    {showSystemPrompt && currentKb && canEditSystemPrompt && (
-                      <div style={{ marginBottom: '0.75rem', width: '100%' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <label htmlFor="chat-system-prompt" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                            {t('systemPromptLabel')}
-                          </label>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                            {systemPromptDraft.length} / 8000
-                          </span>
-                        </div>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 6px' }}>{t('systemPromptDescription')}</p>
-                        <textarea
-                          id="chat-system-prompt"
-                          value={systemPromptDraft}
-                          onChange={(e) => setSystemPromptDraft(e.target.value)}
-                          placeholder={t('systemPromptPlaceholder')}
-                          maxLength={8000}
-                          rows={3}
-                          style={{
-                            width: '100%',
-                            padding: '0.6rem',
-                            borderRadius: '8px',
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--bg-primary)',
-                            color: 'var(--text-primary)',
-                            resize: 'vertical',
-                            fontFamily: 'inherit',
-                            fontSize: '0.85rem',
-                          }}
-                        />
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '6px' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSystemPromptDraft('');
-                              handleUpdateKBSettings({ systemPrompt: null });
-                              setShowSystemPrompt(false);
-                            }}
-                            className="icon-button"
-                            style={{ color: 'var(--error-color, #e53e3e)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            title={language === 'en' ? 'Delete system prompt' : 'System-Prompt löschen'}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newValue = systemPromptDraft || null;
-                              if (newValue !== (currentKb.systemPrompt || null)) {
-                                handleUpdateKBSettings({ systemPrompt: newValue });
-                              }
-                              setShowSystemPrompt(false);
-                            }}
-                            className="icon-button"
-                            style={{ color: 'var(--accent-primary)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            title={language === 'en' ? 'Save system prompt' : 'System-Prompt speichern'}
-                          >
-                            <Check size={14} />
-                          </button>
-                        </div>
-                        {/* All agent controls live here with the system prompt,
-                            because they answer the same question: how should
-                            this KB behave? Two jobs, deliberately adjacent —
-                            KbAgentsSection sets which agents are AVAILABLE on
-                            the KB, AgentPicker sets which one answers THIS
-                            chat (sticky on chats.agent_id). */}
-                        <div style={{ marginTop: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
-                          {/* Only the AVAILABILITY half is gated. KbAgentsSection
-                              writes through PUT/DELETE /api/kb/{id}/agents|teams,
-                              which are on kbAdvancedChain, so an owner without one
-                              of {api-user, admin, superadmin} would get a 403 out
-                              of every toggle in it. AgentPicker below reads the
-                              view-gated list and writes only to this chat, so it
-                              stays offered to everyone — as does the system-prompt
-                              editor above, which is plain kbAdminChain. */}
-                          {canTuneKB && <KbAgentsSection kbId={currentKb.id} onCreateAgent={onViewAgents} />}
-                          <AgentPicker
-                            kbId={currentKb.id}
-                            selection={agentSelection}
-                            onSelect={setAgentSelection}
-                          />
-                        </div>
-                      </div>
-                    )}
                     {noSources && (
                       <div style={{ textAlign: 'center', marginBottom: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                         {t('chatDisabledNoSources')}
@@ -609,7 +545,6 @@ const ChatViewComp = () => {
                     )}
                     <PromptInput
                       id="chat-composer"
-                      shape="pill"
                       multiple
                       onSubmit={(_message, e) => chat.handleSendMessage(e)}
                       className={noSources ? 'pointer-events-none opacity-55' : undefined}
