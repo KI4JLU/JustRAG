@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { AppShellLayout, Button, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
+import { SourcesRail } from './sidebar/SourcesRail';
 import { ArrowLeft, FolderOpen, History, MessageSquare, Settings } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -165,6 +166,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       expandLabel={t('expandHistorySidebar')}
       rightPanel={{
         content: <SourcesPanel />,
+        // Collapsed: one icon per source with the hover preview, like the history rail.
+        collapsedPreview: <SourcesRail />,
         label: t('sources'),
         isOpen: sidebar.isRightSidebarOpen,
         onOpenChange: sidebar.setIsRightSidebarOpen,

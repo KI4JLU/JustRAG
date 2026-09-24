@@ -1,16 +1,13 @@
-import React, { memo } from 'react';
+import React, { createElement, memo, useLayoutEffect, useRef } from 'react';
 import {
-    Link, Globe, Bot, FileText, Download, Trash2, MoreVertical,
+    Download, Trash2,
     Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch
 } from 'lucide-react';
-import {
-    Button, Checkbox,
-    DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-} from '@ki4jlu/design-system';
+import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IngestStageIndicator } from './IngestStageIndicator';
-import { isCardControlClick } from './cardClick';
+import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
 import { SourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
 
@@ -59,6 +56,27 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 }) => {
     const { t } = useTheme();
 
+    // The list scrolls on its own, and a classic (non-overlay) scrollbar takes
+    // its width out of the content box — the cards came out narrower than the
+    // "add sources" grid above. The scrollbar is moved into the right gutter
+    // instead: the right padding shrinks by exactly its width (0 for overlay
+    // scrollbars), measured, since it differs per OS and browser.
+    const listRef = useRef<HTMLUListElement>(null);
+    useLayoutEffect(() => {
+        const el = listRef.current;
+        if (!el) return;
+        const GUTTER = 16; // = the column's 1rem inset (`.sidebar-left__files-section`)
+        const fit = () => {
+            const bar = el.offsetWidth - el.clientWidth;
+            el.style.paddingRight = `${Math.max(0, GUTTER - bar)}px`;
+        };
+        fit();
+        const ro = new ResizeObserver(fit);
+        ro.observe(el);
+        for (const child of Array.from(el.children)) ro.observe(child);
+        return () => ro.disconnect();
+    });
+
     const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
     // Hover previews are prepared ahead of the hover (see sourcePreviews.ts).
     useSourcePreviews(nonRssFiles);
@@ -70,85 +88,56 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     };
 
     return (
-        <ul className="sidebar-left__files-section sidebar-ui__list">
+        <SidebarCardList ref={listRef} className="sidebar-left__files-section">
                 {nonRssFiles.map(file => (
                     <SourceHoverPreview key={file.id} file={file}>
-                        {/* Whole-plane click is a pointer convenience; the title button inside is the keyboard path. */}
-                        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
-                    <li
-                        className="source-card sidebar-left__file-card"
-                        onClick={(e) => { if (!isCardControlClick(e)) onPreviewSource(file); }}
-                    >
-                        <div className="sidebar-left__file-origin-icon">
-                            {file.origin === 'websearch' ? <Link size={18} aria-hidden="true" /> : file.origin === 'crawl' ? <Globe size={18} aria-hidden="true" /> : file.origin === 'research' ? <Bot size={18} aria-hidden="true" /> : file.origin === 'rss' ? <Rss size={18} aria-hidden="true" /> : <FileText size={18} aria-hidden="true" />}
-                        </div>
-                        <div className="sidebar-left__file-main">
-                            <button
-                                onClick={() => onPreviewSource(file)}
-                                className="text-button source-title sidebar-left__file-name"
-                            >
-                                {file.name}
-                            </button>
-                            {/* Status only when it is news: queued or failed. A finished
-                                upload says nothing — the card being there is the status. */}
-                            {file.status === 'pending' && !file.currentStage && (
-                                <div className="source-meta sidebar-left__file-meta">{t('fileStatusPending')}</div>
-                            )}
-                            {file.status === 'error' && (
-                                <div
-                                    className="sidebar-left__rss-feed-error"
-                                    title={file.errorMessage || undefined}
+                        <SidebarCard
+                            icon={createElement(sourceIconFor(file), { 'aria-hidden': true })}
+                            iconText={sourceTypeLabel(file) ?? undefined}
+                            title={file.name}
+                            onOpen={() => onPreviewSource(file)}
+                            meta={<>
+                                {/* Status only when it is news: queued or failed. A finished
+                                    upload says nothing — the card being there is the status. */}
+                                {file.status === 'pending' && !file.currentStage && (
+                                    <div className="source-meta sidebar-left__file-meta">{t('fileStatusPending')}</div>
+                                )}
+                                {file.status === 'error' && (
+                                    <div className="sidebar-left__rss-feed-error" title={file.errorMessage || undefined}>
+                                        {errorLabel(file)}
+                                    </div>
+                                )}
+                                {file.currentStage && (
+                                    <IngestStageIndicator
+                                        stage={file.currentStage}
+                                        index={file.stageIndex}
+                                        total={file.stageTotal}
+                                        fileName={file.name}
+                                    />
+                                )}
+                            </>}
+                            extra={file.status === 'error' && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e) => { e.stopPropagation(); onRetryFile(file.id); }}
+                                    title={t('retrySource')}
+                                    aria-label={`${t('retrySource')} ${file.name}`}
                                 >
-                                    {errorLabel(file)}
-                                </div>
-                            )}
-                            {file.currentStage && (
-                                <IngestStageIndicator
-                                    stage={file.currentStage}
-                                    index={file.stageIndex}
-                                    total={file.stageTotal}
-                                    fileName={file.name}
-                                />
-                            )}
-                        </div>
-                        {file.status === 'error' && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => { e.stopPropagation(); onRetryFile(file.id); }}
-                                title={t('retrySource')}
-                                aria-label={`${t('retrySource')} ${file.name}`}
-                            >
-                                <RefreshCw size={16} aria-hidden="true" />
-                            </Button>
-                        )}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" aria-label={`${t('sourceActions')} ${file.name}`}>
-                                    <MoreVertical size={16} aria-hidden="true" />
+                                    <RefreshCw size={16} aria-hidden="true" />
                                 </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => onDownloadFile(file.id)}>
-                                    <Download size={16} aria-hidden="true" />
-                                    {t('download')}
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    variant="destructive"
-                                    onSelect={(e) => onDeleteFile(file.id, e as unknown as React.MouseEvent)}
-                                >
-                                    <Trash2 size={16} aria-hidden="true" />
-                                    {t('delete')}
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                        <Checkbox
-                            checked={file.selected !== false}
-                            onCheckedChange={(checked) => onToggleFilesSelection([file.id], checked === true)}
-                            aria-label={`${t('selectSource')} ${file.name}`}
+                            )}
+                            actionsLabel={t('sourceActions')}
+                            actions={[
+                                { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
+                                { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
+                                  onSelect: (e) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                            ]}
+                            selectable
+                            selected={file.selected !== false}
+                            onSelectedChange={(sel) => onToggleFilesSelection([file.id], sel)}
+                            selectLabel={t('selectSource')}
                         />
-                    </li>
                     </SourceHoverPreview>
                 ))}
 
@@ -319,7 +308,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
             {nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (
                 <li className="sidebar-left__empty sidebar-ui__empty">{t('noSources')}</li>
             )}
-        </ul>
+        </SidebarCardList>
     );
 };
 

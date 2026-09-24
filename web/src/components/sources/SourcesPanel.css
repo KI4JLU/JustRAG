@@ -417,20 +417,20 @@
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }
-/* No hover underline (developer, 23.09.2026): the card is the click target.
-   Two classes to outrank the unlayered `.text-button:hover` in index.css. */
-.sidebar-left__file-card .sidebar-left__file-name:hover {
-  text-decoration: none;
+
+
+/* The list (DS SidebarCardList) spaces its rows itself; the feed / Confluence
+   / Git cards bring `.source-card`'s own bottom margin, which would double it. */
+.sidebar-left__files-section > .source-card {
+  margin-bottom: 0;
 }
 
-/* Hover is a tint, not a lift (developer, 23.09.2026) — the same
-   `surface-container-high` the composer's menu items use (`--bg-hover`).
-   Overrides the global `.source-card:hover` transform/shadow/border. */
-@media (hover: hover) {
-  .sidebar-left__files-section .sidebar-left__file-card:hover {
-    transform: none;
-    box-shadow: var(--shadow-sm);
-    border-color: var(--border-color);
-    background: var(--bg-hover);
-  }
+/* Feed / Confluence / Git cards are multi-row: box radius of the app-wide Style. */
+.sidebar-left__file-card {
+  border-radius: var(--ui-radius-box, var(--shape-md));
+}
+
+/* DS buttons in the sources column follow the sidebar shape. */
+.sidebar-left__files-header button {
+  border-radius: var(--ui-radius-control, var(--radius-action));
 }
