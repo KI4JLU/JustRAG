@@ -581,6 +581,22 @@ button.source-card {
   min-width: 0;
 }
 
+/* Inside the DS ChatStage (centring and the pinned disclaimer live there):
+   while empty, the empty-state scroller sizes to its content, and the
+   composer's bottom padding shrinks because the disclaimer follows it. */
+[data-slot="chat-stage"][data-empty] .messages-container {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+[data-slot="chat-stage"][data-empty] .messages-container > .empty-state {
+  height: auto;
+}
+
+[data-slot="chat-stage-composer"] > .input-container {
+  padding-bottom: 1rem;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;

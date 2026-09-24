@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 
 /* ---------------------------------------------------------------------------
  * The app's ONE convention for remembering a boolean UI preference.
@@ -72,5 +72,38 @@ export function useStoredFlag(
     setValue(next);
   }, [key]);
 
+  return [value, set];
+}
+
+/* Shared variant: every caller of the same key sees one value, live. For a
+ * preference that is SET in one place (the settings dialog) and READ in
+ * another (the chat) — `useStoredFlag` reads once per mount, so a chat that is
+ * already open would miss the change until it remounts. */
+const sharedListeners = new Map<string, Set<() => void>>();
+const sharedValues = new Map<string, boolean>();
+
+/**
+ * Like `useStoredFlag`, but all components using `key` share the value and
+ * re-render together when any of them sets it.
+ */
+export function useSharedStoredFlag(
+  key: string,
+  fallback: boolean,
+): [boolean, (next: boolean) => void] {
+  const subscribe = useCallback((notify: () => void) => {
+    let set = sharedListeners.get(key);
+    if (!set) sharedListeners.set(key, (set = new Set()));
+    set.add(notify);
+    return () => { set.delete(notify); };
+  }, [key]);
+  const value = useSyncExternalStore(subscribe, () => {
+    if (!sharedValues.has(key)) sharedValues.set(key, readStored(key, fallback));
+    return sharedValues.get(key)!;
+  });
+  const set = useCallback((next: boolean) => {
+    writeStored(key, next);
+    sharedValues.set(key, next);
+    sharedListeners.get(key)?.forEach(notify => notify());
+  }, [key]);
   return [value, set];
 }

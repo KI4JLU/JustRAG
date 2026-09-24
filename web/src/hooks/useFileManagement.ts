@@ -17,6 +17,9 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const { showConfirm } = useModalContext();
   const toast = useToast();
   const [files, setFiles] = useState<FileEntry[]>([]);
+  // The KB whose file list `files` holds — until it matches the open KB, the
+  // list is unknown, not empty (callers must not show the "no sources" state).
+  const [filesKbId, setFilesKbId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -25,6 +28,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasFiles = useMemo(() => files.some(f => f.status === 'completed'), [files]);
+  const filesLoaded = !!currentKb && filesKbId === currentKb.id;
   const selectedFileCount = useMemo(() => files.filter(f => f.selected !== false).length, [files]);
 
   const fetchFiles = useCallback(async (kbId: string, signal?: AbortSignal) => {
@@ -38,8 +42,10 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
         selected: file.selected !== undefined ? file.selected : true
       }));
       setFiles(filesWithSelection);
+      setFilesKbId(kbId);
     } catch (err: unknown) {
       if (axios.isCancel(err)) return;
+      setFilesKbId(kbId);
       console.error('Failed to fetch files:', err);
       toast.error(t('filesFetchError'));
     }
@@ -244,7 +250,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   }, [currentKb, textSourceTitle, textSourceContent, fetchFiles, t, toast]);
 
   return useMemo(() => ({
-    files, uploading, hasFiles, selectedFileCount, fileInputRef,
+    files, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
     fetchFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     showUploadModal, setShowUploadModal,
@@ -252,7 +258,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     textSourceContent, setTextSourceContent,
     handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd,
   }), [
-    files, uploading, hasFiles, selectedFileCount,
+    files, uploading, hasFiles, filesLoaded, selectedFileCount,
     showUploadModal, isDragging, textSourceTitle, textSourceContent,
     fetchFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,

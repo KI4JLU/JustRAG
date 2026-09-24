@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo, useCallback, useRef, useEffect, useState } from 'react';
+import { lazy, Suspense, memo, useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import {
   Brain, ArrowUp,
@@ -15,12 +15,14 @@ import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
 import { SystemPromptPanel } from './SystemPromptPanel';
 import { useKbLayout } from '../contexts/KbLayoutContext';
+import { useStarterQuestions } from '../hooks/useStarterQuestions';
+import { useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { useMessageSections } from '../hooks/useMessageSections';
 import {
   InputGroupAddon,
-  PromptInput, PromptInputAdaptiveTextarea, PromptInputButton, PromptInputSubmit,
+  ChatStage, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
@@ -168,14 +170,36 @@ const ChatViewComp = () => {
   const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
 
   const {
-    hasFiles, selectedFileCount, fileInputRef,
+    hasFiles, filesLoaded, selectedFileCount, fileInputRef,
     isDragging, handleDragOver, handleDragEnter, handleDragLeave, handleDrop,
   } = fileMgmt;
   const { handlePreviewSource, handlePdfSourceOpen, setToolTab } = webTools;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
-  const noSources = !hasFiles && !currentKb?.isGlobal;
+  // Only once this KB's file list has arrived: before that it is unknown, and
+  // flashing the onboarding for a split second on every KB open was the bug.
+  const noSources = filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // Starter prompts under the composer of an empty chat: the global KB's own,
+  // then the site's, then the built-in pair.
+  // Generated from the KB's documents, only while an empty chat can use them.
+  // User settings (Einstellungen → Allgemein): suggestions and follow-ups on/off.
+  const [suggestionsEnabled] = usePromptSuggestionsEnabled();
+  const [followUpsEnabled] = useFollowUpsEnabled();
+  const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && chat.messages.length === 0 && hasFiles);
+  const examplePrompts = useMemo(() => {
+    const raw = currentKb?.isGlobal && currentKb?.examplePrompts
+      ? currentKb.examplePrompts
+      : siteConfigs.example_prompts;
+    const prompts = raw
+      ? raw.split('\n')
+      : ['Fasse die wichtigsten Punkte meiner Dokumente zusammen', 'Was sind die wichtigsten Erkenntnisse in {topic}?'];
+    // `{topic}` stands for the open topic's name, in configured prompts too.
+    const configured = prompts.map(p => p.replaceAll('{topic}', `„${currentKb?.name ?? ''}“`));
+    // Then the questions generated from the KB's documents, without repeats.
+    const seen = new Set(configured.map(p => p.trim().toLowerCase()));
+    return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
+  }, [currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, siteConfigs.example_prompts, generatedPrompts]);
   const openWebTool = useCallback((tab: 'websearch' | 'crawl' | 'research') => {
     setToolTab(tab);
     sidebar.setIsRightSidebarOpen(true);
@@ -282,220 +306,15 @@ const ChatViewComp = () => {
               </Suspense>
             ) : (
               <div className="chat-row">
-                <div className="chat-column">
-                  {chat.messages.length === 0 ? (
-                    <div
-                      className="messages-container"
-                      style={{ position: 'relative' }}
-                      ref={(el) => { attachHookRef(chat.messagesContainerRef, el); }}
-                      onScroll={chat.handleScroll}
-                    >
-                      <motion.div
-                        className="empty-state"
-                        {...getMotionProps(reducedMotion)}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5, ease: 'easeOut' }}
-                      >
-                        {currentKb?.isGlobal && currentKb?.headerText ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {currentKb.headerText}
-                          </div>
-                        ) : siteConfigs.kb_header ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {siteConfigs.kb_header}
-                          </div>
-                        ) : null}
-                        {noSources ? (
-                          <div style={{ width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: isMobile ? '0 0.5rem' : undefined }}>
-                            <div>
-                              <h1 style={{ fontSize: isMobile ? '1.4rem' : '1.75rem', marginBottom: '0.5rem' }}>{t('emptyAddFirstSourceTitle')}</h1>
-                              <p style={{ margin: 0 }}>{t('emptyAddFirstSourceSubtitle')}</p>
-                            </div>
-
-                            {/* Drag-and-drop drop zone — wired to the existing file-upload handlers */}
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => fileInputRef.current?.click()}
-                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
-                              onDragOver={handleDragOver}
-                              onDragEnter={handleDragEnter}
-                              onDragLeave={handleDragLeave}
-                              onDrop={handleDrop}
-                              aria-label={t('uploadFile')}
-                              style={{
-                                border: `2px dashed ${isDragging ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                                borderRadius: '12px',
-                                padding: '2rem 1.5rem',
-                                background: isDragging ? 'var(--tag-bg)' : 'var(--bg-primary)',
-                                cursor: 'pointer',
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem',
-                                transition: 'border-color 0.2s, background 0.2s',
-                              }}
-                            >
-                              <UploadCloud size={32} aria-hidden="true" style={{ color: 'var(--accent-primary)' }} />
-                              <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                                {t('dropzoneTitle')} <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{t('dropzoneBrowse')}</span>
-                              </div>
-                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('dropzoneTypes')}</div>
-                            </div>
-
-                            {/* "ODER AUS DEM WEB" divider */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-secondary)' }}>
-                              <span style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                              <span style={{ fontSize: '0.7rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{t('orFromWeb')}</span>
-                              <span style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                              <button type="button" onClick={() => openWebTool('websearch')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
-                                <Search size={16} aria-hidden="true" /> {t('websearch')}
-                              </button>
-                              <button type="button" onClick={() => openWebTool('crawl')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
-                                <Globe size={16} aria-hidden="true" /> {t('emptyWebCrawl')}
-                              </button>
-                              <button type="button" onClick={() => openWebTool('research')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
-                                <FlaskConical size={16} aria-hidden="true" /> {t('research')}
-                              </button>
-                            </div>
-
-                            {/* Studio value-framing chips */}
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>{t('studioAfterwards')}</div>
-                              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center', opacity: 0.65 }}>
-                                {[t('flashcards'), t('slides'), t('podcast'), t('chart')].map(label => (
-                                  <span key={label} className="source-tag" style={{ marginTop: 0 }}>{label}</span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <h1>{currentKb?.name}</h1>
-                            <p>{t('kbHeaderDefault')}</p>
-                            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem', flexWrap: 'wrap', justifyContent: 'center', opacity: hasFiles ? 1 : 0.4, flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : undefined, padding: isMobile ? '0 1rem' : undefined }}>
-                              {(currentKb?.isGlobal && currentKb?.examplePrompts
-                                ? currentKb.examplePrompts.split('\n').filter(p => p.trim())
-                                : siteConfigs.example_prompts
-                                  ? siteConfigs.example_prompts.split('\n').filter(p => p.trim())
-                                  : [
-                                    "Fasse die wichtigsten Punkte meiner Dokumente zusammen",
-                                    "Was sind die wichtigsten Erkenntnisse in [Name des Dokuments]?"
-                                  ]
-                              ).map((prompt, idx) => (
-                                <button
-                                  type="button"
-                                  key={idx}
-                                  className="source-card"
-                                  disabled={!hasFiles}
-                                  style={{ width: isMobile ? '100%' : '220px', cursor: !hasFiles ? 'not-allowed' : 'pointer', textAlign: 'left', minHeight: isMobile ? '48px' : '80px', display: 'flex', alignItems: 'center' }}
-                                  onClick={() => {
-                                    if (!hasFiles) return;
-                                    chat.setUserMessageInput(prompt.trim());
-                                    chat.textareaRef.current?.focus();
-                                  }}
-                                >
-                                  &quot;{prompt.trim()}&quot;
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </motion.div>
-                    </div>
-                  ) : (
-                    <Virtuoso
-                      className="messages-container"
-                      style={{ height: '100%' }}
-                      data={chat.messages}
-                      initialTopMostItemIndex={Math.max(0, chat.messages.length - 1)}
-                      // "auto", not "smooth". A streaming answer resizes the last
-                      // item every token, and each resize restarts the smooth
-                      // scroll animation; virtuoso also suppresses its size-change
-                      // compensation for as long as a scroll is in progress and
-                      // then applies the accumulated delta in one step, so the
-                      // answer visibly lurches while it is being written.
-                      followOutput="auto"
-                      // Key by message id, not list position. Ids are remapped
-                      // temp→real mid-stream and branch switches rebuild the
-                      // array, so index keys let virtuoso's cached item sizes
-                      // attach to the wrong message.
-                      computeItemKey={(index: number, msg: Message) => msg?.id ?? index}
-                      // Keep a screen of messages mounted and measured on either
-                      // side. Halves the mid-scroll height revisions that jerk
-                      // the scroll position (measured 13 jumps → 6).
-                      increaseViewportBy={{ top: 2000, bottom: 2000 }}
-                      // Report size changes synchronously instead of a frame
-                      // late, so measurements don't lag the DOM while answers
-                      // stream and resize.
-                      skipAnimationFrameInResizeObserver
-                      scrollerRef={(ref: HTMLElement | Window | null) => {
-                        if (ref instanceof HTMLElement) {
-                          attachHookRef(chat.messagesContainerRef, ref as HTMLDivElement);
-                        } else if (ref === null) {
-                          attachHookRef(chat.messagesContainerRef, null);
-                        }
-                      }}
-                      onScroll={chat.handleScroll}
-                      components={{
-                        Footer: () => {
-                          const lastMsg = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
-                          const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
-                          const showLoader = chat.loading && !(lastMsg?.reasoning && !lastMsg?.content);
-                          return (
-                            <>
-                              {showLoader && (
-                                <div className="message-bubble message-ai message-ai--streaming" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span className="loading-dots" aria-label={isDeepSearching ? t('searchingDeeper') : t('thinking')}>
-                                    <span className="loading-dots__dot" />
-                                    <span className="loading-dots__dot" />
-                                    <span className="loading-dots__dot" />
-                                  </span>
-                                  {isDeepSearching ? t('searchingDeeper') : t('thinking')}
-                                </div>
-                              )}
-                            </>
-                          );
-                        }
-                      }}
-                      itemContent={(index: number, msg: Message) => {
-                        const bi = msg.id ? getBranchInfo(chat.messageTree, msg.id) : null;
-                        const questionText = msg.role === 'ai' && msg.parentMessageId
-                          ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
-                          : '';
-                        return (
-                          <MessageBubble
-                            key={msg.id}
-                            message={msg}
-                            isStreaming={chat.loading && index === chat.messages.length - 1}
-                            onPdfOpen={handlePdfSourceOpen}
-                            onFollowUpClick={chat.handleFollowUpClick}
-                            showFollowUps={!chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
-                            branchInfo={bi}
-                            onSwitchBranch={chat.handleSwitchBranch}
-                            animationDelay={initialRenderRef.current ? Math.min(index * 0.05, 0.3) : 0}
-                            onEdit={msg.role === 'user' && !msg.isEnhanced ? (chat.editingMessageId === msg.id ? chat.handleEditSubmit : chat.handleStartEdit) : undefined}
-                            onFork={msg.role === 'ai' ? chat.handleForkFromMessage : undefined}
-                            onCompare={bi ? chat.handleStartComparison : undefined}
-                            onRegenerate={msg.role === 'ai' ? chat.handleRegenerate : undefined}
-                            onFeedback={msg.role === 'ai' ? chat.handleFeedback : undefined}
-                            isEditing={chat.editingMessageId === msg.id}
-                            onEditCancel={handleEditCancel}
-                            onPreviewSource={handlePreviewSource}
-                            kbId={currentKb?.id}
-                            questionText={questionText}
-                            resolveAttribution={resolveAttribution}
-                            reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                            sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                            confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                            onToggleSection={messageSections.toggle}
-                          />
-                        );
-                      }}
-                    />
-                  )}
-
+                {/* DS ChatStage: an empty chat centres the empty state and the composer
+                    together; with messages the composer docks and the disclaimer stays
+                    pinned to the bottom either way. */}
+                <ChatStage
+                  className="chat-column"
+                  empty={chat.messages.length === 0}
+                  footerId="chat-disclaimer"
+                  footer={siteConfigs.chat_footer || t('chatFooter')}
+                  composer={(
                   <div className="input-container">
                     {chat.forkPointId && (
                       <div style={{
@@ -691,11 +510,216 @@ const ChatViewComp = () => {
                         </PromptInputSubmit>
                       </InputGroupAddon>
                     </PromptInput>
-                    <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {siteConfigs.chat_footer || t('chatFooter')}
-                    </div>
+                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && (
+                      <PromptSuggestions
+                        title={t('promptSuggestions')}
+                        // Fades in after a pause, so an empty chat opens on the composer first.
+                        revealDelay={2500}
+                        previousLabel={t('previousPage')}
+                        nextLabel={t('nextPage')}
+                        dismissLabel={t('close')}
+                        // Closing keeps the component's space: the composer must not move.
+                        dismissible
+                        suggestions={examplePrompts}
+                        disabled={!hasFiles}
+                        onSelect={(prompt) => {
+                          chat.setUserMessageInput(prompt);
+                          chat.textareaRef.current?.focus();
+                        }}
+                        className="mt-4"
+                      />
+                    )}
                   </div>
-                </div>
+                  )}
+                >
+                  {chat.messages.length === 0 ? (
+                    <div
+                      className="messages-container"
+                      style={{ position: 'relative' }}
+                      ref={(el) => { attachHookRef(chat.messagesContainerRef, el); }}
+                      onScroll={chat.handleScroll}
+                    >
+                      <motion.div
+                        className="empty-state"
+                        {...getMotionProps(reducedMotion)}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, ease: 'easeOut' }}
+                      >
+                        {currentKb?.isGlobal && currentKb?.headerText ? (
+                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
+                            {currentKb.headerText}
+                          </div>
+                        ) : siteConfigs.kb_header ? (
+                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
+                            {siteConfigs.kb_header}
+                          </div>
+                        ) : null}
+                        {noSources ? (
+                          <div style={{ width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: isMobile ? '0 0.5rem' : undefined }}>
+                            <div>
+                              <h1 style={{ fontSize: isMobile ? '1.4rem' : '1.75rem', marginBottom: '0.5rem' }}>{t('emptyAddFirstSourceTitle')}</h1>
+                              <p style={{ margin: 0 }}>{t('emptyAddFirstSourceSubtitle')}</p>
+                            </div>
+
+                            {/* Drag-and-drop drop zone — wired to the existing file-upload handlers */}
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => fileInputRef.current?.click()}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+                              onDragOver={handleDragOver}
+                              onDragEnter={handleDragEnter}
+                              onDragLeave={handleDragLeave}
+                              onDrop={handleDrop}
+                              aria-label={t('uploadFile')}
+                              style={{
+                                border: `2px dashed ${isDragging ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                                borderRadius: '12px',
+                                padding: '2rem 1.5rem',
+                                background: isDragging ? 'var(--tag-bg)' : 'var(--bg-primary)',
+                                cursor: 'pointer',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem',
+                                transition: 'border-color 0.2s, background 0.2s',
+                              }}
+                            >
+                              <UploadCloud size={32} aria-hidden="true" style={{ color: 'var(--accent-primary)' }} />
+                              <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                {t('dropzoneTitle')} <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{t('dropzoneBrowse')}</span>
+                              </div>
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('dropzoneTypes')}</div>
+                            </div>
+
+                            {/* "ODER AUS DEM WEB" divider */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-secondary)' }}>
+                              <span style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
+                              <span style={{ fontSize: '0.7rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{t('orFromWeb')}</span>
+                              <span style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                              <button type="button" onClick={() => openWebTool('websearch')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
+                                <Search size={16} aria-hidden="true" /> {t('websearch')}
+                              </button>
+                              <button type="button" onClick={() => openWebTool('crawl')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
+                                <Globe size={16} aria-hidden="true" /> {t('emptyWebCrawl')}
+                              </button>
+                              <button type="button" onClick={() => openWebTool('research')} style={webToolBtnStyle} onMouseEnter={webToolHoverIn} onMouseLeave={webToolHoverOut}>
+                                <FlaskConical size={16} aria-hidden="true" /> {t('research')}
+                              </button>
+                            </div>
+
+                            {/* Studio value-framing chips */}
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>{t('studioAfterwards')}</div>
+                              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center', opacity: 0.65 }}>
+                                {[t('flashcards'), t('slides'), t('podcast'), t('chart')].map(label => (
+                                  <span key={label} className="source-tag" style={{ marginTop: 0 }}>{label}</span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <h1>{currentKb?.name}</h1>
+                            <p>{t('kbHeaderDefault')}</p>
+                          </>
+                        )}
+                      </motion.div>
+                    </div>
+                  ) : (
+                    <Virtuoso
+                      className="messages-container"
+                      style={{ height: '100%' }}
+                      data={chat.messages}
+                      initialTopMostItemIndex={Math.max(0, chat.messages.length - 1)}
+                      // "auto", not "smooth". A streaming answer resizes the last
+                      // item every token, and each resize restarts the smooth
+                      // scroll animation; virtuoso also suppresses its size-change
+                      // compensation for as long as a scroll is in progress and
+                      // then applies the accumulated delta in one step, so the
+                      // answer visibly lurches while it is being written.
+                      followOutput="auto"
+                      // Key by message id, not list position. Ids are remapped
+                      // temp→real mid-stream and branch switches rebuild the
+                      // array, so index keys let virtuoso's cached item sizes
+                      // attach to the wrong message.
+                      computeItemKey={(index: number, msg: Message) => msg?.id ?? index}
+                      // Keep a screen of messages mounted and measured on either
+                      // side. Halves the mid-scroll height revisions that jerk
+                      // the scroll position (measured 13 jumps → 6).
+                      increaseViewportBy={{ top: 2000, bottom: 2000 }}
+                      // Report size changes synchronously instead of a frame
+                      // late, so measurements don't lag the DOM while answers
+                      // stream and resize.
+                      skipAnimationFrameInResizeObserver
+                      scrollerRef={(ref: HTMLElement | Window | null) => {
+                        if (ref instanceof HTMLElement) {
+                          attachHookRef(chat.messagesContainerRef, ref as HTMLDivElement);
+                        } else if (ref === null) {
+                          attachHookRef(chat.messagesContainerRef, null);
+                        }
+                      }}
+                      onScroll={chat.handleScroll}
+                      components={{
+                        Footer: () => {
+                          const lastMsg = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
+                          const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
+                          const showLoader = chat.loading && !(lastMsg?.reasoning && !lastMsg?.content);
+                          return (
+                            <>
+                              {showLoader && (
+                                <div className="message-bubble message-ai message-ai--streaming" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span className="loading-dots" aria-label={isDeepSearching ? t('searchingDeeper') : t('thinking')}>
+                                    <span className="loading-dots__dot" />
+                                    <span className="loading-dots__dot" />
+                                    <span className="loading-dots__dot" />
+                                  </span>
+                                  {isDeepSearching ? t('searchingDeeper') : t('thinking')}
+                                </div>
+                              )}
+                            </>
+                          );
+                        }
+                      }}
+                      itemContent={(index: number, msg: Message) => {
+                        const bi = msg.id ? getBranchInfo(chat.messageTree, msg.id) : null;
+                        const questionText = msg.role === 'ai' && msg.parentMessageId
+                          ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
+                          : '';
+                        return (
+                          <MessageBubble
+                            key={msg.id}
+                            message={msg}
+                            isStreaming={chat.loading && index === chat.messages.length - 1}
+                            onPdfOpen={handlePdfSourceOpen}
+                            onFollowUpClick={chat.handleFollowUpClick}
+                            showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
+                            branchInfo={bi}
+                            onSwitchBranch={chat.handleSwitchBranch}
+                            animationDelay={initialRenderRef.current ? Math.min(index * 0.05, 0.3) : 0}
+                            onEdit={msg.role === 'user' && !msg.isEnhanced ? (chat.editingMessageId === msg.id ? chat.handleEditSubmit : chat.handleStartEdit) : undefined}
+                            onFork={msg.role === 'ai' ? chat.handleForkFromMessage : undefined}
+                            onCompare={bi ? chat.handleStartComparison : undefined}
+                            onRegenerate={msg.role === 'ai' ? chat.handleRegenerate : undefined}
+                            onFeedback={msg.role === 'ai' ? chat.handleFeedback : undefined}
+                            isEditing={chat.editingMessageId === msg.id}
+                            onEditCancel={handleEditCancel}
+                            onPreviewSource={handlePreviewSource}
+                            kbId={currentKb?.id}
+                            questionText={questionText}
+                            resolveAttribution={resolveAttribution}
+                            reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
+                            sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
+                            confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
+                            onToggleSection={messageSections.toggle}
+                          />
+                        );
+                      }}
+                    />
+                  )}
+
+                </ChatStage>
                 {!isMobile && (
                   <BranchTreeNav
                     messageTree={chat.messageTree}

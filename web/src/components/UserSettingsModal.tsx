@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-    SettingsDialog, SettingsRow, useAccent, useContrast, useUiShape,
+    SettingsDialog, SettingsRow, Switch, useAccent, useContrast, useUiShape,
     type AccentColor, type ContrastChoice, type UiShape,
 } from '@ki4jlu/design-system';
 import type { Theme } from '@ki4jlu/design-system';
@@ -13,6 +13,7 @@ import ApiKeyManager from './ApiKeys/ApiKeyManager';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
+import { useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 
 export type SettingsTab = 'general' | 'profile';
 
@@ -51,6 +52,8 @@ function Choice<T extends string>({ id, value, onChange, options }: {
 export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: UserSettingsModalProps) {
     const { t, theme, setTheme, language, setLanguage } = useTheme();
     const { shape, setShape } = useUiShape();
+    const [suggestionsEnabled, setSuggestionsEnabled] = usePromptSuggestionsEnabled();
+    const [followUpsEnabled, setFollowUpsEnabled] = useFollowUpsEnabled();
     const { contrast, setContrast } = useContrast();
     const { accent, setAccent } = useAccent();
     const { user, siteConfigs } = useAuth();
@@ -73,7 +76,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'general',
                     label: t('settingsGeneral'),
                     icon: <Settings aria-hidden="true" />,
-                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('uiShape'), t('languageLabel')],
+                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('uiShape'), t('promptSuggestions'), t('followUpsLabel'), t('languageLabel')],
                     content: (
                         <>
                             <SettingsRow
@@ -130,6 +133,18 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                         options={[['rounded', t('uiShapeRounded')], ['pill', t('uiShapePill')]]}
                                     />
                                 )}
+                            />
+                            <SettingsRow
+                                label={t('promptSuggestions')}
+                                labelId="settings-prompt-suggestions"
+                                description={t('promptSuggestionsHint')}
+                                control={<Switch id="settings-prompt-suggestions" checked={suggestionsEnabled} onCheckedChange={setSuggestionsEnabled} />}
+                            />
+                            <SettingsRow
+                                label={t('followUpsLabel')}
+                                labelId="settings-follow-ups"
+                                description={t('followUpsHint')}
+                                control={<Switch id="settings-follow-ups" checked={followUpsEnabled} onCheckedChange={setFollowUpsEnabled} />}
                             />
                             <SettingsRow
                                 label={t('languageLabel')}
