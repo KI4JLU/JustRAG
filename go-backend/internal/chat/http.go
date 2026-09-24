@@ -63,6 +63,8 @@ type Handler struct {
 	// table queries. Optional — when nil, RunCorpusTableChat falls back
 	// to an error path (guarded by the caller before dispatch).
 	corpusChunks CorpusChunkReader
+	// fileExcerpts feeds the starter questions (WithFileExcerpts). Optional.
+	fileExcerpts FileExcerptReader
 	// attachmentStore persists parsed in-chat comparison attachments
 	// (uploaded documents compared against a KB, never ingested).
 	// Optional — when nil, UploadAttachment guards the call with an

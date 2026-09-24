@@ -94,6 +94,44 @@ func FollowUpQuestionsUser(question, answer string) string {
 	return fmt.Sprintf("<user_question>\n%s\n</user_question>\n\nAI answer (excerpt): %s\n\nSuggest 3 follow-up questions:", question, answer)
 }
 
+// StarterQuestionsSystem returns the system prompt for the starter questions
+// of an empty chat — the follow-up generator's sibling, fed with the knowledge
+// base's documents instead of a previous answer.
+func StarterQuestionsSystem(lang string, n int) string {
+	if lang == "de" {
+		return fmt.Sprintf(`Schlage anhand der Dokumente einer Wissensdatenbank %d kurze Einstiegsfragen vor, mit denen ein Benutzer ein Gespräch über diese Dokumente beginnen könnte.
+Anforderungen:
+1. Jede Frage muss mit den gezeigten Dokumenten beantwortbar sein.
+2. Mische Überblicksfragen, Detailfragen zu konkreten Inhalten und Fragen nach Zusammenhängen.
+3. Höchstens 90 Zeichen pro Frage, auf Deutsch, ohne Dateinamen in Anführungszeichen.
+Gib NUR ein JSON-Array mit %d Strings zurück. Keine Erklärungen.`, n, n)
+	}
+	return fmt.Sprintf(`Based on the documents of a knowledge base, suggest %d brief starter questions a user could ask to begin a conversation about them.
+Requirements:
+1. Every question must be answerable from the documents shown.
+2. Mix overview questions, questions about concrete details, and questions about connections.
+3. At most 90 characters per question, in English, without quoted file names.
+Return ONLY a JSON array of %d strings. No explanations.`, n, n)
+}
+
+// StarterQuestionsUser returns the user prompt for the starter questions: the
+// knowledge base's name and one excerpt per document.
+func StarterQuestionsUser(kbName string, docs []StarterDoc, n int) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<knowledge_base>%s</knowledge_base>\n\n<documents>\n", kbName)
+	for _, d := range docs {
+		fmt.Fprintf(&sb, "<document name=%q>\n%s\n</document>\n", d.Name, d.Excerpt)
+	}
+	fmt.Fprintf(&sb, "</documents>\n\nSuggest %d starter questions:", n)
+	return sb.String()
+}
+
+// StarterDoc is one document shown to the starter-question generator.
+type StarterDoc struct {
+	Name    string
+	Excerpt string
+}
+
 // QueryClassifierPrompt returns the system prompt for query complexity classification.
 func QueryClassifierPrompt(lang string) string {
 	if lang == "de" {

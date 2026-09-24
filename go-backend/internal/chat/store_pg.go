@@ -668,3 +668,44 @@ func (s *PGStore) fetchAllSiteConfigs(ctx context.Context) (map[string]*string, 
 	}
 	return out, rows.Err()
 }
+
+// StarterContext returns what the starter questions of an empty chat are
+// generated from: the KB's name and its newest ingested documents (id, name).
+// Excerpts come from the vector DB (FileExcerptReader). The fingerprint
+// (document count + newest upload) changes whenever sources are added or
+// removed, so cached questions follow the KB's content.
+func (s *PGStore) StarterContext(ctx context.Context, kbID string, limit int) (string, []StarterFile, string, error) {
+	var name string
+	if err := s.pool.QueryRow(ctx, `SELECT name FROM knowledge_bases WHERE id = $1`, kbID).Scan(&name); err != nil {
+		return "", nil, "", err
+	}
+	var count int
+	var newest *time.Time
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*), max(created_at) FROM files WHERE kb_id = $1 AND status IN ('completed', 'partial')`,
+		kbID).Scan(&count, &newest); err != nil {
+		return "", nil, "", err
+	}
+	fingerprint := fmt.Sprintf("%d", count)
+	if newest != nil {
+		fingerprint += "@" + newest.UTC().Format(time.RFC3339Nano)
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, name FROM files
+		WHERE kb_id = $1 AND status IN ('completed', 'partial')
+		ORDER BY created_at DESC
+		LIMIT $2`, kbID, limit)
+	if err != nil {
+		return "", nil, "", err
+	}
+	defer rows.Close()
+	var files []StarterFile
+	for rows.Next() {
+		var f StarterFile
+		if err := rows.Scan(&f.ID, &f.Name); err != nil {
+			return "", nil, "", err
+		}
+		files = append(files, f)
+	}
+	return name, files, fingerprint, rows.Err()
+}

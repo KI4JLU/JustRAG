@@ -1052,6 +1052,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		// via GetChunksByFileID — used by RunCorpusTableChat to assemble
 		// full per-file text for comparison queries.
 		chat.WithCorpusChunks(rc.chunkService),
+		chat.WithFileExcerpts(rc.chunkService),
 		// In-chat document comparison: Redis-backed store for parsed
 		// uploaded attachments (compared against a KB, never ingested).
 		// Reuses the shared Redis client. TTL is read once at startup from
@@ -1104,6 +1105,8 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 
 	// Chat — listing
 	rc.mux.Handle("GET /api/kb/{id}/chats", rc.kbViewChain(chatHandler.ListChats))
+	// Starter questions for an empty chat, generated from the KB's documents.
+	rc.mux.Handle("GET /api/kb/{id}/starter-questions", rc.kbViewChain(chatHandler.StarterQuestions))
 
 	// Chat — messages and deletion (auth only, ownership checked in handler)
 	rc.mux.Handle("GET /api/chat/rag-system-prompt", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RAGSystemPrompt)))

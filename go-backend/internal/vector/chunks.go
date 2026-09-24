@@ -699,3 +699,45 @@ func (s *ChunkService) DeleteChunksByKbID(ctx context.Context, kbID string, dime
 	}
 	return nil
 }
+
+// FileExcerpts returns one excerpt (at most maxLen characters) per file of
+// kbID, across every chunk table: the file's RAPTOR summary where it has
+// one, else its first chunk. Files without chunks are absent from the map.
+// Used for the starter questions of an empty chat.
+func (s *ChunkService) FileExcerpts(ctx context.Context, kbID string, fileIDs []string, maxLen int) (map[string]string, error) {
+	out := make(map[string]string, len(fileIDs))
+	if len(fileIDs) == 0 {
+		return out, nil
+	}
+	dims, err := s.ListChunkTableDimensions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range dims {
+		table := GetVectorTableName(d)
+		rows, err := s.vectorDB.Query(ctx, fmt.Sprintf(`
+			SELECT DISTINCT ON (file_id) file_id::text, left(content, $3)
+			FROM "%s"
+			WHERE kb_id = $1::uuid AND file_id = ANY($2::uuid[])
+			ORDER BY file_id, (node_kind = 'summary') DESC, created_at`, table),
+			kbID, fileIDs, maxLen)
+		if err != nil {
+			return nil, fmt.Errorf("file excerpts %s: %w", table, err)
+		}
+		for rows.Next() {
+			var id, content string
+			if err := rows.Scan(&id, &content); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if _, seen := out[id]; !seen {
+				out[id] = content
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}

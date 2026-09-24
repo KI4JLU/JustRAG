@@ -179,6 +179,22 @@ func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, us
 	return questions, nil
 }
 
+// GenerateStarterQuestions suggests up to n questions to open an empty chat
+// with, from the KB's name and one excerpt per document. Same model call and
+// parsing as GenerateFollowUpQuestions.
+func GenerateStarterQuestions(ctx context.Context, resolver *ConfigResolver, kbName string, docs []prompts.StarterDoc, kbID, lang string, n int) ([]string, error) {
+	userPrompt := prompts.StarterQuestionsUser(kbName, docs, n)
+	result, err := GenerateCompletion(ctx, resolver, userPrompt, prompts.StarterQuestionsSystem(lang, n), kbID, false)
+	if err != nil {
+		return nil, err
+	}
+	questions := parseJSONStringArray(result.Content)
+	if len(questions) > n {
+		questions = questions[:n]
+	}
+	return questions, nil
+}
+
 // ClassifyQueryComplexity returns true when the AI classifies the query as
 // complex. On JSON parse failure false is returned (default to simple).
 func ClassifyQueryComplexity(ctx context.Context, resolver *ConfigResolver, query, kbID, lang string) (bool, error) {
