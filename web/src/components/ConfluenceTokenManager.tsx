@@ -186,7 +186,6 @@ export default function ConfluenceTokenManager() {
                             </div>
                             <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
                                 {t('confluenceProfileToken')}: <code style={{
-                                    fontFamily: 'monospace',
                                     background: 'var(--bg-primary)',
                                     padding: '0.1rem 0.3rem',
                                     borderRadius: '3px',

@@ -64,8 +64,8 @@
       }
     })();
   </script>
-  <!-- Design-system type families: Inter (body/UI), Manrope (headings),
-       JetBrains Mono (code/labels). Self-hosted: the @font-face sheet is
+  <!-- Design-system type families: Inter (body/UI/labels), Manrope
+       (headings); code uses the system monospace (--font-mono). Self-hosted: the @font-face sheet is
        imported from src/index.css and Vite fingerprints the woff2 files into
        /assets, which is served immutable. They are deliberately NOT loaded
        from a third-party CDN — the default CSP has no font-src and only

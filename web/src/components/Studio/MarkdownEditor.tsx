@@ -331,7 +331,6 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
                                 outline: 'none',
                                 fontSize: '1rem',
                                 lineHeight: '1.6',
-                                fontFamily: "'JetBrains Mono', monospace",
                                 background: 'var(--bg-primary)',
                                 color: 'var(--text-primary)',
                             }}

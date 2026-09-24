@@ -433,7 +433,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                                     </td>
                                     <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right' }}>{gs.question_count}</td>
                                     <td style={{ padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{new Date(gs.created_at).toLocaleString()}</td>
-                                    <td style={{ padding: '0.3rem 0.5rem', fontFamily: 'monospace', fontSize: '0.75rem', opacity: 0.7 }}>{gs.content_hash.slice(0, 12)}</td>
+                                    <td style={{ padding: '0.3rem 0.5rem', fontSize: '0.75rem', opacity: 0.7 }}>{gs.content_hash.slice(0, 12)}</td>
                                     {/* The <table> itself is deliberately untouched — the DS
                                       * TableLayout migration is Stage 5 (card KI-694). Only the
                                       * two raw <button>s inside it are swapped here, because they
@@ -463,12 +463,10 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                       * the submit path POSTs component state rather than FormData
                       * (checked across web/ and go-backend/) — so they are dropped.
                       *
-                      * The kb_id fields also lose their `fontFamily: 'monospace'`, here
-                      * and in the upload row and the kick-off form. That is deliberate,
-                      * not an oversight: `design-system/layout-only-classname` forbids a
-                      * font family on a DS control, and the DS has no monospace field
-                      * variant. Raised for the design system (a `variant="code"` field
-                      * is the obvious shape); do NOT re-add `font-mono` here. */}
+                      * The kb_id fields use the body font, like every field: monospace
+                      * is for code-box content only (developer, 24.09.2026), and
+                      * `design-system/layout-only-classname` forbids a font family on a
+                      * DS control anyway. Do NOT re-add `font-mono` here. */}
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {!kbId && (
                         <Input

@@ -99,7 +99,8 @@ export function printAnswerPdf(node: HTMLElement | null, title: string): void {
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; line-height: 1.6; padding: 24px; color: #111; }
   h1, h2, h3 { line-height: 1.3; }
-  pre, code { font-family: ui-monospace, monospace; white-space: pre-wrap; }
+  pre { font-family: ui-monospace, monospace; white-space: pre-wrap; }
+  pre code { font-family: inherit; }
   table { border-collapse: collapse; }
   td, th { border: 1px solid #ccc; padding: 4px 8px; }
 </style></head><body>${DOMPurify.sanitize(node.innerHTML)}</body></html>`);

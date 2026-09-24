@@ -90,7 +90,7 @@ function ToolList({ tools }: { tools: ToolSummary[] }) {
             {tools.map(t => (
                 <li key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', fontSize: '0.85rem' }}>
                     <Wrench size={12} aria-hidden="true" />
-                    <code style={{ fontFamily: 'var(--font-mono, ui-monospace)', fontWeight: 600 }}>{t.name}</code>
+                    <code style={{ fontWeight: 600 }}>{t.name}</code>
                     {t.description && (
                         <span style={{ opacity: 0.75 }}>— {t.description}</span>
                     )}
@@ -232,8 +232,7 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
                         width: '100%', padding: '0.75rem',
                         background: 'var(--bg-primary)', color: 'var(--text-primary)',
                         border: `1px solid ${editorErr ? 'var(--error-color, #c33)' : 'var(--border-color)'}`,
-                        borderRadius: '6px',
-                        fontFamily: 'var(--font-mono, ui-monospace)', fontSize: '0.85rem',
+                        borderRadius: '6px', fontSize: '0.85rem',
                     }}
                     placeholder={`[\n  {"name": "fetch", "url": "https://my-mcp-server.example.com/mcp", "headers": {"Authorization": "Bearer …"}}\n]`}
                 />

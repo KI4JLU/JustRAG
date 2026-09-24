@@ -56,7 +56,7 @@ function DistributionBars({ title, dist }: { title: string; dist: DecisionDistri
                         const pct = total > 0 ? (count / total) * 100 : 0;
                         return (
                             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-                                <span style={{ minWidth: '14rem', fontFamily: 'var(--font-mono, ui-monospace)' }}>{label}</span>
+                                <span style={{ minWidth: '14rem' }}>{label}</span>
                                 <div style={{
                                     flex: 1,
                                     background: 'var(--bg-secondary, rgba(0,0,0,0.05))',
@@ -105,7 +105,7 @@ function ToolMixCard({ mix }: { mix: ToolMixEntry[] }) {
                         const errPct = (m.error_rate * 100).toFixed(0);
                         return (
                             <div key={m.tool} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-                                <span style={{ minWidth: '11rem', fontFamily: 'var(--font-mono, ui-monospace)' }}>{m.tool}</span>
+                                <span style={{ minWidth: '11rem' }}>{m.tool}</span>
                                 <div style={{
                                     flex: 1,
                                     background: 'var(--bg-secondary, rgba(0,0,0,0.05))',

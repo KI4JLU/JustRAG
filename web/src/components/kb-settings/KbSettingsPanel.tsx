@@ -353,8 +353,7 @@ function KbModelNameRow({ kbId }: { kbId: string }) {
       <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>API model name</span>
       <code
         data-testid="kb-model-value"
-        style={{
-          fontFamily: 'var(--font-mono, monospace)', fontSize: '0.8rem', color: 'var(--text-primary)',
+        style={{ fontSize: '0.8rem', color: 'var(--text-primary)',
           background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
           borderRadius: 6, padding: '0.25rem 0.5rem', userSelect: 'all', wordBreak: 'break-all',
         }}
@@ -427,7 +426,7 @@ function FieldInput({ field, value, onChange }: { field: KbConfigField; value: s
         rows={6}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        style={{ ...fieldInputStyle, minWidth: 320, fontFamily: 'var(--font-mono, monospace)', resize: 'vertical' }}
+        style={{ ...fieldInputStyle, minWidth: 320, resize: 'vertical' }}
       />
     );
   }

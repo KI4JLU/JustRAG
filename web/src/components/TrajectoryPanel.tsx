@@ -119,7 +119,6 @@ function renderRow(
                         className="trajectory-decision"
                         style={{
                             display: 'inline-block',
-                            fontFamily: 'var(--font-mono, ui-monospace)',
                             fontSize: '0.78rem',
                             background: 'var(--bg-tertiary, rgba(0,0,0,0.06))',
                             padding: '0.1rem 0.4rem',

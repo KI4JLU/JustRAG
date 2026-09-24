@@ -43,7 +43,7 @@
 /* Matches wf-inspector__value / --default in NodeInspector.css: values read
    in a mono face; the "Standardwert" affordance is prose, not a value, so it
    drops the mono face and reads as muted italic instead of a blank field. */
-.wf-field__value { font-family: var(--font-mono, monospace); word-break: break-all; }
+.wf-field__value { word-break: break-all; }
 .wf-field__value--default { font-family: inherit; font-style: italic; color: var(--text-secondary); }
 
 .wf-field__origin {
