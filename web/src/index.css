@@ -67,7 +67,7 @@
  * A wrong @source path throws NO error -- it silently scans nothing, so the
  * symptom would be unstyled components with a clean build. */
 @source "../../node_modules/@ki4jlu/design-system";
-/* Self-hosted Inter / Manrope / JetBrains Mono. Previously <link>ed from
+/* Self-hosted Inter / Manrope. Previously <link>ed from
  * fonts.googleapis.com in index.html — see the header in fonts.css. */
 @import "./assets/fonts/fonts.css";
 
@@ -381,22 +381,33 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E");
 }
 
-/* NOTE: no font-size here, deliberately left to the user agent — which is why
- * Preflight's `h1..h6 { font-size: inherit }` had to be countered in the
- * `@layer base` block at the top of this file rather than here. Adding a size
- * to this UNLAYERED rule would override the `text-*` utility on every
- * design-system heading, which is the opposite of what stage 1 needs. */
-h1,
-h2,
-h3 {
-  font-family: var(--font-sans);
-  font-weight: 600;
-  color: var(--text-heading);
+/* Heading defaults, in the BASE layer: an element default must lose to a
+ * component's utilities. Unlayered, this rule beat every Tailwind class — the
+ * design system's `SidebarPanel` heading (`text-primary`) came out in the
+ * heading colour on both side columns. No font-size here: the user agent's is
+ * countered in the `@layer base` block at the top of this file. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    color: var(--text-heading);
+  }
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
+/* The keyboard focus indicator for elements that bring none of their own —
+ * in the BASE layer, so a component's own focus treatment wins over it.
+ * Unlayered it beat every design-system utility: the DS menu row marks focus
+ * with its highlight background and sets `outline-none`, and this rule drew a
+ * second, blue double ring around it anyway (user menu, dropdowns, selects —
+ * "sometimes", because browsers match :focus-visible after keyboard input or
+ * when Radix moves focus into an opened menu). */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
 }
 
 /* DELETED 15.09.2026, card KI-780 — and nothing shaped like them may come
@@ -685,7 +696,8 @@ button.source-card {
   background: var(--border-color);
   padding: 0.2rem 0.4rem;
   border-radius: var(--shape-sm);
-  font-family: 'JetBrains Mono', SFMono-Regular, Consolas, monospace;
+  /* Inline code keeps the body font: monospace is for code BOXES only
+     (`.markdown-content pre code` below). */
   font-size: 0.85em;
   color: var(--text-primary);
 }
@@ -715,7 +727,7 @@ button.source-card {
   background: transparent;
   padding: 0;
   color: inherit;
-  font-family: 'JetBrains Mono', SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
 .markdown-content h1,
@@ -2622,11 +2634,4 @@ button.source-card {
 .btn--icon.btn--destructive:hover:not(:disabled) {
   background: var(--error-bg);
   color: var(--error-text);
-}
-/* The composer is a design-system InputGroup: it draws its own focus state
- * (primary border + focus ring on the frame). The global unlayered
- * `:focus-visible` outline above would add a second, inner box around the
- * textarea and every tool button, so it is switched off inside the frame. */
-#chat-composer :focus-visible {
-  outline: none;
 }
