@@ -44,54 +44,6 @@
   margin-top: 0;
 }
 
-.history-panel__group-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-/* One flat row per chat: title, actions menu on the right edge. */
-.history-panel__item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-  margin-bottom: 0;
-  cursor: pointer;
-}
-
-.history-panel__item .source-title {
-  flex: 1;
-  min-width: 0;
-  margin-bottom: 0;
-}
-
-/* One line, ellipsis on overflow: the icon keeps its width, the text span
-   shrinks and truncates. */
-.history-panel__item-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.history-panel__item-title-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.history-panel__item--active {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary-translucent, rgba(99, 102, 241, 0.08));
-}
-
-.history-panel__new-chat-btn {
-  width: 32px;
-  height: 32px;
-}
-
 .history-panel__generating-card {
   opacity: 0.7;
 }
@@ -126,57 +78,9 @@
   font-size: 0.85rem;
 }
 
-@media (max-width: 1023px) {
-  .history-panel__new-chat-btn {
-    min-width: 44px;
-    min-height: 44px;
-  }
-}
 
-/* Die eingeklappte 60px-Schiene: ein Symbol je Verlaufseintrag.
-   `SidePanel` zentriert und scrollt die Schiene bereits (`items-center`,
-   `overflow-y-auto`), also setzt diese Liste nur ihre eigenen Abstände und
-   verzichtet auf die Aufzählungszeichen. */
-.history-panel__rail {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* Nur der aktive Zustand ist unsere Regel — Größe, Rahmen und Hover kommen
-   vom `Button` des Design-Systems (`variant="ghost" size="icon"`). */
-.history-panel__rail-item--active {
-  border: 1px solid var(--accent-primary);
-  color: var(--accent-primary);
-}
-
-/* No hover underline (developer, 23.09.2026): the card is the click target.
-   Two classes to outrank the unlayered `.text-button:hover` in index.css. */
-.history-panel .history-panel__item-title:hover {
-  text-decoration: none;
-}
-
-/* Hover is a tint, not a lift (developer, 23.09.2026) — the same
-   `surface-container-high` the composer's menu items use (`--bg-hover`).
-   Overrides the global `.source-card:hover` transform/shadow/border. The
-   active row keeps its own tint. */
-@media (hover: hover) {
-  .history-panel .history-panel__item:hover {
-    transform: none;
-    box-shadow: var(--shadow-sm);
-    border-color: var(--border-color);
-  }
-
-  .history-panel .history-panel__item:not(.history-panel__item--active):hover {
-    background: var(--bg-hover);
-  }
-
-  .history-panel .history-panel__item--active:hover {
-    border-color: var(--accent-primary);
-  }
+/* Shape of the DS buttons in this panel follows the sidebar shape. Unlayered,
+   so it outranks the buttons' own `rounded-*` utilities. */
+.history-panel__new-chat {
+  border-radius: var(--ui-radius-control, var(--radius-action));
 }

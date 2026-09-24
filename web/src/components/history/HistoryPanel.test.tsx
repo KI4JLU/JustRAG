@@ -9,9 +9,11 @@ const handleSelectContent = vi.fn();
 const handleNewChat = vi.fn();
 const handleDeleteChat = vi.fn();
 const handleRenameChat = vi.fn();
+const handleDeleteChats = vi.fn(async () => true);
 const handleDeleteGeneratedContent = vi.fn();
 
 let activeChatId: string | null = null;
+let extraChats: { id: string; title: string; createdAt: string }[] = [];
 
 // Der Einklapp-Zustand kommt vom `SidePanel` des Design-Systems, nicht aus dem
 // App-Zustand. Nur diesen einen Export ersetzen — `Button` und alles andere
@@ -32,10 +34,11 @@ vi.mock('../../contexts/KbChatContext', () => ({
     chat: {
       chats: [
         { id: 'c1', title: 'Budget?', createdAt: '2026-08-10T00:00:00Z' },
+        ...extraChats,
         { id: 'r1', title: 'Zero-Trust', createdAt: '2026-08-14T00:00:00Z', type: 'research' },
         { id: 'a1', title: 'Paper', createdAt: '2026-08-12T00:00:00Z', type: 'academic_research' },
       ],
-      activeChatId, handleSelectChat, handleDeleteChat, handleRenameChat, handleNewChat,
+      activeChatId, handleSelectChat, handleDeleteChat, handleDeleteChats, handleRenameChat, handleNewChat,
     },
   }),
 }));
@@ -52,6 +55,7 @@ vi.mock('../../contexts/KbDataContext', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   activeChatId = null;
+  extraChats = [];
   collapsed = false;
 });
 
@@ -135,6 +139,31 @@ describe('HistoryPanel', () => {
     expect(handleSelectChat).toHaveBeenCalledTimes(1);
   });
 
+  it('zeigt keine Checkbox, bis über „Auswählen" eine Mehrfachauswahl beginnt', async () => {
+    render(<HistoryPanel />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /selectChats/ }));
+
+    const box = screen.getByRole('checkbox', { name: 'selectChat Budget?' });
+    expect(box).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('selectedCount')).toBeInTheDocument();
+    // In selection mode the card toggles instead of opening the chat.
+    await userEvent.click(screen.getByTestId('history-item-title'));
+    expect(handleSelectChat).not.toHaveBeenCalled();
+    expect(box).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('löscht die Auswahl gesammelt und beendet danach den Auswahlmodus', async () => {
+    render(<HistoryPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /selectChats/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'deleteSelected' }));
+    expect(handleDeleteChats).toHaveBeenCalledWith(['c1']);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
   it('benennt einen Chat aus dem Aktionsmenü um', async () => {
     render(<HistoryPanel />);
     await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
@@ -167,6 +196,17 @@ describe('HistoryPanel', () => {
     // Und nichts von der ausgeklappten Ansicht.
     expect(screen.queryByText('history')).not.toBeInTheDocument();
     expect(screen.queryByTestId('history-item-title')).not.toBeInTheDocument();
+  });
+
+  it('zeigt das führende Emoji als Symbol, ausgeklappt wie in der Schiene', () => {
+    extraChats = [{ id: 'c2', title: '🧪 Labor', createdAt: '2026-08-10T00:00:00Z' }];
+    const { unmount } = render(<HistoryPanel />);
+    expect(screen.getByText('Labor')).toBeInTheDocument();
+    expect(screen.getByText('🧪')).toBeInTheDocument();
+    unmount();
+    collapsed = true;
+    render(<HistoryPanel />);
+    expect(screen.getByRole('button', { name: '🧪 Labor' })).toHaveTextContent('🧪');
   });
 
   it('öffnet aus der Schiene denselben Eintrag wie aus der Liste', async () => {

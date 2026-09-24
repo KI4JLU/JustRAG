@@ -329,6 +329,24 @@ export function useChat({
     }
   }, [handleNewChat, showConfirm, t, toast]);
 
+  // Batch delete from the history selection mode: one confirmation, optimistic
+  // removal, and only the chats whose DELETE failed come back.
+  const handleDeleteChats = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return false;
+    if (!await showConfirm(t('confirmDeleteChats').replace('{count}', String(ids.length)))) return false;
+    let snapshot: ChatEntry[] = [];
+    setChats(prev => { snapshot = prev; return prev.filter(c => !ids.includes(c.id)); });
+    if (activeChatIdRef.current && ids.includes(activeChatIdRef.current)) handleNewChat();
+    const results = await Promise.allSettled(ids.map(id => axios.delete(`${API_BASE_URL}/api/chats/${id}`)));
+    const failed = new Set(ids.filter((_, i) => results[i].status === 'rejected'));
+    if (failed.size > 0) {
+      setChats(prev => [...prev, ...snapshot.filter(c => failed.has(c.id))]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      toast.error(t('deleteChatError'));
+    }
+    return true;
+  }, [handleNewChat, showConfirm, t, toast]);
+
   // Rename from the history list: prompt with the current title, optimistic
   // update, roll back on a failed PATCH.
   const handleRenameChat = useCallback(async (id: string, currentTitle: string) => {
@@ -600,6 +618,7 @@ export function useChat({
     handleNewChat,
     handleDeleteChat,
     handleRenameChat,
+    handleDeleteChats,
     handleSendMessage,
     handleSwitchBranch,
     handleStartEdit,
@@ -638,6 +657,7 @@ export function useChat({
     handleNewChat,
     handleDeleteChat,
     handleRenameChat,
+    handleDeleteChats,
     handleSendMessage,
     handleSwitchBranch,
     handleStartEdit,

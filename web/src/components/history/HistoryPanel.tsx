@@ -1,10 +1,10 @@
-import React, { memo, useCallback, useMemo } from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
-    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, MoreVertical, Pencil,
+    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil, ListChecks,
 } from 'lucide-react';
 import {
-    Button, useSidebarCollapsed,
-    DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+    Button, SidebarCard, SidebarCardList, SidebarRail, SidebarRailItem, SidebarSelectionBar,
+    Tooltip, TooltipContent, TooltipTrigger, useSidebarCollapsed,
 } from '@ki4jlu/design-system';
 import type { ChatEntry } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -15,7 +15,7 @@ import { useKbData } from '../../contexts/KbDataContext';
 import { ContentRowSkeleton } from '../Skeleton';
 import { buildHistoryItems, type HistoryItem, type HistoryKind } from './historyItems';
 import { groupHistoryByDay } from './historyGroups';
-import { isCardControlClick } from '../sidebar/cardClick';
+import { splitLeadingEmoji } from './leadingEmoji';
 import '../sidebar-primitives.css';
 import './HistoryPanel.css';
 
@@ -38,7 +38,7 @@ const HistoryPanelComp: React.FC = () => {
     const { chat } = useKbChat();
     const { content } = useKbData();
 
-    const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleRenameChat, handleNewChat } = chat;
+    const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
     const { generatedContent, generating, podcastProgress } = content;
 
     // Nur Chats (Entwickler, 22.09.2026). Artefakte öffneten die Workspace-
@@ -76,6 +76,22 @@ const HistoryPanelComp: React.FC = () => {
         handleDeleteChat(item.id, e as unknown as React.MouseEvent);
     }, [handleDeleteChat]);
 
+    // Selection mode (batch actions): off by default, so the chat cards carry no
+    // checkbox. Started from a card's "Select" action with that card ticked.
+    const [selection, setSelection] = useState<Set<string> | null>(null);
+    const selecting = selection !== null;
+    const toggleSelected = useCallback((id: string, on: boolean) => {
+        setSelection(prev => {
+            const next = new Set(prev ?? []);
+            if (on) next.add(id); else next.delete(id);
+            return next;
+        });
+    }, []);
+    const deleteSelected = useCallback(async () => {
+        if (!selection) return;
+        if (await handleDeleteChats([...selection])) setSelection(null);
+    }, [selection, handleDeleteChats]);
+
     const renameItem = useCallback((item: HistoryItem) => {
         handleRenameChat(item.id, item.title);
     }, [handleRenameChat]);
@@ -103,37 +119,33 @@ const HistoryPanelComp: React.FC = () => {
     if (collapsed) {
         return (
             <>
-                <Button
-                    type="button"
-                    size="icon"
-                    onClick={handleNewChat}
-                    title={t('newChat')}
-                    aria-label={t('newChat')}
-                >
-                    <Plus size={16} aria-hidden="true" />
-                </Button>
-                <ul className="history-panel__rail">
+                <SidebarRailItem variant="action" onClick={handleNewChat} title={t('newChat')} aria-label={t('newChat')}>
+                    <Plus aria-hidden="true" />
+                </SidebarRailItem>
+                <SidebarRail>
                 {items.map(item => {
                     const Icon = KIND_ICON[item.kind];
                     const isActive = item.kind !== 'artifact' && item.id === activeChatId;
                     return (
                         <li key={`${item.kind}-${item.id}`}>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openItem(item)}
-                                className={isActive ? 'history-panel__rail-item--active' : undefined}
-                                title={item.title}
-                                aria-label={item.title}
-                                aria-current={isActive ? 'true' : undefined}
-                            >
-                                <Icon size={18} aria-hidden="true" />
-                            </Button>
+                            {/* Full title beside the rail: the 60px column has room for the icon only. */}
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                <SidebarRailItem
+                                    onClick={() => openItem(item)}
+                                    active={isActive}
+                                    aria-label={item.title}
+                                >
+                                    {/* Same icon as the expanded card: a leading emoji wins. */}
+                                    {splitLeadingEmoji(item.title).emoji ?? <Icon aria-hidden="true" />}
+                                </SidebarRailItem>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-72">{item.title}</TooltipContent>
+                            </Tooltip>
                         </li>
                     );
                 })}
-                </ul>
+                </SidebarRail>
             </>
         );
     }
@@ -152,15 +164,34 @@ const HistoryPanelComp: React.FC = () => {
             <div className="history-panel">
                 <div className="sidebar-ui__section-header">
                     <h2 className="sidebar-ui__section-title">{t('history')}</h2>
-                    <button
-                        className="send-button history-panel__new-chat-btn"
-                        onClick={handleNewChat}
-                        title={t('newChat')}
-                        aria-label={t('newChat')}
-                    >
-                        <Plus size={16} />
-                    </button>
                 </div>
+                {/* Full-width labelled action under the heading; the collapsed rail
+                    keeps the icon-only form of the same filled button. */}
+                <Button type="button" onClick={handleNewChat} className="history-panel__new-chat mb-4 w-full">
+                    <Plus size={16} aria-hidden="true" />
+                    {t('newChat')}
+                </Button>
+
+                {selecting && (
+                    <SidebarSelectionBar
+                        className="mb-2"
+                        aria-label={t('selectChats')}
+                        countLabel={t('selectedCount').replace('{count}', String(selection.size))}
+                        onCancel={() => setSelection(null)}
+                        cancelLabel={t('cancel')}
+                    >
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={deleteSelected}
+                            disabled={selection.size === 0}
+                            aria-label={t('deleteSelected')}
+                            title={t('deleteSelected')}
+                        >
+                            <Trash2 size={16} aria-hidden="true" />
+                        </Button>
+                    </SidebarSelectionBar>
+                )}
 
                 {generating && (
                     <>
@@ -178,49 +209,34 @@ const HistoryPanelComp: React.FC = () => {
                     {groups.map(group => (
                         <li key={group.day} className="history-panel__group">
                             <h3 className="history-panel__group-label">{group.label}</h3>
-                            <ul className="sidebar-ui__list history-panel__group-list">
+                            <SidebarCardList>
                                 {group.items.map(item => {
                                     const Icon = KIND_ICON[item.kind];
-                                    const isActive = item.kind !== 'artifact' && item.id === activeChatId;
+                                    // A leading emoji in the title becomes the card's icon.
+                                    const { emoji, text } = splitLeadingEmoji(item.title);
                                     return (
-                                                                                // Whole-plane click is a pointer convenience; the title button inside is the keyboard path.
-                                        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
-                                        <li
+                                        <SidebarCard
                                             key={`${item.kind}-${item.id}`}
-                                            className={`source-card history-panel__item${isActive ? ' history-panel__item--active' : ''}`}
-                                            onClick={(e) => { if (!isCardControlClick(e)) openItem(item); }}
-                                        >
-                                            <button
-                                                data-testid="history-item-title"
-                                                onClick={() => openItem(item)}
-                                                className="text-button source-title sidebar-ui__item-title history-panel__item-title"
-                                                title={item.title}
-                                            >
-                                                <Icon size={14} className="flex-shrink-0" aria-hidden="true" />
-                                                <span className="history-panel__item-title-text">{item.title}</span>
-                                            </button>
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" aria-label={`${t('chatActions')} ${item.title}`}>
-                                                        <MoreVertical size={16} aria-hidden="true" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onSelect={() => renameItem(item)}>
-                                                        <Pencil size={16} aria-hidden="true" />
-                                                        {t('renameChat')}
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuSeparator />
-                                                    <DropdownMenuItem variant="destructive" onSelect={(e) => deleteItem(item, e)}>
-                                                        <Trash2 size={16} aria-hidden="true" />
-                                                        {t('deleteItem')}
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </li>
+                                            icon={emoji ?? <Icon />}
+                                            title={text}
+                                            titleTestId="history-item-title"
+                                            onOpen={() => openItem(item)}
+                                            active={!selecting && item.kind !== 'artifact' && item.id === activeChatId}
+                                            actionsLabel={t('chatActions')}
+                                            actions={[
+                                                { label: t('renameChat'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: () => renameItem(item) },
+                                                { label: t('selectChats'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: () => setSelection(new Set([item.id])) },
+                                                { label: t('deleteItem'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true, onSelect: (e) => deleteItem(item, e) },
+                                            ]}
+                                            selectable={selecting}
+                                            selectionMode={selecting}
+                                            selected={selection?.has(item.id) ?? false}
+                                            onSelectedChange={(on) => toggleSelected(item.id, on)}
+                                            selectLabel={t('selectChat')}
+                                        />
                                     );
                                 })}
-                            </ul>
+                            </SidebarCardList>
                         </li>
                     ))}
 
