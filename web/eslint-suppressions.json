@@ -71,7 +71,7 @@
   },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 8
+      "count": 6
     }
   },
   "src/components/ComparisonView.tsx": {
@@ -361,7 +361,7 @@
   },
   "src/components/agents/KbAgentsSection.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 5
+      "count": 1
     }
   },
   "src/components/agents/TeamForm.tsx": {
@@ -371,7 +371,7 @@
   },
   "src/components/history/HistoryPanel.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 3
+      "count": 1
     }
   },
   "src/components/kb-settings/KbSettingsPanel.tsx": {
@@ -441,7 +441,7 @@
   },
   "src/components/sidebar/SourcesSection.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 11
+      "count": 10
     }
   },
   "src/components/sidebar/WebSearchModal.tsx": {

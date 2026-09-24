@@ -7,6 +7,7 @@ import {
   NavItem,
   SidebarUserMenu,
   ThemeToggle,
+  UiShapeToggle,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
 import {
@@ -514,6 +515,17 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
           wrap into a three-row pill there. It is not rendered while collapsed
           at all now, and the expanded column is 256px — the wrapper's
           `items-center` is all the centring it needs. */}
+      {/* The global Style (rounded / pill), above the colour scheme — the theme
+          toggle stays directly before the user menu (keyboard order, see
+          MyTopicsView.stories `ThemeToggleLivesInTheSidebarFooter`). */}
+      {!sidebar.collapsed && (
+        <UiShapeToggle
+          id="ui-shape-toggle"
+          label={t('uiShape')}
+          roundedLabel={t('uiShapeRounded')}
+          pillLabel={t('uiShapePill')}
+        />
+      )}
       {!sidebar.collapsed && (
         <ThemeToggle
           id={THEME_TOGGLE_ID}
