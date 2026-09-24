@@ -48,13 +48,6 @@
 }
 
 
-/* Shape of the DS buttons in this panel follows the sidebar shape. Unlayered,
-   so it outranks the buttons' own `rounded-*` utilities. */
-.history-panel__new-chat {
-  border-radius: var(--ui-radius-control, var(--radius-action));
-}
-
-
 /* The day groups (inside DS SidebarPanel's scroll area). */
 .history-panel__groups {
   display: flex;

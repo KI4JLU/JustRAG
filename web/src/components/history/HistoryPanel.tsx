@@ -3,7 +3,7 @@ import {
     MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil, ListChecks,
 } from 'lucide-react';
 import {
-    Button, SidebarCard, SidebarCardList, SidebarRail, SidebarPanel, SidebarRailItem, SidebarSelectionBar,
+    Button, SidebarAction, SidebarCard, SidebarCardList, SidebarRail, SidebarPanel, SidebarRailItem, SidebarSelectionBar,
     Tooltip, TooltipContent, TooltipTrigger, useSidebarCollapsed,
 } from '@ki4jlu/design-system';
 import type { ChatEntry } from '../../types';
@@ -167,12 +167,11 @@ const HistoryPanelComp: React.FC = () => {
                 title={t('history')}
                 head={(
                     <>
-                            {/* Full-width labelled action under the heading; the collapsed rail
-                                keeps the icon-only form of the same filled button. */}
-                            <Button type="button" onClick={handleNewChat} className="history-panel__new-chat w-full">
-                                <Plus size={16} aria-hidden="true" />
+                            {/* Full-width labelled action under the heading, its icon on the
+                                cards' icon axis; the collapsed rail keeps the icon-only form. */}
+                            <SidebarAction type="button" onClick={handleNewChat} icon={<Plus />}>
                                 {t('newChat')}
-                            </Button>
+                            </SidebarAction>
                             {selecting && (
                                 <SidebarSelectionBar
                                     aria-label={t('selectChats')}
