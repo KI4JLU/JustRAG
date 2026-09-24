@@ -9,18 +9,6 @@
   flex: 1;
 }
 
-/* A flex column, so the list below the grid gets the remaining height and
-   scrolls on its own (`.sidebar-left__files-section`). Without `display: flex`
-   the `flex: 1` on the list did nothing: it grew to its content and the
-   `overflow: hidden` here simply cut it off — that was the "can't scroll" bug. */
-.sidebar-left__sources {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .sidebar-left__overview-btn {
   display: flex;
   align-items: center;
@@ -46,29 +34,10 @@
   border-color: transparent;
 }
 
-/* 1rem seitlich, nicht 1.5rem: das ist die Einrückung, die `AppShellLayout`
-   der linken Spalte über `<nav class="… p-4">` gibt. Die rechte Spalte bekommt
-   von `AppShell` gar keine und muss dieselbe Zahl von Hand tragen, sonst
-   stehen die beiden Listen unterschiedlich weit vom Rand. */
-.sidebar-left__files-section {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 1rem 1.5rem;
-}
-
-/* Eine Zeile zwischen „Quellen hinzufügen" und der Quellenliste, mit der
-   Einrückung der Spalte (1rem, wie `.sources-grid` und
-   `.sidebar-left__files-section`). Zentriert (Entwickler, 21.09.2026):
-   als einzelne Aktion zwischen zwei Blöcken sitzt der Knopf auf deren
-   Mittelachse, nicht an einem Rand. Kein `space-between` mehr — die
-   Überschrift, die es einmal trennte, ist weg. */
+/* The retry-all row in the panel head (only when something failed). */
 .sidebar-left__files-header {
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: 0 1rem;
-  margin-bottom: 0.75rem;
 }
 
 .sidebar-left__upload-btn {

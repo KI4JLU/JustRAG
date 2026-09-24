@@ -1,8 +1,9 @@
 import React, { memo, useState, useCallback } from 'react';
 import type { RssFeed } from '../../types';
-import { useIsMobileContext } from '../../contexts/MobileContext';
 import { useKbCore } from '../../contexts/KbCoreContext';
 import { useKbData } from '../../contexts/KbDataContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { SidebarPanel } from '@ki4jlu/design-system';
 import '../sidebar-primitives.css';
 import { RssFeedEntriesModal } from '../RssFeedEntriesModal';
 import { SourcesSection } from '../sidebar/SourcesSection';
@@ -18,7 +19,7 @@ import { ACCEPTED_FILE_TYPES } from '../../constants';
 import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
-    const isMobile = useIsMobileContext();
+    const { t } = useTheme();
     const { currentKb, setKbView } = useKbCore();
     const {
         fileMgmt, webTools,
@@ -89,39 +90,35 @@ const SourcesPanelComp: React.FC = () => {
 
     return (
         <>
-            <div
-                className="sidebar-left__sources"
-                style={{
-                    height: isMobile ? undefined : '100%',
-                    flex: isMobile ? '1 1 auto' : undefined,
-                    overflow: isMobile ? 'auto' : undefined,
-                }}
-            >
-
-                {!isGlobal && (
-                    <SourcesGrid
-                        onSelect={handleSourceSelect}
-                        webSearch={{
-                            toolInput,
-                            setToolInput,
-                            toolLoading,
-                            onSubmit: handleToolSubmit,
-                            setToolTab,
-                            webResearchRunning,
-                            webResearchStatus,
-                            webResearchProgress,
-                            onCancelWebResearch: handleCancelWebResearch,
-                            hasResults: searchResults.length > 0 || crawlResults.length > 0,
-                            onOpenWorkspace: handleOpenWorkspace,
-                        }}
-                    />
+            {/* The same frame as the history column (DS SidebarPanel): fixed
+                head — heading, web search, source types, retry-all — and only
+                the source list below it scrolls. */}
+            <SidebarPanel
+                title={isGlobal ? t('sources') : t('addSources')}
+                head={(
+                    <>
+                        {!isGlobal && (
+                            <SourcesGrid
+                                onSelect={handleSourceSelect}
+                                webSearch={{
+                                    toolInput,
+                                    setToolInput,
+                                    toolLoading,
+                                    onSubmit: handleToolSubmit,
+                                    setToolTab,
+                                    webResearchRunning,
+                                    webResearchStatus,
+                                    webResearchProgress,
+                                    onCancelWebResearch: handleCancelWebResearch,
+                                    hasResults: searchResults.length > 0 || crawlResults.length > 0,
+                                    onOpenWorkspace: handleOpenWorkspace,
+                                }}
+                            />
+                        )}
+                        <SourcesHeader />
+                    </>
                 )}
-
-                {/* Zwischen „Quellen hinzufügen" und der Liste, nicht in der
-                    Kopfzeile der Spalte (Entwickler, 21.09.2026): dort war der
-                    Knopf im eingeklappten Zustand unerreichbar und stand ohne
-                    Bezug zur Liste, deren Einträge er wiederholt. */}
-                <SourcesHeader />
+            >
                 <SourcesSection
                     files={files}
                     onPreviewSource={handlePreviewSource}
@@ -143,7 +140,7 @@ const SourcesPanelComp: React.FC = () => {
                     onDeleteGitRepoSource={deleteGitRepoSource}
                     onSyncGitRepoNow={syncGitRepoNow}
                 />
-            </div>
+            </SidebarPanel>
 
             <input
                 type="file"

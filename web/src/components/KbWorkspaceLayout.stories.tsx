@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
-import { AppShellLayout, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
+import { AppShellLayout, SidebarPanel, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
 import { History, MessageSquare } from 'lucide-react';
 import './sidebar-primitives.css';
 import './history/HistoryPanel.css';
@@ -34,35 +34,22 @@ import './sources/SourcesPanel.css';
  * heading's position, measured in the same frame. So the story cannot agree
  * with a wrong layout the way a hardcoded 40 could.
  *
- * THE HONEST CAVEAT, because it limits what a green run means. The heading
- * markup below is REBUILT, not imported: `HistoryPanel` and `SourcesGrid` each
- * pull half a dozen contexts, and wiring those up would put more of this
- * story's own code between the stylesheet and the measurement, not less. What
- * is real here is the shell, the stylesheets and Chromium's box model; what is
- * copied is the element nesting. If either component changes its wrapper
- * structure, this story keeps passing while the app moves — so the nesting
- * below is repeated verbatim from those two files and must be updated with
- * them.
- * // TODO: mounting the real components behind provider decorators would close
- * // that gap and is not done here.
+ * WHAT IS REAL HERE: the shell, the stylesheets, Chromium's box model — and,
+ * since both columns became the design system's `SidebarPanel`, the column
+ * frame itself. `HistoryPanel` and `SourcesPanel` render exactly this
+ * component with their headings as `title`, so nothing about the nesting is
+ * copied any more; only the column contents (which cannot move a heading)
+ * are left out.
  * ------------------------------------------------------------------------- */
 
-/** The left column's heading row, as `HistoryPanel` nests it. */
+/** The left column, as `HistoryPanel` renders it: a DS `SidebarPanel`. */
 const HistoryHeading = () => (
-  <div className="history-panel">
-    <div className="sidebar-ui__section-header">
-      <h2 className="sidebar-ui__section-title" data-testid="left-heading">Verlauf</h2>
-    </div>
-  </div>
+  <SidebarPanel title={<span data-testid="left-heading">Verlauf</span>} />
 );
 
-/** The right column's heading, as `SourcesGrid` nests it inside `SourcesPanel`. */
+/** The right column, as `SourcesPanel` renders it: the same `SidebarPanel`. */
 const SourcesHeading = () => (
-  <div className="sidebar-left__sources" style={{ height: '100%' }}>
-    <div className="sources-grid">
-      <h2 className="sources-grid__title" data-testid="right-heading">Quellen hinzufügen</h2>
-    </div>
-  </div>
+  <SidebarPanel title={<span data-testid="right-heading">Quellen hinzufügen</span>} />
 );
 
 const mobileTabs: MobilePaneTab[] = [

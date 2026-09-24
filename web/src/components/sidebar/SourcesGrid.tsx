@@ -77,8 +77,6 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
 
     return (
         <div className="sources-grid">
-            <h2 className="sources-grid__title">{t('addSources')}</h2>
-
             {webSearchEnabled && webSearch && (
                 <>
                     <div className="sources-grid__search-box">

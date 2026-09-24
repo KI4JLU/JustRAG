@@ -1,34 +1,3 @@
-/* KEINE EIGENE POLSTERUNG. `AppShellLayout` legt den `nav`-Slot in
-   <nav class="flex flex-col gap-2 p-4">, also sind 16px Einrückung schon da,
-   bevor diese Datei etwas sagt. Die 1.5rem, die hier bis zum Umzug standen,
-   kamen oben drauf: 40px, wo die rechte Spalte bei 0 anfängt (ihr `content`
-   wird von `AppShell` in ein <div> OHNE Polsterung gelegt). Gemessen in
-   Chromium, `KbColumnHeadingBaseline` in `KbWorkspaceLayout.stories.tsx`.
-
-   Die Spalte wird dadurch schmaler eingerückt als vorher — das ist die
-   Einrückung, die die Shell für ihre Navigationsspalte vorsieht, und die Liste
-   folgt ihr jetzt, statt eine zweite daraufzusetzen. */
-/* KEIN EIGENER SCROLLER. Die Shell-Spalte (`SidePanel`, `overflow-y-auto`)
-   scrollt bereits; ein zweiter hier und ein dritter auf der Liste schnitten
-   den Hover-Hub der Karten (`translateY(-2px)` + Schatten) an ihrer Kante ab
-   und zeichneten eine waagerechte Rollleiste. `overflow-x: clip` hält die
-   Breite, ohne einen Scroll-Container zu erzeugen (anders als `hidden`). */
-.history-panel {
-  display: flex;
-  flex-direction: column;
-  overflow-x: clip;
-  /* Der Clip-Rand liegt 4px AUSSERHALB der Spalte (Polsterung, durch den
-     negativen Rand neutralisiert): der „Neuer Chat"-Knopf wächst bei Hover um
-     `scale(1.05)` an der rechten Kante und wurde sonst dort abgeschnitten. */
-  padding: 0 4px;
-  margin: 0 -4px;
-}
-
-.history-panel .sidebar-ui__list--stack {
-  flex: none;
-  overflow: visible;
-}
-
 /* Day groups: a small uppercase label in the accent colour, then the rows. */
 .history-panel__group-label {
   margin: 0.75rem 0 0.375rem;
@@ -85,16 +54,12 @@
   border-radius: var(--ui-radius-control, var(--radius-action));
 }
 
-/* Heading + „Neuer Chat" stick to the top of the column's scroller
-   (`SidePanel`'s `overflow-y-auto`). `top: -1rem` cancels the nav's 16px top
-   padding, so the block sits flush at the top edge instead of leaving a strip
-   where cards show through; its own padding restores the spacing. The
-   background is the column's (`SidePanel`: surface-container-lowest). */
-.history-panel__sticky {
-  position: sticky;
-  top: -1rem;
-  z-index: 1;
-  margin: -1rem -4px 0;
-  padding: 1rem 4px 1rem;
-  background: var(--color-surface-container-lowest);
+
+/* The day groups (inside DS SidebarPanel's scroll area). */
+.history-panel__groups {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

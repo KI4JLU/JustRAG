@@ -1,4 +1,4 @@
-import React, { createElement, memo, useLayoutEffect, useRef } from 'react';
+import React, { createElement, memo } from 'react';
 import {
     Download, Trash2,
     Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch
@@ -56,26 +56,6 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 }) => {
     const { t } = useTheme();
 
-    // The list scrolls on its own, and a classic (non-overlay) scrollbar takes
-    // its width out of the content box — the cards came out narrower than the
-    // "add sources" grid above. The scrollbar is moved into the right gutter
-    // instead: the right padding shrinks by exactly its width (0 for overlay
-    // scrollbars), measured, since it differs per OS and browser.
-    const listRef = useRef<HTMLUListElement>(null);
-    useLayoutEffect(() => {
-        const el = listRef.current;
-        if (!el) return;
-        const GUTTER = 16; // = the column's 1rem inset (`.sidebar-left__files-section`)
-        const fit = () => {
-            const bar = el.offsetWidth - el.clientWidth;
-            el.style.paddingRight = `${Math.max(0, GUTTER - bar)}px`;
-        };
-        fit();
-        const ro = new ResizeObserver(fit);
-        ro.observe(el);
-        for (const child of Array.from(el.children)) ro.observe(child);
-        return () => ro.disconnect();
-    });
 
     const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
     // Hover previews are prepared ahead of the hover (see sourcePreviews.ts).
@@ -88,7 +68,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     };
 
     return (
-        <SidebarCardList ref={listRef} className="sidebar-left__files-section">
+        <SidebarCardList className="sidebar-left__files-section">
                 {nonRssFiles.map(file => (
                     <SourceHoverPreview key={file.id} file={file}>
                         <SidebarCard

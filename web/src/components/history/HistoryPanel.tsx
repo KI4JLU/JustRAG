@@ -3,7 +3,7 @@ import {
     MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil, ListChecks,
 } from 'lucide-react';
 import {
-    Button, SidebarCard, SidebarCardList, SidebarRail, SidebarRailItem, SidebarSelectionBar,
+    Button, SidebarCard, SidebarCardList, SidebarRail, SidebarPanel, SidebarRailItem, SidebarSelectionBar,
     Tooltip, TooltipContent, TooltipTrigger, useSidebarCollapsed,
 } from '@ki4jlu/design-system';
 import type { ChatEntry } from '../../types';
@@ -161,42 +161,40 @@ const HistoryPanelComp: React.FC = () => {
                 </div>
             )}
 
-            <div className="history-panel">
-                {/* Sticky, like „Quellen hinzufügen" on the right: heading and
-                    „Neuer Chat" stay put while the chats scroll under them. */}
-                <div className="history-panel__sticky">
-                    <div className="sidebar-ui__section-header">
-                        <h2 className="sidebar-ui__section-title">{t('history')}</h2>
-                    </div>
-                    {/* Full-width labelled action under the heading; the collapsed rail
-                        keeps the icon-only form of the same filled button. */}
-                    <Button type="button" onClick={handleNewChat} className="history-panel__new-chat w-full">
-                        <Plus size={16} aria-hidden="true" />
-                        {t('newChat')}
-                    </Button>
-                </div>
-
-                {selecting && (
-                    <SidebarSelectionBar
-                        className="mb-2"
-                        aria-label={t('selectChats')}
-                        countLabel={t('selectedCount').replace('{count}', String(selection.size))}
-                        onCancel={() => setSelection(null)}
-                        cancelLabel={t('cancel')}
-                    >
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={deleteSelected}
-                            disabled={selection.size === 0}
-                            aria-label={t('deleteSelected')}
-                            title={t('deleteSelected')}
-                        >
-                            <Trash2 size={16} aria-hidden="true" />
-                        </Button>
-                    </SidebarSelectionBar>
+            {/* The same frame as the sources column (DS SidebarPanel): fixed
+                head, and only the chat list below it scrolls. */}
+            <SidebarPanel
+                title={t('history')}
+                head={(
+                    <>
+                            {/* Full-width labelled action under the heading; the collapsed rail
+                                keeps the icon-only form of the same filled button. */}
+                            <Button type="button" onClick={handleNewChat} className="history-panel__new-chat w-full">
+                                <Plus size={16} aria-hidden="true" />
+                                {t('newChat')}
+                            </Button>
+                            {selecting && (
+                                <SidebarSelectionBar
+                                    aria-label={t('selectChats')}
+                                    countLabel={t('selectedCount').replace('{count}', String(selection.size))}
+                                    onCancel={() => setSelection(null)}
+                                    cancelLabel={t('cancel')}
+                                >
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={deleteSelected}
+                                        disabled={selection.size === 0}
+                                        aria-label={t('deleteSelected')}
+                                        title={t('deleteSelected')}
+                                    >
+                                        <Trash2 size={16} aria-hidden="true" />
+                                    </Button>
+                                </SidebarSelectionBar>
+                            )}
+                    </>
                 )}
-
+            >
                 {generating && (
                     <>
                         <div className="source-card history-panel__generating-card sidebar-ui__item-card">
@@ -209,7 +207,7 @@ const HistoryPanelComp: React.FC = () => {
                     </>
                 )}
 
-                <ul className="sidebar-ui__list sidebar-ui__list--stack">
+                <ul className="history-panel__groups">
                     {groups.map(group => (
                         <li key={group.day} className="history-panel__group">
                             <h3 className="history-panel__group-label">{group.label}</h3>
@@ -248,7 +246,7 @@ const HistoryPanelComp: React.FC = () => {
                         <li className="sidebar-ui__empty">{t('noHistory')}</li>
                     )}
                 </ul>
-            </div>
+            </SidebarPanel>
         </>
     );
 };

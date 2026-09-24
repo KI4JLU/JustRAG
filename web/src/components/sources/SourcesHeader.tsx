@@ -41,9 +41,11 @@ const SourcesHeaderComp: React.FC = () => {
 
     const failedCount = files.filter(f => f.status === 'error').length;
 
+    // Only when something failed — an empty row would add height to the head.
+    if (failedCount === 0) return null;
     return (
-        <div className="sidebar-left__files-header sidebar-ui__section-header">
-            {failedCount > 0 && (
+        <div className="sidebar-left__files-header">
+            {(
                 <Button
                     type="button"
                     variant="outline"

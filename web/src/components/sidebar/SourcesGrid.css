@@ -1,29 +1,7 @@
-/* DIE OBERE EINRÜCKUNG IST EINE GRUNDLINIE, KEIN GESCHMACK: „Quellen
-   hinzufügen" hier und „Verlauf" in der linken Spalte sollen auf einer Linie
-   sitzen. Die beiden Spalten starten aber nicht gleich — `AppShellLayout` legt
-   den `nav`-Slot in <nav class="… p-4">, `AppShell` legt den `content` einer
-   Spalte in ein <div> OHNE Polsterung. Das eine Rem hier ist genau dieses
-   `p-4`, von Hand nachgezogen, weil die rechte Spalte es nicht geschenkt
-   bekommt. Gemessen in Chromium: `KbColumnHeadingBaseline` in
-   `KbWorkspaceLayout.stories.tsx`. */
+/* The grid sits in DS SidebarPanel's head, which owns insets and heading. */
 .sources-grid {
-    padding: 1rem 1rem 0;
-    margin-bottom: 1rem;
-}
-
-/* Dieselbe Zeilenhöhe wie `.sidebar-ui__section-header` links, wo der
-   „Neuer Chat"-Knopf die Zeile auf 32px aufspannt und die Überschrift darin
-   zentriert sitzt. Ein nacktes <h2> wäre nur seine 21px Zeilenhöhe hoch und
-   säße dadurch 5.5px höher — die obere Einrückung allein reicht also nicht.
-   Gleiche Zeilenhöhe macht die Grundlinien gleich, statt sie auszurechnen. */
-.sources-grid__title {
     display: flex;
-    align-items: center;
-    min-height: 2rem;
-    margin: 0 0 0.75rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--accent-primary);
+    flex-direction: column;
 }
 
 /* Inline web search input */
