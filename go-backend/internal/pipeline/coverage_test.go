@@ -199,8 +199,15 @@ var ignoredKeys = map[string]string{
 
 	// Operational / security — deliberately never per-KB.
 	"agents_allow_privileged_tools": "security gate, system-admin only",
-	"langfuse_base_url":             "observability config",
-	"chat_turn_budget_seconds":      "operational budget",
+	// The web_search tool's own server config (built-in MCP tool), read by
+	// chat.webSearchUnavailable only to refuse a turn up front with a clear
+	// reason. Tool plumbing, not a pipeline stage; the per-turn opt-in is a
+	// request flag, not a site_config key.
+	"web_search_enabled":       "web_search tool availability, not a pipeline stage",
+	"google_search_api_key":    "web_search tool credential",
+	"google_search_cx":         "web_search tool credential",
+	"langfuse_base_url":        "observability config",
+	"chat_turn_budget_seconds": "operational budget",
 
 	// Observability / sampling — no user-visible pipeline stage.
 	"ragas_sampling_enabled": "background eval sampling",
