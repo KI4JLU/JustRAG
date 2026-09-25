@@ -142,7 +142,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
         <Button
           type="button"
           variant="ghost"
-          className="h-auto p-0"
+          // No hover tint on the brand, only the pointer cursor.
+          className="h-auto cursor-pointer p-0 hover:bg-transparent active:bg-transparent"
           onClick={handleGoHome}
           title={t('goToHome')}
           aria-label={t('goToHome')}

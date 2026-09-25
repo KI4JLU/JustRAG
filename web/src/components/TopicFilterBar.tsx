@@ -1,4 +1,4 @@
-import { FilterChips, SegmentedControl } from '@ki4jlu/design-system';
+import { FilterChips, SegmentedControl, categoryColor } from '@ki4jlu/design-system';
 import { LayoutGrid, List, Star } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useState } from 'react';
@@ -85,7 +85,10 @@ export function TopicFilterBar({ filters, label, showOwnership = false }: TopicF
               { value: FILTER_SHARED, label: t('filterShared') },
             ]
           : []),
-        ...filters.categories.map(c => ({ value: c.id, label: c.name })),
+        /* Categories are colour-coded, keyed by id so a category keeps its
+           colour when others are added or removed. The built-in filters stay
+           neutral. */
+        ...filters.categories.map(c => ({ value: c.id, label: c.name, color: categoryColor(c.id) })),
       ]}
     />
 
