@@ -148,6 +148,51 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     ).toBeInTheDocument();
   });
 
+  /* The „Textdokumente" tool on the real route (card KI-833).
+   *
+   * The component suite hands the tool its topics directly; only this route
+   * proves `AuthenticatedApp` passes the caller's topics in at all — owned AND
+   * subscribed public ones, which arrive through two different requests
+   * (`/api/kb` and `/api/kb/global`).
+   *
+   * ORACLE: translations.ts for every label, the two fixture names for the
+   * options, and the h1 mapping for the page switch in both directions. */
+  it('opens the text-documents tool from its tile with every visible topic in the picker', async () => {
+    const kb = (id: string, name: string) => ({
+      id, name, description: null, userId: 'user-1', createdAt: '2026-09-01T00:00:00Z', isPro: false,
+      aiConfigId: null, chatModel: null, embeddingModel: null, rerankModel: null, ttsModel: null, myRole: 'owner',
+    });
+    mockedGet.mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/kb')) return { data: [kb('kb-own', 'Eigenes Thema')] };
+      if (url.endsWith('/api/kb/global')) return { data: [{ ...kb('kb-pub', 'Öffentliches Thema'), isGlobal: true, myRole: undefined }] };
+      return { data: [] };
+    });
+
+    render(<App />);
+    await findOverviewHeading();
+    await userEvent.click(screen.getByRole('button', { name: translations.tools.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.tools.de });
+
+    await userEvent.click(screen.getByRole('button', {
+      name: `${translations.openTool.de}: ${translations.textDocumentsTool.de}`,
+    }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: translations.textDocumentsTool.de }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('combobox', { name: translations.toolTopicLabel.de }));
+    const options = (await screen.findAllByRole('option')).map(o => o.textContent);
+    expect(options).toEqual(['Eigenes Thema', 'Öffentliches Thema']);
+    await userEvent.keyboard('{Escape}');
+
+    // And back to the grid.
+    await userEvent.click(screen.getByRole('button', { name: translations.backToTools.de }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: translations.tools.de }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+  }, 20000);
+
   it('reaches the view from the sidebar row with every provider it consumes mounted', async () => {
     render(<App />);
     await findOverviewHeading();

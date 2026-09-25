@@ -1,39 +1,55 @@
+import { useState } from 'react';
+import { FileText } from 'lucide-react';
+import { Button, Card, CardDescription, CardHeader, CardTitle } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
+import type { KnowledgeBase } from '../types';
 import { AppChrome } from './AppChrome';
-import { CreateCell } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
 import { useTopicFilters } from '../hooks/useTopicFilters';
+import { TextDocumentsTool } from './tools/TextDocumentsTool';
 
 /* ---------------------------------------------------------------------------
- * „Werkzeuge" — PLACEHOLDER (developer ruling, 18.09.2026).
+ * „Werkzeuge" — the tools page.
  *
- * WHAT IT IS FOR. This is where selected tools from the workspace area will
- * live. Nothing has moved yet; the page exists so the destination is real —
- * the nav row, the landmark, the heading and the create tile are all in place,
- * and moving a tool here later is a change to this file rather than a new
- * screen plus a new route plus a new nav entry.
+ * A PLACEHOLDER until 25.09.2026 (developer ruling, 18.09.2026), with one
+ * disabled „Neues Werkzeug" tile. Card KI-833 gave it its first real tool,
+ * „Textdokumente", and the disabled tile is gone with it: a create tile that
+ * cannot create anything next to a tool that can would be the one control on
+ * the page that does nothing. The destination-first reasoning of the
+ * placeholder still holds — moving a further tool here is one more tile and
+ * one more branch below, not a new screen or route.
  *
- * WHAT IT DOES TODAY. Renders one control, „Neues Werkzeug", and nothing else.
- *
- * THE CREATE TILE DOES NOTHING YET, AND SAYS SO RATHER THAN PRETENDING. It is
- * `disabled`, so it is announced as unavailable instead of being a button that
- * silently swallows a click — the failure mode a placeholder wired to a no-op
- * handler would have. There is no toast and no "coming soon" dialog either:
- * both are content this card was not asked to write.
- * // TODO: which workspace tools move here, and what creating one does, is not
- * // decided — this page is a placeholder until it is.
+ * A TOOL OPENS IN PLACE. There is no router (see `useViewState`): the open
+ * tool is local state of this view, so leaving the page and coming back
+ * starts at the grid again — the same reset the filter chips have.
  * ------------------------------------------------------------------------- */
 
 /** Anchors the skip link; must match the `contentId` handed to `AppChrome`. */
 const CONTENT_ID = 'tools-content';
 
-export function ToolsView() {
+type ToolId = 'text-documents';
+
+export interface ToolsViewProps {
+  /** Every topic the caller can see: owned, shared and subscribed public ones. */
+  topics: KnowledgeBase[];
+}
+
+export function ToolsView({ topics }: ToolsViewProps) {
   const { t } = useTheme();
-  /* The row is here so the chrome matches the other three views, and it filters
-     nothing — there is no list yet. It is wired to the real hook rather than
-     stubbed, so the day a tool exists the filter already works. */
+  /* The row is here so the chrome matches the other three views. It filters
+     nothing yet — the grid holds tools, not topics — and is wired to the real
+     hook rather than stubbed. */
   const filters = useTopicFilters();
+  const [openTool, setOpenTool] = useState<ToolId | null>(null);
+
+  if (openTool === 'text-documents') {
+    return (
+      <AppChrome active="tools" contentId={CONTENT_ID}>
+        <TextDocumentsTool id={CONTENT_ID} topics={topics} onBack={() => setOpenTool(null)} />
+      </AppChrome>
+    );
+  }
 
   return (
     <AppChrome active="tools" contentId={CONTENT_ID}>
@@ -41,29 +57,55 @@ export function ToolsView() {
         id={CONTENT_ID}
         title={t('tools')}
         description={t('toolsDescription')}
-        createCell={
-          <CreateCell
-            disabled
-            label={t('newTool')}
-            text={t('newTool')}
-            compact={filters.viewMode === 'list'}
-          />
-        }
         filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
         viewMode={filters.viewMode}
-        items={[]}
-        /* Named content rather than a bare page: the create tile is disabled,
-           so without this the page would be one greyed-out control and no
-           explanation of why. */
-        emptyState={
-          <div className="flex flex-col gap-stack-sm">
-            <p className="m-0 font-headline-sm text-headline-sm-mobile text-on-surface">
-              {t('toolsEmptyTitle')}
-            </p>
-            <p className="m-0 text-on-surface-variant">{t('toolsEmptyBody')}</p>
-          </div>
-        }
+        items={[
+          <ToolTile
+            key="text-documents"
+            icon={<FileText size={24} aria-hidden="true" />}
+            title={t('textDocumentsTool')}
+            description={t('textDocumentsToolDescription')}
+            openLabel={`${t('openTool')}: ${t('textDocumentsTool')}`}
+            onOpen={() => setOpenTool('text-documents')}
+          />,
+        ]}
       />
     </AppChrome>
+  );
+}
+
+/** A click on the tile's own button — it already opened the tool. */
+const isControlClick = (e: React.MouseEvent) =>
+  (e.target as HTMLElement).closest('button, a') !== null;
+
+/**
+ * One tool on the grid. The whole card is a mouse target (`role="presentation"`,
+ * the pattern `PrivateKbCard` uses); the accessible control is the title
+ * button, which carries the name and the keyboard path.
+ */
+function ToolTile({ icon, title, description, openLabel, onOpen }: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  openLabel: string;
+  onOpen: () => void;
+}) {
+  return (
+    <Card
+      interactive
+      role="presentation"
+      className="cursor-pointer"
+      onClick={(e) => { if (!isControlClick(e)) onOpen(); }}
+    >
+      <CardHeader>
+        <span className="text-primary">{icon}</span>
+        <CardTitle>
+          <Button variant="link" className="h-auto p-0" aria-label={openLabel} onClick={onOpen}>
+            {title}
+          </Button>
+        </CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+    </Card>
   );
 }

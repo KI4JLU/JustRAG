@@ -111,7 +111,7 @@
   },
   "src/components/KbCard.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 8
+      "count": 3
     }
   },
   "src/components/KbCatalogPanel.tsx": {
