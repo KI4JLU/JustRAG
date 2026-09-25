@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { stubViewport } from '../test/viewport';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider as DesignSystemThemeProvider } from '@ki4jlu/design-system';
 import axios from 'axios';
@@ -14,6 +14,13 @@ import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
+
+/** Opens the topic card's ⋮ menu; the card actions live there. */
+async function kbMenu() {
+  await userEvent.click(screen.getByRole('button', { name: new RegExp(`^${translations.kbActions.en}: `) }));
+  return within(await screen.findByRole('menu'));
+}
+
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -309,47 +316,47 @@ describe('SharedTopicsView card actions', () => {
   it('shows the trigger for a caller whose myRole is admin', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.getByRole('button', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
   it('hides the trigger for a caller whose myRole is edit', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'edit' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.queryByRole('button', { name: translations.share.en })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
   });
 
   it('hides the trigger for a caller whose myRole is view', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.queryByRole('button', { name: translations.share.en })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
   });
 
   it('shows the trigger for a system admin who is KB admin but not owner', async () => {
     authState.role = 'admin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: label })).toBeInTheDocument();
   });
 
   it('hides the trigger from an api-user who is only an editor — the KB role still counts', async () => {
     authState.role = 'api-user';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'edit' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.queryByRole('button', { name: renameLabel })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: renameLabel })).not.toBeInTheDocument();
   });
 
   it('hides the pencil from a system admin who is only an admin member of a private KB', async () => {
     authState.role = 'admin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.queryByRole('button', { name: renameLabel })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: renameLabel })).not.toBeInTheDocument();
   });
 
   it('shows the pencil to a superadmin on a shared private KB', async () => {
     authState.role = 'superadmin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.getByRole('button', { name: renameLabel })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: renameLabel })).toBeInTheDocument();
   });
 
   /* Two tests stood here and are deleted (18.09.2026): „shows public on a
@@ -364,7 +371,7 @@ describe('SharedTopicsView card actions', () => {
     authState.role = 'user';
     const kb: KnowledgeBase = { ...baseKb, myRole: role };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.queryByRole('button', { name: renameLabel })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: renameLabel })).not.toBeInTheDocument();
   });
 
 

@@ -11,6 +11,14 @@ import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSharing } from '../hooks/useSharing';
 import type { KnowledgeBase, User } from '../types';
 
+/** Opens the (first) topic card's ⋮ menu — the card actions live there. The
+ *  menu is portaled to <body>, so it is found through `screen`. */
+async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => Promise<void> }) {
+  await userEvent.click(canvas.getAllByRole('button', { name: /^Aktionen: / })[0]);
+  return within(await screen.findByRole('menu'));
+}
+
+
 /* ---------------------------------------------------------------------------
  * CHARACTERIZATION stories for the KB overview (card KI-774).
  *
@@ -667,7 +675,7 @@ export const Empty: Story = {
  */
 export const OwnedOnly: Story = {
   args: { kbs: [OWNED_ONE, OWNED_TWO, OWNED_THREE] },
-  play: async ({ canvas, canvasElement }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await expectPageFrame(canvas, canvasElement);
 
     /* The three count badges that were asserted here are gone with the
@@ -698,16 +706,19 @@ export const OwnedOnly: Story = {
     // ORACLE: the fixture. `memberCount: 1` and a private visibility resolve to
     // the "personal" badge; the owner gets the outright-delete label, not the
     // leave-my-view one.
-    /* Scoped to the CARDS. „Persönlich" is a filter chip on this page as well
+    /* Scoped to the CARDS. „Privat" is a filter chip on this page as well
        now, so an unscoped query counts four — three badges and the chip — and
        fails for a reason that has nothing to do with the badges. The chip lives
        in the filter row, a sibling of the grid. */
     const badges = Array.from(cards).flatMap((card) =>
       Array.from(card.querySelectorAll('.home-view__badge')),
-    ).filter((b) => b.textContent?.includes('Persönlich'));
+    ).filter((b) => b.textContent?.includes('Privat'));
     await expect(badges).toHaveLength(3);
-    await expect(canvas.getAllByRole('button', { name: 'Knowledge Base löschen' })).toHaveLength(3);
-    await expect(canvas.queryByRole('button', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
+    await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(3);
+    const cardMenu = await openKbMenu(canvas, userEvent);
+    await expect(cardMenu.getByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeInTheDocument();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
+    await userEvent.keyboard('{Escape}');
 
     /* ORACLE: Chromium's CSSOM, unchanged. The grid track list is the layout
      * envelope of the card area. It used to be this repo's own
@@ -772,11 +783,14 @@ export const RemovalInFlight: Story = {
      * more, so that half moved to `SharedTopicsView` with the card that offers
      * it. The boolean is the same one, and this is still the assertion that it
      * reaches a removal control. */
-    await expect(canvas.getByRole('button', { name: 'Knowledge Base löschen' })).toBeDisabled();
+    // The card actions are menu items now: Radix's `data-disabled` is the state.
+    const cardMenu = await openKbMenu(canvas, userEvent);
+    await expect(cardMenu.getByRole('menuitem', { name: 'Knowledge Base löschen' })).toHaveAttribute('data-disabled');
 
     // Controls that are NOT removals stay live, which is what makes the
     // assertion above about `removingKb` rather than about a disabled page.
-    await expect(canvas.getByRole('button', { name: 'Teilen' })).toBeEnabled();
+    await expect(cardMenu.getByRole('menuitem', { name: 'Teilen' })).not.toHaveAttribute('data-disabled');
+    await userEvent.keyboard('{Escape}');
 
     /* „Abmelden" is a `DropdownMenuItem` in the sidebar's user menu now, so it
      * has to be opened to be seen, and `toBeEnabled` is the wrong matcher for
@@ -842,7 +856,7 @@ export const ShareDialogLoadingFallback: Story = {
     // Nothing is busy before the dialog is asked for.
     await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
 
-    await userEvent.click(canvas.getByRole('button', { name: 'Teilen' }));
+    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
     await waitFor(async () => {
       await expect(canvas.getByRole('dialog')).toBeInTheDocument();
@@ -906,8 +920,7 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
     api: { kbMembers: { members: [], pending: [] }, kbInviteLinks: [] },
   },
   play: async ({ args, canvas, canvasElement, userEvent }) => {
-    const shareButton = canvas.getByRole('button', { name: 'Teilen' });
-    const card = shareButton.closest('.home-view__kb-card');
+    const card = canvas.getAllByRole('button', { name: /^Aktionen: / })[0].closest('.home-view__kb-card');
     await expect(card).not.toBeNull();
 
     /* The control: the freshness line is inert markup inside the card, so a
@@ -918,7 +931,7 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
     await userEvent.click(cardBody as HTMLElement);
     await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(shareButton);
+    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
     // The dialog did open — so the click was delivered and this is a statement
     // about propagation, not about a dead button.

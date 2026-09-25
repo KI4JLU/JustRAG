@@ -10,6 +10,14 @@ import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import type { KnowledgeBase, User } from '../types';
 
+/** Opens the (first) topic card's ⋮ menu — the card actions live there. The
+ *  menu is portaled to <body>, so it is found through `screen`. */
+async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => Promise<void> }) {
+  await userEvent.click(canvas.getAllByRole('button', { name: /^Aktionen: / })[0]);
+  return within(await screen.findByRole('menu'));
+}
+
+
 /* ---------------------------------------------------------------------------
  * Stories for „Geteilte Knowledge Bases", the top-level view (card KI-783).
  *
@@ -458,9 +466,9 @@ export const ShareDialogOpensFromASharedKb: Story = {
   },
   play: async ({ args, canvas, userEvent }) => {
     // Only the shared KB is here, and only it can offer the control.
-    await expect(canvas.getAllByRole('button', { name: 'Teilen' })).toHaveLength(1);
+    await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(1);
 
-    await userEvent.click(canvas.getByRole('button', { name: 'Teilen' }));
+    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
     await waitFor(async () => {
       await expect(canvas.getByRole('dialog')).toBeInTheDocument();
@@ -493,14 +501,16 @@ export const ShareDialogOpensFromASharedKb: Story = {
  */
 export const ViewerSeesNoManagementControls: Story = {
   args: { kbs: [SHARED_VIEWER] },
-  play: async ({ canvas }) => {
-    await expect(canvas.queryByRole('button', { name: 'Teilen' })).toBeNull();
-    await expect(canvas.queryByRole('button', { name: 'Knowledge Base umbenennen' })).toBeNull();
-    await expect(canvas.queryByRole('button', { name: 'RAG-Einstellungen und Workflow' })).toBeNull();
+  play: async ({ canvas, userEvent }) => {
+    const cardMenu = await openKbMenu(canvas, userEvent);
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Teilen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base umbenennen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'RAG-Einstellungen und Workflow' })).toBeNull();
     await expect(
-      canvas.getByRole('button', { name: 'Aus meiner Ansicht entfernen' }),
+      cardMenu.getByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' }),
     ).toBeInTheDocument();
-    await expect(canvas.queryByRole('button', { name: 'Knowledge Base löschen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeNull();
+    await userEvent.keyboard('{Escape}');
 
     /* ORACLE: the fixture's `memberCount: 4` with a private visibility, which
      * `visibilityBadge` renders with the count appended — the same badge

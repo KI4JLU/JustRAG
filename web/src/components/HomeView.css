@@ -25,17 +25,59 @@
   margin-inline: auto;
 }
 
-.home-view__kb-card {
+/* Tiles follow the app-wide Style (rounded / pill) via the DS box radius. */
+.source-card.home-view__kb-card {
   cursor: pointer;
+  border-radius: var(--ui-radius-box);
+  /* Resting look of the DS SidebarCard. */
+  background: var(--color-surface-container-lowest);
+  border-color: var(--color-outline-variant);
+  transition: background-color 0.2s;
+  /* A column, so the footer can sit on the card's bottom edge: cards in one
+     grid row stretch to the tallest, and their footers line up. */
+  display: flex;
+  flex-direction: column;
 }
 
-.home-view__create-card {
+/* Hover: the navigation items' tint (DS NavItem `hover:bg-secondary-container`),
+   no lift, no shadow, no accent border — overrides `.source-card:hover`. */
+@media (hover: hover) {
+  .source-card.home-view__kb-card:hover,
+  .source-card.home-view__create-card:hover {
+    transform: none;
+    box-shadow: none;
+    background: var(--color-secondary-container);
+  }
+
+  .source-card.home-view__kb-card:hover {
+    border-color: var(--color-outline-variant);
+  }
+}
+
+/* Chips left, visibility badge right, on one line under the meta. */
+.home-view__card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: auto;
+  margin-block-start: auto;
+  padding-top: var(--space-2);
+}
+
+.home-view__card-footer > .home-view__badge {
+  margin-left: auto;
+  margin-inline-start: auto;
+}
+
+.source-card.home-view__create-card {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 160px;
   min-block-size: 160px;
   border-style: dashed;
+  border-radius: var(--ui-radius-box);
   background: var(--bg-secondary);
   color: var(--accent-primary);
 }
@@ -66,7 +108,7 @@
   inline-size: 100%;
   padding: var(--spacing-stack-md);
   border: 1px dashed var(--border-color);
-  border-radius: var(--shape-md);
+  border-radius: var(--ui-radius-card);
   background: var(--bg-secondary);
   color: var(--accent-primary);
   font: inherit;
@@ -75,7 +117,7 @@
 }
 
 .home-view__create-row:hover:not(:disabled) {
-  border-color: var(--accent-primary);
+  background: var(--color-secondary-container);
 }
 
 .home-view__create-row:disabled {
@@ -111,8 +153,21 @@
 
 .home-view__card-top {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* The title takes the free width, so the ⋮ menu stays in the corner. */
+.home-view__card-top > .home-view__kb-name {
+  flex: 1;
+}
+
+/* Filled star of a favourite, on the title's first line. */
+.home-view__fav-star {
+  flex-shrink: 0;
+  margin-top: 0.3em;
+  margin-block-start: 0.3em;
+  color: var(--text-secondary);
 }
 
 .home-view__badge-row {
@@ -169,7 +224,7 @@
   padding: 4px;
   color: var(--text-secondary);
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--ui-radius-control);
   cursor: pointer;
   transition: color 0.2s, background-color 0.2s;
 }
@@ -189,10 +244,16 @@
 }
 
 .home-view__kb-name {
-  margin-top: 1rem;
-  margin-block-start: 1rem;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
   font-size: 1.1rem;
   color: var(--text-primary);
+}
+
+/* The whole card is the hover target; the title does not underline. */
+.text-button.home-view__kb-name-btn:hover {
+  text-decoration: none;
 }
 
 .home-view__kb-name-btn {

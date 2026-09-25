@@ -126,7 +126,7 @@ export const translations = {
     /* „Mein Wissen" only. The words match the card badge's own two states
        (`visibilityPersonal` / `visibilityShared`) deliberately — the chip and
        the badge describe the same fact, so they say the same word. */
-    filterPersonal: { de: 'Persönlich', en: 'Personal' },
+    filterPersonal: { de: 'Privat', en: 'Private' },
     filterShared: { de: 'Geteilt', en: 'Shared' },
     manageCategories: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesTitle: { de: 'Kategorien verwalten', en: 'Manage categories' },
@@ -741,6 +741,7 @@ export const translations = {
     exportPng: { de: 'PNG exportieren', en: 'Export PNG' },
     deleteItem: { de: 'Löschen', en: 'Delete' },
     chatActions: { de: 'Aktionen für', en: 'Actions for' },
+    kbActions: { de: 'Aktionen', en: 'Actions' },
     today: { de: 'Heute', en: 'Today' },
     yesterday: { de: 'Gestern', en: 'Yesterday' },
     renameChat: { de: 'Chat umbenennen', en: 'Rename chat' },
@@ -881,7 +882,7 @@ export const translations = {
     // Three displayed visibility states from two stored fields (visibility +
     // memberCount). visibilityShared has no {n} placeholder — t() takes no
     // interpolation args, so the count is appended outside the translation.
-    visibilityPersonal: { de: 'Persönlich', en: 'Personal' },
+    visibilityPersonal: { de: 'Privat', en: 'Private' },
     visibilityShared: { de: 'Geteilt', en: 'Shared' },
     visibilityPublic: { de: 'Öffentlich', en: 'Public' },
     // KB member roles (kb_members.role) — distinct from the "Roles" (system

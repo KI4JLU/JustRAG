@@ -1,6 +1,7 @@
 import {
-  BookOpen, Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star,
 } from 'lucide-react';
+import { ActionMenu, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
@@ -91,6 +92,23 @@ function canManageMembers(kb: KnowledgeBase): boolean {
   return kb.myRole === 'admin' || kb.myRole === 'owner';
 }
 
+// A scent chip shows icon + count only; the full phrase ("36 Dateien") is the
+// tooltip and the screen-reader text.
+function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="home-view__chip">
+          {icon}
+          <span aria-hidden="true">{n}</span>
+          <span className="sr-only">{label}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 // KbCardChips is the compact metadata slice on each Home KB card (improvement
 // #6): up to two scent chips (files · messages) plus a single needs-attention
 // chip (failed, else processing). Lucide icons (#2), status tokens (#1).
@@ -110,16 +128,10 @@ function KbCardChips({ kb, t, compact = false }: { kb: KnowledgeBase; t: T; comp
   return (
     <div className={compact ? 'flex shrink-0 items-center gap-stack-sm' : 'home-view__chip-row'}>
       {files > 0 && (
-        <span className="home-view__chip">
-          <FileText size={12} aria-hidden="true" />
-          {t('kbFilesChip').replace('{n}', String(files))}
-        </span>
+        <CountChip icon={<FileText size={12} aria-hidden="true" />} n={files} label={t('kbFilesChip').replace('{n}', String(files))} />
       )}
       {messages > 0 && (
-        <span className="home-view__chip">
-          <MessageSquare size={12} aria-hidden="true" />
-          {t('kbMessagesChip').replace('{n}', String(messages))}
-        </span>
+        <CountChip icon={<MessageSquare size={12} aria-hidden="true" />} n={messages} label={t('kbMessagesChip').replace('{n}', String(messages))} />
       )}
       {processing > 0 && (
         <span className="home-view__chip home-view__chip--processing">
@@ -245,115 +257,55 @@ export interface PrivateKbCardProps {
 }
 
 /**
- * The favourite star, its own component because the two layouts put it in
- * different places: the card keeps it among the other icon actions, the list
- * row renders it FIRST, ahead of the title.
- *
- * It is ungated on purpose — the caller's own private flag, not a permission.
- * The label names what pressing it DOES, so it flips with the state: a single
- * „Favorit" would leave a screen-reader user guessing the direction, while
- * `aria-pressed` carries the state itself.
+ * The per-card actions for the ⋮ menu, ONE list for the card and the compact
+ * list row so the two cannot drift. Every gate below is the shared predicate
+ * the rest of the app uses — none of them is re-derived here. The handlers
+ * only call `stopPropagation`, which a menu's DOM `Event` shares with a
+ * `React.MouseEvent`.
  */
-function FavouriteButton({
-  kb, t, onToggleFavourite,
-}: Pick<PrivateKbCardProps, 'kb' | 't' | 'onToggleFavourite'>) {
-  return (
-    <button
-      onClick={(e) => onToggleFavourite(kb, e)}
-      className="home-view__mini-icon"
-      aria-pressed={kb.isFavourite === true}
-      title={kb.isFavourite ? t('removeFavourite') : t('addFavourite')}
-      aria-label={kb.isFavourite ? t('removeFavourite') : t('addFavourite')}
-    >
-      <Star size={16} aria-hidden="true" fill={kb.isFavourite ? 'currentColor' : 'none'} />
-    </button>
-  );
-}
-
-/**
- * The per-card action buttons, extracted so the card and the compact list row
- * render ONE copy rather than two that could drift. Every gate below is the
- * shared predicate the rest of the app uses — none of them is re-derived here.
- */
-function KbCardActions({
+function kbCardActions({
   kb, systemRole, removingKb, t, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB,
-  includeFavourite = true,
 }: Pick<PrivateKbCardProps,
-  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavourite'
-  | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>
-  & {
-    /** The list row renders the star FIRST instead, so it opts out here. */
-    includeFavourite?: boolean;
-  }) {
-  return (
-    <>
-      {includeFavourite && <FavouriteButton kb={kb} t={t} onToggleFavourite={onToggleFavourite} />}
-          {canManageMembers(kb) && (
-            <button
-              onClick={(e) => onOpenShare(kb, e)}
-              className="home-view__mini-icon"
-              title={t('share')}
-              aria-label={t('share')}
-            >
-              <UserPlus size={16} aria-hidden="true" />
-            </button>
-          )}
-
-          {/* Rename: owner-only (superadmin resolves to owner). Stricter than
-              the members/settings buttons beside it — a KB admin member edits
-              everything about a KB except its name. canRenameKb is the
-              shared predicate with ChatView's header trigger, mirroring
-              kbaccess.CanRename on the server. */}
-          {canRenameKb(kb, systemRole) && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onRenameKB(kb, e); }}
-              className="home-view__mini-icon"
-              title={t('renameKb')}
-              aria-label={t('renameKb')}
-            >
-              <Pencil size={16} aria-hidden="true" />
-            </button>
-          )}
-
-          {/* RAG settings / evals / workflow (KbSettingsPanel). NOT the same
-              gate as the members button beside it: every endpoint the panel
-              calls is kbAdvancedChain, which requires a system role in
-              {api-user, admin, superadmin} as well as the KB admin role.
-              canOpenKbAdvancedSettings is the shared predicate — ChatView's
-              trigger calls the same one, so the two entry points cannot drift
-              apart again. */}
-          {canOpenKbAdvancedSettings(kb, systemRole) && (
-            <button
-              onClick={(e) => onOpenKbSettings(kb, e)}
-              className="home-view__mini-icon"
-              title={t('kbAdvancedSettings')}
-              aria-label={t('kbAdvancedSettings')}
-            >
-              <SlidersHorizontal size={16} aria-hidden="true" />
-            </button>
-          )}
-
-          {/* Label + aria-label reflect the caller's own role: owners
-              delete the KB outright, everyone else only leaves it
-              (removeKb — useKbRemoval — decides which request that
-              means; a missing myRole is treated as an implicit
-              viewer, never as owner). Disabled while any removal is
-              in flight (useKbRemoval.removing) so a double-click
-              can't open a second confirmation or fire a second
-              request — the hook also guards re-entry itself, this is
-              just the UI-visible half of that guard. */}
-          <button
-            onClick={(e) => onDeleteKB(kb, e)}
-            className="home-view__mini-icon"
-            disabled={removingKb}
-            title={kb.myRole === 'owner' ? t('deleteKb') : t('removeFromMyView')}
-            aria-label={kb.myRole === 'owner' ? t('deleteKb') : t('removeFromMyView')}
-          >
-            <Trash2 size={16} aria-hidden="true" />
-          </button>
-    </>
-  );
+  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavourite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
+): ActionMenuItem[] {
+  const asMouse = (e: Event) => e as unknown as React.MouseEvent;
+  // The favourite is ungated — the caller's own flag, not a permission. Its
+  // label names what selecting it DOES, so it flips with the state.
+  const items: ActionMenuItem[] = [{
+    label: kb.isFavourite ? t('removeFavourite') : t('addFavourite'),
+    icon: <Star size={16} aria-hidden="true" fill={kb.isFavourite ? 'currentColor' : 'none'} />,
+    onSelect: e => onToggleFavourite(kb, asMouse(e)),
+  }];
+  if (canManageMembers(kb)) {
+    items.push({ label: t('share'), icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
+  }
+  // Rename: owner-only (superadmin resolves to owner), mirroring
+  // kbaccess.CanRename on the server — a KB admin edits everything but the name.
+  if (canRenameKb(kb, systemRole)) {
+    items.push({ label: t('renameKb'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
+  }
+  // RAG settings: kbAdvancedChain needs a system role in {api-user, admin,
+  // superadmin} on top of the KB admin role — not the members gate.
+  if (canOpenKbAdvancedSettings(kb, systemRole)) {
+    items.push({ label: t('kbAdvancedSettings'), icon: <SlidersHorizontal size={16} aria-hidden="true" />, onSelect: e => onOpenKbSettings(kb, asMouse(e)) });
+  }
+  // Owners delete the KB, everyone else only leaves it (useKbRemoval decides
+  // the request). Disabled while any removal is in flight.
+  items.push({
+    label: kb.myRole === 'owner' ? t('deleteKb') : t('removeFromMyView'),
+    icon: <Trash2 size={16} aria-hidden="true" />,
+    destructive: true,
+    disabled: removingKb,
+    separatorBefore: true,
+    onSelect: e => onDeleteKB(kb, asMouse(e)),
+  });
+  return items;
 }
+
+/** A click on one of the card's own controls — or on its portaled menu, whose
+ *  React events still bubble through the card. */
+const isControlClick = (e: React.MouseEvent) =>
+  (e.target as HTMLElement).closest('button, a, [role="menu"], [role="menuitem"]') !== null;
 
 // PrivateKbCard is one tile in „Mein Wissen" and in „Geteiltes Wissen" — the
 // same card in both, since the only difference between them is the caller's own
@@ -361,37 +313,19 @@ function KbCardActions({
 export function PrivateKbCard({
   kb, currentUserId, systemRole, removingKb, rtf, t, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
-  const actions = (
-    <KbCardActions
-      kb={kb}
-      systemRole={systemRole}
-      removingKb={removingKb}
-      t={t}
-      onOpenShare={onOpenShare}
-      onToggleFavourite={onToggleFavourite}
-      onOpenKbSettings={onOpenKbSettings}
-      onRenameKB={onRenameKB}
-      onDeleteKB={onDeleteKB}
+  const menu = (
+    <ActionMenu
+      actions={kbCardActions({ kb, systemRole, removingKb, t, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB })}
+      label={`${t('kbActions')}: ${kb.name}`}
+      triggerClassName="size-6 rounded-[var(--ui-radius-control)]"
     />
   );
 
-  /* The same set minus the star, which the list row renders up front. Built
-     from the same component as the card's, so the two orders cannot drift into
-     two different action sets. */
-  const compactActions = (
-    <KbCardActions
-      kb={kb}
-      systemRole={systemRole}
-      removingKb={removingKb}
-      t={t}
-      onOpenShare={onOpenShare}
-      onToggleFavourite={onToggleFavourite}
-      onOpenKbSettings={onOpenKbSettings}
-      onRenameKB={onRenameKB}
-      onDeleteKB={onDeleteKB}
-      includeFavourite={false}
-    />
-  );
+  // A favourite shows a filled star ahead of its title; toggling it is a menu
+  // action. Decorative: the state is in the menu item's label.
+  const favStar = kb.isFavourite ? (
+    <Star size={16} fill="currentColor" aria-hidden="true" className="home-view__fav-star" />
+  ) : null;
 
   const nameButton = (
     <button
@@ -427,15 +361,11 @@ export function PrivateKbCard({
   if (compact) {
     return (
       <div
-        className="flex cursor-pointer items-center gap-stack-md rounded-action border border-outline-variant bg-surface-container-lowest p-stack-md transition-colors hover:border-primary"
+        className="flex cursor-pointer items-center gap-stack-md rounded-[var(--ui-radius-card)] border border-outline-variant bg-surface-container-lowest p-stack-md transition-colors hover:bg-secondary-container"
         role="presentation"
-        onClick={() => onSelectKB(kb)}
+        onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
       >
-        {/* FIRST in the row, ahead of the title (developer ruling). It is also
-            what aligns the title with the create tile's label: both rows are
-            `p-stack-md`, and this button and that tile's icon box are the same
-            24px square, so the two texts start at one x. */}
-        <FavouriteButton kb={kb} t={t} onToggleFavourite={onToggleFavourite} />
+        {favStar}
         <div className="flex min-w-0 flex-1 items-center font-body-base text-body-base text-on-surface">
           <span className="truncate">{nameButton}</span>
         </div>
@@ -445,7 +375,7 @@ export function PrivateKbCard({
             {lastActiveLabel(kb, rtf, t)}
           </span>
           <VisibilityBadge kb={kb} t={t} />
-          {compactActions}
+          {menu}
         </div>
       </div>
     );
@@ -458,17 +388,15 @@ export function PrivateKbCard({
     <div
       className="source-card home-view__kb-card"
       role="presentation"
-      onClick={() => onSelectKB(kb)}
+      onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
     >
+      {/* Title first, top left (after the star of a favourite); every action,
+          the favourite toggle included, sits in the ⋮ menu top right. */}
       <div className="home-view__card-top">
-        <BookOpen size={20} color="var(--text-secondary)" aria-hidden="true" />
-        <div className="home-view__badge-row">
-          <VisibilityBadge kb={kb} t={t} />
-          {actions}
-        </div>
+        {favStar}
+        <div className="source-title home-view__kb-name">{nameButton}</div>
+        {menu}
       </div>
-
-      <div className="source-title home-view__kb-name">{nameButton}</div>
 
       <div className="home-view__meta-row">
         <div className="source-meta home-view__kb-meta">{lastActiveLabel(kb, rtf, t)}</div>
@@ -483,7 +411,11 @@ export function PrivateKbCard({
           </div>
         )}
       </div>
-      <KbCardChips kb={kb} t={t} />
+      {/* Footer: scent chips left, the visibility badge right. */}
+      <div className="home-view__card-footer">
+        <KbCardChips kb={kb} t={t} compact />
+        <VisibilityBadge kb={kb} t={t} />
+      </div>
     </div>
   );
 }

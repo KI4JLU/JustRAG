@@ -16,6 +16,13 @@ import { useKbRemoval } from '../hooks/useKbRemoval';
 import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 
+/** Opens the topic card's ⋮ menu; the card actions live there. */
+async function kbMenu() {
+  await userEvent.click(screen.getByRole('button', { name: new RegExp(`^${translations.kbActions.en}: `) }));
+  return within(await screen.findByRole('menu'));
+}
+
+
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
 
@@ -542,10 +549,10 @@ describe('AppChrome, through the view that mounts it', () => {
 // members or hand out roles. It must key on myRole instead.
 describe('MyTopicsView members-dialog trigger', () => {
 
-  it('shows the trigger for a caller whose myRole is owner', () => {
+  it('shows the trigger for a caller whose myRole is owner', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.getByRole('button', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
 
@@ -565,14 +572,14 @@ describe('MyTopicsView KB-settings trigger', () => {
     authState.role = 'user';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
   });
 
-  it('still offers the plain owner the members dialog — only the advanced surface is gated', () => {
+  it('still offers the plain owner the members dialog — only the advanced surface is gated', async () => {
     authState.role = 'user';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.getByRole('button', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
   it('shows the trigger for an api-user who owns the KB, and hands the KB to the callback', async () => {
@@ -580,16 +587,16 @@ describe('MyTopicsView KB-settings trigger', () => {
     const onOpenKbSettings = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onOpenKbSettings={onOpenKbSettings} />);
-    await userEvent.click(screen.getByRole('button', { name: label }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
     expect(onOpenKbSettings).toHaveBeenCalledWith(kb, expect.anything());
   });
 
 
-  it('shows the trigger for a superadmin', () => {
+  it('shows the trigger for a superadmin', async () => {
     authState.role = 'superadmin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: label })).toBeInTheDocument();
   });
 
 });
@@ -605,7 +612,7 @@ describe('MyTopicsView rename trigger', () => {
     const onRenameKB = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onRenameKB={onRenameKB} />);
-    await userEvent.click(screen.getByRole('button', { name: label }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
     expect(onRenameKB).toHaveBeenCalledWith(kb, expect.anything());
   });
 
@@ -614,7 +621,7 @@ describe('MyTopicsView rename trigger', () => {
     const onSelectKB = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} onRenameKB={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: label }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
     expect(onSelectKB).not.toHaveBeenCalled();
   });
 
@@ -813,11 +820,11 @@ describe('MyTopicsView ordering', () => {
 });
 
 describe('KB visibility badge', () => {
-  it('shows "personal" for a private KB with only the owner', async () => {
+  it('shows "private" for a private KB with only the owner', async () => {
     renderMyTopicsView({ kbs: [{ ...baseKb, id: 'kb-1', name: 'Meine KB', visibility: 'private', memberCount: 1, myRole: 'owner' }] });
     // The harness's `t` answers in English, so wait on the fixture's own name.
     await screen.findByText('Meine KB');
-    expect(inCards().getByText(/persönlich|personal/i)).toBeInTheDocument();
+    expect(inCards().getByText(/^privat(e)?$/i)).toBeInTheDocument();
   });
 
   it('shows the member count for a shared private KB', async () => {
