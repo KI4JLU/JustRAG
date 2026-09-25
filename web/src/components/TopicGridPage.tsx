@@ -61,9 +61,9 @@ export interface TopicGridPageProps {
    * Shown ABOVE the grid when there are no items — it does not replace it, so a
    * page with a create tile never hides the way out of being empty.
    *
-   * „Werkzeuge" is the caller: its tile is disabled, so without this the page
-   * would be one greyed-out control and no explanation of why. „Mein Wissen"
-   * and „Geteiltes Wissen" pass none — their tiles speak for themselves.
+   * „Werkzeuge" was the caller while its only tile was a disabled placeholder;
+   * since card KI-833 it lists a real tool and passes none. „Mein Wissen" and
+   * „Geteiltes Wissen" pass none either — their tiles speak for themselves.
    */
   emptyState?: ReactNode;
 }

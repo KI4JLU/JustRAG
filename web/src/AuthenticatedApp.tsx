@@ -61,6 +61,12 @@ const LoadingFallback = () => (
   </div>
 );
 
+/** First occurrence wins; order is kept. */
+function uniqueById(kbs: KnowledgeBase[]): KnowledgeBase[] {
+  const seen = new Set<string>();
+  return kbs.filter(kb => (seen.has(kb.id) ? false : (seen.add(kb.id), true)));
+}
+
 function OnboardingHelpButton({ onClick }: { onClick: () => void }) {
   const { t } = useTheme();
   return (
@@ -243,12 +249,11 @@ function AuthenticatedAppInner() {
   // this exists for — only reached the overview after a full page reload.
   const { fetchKBs } = kbMgmt;
   useEffect(() => {
-    // All three topic views, because all three render `kbs`/`globalKbs`: a
-    // topic shared or published while the user was elsewhere in the session
-    // would otherwise be missing from the very view that exists to show it,
-    // until a full page reload. 'tools' is deliberately absent — it renders no
-    // topic, so landing on it is not a reason to refetch.
-    if (view === 'my-topics' || view === 'shared-topics' || view === 'discover') {
+    // Every view that renders `kbs`/`globalKbs`: a topic shared or published
+    // while the user was elsewhere in the session would otherwise be missing
+    // from the very view that exists to show it, until a full page reload.
+    // 'tools' joined with card KI-833 — its topic picker lists the same rows.
+    if (view === 'my-topics' || view === 'shared-topics' || view === 'discover' || view === 'tools') {
       void fetchKBs({ silent: true });
     }
   }, [view, fetchKBs]);
@@ -402,7 +407,7 @@ function AuthenticatedAppInner() {
    * nothing. `Footer` stays, so the legal pages remain reachable. */
   if (view === 'tools') {
     /* THE SAME THREE PROVIDERS AS EVERY OTHER VIEW, even though the page itself
-       is a placeholder that renders no topic and no search target.
+       renders no search target (it was a placeholder when this was written).
  
        They are not the VIEW's dependencies, they are `AppChrome`'s: the shell
        reads `useKbSearch` for the top-bar field and `useSharingContext` for the
@@ -415,7 +420,12 @@ function AuthenticatedAppInner() {
       <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
-        <ToolsView />
+        {/* Owned + shared (`kbs`) and subscribed public topics (`globalKbs`):
+            generated content is view-gated, so every one of them is a valid
+            target for the text-documents tool. The two lists are disjoint
+            (GET /api/kb returns private topics only); the id filter is a guard,
+            not a known case. */}
+        <ToolsView topics={uniqueById([...kbMgmt.kbs, ...kbMgmt.globalKbs])} />
       </KbSearchProvider>
       </AppNavProvider>
       </SharingProvider>

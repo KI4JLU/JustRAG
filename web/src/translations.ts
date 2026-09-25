@@ -162,13 +162,6 @@ export const translations = {
       en: 'Could not save the favourite.',
     },
 
-    /* „Werkzeuge" placeholder content. */
-    toolsEmptyTitle: { de: 'Noch keine Werkzeuge', en: 'No tools yet' },
-    toolsEmptyBody: {
-      de: 'Ausgewählte Werkzeuge aus dem Arbeitsbereich ziehen hierher um. Sobald das erste verfügbar ist, findest du es an dieser Stelle.',
-      en: 'Selected tools from the workspace area will move here. As soon as the first one is available, you will find it in this place.',
-    },
-
     /* The section heading for the global half. „Global sichtbar" and not
      * „Öffentlich": a public topic is visible to everyone signed in, not to the
      * open internet, and „öffentlich" would promise the second. */
@@ -182,10 +175,48 @@ export const translations = {
 
     tools: { de: 'Werkzeuge', en: 'Tools' },
     toolsDescription: {
-      de: 'Ausgewählte Werkzeuge aus dem Arbeitsbereich ziehen hierher um. Noch ist die Seite ein Platzhalter.',
-      en: 'Selected tools from the workspace area will move here. For now this page is a placeholder.',
+      de: 'Werkzeuge erzeugen aus einem Thema ein eigenständiges Ergebnis.',
+      en: 'Tools turn a topic into a standalone result.',
     },
-    newTool: { de: 'Neues Werkzeug', en: 'New tool' },
+
+    /* The „Textdokumente" tool (card KI-833) — the first real tool on the page. */
+    textDocumentsTool: { de: 'Textdokumente', en: 'Text documents' },
+    textDocumentsToolDescription: {
+      de: 'Briefings, FAQs, Lernleitfäden, Zeitleisten und weitere Texte zu einem Thema erstellen, öffnen und bearbeiten.',
+      en: 'Create, open and edit briefings, FAQs, study guides, timelines and other texts for a topic.',
+    },
+    openTool: { de: 'Werkzeug öffnen', en: 'Open tool' },
+    backToTools: { de: 'Zurück zu Werkzeuge', en: 'Back to tools' },
+    toolTopicLabel: { de: 'Thema', en: 'Topic' },
+    toolTopicPlaceholder: { de: 'Thema wählen', en: 'Choose a topic' },
+    toolNoTopics: {
+      de: 'Du hast noch kein Thema. Lege zuerst unter „Mein Wissen" ein Thema an.',
+      en: 'You have no topic yet. Create one under "My Knowledge" first.',
+    },
+    textDocumentTypeLabel: { de: 'Dokumenttyp', en: 'Document type' },
+    textDocumentTypePlaceholder: { de: 'Typ wählen', en: 'Choose a type' },
+    createTextDocument: { de: 'Dokument erstellen', en: 'Create document' },
+    textDocumentsCreating: { de: 'Dokument wird erstellt …', en: 'Creating document…' },
+    textDocumentsResults: { de: 'Textdokumente zu diesem Thema', en: 'Text documents for this topic' },
+    textDocumentsColTitle: { de: 'Titel', en: 'Title' },
+    textDocumentsColType: { de: 'Typ', en: 'Type' },
+    textDocumentsColCreated: { de: 'Erstellt', en: 'Created' },
+    textDocumentsPickTopic: {
+      de: 'Wähle ein Thema, um seine Textdokumente zu sehen.',
+      en: 'Choose a topic to see its text documents.',
+    },
+    textDocumentsEmpty: {
+      de: 'Zu diesem Thema gibt es noch keine Textdokumente.',
+      en: 'There are no text documents for this topic yet.',
+    },
+    textDocumentsLoadFailed: {
+      de: 'Die Textdokumente konnten nicht geladen werden.',
+      en: 'The text documents could not be loaded.',
+    },
+    backToDocuments: { de: 'Zurück zur Liste', en: 'Back to the list' },
+    /* The type label of an existing `research` result. The `research` key is
+     * the Studio's action label („Bericht erstellen") and reads wrong there. */
+    artifactTypeResearch: { de: 'Bericht', en: 'Report' },
     // The three chrome labels AppShellLayout would otherwise render with its
     // German defaults.
     mainNavigation: { de: 'Hauptnavigation', en: 'Main navigation' },

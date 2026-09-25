@@ -155,9 +155,10 @@ function KbCardChips({ kb, t, compact = false }: { kb: KnowledgeBase; t: T; comp
 /**
  * The create tile. `onClick` is optional ONLY together with `disabled`: a tile
  * with neither is a button that looks live and swallows the click, which is
- * the failure mode `ToolsView`'s placeholder would otherwise have. `disabled`
+ * the failure mode `ToolsView`'s placeholder tile had to avoid. `disabled`
  * is the HTML attribute, so the control is announced as unavailable rather
- * than merely styled as such.
+ * than merely styled as such. (No caller passes `disabled` since card KI-833
+ * replaced that placeholder tile with the first real tool.)
  */
 export function CreateCell({
   onClick,
