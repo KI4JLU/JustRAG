@@ -68,6 +68,75 @@ All routes below are under `/api`.
 | DELETE | `/kb/{id}` |
 | GET | `/kb/{id}/files` |
 
+### Search
+
+| Method | Path | Auth |
+|---|---|---|
+| GET | `/search?q=<text>[&kb_id=<uuid>][&limit=<n>]` | authenticated (no KB role) |
+
+The shell header's global search: one request, one object with one array per
+result group. `internal/search`.
+
+- `q` is trimmed; fewer than 2 characters (counted in characters, not bytes)
+  is `400` — never a full listing. More than 200 characters is also `400`.
+- `limit` applies **per group**: default 5, maximum 20. A larger value is
+  clamped to 20; a non-integer or a value below 1 is `400`.
+- `kb_id` restricts every group to that topic. The caller needs at least
+  `view` on it. If the topic does not exist, is not visible to the caller, or
+  the id is not a UUID, the answer is `404` — never `403`, so the route cannot
+  confirm that a hidden topic exists.
+- Matching is a case-insensitive literal substring (`ILIKE`, with `%`, `_` and
+  `\` escaped). Topics match on name, description and header text; sources on
+  the file name. Order: name starts with `q`, then name contains `q`, then the
+  rest; ties by name.
+
+**Visibility.** Every group contains only topics the caller could open, decided
+per row by one SQL predicate that mirrors `kbaccess.EffectiveRole` rule for rule
+(superadmin → owner; a `kb_members` row → that role; public + system admin →
+admin; public + published → view; otherwise invisible). That is a superset of
+`GET /kb/catalog`: published public topics the caller has not subscribed to are
+included. Superadmins and system admins therefore see many results; that is
+intended, not a leak.
+
+```json
+{
+  "query": "prüfung",
+  "kbId": null,
+  "topics": [
+    {
+      "id": "uuid",
+      "name": "Prüfungsordnungen",
+      "description": "First 160 characters of the description …",
+      "visibility": "public",
+      "role": "view"
+    }
+  ],
+  "sources": [
+    { "id": "uuid", "name": "PO-2024.pdf", "type": "pdf", "kbId": "uuid", "kbName": "Prüfungsordnungen" }
+  ],
+  "chats": [
+    { "id": "uuid", "title": "…", "kbId": "uuid", "kbName": "…", "updatedAt": "RFC 3339" }
+  ],
+  "messages": [
+    {
+      "id": "uuid", "chatId": "uuid", "chatTitle": "…", "kbId": "uuid", "kbName": "…",
+      "role": "user", "snippet": "…", "createdAt": "RFC 3339"
+    }
+  ]
+}
+```
+
+- `kbId` echoes the (canonicalised) scope, or `null` for a global search.
+- `topics[].description` is the description, falling back to the header text,
+  whitespace-collapsed and cut at 160 characters (ending in `…` when cut);
+  `null` when both are empty. `role` is the caller's effective KB role.
+- `topics` and `sources` are always arrays (`[]` when nothing matched).
+- **`chats` and `messages` are absent** from every response until the chat
+  search (board card KI-836) lands. Absent means "this group was not
+  searched"; once a group is searched, no hits is `[]`. Clients must treat a
+  missing key as "not available", not as "no results". The two shapes above
+  are the proposed contract for KI-836 and may still be refined there.
+
 ### KB members and ownership
 
 Four roles, strictly ordered `view < edit < admin < owner` (migration 0064,

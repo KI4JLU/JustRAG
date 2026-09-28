@@ -78,6 +78,7 @@ import (
 	"github.com/justrag/go-backend/internal/research"
 	"github.com/justrag/go-backend/internal/rss"
 	"github.com/justrag/go-backend/internal/safego"
+	"github.com/justrag/go-backend/internal/search"
 	"github.com/justrag/go-backend/internal/sessionmem"
 	"github.com/justrag/go-backend/internal/siteconfig"
 	"github.com/justrag/go-backend/internal/sserelay"
@@ -828,6 +829,14 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("PUT /api/kb/{id}/subscription", rc.kbViewChain(kbSubsHandler.Subscribe))
 	rc.mux.Handle("DELETE /api/kb/{id}/subscription", rc.kbViewChain(kbSubsHandler.Unsubscribe))
 	rc.mux.Handle("GET /api/kb/catalog", rc.authMw.Authenticate(http.HandlerFunc(kbSubsHandler.Catalog)))
+
+	// Global search (shell header): topics and sources, optionally scoped to
+	// one topic via ?kb_id=. Authentication only — same "no KB in the path"
+	// pattern as GET /api/kb and GET /api/kb/catalog. Visibility is not a
+	// route gate here but a per-row SQL predicate in internal/search that
+	// mirrors kbaccess.EffectiveRole; a kb_id the caller cannot see is 404.
+	searchHandler := search.NewHandler(search.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/search", rc.authMw.Authenticate(http.HandlerFunc(searchHandler.Search)))
 
 	// Per-user topic filters — the shell's chip row ("Alle" / "Favoriten" /
 	// the caller's own categories). Display state only: a favourite or a tag
