@@ -245,6 +245,30 @@ describe('GlobalSearch', () => {
     expect(document.activeElement).toBe(field());
   });
 
+  /* KI-838. ORACLE: the recorded request URLs, in order. */
+  it('searches scoped again on the next keystroke after widening', async () => {
+    mockedGet.mockResolvedValue(response({ chats: [CHAT] }));
+    render(<Harness scopeKbId="kb-42" scopeLabel="Statistik" />);
+    const scoped = screen.getByRole('combobox', {
+      name: de('workspaceSearchPlaceholder').replace('{topic}', 'Statistik'),
+    });
+    await userEvent.type(scoped, 'Prüf');
+    await userEvent.click(await screen.findByRole('option', { name: de('workspaceSearchAllTopics') }));
+    await waitFor(() => expect(searchCalls().map(([u]) => String(u)).at(-1)).toMatch(/q=Pr%C3%BCf$/));
+    await userEvent.type(scoped, 'u');
+    await waitFor(() => expect(searchCalls().map(([u]) => String(u)).at(-1)).toMatch(/q=Pr%C3%BCfu&kb_id=kb-42$/));
+    expect(scoped).toHaveAccessibleName(de('workspaceSearchPlaceholder').replace('{topic}', 'Statistik'));
+  });
+
+  it('keeps an unscoped 404 as the generic error line', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockedGet.mockRejectedValueOnce({ response: { status: 404 } });
+    render(<Harness />);
+    await userEvent.type(field(), 'Prüf');
+    expect(await screen.findByRole('status')).toHaveTextContent(de('globalSearchError'));
+    expect(screen.queryByText(de('workspaceSearchTopicUnavailable'))).toBeNull();
+  });
+
   it('scopes the request to one topic when scopeKbId is set', async () => {
     mockedGet.mockResolvedValueOnce(response());
     render(<Harness scopeKbId="kb-42" />);

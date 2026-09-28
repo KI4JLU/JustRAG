@@ -1,4 +1,4 @@
-import { forwardRef, useState, type ReactNode } from 'react';
+import { forwardRef, useRef, useState, type ReactNode } from 'react';
 import {
   Combobox,
   ComboboxContent,
@@ -8,8 +8,9 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxLoading,
+  ComboboxSeparator,
 } from '@ki4jlu/design-system';
-import { BookOpen, Compass, FileText, MessageSquare, Search, TextQuote } from 'lucide-react';
+import { BookOpen, Compass, FileText, Globe, MessageSquare, Search, TextQuote } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { isSearchableQuery, useGlobalSearch } from '../hooks/useGlobalSearch';
 import { splitSnippet } from '../utils/searchSnippet';
@@ -44,8 +45,23 @@ export interface GlobalSearchProps {
   /** The field text. Held by the caller so it survives a remount. */
   query: string;
   onQueryChange: (next: string) => void;
-  /** Restrict every group to one topic (KI-838's workspace search). */
+  /**
+   * Restrict every group to one topic (KI-838's workspace search). The
+   * Topics group is then omitted, and a „search all topics" row at the end of
+   * the list repeats the same text without the scope — for the current query
+   * only: typing again, or reopening the list, searches scoped again.
+   */
   scopeKbId?: string;
+  /** The scoped topic's name, for the field's accessible name and placeholder. */
+  scopeLabel?: string;
+  /**
+   * Layout-only overrides for the list's popover: a width utility (the DS
+   * default is the field's width) and which edge of the field it aligns to.
+   * For a field narrower than a result row — the workspace's interim
+   * placement in `headerActions` (KI-838).
+   */
+  contentClassName?: string;
+  contentAlign?: 'start' | 'end';
   onOpenTopic: (hit: SearchTopicHit) => void;
   onOpenSource: (hit: SearchSourceHit) => void;
   onOpenChat: (hit: SearchChatHit) => void;
@@ -85,37 +101,87 @@ function HitText({ primary, secondary }: { primary: ReactNode; secondary?: React
 }
 
 export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(function GlobalSearch(
-  { query, onQueryChange, scopeKbId, onOpenTopic, onOpenSource, onOpenChat, onOpenMessage, onShowAllTopics },
+  {
+    query, onQueryChange, scopeKbId, scopeLabel, contentClassName, contentAlign,
+    onOpenTopic, onOpenSource, onOpenChat, onOpenMessage, onShowAllTopics,
+  },
   ref,
 ) {
   const { t } = useTheme();
-  const { state, search, hasSearched } = useGlobalSearch({ scopeKbId });
+  const { state, search, hasSearched } = useGlobalSearch();
   const [open, setOpen] = useState(false);
+  /* Widened past `scopeKbId` for the current query (KI-838). Mirrored in a
+     ref because `ComboboxInput` calls `onValueChange` and then
+     `onOpenChange` in ONE event, before a re-render: the open handler must
+     see the reset the keystroke just made, not the value it closed over. */
+  const [widened, setWidenedState] = useState(false);
+  const widenedRef = useRef(false);
+  const setWidened = (next: boolean) => {
+    widenedRef.current = next;
+    setWidenedState(next);
+  };
+  /* The widen row is a `ComboboxItem`, and the DS closes the list after every
+     item's `onSelect`. For that one row the close is refused here — the whole
+     point is to show the widened results in the same open list. */
+  const keepOpen = useRef(false);
+  const scoped = !!scopeKbId && !widened;
 
   const handleQuery = (next: string) => {
     onQueryChange(next);
-    search(next);
+    setWidened(false);
+    search(next, scopeKbId);
   };
 
   const handleOpenChange = (next: boolean) => {
+    if (!next && keepOpen.current) {
+      keepOpen.current = false;
+      return;
+    }
+    const reopening = next && !open;
     setOpen(next);
+    if (!next) return;
     // A fresh instance can hold remembered text it never searched for (the
     // chrome was rebuilt after the Discover row). ↓ then opens the list, so
     // ask for results rather than opening onto nothing. Typing never reaches
     // this branch: `ComboboxInput` fires `onValueChange` — and so `search` —
     // before it asks to open.
-    if (next && !hasSearched()) search(query);
+    if (!hasSearched()) {
+      search(query, scopeKbId);
+      return;
+    }
+    // Widening lasts for one query: reopening the list starts scoped again.
+    if (reopening && widenedRef.current) {
+      setWidened(false);
+      search(query, scopeKbId);
+    }
+  };
+
+  const widen = () => {
+    keepOpen.current = true;
+    setWidened(true);
+    search(query);
   };
 
   /** Leaves the chrome for a hit: the text has done its job. */
   const leaveWith = (go: () => void) => {
     onQueryChange('');
+    setWidened(false);
     search('');
     go();
   };
 
   const trimmed = query.trim();
   const results = state.status === 'done' ? state.results : null;
+  // Scoped mode drops the Topics group: every hit is in the one topic anyway.
+  const topics = results && !scoped ? results.topics : [];
+  const nothingFound = !!results && topics.length + results.sources.length
+    + results.chats.length + results.messages.length === 0;
+  // The row is offered once a scoped request has settled, found or not —
+  // an empty topic and a vanished one are exactly when it helps most.
+  const offerWiden = scoped && (state.status === 'done' || state.status === 'not-found');
+  const fieldLabel = scoped && scopeLabel
+    ? t('workspaceSearchPlaceholder').replace('{topic}', scopeLabel)
+    : t('globalSearchPlaceholder');
 
   return (
     <Combobox
@@ -125,13 +191,13 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
     >
       <ComboboxInput
         ref={ref}
-        aria-label={t('globalSearchPlaceholder')}
-        placeholder={t('globalSearchPlaceholder')}
+        aria-label={fieldLabel}
+        placeholder={fieldLabel}
         leadingIcon={<Search aria-hidden="true" />}
         value={query}
         onValueChange={handleQuery}
       />
-      <ComboboxContent>
+      <ComboboxContent className={contentClassName} align={contentAlign}>
         {state.status === 'loading' ? (
           <ComboboxLoading label={t('globalSearchLoading')}>{t('globalSearchLoading')}</ComboboxLoading>
         ) : null}
@@ -140,20 +206,32 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
             {t('globalSearchRateLimited')}
           </p>
         ) : null}
+        {state.status === 'not-found' ? (
+          <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
+            {t('workspaceSearchTopicUnavailable')}
+          </p>
+        ) : null}
+        {/* Scoped and empty: the widen row is still an option, so the DS
+            `ComboboxEmpty` (which renders only for zero options) cannot say it. */}
+        {offerWiden && nothingFound ? (
+          <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
+            {t('workspaceSearchNoResults').replace('{query}', trimmed)}
+          </p>
+        ) : null}
         {state.status === 'error' ? (
           <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
             {t('globalSearchError')}
           </p>
         ) : null}
-        {results ? (
+        {results && !offerWiden ? (
           <ComboboxEmpty>{t('globalSearchNoResults').replace('{query}', trimmed)}</ComboboxEmpty>
         ) : null}
         <ComboboxList label={t('globalSearchResults')}>
           {results ? (
             <>
-              {results.topics.length > 0 ? (
+              {topics.length > 0 ? (
                 <ComboboxGroup heading={t('globalSearchGroupTopics')}>
-                  {results.topics.map((hit) => (
+                  {topics.map((hit) => (
                     <ComboboxItem
                       key={hit.id}
                       value={`topic:${hit.id}`}
@@ -216,6 +294,15 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
                   ))}
                 </ComboboxGroup>
               ) : null}
+            </>
+          ) : null}
+          {offerWiden ? (
+            <>
+              {!nothingFound ? <ComboboxSeparator alwaysRender /> : null}
+              <ComboboxItem value="scope:all-topics" onSelect={widen}>
+                <Globe aria-hidden="true" />
+                <HitText primary={t('workspaceSearchAllTopics')} />
+              </ComboboxItem>
             </>
           ) : null}
         </ComboboxList>

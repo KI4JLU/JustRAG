@@ -58,6 +58,24 @@ interface UseSearchNavigationParams {
   selectChat: (entry: ChatEntry) => Promise<void> | void;
 }
 
+/**
+ * A `ChatEntry` built from a search hit alone — the fallback when the chat
+ * list does not carry the chat. `type` is what `handleSelectChat` routes on;
+ * `teamId`/`agentId` are unknown here (see the header above).
+ */
+export function chatEntryFromTarget(target: SearchChatTarget): ChatEntry {
+  return {
+    id: target.chatId,
+    kbId: target.kbId,
+    // Not in the hit; `handleSelectChat` does not read it.
+    userId: '',
+    title: target.title,
+    type: target.type,
+    createdAt: target.timestamp,
+    updatedAt: target.timestamp,
+  };
+}
+
 async function fetchChatEntry(kbId: string, chatId: string): Promise<ChatEntry | null> {
   try {
     const res = await axios.get(`${API_BASE_URL}/api/kb/${kbId}/chats`);
@@ -85,16 +103,7 @@ export function useSearchNavigation({ openKbById, previewSource, selectChat }: U
       fetchChatEntry(target.kbId, target.chatId),
     ]);
     if (!opened) return;
-    const entry: ChatEntry = listed ?? {
-      id: target.chatId,
-      kbId: target.kbId,
-      // Not in the hit; `handleSelectChat` does not read it.
-      userId: '',
-      title: target.title,
-      type: target.type,
-      createdAt: target.timestamp,
-      updatedAt: target.timestamp,
-    };
+    const entry: ChatEntry = listed ?? chatEntryFromTarget(target);
     // Only now: `handleNewChat` ran inside `openKbById`, so this selection is
     // the last write to the chat state rather than the first.
     await selectChat(entry);

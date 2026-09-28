@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect } from 'storybook/test';
-import { AppShellLayout, SidebarPanel, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
-import { History, MessageSquare } from 'lucide-react';
+import { expect, fn, waitFor, within } from 'storybook/test';
+import { AppShellLayout, Button, SidebarPanel, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
+import { ArrowLeft, History, MessageSquare, Settings } from 'lucide-react';
+import { WorkspaceSearchField } from './WorkspaceSearch';
+import { apiMockHistory } from '../../.storybook/mockApi';
 import './sidebar-primitives.css';
 import './history/HistoryPanel.css';
 import './sidebar/SourcesGrid.css';
@@ -162,5 +164,181 @@ export const KbColumnHeadingBaseline: Story = {
     // Abstand der Überschrift zum jeweils eigenen Spaltenrand: links vom
     // linken Rand, rechts vom linken Rand der rechten Spalte.
     await expect(Math.abs((leftRect.left - lp.left) - (rightRect.left - rp.left))).toBeLessThanOrEqual(1);
+  },
+};
+
+/* ---------------------------------------------------------------------------
+ * ACCEPTANCE: the workspace bar WITH the topic-scoped search (card KI-838).
+ *
+ * WHAT IT GUARDS. The bar carries four things — back button and title
+ * (`pageLabel`), the search and the system-prompt gear (`headerActions`) — and
+ * it has to stay 64px (`Toast.css`'s `top: 76px`), keep the topic title
+ * readable, overlap nothing, and let the open list hang under the field
+ * without the bar clipping it. jsdom performs no layout; only Chromium can say
+ * any of that.
+ *
+ * WHY THE SEARCH IS IN `headerActions` (interim, PM decision 2026-09-28). In
+ * the `search` slot this story measured, at 1280px with both columns at 320px:
+ * label region 16px, title 0px, the 448px centre region overlapped by the back
+ * button and the gear (4px each). That is a DS gap (the centre region never
+ * yields), carded as DS KI-842. Until it ships the field sits before the gear
+ * at `WORKSPACE_SEARCH_INTERIM_CLASS`'s fixed width.
+ * // TODO: move back to the search slot once DS KI-842 ships — and point this
+ * // story at the `search` slot again; its assertions stay as they are.
+ *
+ * WHAT IS REAL: the shell, the stylesheets, `WorkspaceSearchField` with its
+ * default (interim) wrapper class — the exact markup `KbWorkspaceLayout` puts
+ * in `headerActions`, minus the context reads — `GlobalSearch`, the DS
+ * Combobox, and `GET /api/search` through the story API mock. The pageLabel
+ * and gear are rebuilt from the same DS `Button`s `KbWorkspaceLayout.tsx`
+ * uses; the title is a deliberately LONG name, the worst case for width.
+ *
+ * THE MEASURED CASE is the one that failed: the runner's fixed 1280px
+ * viewport (vitest.config.ts) with both columns open at the app's default
+ * 320px (`useSidebarResize`). Below `lg` the field is not rendered at all.
+ * // TODO: re-measure at exactly `lg` (1024px) with both columns open — not
+ * // yet confirmed.
+ *
+ * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`,
+ * `scrollWidth`), the constant 64 in `Toast.css`, the 120px title minimum set
+ * by the PM, the API mock's request log for `kb_id`, `document.activeElement`.
+ * ------------------------------------------------------------------------- */
+
+const LONG_TOPIC = 'Prüfungs- und Studienordnungen des Fachbereichs Wirtschaftswissenschaften';
+
+const WorkspaceBarHarness = () => {
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  return (
+    <AppShellLayout
+      logo={<Logo product="RAG" />}
+      nav={<HistoryHeading />}
+      navLabel="Verlauf"
+      pageLabel={
+        <span className="flex min-w-0 items-center gap-2">
+          <Button type="button" variant="ghost" size="icon" aria-label="Zurück zur Übersicht" className="shrink-0">
+            <ArrowLeft size={20} aria-hidden="true" />
+          </Button>
+          <span className="truncate" data-testid="topic-title">{LONG_TOPIC}</span>
+        </span>
+      }
+      headerActions={
+        <>
+          <WorkspaceSearchField
+            kbId="kb-1"
+            kbName={LONG_TOPIC}
+            onOpenTopic={fn()}
+            onOpenSource={fn()}
+            onOpenChat={fn()}
+          />
+          <Button type="button" variant="ghost" size="icon" aria-label="System-Prompt">
+            <Settings size={20} aria-hidden="true" />
+          </Button>
+        </>
+      }
+      leftOpen={leftOpen}
+      onLeftOpenChange={setLeftOpen}
+      leftWidth={320}
+      rightPanel={{
+        content: <SourcesHeading />,
+        label: 'Quellen',
+        isOpen: rightOpen,
+        onOpenChange: setRightOpen,
+        width: 320,
+        expandLabel: 'Quellenleiste ausklappen',
+        collapseLabel: 'Quellenleiste einklappen',
+      }}
+      mobileTabs={mobileTabs}
+      activeMobileTab="chat"
+      onMobileTabChange={() => {}}
+      mobileTabBarLabel="Bereich wechseln"
+    />
+  );
+};
+
+export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> = {
+  render: () => <WorkspaceBarHarness />,
+  beforeEach: () => {
+    localStorage.setItem('language', 'de');
+  },
+  parameters: {
+    api: {
+      search: {
+        query: 'Mo', kbId: 'kb-1', topics: [],
+        sources: [{ id: 'f-1', name: 'Modulhandbuch.pdf', type: 'pdf', kbId: 'kb-1', kbName: LONG_TOPIC, match: 'prefix' }],
+        chats: [{ id: 'c-1', title: 'Modulwahl', type: 'chat', kbId: 'kb-1', kbName: LONG_TOPIC, updatedAt: '2026-09-20T10:00:00Z', match: 'prefix' }],
+        messages: [{ id: 'm-1', chatId: 'c-2', chatTitle: 'Pflichtmodule', chatType: 'chat', kbId: 'kb-1', kbName: LONG_TOPIC, role: 'assistant', snippet: 'die \uE000Module\uE001 A und B', createdAt: '2026-09-20T10:00:00Z' }],
+      },
+    },
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const doc = canvasElement.ownerDocument;
+    const body = within(doc.body);
+    const wrapper = canvas.getByTestId('workspace-search');
+    const bar = wrapper.closest('header') as HTMLElement;
+    await expect(bar).not.toBeNull();
+    await expect(bar.getBoundingClientRect().height).toBe(64);
+    const barBox = bar.getBoundingClientRect();
+
+    const back = canvas.getByRole('button', { name: 'Zurück zur Übersicht' }).getBoundingClientRect();
+    const title = canvas.getByTestId('topic-title').getBoundingClientRect();
+    const field = wrapper.getBoundingClientRect();
+    const gear = canvas.getByRole('button', { name: 'System-Prompt' }).getBoundingClientRect();
+    const describe = `bar ${JSON.stringify(barBox)} back ${JSON.stringify(back)} title ${JSON.stringify(title)} field ${JSON.stringify(field)} gear ${JSON.stringify(gear)}`;
+
+    // The title stays readable: at least 120px (PM acceptance criterion).
+    await expect(title.width, describe).toBeGreaterThanOrEqual(120);
+    // All four are real boxes inside the bar…
+    for (const box of [back, title, field, gear]) {
+      await expect(box.width, describe).toBeGreaterThan(0);
+      await expect(box.left, describe).toBeGreaterThanOrEqual(barBox.left);
+      await expect(box.right, describe).toBeLessThanOrEqual(barBox.right + 0.5);
+    }
+    // …in this order, with no overlap between neighbours.
+    await expect(back.right, describe).toBeLessThanOrEqual(title.left + 0.5);
+    await expect(title.right, describe).toBeLessThanOrEqual(field.left + 0.5);
+    await expect(field.right, describe).toBeLessThanOrEqual(gear.left + 0.5);
+    // Nothing overflows the bar horizontally.
+    await expect(bar.scrollWidth).toBeLessThanOrEqual(bar.clientWidth);
+
+    // The scope is in the accessible name.
+    const input = canvas.getByRole('combobox', { name: `In „${LONG_TOPIC}“ suchen…` });
+    await userEvent.type(input, 'Mo');
+    const listbox = await body.findByRole('listbox', { name: 'Suchergebnisse' });
+    const options = await within(listbox).findAllByRole('option');
+
+    // ORACLE: the request log — the scoped request carried kb_id.
+    const history = apiMockHistory();
+    await expect(history?.get.map((r) => r.url).filter((u) => u?.includes('/api/search'))).toEqual([
+      expect.stringMatching(/\/api\/search\?q=Mo&kb_id=kb-1$/),
+    ]);
+
+    // Open: still 64px; the list is outside the bar, BELOW the field, hangs
+    // from the field's right edge (`align="end"`), and stays in the viewport.
+    await expect(bar.getBoundingClientRect().height).toBe(64);
+    await expect(bar.contains(listbox)).toBe(false);
+    const inputBox = input.getBoundingClientRect();
+    const popup = (listbox.closest('[data-radix-popper-content-wrapper]') ?? listbox) as HTMLElement;
+    const popupBox = popup.getBoundingClientRect();
+    await expect(popupBox.top).toBeGreaterThanOrEqual(inputBox.bottom);
+    await expect(Math.abs(popupBox.right - inputBox.right)).toBeLessThanOrEqual(1);
+    await expect(popupBox.left).toBeGreaterThanOrEqual(0);
+    await expect(popupBox.right).toBeLessThanOrEqual(doc.documentElement.clientWidth);
+    // …and wider than the 192px field, so a result row is readable.
+    await expect(popupBox.width).toBeGreaterThan(inputBox.width);
+
+    // Not clipped or covered: the browser hit-tests the last option.
+    const last = options[options.length - 1];
+    await expect(last).toHaveAccessibleName('In allen Themen suchen');
+    last.scrollIntoView({ block: 'nearest' });
+    const lastBox = last.getBoundingClientRect();
+    await expect(lastBox.top).toBeGreaterThan(bar.getBoundingClientRect().bottom);
+    const hit = doc.elementFromPoint(lastBox.left + lastBox.width / 2, lastBox.top + lastBox.height / 2);
+    await expect(last.contains(hit)).toBe(true);
+    await expect(doc.activeElement).toBe(input);
+
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(body.queryByRole('listbox')).toBeNull());
+    await expect(bar.getBoundingClientRect().height).toBe(64);
   },
 };

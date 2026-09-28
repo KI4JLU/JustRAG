@@ -705,6 +705,13 @@ export const translations = {
     globalSearchNoResults: { de: 'Keine Treffer für „{query}“', en: 'No results for “{query}”' },
     globalSearchRateLimited: { de: 'Zu viele Suchanfragen – bitte einen Moment warten.', en: 'Too many searches – please wait a moment.' },
     globalSearchError: { de: 'Die Suche ist gerade nicht verfügbar.', en: 'Search is unavailable right now.' },
+    /* The workspace's topic-scoped search (card KI-838). `{topic}` is the
+     * topic's name — the placeholder doubles as the accessible name, so the
+     * scope is audible, not only visible. */
+    workspaceSearchPlaceholder: { de: 'In „{topic}“ suchen…', en: 'Search in “{topic}”…' },
+    workspaceSearchAllTopics: { de: 'In allen Themen suchen', en: 'Search all topics' },
+    workspaceSearchNoResults: { de: 'Keine Treffer für „{query}“ in diesem Thema', en: 'No results for “{query}” in this topic' },
+    workspaceSearchTopicUnavailable: { de: 'Dieses Thema ist nicht mehr verfügbar. Du kannst in allen Themen suchen.', en: 'This topic is no longer available. You can search all topics instead.' },
     globalSearchShowAllInDiscover: { de: 'Alle passenden Themen in „Entdecken“ anzeigen', en: 'Show all matching topics in Discover' },
     /* The catalog's empty state. Two keys, because it renders as a heading and
      * a line under it — a `\n` in one string cannot carry that. It replaces the

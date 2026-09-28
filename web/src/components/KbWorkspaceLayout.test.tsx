@@ -50,6 +50,9 @@ vi.mock('./sources/SourcesPanel', () => ({ SourcesPanel: () => <div data-testid=
 vi.mock('./history/HistoryPanel', () => ({ HistoryPanel: () => <div data-testid="history-panel" /> }));
 vi.mock('./ChatView', () => ({ ChatView: () => <div data-testid="chat-view" /> }));
 vi.mock('./KbHeaderTitle', () => ({ KbHeaderTitle: () => <span data-testid="kb-header-title" /> }));
+// The search reads four contexts of its own; its behaviour is
+// App.authenticated-workspace-search.test.tsx's subject, not this file's.
+vi.mock('./WorkspaceSearch', () => ({ WorkspaceSearch: () => <div data-testid="workspace-search" /> }));
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 // Wer schaut: Standard ist ein fremder Nutzer ohne KB-Rolle. Tests, die den
 // Eigentümer oder einen KB-Admin brauchen, setzen `authUser` / `kbExtra` um.
@@ -198,7 +201,29 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     // ein fremder Nutzer ohne KB-Rolle sieht dort nichts.
     expect(screen.queryByRole('button', { name: 'mindMap' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shareKb' })).not.toBeInTheDocument();
-    expect(shellProps.headerActions).toBeUndefined();
+    // Since KI-838 `headerActions` always holds the search (interim placement);
+    // the gear is what this viewer must not get.
+    render(<div data-testid="actions">{shellProps.headerActions}</div>);
+    expect(screen.getByTestId('actions')).toContainElement(screen.getByTestId('workspace-search'));
+    expect(screen.queryByRole('button', { name: 'systemPromptLabel' })).not.toBeInTheDocument();
+  });
+
+  it('legt die Themensuche vor das Zahnrad in `headerActions`, nicht in den `search`-Slot (KI-838, Übergang bis DS KI-842)', () => {
+    authUser = { id: 'u1', role: 'user' };
+    kbExtra = { userId: 'u1' };
+    renderLayout();
+    expect(shellProps.search).toBeUndefined();
+    render(<div data-testid="actions">{shellProps.headerActions}</div>);
+    const actions = screen.getByTestId('actions');
+    const search = screen.getByTestId('workspace-search');
+    const gear = screen.getByRole('button', { name: 'systemPromptLabel' });
+    expect(actions).toContainElement(search);
+    // ORACLE: DOM order — the search comes BEFORE the gear.
+    expect(search.compareDocumentPosition(gear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Back + title stayed in `pageLabel`.
+    render(<div>{shellProps.pageLabel}</div>);
+    expect(screen.getByRole('button', { name: 'backToOverview' })).toBeInTheDocument();
+    expect(screen.getByTestId('kb-header-title')).toBeInTheDocument();
   });
 
   it('zeigt dem Eigentümer das System-Prompt-Zahnrad und schaltet damit den Editor', async () => {
@@ -224,7 +249,8 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     authUser = { role: 'user' };
     kbExtra = { userId: undefined };
     renderLayout();
-    expect(shellProps.headerActions).toBeUndefined();
+    render(<div>{shellProps.headerActions}</div>);
+    expect(screen.queryByRole('button', { name: 'systemPromptLabel' })).not.toBeInTheDocument();
   });
 
   it('führt mit einem Klick auf das Logo zur Übersicht', async () => {

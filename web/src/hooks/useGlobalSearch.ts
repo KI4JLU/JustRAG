@@ -46,6 +46,8 @@ export type GlobalSearchState =
   | { status: 'loading'; query: string }
   | { status: 'done'; query: string; results: SearchResponse }
   | { status: 'rate-limited'; query: string }
+  /** 404 on a scoped search: the topic is gone or no longer visible (KI-838). */
+  | { status: 'not-found'; query: string }
   | { status: 'error'; query: string };
 
 /**
@@ -83,17 +85,15 @@ function normalise(data: unknown, query: string): SearchResponse {
   };
 }
 
-export interface UseGlobalSearchOptions {
-  /**
-   * Restricts every group to one topic (`kb_id`), for the workspace search
-   * (KI-838). A hidden or unknown topic answers 404, which lands here as the
-   * generic error state.
-   * // TODO: KI-838 decides whether a 404 needs its own copy — not yet confirmed.
-   */
-  scopeKbId?: string;
-}
-
-export function useGlobalSearch({ scopeKbId }: UseGlobalSearchOptions = {}) {
+/**
+ * THE SCOPE IS PER CALL, not per hook (KI-838). `search(text, kbId)` sends
+ * `kb_id`, which restricts every group to that topic; `search(text)` searches
+ * everything. The workspace search widens by repeating the same text without
+ * the id, so the scope has to be an argument of the request rather than a
+ * setting of the hook. A hidden, unknown or malformed topic id answers 404
+ * (API.md — never 403), which becomes the `not-found` state.
+ */
+export function useGlobalSearch() {
   const [state, setState] = useState<GlobalSearchState>({ status: 'idle' });
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const controller = useRef<AbortController | null>(null);
@@ -102,7 +102,7 @@ export function useGlobalSearch({ scopeKbId }: UseGlobalSearchOptions = {}) {
   /** The trimmed text of the last `search` call; null until the first one. */
   const lastIssued = useRef<string | null>(null);
 
-  const send = useCallback((query: string, id: number) => {
+  const send = useCallback((query: string, id: number, scopeKbId: string | undefined) => {
     // A named inner function so a 429 can schedule the same attempt again.
     function attempt() {
       controller.current?.abort();
@@ -119,6 +119,10 @@ export function useGlobalSearch({ scopeKbId }: UseGlobalSearchOptions = {}) {
           // Superseded (which includes our own abort): the newer call owns the state.
           if (id !== requestId.current || ac.signal.aborted) return;
           const response = (err as { response?: { status?: number; headers?: unknown } })?.response;
+          if (response?.status === 404 && scopeKbId) {
+            setState({ status: 'not-found', query });
+            return;
+          }
           if (response?.status === 429) {
             const wait = retryAfterSeconds(response.headers) * 1000;
             blockedUntil.current = Date.now() + wait;
@@ -132,9 +136,9 @@ export function useGlobalSearch({ scopeKbId }: UseGlobalSearchOptions = {}) {
         });
     }
     attempt();
-  }, [scopeKbId]);
+  }, []);
 
-  const search = useCallback((text: string) => {
+  const search = useCallback((text: string, scopeKbId?: string) => {
     const query = text.trim();
     clearTimeout(timer.current);
     // Invalidates whatever is in flight BEFORE anything else can resolve.
@@ -150,11 +154,11 @@ export function useGlobalSearch({ scopeKbId }: UseGlobalSearchOptions = {}) {
     if (blockedFor > 0) {
       // Still inside the rate-limit window: keep saying so, send at its end.
       setState({ status: 'rate-limited', query });
-      timer.current = setTimeout(() => send(query, id), blockedFor);
+      timer.current = setTimeout(() => send(query, id, scopeKbId), blockedFor);
       return;
     }
     setState({ status: 'loading', query });
-    timer.current = setTimeout(() => send(query, id), SEARCH_DEBOUNCE_MS);
+    timer.current = setTimeout(() => send(query, id, scopeKbId), SEARCH_DEBOUNCE_MS);
   }, [send]);
 
   /** False until this instance has been asked to search anything. */

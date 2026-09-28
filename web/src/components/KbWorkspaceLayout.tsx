@@ -15,6 +15,7 @@ import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { hasKbAdminRole } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
+import { WorkspaceSearch } from './WorkspaceSearch';
 
 interface KbWorkspaceLayoutProps {
   mobileTab: MobileTab;
@@ -65,7 +66,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
   const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
-  const headerActions = canEditSystemPrompt ? (
+  const systemPromptButton = canEditSystemPrompt ? (
     <Button
       id="kb-header-system-prompt-toggle"
       type="button"
@@ -78,7 +79,20 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
     >
       <Settings size={20} aria-hidden="true" />
     </Button>
-  ) : undefined;
+  ) : null;
+
+  /* The topic-scoped search (card KI-838) sits HERE, before the gear, for
+     now — an interim decided by the PM because the `search` slot's centre
+     region squeezed the topic title to 0px at 1280px with both columns open.
+     Width and breakpoint are `WORKSPACE_SEARCH_INTERIM_CLASS`'s, where the
+     arithmetic is written down.
+     // TODO: move back to the search slot once DS KI-842 ships. */
+  const headerActions = (
+    <>
+      <WorkspaceSearch />
+      {systemPromptButton}
+    </>
+  );
 
   // Der Reiter „chat" setzt kbView explizit; andere kbView-Werte gibt es
   // seit dem 22.09.2026 nicht mehr (KbViewType = 'chat').
