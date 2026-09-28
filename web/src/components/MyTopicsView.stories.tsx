@@ -9,6 +9,7 @@ import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSharing } from '../hooks/useSharing';
+import type { SearchChatTarget } from '../hooks/useSearchNavigation';
 import type { KnowledgeBase, User } from '../types';
 
 /** Opens the (first) topic card's ⋮ menu — the card actions live there. The
@@ -194,6 +195,10 @@ interface MyTopicsViewStoryArgs {
   onCreateKB: () => void;
   onSelectKB: (kb: KnowledgeBase) => void;
   onOpenKbById: (id: string) => void;
+  /** The header search's topic destination (KI-837). */
+  onOpenTopic: (kbId: string) => void;
+  /** …and its chat destination, for chat AND message hits. */
+  onOpenChat: (target: SearchChatTarget) => void;
 }
 
 /**
@@ -238,14 +243,12 @@ function StorySharingProvider({ username, copySuccess, onCopyUserId, children }:
  * rather than recording this component's.
  */
 /**
- * The REAL `useKbSearchState` behind `KbSearchContext` (card KI-787).
+ * The REAL `useKbSearchState` behind `KbSearchContext` (cards KI-787, KI-837).
  *
- * The chrome's search field and „KBs entdecken" are two ends of one value, and
- * the behaviour worth looking at in a browser — typing expands the collapsed
- * section — lives in the hook between them. A story that stubbed it would show
- * a field that cannot do the one thing this card added. It also owns the
- * section's `localStorage` key now, which is why the stories that clear that
- * key still work unchanged.
+ * The chrome's search field keeps its text in the hook, so a story that
+ * stubbed it would show a field that forgets what was typed across a
+ * re-render. (KI-837 removed the „KBs entdecken" section flag it used to own;
+ * see `KbSearchContext`.)
  */
 function StoryKbSearchProvider({ children }: { children: ReactNode }) {
   const kbSearch = useKbSearchState();
@@ -281,6 +284,10 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
               onViewTools: idle(),
               onViewProfile: args.onViewProfile,
               onViewAdmin: args.onViewAdmin,
+              // The header search's destinations (KI-837).
+              onOpenTopic: args.onOpenTopic,
+              onOpenSource: idle(),
+              onOpenChat: args.onOpenChat,
             }}
           >
             <StoryKbSearchProvider>
@@ -544,6 +551,8 @@ const meta = {
     onCreateKB: fn(),
     onSelectKB: fn(),
     onOpenKbById: fn(),
+    onOpenTopic: fn(),
+    onOpenChat: fn(),
   },
 } satisfies Meta<typeof MyTopicsViewHarness>;
 
@@ -1052,6 +1061,91 @@ export const AppShellGeometry: Story = {
     // accident. 448px = `max-w-md` (28rem), the cap the template applies.
     await expect(fieldRect.width).toBeGreaterThan(0);
     await expect(fieldRect.width).toBeLessThanOrEqual(448);
+  },
+};
+
+/**
+ * The same bar with the global-search dropdown OPEN (card KI-837), plus the
+ * dropdown's keyboard contract and one navigation.
+ *
+ * WHY IT IS RE-MEASURED OPEN. `Toast.css`'s `top: 76px` needs the bar at 64px
+ * in every state, and a dropdown that rendered INSIDE the bar (instead of the
+ * DS portalling it) would either grow the bar or be clipped by it. Both are
+ * layout facts jsdom cannot see.
+ *
+ * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`) —
+ * the bar, the popover and their boxes are the design system's, the 64 is the
+ * constant in `Toast.css`; WAI-ARIA's combobox states read off the DOM
+ * (`aria-expanded`, `aria-activedescendant`, `document.activeElement`); the
+ * mocked `/api/search` body (API.md's shape) for option text; and the
+ * `onOpenChat` spy handed to `AppNavProvider` for the navigation — the chrome
+ * cannot reach it except through the context.
+ *
+ * NARROW WIDTH, stated rather than implied: the story runner's viewport is
+ * fixed at 1280px (vitest.config.ts), and below `lg` `AppShellLayout` does
+ * not render the `search` slot at all. So „not clipped" is measured here at
+ * the runner's width; the 1024px edge is not measured.
+ * // TODO: re-measure at exactly `lg` (1024px) — not yet confirmed.
+ */
+export const AppShellGeometryWithSearchOpen: Story = {
+  parameters: {
+    api: {
+      search: {
+        query: 'Pr', kbId: null,
+        topics: [{ id: 'kb-1', name: 'Prüfungsordnungen', description: 'Alle Ordnungen des Fachbereichs', visibility: 'public', role: 'view', match: 'prefix' }],
+        sources: [{ id: 'f-1', name: 'PO-2024.pdf', type: 'pdf', kbId: 'kb-1', kbName: 'Prüfungsordnungen', match: 'substring' }],
+        chats: [{ id: 'c-1', title: 'Prüfungsfragen', type: 'chat', kbId: 'kb-1', kbName: 'Prüfungsordnungen', updatedAt: '2026-09-20T10:00:00Z', match: 'prefix' }],
+        messages: [{ id: 'm-1', chatId: 'c-2', chatTitle: 'Modulwahl', chatType: 'chat', kbId: 'kb-1', kbName: 'Prüfungsordnungen', role: 'assistant', snippet: 'laut \uE000Prüfung\uE001sordnung 2024', createdAt: '2026-09-20T10:00:00Z' }],
+      },
+    },
+  },
+  play: async ({ args, canvas, canvasElement, userEvent }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    const wrapper = canvas.getByTestId('app-chrome-search');
+    const bar = wrapper.parentElement?.parentElement?.parentElement as HTMLElement;
+    await expect(bar.getBoundingClientRect().height).toBe(64);
+
+    const input = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
+    await userEvent.type(input, 'Pr');
+    const listbox = await body.findByRole('listbox', { name: 'Suchergebnisse' });
+    const options = await within(listbox).findAllByRole('option');
+    await expect(input).toHaveAttribute('aria-expanded', 'true');
+
+    // Open, the bar is still 64px, and the list is outside it and below it.
+    await expect(bar.getBoundingClientRect().height).toBe(64);
+    await expect(bar.contains(listbox)).toBe(false);
+    const barBottom = bar.getBoundingClientRect().bottom;
+    const last = options[options.length - 1];
+    // Five two-line rows and four headings overflow the list's own 20rem
+    // scroll area (DS `ComboboxList`: `max-h-80`), so bring the last one into
+    // view INSIDE the list first — the question here is the bar, not that.
+    last.scrollIntoView({ block: 'nearest' });
+    const lastBox = last.getBoundingClientRect();
+    await expect(lastBox.top).toBeGreaterThan(barBottom);
+    // Not covered or cut: the browser hit-tests the last option at its centre.
+    const hit = canvasElement.ownerDocument.elementFromPoint(
+      lastBox.left + lastBox.width / 2, lastBox.top + lastBox.height / 2,
+    );
+    await expect(last.contains(hit)).toBe(true);
+
+    // The snippet highlight is a <mark> holding exactly the matched word.
+    const marks = Array.from(listbox.querySelectorAll('mark')).map((m) => m.textContent);
+    await expect(marks).toEqual(['Prüfung']);
+
+    // ↓ moves the highlight, the caret stays in the field.
+    const active = () => canvasElement.ownerDocument.getElementById(input.getAttribute('aria-activedescendant') ?? '');
+    await waitFor(() => expect(active()).toBe(options[0]));
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
+    // Topic, Discover row, source, chat: the fourth option is the chat hit.
+    await expect(active()).toHaveTextContent('Prüfungsfragen');
+    await expect(canvasElement.ownerDocument.activeElement).toBe(input);
+
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(body.queryByRole('listbox')).toBeNull());
+    await expect(args.onOpenChat).toHaveBeenCalledWith({
+      chatId: 'c-1', kbId: 'kb-1', title: 'Prüfungsfragen', type: 'chat', timestamp: '2026-09-20T10:00:00Z',
+    });
+    await expect(bar.getBoundingClientRect().height).toBe(64);
   },
 };
 

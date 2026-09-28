@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNavigation';
 
 /**
  * Top-level navigation destinations that are reachable from a chrome element
@@ -41,6 +42,19 @@ export interface AppNavContextValue {
   onViewProfile: () => void;
   /** The system-admin console. Rendered only for admin/superadmin. */
   onViewAdmin: () => void;
+  /*
+   * KI-837: THE HEADER SEARCH'S DESTINATIONS. Same criterion as every row
+   * above — a jump rendered by the chrome, not by page content — except that
+   * these land inside a topic. The sequencing (topic first, then the thing
+   * inside it) lives in `useSearchNavigation`; see there for the ordering
+   * trap it exists to avoid.
+   */
+  /** Open a topic hit. */
+  onOpenTopic: (kbId: string) => void;
+  /** Open a source hit: its topic, then the source's preview. */
+  onOpenSource: (source: SearchSourceTarget) => void;
+  /** Open a chat or message hit: its topic, then that chat. */
+  onOpenChat: (chat: SearchChatTarget) => void;
 }
 
 const AppNavContext = createContext<AppNavContextValue | null>(null);

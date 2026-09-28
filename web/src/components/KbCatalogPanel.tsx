@@ -50,15 +50,18 @@ const INITIAL_VISIBLE = 8;
  * one field into the shell's top bar — a move, not a copy: there is no input
  * here any more, and no second `query` state. What stayed is everything the
  * REQUEST needs: the 250 ms debounce below, the category filter, and the
- * `q=`/`category=` assembly. The query itself arrives through
- * `KbSearchContext`, which also explains why a keystroke can reach this
- * component at all while „KBs entdecken" starts collapsed — writing the query
- * expands the section, and expanding it is what mounts this panel.
+ * `q=`/`category=` assembly.
+ *
+ * SINCE KI-837 THE HEADER FIELD IS THE GLOBAL SEARCH, and it no longer
+ * drives this panel keystroke by keystroke. The query arrives as
+ * `KbSearchContext.catalogQuery`, which the dropdown's „show all matching
+ * topics in Discover" row sets — see `KbSearchContext` for why the two are
+ * separate, and for the TODO that marks it as a reversible assumption.
  */
 export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFilter }: KbCatalogPanelProps) {
     const { t } = useTheme();
     const toast = useToast();
-    const { query } = useKbSearch();
+    const { catalogQuery: query } = useKbSearch();
     const [entries, setEntries] = useState<KbCatalogEntry[]>([]);
     const [categories, setCategories] = useState<KbCategory[]>([]);
     const [activeCategory, setActiveCategory] = useState<string | null>(null);

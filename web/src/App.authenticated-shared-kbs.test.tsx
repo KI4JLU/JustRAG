@@ -386,55 +386,74 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
   });
 
   /* -------------------------------------------------------------------------
-   * The chrome's catalog search on a view that has no catalog (card KI-787).
+   * The chrome's search on this view (cards KI-787, KI-837).
    *
-   * `KbSearchContext` is a third required context, and this branch mounts it
-   * separately — so „the overview works" says nothing about this one. What the
-   * field DOES here is navigate to „Entdecken" with the query applied, chosen
-   * over hiding the field (a control that vanishes between views reads as a
-   * bug) and over leaving it inert (a control that lies).
+   * `KbSearchContext` is a required context, and this branch mounts it
+   * separately — so „the overview works" says nothing about this one.
    *
-   * THE DESTINATION CHANGED ON 18.09.2026. It used to be the overview, whose
-   * „KBs entdecken" section held the catalog; the catalog is its own view now,
-   * so the field goes there. The mechanism it no longer needs is the section
-   * expansion — the panel mounts with the page.
+   * WHAT CHANGED WITH KI-837. KI-787 made typing here NAVIGATE to „Entdecken"
+   * with the query applied, because the field had no other target on this
+   * view. The field is the global search now, so typing opens the dropdown
+   * right here and the view stays put. „Entdecken" is reached WITH the query
+   * through the Topics group's „show all matching topics in Discover" row —
+   * which is the one selection that rebuilds the chrome with the field still
+   * in it, so KI-787's caret handoff (`focusPending`) is pinned on that path.
    *
-   * ORACLES: translations.ts for the accessible name, WAI-ARIA's h1 mapping
-   * for which page is on screen, and the recorded request URL for „the query
-   * survived the jump". The last one is the half that a heading assertion
-   * alone would miss: navigating with the query DROPPED would look identical.
+   * ORACLES: translations.ts for every accessible name, WAI-ARIA's h1 mapping
+   * for which page is on screen, `document.activeElement` for where the caret
+   * is, and the recorded request URL for „the query survived the jump" — the
+   * half a heading assertion alone would miss: navigating with the query
+   * DROPPED would look identical.
    * ---------------------------------------------------------------------- */
-  it('carries the chrome search here too, and typing lands on Entdecken with the query applied', async () => {
+  it('opens the search dropdown in place, and its Discover row lands on Entdecken with the query and the caret', async () => {
+    /* The documented `GET /api/search` shape (API.md `### Search`), with one
+       topic hit so the Topics group — and with it the Discover row — renders. */
+    mockedGet.mockImplementation((url: string) => Promise.resolve({
+      data: String(url).includes('/api/search')
+        ? {
+          query: 'Recht', kbId: null,
+          topics: [{ id: 'kb-9', name: 'Rechtsgrundlagen', description: null, visibility: 'public', role: 'view', match: 'prefix' }],
+          sources: [], chats: [], messages: [],
+        }
+        : [],
+    }));
     render(<App />);
     await findOverviewHeading();
 
     await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.de }));
     await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
 
-    /* One keystroke is all it takes, and it is all this call can deliver: the
-       jump swaps the whole view branch, so the element `type()` was handed is
-       detached before the second character. That is not a quirk of the test —
-       it is the remount a real user's second keystroke hits too, which is why
-       the chrome hands the caret back (`focusPending`). */
-    await userEvent.type(screen.getByLabelText(translations.catalogSearchPlaceholder.de), 'R');
+    const field = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
+    await userEvent.type(field, 'Recht');
 
-    // ...and it lands on „Entdecken", not back on the overview.
+    // The dropdown, on THIS view: the heading has not changed.
+    const showAll = await screen.findByRole(
+      'option', { name: translations.globalSearchShowAllInDiscover.de }, { timeout: 2000 },
+    );
+    expect(screen.getByRole('heading', { level: 1, name: translations.sharedTopics.de })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: translations.discoverTopics.de })).toBeNull();
+
+    await userEvent.click(showAll);
+
+    // ...it lands on „Entdecken"...
     expect(
       await screen.findByRole('heading', { level: 1, name: translations.discoverTopics.de }),
     ).toBeInTheDocument();
 
-    /* ...and the user can keep typing without touching the mouse. ORACLE:
-       `userEvent.keyboard` types into whatever the DOCUMENT says is focused —
-       it is handed no element. It therefore reaches the rebuilt field only if
-       the caret was really moved there; otherwise these four characters go to
-       `<body>` and the query stays „R". */
-    await userEvent.keyboard('echt');
-    expect(screen.getByLabelText(translations.catalogSearchPlaceholder.de)).toHaveValue('Recht');
+    /* ...with the caret in the REBUILT field. ORACLE: `document.activeElement`,
+       then `userEvent.keyboard`, which types into whatever the DOCUMENT says
+       is focused — it is handed no element. The second character reaches the
+       new field only if the caret was really moved there. */
+    const rebuilt = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
+    expect(rebuilt).not.toBe(field);
+    await waitFor(() => expect(document.activeElement).toBe(rebuilt));
+    await userEvent.keyboard('s');
+    expect(rebuilt).toHaveValue('Rechts');
 
     // ...and the query drove the catalog: only the panel fires this, and it
-    // mounts with the page the keystroke navigated to.
+    // mounts with the page the row navigated to.
     await waitFor(
-      () => { expect(mockedGet).toHaveBeenCalledWith(expect.stringContaining('q=Recht')); },
+      () => { expect(mockedGet).toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog?q=Recht')); },
       { timeout: 2000 },
     );
   }, 20000);

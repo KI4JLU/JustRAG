@@ -690,7 +690,22 @@ export const translations = {
     // KB Catalog Modal
     discoverKbs: { de: 'KBs entdecken', en: 'Discover KBs' },
     catalogTitle: { de: 'Öffentliche Wissensdatenbanken', en: 'Public knowledge bases' },
-    catalogSearchPlaceholder: { de: 'Name oder Beschreibung suchen…', en: 'Search name or description…' },
+    /* The header's global search (card KI-837). The placeholder doubles as the
+     * field's accessible name, as the catalog field's did — one string, so the
+     * two cannot drift. Group headings use the KI-799 vocabulary (Themen,
+     * Quellen, Chats), not „Knowledge Bases". `{query}` is replaced with the
+     * trimmed search text. */
+    globalSearchPlaceholder: { de: 'Themen, Quellen und Chats durchsuchen…', en: 'Search topics, sources and chats…' },
+    globalSearchResults: { de: 'Suchergebnisse', en: 'Search results' },
+    globalSearchGroupTopics: { de: 'Themen', en: 'Topics' },
+    globalSearchGroupSources: { de: 'Quellen', en: 'Sources' },
+    globalSearchGroupChats: { de: 'Chats', en: 'Chats' },
+    globalSearchGroupMessages: { de: 'Nachrichten', en: 'Messages' },
+    globalSearchLoading: { de: 'Suche läuft …', en: 'Searching …' },
+    globalSearchNoResults: { de: 'Keine Treffer für „{query}“', en: 'No results for “{query}”' },
+    globalSearchRateLimited: { de: 'Zu viele Suchanfragen – bitte einen Moment warten.', en: 'Too many searches – please wait a moment.' },
+    globalSearchError: { de: 'Die Suche ist gerade nicht verfügbar.', en: 'Search is unavailable right now.' },
+    globalSearchShowAllInDiscover: { de: 'Alle passenden Themen in „Entdecken“ anzeigen', en: 'Show all matching topics in Discover' },
     /* The catalog's empty state. Two keys, because it renders as a heading and
      * a line under it — a `\n` in one string cannot carry that. It replaces the
      * flat „Keine öffentlichen Wissensdatenbanken gefunden.", which reported a

@@ -75,13 +75,19 @@ export function useKnowledgeBases({
   // needs the full row — and an unsubscribed public KB is absent from
   // globalKbs by design, so it cannot be looked up locally either. Hence the
   // round trip to GET /api/kb/{id}, which is view-gated server-side.
-  const handleOpenKbById = useCallback(async (id: string) => {
+  //
+  // Resolves to whether the KB was opened (card KI-837): the global search
+  // opens a source or a chat INSIDE the topic, and must not do so when the
+  // topic could not be opened — the error has already been toasted here.
+  const handleOpenKbById = useCallback(async (id: string): Promise<boolean> => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/kb/${id}`);
       handleSelectKB(res.data);
+      return true;
     } catch (err: unknown) {
       console.error('Failed to open KB:', err);
       toast.error(t('kbFetchError'));
+      return false;
     }
   }, [handleSelectKB, toast, t]);
 

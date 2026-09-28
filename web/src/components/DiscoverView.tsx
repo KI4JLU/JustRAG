@@ -24,12 +24,16 @@ import { useTopicFilters } from '../hooks/useTopicFilters';
  * of its own the panel mounts when the page does, so:
  *   - the catalog is re-read on every visit, for free, with no disclosure
  *     state to coordinate;
- *   - `discoverOpen` / `setDiscoverOpen` are gone from `KbSearchContext`;
- *   - the search field navigates HERE instead of expanding something.
+ *   - `discoverOpen` / `setDiscoverOpen` are gone from `KbSearchContext`
+ *     (the header comment claimed so before the code did; KI-837 made it true);
+ *   - the header search reaches this page through its dropdown's „show all
+ *     matching topics in Discover" row (KI-837), not on every keystroke.
  *
- * NO PAGE-LEVEL FILTERING. The query lives in `KbSearchContext` and is read by
- * `KbCatalogPanel`, which owns the 250 ms debounce and the
+ * NO PAGE-LEVEL FILTERING. The query is `KbSearchContext.catalogQuery` and is
+ * read by `KbCatalogPanel`, which owns the 250 ms debounce and the
  * `GET /api/kb/catalog?q=` request. This file adds a heading and a landmark.
+ * // TODO: whether „Entdecken" should get its own field back instead of the
+ * // dropdown row is the developer's call (KI-837 ASSUMPTION) — not yet confirmed.
  * ------------------------------------------------------------------------- */
 
 /** Anchors the skip link; must match the `contentId` handed to `AppChrome`. */

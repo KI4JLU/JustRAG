@@ -165,10 +165,11 @@ function StorySharingProvider({ username, children }: { username: string; childr
 }
 
 /**
- * The real `useKbSearchState` (card KI-787). The chrome renders the catalog
- * search on this view too, and what it does HERE — navigate to the overview
- * with the query applied — is the behaviour `ChromeSearchNavigatesHome` below
- * asserts, so the hook has to be the real one.
+ * The real `useKbSearchState` (cards KI-787, KI-837). The chrome renders the
+ * global search on this view too, and what it does HERE — open the dropdown
+ * in place, hand over to „Entdecken" only from the „show all" row — is what
+ * `ChromeSearchOpensDropdownInPlace` below asserts, so the hook has to be the
+ * real one.
  */
 function StoryKbSearchProvider({ children }: { children: React.ReactNode }) {
   const kbSearch = useKbSearchState();
@@ -194,6 +195,10 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
               onViewTools: idle(),
               onViewProfile: idle(),
               onViewAdmin: idle(),
+              // The header search's destinations (KI-837); no story here selects a hit.
+              onOpenTopic: idle(),
+              onOpenSource: idle(),
+              onOpenChat: idle(),
             }}
           >
             <StoryKbSearchProvider>
@@ -553,37 +558,45 @@ export const SettingsMenuIsOnThisViewToo: Story = {
 };
 
 /**
- * The chrome's catalog search is on this view too, and typing jumps to
- * „Entdecken".
+ * The chrome's search is on this view too — and since KI-837 typing opens the
+ * global-search dropdown IN PLACE instead of jumping to „Entdecken".
  *
- * WHY THE FIELD IS HERE AT ALL. It is chrome, drawn by `AppChrome` for every
- * view — and this one has no catalog. The two ways out were hiding it here or
- * leaving it inert; a control that vanishes between views reads as a bug, and
- * one that is present but does nothing lies. So it navigates to the catalog
- * with the query already applied.
+ * WHAT THIS STORY USED TO PIN (KI-787, `ChromeSearchNavigatesToDiscover`):
+ * one keystroke called `onViewDiscover`, because the field had no other
+ * target on a view without a catalog. The dropdown is that target now, so the
+ * jump is gone; „Entdecken" is reached WITH the query through the Topics
+ * group's „show all matching topics in Discover" row. That row is the reversible
+ * ASSUMPTION on KI-837.
  *
- * THE DESTINATION CHANGED ON 18.09.2026, and so did the spy this asserts on.
- * It used to jump to the overview, whose „KBs entdecken" section held the
- * catalog; the catalog is its own view now, so the jump is `onViewDiscover`.
- * Note that the harness passes `idle()` for it while `onViewMyTopics` is an
- * arg — so this story wires its own spy rather than reading one off `args`,
- * which is why the assertion below is on a local.
- *
- * ORACLE: the spy handed to `AppNavProvider`, i.e. the PARENT's callback —
- * this view cannot reach it and cannot fake it. The field being found by its
- * accessible name is the second half: a jump wired to a control nobody can
- * address would pass an assertion about the spy alone.
+ * ORACLES: the spy handed to `AppNavProvider`, i.e. the PARENT's callback —
+ * this view cannot reach it and cannot fake it; `/api/search`'s mocked body
+ * (API.md's shape) for the option text; and the German strings, spelled out
+ * here rather than read from translations.ts, like every string in this file.
  */
-export const ChromeSearchNavigatesToDiscover: Story = {
+export const ChromeSearchOpensDropdownInPlace: Story = {
   args: { kbs: [SHARED_EDITOR] },
-  play: async ({ args, canvas, userEvent }) => {
-    const field = canvas.getByLabelText('Name oder Beschreibung suchen…');
+  parameters: {
+    api: {
+      search: {
+        query: 'Re', kbId: null,
+        topics: [{ id: 'kb-r', name: 'Rechtsgrundlagen', description: null, visibility: 'public', role: 'view', match: 'prefix' }],
+        sources: [], chats: [], messages: [],
+      },
+    },
+  },
+  play: async ({ args, canvas, canvasElement, userEvent }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    const field = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
+
+    await userEvent.type(field, 'Re');
+    await body.findByRole('option', { name: /Rechtsgrundlagen/ });
+    // No jump on typing, and the caret is still in the field.
     await expect(args.onViewDiscover).not.toHaveBeenCalled();
+    await expect(field.ownerDocument.activeElement).toBe(field);
 
-    await userEvent.type(field, 'R');
-
+    await userEvent.click(body.getByRole('option', { name: 'Alle passenden Themen in „Entdecken“ anzeigen' }));
     await waitFor(async () => {
-      await expect(args.onViewDiscover).toHaveBeenCalled();
+      await expect(args.onViewDiscover).toHaveBeenCalledTimes(1);
     });
   },
 };

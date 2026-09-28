@@ -31,17 +31,17 @@ vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
  * chrome's field causes in production, one keystroke at a time.
  *
  * `setQuery` is a spy rather than the real `useKbSearchState`: nothing in this
- * file writes the query, and the expand-„KBs entdecken" behaviour that the
- * real hook carries is the overview's, asserted in `HomeView.test.tsx` where
- * the section exists. The two section fields are fixed, unread values here for
- * the same reason.
+ * file writes the query. Since KI-837 the panel reads `catalogQuery` — the
+ * query „show all in Discover" hands over — and not the header field's text,
+ * so the field's `query` is set to a DIFFERENT value here: a panel that read
+ * the wrong one would send `q=header-text-not-the-catalog-query`.
  */
 function providedSearch(query: string) {
     return {
-        query,
+        query: 'header-text-not-the-catalog-query',
         setQuery: vi.fn(),
-        discoverOpen: true,
-        setDiscoverOpen: vi.fn(),
+        catalogQuery: query,
+        applyCatalogQuery: vi.fn(),
         focusPending: false,
         requestFocus: vi.fn(),
         consumeFocus: vi.fn(),

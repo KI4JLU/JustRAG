@@ -1,13 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AppShellLayout,
-  Input,
   Logo,
   NavItem,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
 import {
-  Home, Search, Users,
+  Home, Users,
   LayoutGrid, Menu, Compass, Wrench,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
@@ -18,6 +17,7 @@ import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { KBCardSkeleton } from './Skeleton';
+import { GlobalSearch } from './GlobalSearch';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
 // header for why the `home-view__` block name outlived the component.
@@ -100,11 +100,14 @@ const LoadingFallback = () => (
 
 export function AppChrome({ active, contentId, children }: AppChromeProps) {
   const { t } = useTheme();
-  const { onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools } = useAppNav();
-  // The catalog search, which lives in the chrome bar since KI-787. Read from
-  // a context for the same reason everything else here is: this component
-  // takes no props from the page.
-  const { query, setQuery, focusPending, requestFocus, consumeFocus } = useKbSearch();
+  const {
+    onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools,
+    onOpenTopic, onOpenSource, onOpenChat,
+  } = useAppNav();
+  // The header search, which lives in the chrome bar since KI-787 and is the
+  // global search since KI-837. Read from a context for the same reason
+  // everything else here is: this component takes no props from the page.
+  const { query, setQuery, applyCatalogQuery, focusPending, requestFocus, consumeFocus } = useKbSearch();
   const searchRef = useRef<HTMLInputElement>(null);
   // Only the clipboard pair and the dialog's own open state are read here; the
   // rest of the sharing concern belongs to the KB cards on the page.
@@ -140,16 +143,16 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
     { id: 'page', icon: <LayoutGrid aria-hidden="true" />, label: t('contentTab'), pane: 'main' },
   ];
 
-  /* Hand the caret back to the search field after a jump (card KI-787).
+  /* Hand the caret back to the search field after a jump (cards KI-787,
+   * KI-837).
    *
-   * Typing on „Geteilte Knowledge Bases" navigates to the overview, and that
-   * swaps one branch of `AuthenticatedApp` for the other — so THIS component,
-   * the field and `searchRef` are all rebuilt. Measured while writing
-   * `App.authenticated-shared-kbs.test.tsx`: without this, a user typing
-   * „Recht" lands on the overview with „R" in the box, focus on `<body>`, and
-   * the remaining four keystrokes dropped on the floor. The flag is state on
-   * the context rather than a ref precisely because no ref survives that
-   * remount.
+   * The dropdown's „show all matching topics in Discover" row navigates to
+   * „Entdecken", and that swaps one branch of `AuthenticatedApp` for another —
+   * so THIS component, the field and `searchRef` are all rebuilt. KI-787
+   * measured the failure while the field still navigated on every keystroke:
+   * without this, the user lands with focus on `<body>` and the next
+   * keystrokes are dropped on the floor. The flag is state on the context
+   * rather than a ref precisely because no ref survives that remount.
    *
    * `setSelectionRange` puts the caret AFTER the character that caused the
    * jump; `focus()` alone selects nothing and would leave it at position 0 in
@@ -275,68 +278,62 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
   // Shared with the KB workspace: account actions and the settings window.
   const userMenu = <AppUserMenu />;
 
-  /* THE CHROME BAR'S ONE CONTROL: the KB catalog search (card KI-787).
+  /* THE CHROME BAR'S ONE CONTROL: the global search (cards KI-787, KI-837).
    *
-   * IT IS A MOVE, NOT A NEW FEATURE. This is the field that used to sit inside
-   * the „KBs entdecken" accordion on the overview; `KbCatalogPanel` no longer
-   * renders one, so there is exactly one search box in the app and exactly one
-   * `query`. The 250 ms debounce and the `GET /api/kb/catalog?q=` request stay
-   * in the panel, where the fetch is — a second debounce here would only make
-   * the first one's timing unobservable.
+   * SINCE KI-837 IT SEARCHES EVERYTHING, not the catalog: topics, sources,
+   * chats and chat-content hits in a grouped dropdown under the field
+   * (`GlobalSearch`, on the DS `Combobox`). The 250 ms debounce and
+   * `GET /api/search` live in `useGlobalSearch` — one debounce, in one place.
+   * Choosing a hit navigates through `AppNavContext` (topic first, then what
+   * is inside it; see `useSearchNavigation`).
+   *
+   * TYPING NO LONGER JUMPS TO „ENTDECKEN". KI-787 made every keystroke on a
+   * view other than „Entdecken" navigate there, because the field had no
+   * other target on those views. A dropdown is that target now, on every
+   * view, so the jump is gone. „Entdecken" is still reachable WITH the query:
+   * the Topics group's last row, „show all matching topics in Discover",
+   * hands the query to the catalog (`applyCatalogQuery`) and navigates there,
+   * and it is the one selection that rebuilds this chrome with the field
+   * still in it — hence the caret handoff (`requestFocus`) on that path and
+   * no other. Every other hit leaves the chrome for the topic's workspace.
+   * // TODO: the Discover row (instead of giving „Entdecken" its own field
+   * // back) is the ASSUMPTION on KI-837, reversible — not yet confirmed by
+   * // the developer.
    *
    * IT IS IN THE `search` SLOT, NOT `headerActions` (design-system 0.30.0), AND
-   * THE WIDTH CAP AND CENTRING ARE NO LONGER OURS. The old recipe here was
-   * `w-full max-w-md mx-auto` on this wrapper, which centres the field in the
-   * space the page label LEAVES — so it only looked centred when there was no
-   * label, and a field that shifts sideways when the page name changes was the
-   * bug that recipe could not avoid. 0.30.0 made the bar three regions and
-   * centres this one on the BAR; passing the cap again would fight it.
+   * THE WIDTH CAP AND CENTRING ARE NOT OURS: 0.30.0 made the bar three regions
+   * and centres this one on the BAR. `w-full` stays on the wrapper rather
+   * than on the field, because the wrapper is the flex item the bar measures.
+   * `AppShellGeometry` in `MyTopicsView.stories.tsx` re-measures the centring
+   * and the 64px bar in Chromium — open and closed — because jsdom performs no
+   * layout. The list is portalled by the DS, so the bar cannot clip it.
    *
-   * `w-full` stays, and it is still on the wrapper rather than on `<Input>`:
-   * `Input` forwards `className` to the inner `<input>`, and with a
-   * `leadingIcon` that input sits inside a `relative block w-full` span as an
-   * inline-block box — a cap put there would not be the flex item the bar
-   * measures. `AppShellGeometry` in `HomeView.stories.tsx` re-measures the
-   * centring in Chromium, because jsdom performs no layout and the unit suite
-   * cannot see a pixel of it.
+   * NOT BELOW `lg`. `AppShellLayout` does not render the `search` slot on a
+   * narrow screen, so phones have no search. Out of scope for KI-837.
    *
    * NOTHING HERE IS A HEADING. The bar is chrome; the page's `<h1>` belongs to
-   * the content template (design-system KI-736). The accessible name is the
-   * same `t('catalogSearchPlaceholder')` the placeholder uses — reused rather
-   * than a second key, so the two cannot drift and translators see one string.
-   *
-   * IT SEARCHES THE CATALOG, SO TYPING JUMPS TO „ENTDECKEN" — on every view
-   * except that one, with the query already applied. It used to jump to the
-   * overview and expand the „KBs entdecken" section there; the catalog is its
-   * own view since 18.09.2026, so the destination moved with it and the
-   * section-expanding half is gone entirely.
-   *
-   * The alternative was hiding the field off its own view; a control that
-   * vanishes between views reads as a bug, and a control that is present but
-   * inert lies. The jump is made HERE rather than in the context because
-   * `active` is the only place in the app that knows which view is on screen.
-   * It rebuilds this whole component, so the caret is handed over explicitly
-   * through `focusPending` — see the effect above.
-   *
-   * // TODO: this navigate-on-type behaviour is the PM's assumption on KI-787,
-   * // not a developer ruling — not yet confirmed. Reversing it means deciding
-   * // between hiding the field here and leaving it inert, and takes the
-   * // `focusPending` handoff with it. */
+   * the content template (design-system KI-736). */
   const headerSearch = (
     <div className="w-full" data-testid="app-chrome-search">
-      <Input
+      <GlobalSearch
         ref={searchRef}
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
+        query={query}
+        onQueryChange={setQuery}
+        onOpenTopic={(hit) => onOpenTopic(hit.id)}
+        onOpenSource={(hit) => onOpenSource({ id: hit.id, name: hit.name, kbId: hit.kbId })}
+        onOpenChat={(hit) => onOpenChat({
+          chatId: hit.id, kbId: hit.kbId, title: hit.title, type: hit.type, timestamp: hit.updatedAt,
+        })}
+        onOpenMessage={(hit) => onOpenChat({
+          chatId: hit.chatId, kbId: hit.kbId, title: hit.chatTitle, type: hit.chatType, timestamp: hit.createdAt,
+        })}
+        onShowAllTopics={(q) => {
+          applyCatalogQuery(q);
           if (active !== 'discover') {
             onViewDiscover();
             requestFocus();
           }
         }}
-        placeholder={t('catalogSearchPlaceholder')}
-        aria-label={t('catalogSearchPlaceholder')}
-        leadingIcon={<Search aria-hidden="true" />}
       />
     </div>
   );

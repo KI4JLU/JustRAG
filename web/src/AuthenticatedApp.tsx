@@ -27,6 +27,7 @@ import { useKnowledgeBases } from './hooks/useKnowledgeBases';
 import { useJoinRedeem } from './hooks/useJoinRedeem';
 import { useSharing } from './hooks/useSharing';
 import { useKbSearchState } from './hooks/useKbSearchState';
+import { useSearchNavigation } from './hooks/useSearchNavigation';
 import { useRssFeeds } from './hooks/useRssFeeds';
 import { useConfluenceSources } from './hooks/useConfluenceSources';
 import { useGitRepoSources } from './hooks/useGitRepoSources';
@@ -210,14 +211,23 @@ function AuthenticatedAppInner() {
 
   const sharing = useSharing({ username: user?.username });
 
-  /* The KB catalog search (card KI-787). Held HERE rather than inside a
-     provider component, exactly like `sharing` and `appNav` below: the overview
-     and „Geteilte Knowledge Bases" are two separate `return`s from this
-     component, and typing on the second one navigates to the first WITH the
-     query applied — behaviour that must not depend on how React reconciles two
-     sibling branches. It also carries „KBs entdecken"'s open state, because a
-     keystroke has to expand that section; see `useKbSearchState`. */
+  /* The header search's state (cards KI-787, KI-837). Held HERE rather than
+     inside a provider component, exactly like `sharing` and `appNav` below:
+     every top-level view is a separate `return` from this component, and the
+     dropdown's „show all in Discover" row lands on „Entdecken" WITH the query
+     and the caret — behaviour that must not depend on how React reconciles
+     sibling branches. See `useKbSearchState`. */
   const kbSearch = useKbSearchState();
+
+  /* Where a search hit takes you (card KI-837): the topic first, then the
+     source or chat inside it — `useSearchNavigation` says why that order is
+     the only one that works. Published through `appNav` below, because the
+     field is chrome and the chrome takes no props from the page. */
+  const searchNav = useSearchNavigation({
+    openKbById: kbMgmt.handleOpenKbById,
+    previewSource: webTools.handlePreviewSource,
+    selectChat: chat.handleSelectChat,
+  });
 
   // Lifecycle effects
   useKbLifecycle({
@@ -306,6 +316,9 @@ function AuthenticatedAppInner() {
     onViewTools: () => setView('tools'),
     onViewProfile: () => setView('profile'),
     onViewAdmin: () => setView('admin'),
+    onOpenTopic: searchNav.openTopic,
+    onOpenSource: (source) => { void searchNav.openSource(source); },
+    onOpenChat: (target) => { void searchNav.openChat(target); },
   };
 
   // Early returns for non-KB views

@@ -338,27 +338,44 @@ describe('App — the KB overview on the authenticated home route', () => {
     render(<App />);
     await findOverviewHeading();
 
-    // ORACLE: translations.ts for the accessible name. Its presence means
+    // ORACLE: translations.ts for the accessible name, and WAI-ARIA's
+    // `combobox` role (the DS Combobox, KI-837). Its presence means
     // `useKbSearch()` resolved during the real render — had the provider been
     // missing, AppChrome would have thrown and the heading above would not
     // exist either.
-    const field = screen.getByLabelText(translations.catalogSearchPlaceholder.de);
+    const field = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
 
     // ORACLE: ErrorBoundary's own fallback copy, as the negative check.
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
 
-    /* ORACLE: the recorded request URL. This is the half a render assertion
-       cannot give: the field, the context, the overview's collapsed „KBs
-       entdecken" section and the panel's debounced fetch are four separate
-       pieces, and only the request proves they are connected end to end on the
-       real route. The section starts closed and its body unmounted, so this
-       also pins KI-787's deliberate behaviour change — typing expands it. */
-    expect(mockedGet).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog'));
+    /* ORACLE: the recorded request URL. Since KI-837 the field is the GLOBAL
+       search: the field, the context, `GlobalSearch` and `useGlobalSearch`'s
+       debounced request are four pieces, and only the request proves they are
+       connected on the real route. It replaces KI-787's assertion that typing
+       reached `GET /api/kb/catalog` — the header no longer drives the catalog
+       (KI-837's reversible ASSUMPTION), so that request must NOT be made. */
     await userEvent.type(field, 'Recht');
     await waitFor(
-      () => { expect(mockedGet).toHaveBeenCalledWith(expect.stringContaining('q=Recht')); },
+      () => {
+        expect(mockedGet).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/search\?q=Recht$/),
+          expect.anything(),
+        );
+      },
       { timeout: 2000 },
     );
+    expect(mockedGet).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb/catalog'));
+
+    /* ORACLE: the request log again, counted. `userEvent.type` delivers the
+       five keystrokes with no delay between them, i.e. well inside 250 ms, so
+       ONE debounce means ONE request — for the final text, not for „Re",
+       „Rec", „Rech". A second debounce stacked on the first, or none at all,
+       changes this count. */
+    const searchCalls = mockedGet.mock.calls.filter(([url]) => String(url).includes('/api/search'));
+    expect(searchCalls).toHaveLength(1);
+
+    // ...and typing no longer navigates: the overview is still the page.
+    expect(screen.getByRole('heading', { level: 1, name: translations.myTopics.de })).toBeInTheDocument();
   }, 20000);
 
   /* KI-787 also DELETED the chrome's page label, which had rendered „Meine

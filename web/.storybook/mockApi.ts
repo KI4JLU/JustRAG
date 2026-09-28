@@ -164,6 +164,18 @@ export interface ApiMockParameters {
   kbMembers?: unknown;
   /** GET /api/kb/{id}/invite-links — MembersModal's third tab. */
   kbInviteLinks?: unknown;
+  /* -- The header's global search (card KI-837) ----------------------------
+   * `GET /api/search?q&kb_id&limit` — one object with four arrays, the shape
+   * of API.md's `### Search` section. A story hands the BODY; the handler
+   * answers it for every query, because the server's filtering is not what a
+   * story is testing — the dropdown's grouping, states and navigation are. */
+  /** GET /api/search — the response body. */
+  search?: unknown;
+  /**
+   * GET /api/search answers 429 with this `Retry-After` (seconds) instead —
+   * the rate-limited state. Wins over `search` when both are set.
+   */
+  searchRateLimitedRetryAfter?: number;
 }
 
 /**
@@ -194,6 +206,9 @@ const URLS = {
    * anchor is what makes that independent of the verb. */
   kbMembers: /\/api\/kb\/[^/]+\/members(\?|$)/,
   kbInviteLinks: /\/api\/kb\/[^/]+\/invite-links(\?|$)/,
+  /* The global search. `/api/search` has no `/api/kb/…` prefix, so none of
+   * the patterns above can match it, and it cannot match theirs. */
+  search: /\/api\/search(\?|$)/,
 } as const;
 
 /**
@@ -354,6 +369,18 @@ export function installApiMock(params: ApiMockParameters): () => void {
    * retrieval-quality twin, the only other `/api/kb/…` readers). */
   for (const key of ['kbCategories', 'kbCatalog', 'kbMembers', 'kbInviteLinks'] as const) {
     if (params[key] !== undefined) mock.onGet(URLS[key]).reply(200, params[key]);
+  }
+
+  /* -- The header's global search (card KI-837) -------------------------- */
+
+  if (params.searchRateLimitedRetryAfter !== undefined) {
+    mock.onGet(URLS.search).reply(
+      429,
+      { error: 'Too many requests from this IP, please try again later.' },
+      { 'retry-after': String(params.searchRateLimitedRetryAfter) },
+    );
+  } else if (params.search !== undefined) {
+    mock.onGet(URLS.search).reply(200, params.search);
   }
 
   /* -- The authFetch half ------------------------------------------------ */

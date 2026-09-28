@@ -972,3 +972,77 @@ export interface WorkflowPresetApplyResult {
   effective: string[];
   pinned: number;
 }
+
+/* ---------------------------------------------------------------------------
+ * GET /api/search — the shell header's global search (card KI-837).
+ *
+ * Mirrors the `### Search` section of API.md as it stands on
+ * `feat/search-backend` (KI-835/836/840/841), i.e. `internal/search`'s
+ * `Response` / `TopicHit` / `SourceHit` / `ChatHit` / `MessageHit`. Written
+ * from that document, not from the Go structs, so a drift between the two
+ * shows up as a review question rather than being silently copied.
+ * ------------------------------------------------------------------------- */
+
+/** How a topic, source or chat hit matched `q`. Message hits carry none. */
+export type SearchMatch = 'prefix' | 'substring' | 'fuzzy';
+
+/** `chats.type`, as `chats[].type` and `messages[].chatType` report it. */
+export type SearchChatType = 'chat' | 'research' | 'academic_research';
+
+export interface SearchTopicHit {
+  id: string;
+  name: string;
+  /** Description (or header text) head, cut at 160 characters; null when both are empty. */
+  description: string | null;
+  visibility: string;
+  /** The caller's effective KB role: view, edit, admin or owner. */
+  role: string;
+  match: SearchMatch;
+}
+
+export interface SearchSourceHit {
+  id: string;
+  name: string;
+  type: string;
+  kbId: string;
+  kbName: string;
+  match: SearchMatch;
+}
+
+export interface SearchChatHit {
+  id: string;
+  title: string;
+  type: SearchChatType;
+  kbId: string;
+  kbName: string;
+  /** RFC 3339. */
+  updatedAt: string;
+  match: SearchMatch;
+}
+
+export interface SearchMessageHit {
+  id: string;
+  chatId: string;
+  chatTitle: string;
+  chatType: SearchChatType;
+  kbId: string;
+  kbName: string;
+  role: 'user' | 'assistant';
+  /**
+   * PLAIN TEXT, never HTML. Each matched word is wrapped in U+E000 (start)
+   * and U+E001 (end); split on them and render text nodes.
+   */
+  snippet: string;
+  /** RFC 3339. */
+  createdAt: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  /** The canonicalised scope, or null for a global search. */
+  kbId: string | null;
+  topics: SearchTopicHit[];
+  sources: SearchSourceHit[];
+  chats: SearchChatHit[];
+  messages: SearchMessageHit[];
+}

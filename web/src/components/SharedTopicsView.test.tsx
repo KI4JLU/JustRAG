@@ -86,6 +86,10 @@ const NAV = {
   onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
   onViewAdmin: vi.fn(),
+  // The header search's destinations (KI-837). No test here selects a hit.
+  onOpenTopic: vi.fn(),
+  onOpenSource: vi.fn(),
+  onOpenChat: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
@@ -113,15 +117,13 @@ function SharingHarness({ children }: { children: React.ReactNode }) {
 
 /**
  * The REAL `useKbSearchState`, published on the context the chrome's search
- * field and the discovery panel both read (card KI-787).
+ * field reads (cards KI-787, KI-837).
  *
- * Real, not a stub, for the same reason `SharingHarness` is: the behaviour
- * this card adds lives INSIDE the hook — writing a non-empty query expands
- * „KBs entdecken", which is what makes the header field reach a panel that is
- * unmounted while the section is closed. A stubbed `{ query, setQuery }` would
- * turn every assertion about that into a statement about the stub. It also
- * owns the section's `localStorage` key now, so it has to sit inside
- * `renderView` — the remount test above unmounts the whole tree.
+ * Real, not a stub, for the same reason `SharingHarness` is: the field's text
+ * and the caret handoff live INSIDE the hook, and a stubbed
+ * `{ query, setQuery }` would turn every assertion that touches the header
+ * into a statement about the stub. (KI-837 removed the „KBs entdecken"
+ * section flag it used to own; see `KbSearchContext`.)
  */
 function KbSearchHarness({ children }: { children: React.ReactNode }) {
   const kbSearch = useKbSearchState();
