@@ -87,6 +87,10 @@ type TopicHit struct {
 	// Role is the caller's effective KB role on this topic — exactly what
 	// kbaccess.EffectiveRole resolves to: view, edit, admin or owner.
 	Role string `json:"role" db:"role"`
+	// Match is the best tier this hit reached: MatchPrefix (name starts with
+	// q), MatchSubstring (name, description or header text contains q) or
+	// MatchFuzzy (name is trigram-similar to q only). See match.go.
+	Match string `json:"match" db:"match"`
 }
 
 // SourceHit is one file in a topic the caller may open.
@@ -96,6 +100,9 @@ type SourceHit struct {
 	Type   string `json:"type"   db:"type"`
 	KBID   string `json:"kbId"   db:"kb_id"`
 	KBName string `json:"kbName" db:"kb_name"`
+	// Match is the best tier this hit reached on the file name: MatchPrefix,
+	// MatchSubstring or MatchFuzzy. See match.go.
+	Match string `json:"match" db:"match"`
 }
 
 // ChatHit is one of the caller's chats whose title matches. Defined now so

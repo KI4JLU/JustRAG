@@ -3,7 +3,9 @@ package search
 import (
 	"context"
 	"fmt"
+	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/auth"
@@ -71,19 +73,38 @@ const visibleKBsCTE = `
 const scopeSQL = `WITH ` + visibleKBsCTE + `
 	SELECT v.role FROM visible_kbs v`
 
+// Parameters shared by topicsSQL and sourcesSQL: $1..$3 visibleKBsCTE's,
+// $4 / $5 the LIKE-escaped substring / prefix patterns, $6 the group limit,
+// $7 the raw query text for the trigram operators (searchMatch). Both run in
+// a transaction that has called setFuzzyThreshold first.
+//
+// Visibility is untouched by fuzzy matching: every row still comes from
+// visible_kbs filtered on `v.role IS NOT NULL`, and the match predicates only
+// narrow that set further.
+
 // topicsSQL matches name, description and header_text — the same three
 // columns GET /api/kb/catalog searches, for the same reason: description has
 // no editor in the UI, so a search that skipped header_text would look
-// broken. Parameters $4 (substring pattern) and $5 (prefix pattern) are
-// already LIKE-escaped by pgxutil.EscapeLike.
+// broken. Only the name is matched fuzzily: description and header_text are
+// long free text, where trigram similarity to a short query is noise, so they
+// match by literal substring only.
 //
-// Order: name starts with q, then name contains q, then description-only
-// hits; ties by case-folded name, then id so paging and tests are stable.
-const topicsSQL = `WITH ` + visibleKBsCTE + `
+// Rank (r.rank), and hence order:
+//
+//	0 prefix     name starts with q
+//	1 substring  name contains q
+//	2 substring  description or header_text contains q
+//	3 fuzzy      only the trigram arm matched; ordered by similarity desc
+//
+// ties by case-folded name, then id, so the order is stable.
+var topicsSQL = `WITH ` + visibleKBsCTE + `
 	SELECT v.id::text AS id, v.name, v.visibility, v.role,
+	       CASE r.rank WHEN 0 THEN '` + MatchPrefix + `' WHEN 3 THEN '` + MatchFuzzy + `'
+	                   ELSE '` + MatchSubstring + `' END AS match,
 	       CASE
 	         WHEN d.snip IS NULL THEN NULL
-	         WHEN char_length(d.snip) > $7 THEN left(d.snip, $7 - 1) || '…'
+	         WHEN char_length(d.snip) > ` + strconv.Itoa(descriptionSnippetLen) + `
+	           THEN left(d.snip, ` + strconv.Itoa(descriptionSnippetLen-1) + `) || '…'
 	         ELSE d.snip
 	       END AS description
 	FROM visible_kbs v
@@ -92,30 +113,47 @@ const topicsSQL = `WITH ` + visibleKBsCTE + `
 		         COALESCE(NULLIF(btrim(v.description), ''), NULLIF(btrim(v.header_text), ''), ''),
 		         '\s+', ' ', 'g')), '') AS snip
 	) d
+	CROSS JOIN LATERAL (
+		SELECT CASE
+		         WHEN ` + searchMatch.hasPrefix("v.name") + ` THEN 0
+		         WHEN ` + searchMatch.contains("v.name") + ` THEN 1
+		         WHEN ` + searchMatch.contains("v.description") + `
+		           OR ` + searchMatch.contains("v.header_text") + ` THEN 2
+		         ELSE 3
+		       END AS rank
+	) r
 	WHERE v.role IS NOT NULL
-	  AND (v.name ILIKE $4 ESCAPE '\'
-	       OR COALESCE(v.description, '') ILIKE $4 ESCAPE '\'
-	       OR COALESCE(v.header_text, '') ILIKE $4 ESCAPE '\')
-	ORDER BY (v.name ILIKE $5 ESCAPE '\') DESC,
-	         (v.name ILIKE $4 ESCAPE '\') DESC,
+	  AND (` + searchMatch.matches("v.name") + `
+	       OR ` + searchMatch.contains("v.description") + `
+	       OR ` + searchMatch.contains("v.header_text") + `)
+	ORDER BY r.rank,
+	         CASE WHEN r.rank = 3 THEN ` + searchMatch.similarity("v.name") + ` END DESC NULLS LAST,
 	         lower(v.name), v.id
 	LIMIT $6`
 
-// sourcesSQL matches files by name in every visible KB.
+// sourcesSQL matches files by name in every visible KB, both ways.
 //
-// TODO: measure on a realistic files table. files has only a btree index on
-// kb_id, so name ILIKE '%q%' is a filtered scan over every file of every
-// visible KB — for a superadmin that is the whole table. A pg_trgm GIN index
-// is the standard fix, but pg_trgm is not used anywhere yet and CREATE
-// EXTENSION needs a privilege we have not confirmed. Deliberately not added
-// on KI-835.
-const sourcesSQL = `WITH ` + visibleKBsCTE + `
-	SELECT f.id::text AS id, f.name, f.type, v.id::text AS kb_id, v.name AS kb_name
+// Rank: 0 prefix, 1 substring, 2 fuzzy (by similarity desc); ties by
+// case-folded name, then id. Both arms of the WHERE are served by
+// files_name_trgm_idx (migration 0076) — see TestSearchQueriesUseTrigramIndexes.
+var sourcesSQL = `WITH ` + visibleKBsCTE + `
+	SELECT f.id::text AS id, f.name, f.type, v.id::text AS kb_id, v.name AS kb_name,
+	       CASE r.rank WHEN 0 THEN '` + MatchPrefix + `' WHEN 1 THEN '` + MatchSubstring + `'
+	                   ELSE '` + MatchFuzzy + `' END AS match
 	FROM files f
 	JOIN visible_kbs v ON v.id = f.kb_id
+	CROSS JOIN LATERAL (
+		SELECT CASE
+		         WHEN ` + searchMatch.hasPrefix("f.name") + ` THEN 0
+		         WHEN ` + searchMatch.contains("f.name") + ` THEN 1
+		         ELSE 2
+		       END AS rank
+	) r
 	WHERE v.role IS NOT NULL
-	  AND f.name ILIKE $4 ESCAPE '\'
-	ORDER BY (f.name ILIKE $5 ESCAPE '\') DESC, lower(f.name), f.id
+	  AND ` + searchMatch.matches("f.name") + `
+	ORDER BY r.rank,
+	         CASE WHEN r.rank = 2 THEN ` + searchMatch.similarity("f.name") + ` END DESC NULLS LAST,
+	         lower(f.name), f.id
 	LIMIT $6`
 
 // PGStore is the Postgres-backed Store.
@@ -138,6 +176,10 @@ type scopeRow struct {
 // Search implements Store. The store trusts q to be validated (see Query);
 // it only guards Limit against a non-positive value, because LIMIT 0 would
 // silently return nothing.
+//
+// All queries run in one read-only transaction: setFuzzyThreshold is
+// transaction-local, and the scope check and both groups then also read one
+// consistent snapshot.
 func (s *PGStore) Search(ctx context.Context, caller Caller, q Query) (*Response, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -148,28 +190,39 @@ func (s *PGStore) Search(ctx context.Context, caller Caller, q Query) (*Response
 	var kbID any
 	if q.KBID != "" {
 		kbID = q.KBID
-		scope, err := pgxutil.QueryOne[scopeRow](ctx, s.pool, scopeSQL, caller.UserID, caller.SysRole, kbID)
+	}
+	contains, prefix, raw := matchArgs(q.Text)
+
+	var topics []TopicHit
+	var sources []SourceHit
+	err := pgxutil.WithTxOptions(ctx, s.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		if kbID != nil {
+			scope, err := pgxutil.QueryOne[scopeRow](ctx, tx, scopeSQL, caller.UserID, caller.SysRole, kbID)
+			if err != nil {
+				return fmt.Errorf("search scope: %w", err)
+			}
+			if scope == nil || scope.Role == nil {
+				return ErrNotFound
+			}
+		}
+		if err := setFuzzyThreshold(ctx, tx); err != nil {
+			return err
+		}
+		var err error
+		topics, err = pgxutil.QueryRows[TopicHit](ctx, tx, topicsSQL,
+			caller.UserID, caller.SysRole, kbID, contains, prefix, limit, raw)
 		if err != nil {
-			return nil, fmt.Errorf("search scope: %w", err)
+			return fmt.Errorf("search topics: %w", err)
 		}
-		if scope == nil || scope.Role == nil {
-			return nil, ErrNotFound
+		sources, err = pgxutil.QueryRows[SourceHit](ctx, tx, sourcesSQL,
+			caller.UserID, caller.SysRole, kbID, contains, prefix, limit, raw)
+		if err != nil {
+			return fmt.Errorf("search sources: %w", err)
 		}
-	}
-
-	escaped := pgxutil.EscapeLike(q.Text)
-	contains := "%" + escaped + "%"
-	prefix := escaped + "%"
-
-	topics, err := pgxutil.QueryRows[TopicHit](ctx, s.pool, topicsSQL,
-		caller.UserID, caller.SysRole, kbID, contains, prefix, limit, descriptionSnippetLen)
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("search topics: %w", err)
-	}
-	sources, err := pgxutil.QueryRows[SourceHit](ctx, s.pool, sourcesSQL,
-		caller.UserID, caller.SysRole, kbID, contains, prefix, limit)
-	if err != nil {
-		return nil, fmt.Errorf("search sources: %w", err)
+		return nil, err
 	}
 
 	resp := &Response{Query: q.Text, Topics: topics, Sources: sources}

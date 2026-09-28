@@ -85,10 +85,19 @@ result group. `internal/search`.
   `view` on it. If the topic does not exist, is not visible to the caller, or
   the id is not a UUID, the answer is `404` — never `403`, so the route cannot
   confirm that a hidden topic exists.
-- Matching is a case-insensitive literal substring (`ILIKE`, with `%`, `_` and
-  `\` escaped). Topics match on name, description and header text; sources on
-  the file name. Order: name starts with `q`, then name contains `q`, then the
-  rest; ties by name.
+- Matching is **fuzzy**: a hit is either a case-insensitive literal substring
+  (`ILIKE`, with `%`, `_` and `\` escaped) or trigram-similar to `q`
+  (`pg_trgm` word similarity ≥ 0.4, migration 0076), so a typo such as
+  `Statsitik` still finds `Statistik`. Topics match on name (substring or
+  fuzzy) and on description and header text (substring only: fuzzy on long
+  free text is noise). Sources match on the file name (substring or fuzzy).
+- Each hit reports how it matched in `match`: `prefix` (the name starts with
+  `q`), `substring` (the name, or for topics the description or header text,
+  contains `q`) or `fuzzy` (only trigram-similar).
+- Order within each group: `prefix`, then `substring` (for topics, name hits
+  before description/header hits), then `fuzzy` by similarity, most similar
+  first; ties by name, then id. A fuzzy hit never widens visibility: it is
+  drawn from the same visible topics as every other hit.
 
 **Visibility.** Every group contains only topics the caller could open, decided
 per row by one SQL predicate that mirrors `kbaccess.EffectiveRole` rule for rule
@@ -108,11 +117,15 @@ intended, not a leak.
       "name": "Prüfungsordnungen",
       "description": "First 160 characters of the description …",
       "visibility": "public",
-      "role": "view"
+      "role": "view",
+      "match": "prefix"
     }
   ],
   "sources": [
-    { "id": "uuid", "name": "PO-2024.pdf", "type": "pdf", "kbId": "uuid", "kbName": "Prüfungsordnungen" }
+    {
+      "id": "uuid", "name": "PO-2024.pdf", "type": "pdf", "kbId": "uuid",
+      "kbName": "Prüfungsordnungen", "match": "fuzzy"
+    }
   ],
   "chats": [
     { "id": "uuid", "title": "…", "kbId": "uuid", "kbName": "…", "updatedAt": "RFC 3339" }
@@ -130,6 +143,8 @@ intended, not a leak.
 - `topics[].description` is the description, falling back to the header text,
   whitespace-collapsed and cut at 160 characters (ending in `…` when cut);
   `null` when both are empty. `role` is the caller's effective KB role.
+- `match` on topics and sources is one of `prefix`, `substring`, `fuzzy` (see
+  above).
 - `topics` and `sources` are always arrays (`[]` when nothing matched).
 - **`chats` and `messages` are absent** from every response until the chat
   search (board card KI-836) lands. Absent means "this group was not
