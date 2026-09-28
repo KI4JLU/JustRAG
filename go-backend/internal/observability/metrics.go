@@ -9,6 +9,7 @@ import (
 	"context"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -232,6 +233,32 @@ var (
 			Help:        "1 when an in-app eval run is in progress, 0 otherwise.",
 			ConstLabels: commonLabels,
 		},
+	)
+
+	// EvalScheduledMetric carries the latest scheduled eval run's retrieval
+	// metrics so retrieval quality lands on the same dashboard as the rag_*
+	// runtime metrics. route is "overall" or a query type; metric is
+	// recall | precision | mrr | ndcg. Set once per completed scheduled run.
+	EvalScheduledMetric = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:        "rag_eval_scheduled_metric",
+			Help:        "Latest scheduled eval run's aggregate retrieval metric, by KB, golden set, route and metric name.",
+			ConstLabels: commonLabels,
+		},
+		[]string{"kb", "golden_set", "route", "metric"},
+	)
+
+	// EvalScheduledRegression is 1 while the latest scheduled run regressed
+	// beyond eval_regression_recall_pp / eval_regression_mrr_pp against the
+	// previous scheduled run on that route, 0 otherwise. Alert with
+	// max(rag_eval_scheduled_regression) == 1 for 1h.
+	EvalScheduledRegression = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:        "rag_eval_scheduled_regression",
+			Help:        "1 when the latest scheduled eval run regressed beyond threshold on this route, else 0.",
+			ConstLabels: commonLabels,
+		},
+		[]string{"kb", "golden_set", "route"},
 	)
 )
 
@@ -664,23 +691,52 @@ func RecordStepBackDecision(outcome string) {
 	stepBackDecisionTotal.WithLabelValues(outcome).Inc()
 }
 
-// --- Long-context routing (T2-1) ------------------------------------------
+// --- Raw last-turn utterance retrieval lane (Wave 1 Task 7) ----------------
 
-var longContextRouteTotal = promauto.NewCounterVec(
+var rawQueryListTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
-		Name:        "rag_longcontext_route_total",
-		Help:        "Per-outcome counter for the T2-1 long-context (System 2) routing. Outcomes: fired (the keyword classifier matched and SearchOptions.LongContextMode was set), considered (the operator gate is on but the classifier did not match this query — useful to audit firing rate against typical traffic), skipped_disabled (the operator gate is off — only emitted from the per-turn audit path when explicitly enabled). Production deployments expect `fired ≪ considered` at chat_longcontext_enabled=true.",
+		Name:        "rag_raw_query_list_total",
+		Help:        "Per-outcome counter for the rewrite ⊕ raw retrieval lane (vector.SearchOptions.RawQuery). Outcome: added (the raw utterance differed from the condensed query and was folded into both RRF arms as an extra list).",
 		ConstLabels: commonLabels,
 	},
 	[]string{"outcome"},
 )
 
-// RecordLongContextRoute increments the per-outcome counter.
-func RecordLongContextRoute(outcome string) {
+// RecordRawQueryList increments the per-outcome counter for the raw-query
+// retrieval lane. Callers only invoke this when the lane actually fired,
+// so "added" is the sole outcome today; the outcome parameter (mirroring
+// RecordStepBackDecision's shape) keeps the label space open for a future
+// skip-reason breakdown without a metric rename. Empty input normalizes
+// to "added".
+func RecordRawQueryList(outcome string) {
+	if outcome == "" {
+		outcome = "added"
+	}
+	rawQueryListTotal.WithLabelValues(outcome).Inc()
+}
+
+// --- Long-context routing (T2-1) ------------------------------------------
+
+var longContextRouteTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_longcontext_route_total",
+		Help:        "Per-outcome counter for the long-context (System 2) route. Outcomes: fired (the keyword classifier matched and the route ran), considered (the operator gate is on and the turn was eligible — complex_reasoning, no explicit Enhance — but the classifier did not match this query; the denominator for the firing rate), map_empty (map_reduce ran but every group came back empty, so the consumer degraded to flat), skipped_disabled (the operator gate is off — only emitted from the per-turn audit path when explicitly enabled). The mode label carries the consumer that ran or would have run (flat | map_reduce); it is `n_a` for outcomes where no consumer is selected. Both the orchestrator ladder (http_send.go) and PrepareChatContext apply the SAME eligibility test before emitting `considered`, so the ratio means one thing across surfaces. Known and accepted double count: when an orchestrator errors, tryDeepChat falls through to the standard path and PrepareChatContext re-evaluates the same turn, so that one turn contributes a second `considered` (or a second `fired`). Production deployments expect `fired ≪ considered` at chat_longcontext_enabled=true.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome", "mode"},
+)
+
+// RecordLongContextRoute increments the per-outcome counter. mode is the
+// consumer shape (flat | map_reduce); pass "" when no consumer applies and it
+// normalises to n_a.
+func RecordLongContextRoute(outcome, mode string) {
 	if outcome == "" {
 		outcome = "skipped_disabled"
 	}
-	longContextRouteTotal.WithLabelValues(outcome).Inc()
+	if mode == "" {
+		mode = "n_a"
+	}
+	longContextRouteTotal.WithLabelValues(outcome, mode).Inc()
 }
 
 // --- Evidentiality compression (ECoRAG, T2-3) ------------------------------
@@ -1027,6 +1083,48 @@ var bm25FloorReinserted = promauto.NewHistogram(
 // the firing tail.
 func RecordBM25FloorReinserted(count int) {
 	bm25FloorReinserted.Observe(float64(count))
+}
+
+// --- BM25 scoring mode (Wave-2 Task 6) -------------------------------------
+
+var keywordArmModeTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_keyword_arm_mode_total",
+		Help:        "Per-mode counter for the keyword-arm scoring formula actually used per search (mode: ts_rank | bm25). Recorded once per Search() call (and once per KeywordSearch MCP-tool call) after any per-query bm25→ts_rank fallback has already been applied, so this reflects what actually ran, not the site_config setting.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"mode"},
+)
+
+// RecordKeywordArmMode increments the per-mode counter for the keyword
+// arm's scoring formula. Callers pass the mode AFTER any fallback
+// resolution (see RecordBM25ModeFallback) — this metric answers "what
+// scored this search", not "what the operator configured".
+func RecordKeywordArmMode(mode string) {
+	if mode == "" {
+		mode = "ts_rank"
+	}
+	keywordArmModeTotal.WithLabelValues(mode).Inc()
+}
+
+var bm25ModeFallbackTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_bm25_mode_fallback_total",
+		Help:        "Per-reason counter for a per-query fallback from bm25 scoring mode back to ts_rank. reason=no_stats: the KB's dimension has no usable bm25_kb_stats_<dim> row yet (new KB, or the refresher hasn't run since ingestion). reason=no_simple_stats: the 'simple' arm specifically has no usable stats row (e.g. backfilled without a subsequent refresh) while 'lang' does.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"reason"},
+)
+
+// RecordBM25ModeFallback increments the per-reason fallback counter. Only
+// called when bm25 mode was configured but a query actually ran ts_rank
+// instead — a sustained non-zero rate on a KB means its BM25 stats never
+// refresh (worker down, or the KB is permanently mid-ingestion).
+func RecordBM25ModeFallback(reason string) {
+	if reason == "" {
+		reason = "no_stats"
+	}
+	bm25ModeFallbackTotal.WithLabelValues(reason).Inc()
 }
 
 // --- Plan-and-Execute (Phase 1) -------------------------------------------
@@ -1393,7 +1491,7 @@ var citationAttributionsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "rag_citation_attributions_total",
 		Help: "Per-citation-marker validator outcomes. result=verified|unverified; " +
-			"method=ngram|semantic|none. verified/(verified+unverified) over a " +
+			"method=ngram|semantic|span|none. verified/(verified+unverified) over a " +
 			"window is the attribution rate.",
 		ConstLabels: commonLabels,
 	},
@@ -1409,7 +1507,7 @@ func RecordCitationAttribution(verified bool, method string) {
 		result = "verified"
 	}
 	switch method {
-	case "ngram", "semantic":
+	case "ngram", "semantic", "span":
 	default:
 		method = "none"
 	}
@@ -2366,4 +2464,369 @@ func ObserveMultipassTurnSeconds(seconds float64) {
 // ObserveMultipassDropRate records the fraction of chunks dropped by one pre-pass.
 func ObserveMultipassDropRate(rate float64) {
 	multipassDropRate.Observe(rate)
+}
+
+// --- Tabular profiler LLM assist ------------------------------------------
+
+var tabularProfileLLMTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_tabular_profile_llm_total",
+		Help: "Per-outcome counter for the spreadsheet-ingest LLM profiler " +
+			"assist (one fast-tier call per table region). Outcome values: " +
+			"ok (proposal parsed), parse_error (completion returned but the " +
+			"body did not parse as the proposal JSON), error (completion " +
+			"call itself failed or returned empty).",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+// RecordTabularProfileLLM increments the per-outcome counter for one
+// ProfileTableRegion call. Unknown outcome values normalize to "error" so
+// caller-side typos surface visibly.
+func RecordTabularProfileLLM(outcome string) {
+	switch outcome {
+	case "ok", "parse_error", "error":
+	default:
+		outcome = "error"
+	}
+	tabularProfileLLMTotal.WithLabelValues(outcome).Inc()
+}
+
+// --- Tabular deterministic SQL router (Task 7) -----------------------------
+
+var tabularRouterTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_tabular_router_total",
+		Help: "Per-outcome counter for the deterministic tabular SQL " +
+			"router (TabularRouter.Run, one call per chat turn on a KB " +
+			"with spreadsheet data). Outcome values: fired_ok (executed, " +
+			"non-empty rows), fired_empty (executed but empty/all-NULL, " +
+			"or the model declared the question unanswerable), " +
+			"sql_error (DB error after repairs exhausted), llm_error " +
+			"(SQL-generation call failed), validator_rejected (statement " +
+			"failed sqlcheck after repairs exhausted), cancelled (turn " +
+			"abandoned before/during generation), skipped (router did " +
+			"not fire — disabled, no tables, no cue, catalog error, " +
+			"schema empty; the specific reason lives on the trajectory " +
+			"event, not this label, to keep cardinality bounded).",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+var tabularRouterRows = promauto.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:        "rag_tabular_router_rows",
+		Help:        "Row count of a fired-and-executed tabular router statement (fired_ok only).",
+		Buckets:     []float64{1, 5, 20, 50, 100, 200},
+		ConstLabels: commonLabels,
+	},
+)
+
+var tabularRouterRepairsTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name:        "rag_tabular_router_repairs_total",
+		Help:        "Count of repair rounds (SQL regenerated after a validator/DB/empty-result failure) across all tabular router turns.",
+		ConstLabels: commonLabels,
+	},
+)
+
+// tabularRouterKnownOutcomes are the outcome labels TabularRouter.Run
+// itself can produce verbatim; every "skipped_<reason>" value collapses to
+// "skipped" (bounded cardinality — the reason is still visible on the
+// tabular_router_skipped trajectory event).
+var tabularRouterKnownOutcomes = map[string]bool{
+	"fired_ok":           true,
+	"fired_empty":        true,
+	"sql_error":          true,
+	"llm_error":          true,
+	"validator_rejected": true,
+	"cancelled":          true,
+}
+
+// RecordTabularRouter increments the per-outcome counter for one
+// TabularRouter.Run call. Any "skipped_<reason>" value (and any other
+// unrecognized outcome) normalizes to "skipped"/"error" respectively so
+// caller-side typos surface visibly instead of silently growing the label
+// cardinality.
+func RecordTabularRouter(outcome string) {
+	switch {
+	case tabularRouterKnownOutcomes[outcome]:
+	case strings.HasPrefix(outcome, "skipped"):
+		outcome = "skipped"
+	default:
+		outcome = "error"
+	}
+	tabularRouterTotal.WithLabelValues(outcome).Inc()
+}
+
+// RecordTabularRouterRows records the row count of one fired-and-executed
+// tabular router statement.
+func RecordTabularRouterRows(n int) {
+	tabularRouterRows.Observe(float64(n))
+}
+
+// RecordTabularRouterRepairs increments the repair-round counter by n (n is
+// TabularTrace.Repairs — the number of regenerate-and-retry rounds a single
+// turn spent before its terminal outcome).
+func RecordTabularRouterRepairs(n int) {
+	tabularRouterRepairsTotal.Add(float64(n))
+}
+
+// --- Tabular ingest (Task 3) ------------------------------------------------
+
+var tabularIngestRows = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_tabular_ingest_rows_total",
+		Help: "Rows handled by one spreadsheet ingest.Ingester.Ingest call " +
+			"(the processor's spreadsheet branch), by kind, summed across " +
+			"every sheet in the file's ParseReport: read (SheetReport." +
+			"RowsRead), materialised (RowsMaterialised, only nonzero when " +
+			"Options.Materialize is on), embedded (RowsEmbedded), past_cap " +
+			"(RowsPastCap, rows dropped by the embed-row cap). The " +
+			"persisted ParseReport carries no derived-row-skip count (that " +
+			"lives only on the materializer's internal Result, not " +
+			"SheetReport), so there is deliberately no derived_skipped " +
+			"kind here.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"kind"},
+)
+
+var tabularIngestDuration = promauto.NewHistogram(
+	prometheus.HistogramOpts{
+		Name: "rag_tabular_ingest_duration_seconds",
+		Help: "Wall-time of one spreadsheet ingest.Ingester.Ingest call " +
+			"(profile → optional LLM assist → optional materialise → " +
+			"hybrid render), from the processor's spreadsheet branch.",
+		Buckets:     []float64{0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600},
+		ConstLabels: commonLabels,
+	},
+)
+
+var tabularIngestTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_tabular_ingest_total",
+		Help: "Per-outcome counter for one spreadsheet ingest.Ingester." +
+			"Ingest call. Outcome values: ok, error. Any other value " +
+			"normalizes to error so caller-side typos surface visibly.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+// tabularIngestKnownRowKinds are the row kinds RecordTabularIngestRows will
+// record; any other value is dropped rather than silently growing the
+// label cardinality.
+var tabularIngestKnownRowKinds = map[string]bool{
+	"read":         true,
+	"materialised": true,
+	"embedded":     true,
+	"past_cap":     true,
+}
+
+// RecordTabularIngest increments the per-outcome counter and observes the
+// duration histogram for one ingest.Ingester.Ingest call. outcome must be
+// "ok" or "error"; any other value normalizes to "error".
+func RecordTabularIngest(outcome string, d time.Duration) {
+	switch outcome {
+	case "ok", "error":
+	default:
+		outcome = "error"
+	}
+	tabularIngestTotal.WithLabelValues(outcome).Inc()
+	tabularIngestDuration.Observe(d.Seconds())
+}
+
+// RecordTabularIngestRows adds n to the named row-kind counter. kind must
+// be one of read, materialised, embedded, past_cap; any other value is
+// dropped (not recorded) rather than growing the label cardinality.
+func RecordTabularIngestRows(kind string, n int64) {
+	if !tabularIngestKnownRowKinds[kind] {
+		return
+	}
+	tabularIngestRows.WithLabelValues(kind).Add(float64(n))
+}
+
+// TabularIngestTotalForTest exposes the tabular-ingest outcome counter to
+// other test packages (internal/processor) so tests can assert per-outcome
+// deltas without a separate accounting mechanism. Mirrors
+// AgenticDecisionTotalForTest.
+func TabularIngestTotalForTest() *prometheus.CounterVec {
+	return tabularIngestTotal
+}
+
+// TabularIngestRowsForTest exposes the tabular-ingest row-kind counter to
+// other test packages. Mirrors AgenticDecisionTotalForTest.
+func TabularIngestRowsForTest() *prometheus.CounterVec {
+	return tabularIngestRows
+}
+
+// --- Conflict / supersession surfacing (W5-R7) ----------------------------
+
+var conflictSurfacingTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_conflict_surfacing_total",
+		Help: "Per-outcome counter for the conflict / supersession pass " +
+			"(one fast-tier call per turn on a KB with " +
+			"chat_conflict_surfacing_enabled). Outcome values: found " +
+			"(at least one conflict pair surfaced onto the answer), none " +
+			"(the call succeeded and reported no conflict — the " +
+			"denominator for the flag rate), skipped_single_file (fewer " +
+			"than 2 distinct files in the assembled set, so no call was " +
+			"made), timeout (chat_conflict_timeout_ms expired), error " +
+			"(the call or its parse failed). timeout+error are fail-soft: " +
+			"the turn answers without an addendum or a badge.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+// conflictSurfacingKnownOutcomes bounds the label cardinality: an
+// unrecognised value records as "error" rather than minting a new series.
+var conflictSurfacingKnownOutcomes = map[string]bool{
+	"found":               true,
+	"none":                true,
+	"skipped_single_file": true,
+	"timeout":             true,
+	"error":               true,
+}
+
+// RecordConflictSurfacing increments the per-outcome counter for one
+// conflict-surfacing decision.
+func RecordConflictSurfacing(outcome string) {
+	if !conflictSurfacingKnownOutcomes[outcome] {
+		outcome = "error"
+	}
+	conflictSurfacingTotal.WithLabelValues(outcome).Inc()
+}
+
+// ConflictSurfacingTotalForTest exposes the conflict-surfacing counter to
+// other test packages (internal/chat). Mirrors AgenticDecisionTotalForTest.
+func ConflictSurfacingTotalForTest() *prometheus.CounterVec {
+	return conflictSurfacingTotal
+}
+
+// --- Ingest prompt-injection screening (W5-R8) -----------------------------
+
+var ingestInjectionFlagTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_ingest_injection_flag_total",
+		Help: "Files flagged by the ingest-time prompt-injection screen, " +
+			"labelled by the file's origin (rss, confluence, git, crawl — " +
+			"user uploads are never screened). The screen is advisory: a " +
+			"flag never blocks ingestion, changes chunking, or alters " +
+			"retrieval, so this counter measures how much instruction-" +
+			"shaped text an external corpus is absorbing, not how much was " +
+			"rejected.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"origin"},
+)
+
+// ingestInjectionKnownOrigins bounds the label cardinality: origin comes
+// from a files row, so an unexpected value must not mint a new series.
+var ingestInjectionKnownOrigins = map[string]bool{
+	"rss":        true,
+	"confluence": true,
+	"git":        true,
+	"crawl":      true,
+}
+
+// RecordIngestInjectionFlag increments the per-origin counter for one file
+// the ingest screen flagged. An origin outside the screened set is dropped
+// rather than recorded: only those four are ever screened, so a value here
+// that is not in the map means the caller's origin gate has drifted.
+func RecordIngestInjectionFlag(origin string) {
+	if !ingestInjectionKnownOrigins[origin] {
+		return
+	}
+	ingestInjectionFlagTotal.WithLabelValues(origin).Inc()
+}
+
+// IngestInjectionFlagTotalForTest exposes the screening counter to other
+// test packages (internal/processor). Mirrors AgenticDecisionTotalForTest.
+func IngestInjectionFlagTotalForTest() *prometheus.CounterVec {
+	return ingestInjectionFlagTotal
+}
+
+// --- Degenerate answer guard (Wave-5 Task 7) -------------------------------
+
+var answerDegenerateTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_answer_degenerate_total",
+		Help:        "Answers the degenerate-run guard truncated, by answering surface (web | api_v1 | openai_compat | mcp). One increment per affected answer: on the streaming surfaces the completion was cancelled mid-run, on the non-streaming ones the finished answer was stripped post hoc. A non-zero rate means the model is collapsing into runaway repetition — the guard contains the symptom, it does not fix it.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"surface"},
+)
+
+// answerDegenerateKnownSurfaces bounds the label cardinality: surface is a
+// compile-time constant at every call site, so a value outside this set
+// means a caller drifted, not that a new surface exists.
+var answerDegenerateKnownSurfaces = map[string]bool{
+	"web":           true,
+	"api_v1":        true,
+	"openai_compat": true,
+	"mcp":           true,
+}
+
+// RecordAnswerDegenerate increments the per-surface counter for one answer
+// the degenerate-run guard had to truncate.
+func RecordAnswerDegenerate(surface string) {
+	if !answerDegenerateKnownSurfaces[surface] {
+		return
+	}
+	answerDegenerateTotal.WithLabelValues(surface).Inc()
+}
+
+// AnswerDegenerateTotalForTest exposes the guard counter to other test
+// packages. Mirrors IngestInjectionFlagTotalForTest.
+func AnswerDegenerateTotalForTest() *prometheus.CounterVec {
+	return answerDegenerateTotal
+}
+
+// --- Judge JSON-hygiene retry (W6-R4 / W6-R17) -----------------------------
+
+var judgeRetryTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_judge_retry_total",
+		Help: "Per-metric counter for the judge's single bounded retry on a " +
+			"decoder failure (a brace-balanced object the JSON decoder still " +
+			"rejects — a raw newline or unescaped quote inside a string, or a " +
+			"trailing comma — not truncation and not a code fence, both of " +
+			"which the parser already tolerates without a retry). One " +
+			"increment per failed first attempt, regardless of whether the " +
+			"retry itself then succeeds or fails (a second failure is recorded " +
+			"separately in judge_errors as \"after retry\"). Shared by " +
+			"cmd/eval and the runtime RAGAS sampler, since both go through " +
+			"eval.Judge.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"judge"},
+)
+
+// judgeRetryKnownJudges bounds the label cardinality: an unrecognised value
+// records as "other" rather than minting a new series.
+var judgeRetryKnownJudges = map[string]bool{
+	"faithfulness":      true,
+	"answer_relevance":  true,
+	"context_precision": true,
+	"coverage":          true,
+}
+
+// RecordJudgeRetry increments the per-metric counter for one judge decoder
+// failure that triggered the single bounded retry.
+func RecordJudgeRetry(judge string) {
+	if !judgeRetryKnownJudges[judge] {
+		judge = "other"
+	}
+	judgeRetryTotal.WithLabelValues(judge).Inc()
+}
+
+// JudgeRetryTotalForTest exposes the judge-retry counter to other test
+// packages (internal/eval). Mirrors ConflictSurfacingTotalForTest.
+func JudgeRetryTotalForTest() *prometheus.CounterVec {
+	return judgeRetryTotal
 }

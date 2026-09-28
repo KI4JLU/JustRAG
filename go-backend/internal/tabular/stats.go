@@ -1,0 +1,315 @@
+package tabular
+
+import (
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/justrag/go-backend/internal/sheetsource"
+	"github.com/justrag/go-backend/internal/tabular/profile"
+)
+
+const (
+	defaultMaxDistinct = 10_000
+	valueSetMax        = 50
+	sampleMax          = 3
+
+	// maxIndexedValueBytes bounds a single distinct value kept for the
+	// tabular_column_values exact-lookup index. Postgres' btree index-tuple
+	// limit is ~2704 bytes and the table's PK spans the value column, so a
+	// longer value would fail the region's insert outright. 512 bytes is
+	// well under that and far past any realistic categorical/ID value; a
+	// longer cell is free text, which stays reachable via BM25/ILIKE.
+	maxIndexedValueBytes = 512
+)
+
+var boolTrue = map[string]bool{"ja": true, "yes": true, "true": true, "x": true, "✓": true, "wahr": true}
+var boolFalse = map[string]bool{"nein": true, "no": true, "false": true, "falsch": true}
+
+type StatsOptions struct{ MaxDistinct int } // default 10 000
+
+// ColumnAccumulator gathers one column's statistics during the streaming pass.
+type ColumnAccumulator struct {
+	Profile                                                        profile.ColumnProfile
+	Name                                                           string // sanitised, deduped SQL identifier
+	NonEmpty, Numeric, Dates, Timestamps, Bools, Texts, NullTokens int64
+	LeadingZero, LongDigits                                        int64
+	// LongValuesSkipped counts distinct-value occurrences dropped from the
+	// value index for exceeding maxIndexedValueBytes (R21).
+	LongValuesSkipped int64
+	MinNum, MaxNum    float64
+	MinDate, MaxDate  string
+	Distinct          map[string]int64 // nil for non-text roles or after overflow
+	Overflowed        bool
+	Samples           []string // first 3 non-empty raw values
+	// unexported
+	hasNum      bool
+	maxDistinct int
+}
+
+func NewAccumulators(cols []profile.ColumnProfile, opts StatsOptions) []*ColumnAccumulator {
+	if opts.MaxDistinct <= 0 {
+		opts.MaxDistinct = defaultMaxDistinct
+	}
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = SanitizeIdentifier(c.Header)
+	}
+	names = DedupeIdentifiers(names)
+	out := make([]*ColumnAccumulator, len(cols))
+	for i, c := range cols {
+		out[i] = &ColumnAccumulator{Profile: c, Name: names[i], maxDistinct: opts.MaxDistinct}
+		switch c.Role {
+		case profile.RoleID, profile.RoleCategory, profile.RoleText:
+			out[i].Distinct = map[string]int64{}
+		}
+	}
+	return out
+}
+
+func (a *ColumnAccumulator) Add(c sheetsource.Cell) {
+	if c.IsEmpty() {
+		return
+	}
+	raw := strings.TrimSpace(c.Raw)
+	if c.Kind == sheetsource.KindText && profile.IsNullToken(raw) {
+		a.NullTokens++
+		return
+	}
+	a.NonEmpty++
+	if len(a.Samples) < sampleMax {
+		a.Samples = append(a.Samples, raw)
+	}
+	canon, kind := a.classify(c)
+	switch kind {
+	case sheetsource.KindNumber:
+		a.Numeric++
+		if f, err := strconv.ParseFloat(canon, 64); err == nil {
+			if !a.hasNum || f < a.MinNum {
+				a.MinNum = f
+			}
+			if !a.hasNum || f > a.MaxNum {
+				a.MaxNum = f
+			}
+			a.hasNum = true
+		}
+	case sheetsource.KindDate:
+		if strings.Contains(canon, "T") {
+			a.Timestamps++
+		} else {
+			a.Dates++
+		}
+		if a.MinDate == "" || canon < a.MinDate {
+			a.MinDate = canon
+		}
+		if canon > a.MaxDate {
+			a.MaxDate = canon
+		}
+	case sheetsource.KindBool:
+		a.Bools++
+	default:
+		a.Texts++
+	}
+	if lz, ld, _ := profile.LooksLikeIDValue(raw); lz {
+		a.LeadingZero++
+	} else if ld {
+		a.LongDigits++
+	}
+	if a.Distinct != nil {
+		// R21: tabular_column_values' primary key covers (table, column,
+		// value); Postgres' btree index tuple limit (~2704 bytes) makes an
+		// unbounded free-text cell fail the whole region's insert. Long
+		// values are skipped at INSERTION, not at Values() time, so a
+		// column of long free text cannot burn through MaxDistinct (and
+		// silently lose the value index for the SHORT values in it) for
+		// entries that would be dropped anyway.
+		if len(canon) > maxIndexedValueBytes {
+			a.LongValuesSkipped++
+		} else {
+			a.Distinct[canon]++
+			if len(a.Distinct) > a.maxDistinct {
+				a.Distinct, a.Overflowed = nil, true
+			}
+		}
+	}
+}
+
+func (a *ColumnAccumulator) classify(c sheetsource.Cell) (string, sheetsource.CellKind) {
+	raw := strings.TrimSpace(c.Raw)
+	switch c.Kind {
+	case sheetsource.KindNumber, sheetsource.KindDate:
+		return raw, c.Kind
+	case sheetsource.KindBool:
+		return strings.ToLower(raw), sheetsource.KindBool
+	}
+	if lz, ld, _ := profile.LooksLikeIDValue(raw); lz || ld {
+		return raw, sheetsource.KindText
+	}
+	if t, ok := profile.ParseDateText(raw); ok {
+		if strings.ContainsAny(raw, ":T") {
+			return t.Format("2006-01-02T15:04:05"), sheetsource.KindDate
+		}
+		return t.Format("2006-01-02"), sheetsource.KindDate
+	}
+	if f, ok := profile.ParseNumber(raw, a.Profile.DecimalComma); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64), sheetsource.KindNumber
+	}
+	// Only fold a bare text token like "Nein"/"Ja" into the canonical
+	// "true"/"false" pair when the PROFILER already decided this column is
+	// boolean (<=2 distinct values, every one a bool token — see
+	// profile/roles.go's decideRole). A categorical column that happens to
+	// have one bool-token-shaped value among 3+ distinct values (e.g.
+	// "Denkmalschutz": Nein / Einzelkulturdenkmal / Ensembleschutz) is NOT
+	// boolean; gating on Role here mirrors the LeadingZero/LongDigits guard
+	// above (LooksLikeIDValue) — without it, a materialized TEXT column
+	// silently mangled "Nein" into the English "false", losing the
+	// original wording even though FinalSpec correctly kept the column
+	// TypeText (found by the Phase-2 header_row14_metadata.xlsx
+	// acceptance test, task-10-report.md).
+	if a.Profile.Role == profile.RoleBool {
+		switch l := strings.ToLower(raw); {
+		case boolTrue[l]:
+			return "true", sheetsource.KindBool
+		case boolFalse[l]:
+			return "false", sheetsource.KindBool
+		}
+	}
+	return raw, sheetsource.KindText
+}
+
+// Canonical returns the value to COPY: numbers "1234.5", dates ISO, bools "true"/"false",
+// null tokens and empties → ("", false), else trimmed text.
+func (a *ColumnAccumulator) Canonical(c sheetsource.Cell) (string, bool) {
+	if c.IsEmpty() {
+		return "", false
+	}
+	raw := strings.TrimSpace(c.Raw)
+	if c.Kind == sheetsource.KindText && profile.IsNullToken(raw) {
+		return "", false
+	}
+	v, _ := a.classify(c)
+	return v, true
+}
+
+// FinalSpec decides the SQL type(s) after the pass (spec §4.1): primary + optional shadow.
+//
+// Ruling R9: the shadow case (last) fires when the column is genuinely
+// mixed (0 < Numeric < n) AND EITHER the profiler already called it a
+// Measure OR a plain majority of its values parse as numbers
+// (Numeric*2 >= n). Spec §4.1's own example is "Baujahr" — a build-year
+// column with a couple of "2007; Anbau 2018"-style annotations mixed into
+// otherwise plain years — which profile.decideRole's >=90% threshold pins
+// RoleText (see profile/fixtures_test.go), not RoleMeasure, at 8-of-10
+// numeric. The majority arm exists specifically so that case still gets a
+// "baujahr_num" shadow: the primary stays text (preserving the annotations
+// verbatim, which is the whole reason the profiler didn't call it Measure),
+// while the shadow lets table_query SUM/AVG over the values that do parse.
+// Below a plain majority (e.g. 1-of-10 numeric), a RoleText column is just
+// text with an occasional numeral in it, not a numeric-annotated column —
+// no shadow. Every case that would make a Role-based restriction matter for
+// the OTHER roles (RoleID, RoleBool, RoleDate, a fully numeric column) is
+// already handled by an earlier case in this switch, which stops at the
+// first match, so this rule only ever governs RoleMeasure/RoleText/
+// RoleCategory columns that reach it.
+func (a *ColumnAccumulator) FinalSpec() (ColumnSpec, *ColumnSpec) {
+	n := a.NonEmpty
+	base := ColumnSpec{Original: a.Profile.Header, Name: a.Name, Role: string(a.Profile.Role), Description: a.Profile.Description, Type: TypeText}
+	switch {
+	case a.Profile.Role == profile.RoleID || a.LeadingZero > 0 || a.LongDigits > 0:
+	case n > 0 && a.Bools == n && a.Profile.Role == profile.RoleBool:
+		base.Type = TypeBool
+	case n > 0 && a.Dates+a.Timestamps == n:
+		base.Type = TypeDate
+		if a.Timestamps > 0 {
+			base.Type = TypeTimestamp
+		}
+	case n > 0 && a.Numeric == n:
+		base.Type = TypeNumeric
+	case a.Numeric > 0 && a.Numeric < n && (a.Profile.Role == profile.RoleMeasure || a.Numeric*2 >= n):
+		shadow := ColumnSpec{Original: a.Profile.Header + " (Zahl)", Name: trimTo(a.Name, maxIdentBytes-4) + "_num", Type: TypeNumeric, Role: string(profile.RoleMeasure), ShadowOf: a.Name}
+		return base, &shadow
+	}
+	return base, nil
+}
+
+// Stat renders the catalog column_stats entry; totalRows is the number of materialised rows.
+func (a *ColumnAccumulator) Stat(primary ColumnSpec, shadow *ColumnSpec, totalRows int64) ColumnStat {
+	st := ColumnStat{Name: primary.Name, Original: primary.Original, Type: string(primary.Type), Role: primary.Role, Description: primary.Description,
+		NullCount: totalRows - a.NonEmpty, NullTokens: a.NullTokens, DistinctCount: -1, HighCardinality: a.Overflowed,
+		LongValuesSkipped: a.LongValuesSkipped}
+	if shadow != nil {
+		st.ShadowColumn = shadow.Name
+	}
+	if a.hasNum {
+		st.Min, st.Max = strconv.FormatFloat(a.MinNum, 'f', -1, 64), strconv.FormatFloat(a.MaxNum, 'f', -1, 64)
+	} else if a.MinDate != "" {
+		st.Min, st.Max = a.MinDate, a.MaxDate
+	}
+	if a.Distinct != nil {
+		st.DistinctCount = int64(len(a.Distinct))
+		type kv struct {
+			v string
+			n int64
+		}
+		var kvs []kv
+		for v, n := range a.Distinct {
+			if !profile.LooksLikeInstruction(v) {
+				kvs = append(kvs, kv{v, n})
+			}
+		}
+		sort.Slice(kvs, func(i, j int) bool {
+			if kvs[i].n != kvs[j].n {
+				return kvs[i].n > kvs[j].n
+			}
+			return kvs[i].v < kvs[j].v
+		})
+		for i := 0; i < len(kvs) && i < valueSetMax; i++ {
+			st.ValueSet = append(st.ValueSet, kvs[i].v)
+		}
+	}
+	for _, s := range a.Samples {
+		if !profile.LooksLikeInstruction(s) {
+			st.Samples = append(st.Samples, s)
+		}
+	}
+	return st
+}
+
+// ShadowStat renders the catalog column_stats entry for a column's shadow
+// (numeric-coercion) column, so the catalog carries exactly one ColumnStat
+// per ColumnSpec (primary + shadow, in the same order as FinalSpec/
+// assembleSpecs) rather than silently dropping the shadow's own stats.
+// totalRows is the number of materialised rows; a.Numeric is the shadow
+// column's own non-null count (only numeric-classified cells produced a
+// value there).
+func (a *ColumnAccumulator) ShadowStat(shadow ColumnSpec, totalRows int64) ColumnStat {
+	st := ColumnStat{Name: shadow.Name, Original: shadow.Original, Type: string(shadow.Type), Role: shadow.Role,
+		NullCount: totalRows - a.Numeric, DistinctCount: -1}
+	if a.hasNum {
+		st.Min, st.Max = strconv.FormatFloat(a.MinNum, 'f', -1, 64), strconv.FormatFloat(a.MaxNum, 'f', -1, 64)
+	}
+	return st
+}
+
+// Values returns the distinct-value map for tabular_column_values (nil when
+// overflowed or non-text).
+//
+// Spec §6.6: a value that reads as an instruction to a model is dropped
+// here, the same way Stat drops it from ValueSet/Samples — the value index
+// is quoted back into table_query results and therefore into the answer
+// prompt, so an injected cell must not reach it. Values longer than
+// maxIndexedValueBytes were already refused at insertion time (R21) and are
+// counted in LongValuesSkipped.
+func (a *ColumnAccumulator) Values() map[string]int64 {
+	if a.Overflowed || a.Distinct == nil {
+		return nil
+	}
+	out := make(map[string]int64, len(a.Distinct))
+	for v, n := range a.Distinct {
+		if profile.LooksLikeInstruction(v) {
+			continue
+		}
+		out[v] = n
+	}
+	return out
+}

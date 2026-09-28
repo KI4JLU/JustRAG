@@ -1,18 +1,22 @@
 package docling
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
 )
 
@@ -283,5 +287,119 @@ func TestDoclingPptxParser_Parse_ErrorWhenClientNil(t *testing.T) {
 	_, err := p.Parse(context.Background(), parser.ParseContext{FileName: "x.pptx"})
 	if err == nil {
 		t.Fatal("expected error when client is nil")
+	}
+}
+
+func TestDoclingPDFParser_Parse_FigureCaptionLandsOnItsPage(t *testing.T) {
+	// End-to-end over the HTTP boundary: a picture-description caption must
+	// reach ParseResult.Pages, because processor.buildIndexedChunks chunks
+	// Pages whenever they are present and never looks at the markdown blob.
+	// Note the markdown here *does* carry the caption — that is what made the
+	// loss invisible: only the page rebuild dropped it.
+	md := "Vor der Abbildung.\n\nAbbildung 3: Meldungen je Monat.\n\nEin Balkendiagramm; 12 auf 47."
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"document":{"md_content":` + strconv.Quote(md) + `,"json_content":{
+		  "body": {"children": [{"$ref": "#/texts/0"}, {"$ref": "#/pictures/0"}, {"$ref": "#/texts/2"}]},
+		  "texts": [
+		    {"label": "text", "content_layer": "body", "text": "Vor der Abbildung.", "prov": [{"page_no": 4}]},
+		    {"label": "caption", "content_layer": "body", "text": "Abbildung 3: Meldungen je Monat.", "prov": [{"page_no": 4}]},
+		    {"label": "text", "content_layer": "body", "text": "Auf der naechsten Seite.", "prov": [{"page_no": 5}]}
+		  ],
+		  "pictures": [
+		    {"label": "picture", "content_layer": "body", "prov": [{"page_no": 4}],
+		     "captions": [{"$ref": "#/texts/1"}],
+		     "annotations": [{"kind": "description", "text": "Ein Balkendiagramm; 12 auf 47.",
+		                      "provenance": "jlu/gemma-4-26b-it"}]}
+		  ]
+		}}}`))
+	}))
+	defer srv.Close()
+
+	p := &DoclingPDFParser{Client: NewClient(srv.URL, 10*time.Second)}
+	res, err := p.Parse(context.Background(), parser.ParseContext{
+		FilePath: stubPDF(t), FileName: "test.pdf", MimeType: "application/pdf",
+	})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+
+	want := []parser.PageText{
+		{PageNumber: 4, Text: "Vor der Abbildung.\n\nAbbildung 3: Meldungen je Monat.\n\nEin Balkendiagramm; 12 auf 47."},
+		{PageNumber: 5, Text: "Auf der naechsten Seite."},
+	}
+	if !reflect.DeepEqual(res.Pages, want) {
+		t.Fatalf("pages mismatch:\n got %+v\nwant %+v", res.Pages, want)
+	}
+	// The caption must be attributed to the figure's own page, not merely
+	// present somewhere in the document.
+	if strings.Contains(res.Pages[1].Text, "Balkendiagramm") {
+		t.Errorf("caption leaked onto the wrong page: %q", res.Pages[1].Text)
+	}
+}
+
+func TestDoclingPDFParser_Parse_LogsConfidence(t *testing.T) {
+	// docling's confidence block is the first objective signal for "this PDF
+	// parsed badly"; it must land in the structured log with the file name so
+	// it can be grepped by request_id like every other pipeline stage.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"document":{"md_content":"# T"},
+		  "confidence":{"parse_score":1.0,"layout_score":0.41,"mean_score":0.7,"low_score":0.41,
+		                "mean_grade":"good","low_grade":"poor"}}`))
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	logctx.SetBase(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { logctx.SetBase(nil) })
+
+	p := &DoclingPDFParser{Client: NewClient(srv.URL, 10*time.Second)}
+	if _, err := p.Parse(context.Background(), parser.ParseContext{
+		FilePath: stubPDF(t), FileName: "scan.pdf", MimeType: "application/pdf",
+	}); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{`"msg":"docling.confidence"`, `"fileName":"scan.pdf"`, `"low_grade":"poor"`, `"layout_score":0.41`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %s; got %s", want, out)
+		}
+	}
+}
+
+func TestDoclingPDFParser_Parse_LogsConfidenceAsNumbersUnderTextHandler(t *testing.T) {
+	// The production logger is slog's text handler; a *float64 attr prints
+	// as a pointer address there ("parse_score=0x33edec524460"), which is
+	// what shipped the first time. Scores must be logged as values, and an
+	// absent score as nil.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"document":{"md_content":"# T"},
+		  "confidence":{"parse_score":1.0,"layout_score":0.41,"table_score":null,"mean_grade":"good","low_grade":"fair"}}`))
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	logctx.SetBase(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { logctx.SetBase(nil) })
+
+	p := &DoclingPDFParser{Client: NewClient(srv.URL, 10*time.Second)}
+	if _, err := p.Parse(context.Background(), parser.ParseContext{
+		FilePath: stubPDF(t), FileName: "scan.pdf", MimeType: "application/pdf",
+	}); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"layout_score=0.41", "parse_score=1", "table_score=<nil>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %s; got %s", want, out)
+		}
+	}
+	if strings.Contains(out, "0x") {
+		t.Errorf("a score was logged as a pointer: %s", out)
 	}
 }

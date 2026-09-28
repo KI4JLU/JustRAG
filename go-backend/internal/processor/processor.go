@@ -4,8 +4,10 @@ package processor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,7 +24,8 @@ import (
 	"github.com/justrag/go-backend/internal/safego"
 	"github.com/justrag/go-backend/internal/siteconfig"
 	"github.com/justrag/go-backend/internal/splitter"
-	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/tabular/ingest"
+	"github.com/justrag/go-backend/internal/tabular/profile"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -58,10 +61,10 @@ type dedupResult struct {
 // batch. Returns the indices of chunks that should actually be embedded.
 //
 // chunkSvc may be nil — the function then performs only in-batch dedup.
-// dimensions is passed to chunkSvc.GetExistingChunkHashes (the dedup column
-// currently exists only on the default 1536-dim chunk table; non-default
-// dimensions silently skip cross-file dedup until operators apply migration
-// 0007 to their dimension-specific tables).
+// dimensions is passed to chunkSvc.GetExistingChunkHashes and must be the
+// KB's real embedding dimension (see dedupDimensions): every dim-keyed chunk
+// table carries content_hash via the schema.go backfill, so the lookup must
+// target the table the KB's embeddings actually land in.
 //
 // On a cross-file lookup error, the returned dedupResult still contains the
 // in-batch-dedup survivors and their hashes alongside the error. Callers
@@ -141,6 +144,27 @@ func dedupBatch(ctx context.Context, chunkSvc HashLookup, kbID string, dimension
 	return res, nil
 }
 
+// legacyDedupDim is the dimension the cross-file hash lookup used before the
+// KB's real embedding dimension was resolved. Kept only as the fallback for
+// models that declare no output size (ai.Config.EmbeddingDimensions == 0).
+const legacyDedupDim = 1536
+
+// dedupDimensions returns the dim-keyed chunk table the cross-file dedup
+// lookup must query for kbID. Every dim-keyed table carries content_hash +
+// kb_content_hash_idx via the schema.go backfill, so the lookup must target
+// the table the KB's embeddings actually land in — the model's declared
+// dimension. Falls back to legacyDedupDim when the model declares none.
+func (p *Processor) dedupDimensions(ctx context.Context, kbID string) int {
+	if p.aiResolver == nil {
+		return legacyDedupDim
+	}
+	cfg, err := p.aiResolver.Resolve(ctx, kbID)
+	if err != nil || cfg == nil || cfg.EmbeddingDimensions <= 0 {
+		return legacyDedupDim
+	}
+	return cfg.EmbeddingDimensions
+}
+
 // ProcessorStore defines the persistence operations required by Processor.
 type ProcessorStore interface {
 	UpdateFileStatus(ctx context.Context, fileID, status string) error
@@ -153,11 +177,77 @@ type ProcessorStore interface {
 	UpdateFileStage(ctx context.Context, fileID, stage string, index, total int) error
 	// ClearFileStage nulls the stage columns at true completion.
 	ClearFileStage(ctx context.Context, fileID string) error
+	// SetFileParseReport records the per-file spreadsheet ingest report
+	// (see internal/tabular.ParseReport). May contain cell-derived text —
+	// callers must never log it in full.
+	SetFileParseReport(ctx context.Context, fileID string, report []byte) error
+	// UpdateFileStageDetail records a human-readable progress detail for
+	// the current stage (e.g. "Blatt 2/3 · 120000 Zeilen"); "" clears it.
+	UpdateFileStageDetail(ctx context.Context, fileID, detail string) error
+	// GetFileOrigin returns files.origin for fileID ("" when the row is
+	// gone). Read by the ingest prompt-injection screen, which only runs
+	// for external sources — see screening.go's screenedOrigins.
+	GetFileOrigin(ctx context.Context, fileID string) (string, error)
+	// SetInjectionFlag records a screening hit (files.injection_flag +
+	// injection_detail). detail is document-derived, untrusted text —
+	// never log it in full.
+	SetInjectionFlag(ctx context.Context, fileID string, detail []byte) error
+	// MarkInjectionScreenedClean records a pass that found nothing:
+	// injection_flag = false with a detail carrying only screened_at. A
+	// re-ingest therefore drops a stale flag rather than keeping it
+	// forever, and "screened, clean" stays distinguishable from "never
+	// screened" (a NULL detail).
+	MarkInjectionScreenedClean(ctx context.Context, fileID string, detail []byte) error
 }
 
 // SiteConfigReader reads individual site config values.
 type SiteConfigReader interface {
 	GetSiteConfigValue(ctx context.Context, key string) (*string, error)
+}
+
+// SpreadsheetIngester is the processor's view of a spreadsheet ingest
+// orchestrator (*ingest.Ingester in production). Split out as an interface,
+// rather than depending on *ingest.Ingester directly, purely because
+// (*ingest.Ingester).WithLLM returns *ingest.Ingester — a concrete type — so
+// it cannot itself satisfy an interface method that must return
+// SpreadsheetIngester; NewIngesterAdapter bridges the gap.
+type SpreadsheetIngester interface {
+	Ingest(ctx context.Context, in ingest.Input) (*ingest.Result, error)
+	WithLLM(llm profile.LLMProfiler) SpreadsheetIngester
+}
+
+// spreadsheetIngesterAdapter wraps a concrete *ingest.Ingester so it
+// satisfies SpreadsheetIngester.
+type spreadsheetIngesterAdapter struct {
+	g *ingest.Ingester
+}
+
+// NewIngesterAdapter wraps g so it satisfies SpreadsheetIngester. Worker-side
+// wiring: internal/app/worker.go calls
+// proc.SetIngester(processor.NewIngesterAdapter(ingest.New(tabular.NewMaterializer(db.Main), nil))).
+func NewIngesterAdapter(g *ingest.Ingester) SpreadsheetIngester {
+	return &spreadsheetIngesterAdapter{g: g}
+}
+
+func (a *spreadsheetIngesterAdapter) Ingest(ctx context.Context, in ingest.Input) (*ingest.Result, error) {
+	return a.g.Ingest(ctx, in)
+}
+
+func (a *spreadsheetIngesterAdapter) WithLLM(llm profile.LLMProfiler) SpreadsheetIngester {
+	return &spreadsheetIngesterAdapter{g: a.g.WithLLM(llm)}
+}
+
+// toParseResult converts an ingest.Result (the tabular ingester's own
+// result shape — see ruling R5 in the ingest package: it deliberately
+// doesn't import internal/parser to avoid an import cycle) into a
+// parser.ParseResult, the shape the rest of ProcessFile expects. Mirrors
+// SpreadsheetParser.Parse's conversion in internal/parser/spreadsheet.go.
+func toParseResult(res *ingest.Result) *parser.ParseResult {
+	out := &parser.ParseResult{Text: res.Text, IsMarkdown: true}
+	for _, pg := range res.Pages {
+		out.Pages = append(out.Pages, parser.PageText{PageNumber: pg.Number, Text: pg.Text})
+	}
+	return out
 }
 
 // Processor orchestrates parsing → splitting → embedding → storing.
@@ -184,10 +274,12 @@ type Processor struct {
 	// fires under the right conditions without touching the LLM /
 	// vector store.
 	raptorBuilder raptor.BuilderInterface
-	// materializer, when set AND chat_tabular_query_enabled is on, diverts
-	// spreadsheet files into the structured tabular store and replaces the
-	// embedded body with a per-sheet summary card. nil disables the path.
-	materializer *tabular.Materializer
+	// ingester, when set, routes spreadsheet files through the tabular
+	// ingest orchestrator (profile → optional LLM assist → optional
+	// materialise into native Postgres tables → hybrid markdown render)
+	// instead of the plain-text SpreadsheetParser. nil falls back to the
+	// factory's registered SpreadsheetParser (render-only, no LLM assist).
+	ingester SpreadsheetIngester
 	// hype is the HyPE question store, backed by the vector pool. nil when
 	// the vector pool was not injected (e.g. server-side processor, tests).
 	// runHyPEGenerationStage guards on non-nil.
@@ -204,6 +296,11 @@ type Processor struct {
 	// kgCleaner clears a file's prior KG rows before re-extraction so re-ingest
 	// replaces rather than accumulates. nil → no pre-clean (back-compat).
 	kgCleaner kgDeleter
+	// largeGate bounds how many "large" spreadsheets (per
+	// chat.TabularLargeFileBytes) this process ingests concurrently. nil
+	// (the default) is a no-op — every spreadsheet ingests immediately,
+	// matching pre-gate behavior. Set via SetLargeFileGate.
+	largeGate *LargeFileGate
 }
 
 // indexedChunk pairs a chunk's text with its source page number.
@@ -338,8 +435,16 @@ func (p *Processor) SetMainDB(pool *pgxpool.Pool) {
 	p.mainDB = pool
 }
 
-// SetMaterializer attaches the tabular materializer (worker-side wiring).
-func (p *Processor) SetMaterializer(m *tabular.Materializer) { p.materializer = m }
+// SetIngester attaches the spreadsheet ingest orchestrator (worker-side
+// wiring). nil (the default) leaves spreadsheets on the factory's registered
+// SpreadsheetParser (render-only, no materialisation, no LLM assist).
+func (p *Processor) SetIngester(g SpreadsheetIngester) { p.ingester = g }
+
+// SetLargeFileGate attaches the per-process large-spreadsheet concurrency
+// gate (worker-side wiring, constructed once at startup from
+// chat.TabularLargeFileConcurrency). nil (the default) leaves every
+// spreadsheet ingesting immediately regardless of size.
+func (p *Processor) SetLargeFileGate(g *LargeFileGate) { p.largeGate = g }
 
 // SetVectorPool attaches the vector Postgres pool used by the HyPE generation
 // stage. Without it, HyPE ingest is silently skipped even when the feature
@@ -459,126 +564,6 @@ func resolveEnrichmentEnabled(ctx context.Context, reader SiteConfigReader) bool
 	}
 }
 
-// resolveTabularEnabled reports whether the spreadsheet materializer should
-// run. Default false (opt-in), mirroring chat_tabular_query_enabled.
-func resolveTabularEnabled(ctx context.Context, reader SiteConfigReader) bool {
-	if reader == nil {
-		return false
-	}
-	val, err := reader.GetSiteConfigValue(ctx, "chat_tabular_query_enabled")
-	if err != nil || val == nil {
-		return false
-	}
-	return *val == "true" || *val == "1"
-}
-
-// resolveTabularSemanticOptions reads the Phase-2 free-text-embedding config.
-// Enabled defaults false; thresholds fall back to 32 chars / 0.6 distinct ratio.
-func resolveTabularSemanticOptions(ctx context.Context, reader SiteConfigReader) tabular.SemanticOptions {
-	opts := tabular.SemanticOptions{MinAvgLen: 32, MinDistinctRatio: 0.6}
-	if reader == nil {
-		return opts
-	}
-	if v, err := reader.GetSiteConfigValue(ctx, "chat_tabular_semantic_columns_enabled"); err == nil && v != nil {
-		opts.Enabled = *v == "true" || *v == "1"
-	}
-	if v, err := reader.GetSiteConfigValue(ctx, "tabular_semantic_min_avg_len"); err == nil && v != nil {
-		if n, perr := strconv.Atoi(strings.TrimSpace(*v)); perr == nil {
-			opts.MinAvgLen = n
-		}
-	}
-	if v, err := reader.GetSiteConfigValue(ctx, "tabular_semantic_min_distinct_ratio"); err == nil && v != nil {
-		if f, perr := strconv.ParseFloat(strings.TrimSpace(*v), 64); perr == nil {
-			opts.MinDistinctRatio = f
-		}
-	}
-	return opts
-}
-
-// runTabularMaterializer materializes every sheet and returns the combined
-// per-sheet summary card (the only text embedded for this file).
-func (p *Processor) runTabularMaterializer(ctx context.Context, filePath, fileName, fileID, kbID, pgConfig string) (string, error) {
-	opts := resolveTabularSemanticOptions(ctx, p.siteConfigReader)
-	res, err := p.materializer.Materialize(ctx, filePath, fileName, fileID, kbID, opts)
-	if err != nil {
-		return "", err
-	}
-	if opts.Enabled {
-		if err := p.embedTabularRowChunks(ctx, fileID, kbID, res.Sheets, pgConfig); err != nil {
-			// Best-effort: structured store + summary card already committed; the
-			// fuzzy index is the only thing missing. Log and continue.
-			logctx.From(ctx).Warn("processor: tabular row-chunk embedding failed; fuzzy search unavailable for this file",
-				"fileId", fileID, "error", err)
-		}
-	}
-	var cards []string
-	for _, s := range res.Sheets {
-		cards = append(cards, tabular.BuildSummaryCard(fileName, s.SheetName, s.TableName, s.Columns, s.RowCount))
-	}
-	return strings.Join(cards, "\n\n"), nil
-}
-
-// embedTabularRowChunks embeds the Phase-2 free-text row-chunks produced by the
-// materializer and stores them in the dim-keyed chunk table. Each chunk's
-// Content carries the `[tabular.<table> row <id>]` source header (built by
-// tabular.BuildRowChunkContent) so the agent can pivot to table_query; Metadata
-// records the table + rowid for a future cleaner-surfacing path. Reuses the
-// standard embedding batch size + cache. file_id ties the chunks to the file so
-// cascade-delete / re-ingest clean them up with no extra code.
-func (p *Processor) embedTabularRowChunks(ctx context.Context, fileID, kbID string, sheets []tabular.SheetResult, pgConfig string) error {
-	embeddingBatchSize := resolveEmbeddingBatchSize(ctx, p.siteConfigReader)
-	type pending struct {
-		content string
-		table   string
-		rowID   int64
-	}
-	var all []pending
-	for _, s := range sheets {
-		for _, rc := range s.RowChunks {
-			all = append(all, pending{content: rc.Text, table: s.TableName, rowID: rc.RowID})
-		}
-	}
-	if len(all) == 0 {
-		return nil
-	}
-	dimensions := 0
-	for _, batch := range batches(all, embeddingBatchSize) {
-		if ctx.Err() != nil {
-			return fmt.Errorf("processor: ctx cancelled during tabular row-chunk embed: %w", ctx.Err())
-		}
-		texts := make([]string, len(batch))
-		for i, pc := range batch {
-			texts[i] = pc.content
-		}
-		embeddings, err := ai.GenerateEmbeddings(ctx, p.aiResolver, texts, kbID, p.embeddingCache)
-		if err != nil {
-			return fmt.Errorf("processor: embed tabular row-chunks: %w", err)
-		}
-		if dimensions == 0 && len(embeddings) > 0 {
-			dimensions = len(embeddings[0])
-		}
-		inputs := make([]vector.ChunkInput, len(batch))
-		for i, pc := range batch {
-			inputs[i] = vector.ChunkInput{
-				KbID:        kbID,
-				FileID:      fileID,
-				Content:     pc.content,
-				ContentHash: vector.HashContent(pc.content),
-				Embedding:   embeddings[i],
-				Metadata: map[string]any{
-					"tabular_table": pc.table,
-					"tabular_rowid": pc.rowID,
-				},
-			}
-		}
-		if err := p.chunkSvc.AddDocumentChunks(ctx, fileID, inputs, dimensions, pgConfig); err != nil {
-			return fmt.Errorf("processor: insert tabular row-chunks: %w", err)
-		}
-	}
-	logctx.From(ctx).Info("processor: tabular row-chunks embedded", "fileId", fileID, "chunks", len(all))
-	return nil
-}
-
 // resolveKGExtractionEnabled gates the AP-C1 knowledge-graph
 // extraction stage. Default off — KG extraction adds one LLM call
 // per chunk, which the plan documents as a 3-5x ingestion cost
@@ -633,6 +618,25 @@ func resolveHyPEEnabled(ctx context.Context, reader SiteConfigReader) bool {
 // `model_tier_fast` → empty.
 func resolveHyPEModel(ctx context.Context, reader SiteConfigReader) string {
 	return chat.ResolveFastTierModel(ctx, reader, "hype_model")
+}
+
+// spreadsheetStageFlags is the single source of truth for which post-parse
+// stages run on a spreadsheet file. A spreadsheet's embeddable text is a
+// hybrid markdown render of typed table data, not prose — contextual
+// enrichment, KG extraction, HyPE question generation, and RAPTOR
+// summarisation are all tuned for prose, so isSpreadsheet forces all four
+// off regardless of their own site_config gates. enrich/kg/hype/raptor are
+// each already-resolved (site_config AND, for kg/hype/raptor, flatTail)
+// booleans; a non-spreadsheet file passes them through unchanged. Both the
+// stage-plan computation (ProcessFile, up front) and the real per-stage run
+// checks (mid-pipeline) call this so the two can never drift apart — the
+// bug this closes: a plan that hides a stage from the n/x indicator while
+// the stage's actual LLM calls still fire.
+func spreadsheetStageFlags(isSpreadsheet, enrich, kg, hype, raptor bool) (enrichOn, kgOn, hypeOn, raptorOn bool) {
+	if isSpreadsheet {
+		return false, false, false, false
+	}
+	return enrich, kg, hype, raptor
 }
 
 // resolveLateChunkingEnabled gates Jina-style late chunking at ingest:
@@ -780,23 +784,55 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 	}
 	_ = p.store.UpdateFileProgress(ctx, fileID, 5)
 
+	// Resolve the KB language once, up front, so both the spreadsheet
+	// ingester's LLM profiler (needs the language for its prompt) and the
+	// BM25 tsvector built at INSERT time (needs the regconfig) can use it.
+	// Moved above parser selection (was resolved after parsing) for the
+	// ingester's sake — the language no longer depends on parse output.
+	rawLang, pgConfig := p.resolveKBLanguages(ctx, kbID)
+
+	// isSpreadsheet gates the whole tabular-ingest path: which parser runs,
+	// which stages the plan counts, and which post-embed passes (enrich/KG/
+	// HyPE/RAPTOR) are skipped. A spreadsheet's embeddable text is a hybrid
+	// markdown render of typed table data, not prose — contextual
+	// enrichment, KG extraction, HyPE question generation and RAPTOR
+	// summarisation are all tuned for prose and would spend LLM calls
+	// restating column headers.
+	isSpreadsheet := (&parser.SpreadsheetParser{}).CanParse(mimeType, fileName)
+
 	// Compute the stage plan up front so the upload spinner can show a stable
-	// n/x. Tabular only counts for spreadsheets; enrich follows its site_config
-	// gate. The post-embed tail (kg/hype/raptor) only runs on the default flat
-	// path — the parent-child and late-chunking paths `return nil` before it —
-	// so those stages must be excluded from the count when either alternate
-	// path is active, else n/x never reaches x/x. Cleared on every exit path
-	// via the defer below so a file is never pinned to a stage (and the mindmap
-	// spinner clears).
+	// n/x. Tabular only counts for spreadsheets when the KB has actually
+	// opted into materialisation (chat_tabular_query_enabled) — a render-only
+	// spreadsheet ingest (materializer wired but the flag off, or no
+	// ingester at all) shows no separate tabular stage. Enrich follows its
+	// site_config gate, but never for spreadsheets. The post-embed tail
+	// (kg/hype/raptor) only runs on the default flat path — the parent-child
+	// and late-chunking paths `return nil` before it — so those stages must
+	// be excluded from the count when either alternate path is active, else
+	// n/x never reaches x/x; spreadsheets exclude them unconditionally.
+	// Cleared on every exit path via the defer below so a file is never
+	// pinned to a stage (and the mindmap spinner clears).
 	parentChild := chat.ParentChildEnabled(ctx, p.siteConfigReader)
 	lateChunking := resolveLateChunkingEnabled(ctx, p.siteConfigReader)
 	flatTail := !parentChild && !lateChunking
+	// enrichOn/kgOn/hypeOn/raptorOn are computed once here and reused
+	// verbatim at every later real-run gate (enrichmentEnabled below, and
+	// the KG/HyPE/RAPTOR checks post-embed) — spreadsheetStageFlags is the
+	// only place isSpreadsheet can suppress a stage, so the stage plan the
+	// upload spinner shows and the stages that actually run can never
+	// disagree.
+	enrichOn, kgOn, hypeOn, raptorOn := spreadsheetStageFlags(isSpreadsheet,
+		resolveEnrichmentEnabled(ctx, p.siteConfigReader),
+		flatTail && resolveKGExtractionEnabled(ctx, p.siteConfigReader),
+		flatTail && resolveHyPEEnabled(ctx, p.siteConfigReader),
+		flatTail && chat.RaptorEnabled(ctx, p.siteConfigReader),
+	)
 	plan := buildStagePlan(stageFlags{
-		Tabular: p.materializer != nil && tabular.IsSpreadsheet(mimeType, fileName) && resolveTabularEnabled(ctx, p.siteConfigReader),
-		Enrich:  resolveEnrichmentEnabled(ctx, p.siteConfigReader),
-		KG:      flatTail && resolveKGExtractionEnabled(ctx, p.siteConfigReader),
-		HyPE:    flatTail && resolveHyPEEnabled(ctx, p.siteConfigReader),
-		Raptor:  flatTail && chat.RaptorEnabled(ctx, p.siteConfigReader),
+		Tabular: isSpreadsheet && p.ingester != nil && chat.ChatTabularQueryEnabled(ctx, p.siteConfigReader),
+		Enrich:  enrichOn,
+		KG:      kgOn,
+		HyPE:    hypeOn,
+		Raptor:  raptorOn,
 	})
 	defer func() {
 		// WithoutCancel: clear the stage even if the request ctx was canceled,
@@ -817,7 +853,9 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 
 	// Mindmap live update: signal "still building" as soon as a KG-enabled
 	// KB begins ingesting a file, so an open mindmap tab shows the spinner.
-	if p.kgPub != nil && resolveKGExtractionEnabled(ctx, p.siteConfigReader) {
+	// Spreadsheets never run KG extraction (see isSpreadsheet above), so
+	// they never trigger this either.
+	if p.kgPub != nil && !isSpreadsheet && resolveKGExtractionEnabled(ctx, p.siteConfigReader) {
 		p.kgPub.PublishStatus(ctx, kbID, true)
 	}
 
@@ -835,58 +873,158 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 		}
 	}
 
-	// Step 2: select parser.
-	par := p.factory.GetParser(mimeType, fileName)
-	if par == nil {
-		_ = p.store.MarkFileError(ctx, fileID, "unsupported_type", "Unsupported file type: "+mimeType)
-		return fmt.Errorf("processor: no parser for mimeType=%s fileName=%s", mimeType, fileName)
+	// Step 2/3: parse. Spreadsheets with an ingester wired route through the
+	// tabular ingest orchestrator (profile → optional LLM assist → optional
+	// materialise into native Postgres tables → hybrid markdown render);
+	// everything else uses the standard parser-factory lookup. The
+	// SpreadsheetParser stays registered in the factory as the fallback for
+	// processors without an ingester (tests, the API server).
+	var result *parser.ParseResult
+	if isSpreadsheet && p.ingester != nil {
+		materialise := chat.ChatTabularQueryEnabled(ctx, p.siteConfigReader)
+		if materialise {
+			p.setStage(ctx, fileID, plan, stageTabular)
+		}
+		var llm profile.LLMProfiler
+		if chat.TabularProfileLLMEnabled(ctx, p.siteConfigReader) && p.aiResolver != nil {
+			llm = &ingest.AIProfiler{
+				Resolver: p.aiResolver,
+				KBID:     kbID,
+				Lang:     rawLang,
+				Model:    chat.TabularProfileModel(ctx, p.siteConfigReader),
+			}
+		}
+		// Large-file gate: bound how many big spreadsheets this process
+		// materializes at once (tabular_large_file_concurrency), so a burst
+		// of multi-GB uploads doesn't blow the worker's memory budget —
+		// tabular/render holds one EmbedMaxRows-capped window of rows in
+		// memory per table region, and the threshold+gate exist precisely
+		// because that window scales with file size. The size threshold
+		// (tabular_large_file_bytes) is read fresh per file so an admin can
+		// retune it without a restart; the slot count is fixed at startup
+		// (Ruling R64). Small spreadsheets (or any file when no gate is
+		// wired) bypass this entirely and ingest immediately.
+		var releaseLargeFileSlot func()
+		if p.largeGate != nil {
+			if st, statErr := os.Stat(filePath); statErr != nil {
+				// A stat failure must never block ingest — treat the file
+				// as small and let it proceed uncontended.
+				logctx.From(ctx).Warn("processor: stat file for large-file gate failed; treating as small", "fileId", fileID, "error", statErr)
+			} else if st.Size() > int64(chat.TabularLargeFileBytes(ctx, p.siteConfigReader)) {
+				if err := p.store.UpdateFileStageDetail(ctx, fileID, stageDetailWaitingForSlot(rawLang)); err != nil {
+					logctx.From(ctx).Warn("processor: update stage detail failed", "fileId", fileID, "error", err)
+				}
+				if err := p.largeGate.Acquire(ctx); err != nil {
+					p.markTerminalError(ctx, fileID, "canceled", "Processing was interrupted")
+					return fmt.Errorf("processor: acquire large-file slot: %w", err)
+				}
+				releaseLargeFileSlot = p.largeGate.Release
+				logctx.From(ctx).Info("tabular.largefile.acquired", "file_id", fileID, "bytes", st.Size())
+			}
+		}
+		if releaseLargeFileSlot != nil {
+			defer releaseLargeFileSlot()
+		}
+		ingestStart := time.Now()
+		res, err := p.ingester.WithLLM(llm).Ingest(ctx, ingest.Input{
+			FilePath: filePath,
+			FileName: fileName,
+			FileID:   fileID,
+			KBID:     kbID,
+			Options: ingest.Options{
+				Materialize: materialise,
+				SampleRows:  chat.TabularProfileSampleRows(ctx, p.siteConfigReader),
+				LLM: profile.LLMOptions{
+					Enabled:   llm != nil,
+					Threshold: chat.TabularProfileLLMThreshold(ctx, p.siteConfigReader),
+					MaxRows:   30,
+				},
+				MaxRows:      chat.TabularMaxRows(ctx, p.siteConfigReader),
+				EmbedMaxRows: chat.TabularEmbedMaxRows(ctx, p.siteConfigReader),
+				MaxDistinct:  chat.TabularColumnValuesMaxDistinct(ctx, p.siteConfigReader),
+				ChunkSize:    chunkSize,
+			},
+			Progress: func(detail string) {
+				if err := p.store.UpdateFileStageDetail(ctx, fileID, detail); err != nil {
+					logctx.From(ctx).Warn("processor: update stage detail failed", "fileId", fileID, "error", err)
+				}
+			},
+		})
+		if err != nil {
+			observability.RecordTabularIngest("error", time.Since(ingestStart))
+			p.markTerminalError(ctx, fileID, "parse", "The spreadsheet could not be read")
+			return fmt.Errorf("processor: spreadsheet ingest: %w", err)
+		}
+		ingestDuration := time.Since(ingestStart)
+		observability.RecordTabularIngest("ok", ingestDuration)
+		var materialisedRows int64
+		for _, sheet := range res.Report.Sheets {
+			observability.RecordTabularIngestRows("read", int64(sheet.RowsRead))
+			observability.RecordTabularIngestRows("materialised", int64(sheet.RowsMaterialised))
+			observability.RecordTabularIngestRows("embedded", int64(sheet.RowsEmbedded))
+			observability.RecordTabularIngestRows("past_cap", int64(sheet.RowsPastCap))
+			materialisedRows += int64(sheet.RowsMaterialised)
+		}
+		logctx.From(ctx).Info("tabular.ingest.done",
+			"file_id", fileID,
+			"sheets", len(res.Report.Sheets),
+			"duration_ms", ingestDuration.Milliseconds(),
+			"materialised", materialisedRows,
+		)
+		// The report can carry cell-derived text (column names, sample
+		// diagnostics) — never log it in full, only the marshal outcome.
+		if rep, mErr := json.Marshal(res.Report); mErr != nil {
+			logctx.From(ctx).Warn("processor: marshal parse report failed", "fileId", fileID, "error", mErr)
+		} else if err := p.store.SetFileParseReport(ctx, fileID, rep); err != nil {
+			logctx.From(ctx).Warn("processor: store parse report failed", "fileId", fileID, "error", err)
+		}
+		if err := p.store.UpdateFileStageDetail(ctx, fileID, ""); err != nil {
+			logctx.From(ctx).Warn("processor: clear stage detail failed", "fileId", fileID, "error", err)
+		}
+		result = toParseResult(res)
+	} else {
+		par := p.factory.GetParser(mimeType, fileName)
+		if par == nil {
+			_ = p.store.MarkFileError(ctx, fileID, "unsupported_type", "Unsupported file type: "+mimeType)
+			return fmt.Errorf("processor: no parser for mimeType=%s fileName=%s", mimeType, fileName)
+		}
+
+		// For audio files this calls the STT transcriber and can take
+		// minutes; progress stays at 5% during this phase so the frontend
+		// still shows activity.
+		var parseErr error
+		result, parseErr = par.Parse(ctx, parser.ParseContext{
+			FilePath:  filePath,
+			FileName:  fileName,
+			MimeType:  mimeType,
+			KbID:      kbID,
+			ChunkSize: chunkSize,
+		})
+		if parseErr != nil {
+			_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
+			return fmt.Errorf("processor: parse file: %w", parseErr)
+		}
 	}
 
-	// Step 3: parse file. For audio files this calls the STT transcriber
-	// and can take minutes; progress stays at 5% during this phase so the
-	// frontend still shows activity.
-	result, err := par.Parse(ctx, parser.ParseContext{
-		FilePath:  filePath,
-		FileName:  fileName,
-		MimeType:  mimeType,
-		KbID:      kbID,
-		ChunkSize: chunkSize,
-	})
-	if err != nil {
-		_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
-		return fmt.Errorf("processor: parse file: %w", err)
+	// Ingest prompt-injection screening (W5-R8): one pass over the parsed
+	// text of an externally sourced file, after a successful parse and
+	// BEFORE chunking, so the verdict describes the document as parsed
+	// rather than an arbitrary chunk window. Advisory only — it never
+	// blocks ingestion or alters anything that follows, and every failure
+	// inside it is swallowed.
+	//
+	// Gated on !isSpreadsheet rather than nested in the else branch above:
+	// a spreadsheet with no ingester wired falls through to the plain
+	// SpreadsheetParser and would otherwise be screened after all. Its
+	// "text" is a generated key:value render of typed cells, and cell text
+	// already gets the equivalent check inside the sheet profiler.
+	if !isSpreadsheet {
+		p.screenIfExternal(ctx, fileID, result.Text)
 	}
 
 	// Parsing done — bump progress so the bar visibly advances before
 	// embedding begins (important for audio where parse is the long step).
 	_ = p.store.UpdateFileProgress(ctx, fileID, 10)
-
-	// Resolve the KB language once so the BM25 tsvector built at INSERT
-	// time uses the correct regconfig (e.g. "german" stemming). The raw
-	// form is also threaded down to runKGExtractionStage so a second DB
-	// round-trip for the same row is avoided; the tabular divert below
-	// reuses pgConfig too.
-	rawLang, pgConfig := p.resolveKBLanguages(ctx, kbID)
-
-	// Tabular divert: for spreadsheets when the materializer is wired and
-	// chat_tabular_query_enabled is on, load sheets into native-typed Postgres
-	// tables and replace the embedded body with a per-sheet summary card. On
-	// failure, fall through to normal text ingestion (best-effort).
-	if p.materializer != nil &&
-		tabular.IsSpreadsheet(mimeType, fileName) &&
-		resolveTabularEnabled(ctx, p.siteConfigReader) {
-		p.setStage(ctx, fileID, plan, stageTabular)
-		if card, err := p.runTabularMaterializer(ctx, filePath, fileName, fileID, kbID, pgConfig); err != nil {
-			logctx.From(ctx).Warn("processor: tabular materializer failed; falling back to text ingestion",
-				"fileId", fileID, "error", err)
-		} else if card != "" {
-			// Divert: replace the spreadsheet body with the summary card so
-			// only the card is embedded (raw rows live in the tabular store).
-			result.Text = card
-			result.Pages = nil
-			result.IsMarkdown = true
-		}
-	}
 
 	// Step 4: choose splitter config.
 	var cfg splitter.Config
@@ -930,8 +1068,10 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 		chunks[i] = ic.Text
 	}
 
-	// Check if contextual enrichment is enabled (once per file, not per batch).
-	enrichmentEnabled := resolveEnrichmentEnabled(ctx, p.siteConfigReader)
+	// Check if contextual enrichment is enabled (once per file, not per
+	// batch). enrichOn already folds in isSpreadsheet — see
+	// spreadsheetStageFlags above, computed alongside the stage plan.
+	enrichmentEnabled := enrichOn
 	enrichmentModel := resolveEnrichmentModel(ctx, p.siteConfigReader)
 	if enrichmentEnabled {
 		// Probe the resolver once. On a fresh install with no AI provider
@@ -1308,7 +1448,7 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 	// the gate is on AND ingestion at least partially succeeded. Errors
 	// log and drop — KG is a side-channel, never reverts the file's
 	// completed/partial status.
-	if resolveKGExtractionEnabled(ctx, p.siteConfigReader) {
+	if kgOn {
 		p.setStage(ctx, fileID, plan, stageKG)
 		// Clear this file's prior KG contribution before re-extracting so a
 		// re-ingest replaces rather than accumulates entities/edges. Placed
@@ -1324,7 +1464,7 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 
 	// HyPE: generate + embed hypothetical questions per chunk. Best-effort,
 	// post-ingest, gated independently from KG. Re-ingest is the only backfill.
-	if resolveHyPEEnabled(ctx, p.siteConfigReader) {
+	if hypeOn {
 		p.setStage(ctx, fileID, plan, stageHyPE)
 		if hErr := p.runHyPEGenerationStage(ctx, fileID, kbID, fileName, result.Text, rawLang); hErr != nil {
 			logctx.From(ctx).Warn("processor: hype generation stage failed",
@@ -1337,7 +1477,7 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 	// (the two stripe document_chunks differently and re-running RAPTOR
 	// over parent-child children would feed structural rows back as
 	// "leaves").
-	if chat.RaptorEnabled(ctx, p.siteConfigReader) {
+	if raptorOn {
 		if chat.ParentChildEnabled(ctx, p.siteConfigReader) {
 			observability.RecordRaptorBuild("skipped_parent_child")
 			logctx.From(ctx).Info("raptor.build.skipped",
@@ -1351,7 +1491,7 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 	// Mindmap live update: the graph data for this KB just changed (KG
 	// extraction ran). Tell subscribers to re-fetch, and recompute whether
 	// any OTHER file is still ingesting so the spinner clears when idle.
-	if p.kgPub != nil && resolveKGExtractionEnabled(ctx, p.siteConfigReader) {
+	if p.kgPub != nil && !isSpreadsheet && resolveKGExtractionEnabled(ctx, p.siteConfigReader) {
 		p.kgPub.PublishGraphChanged(ctx, kbID)
 		active, _ := p.kbHasActiveIngestion(ctx, kbID)
 		p.kgPub.PublishStatus(ctx, kbID, active)
@@ -1774,17 +1914,12 @@ func (p *Processor) embedAndStore(
 	// Pre-embed deduplication. Hash on `originals` (the stored content), not on
 	// the prefix-augmented embedding input (which varies per ingestion run
 	// because the LLM-generated prefix is non-deterministic).
-	//
-	// Use 1536 as the dedup-table dimension regardless of the actual embedding
-	// dimension. The migration only created the content_hash column on the
-	// default document_chunks table; non-default-dim setups silently skip
-	// cross-file dedup until operators apply the migration to their tables.
-	const dedupTableDim = 1536
+	dedupDim := p.dedupDimensions(ctx, kbID)
 	var hashLookup HashLookup
 	if p.chunkSvc != nil {
 		hashLookup = p.chunkSvc
 	}
-	dedup, dedupErr := dedupBatch(ctx, hashLookup, kbID, dedupTableDim, originals)
+	dedup, dedupErr := dedupBatch(ctx, hashLookup, kbID, dedupDim, originals)
 	if dedupErr != nil {
 		logctx.From(ctx).Warn("processor: dedup query failed; embedding entire batch",
 			"fileId", fileID,
@@ -1993,12 +2128,12 @@ func (p *Processor) runLateChunkedIngest(
 	// the original document order; non-survivors are still embedded so the
 	// late-chunking window sees a contiguous document, but their rows are
 	// discarded before insert.
-	const dedupTableDim = 1536
+	dedupDim := p.dedupDimensions(ctx, kbID)
 	var hashLookup HashLookup
 	if p.chunkSvc != nil {
 		hashLookup = p.chunkSvc
 	}
-	dedup, dedupErr := dedupBatch(ctx, hashLookup, kbID, dedupTableDim, chunks)
+	dedup, dedupErr := dedupBatch(ctx, hashLookup, kbID, dedupDim, chunks)
 	if dedupErr != nil {
 		logctx.From(ctx).Warn("processor: dedup query failed; embedding entire document",
 			"fileId", fileID,

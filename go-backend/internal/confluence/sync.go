@@ -18,6 +18,7 @@ import (
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/hibiken/asynq"
 
+	"github.com/justrag/go-backend/internal/files"
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/safego"
 	"github.com/justrag/go-backend/internal/storage"
@@ -43,6 +44,20 @@ type ChunkDeleter interface {
 	DeleteChunksByFileIDsAllDims(ctx context.Context, fileIDs []string) error
 }
 
+// TableDropper drops a file's materialised spreadsheet tables (the
+// `tabular.sheet_*` tables), its tabular_column_values rows and its
+// tabular_catalog rows. Satisfied by *tabular.Materializer. See the
+// identical interface documented at internal/files.TableDropper for the
+// full rationale: the catalog row is the only index from a file to its
+// physical tables, so this MUST run before the files row is deleted.
+//
+// Optional: a nil dropper leaves the tables alone, which is what a
+// text-only deployment (or a unit test with no main pool) gets — a
+// Confluence attachment need not be a spreadsheet for this to be safe.
+type TableDropper interface {
+	DropTablesForFile(ctx context.Context, fileID string) error
+}
+
 // SyncDeps holds the dependencies needed by the confluence sync handler.
 type SyncDeps struct {
 	Store        ConfluenceStore
@@ -50,6 +65,7 @@ type SyncDeps struct {
 	AsynqClient  *asynq.Client
 	Storage      storage.Storage
 	ChunkService ChunkDeleter
+	TableDropper TableDropper // optional; nil leaves materialised tables in place
 }
 
 // NewSyncHandler returns an asynq.HandlerFunc that processes confluence-sync jobs.
@@ -134,9 +150,9 @@ func syncConfluenceSource(ctx context.Context, deps SyncDeps, sourceID string) e
 
 	// 1. Delete files for pages no longer in Confluence.
 	var filesToDelete []ConfluenceFileRow
-	for pageID, files := range existingByPageID {
+	for pageID, pageFiles := range existingByPageID {
 		if _, exists := currentPageMap[pageID]; !exists {
-			filesToDelete = append(filesToDelete, files...)
+			filesToDelete = append(filesToDelete, pageFiles...)
 		}
 	}
 	if len(filesToDelete) > 0 {
@@ -152,10 +168,16 @@ func syncConfluenceSource(ctx context.Context, deps SyncDeps, sourceID string) e
 	// handler reaches its final reconciliation block. Attachments imported
 	// alongside pages will be reconciled by the post-file wrapper, which
 	// writes the authoritative count from the DB.
+	//
+	// versionWhenWarnOnce scopes isPageUpdated's "unparseable version.when"
+	// log line to this one sync run: the function is called twice per page
+	// (here, and again below to classify the job), and a sync affecting many
+	// pages with bad timestamps must not emit one line per page per call.
+	var versionWhenWarnOnce sync.Once
 	pagesToImport := 0
 	for pageID, pageMeta := range currentPageMap {
 		existingPageFiles := existingByPageID[pageID]
-		if len(existingPageFiles) == 0 || isPageUpdated(pageMeta, existingPageFiles) {
+		if len(existingPageFiles) == 0 || isPageUpdated(pageMeta, existingPageFiles, &versionWhenWarnOnce) {
 			pagesToImport++
 		}
 	}
@@ -189,7 +211,7 @@ func syncConfluenceSource(ctx context.Context, deps SyncDeps, sourceID string) e
 		kind := "skip"
 		if len(existingPageFiles) == 0 {
 			kind = "new"
-		} else if isPageUpdated(pageMeta, existingPageFiles) {
+		} else if isPageUpdated(pageMeta, existingPageFiles, &versionWhenWarnOnce) {
 			kind = "updated"
 		}
 		jobs = append(jobs, pageJob{
@@ -298,6 +320,7 @@ dispatch:
 			Status:              &activeStatus,
 			PageCount:           &pageCount,
 			LastSyncedAt:        &now,
+			LastSuccessAt:       &now,
 			SyncProgress:        &zero,
 			SyncTotal:           &zero,
 			ErrorMessage:        &empty,
@@ -311,6 +334,7 @@ dispatch:
 			Status:              &activeStatus,
 			PageCount:           &pageCount,
 			LastSyncedAt:        &now,
+			LastSuccessAt:       &now,
 			SyncProgress:        &fileTotal,
 			SyncTotal:           &fileTotal,
 			ErrorMessage:        &empty,
@@ -398,22 +422,33 @@ func fetchPages(ctx context.Context, client *ConfluenceClient, source *Confluenc
 }
 
 // isPageUpdated checks if a Confluence page has been modified after the
-// existing file was created.
-func isPageUpdated(page ConfluencePage, files []ConfluenceFileRow) bool {
-	if page.Version.When == "" {
-		return false
-	}
-	pageModified, err := time.Parse(time.RFC3339, page.Version.When)
-	if err != nil {
-		// Try alternate format (Confluence sometimes uses different formats).
-		pageModified, err = time.Parse("2006-01-02T15:04:05.000Z", page.Version.When)
-		if err != nil {
-			return false
+// existing file was created. Version.When is parsed via page.VersionWhen()
+// alone — the second literal-layout fallback that used to live here was
+// unreachable dead code: time.Parse(time.RFC3339, ...) already accepts a
+// fractional-second component even though the RFC3339 layout constant
+// doesn't spell one out, so any timestamp that fails the first parse also
+// fails the narrower second one.
+//
+// An unparseable (or absent) Version.When is treated as "unchanged" rather
+// than "changed" — the opposite would re-import every affected page on
+// every sync tick. warnOnce logs that condition at most once per sync,
+// regardless of how many pages hit it or how many times this function is
+// called for the same page (the caller checks it once to size the progress
+// estimate and again to classify the import job); pass nil to opt out.
+func isPageUpdated(page ConfluencePage, existing []ConfluenceFileRow, warnOnce *sync.Once) bool {
+	pageModified := page.VersionWhen()
+	if pageModified == nil {
+		if warnOnce != nil {
+			warnOnce.Do(func() {
+				slog.Warn("confluence page version.when unparseable, treating page as unchanged",
+					"pageId", page.ID, "when", page.Version.When)
+			})
 		}
+		return false
 	}
 
 	// Find the markdown file (the main page content).
-	for _, f := range files {
+	for _, f := range existing {
 		if f.Type == "text/markdown" {
 			return pageModified.After(f.CreatedAt)
 		}
@@ -493,6 +528,12 @@ func importPage(
 		StoragePath:        storagePath,
 		ConfluenceSourceID: source.ID,
 		ConfluencePageID:   pageMeta.ID,
+		// The page's own content date (W4-R10): the timestamp of the
+		// version we just fetched, clamped at now like every other
+		// source-supplied date. A sync has no update path — a changed
+		// page is deleted and re-created through exactly this call — so
+		// re-syncing a page is what moves its published_at forward.
+		PublishedAt: files.ClampPublishedAt(page.VersionWhen(), time.Now()),
 	})
 	if err != nil {
 		return fmt.Errorf("create file record: %w", err)
@@ -558,6 +599,12 @@ func importPageAttachments(
 			StoragePath:        storagePath,
 			ConfluenceSourceID: source.ID,
 			ConfluencePageID:   pageID,
+			// PublishedAt stays nil for attachments (refinement of
+			// W4-R10): ConfluenceAttachment carries no date of its own,
+			// and the parent page's version timestamp is the page's
+			// content date, not the file's — a decade-old PDF attached
+			// to a page edited yesterday would read as brand new. Their
+			// effective date remains COALESCE(NULL, created_at).
 		})
 		if err != nil {
 			slog.Warn("failed to create attachment file record",
@@ -586,13 +633,13 @@ func importPageAttachments(
 
 // deleteConfluenceFiles removes vector chunks, storage files, and DB records
 // for the given file rows.
-func deleteConfluenceFiles(ctx context.Context, deps SyncDeps, files []ConfluenceFileRow) error {
-	if len(files) == 0 {
+func deleteConfluenceFiles(ctx context.Context, deps SyncDeps, rows []ConfluenceFileRow) error {
+	if len(rows) == 0 {
 		return nil
 	}
 
-	ids := make([]string, len(files))
-	for i, f := range files {
+	ids := make([]string, len(rows))
+	for i, f := range rows {
 		ids[i] = f.ID
 	}
 
@@ -600,14 +647,29 @@ func deleteConfluenceFiles(ctx context.Context, deps SyncDeps, files []Confluenc
 	_ = deps.ChunkService.DeleteChunksByFileIDsAllDims(ctx, ids)
 
 	// Delete storage files in one batched call (S3 DeleteObjects under the hood).
-	paths := make([]string, 0, len(files))
-	for _, f := range files {
+	paths := make([]string, 0, len(rows))
+	for _, f := range rows {
 		if f.StoragePath != nil && *f.StoragePath != "" {
 			paths = append(paths, *f.StoragePath)
 		}
 	}
 	if len(paths) > 0 {
 		_ = deps.Storage.DeleteFiles(ctx, paths)
+	}
+
+	// Drop any materialised spreadsheet tables BEFORE the files rows go
+	// away: the tabular_catalog row is the only index from a file to its
+	// physical tables, so deleting the files row first would orphan them
+	// beyond any future reach (see TableDropper). Best effort, one file at
+	// a time, non-fatal — leaving the files row behind for the sake of a
+	// tabular cleanup would strand attachments in the UI.
+	if deps.TableDropper != nil {
+		for _, id := range ids {
+			if err := deps.TableDropper.DropTablesForFile(ctx, id); err != nil {
+				slog.Warn("tabular: drop tables for deleted confluence file failed",
+					"fileId", id, "error", err)
+			}
+		}
 	}
 
 	// Delete DB records.
@@ -773,6 +835,7 @@ func UpdateSourceProgressAfterFile(ctx context.Context, store ConfluenceStore, t
 		_, _ = store.UpdateConfluenceSource(ctx, sourceID, ConfluenceSourceUpdate{
 			Status:              &activeStatus,
 			LastSyncedAt:        &now,
+			LastSuccessAt:       &now,
 			SyncProgress:        &total,
 			SyncTotal:           &total,
 			ErrorMessage:        &empty,

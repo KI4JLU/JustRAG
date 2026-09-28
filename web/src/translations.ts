@@ -349,7 +349,6 @@ export const translations = {
     rssFeeds: { de: 'RSS-Feeds', en: 'RSS Feeds' },
     addRssFeed: { de: 'RSS-Feed abonnieren', en: 'Subscribe RSS Feed' },
     enterFeedUrl: { de: 'Feed-URL eingeben', en: 'Enter feed URL' },
-    pollInterval: { de: 'Abfrageintervall', en: 'Poll Interval' },
     subscribe: { de: 'Abonnieren', en: 'Subscribe' },
     pollNow: { de: 'Jetzt abfragen', en: 'Poll Now' },
     paused: { de: 'Pausiert', en: 'Paused' },
@@ -380,6 +379,29 @@ export const translations = {
     ingestStageHype: { de: 'Fragen werden erzeugt', en: 'Generating questions' },
     ingestStageRaptor: { de: 'Zusammenfassungen werden erstellt', en: 'Building summary tree' },
     ingestStageGeneric: { de: 'Wird verarbeitet', en: 'Processing' },
+    // "Tabellen" file-detail panel (Phase 4 of the spreadsheet ingest rework)
+    tabularPanelTitle: { de: 'Tabellen', en: 'Tables' },
+    tabularPanelOpen: { de: 'Tabellenstruktur anzeigen', en: 'Show table structure' },
+    tabularNoReport: { de: 'Für diese Datei liegt kein Tabellenbericht vor.', en: 'No table report is available for this file.' },
+    tabularKind: { de: 'Art', en: 'Kind' },
+    tabularHidden: { de: 'Ausgeblendet', en: 'Hidden' },
+    tabularUsedLLM: { de: 'KI-gestützt', en: 'LLM-assisted' },
+    tabularHeaderRow: { de: 'Kopfzeile', en: 'Header row' },
+    tabularRowsRead: { de: 'Gelesene Zeilen', en: 'Rows read' },
+    tabularRowsMaterialised: { de: 'Materialisierte Zeilen', en: 'Rows materialised' },
+    tabularRowsEmbedded: { de: 'Eingebettete Zeilen', en: 'Rows embedded' },
+    tabularRowsPastCap: { de: 'Zeilen über Obergrenze', en: 'Rows past cap' },
+    tabularFormulaEmpty: { de: 'Leere Formelzellen', en: 'Empty formula cells' },
+    tabularCoercionFailures: { de: 'Typkonvertierungsfehler', en: 'Coercion failures' },
+    tabularDroppedColumns: { de: 'Verworfene Spalten', en: 'Dropped columns' },
+    tabularNotes: { de: 'Hinweise', en: 'Notes' },
+    tabularColHeader: { de: 'Überschrift', en: 'Header' },
+    tabularColSQLName: { de: 'SQL-Name', en: 'SQL name' },
+    tabularColType: { de: 'Typ', en: 'Type' },
+    tabularColRole: { de: 'Rolle', en: 'Role' },
+    tabularColDescription: { de: 'Beschreibung', en: 'Description' },
+    tabularColShadow: { de: 'Schattenspalte', en: 'Shadow' },
+    tabularLoadError: { de: 'Tabellendetails konnten nicht geladen werden', en: 'Could not load table details' },
     resume: { de: 'Fortsetzen', en: 'Resume' },
     pause: { de: 'Pausieren', en: 'Pause' },
     deleteRssFeed: { de: 'RSS-Feed löschen?', en: 'Delete RSS feed?' },
@@ -394,8 +416,6 @@ export const translations = {
     rssDeleteEntry: { de: 'Eintrag löschen?', en: 'Delete entry?' },
     rssDeleteEntryConfirm: { de: 'Der Eintrag wird gelöscht. Er kann beim nächsten Abruf wieder erscheinen.', en: 'The entry will be deleted. It may reappear on the next poll.' },
     invalidFeedUrl: { de: 'Ungültige Feed-URL', en: 'Invalid feed URL' },
-    minutes: { de: 'Minuten', en: 'minutes' },
-    hours: { de: 'Stunden', en: 'hours' },
 
     // Chat Area
     proSearch: { de: 'Pro-Suche', en: 'Pro Search' },
@@ -792,10 +812,17 @@ export const translations = {
     verificationScoreLabel: { de: 'Konfidenz', en: 'Confidence' },
     verificationIssuesLabel: { de: 'Anmerkungen', en: 'Notes' },
 
+    // Conflicting-sources badge (Wave 5 conflict surfacing)
+    conflictsBadge: { de: 'Widersprüchliche Quellen', en: 'Conflicting sources' },
+    conflictKindContradiction: { de: 'Widerspruch', en: 'Contradiction' },
+    conflictKindSuperseded: { de: 'überholt', en: 'superseded' },
+    conflictNewerPrefix: { de: 'neuer', en: 'newer' },
+
     // Sources
     sourcesLabel: { de: 'Quellen:', en: 'Sources:' },
     sourceCount: { de: 'Quelle', en: 'Source' },
     openInDocument: { de: 'Im Dokument öffnen', en: 'Open in document' },
+    sourceDateLabel: { de: 'Datum:', en: 'Date:' },
     answerSourcesToggle: { de: 'Quellen', en: 'Sources' },
     hitsLabel: { de: 'Treffer', en: 'hits' },
     followUpsLabel: { de: 'Weiterfragen', en: 'Ask a follow-up' },
@@ -1124,12 +1151,11 @@ export const translations = {
     specificPageTree: { de: 'Bestimmter Seitenbaum', en: 'Specific page tree' },
     selectRootPage: { de: 'Stammseite auswählen', en: 'Select root page' },
     includeAttachments: { de: 'Anhänge einbeziehen', en: 'Include attachments' },
-    syncIntervalLabel: { de: 'Synchronisierungsintervall', en: 'Sync interval' },
-    manualOnly: { de: 'Nur manuell', en: 'Manual only' },
-    every6Hours: { de: 'Alle 6 Stunden', en: 'Every 6 hours' },
-    every12Hours: { de: 'Alle 12 Stunden', en: 'Every 12 hours' },
-    daily: { de: 'Täglich', en: 'Daily' },
-    weekly: { de: 'Wöchentlich', en: 'Weekly' },
+    syncScheduleLabel: { de: 'Synchronisation', en: 'Synchronization' },
+    syncScheduleManual: { de: 'Nur manuell', en: 'Manual only' },
+    syncScheduleDaily: { de: 'Täglich (nachts)', en: 'Daily (overnight)' },
+    syncScheduleWeekly: { de: 'Wöchentlich (nachts)', en: 'Weekly (overnight)' },
+    nextSync: { de: 'Nächste Synchronisation', en: 'Next sync' },
     addConfluenceSource: { de: 'Quelle hinzufügen', en: 'Add Source' },
     confluenceSelectedPages: { de: 'Seitenbäume ausgewählt', en: 'page trees selected' },
     confluenceNotEnabled: { de: 'Confluence-Integration ist nicht aktiviert. Kontaktieren Sie Ihren Administrator.', en: 'Confluence integration is not enabled. Contact your administrator.' },
@@ -1235,6 +1261,23 @@ export const translations = {
     colProcessing: { de: 'In Bearbeitung', en: 'Processing' },
     colChats: { de: 'Chats', en: 'Chats' },
     colCreated: { de: 'Erstellt', en: 'Created' },
+    colOldestContent: { de: 'Ältester Inhalt', en: 'Oldest content' },
+    colStaleShare: { de: 'Veraltet', en: 'Stale' },
+    colLastSync: { de: 'Letzte Synchronisierung', en: 'Last sync' },
+    colRagas: { de: 'RAGAS (24 Std.)', en: 'RAGAS (24h)' },
+    colRagasTooltip: {
+        de: 'RAGAS-Stichprobe der letzten 24 Stunden: Anzahl · F = Treue (Faithfulness), AR = Antwortrelevanz (Answer Relevance), CP = Kontextpräzision (Context Precision). Ein Bindestrich statt Wert bedeutet: kein Ergebnis für diese Metrik (Judge-Aufruf fehlgeschlagen).',
+        en: 'RAGAS sample over the trailing 24 hours: count · F = Faithfulness, AR = Answer Relevance, CP = Context Precision. A dash instead of a value means no result for that metric (the judge call failed).',
+    },
+    kbSyncFailing: { de: 'Synchronisierung fehlerhaft', en: 'Sync failing' },
+    // Per-kind sync status (Wave-4 Task 7 / W4-R9): a KB with several source
+    // kinds shows the worst one in the lastSync cell and lists all of them
+    // in its tooltip, so one healthy RSS feed cannot mask a git/Confluence
+    // source that has never synced.
+    syncNeverSucceeded: { de: 'Noch nie erfolgreich synchronisiert', en: 'Never succeeded' },
+    syncKindLabel_rss: { de: 'RSS', en: 'RSS' },
+    syncKindLabel_confluence: { de: 'Confluence', en: 'Confluence' },
+    syncKindLabel_git: { de: 'Git-Repository', en: 'Git repository' },
     // KB Overview — superadmin actions
     colActions: { de: 'Aktionen', en: 'Actions' },
     kbActionDelete: { de: 'KB löschen', en: 'Delete KB' },
@@ -1294,6 +1337,7 @@ export const translations = {
     kbMessagesChip: { de: '{n} Nachrichten', en: '{n} messages' },
     kbFailedChip: { de: '{n} fehlgeschlagen', en: '{n} failed' },
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
+    kbFreshnessChip: { de: 'Ältester Inhalt {date}', en: 'Oldest content {date}' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },
@@ -1550,6 +1594,13 @@ export const translations = {
     contextualEnrichmentHelp: { de: 'Beim Importieren wird jeder Chunk per LLM mit einer Kontextbeschreibung angereichert, um die Suchgenauigkeit zu verbessern. Erhöht die Verarbeitungszeit und API-Kosten. Gilt nur für neu importierte Dateien.', en: 'During ingestion, each chunk is enriched with an LLM-generated context description to improve search accuracy. Increases processing time and API costs. Only applies to newly ingested files.' },
     contextualEnrichmentModel: { de: 'Modell für kontextuelle Anreicherung', en: 'Contextual enrichment model' },
     contextualEnrichmentModelHelp: { de: 'Modell, das während der Ingestion für die Chunk-Kontextgenerierung verwendet wird. Leer = Standard-Chat-Modell der Wissensdatenbank. Ein kleineres/schnelleres Modell hält den Ingestion-Durchsatz hoch.', en: "Model used to generate chunk context during ingestion. Empty = use the KB's default chat model. A smaller/faster model keeps ingestion throughput high." },
+    fileInjectionFlagged: { de: 'Verdächtiger Text', en: 'Suspicious text' },
+    fileInjectionFlaggedHelp: { de: 'Dateien aus externen Quellen, deren Text anweisungsartige Formulierungen enthält. Rein informativ — Import und Suche sind unverändert.', en: 'Files from external sources whose text contains instruction-shaped phrases. Advisory only — ingestion and retrieval are unchanged.' },
+    colInjectionFlagged: { de: 'Dateien mit verdächtigem Text', en: 'Files with suspicious text' },
+    ingestScreeningEnabled: { de: 'Prompt-Injection-Screening beim Import', en: 'Prompt-injection screening on ingest' },
+    ingestScreeningEnabledHelp: { de: 'Prüft den geparsten Text von Dateien aus externen Quellen (RSS, Confluence, Git, Crawl) auf anweisungsartige Formulierungen und markiert Treffer. Rein informativ: der Import, das Chunking und die Suche bleiben unverändert, es wird nur ein Hinweis in der Quellenliste gesetzt. Eigene Uploads werden nie geprüft.', en: 'Screens the parsed text of files from external sources (RSS, Confluence, git, crawl) for instruction-shaped phrases and flags any hit. Advisory only: ingestion, chunking and retrieval are unchanged, a badge in the source list is the entire effect. Your own uploads are never screened.' },
+    ingestScreeningWindowRunes: { de: 'Screening-Fenster (Zeichen)', en: 'Screening window (characters)' },
+    ingestScreeningWindowRunesHelp: { de: 'Breite des gleitenden Fensters, in dem nach anweisungsartigen Formulierungen gesucht wird (Schrittweite: halbes Fenster, damit ein Treffer an der Fenstergrenze nicht verloren geht). Standard 600, erlaubt 100–5000. Wirkt nur auf neu importierte Dateien.', en: 'Width of the sliding window the screen matches in (it steps by half a window, so a phrase on a boundary is still seen). Default 600, allowed 100–5000. Only applies to newly ingested files.' },
     lateChunkingEnabled: { de: 'Late Chunking (Jina-Stil)', en: 'Late chunking (Jina-style)' },
     lateChunkingEnabledHelp: {
         de: 'Beim Importieren wird das gesamte Dokument in einem Aufruf an einen Long-Context-Embedder geschickt; pro Chunk wird ein gepoolter Vektor zurückgegeben, der Kontext über Chunk-Grenzen hinweg enthält. Setzt voraus, dass der konfigurierte Embedding-Endpunkt das Feld `late_chunking: true` versteht (Jina-kompatibel). Andere Anbieter ignorieren das Feld und liefern Standard-Embeddings. Kontextuelle Anreicherung bleibt unabhängig nutzbar: der Prefix wird weiterhin in der Datenbank gespeichert und über BM25 / Chat-Prompt verwendet, aber NICHT in den Embedding-Input des Late-Chunking-Pfads gemischt. Gilt nur für neu importierte Dateien.',
@@ -1703,25 +1754,45 @@ export const translations = {
         de: 'Wenn aktiviert, werden hochgeladene Tabellen (.xlsx/.xls/.csv) beim Ingest in native typisierte Postgres-Tabellen materialisiert (statt eingebettet), und das table_query-Tool beantwortet exakte Lookups/Aggregationen/Sortierungen per Read-only-SQL. Erfordert Migration 0048 und die Read-only-Rolle (JUSTRAG_DB_URL_READONLY) mit den GRANTs auf das tabular-Schema. Standard: aus. Nach Aktivierung Tabellen neu ingesten.',
         en: 'When on, uploaded spreadsheets (.xlsx/.xls/.csv) are materialized at ingest into native-typed Postgres tables (instead of embedded), and the table_query tool answers exact lookups / aggregations / filter-sort via read-only SQL. Requires migration 0048 and the read-only role (JUSTRAG_DB_URL_READONLY) with the tabular-schema GRANTs. Default: off. Re-ingest spreadsheets after enabling.',
     },
-    chatTabularSemanticColumnsEnabled: { de: 'Fuzzy-Suche über Freitext-Spalten', en: 'Fuzzy search over free-text columns' },
-    chatTabularSemanticColumnsEnabledHelp: {
-        de: 'Ingest-seitig: bettet Freitext-Spalten (lang + hohe Kardinalität) zeilenweise ein, sodass kb_search passende Zeilen findet; der Agent pivotiert dann via _rowid auf table_query. Erfordert die strukturierte Abfrage oben. Einbettungskosten nur beim Ingest (kein Zeilenlimit). Nach Aktivierung neu ingesten.',
-        en: 'Ingest-side: embeds free-text columns (long + high-cardinality) per row so kb_search can surface matching rows; the agent then pivots via _rowid to table_query. Requires the structured query above. Embedding cost at ingest only (no row cap). Re-ingest after enabling.',
-    },
-    tabularSemanticMinAvgLen: { de: 'Freitext-Schwelle: Mindest-Durchschnittslänge', en: 'Free-text threshold: min average length' },
-    tabularSemanticMinAvgLenHelp: {
-        de: 'Eine TEXT-Spalte wird nur eingebettet, wenn ihre Werte im Mittel mindestens so viele Zeichen haben. Filtert kurze kategoriale Codes heraus. Standard 32; 0 deaktiviert diesen Filter.',
-        en: 'A TEXT column is embedded only if its values average at least this many characters. Filters out short categorical codes. Default 32; 0 disables this filter.',
-    },
-    tabularSemanticMinDistinctRatio: { de: 'Freitext-Schwelle: Mindest-Distinct-Verhältnis', en: 'Free-text threshold: min distinct ratio' },
-    tabularSemanticMinDistinctRatioHelp: {
-        de: 'Eine TEXT-Spalte wird nur eingebettet, wenn mindestens dieser Anteil der nicht-leeren Werte eindeutig ist. Filtert niedrig-kardinale Kategorien (Status, Land) heraus. Bereich 0.0–1.0; Standard 0.6; 0 deaktiviert diesen Filter.',
-        en: 'A TEXT column is embedded only if at least this fraction of non-empty values is unique. Filters out low-cardinality categoricals (status, country). Range 0.0–1.0; default 0.6; 0 disables this filter.',
-    },
     chatTabularChartsEnabled: { de: 'Diagramme in Antworten', en: 'Charts in answers' },
     chatTabularChartsEnabledHelp: {
         de: 'Wenn aktiviert UND die KB Tabellendaten hat, erhält der Antwort-Prompt eine Anleitung, Ergebnisse als ```chart-Block (Recharts-JSON) auszugeben, den die Oberfläche rendert. Aggregationen via table_query (SQL GROUP BY); Nicht-SQL-Umformungen via code_exec (Plan-Phase). Modellabhängig — bei ungültigem JSON zeigt die Oberfläche einen Fallback. Standard: aus.',
         en: 'When on AND the KB has tabular data, the answer prompt gains guidance to emit results as a ```chart block (Recharts JSON) that the UI renders. Aggregations via table_query (SQL GROUP BY); non-SQL reshapes via code_exec (plan-time). Model-dependent — the UI shows a fallback on invalid JSON. Default: off.',
+    },
+    chatTabularRouterEnabled: { de: 'Tabellen-Router', en: 'Tabular router' },
+    chatTabularRouterEnabledHelp: {
+        de: 'Deterministische Vorstufe, die Tabellenfragen in validiertes, schreibgeschütztes SQL übersetzt, bevor auf die normale Suche zurückgefallen wird. Kill-Switch — wirkt nur zusammen mit der strukturierten Tabellen-Abfrage (chat_tabular_query_enabled). Standard: an.',
+        en: 'Deterministic pre-pass that turns table questions into validated read-only SQL before falling back to normal retrieval. Kill switch — effective only together with the structured spreadsheet query (chat_tabular_query_enabled). Default: on.',
+    },
+    chatTabularRouterModel: { de: 'Tabellen-Router: Modell', en: 'Tabular router: model' },
+    chatTabularRouterModelHelp: {
+        de: 'Fast-Tier-Modell für die SQL-Generierung und -Reparatur des Routers. Fällt zurück auf model_tier_fast, wenn leer.',
+        en: 'Fast-tier model for the router’s SQL generation and repair. Falls through to model_tier_fast when empty.',
+    },
+    chatTabularRouterMaxRows: { de: 'Tabellen-Router: max. Zeilen', en: 'Tabular router: max rows' },
+    chatTabularRouterMaxRowsHelp: {
+        de: 'Obergrenze für die Zeilenanzahl im Ergebnis der vom Router erzeugten SQL-Abfrage. Gültiger Bereich [10, 1000]; out-of-range fällt auf den Default zurück. Standard: 200.',
+        en: 'Row cap on the router-generated SQL query’s result set. Valid range [10, 1000]; out-of-range falls back to the default. Default: 200.',
+    },
+    chatTabularRouterMaxRepairs: { de: 'Tabellen-Router: max. Reparaturversuche', en: 'Tabular router: max repairs' },
+    chatTabularRouterMaxRepairsHelp: {
+        de: 'Anzahl der LLM-Reparaturversuche, wenn das generierte SQL die Validierung oder Ausführung nicht besteht. 0 deaktiviert Reparaturen. Gültiger Bereich [0, 5]; out-of-range fällt auf den Default zurück. Standard: 3.',
+        en: 'Number of LLM repair attempts allowed when the generated SQL fails validation or execution. 0 disables repairs. Valid range [0, 5]; out-of-range falls back to the default. Default: 3.',
+    },
+    chatTabularRouterTimeoutMs: { de: 'Tabellen-Router: Timeout (ms)', en: 'Tabular router: timeout (ms)' },
+    chatTabularRouterTimeoutMsHelp: {
+        de: 'Zeitbudget für SQL-Generierung und -Ausführung des Routers, bevor auf die normale Suche zurückgefallen wird. Gültiger Bereich [500, 30000]; out-of-range fällt auf den Default zurück. Standard: 5000.',
+        en: 'Wall-clock budget for the router’s SQL generation and execution before it gives up and falls back to normal retrieval. Valid range [500, 30000]; out-of-range falls back to the default. Default: 5000.',
+    },
+    chatTabularRouterSchemaMaxTokens: { de: 'Tabellen-Router: Schema-Budget (Tokens)', en: 'Tabular router: schema budget (tokens)' },
+    chatTabularRouterSchemaMaxTokensHelp: {
+        de: 'Token-Budget für die Tabellenschema-Beschreibung, die in den SQL-Generierungs-Prompt des Routers eingefügt wird. Gültiger Bereich [1000, 60000]; out-of-range fällt auf den Default zurück. Standard: 12000.',
+        en: 'Token budget for the table-schema description injected into the router’s SQL-generation prompt. Valid range [1000, 60000]; out-of-range falls back to the default. Default: 12000.',
+    },
+    chatTabularGuidanceMaxTokens: { de: 'Tabellen-Hinweise: Zusammenfassungs-Budget (Tokens)', en: 'Tabular guidance: summary budget (tokens)' },
+    chatTabularGuidanceMaxTokensHelp: {
+        de: 'Token-Budget für die Katalog-Zusammenfassung, die in den Antwort-Systemprompt eingefügt wird (getrennt vom Schema-Budget des Tabellen-Routers oben). Gültiger Bereich [1000, 30000]; out-of-range fällt auf den Default zurück. Standard: 6000.',
+        en: 'Token budget for the catalog summary folded into the answer system prompt (separate from the tabular router’s schema budget above). Valid range [1000, 30000]; out-of-range falls back to the default. Default: 6000.',
     },
     chatCorpusTableEnabled: { de: 'Aktivieren', en: 'Enable' },
     chatCorpusTableEnabledHelp: {
@@ -1808,6 +1879,51 @@ export const translations = {
         de: 'Wahrscheinlichkeit, mit der eine abgeschlossene Antwort an den RAGAS-Judge weitergeleitet wird. Bereich 0.0–1.0; Standard 0.0 (nichts wird gesampelt, auch wenn der Master-Schalter oben an ist). Empfehlung: mit 0.01 (1%) starten, Kosten in den Prometheus-Counters beobachten, dann nach Bedarf anpassen. Bei 100 Anfragen/Tag und Rate 0.05 ergibt das ~5 Samples/Tag = 15 Judge-LLM-Aufrufe/Tag — klein genug für stabile Wochen-Trends ohne nennenswerte Zusatzkosten.',
         en: 'Probability that a completed response is forwarded to the RAGAS judge. Range 0.0–1.0; default 0.0 (nothing is sampled even when the master switch above is on). Recommended starting point: 0.01 (1%), watch the Prometheus counters, then adjust as needed. At 100 queries/day with rate 0.05 you get ~5 samples/day = 15 judge LLM calls/day — small enough for stable weekly trends without meaningful additional cost.',
     },
+    ragasSamplesRetentionDays: { de: 'RAGAS-Stichproben: Aufbewahrung (Tage)', en: 'RAGAS samples: retention (days)' },
+    ragasSamplesRetentionDaysHelp: {
+        de: 'Wie viele Tage ein einzelnes RAGAS-Stichprobenergebnis in ragas_samples aufbewahrt wird, bevor die nächtliche Bereinigung es löscht. Bereich 1–3650; Standard 90. Global (nicht pro Wissensbasis) — betrifft die Rohdaten hinter der 24-Std.-Spalte in der Admin-KB-Übersicht und die RAGAS-Prometheus-Metriken, nicht die Metriken selbst.',
+        en: 'How many days a single RAGAS sample result stays in ragas_samples before the nightly cleanup deletes it. Range 1–3650; default 90. Global (not per-KB) — affects the raw rows behind the 24h column in the admin KB overview and the RAGAS Prometheus metrics, not the metrics themselves.',
+    },
+    chatCitationSpansEnabled: { de: 'Zitat-Fundstellen (wortgenaue Belegstelle)', en: 'Citation spans (verbatim quote match)' },
+    chatCitationSpansEnabledHelp: {
+        de: 'Wenn aktiviert: zitiert der Antworttext [N], extrahiert ein Fast-Tier-Modell nach der Antwort ein wörtliches Zitat aus der jeweiligen Quelle und prüft es exakt gegen den Chunk-Text; die gefundene Fundstelle (Rune-Offsets in die Quelle) wird im Quellen-Popover als hervorgehobene Textstelle angezeigt statt des bisherigen 320-Zeichen-Ausschnitts. Ein zusätzlicher Modellaufruf pro Antwort, zeitbudgetiert (s. Timeout unten); bei Fehler oder Timeout bleibt die bisherige Zitatprüfung unverändert bestehen. Standard: aus.',
+        en: 'When on: for each [N] the answer cites, a fast-tier model extracts a verbatim quote from that source after the answer and checks it exactly against the chunk text; the resulting span (rune offsets into the source) is shown as a highlighted passage in the source popover instead of the old flat 320-char snippet. One extra model call per response, time-boxed (see timeout below); on error or timeout the existing citation validation is unchanged. Default: off.',
+    },
+    chatCitationSpansMaxSources: { de: 'Zitat-Fundstellen: max. Quellen', en: 'Citation spans: max sources' },
+    chatCitationSpansMaxSourcesHelp: {
+        de: 'Obergrenze für unterschiedliche Quellen, die pro Antwort in einem Aufruf an die Fundstellen-Extraktion gehen. Bereich 1–50; Standard 12. Höhere Werte decken mehr Zitate ab, verlängern aber den Prompt und damit die Latenz des Modellaufrufs.',
+        en: 'Upper bound on distinct sources sent to the span-extraction call per response. Range 1–50; default 12. Higher values cover more citations but lengthen the prompt and the model call\'s latency.',
+    },
+    chatCitationSpansTimeoutMs: { de: 'Zitat-Fundstellen: Timeout (ms)', en: 'Citation spans: timeout (ms)' },
+    chatCitationSpansTimeoutMsHelp: {
+        de: 'Zeitbudget für den Fundstellen-Modellaufruf in Millisekunden. Bereich 1000–60000; Standard 8000. Läuft die Extraktion nicht rechtzeitig durch, bleibt die bisherige Zitatprüfung unverändert bestehen — die Post-Response-Verarbeitung wartet nicht länger.',
+        en: 'Time budget for the span-extraction model call, in milliseconds. Range 1000–60000; default 8000. If extraction doesn\'t finish in time, the existing citation validation is left unchanged — post-response processing never waits longer.',
+    },
+    chatConflictSurfacingEnabled: { de: 'Widersprüchliche Quellen erkennen', en: 'Surface conflicting sources' },
+    chatConflictSurfacingEnabledHelp: {
+        de: 'Wenn aktiviert: nachdem die Quellen für eine Antwort feststehen, vergleicht ein Fast-Tier-Modell sie in EINEM Aufruf darauf, ob zwei Quellen sich widersprechen oder ob eine eine andere ersetzt (neuere Fassung). Gefundene Widersprüche werden dem Antwortprompt als Vorgabe mitgegeben („nenne den Widerspruch, stelle die neuere Fassung dar“), auf der Nachricht gespeichert und im Chat als Hinweis angezeigt. Läuft nur, wenn mindestens zwei verschiedene Dateien im Kontext stehen; welche Quelle neuer ist, wird ausschließlich aus published_at/created_at abgeleitet. Bei Fehler oder Timeout wird die Antwort unverändert erzeugt. Standard: aus.',
+        en: 'When on: once the sources for an answer are fixed, a fast-tier model compares them in ONE call for pairs that contradict each other or supersede one another (newer version). Findings are injected into the answer prompt as a requirement ("state the disagreement, present the newer version"), stored on the message and shown in the chat as a badge. Only runs when at least two distinct files are in context; which source is newer is derived from published_at/created_at alone. On error or timeout the answer is produced unchanged. Default: off.',
+    },
+    chatConflictModel: { de: 'Widersprüche: Modell', en: 'Conflicts: model' },
+    chatConflictModelHelp: {
+        de: 'Fast-Tier-Modell für den Vergleichsaufruf. Leer lassen, um model_tier_fast zu verwenden (und ersatzweise das Chat-Modell der Wissensdatenbank).',
+        en: 'Fast-tier model for the comparison call. Leave empty to use model_tier_fast (falling back to the knowledge base\'s chat model).',
+    },
+    chatConflictMaxChunks: { de: 'Widersprüche: max. Quellen', en: 'Conflicts: max sources' },
+    chatConflictMaxChunksHelp: {
+        de: 'Obergrenze für Quellen, die pro Antwort in einem Aufruf verglichen werden (die am besten bewerteten zuerst). Bereich 2–30; Standard 12. Höhere Werte decken mehr Quellenpaare ab, verlängern aber den Prompt und damit die Latenz des Aufrufs.',
+        en: 'Upper bound on sources compared per response in the single call (top-scoring first). Range 2–30; default 12. Higher values cover more pairs but lengthen the prompt and the call\'s latency.',
+    },
+    chatConflictTimeoutMs: { de: 'Widersprüche: Timeout (ms)', en: 'Conflicts: timeout (ms)' },
+    chatConflictTimeoutMsHelp: {
+        de: 'Zeitbudget für den Vergleichsaufruf in Millisekunden. Bereich 1000–30000; Standard 6000. Läuft der Vergleich nicht rechtzeitig durch, wird die Antwort ohne Widerspruchshinweis erzeugt — die Antwort wartet nie länger.',
+        en: 'Time budget for the comparison call, in milliseconds. Range 1000–30000; default 6000. If it doesn\'t finish in time, the answer is produced with no conflict addendum and no badge — the answer never waits longer.',
+    },
+    chatAnswerDegenerateRunLimit: { de: 'Abbruch bei Zeichenwiederholung (Runen)', en: 'Degenerate-run guard (runes)' },
+    chatAnswerDegenerateRunLimitHelp: {
+        de: 'Maximale Länge einer ununterbrochenen Wiederholung — desselben Zeichens („____“) oder eines 2–4-Zeichen-Musters („ababab“) — in einer Antwort. Wird sie überschritten, bricht der Server die laufende Modellgenerierung ab, entfernt die Wiederholung aus der gespeicherten Antwort und hängt einen Hinweis an; der Rest des Chat-Turns läuft normal weiter. Standard 400 (liegt über jeder realistischen Markdown-Trennlinie, z. B. 300 Bindestriche). 0 schaltet die Prüfung vollständig ab; andere Werte außerhalb 50–100000 fallen auf 400 zurück. Gilt für alle Antwort-Oberflächen (Web-Chat, öffentliche API, OpenAI-kompatibel, MCP).',
+        en: 'Maximum length of an unbroken repetition — of one character ("____") or of a 2–4-character pattern ("ababab") — allowed in an answer. Beyond it the server aborts the running completion, strips the run from the stored answer and appends a notice; the rest of the chat turn proceeds normally. Default 400 (above any realistic Markdown rule, e.g. a 300-dash table rule). 0 disables the check entirely; other values outside 50–100000 fall back to 400. Applies to every answering surface (web chat, public API, OpenAI-compat, MCP).',
+    },
     chatAgenticEnabled: { de: 'Agentischer Chat-Loop (Multi-Hop Suche)', en: 'Agentic chat loop (multi-hop search)' },
     chatAgenticEnabledHelp: {
         de: 'Wenn aktiviert: für Anfragen, die der Query-Klassifikator als komplex einstuft (Vergleichs- / Synthese-Fragen, mehrteilig), führt der Chat-Handler statt der bestehenden 2-Schritt-Recherche eine adaptive Multi-Hop-Schleife aus. Pro Hop nach dem ersten fragt ein LLM-Richter, ob die bisherigen Quellen die Frage vollständig beantworten — falls nein, schlägt er eine fokussierte Folgeanfrage vor. Stops früh wenn (a) der Richter sagt "genug", (b) keine neuen Chunks dazukommen, oder (c) das Hop-Budget aufgebraucht ist. Standard: aus. Kosten: 1-2 zusätzliche LLM-Aufrufe (kleines Modell), 1-2 zusätzliche Suchen pro betroffener Anfrage. Wirkt nur im Streaming-Modus auf complex_reasoning-Anfragen ohne explizites Enhance — andere Anfragen behalten den bestehenden Pfad.',
@@ -1878,6 +1994,38 @@ export const translations = {
         de: 'HTTP-URL des Docling-Sidecars. Beispiel: http://docling:5001 (innerhalb von docker compose).',
         en: 'HTTP URL of the Docling sidecar. Example: http://docling:5001 (inside docker compose).',
     },
+    doclingTableMode: { de: 'Docling-Tabellenmodus', en: 'Docling table mode' },
+    doclingTableModeHelp: {
+        de: '"accurate" (Standard, Docling-Standard) rekonstruiert verbundene Zellen und Kopfzeilen zuverlässiger; "fast" ist schneller, verliert aber Tabellenstruktur.',
+        en: '"accurate" (default, Docling\'s own default) reconstructs merged cells and header rows more reliably; "fast" is quicker but loses table structure.',
+    },
+    doclingTableModeAccurate: { de: 'accurate (Standard)', en: 'accurate (default)' },
+    doclingTableModeFast: { de: 'fast', en: 'fast' },
+    doclingOcrLanguages: { de: 'OCR-Sprachen', en: 'OCR languages' },
+    doclingOcrLanguagesHelp: {
+        de: 'Kommaliste, Standard "de,en". Doclings Standard-OCR-Engine (RapidOCR) lädt ohne Angabe Englisch + Chinesisch — deutsche Scans bekommen dann falsche Umlaute und Wortabstände.',
+        en: 'Comma list, default "de,en". Without it Docling\'s default OCR engine (RapidOCR) loads English + Chinese models — German scans get wrong umlauts and word spacing.',
+    },
+    doclingForceOcr: { de: 'OCR erzwingen (Textebene verwerfen)', en: 'Force OCR (discard text layer)' },
+    doclingForceOcrHelp: {
+        de: 'Standard: aus. Jede Seite wird per OCR gelesen und die PDF-Textebene ersetzt. Für KBs, die überwiegend aus Scans bestehen oder deren PDFs eine kaputte Textebene haben (Zeichensalat, fehlende Leerzeichen). Verlangsamt jede Konvertierung deutlich.',
+        en: 'Default: off. Every page is OCRed and the PDF text layer replaced. For KBs that are mostly scans or whose PDFs carry a broken text layer (garbage characters, missing spaces). Slows every conversion noticeably.',
+    },
+    doclingPictureDescriptionEnabled: { de: 'Abbildungen per Vision-Modell beschreiben', en: 'Describe figures with the vision model' },
+    doclingPictureDescriptionEnabledHelp: {
+        de: 'Standard: aus. Docling schickt jede ausreichend große Abbildung an das Bildbeschreibungs-Modell (siehe unten); Beschreibung, gedruckte Bildunterschrift und der Text in der Abbildung landen im Chunk der jeweiligen Seite. Der Sidecar braucht DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — der Worker prüft das beim Start und loggt sonst einen Fehler. Bestehende Dateien: KB neu ingestieren.',
+        en: 'Default: off. Docling sends every sufficiently large figure to the image-description model (below); the description, the printed caption and the text inside the figure land in that page\'s chunk. The sidecar needs DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — the worker probes for it at startup and logs an error otherwise. Existing files: re-ingest the KB.',
+    },
+    doclingPictureAreaThreshold: { de: 'Mindestfläche einer Abbildung (Anteil der Seite)', en: 'Minimum figure area (fraction of page)' },
+    doclingPictureAreaThresholdHelp: {
+        de: 'Bereich 0–1, Standard 0.05: Bilder unter 5 % der Seitenfläche (Logos, Icons, Aufzählungszeichen) werden nicht beschrieben. Logos, Signaturen, Stempel, Barcodes und QR-Codes werden unabhängig davon per Klassifikation übersprungen.',
+        en: 'Range 0–1, default 0.05: images below 5% of the page area (logos, icons, bullets) are not described. Logos, signatures, stamps, barcodes and QR codes are skipped by classification regardless.',
+    },
+    doclingPictureDescriptionPrompt: { de: 'Prompt für die Abbildungsbeschreibung', en: 'Figure description prompt' },
+    doclingPictureDescriptionPromptHelp: {
+        de: 'Leer = Standard: fragt in der Sprache des Dokuments nach Typ, Inhalt und allen lesbaren Zahlen, Achsen- und Legendenbeschriftungen. Doclings eigener Standard ("Describe this image in a few sentences.") liefert englische Einzeiler ohne Werte.',
+        en: 'Empty = default: asks, in the document\'s language, for the figure type, its content and every readable number, axis label and legend entry. Docling\'s own default ("Describe this image in a few sentences.") yields English one-liners without values.',
+    },
     describeImageEnabled: { de: 'Bildbeschreibung aktivieren', en: 'Enable image description' },
     describeImageEnabledHelp: {
         de: 'Aktiviert den Endpunkt POST /api/describe-image. Erfordert ein bildfähiges Modell (siehe unten). Standard: aus.',
@@ -1893,6 +2041,11 @@ export const translations = {
         de: 'Wenn gesetzt, blendet JustRAG für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
         en: 'When set, JustRAG shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
     },
+    kbStaleDays: { de: 'Schwellenwert für veraltete Inhalte (Tage)', en: 'Stale-content threshold (days)' },
+    kbStaleDaysHelp: {
+        de: 'Alter in Tagen, ab dem eine Datei in der KB-Übersicht als veraltet zählt (Ältester Inhalt / Veraltet-Anteil). Global, nicht pro KB. Standard: 180.',
+        en: 'Age in days above which a file counts as stale in the KB-overview dashboard (oldest content / stale share). Global, not per-KB. Default: 180.',
+    },
     viewTrace: { de: 'Trace anzeigen', en: 'View trace' },
     exportAnswer: { de: 'Antwort exportieren', en: 'Export answer' },
     copyWithCitations: { de: 'Mit Quellen kopieren', en: 'Copy with citations' },
@@ -1904,6 +2057,13 @@ export const translations = {
     contextWindowSize: { de: 'Kontextfenster-Größe', en: 'Context Window Size' },
     contextWindowSizeHelp: { de: 'Anzahl der benachbarten Chunks, die zusätzlich geladen werden (Standard: 1 = ±1 Chunk). Setzen Sie 0 zum Deaktivieren.', en: 'Number of neighboring chunks loaded additionally (default: 1 = ±1 chunk). Set 0 to disable.' },
     saveSettings: { de: 'Einstellungen speichern', en: 'Save Settings' },
+    // S2 (final review): Save is disabled by a JSON error in the policy /
+    // tools-by-route editor, both inside the "multistep" Section, which is
+    // closed by default and unmounted while closed — without this hint an
+    // operator sees a dead Save button with no visible cause anywhere on
+    // screen. "{{section}}" is replaced with the localized section title
+    // (agentSectionMultiStep) at the call site.
+    saveDisabledPolicyErrorHint: { de: 'Speichern deaktiviert: JSON-Fehler in der Sektion „{{section}}" beheben.', en: 'Save disabled: fix the JSON error(s) in the "{{section}}" section.' },
 
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
@@ -2013,6 +2173,12 @@ export const translations = {
     evalGoldenSetName: { de: 'Name', en: 'Name' },
     evalGoldenSetDescription: { de: 'Beschreibung (optional)', en: 'Description (optional)' },
     evalGoldenSetHash: { de: 'Hash', en: 'Hash' },
+    evalSchedule: { de: 'Zeitplan', en: 'Schedule' },
+    evalNextRun: { de: 'Nächster Lauf', en: 'Next run' },
+    evalScheduleUpdateFailed: { de: 'Zeitplan konnte nicht gespeichert werden', en: 'Failed to save schedule' },
+    evalRegressionRecallPP: { de: 'Regressions-Schwelle Recall (Prozentpunkte)', en: 'Regression threshold recall (pp)' },
+    evalRegressionMrrPP: { de: 'Regressions-Schwelle MRR (Prozentpunkte)', en: 'Regression threshold MRR (pp)' },
+    agentSectionEvalSchedule: { de: 'Geplante Evaluationen', en: 'Scheduled evaluations' },
     evalGoldenSet: { de: 'Golden-Set', en: 'Golden set' },
     evalPickGoldenSet: { de: 'Golden-Set auswählen…', en: 'Pick a golden set…' },
     evalTeamLabel: { de: 'Agenten-Team', en: 'Agent team' },
@@ -2046,13 +2212,49 @@ export const translations = {
     prev: { de: 'Zurück', en: 'Previous' },
     next: { de: 'Weiter', en: 'Next' },
 
+    // eval run table (Wave 6)
+    evalTeam: { de: 'Team', en: 'Team' },
+    evalScore: { de: 'Score', en: 'Score' },
+    evalTeamLastRun: { de: 'letzter Lauf', en: 'last run' },
+
+    // orchestrator policy + tools by route (Wave 6)
+    chatOrchestratorPolicy: { de: 'Orchestrator-Policy', en: 'Orchestrator policy' },
+    chatOrchestratorPolicyHelp: {
+        de: 'Geordnete Regeln {when, orchestrator, mode} als JSON-Liste, ausgewertet NACH Vergleich/Team/Tabellen-Routing (diese gewinnen immer zuerst, eine Regel kann sie nie überstimmen) und VOR der Flag-Rangfolge. force wählt den Orchestrator auch bei ausgeschaltetem Flag; prefer nur bei eingeschaltetem Flag — ist das Flag aus, fällt die Regel auf die Rangfolge zurück (Vorschau: „→ Rangfolge (Flag aus)"). Leer = unveränderte Rangfolge.',
+        en: 'Ordered rules {when, orchestrator, mode} as a JSON list, evaluated AFTER comparison/team/corpus-table routing (those always win first — a rule can never override them) and BEFORE the flag ladder. force selects the orchestrator even with its flag off; prefer only when that flag is already on — with the flag off, the rule falls through to the ladder instead (shown in the preview as "→ ladder (flag off)"). Empty = the ladder is unchanged.',
+    },
+    chatOrchestratorPolicyPreview: { de: 'Policy-Vorschau', en: 'Policy preview' },
+    chatOrchestratorPolicyNoRule: { de: '— (Rangfolge)', en: '— (ladder)' },
+    chatOrchestratorPolicyFlagOff: { de: '→ Rangfolge (Flag aus)', en: '→ ladder (flag off)' },
+    chatAnswerToolsByRoute: { de: 'Antwort-Tools pro Route', en: 'Answer tools by route' },
+    chatAnswerToolsByRouteHelp: {
+        de: 'JSON-Objekt Route → erlaubte Antwort-Werkzeuge. Fehlende Route = keine Einschränkung; leere Liste (oder null) = keine Werkzeuge auf dieser Route. Ausnahme: Eine Anfrage ohne erkannten Query-Type (z. B. eine Umformulierungs-Folgefrage) gilt als voll eingeschränkt, sobald IRGENDEINE Route konfiguriert ist — auch eine, die selbst nicht genannt wird. Komponiert strukturell mit der Agenten-Allowlist (restriktivste gewinnt), sofern beide denselben Dispatcher betreffen.',
+        en: 'JSON object mapping route → allowed answer tools. A missing route means no restriction; an empty list (or null) means no tools on that route. Exception: a turn with no classified query type (e.g. a reformat follow-up) is treated as FULLY restricted the moment ANY route is configured — even one it does not itself name. Composes structurally with the agent allowlist (most restrictive wins) wherever both apply to the same dispatcher.',
+    },
+    policyPreviewLookup: { de: 'lookup', en: 'lookup' },
+    policyPreviewEnumeration: { de: 'enumeration', en: 'enumeration' },
+    policyPreviewComplex: { de: 'complex_reasoning', en: 'complex_reasoning' },
+    policyPreviewGlobalSynthesis: { de: 'complex_reasoning + global_synthesis', en: 'complex_reasoning + global_synthesis' },
+
     // ---------------------------------------------------------------
-    // T0-3 Tiered BM25 term-match boost
+    // Wave-2 Task 6: BM25 scoring mode (ts_rank | bm25)
     // ---------------------------------------------------------------
-    bm25TieredBoostEnabled: { de: 'BM25: Tiered Term-Match-Boost', en: 'BM25: tiered term-match boost' },
-    bm25TieredBoostEnabledHelp: {
-        de: 'Multipliziert den ts_rank des Sprachstemmer-Arms: Chunks, die die strikte websearch_to_tsquery-Form (alle Suchterme) erfüllen, erhalten ×100; Chunks, die nur die OR-of-Tokens-Recall-Floor-Variante treffen, erhalten ×10. Verbessert exakt-identifizierende Anfragen (Fehlercodes, Versionsstrings, Produktnamen). Single-Token-Anfragen sind ein No-Op (uniforme Skalierung, ordnungserhaltend). Externe Validierung: +7.5% NDCG. Standard: aus — vor Aktivierung onsite gegen Goldenset evaluieren.',
-        en: 'Multiplies the language-stemmer arm\'s ts_rank: chunks satisfying the strict websearch_to_tsquery form (all required terms) score ×100; chunks matching only the OR-of-tokens recall floor score ×10. Boosts exact-identifier queries (error codes, version strings, product names). Single-token queries are a no-op (uniform scaling, order-preserving). External validation: +7.5% NDCG. Default: off — validate against the golden set before enabling.',
+    bm25ScoringMode: { de: 'BM25-Modus', en: 'BM25 scoring mode' },
+    bm25ScoringModeTsRank: { de: 'ts_rank (Standard)', en: 'ts_rank (default)' },
+    bm25ScoringModeBM25: { de: 'bm25 (echtes BM25)', en: 'bm25 (real BM25)' },
+    bm25ScoringModeHelp: {
+        de: 'ts_rank = bisheriges Postgres-Ranking (nur Termfrequenz, kein IDF). bm25 = echtes BM25 (IDF + Längennormalisierung aus den bm25_*_stats-Tabellen, die der Worker alle 15 Minuten nachführt). Fällt pro Anfrage auf ts_rank zurück, solange eine KB noch keine Statistik hat. Nach dem Umschalten query_cache_schema_version anheben, damit gecachte Treffer aus dem alten Modus nicht weiterserviert werden.',
+        en: 'ts_rank = the existing Postgres ranking (term frequency only, no IDF). bm25 = real BM25 (IDF + document-length normalisation from the bm25_*_stats tables the worker refreshes every 15 minutes). Falls back to ts_rank per query while a KB has no stats yet. Bump query_cache_schema_version after flipping this so cached hits from the old mode stop being served.',
+    },
+    bm25K1: { de: 'BM25 k1', en: 'BM25 k1' },
+    bm25K1Help: {
+        de: 'Termfrequenz-Sättigung im echten BM25-Modus — höhere Werte lassen die Termfrequenz länger ins Gewicht fallen, bevor sie sättigt. Standard 1,2 (Standardwert aus der Literatur). Bereich 0,5–3,0. Wirkt nur, wenn der BM25-Modus auf "bm25" steht.',
+        en: 'Term-frequency saturation in real BM25 mode — higher values let term frequency keep mattering longer before it saturates. Default 1.2 (the standard literature operating point). Range 0.5–3.0. Only effective when the BM25 scoring mode is "bm25".',
+    },
+    bm25B: { de: 'BM25 b', en: 'BM25 b' },
+    bm25BHelp: {
+        de: 'Längennormalisierung im echten BM25-Modus (0 = keine, 1 = volle Normalisierung nach Dokumentlänge). Standard 0,75 (Standardwert aus der Literatur). Bereich 0–1. Wirkt nur, wenn der BM25-Modus auf "bm25" steht.',
+        en: 'Document-length normalisation in real BM25 mode (0 = none, 1 = full normalisation by document length). Default 0.75 (the standard literature operating point). Range 0–1. Only effective when the BM25 scoring mode is "bm25".',
     },
 
     // ---------------------------------------------------------------
@@ -2337,6 +2539,18 @@ export const translations = {
     },
 
     // ---------------------------------------------------------------
+    // Night sync window
+    // ---------------------------------------------------------------
+    agentSectionSyncWindow: { de: 'Nächtliches Synchronisationsfenster', en: 'Night sync window' },
+    syncWindowStartHour: { de: 'Fensterbeginn (Stunde)', en: 'Window start (hour)' },
+    syncWindowEndHour: { de: 'Fensterende (Stunde)', en: 'Window end (hour)' },
+    syncWindowTimezone: { de: 'Zeitzone', en: 'Timezone' },
+    syncWindowHelp: {
+        de: 'Automatische Synchronisationen (RSS, Confluence, Git) laufen ausschließlich in diesem Fenster und werden gleichmäßig darüber verteilt. Änderungen wirken innerhalb von 5 Minuten, verschieben aber nur noch nicht eingeplante Läufe.',
+        en: 'Automatic syncs (RSS, Confluence, git) run only inside this window and are spread across it. Changes take effect within 5 minutes but only move runs that are not yet scheduled.',
+    },
+
+    // ---------------------------------------------------------------
     // T2-1 Long-context (System 2) routing
     // ---------------------------------------------------------------
     chatLongcontextEnabled: { de: 'Long-Context-Routing (System 2)', en: 'Long-context routing (System 2)' },
@@ -2348,6 +2562,23 @@ export const translations = {
     chatLongcontextMaxTokensHelp: {
         de: 'Token-Budget-Obergrenze, die die Chat-Schicht auf den Long-Context-Chunk-Pool vor der Prompt-Assemblierung anwendet. Bereich [10.000, 500.000]; Default 100.000. 100k erlaubt ~200 Chunks à ~500 Token aber bleibt deutlich unter den meisten Produktionsmodell-Kontextfenstern (1M auf neueren Gemini/Claude-Tieren, 200k auf Sonnet).',
         en: 'Token-budget ceiling the chat layer applies to the long-context chunk pool before prompt assembly. Range [10,000, 500,000]; default 100,000. 100 k accommodates ~200 chunks at ~500 tokens each but stays well under most production model context windows (1 M on the latest Gemini/Claude tiers, 200 k on Sonnet).',
+    },
+    chatLongcontextMode: { de: 'Long-Context: Verarbeitung', en: 'Long-context: consumer' },
+    chatLongcontextModeFlat: { de: 'flat — kompletter Chunk-Pool roh an das Antwortmodell', en: 'flat — whole chunk pool raw to the answer model' },
+    chatLongcontextModeMapReduce: { de: 'map_reduce — erst Befunde je Chunk-Gruppe extrahieren', en: 'map_reduce — extract findings per chunk group first' },
+    chatLongcontextModeHelp: {
+        de: 'Wie der breite Chunk-Pool (bis ~200 Chunks) zur Antwort wird. flat = bisheriges Verhalten: der komplette, aufs Token-Budget gekürzte Pool geht roh an das Antwortmodell. map_reduce = pro Chunk-Gruppe zuerst ein günstiger Fast-Tier-Aufruf, der je Quelle eine Aussage plus wörtliches Zitat extrahiert; das Antwortmodell sieht dann nur diese Befunde und die Quellenüberschriften, nicht die Rohtexte. Vorteil: deutlich kürzerer Antwort-Prompt und weniger Positionsbias über 200 Chunks. Kosten: ein zusätzlicher Fast-Tier-Aufruf je Gruppe. Achtung: eine Quelle, zu der kein Befund extrahiert wurde, kann in der Antwort nicht mehr zitiert werden. Scheitert eine Gruppe, gehen deren Rohtexte (erste 600 Zeichen je Chunk) als Ersatz-Befunde in den Prompt — Belege gehen nie still verloren. Wirkt nur, wenn Long-Context aktiv ist. Standard: map_reduce (seit Wave 5; gemessen: 34 von 36 entscheidbaren Richtervergleichen, Abdeckung +5,0 Prozentpunkte, Laufzeit 1,28x). Ein nicht erkannter Wert fällt auf flat zurück.',
+        en: 'How the wide chunk pool (up to ~200 chunks) becomes an answer. flat = today\'s behaviour: the whole token-budgeted pool goes to the answer model raw. map_reduce = one cheap fast-tier call per chunk group first, extracting one claim plus a verbatim quote per source; the answer model then sees only those findings and the source headers, not the raw bodies. Upside: a much shorter answer prompt and less position bias across 200 chunks. Cost: one extra fast-tier call per group. Caveat: a source no finding surfaced can no longer be cited in the answer. If a group fails, its raw text (first 600 characters per chunk) enters the prompt as fallback findings — evidence is never silently dropped. Only has an effect when long-context is on. Default: map_reduce (since Wave 5; measured: 34 of 36 decisive judge pairs, coverage +5.0 pp, 1.28x wall time). An unrecognised value falls back to flat.',
+    },
+    chatLongcontextMapGroupSize: { de: 'Long-Context: Chunks je Gruppe', en: 'Long-context: chunks per group' },
+    chatLongcontextMapGroupSizeHelp: {
+        de: 'Wie viele Chunks ein Extraktionsaufruf im map_reduce-Modus sieht. Bereich [2, 32]; Default 8. Kleinere Gruppen bedeuten mehr Aufrufe, aber weniger Positionsbias innerhalb eines Aufrufs; größere Gruppen sind billiger, erzeugen aber wieder genau die Verdrängung, gegen die die Map-Stufe existiert. Nur im Modus map_reduce wirksam.',
+        en: 'How many chunks one extraction call sees in map_reduce mode. Range [2, 32]; default 8. Smaller groups mean more calls but less within-call position bias; larger groups are cheaper but re-create exactly the crowding the map stage exists to avoid. Only effective in map_reduce mode.',
+    },
+    chatLongcontextMapConcurrency: { de: 'Long-Context: parallele Extraktionen', en: 'Long-context: map concurrency' },
+    chatLongcontextMapConcurrencyHelp: {
+        de: 'Obergrenze gleichzeitiger Extraktionsaufrufe der Map-Stufe pro Chat-Turn. Bereich [1, 32]; Default 6. Dies ist eine Grenze pro Turn — die deploymentweite Obergrenze ist AI_MAX_CONCURRENT_REQUESTS. Nur im Modus map_reduce wirksam.',
+        en: 'Upper bound on simultaneous map-stage extraction calls per chat turn. Range [1, 32]; default 6. This is a per-turn cap — the deployment-wide ceiling is AI_MAX_CONCURRENT_REQUESTS. Only effective in map_reduce mode.',
     },
 
     // My Memory (GDPR)

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/pgxutil"
+	"github.com/justrag/go-backend/internal/syncwindow"
 )
 
 // PGStore is a PostgreSQL-backed implementation of the confluence ConfluenceStore interface.
@@ -62,7 +63,8 @@ type confluenceSourceRow struct {
 	RootPageID          *string    `db:"root_page_id"`
 	RootPageTitle       *string    `db:"root_page_title"`
 	IncludeAttachments  bool       `db:"include_attachments"`
-	SyncInterval        *int       `db:"sync_interval"`
+	SyncSchedule        string     `db:"sync_schedule"`
+	NextSyncAt          *time.Time `db:"next_sync_at"`
 	Status              string     `db:"status"`
 	ErrorMessage        *string    `db:"error_message"`
 	ConsecutiveFailures int        `db:"consecutive_failures"`
@@ -80,7 +82,7 @@ func toConfluenceSourceRow(r confluenceSourceRow) ConfluenceSourceRow {
 
 const confluenceSourceColumns = `
 	id, kb_id, connection_id, space_key, root_page_id, root_page_title,
-	include_attachments, sync_interval, status, error_message,
+	include_attachments, sync_schedule, next_sync_at, status, error_message,
 	consecutive_failures, last_synced_at, page_count, sync_progress, sync_total, created_at`
 
 // ---------------------------------------------------------------------------
@@ -210,17 +212,19 @@ func (s *PGStore) UpdateConfluenceConnection(ctx context.Context, id string, upd
 // Source CRUD
 // ---------------------------------------------------------------------------
 
-// CreateConfluenceSource inserts a new Confluence source and returns the stored row.
-func (s *PGStore) CreateConfluenceSource(ctx context.Context, kbID, connectionID, spaceKey string, rootPageID, rootPageTitle *string, includeAttachments bool, syncInterval *int) (*ConfluenceSourceRow, error) {
+// CreateConfluenceSource inserts a new Confluence source and returns the
+// stored row. syncSchedule is one of syncwindow.Schedule*; next_sync_at is
+// left NULL and stamped by the sweeper on its next tick.
+func (s *PGStore) CreateConfluenceSource(ctx context.Context, kbID, connectionID, spaceKey string, rootPageID, rootPageTitle *string, includeAttachments bool, syncSchedule string) (*ConfluenceSourceRow, error) {
 	const sql = `
 		INSERT INTO confluence_sources
 		  (kb_id, connection_id, space_key, root_page_id, root_page_title,
-		   include_attachments, sync_interval, status)
+		   include_attachments, sync_schedule, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
 		RETURNING ` + confluenceSourceColumns
 
 	rows, err := pgxutil.QueryRows[confluenceSourceRow](ctx, s.pool, sql,
-		kbID, connectionID, spaceKey, rootPageID, rootPageTitle, includeAttachments, syncInterval)
+		kbID, connectionID, spaceKey, rootPageID, rootPageTitle, includeAttachments, syncSchedule)
 	if err != nil {
 		return nil, fmt.Errorf("CreateConfluenceSource: %w", err)
 	}
@@ -306,10 +310,19 @@ func (s *PGStore) UpdateConfluenceSource(ctx context.Context, sourceID string, u
 		args = append(args, *updates.IncludeAttachments)
 		param++
 	}
-	if updates.SyncInterval != nil {
-		setClauses = append(setClauses, fmt.Sprintf("sync_interval = $%d", param))
-		args = append(args, *updates.SyncInterval)
+	if updates.SyncSchedule != nil {
+		setClauses = append(setClauses, fmt.Sprintf("sync_schedule = $%d", param))
+		args = append(args, *updates.SyncSchedule)
 		param++
+	}
+	if updates.NextSyncAt != nil {
+		if *updates.NextSyncAt == nil {
+			setClauses = append(setClauses, "next_sync_at = NULL")
+		} else {
+			setClauses = append(setClauses, fmt.Sprintf("next_sync_at = $%d", param))
+			args = append(args, **updates.NextSyncAt)
+			param++
+		}
 	}
 	if updates.Status != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status = $%d", param))
@@ -350,6 +363,11 @@ func (s *PGStore) UpdateConfluenceSource(ctx context.Context, sourceID string, u
 		args = append(args, *updates.LastSyncedAt)
 		param++
 	}
+	if updates.LastSuccessAt != nil {
+		setClauses = append(setClauses, fmt.Sprintf("last_success_at = $%d", param))
+		args = append(args, *updates.LastSuccessAt)
+		param++
+	}
 
 	if len(setClauses) == 0 {
 		// Nothing to update — return current row.
@@ -383,29 +401,6 @@ func (s *PGStore) DeleteConfluenceSource(ctx context.Context, sourceID string) e
 		return fmt.Errorf("DeleteConfluenceSource: %w", err)
 	}
 	return nil
-}
-
-// ListActiveConfluenceSources returns all Confluence sources with status "active"
-// that have a sync interval set, across all KBs. Used by the scheduler to
-// initialize sync schedules on startup.
-func (s *PGStore) ListActiveConfluenceSources(ctx context.Context) ([]ConfluenceSourceRow, error) {
-	const sql = `
-		SELECT id, kb_id, connection_id, space_key, root_page_id, root_page_title,
-		       include_attachments, sync_interval, status, error_message,
-		       consecutive_failures, last_synced_at, page_count, sync_progress, sync_total, created_at
-		FROM confluence_sources
-		WHERE status = 'active' AND sync_interval IS NOT NULL
-		ORDER BY created_at ASC`
-
-	rows, err := pgxutil.QueryRows[confluenceSourceRow](ctx, s.pool, sql)
-	if err != nil {
-		return nil, fmt.Errorf("ListActiveConfluenceSources: %w", err)
-	}
-	result := make([]ConfluenceSourceRow, len(rows))
-	for i, r := range rows {
-		result[i] = toConfluenceSourceRow(r)
-	}
-	return result, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -460,14 +455,14 @@ func toConfluenceFileRow(r confluenceFileDBRow) ConfluenceFileRow {
 func (s *PGStore) CreateConfluenceFile(ctx context.Context, data CreateConfluenceFileData) (*ConfluenceFileRow, error) {
 	const sql = `
 		INSERT INTO files (kb_id, name, type, size, status, origin, storage_path,
-		                   confluence_source_id, confluence_page_id)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)
+		                   confluence_source_id, confluence_page_id, published_at)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9)
 		RETURNING id, kb_id, name, type, size, status, origin, storage_path,
 		          confluence_source_id, confluence_page_id, created_at`
 
 	rows, err := pgxutil.QueryRows[confluenceFileDBRow](ctx, s.pool, sql,
 		data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath,
-		data.ConfluenceSourceID, data.ConfluencePageID,
+		data.ConfluenceSourceID, data.ConfluencePageID, data.PublishedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("CreateConfluenceFile: %w", err)
@@ -570,4 +565,72 @@ func (s *PGStore) GetSiteConfigValue(ctx context.Context, key string) (*string, 
 		return nil, fmt.Errorf("GetSiteConfigValue: %w", err)
 	}
 	return value, nil
+}
+
+// ---------------------------------------------------------------------------
+// Sweeper contract (internal/syncsched)
+// ---------------------------------------------------------------------------
+
+// Kind identifies this store to the sweeper (internal/syncsched).
+func (s *PGStore) Kind() string { return "confluence" }
+
+// dueSourceRow scans the two columns the sweeper needs.
+type dueSourceRow struct {
+	ID       string `db:"id"`
+	Schedule string `db:"sync_schedule"`
+}
+
+func toDueSources(rows []dueSourceRow) []syncwindow.DueSource {
+	out := make([]syncwindow.DueSource, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, syncwindow.DueSource{ID: r.ID, Schedule: r.Schedule})
+	}
+	return out
+}
+
+// ListDue returns sources whose stamped slot has arrived. status IN
+// ('active','error') deliberately keeps an errored source on the schedule:
+// recordSyncFailure sets status='error' on any sync failure (a 500, a
+// network blip, an expired token), and dropping the predicate to
+// status='active' would take the source out of both ListDue and
+// ListUnscheduled permanently — nothing would ever move next_sync_at again.
+// 'paused' and 'syncing' stay excluded.
+func (s *PGStore) ListDue(ctx context.Context, now time.Time) ([]syncwindow.DueSource, error) {
+	const sql = `
+		SELECT id::text AS id, sync_schedule FROM confluence_sources
+		 WHERE sync_schedule <> 'manual'
+		   AND status IN ('active', 'error')
+		   AND next_sync_at IS NOT NULL
+		   AND next_sync_at <= $1`
+	rows, err := pgxutil.QueryRows[dueSourceRow](ctx, s.pool, sql, now)
+	if err != nil {
+		return nil, fmt.Errorf("ListDue(confluence): %w", err)
+	}
+	return toDueSources(rows), nil
+}
+
+// ListUnscheduled returns sources with a schedule but no stamped slot yet.
+func (s *PGStore) ListUnscheduled(ctx context.Context) ([]syncwindow.DueSource, error) {
+	const sql = `
+		SELECT id::text AS id, sync_schedule FROM confluence_sources
+		 WHERE sync_schedule <> 'manual'
+		   AND status IN ('active', 'error')
+		   AND next_sync_at IS NULL`
+	rows, err := pgxutil.QueryRows[dueSourceRow](ctx, s.pool, sql)
+	if err != nil {
+		return nil, fmt.Errorf("ListUnscheduled(confluence): %w", err)
+	}
+	return toDueSources(rows), nil
+}
+
+// MarkScheduled stamps the next slot. No status predicate here: it addresses
+// a single row by primary key (the id came from ListDue/ListUnscheduled,
+// which already filtered on status).
+func (s *PGStore) MarkScheduled(ctx context.Context, id string, next time.Time) error {
+	const sql = `UPDATE confluence_sources SET next_sync_at = $2 WHERE id = $1`
+	_, err := s.pool.Exec(ctx, sql, id, next)
+	if err != nil {
+		return fmt.Errorf("MarkScheduled(confluence, %s): %w", id, err)
+	}
+	return nil
 }

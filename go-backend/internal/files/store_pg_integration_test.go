@@ -141,6 +141,17 @@ func TestResetFileForRetry(t *testing.T) {
 	ctx := context.Background()
 	_, fileID := seedErrorFile(t, pool, "error")
 
+	// Fix round 1, item 5: a retry must clear the PREVIOUS attempt's parse
+	// report and stage detail too, not just error_stage/error_message —
+	// otherwise a retry that fails again before reaching the spreadsheet
+	// ingester (e.g. a parse-stage error) would leave a stale report/detail
+	// visible as if it described the current attempt.
+	if _, err := pool.Exec(ctx,
+		`UPDATE files SET parse_report = '{"version":1}'::jsonb, stage_detail = 'Blatt 2/3' WHERE id = $1::uuid`,
+		fileID); err != nil {
+		t.Fatalf("seed parse_report/stage_detail: %v", err)
+	}
+
 	reset, err := store.ResetFileForRetry(ctx, fileID)
 	if err != nil || !reset {
 		t.Fatalf("first reset: reset=%v err=%v", reset, err)
@@ -148,6 +159,15 @@ func TestResetFileForRetry(t *testing.T) {
 	status, stage, msg := readErrorFields(t, pool, fileID)
 	if status != "pending" || stage != nil || msg != nil {
 		t.Fatalf("after reset: status=%s stage=%v msg=%v", status, stage, msg)
+	}
+	var parseReport, stageDetail *string
+	if err := pool.QueryRow(ctx,
+		`SELECT parse_report::text, stage_detail FROM files WHERE id = $1::uuid`, fileID,
+	).Scan(&parseReport, &stageDetail); err != nil {
+		t.Fatalf("read parse_report/stage_detail: %v", err)
+	}
+	if parseReport != nil || stageDetail != nil {
+		t.Errorf("reset must clear parse_report/stage_detail: parseReport=%v stageDetail=%v", parseReport, stageDetail)
 	}
 
 	// Second reset loses the WHERE status='error' race — the 409 path.
@@ -229,6 +249,59 @@ func TestListErrorFiles(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != errFileID {
 		t.Fatalf("want exactly the error file %s, got %+v", errFileID, got)
+	}
+	if got[0].StoragePath == nil || *got[0].StoragePath == "" || got[0].KbID != kbID {
+		t.Fatalf("FileInfo incomplete: %+v", got[0])
+	}
+}
+
+// TestListSpreadsheetFiles pins the tabular-rematerialize endpoint's file
+// selection: only spreadsheet extensions, matched case-insensitively, come
+// back — a PDF in the same completed-status KB must not.
+func TestListSpreadsheetFiles(t *testing.T) {
+	pool := openMainPool(t)
+	store := files.NewStore(pool)
+	ctx := context.Background()
+
+	var kbID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO knowledge_bases (name, description, visibility)
+		VALUES ('list-spreadsheet-files-test', 'fixture', 'public')
+		RETURNING id::text`).Scan(&kbID); err != nil {
+		t.Fatalf("insert kb: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, kbID) //nolint:errcheck
+	})
+
+	var xlsxID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO files (kb_id, name, type, status, storage_path)
+		VALUES ($1::uuid, 'Budget.XLSX', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'completed', 'u/k/budget.xlsx')
+		RETURNING id::text`, kbID).Scan(&xlsxID); err != nil {
+		t.Fatalf("insert xlsx file: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM files WHERE id = $1::uuid`, xlsxID) //nolint:errcheck
+	})
+
+	var pdfID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO files (kb_id, name, type, status, storage_path)
+		VALUES ($1::uuid, 'report.pdf', 'application/pdf', 'completed', 'u/k/report.pdf')
+		RETURNING id::text`, kbID).Scan(&pdfID); err != nil {
+		t.Fatalf("insert pdf file: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM files WHERE id = $1::uuid`, pdfID) //nolint:errcheck
+	})
+
+	got, err := store.ListSpreadsheetFiles(ctx, kbID)
+	if err != nil {
+		t.Fatalf("ListSpreadsheetFiles: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != xlsxID {
+		t.Fatalf("want exactly the xlsx file %s, got %+v", xlsxID, got)
 	}
 	if got[0].StoragePath == nil || *got[0].StoragePath == "" || got[0].KbID != kbID {
 		t.Fatalf("FileInfo incomplete: %+v", got[0])

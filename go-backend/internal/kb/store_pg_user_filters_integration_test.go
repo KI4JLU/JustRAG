@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration tests for the per-user topic filter columns (migration 0068)
+// Integration tests for the per-user topic filter columns (migration 0075)
 // that the two KB list queries now join in: isFavourite and userCategoryIds.
 //
 // Oracle: the fixture rows, written by hand with raw SQL before the query

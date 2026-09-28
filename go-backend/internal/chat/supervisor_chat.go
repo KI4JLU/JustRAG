@@ -53,7 +53,45 @@ type SupervisorChatParams struct {
 	// answer system prompt (empty when chat_date_awareness_enabled is off).
 	// Set at dispatch via SystemPromptDateLine.
 	CurrentDateLine string
+	// TabularRouter backs the deterministic spreadsheet path — same
+	// contract as ChatContextParams.TabularRouter: it runs before the
+	// specialist dispatch, promotes identifier literals in the query the
+	// specialist searches with, forces the simple BM25 arm, and injects
+	// its result rows as a system-prompt addendum. Nil disables it
+	// (nil-receiver safe regardless).
+	TabularRouter *TabularRouter
+	// TabularRouterConfig is the router's config resolved by the caller
+	// from the reader in force for THIS KB (the handler overlays it per
+	// KB — see Handler.forKB). The supervisor has no SiteConfigReader of
+	// its own, so like SufficientContextEnabled the flag arrives
+	// pre-resolved. Nil falls back to the router's wiring-time cfgFn,
+	// which reads the global reader only.
+	TabularRouterConfig *TabularRouterConfig
+	// RawQuery is the verbatim user utterance for the rewrite ⊕ raw
+	// lane; empty = off. Forwarded into agents.Input.RawQuery, which
+	// both specialists fold into their SearchOptions.
+	RawQuery string
+	// ConflictConfig carries the W5-R7 conflict / supersession knobs,
+	// resolved by the caller from the reader in force for THIS KB — same
+	// pre-resolved-flag pattern as SufficientContextEnabled and
+	// TabularRouterConfig, since the supervisor has no SiteConfigReader.
+	// The zero value (Enabled false) skips the pass.
+	ConflictConfig ConflictConfig
+	// FileDates resolves the cited files' dates for the conflict pass's
+	// supersession direction. Nil leaves every date line "unknown".
+	FileDates FileDateLookup
+	// conflictDetect is the in-package test seam for the conflict pass; nil
+	// (every production caller) uses the real ai.DetectSourceConflicts.
+	conflictDetect detectSourceConflictsFn
+	// judgeSufficiency is the in-package test seam for the Q2 gate; nil
+	// (every production caller) uses the real ai.JudgeContextSufficiency,
+	// which fails OPEN and therefore cannot be driven to "abstain" from a
+	// test without a live model.
+	judgeSufficiency judgeSufficiencyFn
 }
+
+// judgeSufficiencyFn is the injectable seam for ai.JudgeContextSufficiency.
+type judgeSufficiencyFn func(ctx context.Context, resolver *ai.ConfigResolver, kbID, question, contextText, lang, modelOverride string) bool
 
 // RunSupervisorChat is the production entry point. It routes the query
 // to the supervisor's classifier and assembles a ChatContext from the
@@ -102,6 +140,11 @@ func runSupervisorChatTestable(
 		map[string]any{"supervisorStage": "dispatch"},
 	)
 
+	// Deterministic tabular path (design §5.1), same contract as the
+	// standard path in PrepareChatContext: it runs before the specialist
+	// dispatch so its retrieval hints reach the specialist's single
+	// SearchOptions, and its rows are injected below as a prompt
+	// addendum. Fail-open: Run never errors.
 	in := agents.Input{
 		KbID:          params.KbID,
 		Query:         params.Query,
@@ -110,6 +153,30 @@ func runSupervisorChatTestable(
 		GraphChunkIDs: params.GraphChunkIDs,
 		BridgeChunks:  params.BridgeChunks,
 		HyPESearch:    params.HyPESearch,
+		RawQuery:      params.RawQuery,
+	}
+	var tabularAddendum string
+	var tabularTrace *TabularTrace
+	if params.TabularRouter != nil {
+		tab := params.TabularRouter.Run(ctx, TabularRouterInput{
+			KbID:     params.KbID,
+			Query:    params.Query,
+			Language: params.Language,
+			Emit:     emit,
+			Config:   params.TabularRouterConfig,
+		})
+		tabularTrace = tab.Trace
+		tabularAddendum = tab.Addendum
+		if tab.SearchQuery != "" {
+			// Retrieval only. The supervisor's routing classifier and the
+			// specialists both read in.Query, so they see the promoted
+			// phrasing; params.Query keeps the user's wording for the
+			// sufficient-context gate below. Note the supervisor
+			// carries no Enhance mode, so unlike the standard path there
+			// is no query-rewriting stage to feed the quotes into.
+			in.Query = tab.SearchQuery
+		}
+		in.ForceBM25SimpleArm = tab.ForceSimpleArm
 	}
 	var (
 		res agents.SupervisorResult
@@ -159,11 +226,34 @@ func runSupervisorChatTestable(
 	// insufficient. Fail-open inside JudgeContextSufficiency.
 	abstain := false
 	if params.SufficientContextEnabled {
-		if !ai.JudgeContextSufficiency(ctx, aiResolver, params.KbID, params.Query, contextText, params.Language, params.SufficientContextModel) {
+		judge := params.judgeSufficiency
+		if judge == nil {
+			judge = ai.JudgeContextSufficiency
+		}
+		if !judge(ctx, aiResolver, params.KbID, params.Query, contextText, params.Language, params.SufficientContextModel) {
 			abstain = true
 			logctx.From(ctx).Info("rag.sufficient_context.abstain",
 				"chunks_in_context", len(accumulated), "kb_id", params.KbID, "orchestrator", "supervisor")
 		}
+	}
+
+	// W5-R7 conflict / supersession pass, mirroring the standard path's
+	// wiring in PrepareChatContext: same gate, same fail-soft contract, run
+	// on the final source set so its [N] numbers match the answer prompt's —
+	// including the abstain skip (no fast-tier call for an answer that is
+	// about to decline).
+	var conflicts *ConflictReport
+	if !abstain {
+		conflicts = DetectConflicts(ctx, aiResolver, ConflictInput{
+			KbID:      params.KbID,
+			Question:  params.Query,
+			Language:  params.Language,
+			Sources:   sources,
+			Config:    params.ConflictConfig,
+			FileDates: params.FileDates,
+			Emit:      emit,
+			detect:    params.conflictDetect,
+		})
 	}
 
 	var sb strings.Builder
@@ -178,6 +268,17 @@ func runSupervisorChatTestable(
 	case IsLowConfidence(accumulated):
 		sb.WriteString(prompts.ChatLowConfidenceNotice(params.Language))
 	}
+	if tabularAddendum != "" {
+		// Before AGENT NOTES and CONTEXT: the executed rows are ground
+		// truth the answer LLM should prefer over the retrieved prose.
+		sb.WriteString("\n\n")
+		sb.WriteString(tabularAddendum)
+	}
+	if a := ConflictAddendumText(params.Language, conflicts); a != "" {
+		// After the tabular rows, still before AGENT NOTES and CONTEXT —
+		// same ordering as the flat assembler's flatAddenda.Conflicts.
+		sb.WriteString(a)
+	}
 	if res.Notes != "" {
 		sb.WriteString("\n\nAGENT NOTES:\n")
 		sb.WriteString(res.Notes)
@@ -191,5 +292,7 @@ func runSupervisorChatTestable(
 		Context:      contextText,
 		FinalChunks:  accumulated,
 		Abstain:      abstain,
+		TabularTrace: tabularTrace,
+		Conflicts:    conflicts,
 	}, nil
 }

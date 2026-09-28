@@ -19,6 +19,45 @@ type AgentTrace struct {
 	// OrchestratorDispatchAdapter; empty for adapters that don't classify.
 	ClassifiedQueryType string `json:"classified_query_type,omitempty"`
 	DispatchReason      string `json:"dispatch_reason,omitempty"`
+	// Tabular records what the deterministic tabular SQL router
+	// (chat.TabularRouter) did for this question, copied from
+	// chat.ChatContext.TabularTrace by the production/dispatch
+	// adapters. nil when no router was wired for the run, or the
+	// orchestrator that answered this question doesn't run the
+	// router (only the standard path and Supervisor do).
+	Tabular *TabularEvalTrace `json:"tabular,omitempty"`
+	// PolicyRule is the 0-based chat_orchestrator_policy rule index that
+	// pinned this question's orchestrator (W6-R6), mirroring
+	// agent_decisions.policy_rule on the production side. nil — and hence
+	// absent from the report JSON — when the flag ladder decided, so a run
+	// with no policy keeps its exact previous report bytes. A pointer
+	// because rule 0 is an ordinary rule.
+	PolicyRule *int `json:"policy_rule,omitempty"`
+	// LLMCalls is the count of model-provider requests (chat completions —
+	// streamed or unary — embeddings, and reranks; see ai.CallCounter's doc
+	// comment for the exact definition) made while answering this question,
+	// captured by wrapping the question's context with ai.WithCallCounter
+	// before dispatch. omitempty (0 is also the honest "no counter attached"
+	// value) so a report from before this field existed stays byte-stable,
+	// and so does a report from an adapter that never wraps a counter.
+	LLMCalls int `json:"llm_calls,omitempty"`
+}
+
+// TabularEvalTrace mirrors chat.TabularTrace's eval-relevant fields (no
+// chat import needed here beyond what's already pulled in for
+// TrajectoryEvent, and this keeps the eval-report JSON shape independent
+// of the chat package's internal struct layout).
+type TabularEvalTrace struct {
+	Fired    bool   `json:"fired"`
+	Outcome  string `json:"outcome,omitempty"`
+	SQL      string `json:"sql,omitempty"`
+	RowCount int    `json:"row_count,omitempty"`
+	Repairs  int    `json:"repairs,omitempty"`
+	// Error is the router's last failure text (validator rejection, DB
+	// error, LLM-call error, or cancellation) — empty on fired_ok and on
+	// most skips. Mirrors chat.TabularTrace.Error verbatim (already capped
+	// at 500 runes by the router).
+	Error string `json:"error,omitempty"`
 }
 
 // PlanShape summarizes a Plan-Execute orchestrator's plan. NodeCount is the
@@ -33,12 +72,33 @@ type PlanShape struct {
 }
 
 const (
+	OrchestratorDrift          = "drift"
+	OrchestratorLongContext    = "longcontext"
 	OrchestratorSupervisor     = "supervisor"
 	OrchestratorPlanExecute    = "plan_execute"
 	OrchestratorPlanExecuteDAG = "plan_execute_dag"
 	OrchestratorAgentic        = "agentic"
 	OrchestratorStandard       = "standard"
 )
+
+// TabularEvalTraceFrom projects a chat.TabularTrace onto the eval-report
+// shape. Returns nil for a nil input so callers can assign the result
+// straight onto AgentTrace.Tabular without an extra nil check — a nil
+// TabularTrace (no router wired, or an orchestrator that doesn't run one)
+// must keep the eval report's `tabular` field absent, not present-and-zero.
+func TabularEvalTraceFrom(t *chat.TabularTrace) *TabularEvalTrace {
+	if t == nil {
+		return nil
+	}
+	return &TabularEvalTrace{
+		Fired:    t.Fired,
+		Outcome:  t.Outcome,
+		SQL:      t.SQL,
+		RowCount: t.RowCount,
+		Repairs:  t.Repairs,
+		Error:    t.Error,
+	}
+}
 
 // ExtractSpecialist returns the supervisor's chosen specialist name from
 // the first agent_dispatch decision event, or "" when no dispatch fired.

@@ -106,6 +106,27 @@ var siteConfigParsers = map[string]siteConfigSetter{
 			cfg.TopNComplexReasoning = n
 		}
 	},
+	"rerank_candidate_depth": func(cfg *KBVectorConfig, v string) {
+		// Sentinel 0 = legacy max(4×k,50). Range [10, MaxRerankCandidateDepth].
+		if n, err := strconv.Atoi(v); err == nil && n >= 10 && n <= MaxRerankCandidateDepth {
+			cfg.RerankCandidateDepth = n
+		}
+	},
+	"rerank_candidate_depth_lookup": func(cfg *KBVectorConfig, v string) {
+		if n, err := strconv.Atoi(v); err == nil && n >= 10 && n <= MaxRerankCandidateDepth {
+			cfg.RerankCandidateDepthLookup = n
+		}
+	},
+	"rerank_candidate_depth_enumeration": func(cfg *KBVectorConfig, v string) {
+		if n, err := strconv.Atoi(v); err == nil && n >= 10 && n <= MaxRerankCandidateDepth {
+			cfg.RerankCandidateDepthEnumeration = n
+		}
+	},
+	"rerank_candidate_depth_complex_reasoning": func(cfg *KBVectorConfig, v string) {
+		if n, err := strconv.Atoi(v); err == nil && n >= 10 && n <= MaxRerankCandidateDepth {
+			cfg.RerankCandidateDepthComplexReasoning = n
+		}
+	},
 	"rrf_weight_vector": func(cfg *KBVectorConfig, v string) {
 		// Allow 0 (disable vector leg) up to 10 (heavily favored). Above
 		// 10 is almost certainly a typo — RRF magnitudes are 1/(60+rank+1)
@@ -145,9 +166,24 @@ var siteConfigParsers = map[string]siteConfigSetter{
 			cfg.BM25SimpleArmEnabled = b
 		}
 	},
-	"bm25_tiered_boost_enabled": func(cfg *KBVectorConfig, v string) {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.BM25TieredBoost = b
+	"bm25_scoring_mode": func(cfg *KBVectorConfig, v string) {
+		// Only a value that case/whitespace-insensitively equals "bm25"
+		// switches the mode; anything else (typos, "ts_rank", empty)
+		// leaves the field at its DefaultConfig() value (ts_rank) — same
+		// "invalid input silently inherits the safe default" discipline
+		// as the other enum-shaped parsers in this map.
+		if strings.ToLower(strings.TrimSpace(v)) == string(KeywordScoringBM25) {
+			cfg.BM25ScoringMode = KeywordScoringBM25
+		}
+	},
+	"bm25_k1": func(cfg *KBVectorConfig, v string) {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= bm25K1Min && f <= bm25K1Max {
+			cfg.BM25K1 = f
+		}
+	},
+	"bm25_b": func(cfg *KBVectorConfig, v string) {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= bm25BMin && f <= bm25BMax {
+			cfg.BM25B = f
 		}
 	},
 	"hybrid_dynamic_alpha_enabled": func(cfg *KBVectorConfig, v string) {

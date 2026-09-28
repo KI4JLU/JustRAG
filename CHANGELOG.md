@@ -10,6 +10,439 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## Unreleased
+
+<!-- Not a git-cliff section (every other heading below is a released, tagged
+     version). This one exists because the night-sync-scheduling work landed
+     its hand-written upgrade notes before a release was cut. When cutting the
+     next release, `git cliff --unreleased --tag vX.Y.Z --prepend` will insert
+     the generated "## vX.Y.Z — <date>" section ABOVE this one — fold this
+     block's content into that new section's "### ⚠ Upgrade notes" and delete
+     this heading rather than leaving both. -->
+
+### ⚠ Upgrade notes
+
+- **Migration 0068 required.** Adds `sync_schedule` + `next_sync_at` to
+  `rss_feeds`, `confluence_sources` and `git_repo_sources`.
+- **Automatic syncs move to a night window.** Every RSS feed that polled on an
+  interval (15 min – 24 h) becomes `daily` and now runs once per night;
+  Confluence sources with any interval — including weekly ones — likewise
+  become `daily`. CERT-Bund advisory feeds therefore surface up to ~24 h later
+  than before. Feeds that were already paused (not `status = 'active'`) stay
+  `manual` rather than being flipped onto a nightly schedule; sources that were
+  already manual stay manual. Git repositories stay manual until an admin opts
+  them in — they had no scheduler before this release.
+- The window defaults to 01:00–05:00 `Europe/Berlin` and is configurable in
+  the admin Agent panel (`sync_window_start_hour`, `sync_window_end_hour`,
+  `sync_window_timezone`).
+- This release contains a migration, so it cannot be rolled back by
+  re-pointing the image tag alone.
+
+- **Migration 0071 required** (RAG Wave 3, freshness surface). Adds
+  `files.published_at` and `last_success_at` on `rss_feeds`,
+  `confluence_sources` and `git_repo_sources`. Compose applies it via the
+  `migrate` one-shot service; **Kubernetes does not** — run `/app/migrate` out
+  of the release image before `kubectl apply`, per `docs/runbooks/release.md`.
+  As with 0068, a release carrying a migration has **no one-step rollback**.
+  **Symptom of skipping it** (new image, old schema — the k8s case): *every*
+  file creation fails, because both `CreateFile` INSERTs name `published_at` —
+  uploads, RSS polls, Confluence and git syncs and the crawler all error out —
+  and, since `chat_recency_listing_enabled` defaults ON, a recency-listing chat
+  turn ("Welche neuen Meldungen gibt es?") returns a 500 as the window-scoped
+  search selects the missing column.
+- **No `published_at` backfill.** Every file ingested before 0071 keeps
+  `published_at = NULL` and therefore keeps being aged by `created_at` (ingest
+  time); RSS files pick the real publication date up on their next poll or
+  re-ingest. Likewise, every source shows its last *attempt* with
+  `syncSucceeded = false` until its next successful sync stamps
+  `last_success_at`. Both are surfaced in the UI rather than hidden, and both
+  heal on their own — do not hand-write either column.
+- **`rag_longcontext_route_total` changed shape.** It gained a `mode` label,
+  and `outcome` gained `considered` (gate on, turn eligible, classifier did not
+  fire) and `map_empty`. Dashboards and alerts keyed on the previous label set
+  break and must be updated. An orchestrator error that falls back to
+  `PrepareChatContext` can count the same turn twice.
+- **Long-context routing is now an orchestrator** (`chat_longcontext_enabled`,
+  still default off). It previously lived only inside `PrepareChatContext`,
+  which streaming `complex_reasoning` turns never reach, so the route was
+  unreachable for the query class it targets. Deployments with the flag **on**
+  will now actually see it fire — and it sits above the Supervisor in the
+  ladder, below DRIFT. New key `chat_longcontext_mode` (`flat` | `map_reduce`)
+  defaults to `flat`, whose prompt is byte-identical to the previous
+  behaviour; `map_reduce` is opt-in and costs ~25 extra fast-tier calls per
+  turn (set `AI_MAX_CONCURRENT_REQUESTS` first).
+- **New optional `site_config` keys, all default-off or default-unchanged:**
+  `chat_citation_spans_enabled` (+ `_max_sources`, `_timeout_ms`, `_model`),
+  `chat_longcontext_mode` (+ `_map_group_size`, `_map_concurrency`,
+  `_map_model`), and the global-only integer `kb_stale_days` (default 180).
+- **RAG Wave 4 adds no migration.** Nothing in it changes the schema; 0071
+  (Wave 3, above) is still the highest migration in this Unreleased block.
+- **`published_at` now also comes from Confluence and git.** Confluence
+  **pages** are stamped with the page's current version timestamp
+  (attachments stay NULL — the REST shape carries no attachment date), and
+  every file of a git sync is stamped with the HEAD commit's *committer* time
+  (the clone is shallow, so there is no per-file history to read). All three
+  origins clamp a future date to `now`. As with the RSS case there is **no
+  backfill**, and Confluence/git dates are written on file *creation*: a
+  Confluence page changes by delete-and-recreate, and a git sync whose HEAD
+  has not moved creates nothing — so an existing KB keeps `published_at =
+  NULL` on those files until its next real sync. Nothing to run; do not
+  hand-write the column.
+- **Source dates on two more surfaces (additive).** OpenAI-compat's Azure-
+  shaped `message.context.citations[]` entries gain `created_at` /
+  `published_at`, and the KB-as-MCP `ask_kb` tool's `Source` gains `createdAt`
+  / `publishedAt` — RFC 3339 in UTC, omitted when unset, so a client that does
+  not read them is unaffected. The OpenAI `file_citation` **annotation** shape
+  deliberately stays dateless (the spec has no slot for it).
+- **`GET /api/admin/kb-overview` rows gain `syncByKind`, and the row-level
+  `syncSucceeded` changed meaning.** Each row now carries one
+  `{kind, lastSyncAt, syncSucceeded, syncFailing, sourceCount}` entry per
+  source kind, and the aggregate `syncSucceeded` means "**every** kind with
+  sources has a verified success" instead of "at least one has". A dashboard
+  or alert reading the old field will see rows flip from `true` to `false`
+  where one healthy source kind had been masking a dead one — that is the
+  point of the change, not a regression.
+- **`cmd/eval` gains a pairwise mode and a coverage judge.**
+  `--pairwise-a A.json --pairwise-b B.json [--pairwise-out out.json]` compares
+  two finished `--judge` reports offline: each question pair is judged in both
+  orders and counts only when both agree, printing wins/ties/losses, a win
+  rate with a 95 % Wilson interval, and per-route/per-question tables. It
+  always exits 0 on a completed comparison (a measurement, not a gate). The
+  optional golden field `expected_points` (2–6 short statements, loader caps
+  ≤ 12 points / ≤ 300 runes) adds a fourth judge, `coverage`, reported as
+  `mean_coverage` + `coverage_n`; rows without it skip the judge entirely.
+- **Judge parsing is tolerant, and the aggregate reports per-metric counts.**
+  A score emitted as a numeric string is accepted and clamped to 1–5; a
+  boolean list of the wrong length is truncated or padded with a
+  `judge_warnings` entry; only unparseable JSON still drops a sample. New
+  aggregate fields `faithfulness_n` / `answer_relevance_n` /
+  `context_precision_n` / `coverage_n`, printed as `(n=…)`. Old judge numbers
+  stay comparable for well-formed responses, but `n` may be higher than before
+  because fewer samples are dropped. The extractor also survives two shapes it
+  used to reject outright: a reply containing **two** JSON objects (the first
+  parseable one wins) and one wrapped in a ```json fence around an object that
+  is complete. A reply cut off before its object closes is still an error, now
+  reported as a distinct `truncated JSON` (a completion-token limit on the
+  judge model is the usual cause) instead of a generic "not valid JSON". A
+  `"score": null` — the judge declining to rate — is now an error too, so the
+  sample is dropped: it used to unmarshal to 0 and clamp **up** to 1, silently
+  recording a real "barely relevant" rating. **This is not eval-only.** The
+  same `internal/eval.Judge` runs at runtime in the RAGAS background sampler
+  (`ragas_sampling_enabled`, `internal/worker/ragas_sample.go`) and in the
+  in-app / scheduled eval runner, so those surfaces get the same tolerance:
+  expect fewer `error`-outcome samples and the `rag_ragas_*` distributions to
+  shift accordingly (more samples, and no more `null` scores landing on the
+  Likert floor).
+- **The eval ladder now mirrors DRIFT.** `cmd/eval --production-context
+  --orchestrator-dispatch=true` dispatches global-synthesis questions through
+  the real DRIFT orchestrator at production's ladder position (above
+  long-context) and reports `agent.orchestrator = "drift"`. A deployment with
+  `chat_drift_enabled` on was previously evaluating those questions through
+  long-context instead.
+- **Wave 4 flipped no `site_config` default**, required no re-ingest and left
+  `queryCacheSchemaVersion` unchanged (Wave 5 does flip one — see below). Both
+  Wave-4 measurement tasks concluded "keep the default": `chat_longcontext_mode` stays `flat`
+  (map_reduce raised coverage in both cross pairs and won 16 of 20 pooled
+  decisive pairs, but the pre-registered per-pair rule missed on one pair at
+  n=12) and `bm25_scoring_mode` stays `ts_rank` (on the plan-execute path with
+  dispatch on, `complex_reasoning` MRR is −4.7 pp against a 2.6 pp band over 3
+  repeats).
+
+- **Migration 0072 required** (RAG Wave 5, trust surfaces) — now the highest
+  migration in this Unreleased block. One file, idempotent, **no backfill**:
+  adds the `ragas_samples` table (plus a `(kb_id, sampled_at DESC)` index on
+  the table it creates empty, so the README's `CONCURRENTLY` rule for
+  already-large tables does not apply), `messages.conflicts jsonb`,
+  `files.injection_flag boolean NOT NULL DEFAULT FALSE` (metadata-only on
+  PG 11+, so no rewrite of a large `files` table) and `files.injection_detail
+  jsonb`. Compose applies it via the `migrate` one-shot service; **Kubernetes
+  does not** — run `/app/migrate` out of the release image before
+  `kubectl apply`, per `docs/runbooks/release.md`. A release carrying a
+  migration has **no one-step rollback**.
+- **DEFAULT CHANGED: `chat_longcontext_mode` flips from `flat` to
+  `map_reduce`.** This is the one default this wave moves. The rule was
+  pre-registered as **W5-R1 on 2026-09-06**, before the measurement set was
+  extended and before any of the runs existed, and all four of its criteria
+  passed on 24 questions: pooled `map_reduce` win rate **0.9444** (34 of 36
+  decisive judge pairs) with a pooled Wilson lower bound of **0.8186**
+  (> 0.50), pooled coverage **+5.03 pp** (0.5837 vs 0.5333) against a 1.39 pp
+  same-mode band, and a flat-vs-flat control at **0.3636**, inside the
+  required [0.35, 0.65] window. Cost, reported and never a veto: **1.28× wall
+  time**, i.e. the ~25 extra fast-tier calls per turn are unchanged. Record:
+  `eval/golden/global-synthesis-de.acceptance.md` §4.
+  - **Who is affected:** only deployments with `chat_longcontext_enabled` on
+    (still default off) *and* a `chat_longcontext_mode` row that was never
+    written. The route is otherwise unreachable, so most deployments see no
+    behaviour change at all.
+  - **The fallback rule is deliberately asymmetric.** An **unset** key now
+    reads `map_reduce`; an **unrecognised** value (a typo) still normalises to
+    `flat` and logs a warning — the safe fallback must never be the mode that
+    fans out a fast-tier call per chunk group.
+  - **To keep the previous behaviour, set the key explicitly:**
+    `chat_longcontext_mode = flat` (globally, or as a per-KB override).
+  - Before leaving the new default in place on a busy deployment, set
+    `AI_MAX_CONCURRENT_REQUESTS` to the backend's safe ceiling: the per-turn
+    map fan-out is bounded, the deployment-wide product of fan-outs is not.
+  - Two diagnostics, neither a decision input: faithfulness came out
+    marginally *lower* for `map_reduce` (0.461 / 0.533 vs 0.464 / 0.569 — a
+    findings block is a lossy intermediate), and answer relevance is saturated
+    at 1.000 on this route and unusable as a signal.
+- **New `site_config` keys (Wave 5).** `ragas_samples_retention_days` (90,
+  range 1–3650, global-only); `chat_conflict_surfacing_enabled` (**false**,
+  per-KB) + `chat_conflict_model` (fast-tier chain) + `chat_conflict_max_chunks`
+  (12, 2–30) + `chat_conflict_timeout_ms` (6000, 1000–30000);
+  `ingest_screening_enabled` (**true** — it is a flag, not a filter, and the
+  key is its kill switch) + `ingest_screening_window_runes` (600, 100–5000);
+  `chat_answer_degenerate_run_limit` (400 runes, `0` disables, otherwise
+  clamped to 50–100000, global-only). Only `ingest_screening_enabled` is
+  on by default, and it changes nothing about the corpus.
+- **The RAGAS sampler now persists what it scores.** With
+  `ragas_sampling_enabled` on, each sample writes one `ragas_samples` row
+  (nullable scores, `judge_model`, judge errors) so a bad score can be
+  attributed to a turn instead of only alerted on. A nightly `ragas_daily`
+  maintenance pass (24 h, `WORKER_MAINTENANCE`) publishes the new gauges
+  `rag_ragas_daily_mean{kb,metric}` and `rag_ragas_daily_n{kb}` over the
+  trailing 24 h and prunes past the retention. **Both gauges share one 500-KB
+  cardinality budget with an `overflow` series whose value is meaningless**
+  (last-write-wins across every KB past the cap) — alert on its *presence*,
+  never on its number. Nothing to run; the table starts empty and fills at the
+  existing sampling rate.
+- **Ingest prompt-injection screening ships ON.** Every newly ingested file
+  from an external source (`rss`, `confluence`, `git`, `crawl`) is screened
+  once before chunking and the verdict recorded on the `files` row. Uploads and
+  spreadsheets are never screened. **It is a flag, not a filter**: chunking,
+  embedding, retrieval and answer-time behaviour are byte-for-byte unchanged,
+  and there is no quarantine. Expect **badges on documents that legitimately
+  quote instructions** (prompt-engineering docs, incident reports) — a badge is
+  all that happens. New metric `rag_ingest_injection_flag_total{origin}`; kill
+  switch `ingest_screening_enabled=false` (checked before any store call, so
+  off is genuinely free). No backfill: files ingested before 0072 read as
+  "never screened" (`injection_detail IS NULL`) until their next re-ingest,
+  which is a third state distinct from "screened and clean".
+- **Degenerate-answer guard ships ON, on every answer surface.** When a
+  streaming answer collapses into a repeated character or a repeated ≤ 4-rune
+  pattern longer than `chat_answer_degenerate_run_limit` (400 runes), the
+  completion is aborted, the run is stripped, and a one-line notice is
+  appended in the answer language; non-streaming surfaces strip post hoc. New
+  metric `rag_answer_degenerate_total{surface}` (`web|api_v1|openai_compat|mcp`)
+  — **alert on any non-zero rate**: the guard contains the symptom, it does not
+  fix the model. 400 sits well above any realistic Markdown table rule (~300),
+  so normal answers cannot trip it; `0` disables it everywhere.
+- **Additive API fields (no client breaks; every one is omitted when unset).**
+  `GET /api/admin/kb-overview` rows gain `ragas: {n24h, faithfulness,
+  answerRelevance, contextPrecision}` (24 h window, key absent when the KB has
+  no sample) and `injectionFlagged` (an int, always present).
+  `GET /api/kb/{id}/files` rows gain `injectionFlag` (bool, always present) and
+  `injectionDetail` (object, omitted when NULL). Chat gains `conflicts` — a
+  **bare array** of `{claim, sourceA, sourceB, kind, newer, fileA, fileB}` on
+  the SSE frame right after `sources`, on the non-streaming body, in
+  `messages.conflicts` and on reload; the key is omitted entirely when there is
+  nothing to report, so a turn without conflicts streams exactly the frames it
+  streamed before. `conflicts` only ever appears with
+  `chat_conflict_surfacing_enabled` on, which is off by default.
+- **Conflict / supersession surfacing ships OFF and the measurement says leave
+  it off.** Both pre-stated gates failed on the Wave-5 fixture run: 0 of 8 CERT
+  NEU/UPDATE pairs flagged (a fixture property — MMR never assembles both
+  halves of the queried pair; on pairs the detector did see, 12 of 37
+  opportunities hit with direction correct 12/12 and zero invented pairs), and
+  a 0.124 false-positive flag rate on the PPM set against a ≤ 0.10 bar. **That
+  0.124 was measured BEFORE the detector fix in this release and is an upper
+  bound** — two of the thirteen entries paired a file with itself (duplicate
+  chunks of one document), and a third reported the same pair twice with
+  opposite `newer` directions; both defects are fixed in this release (Wave-5
+  final fix wave: a conflict whose two sources resolve to the same file id is
+  dropped, and mirrored duplicates collapse into one entry whose direction is
+  re-decided from the file dates). Re-measuring the fixed detector is a
+  roadmap item; until that happens the rate must not be used in either
+  direction. Cost when on: one extra fast-tier call and
+  +631 / +268 ms per turn; retrieval is untouched (identical to three decimals
+  on/off). Record: `eval/golden/cert-recency-de.acceptance.md`.
+- **Reminder: `internal/eval.Judge` is shared with the RAGAS sampler.** Any
+  judge-parsing change in this block (see the Wave-4 tolerance entry above)
+  affects the runtime RAGAS sampler and the in-app / scheduled eval runner as
+  well as `cmd/eval`, and now shows up in `ragas_samples` rows too — a judge
+  that fails to parse is persisted as a row with nil scores and its
+  `judge_errors`, not dropped.
+- **`cmd/eval` gains two flags.** `--conflict-surfacing on|off` overlays
+  `chat_conflict_surfacing_enabled` for one run (no `site_configs` mutation)
+  and records each question's `conflicts` array in the JSON report.
+  `[--pairwise-out pooled.json] --pairwise-pool a.json b.json` pools two
+  finished pairwise results over their decisive pairs, recomputing (never
+  averaging) the win rate and printing Wilson bounds from both perspectives.
+  **Flag ordering is load-bearing:** Go's flag parser stops at the first
+  positional argument, so other flags must precede the two paths; a trailing
+  flag is rejected with an explanation. Both inputs must put the same
+  configuration on side A — the command warns but cannot verify it.
+
+- **Migration 0073 required** (RAG Wave 6). One column, idempotent, **no
+  backfill**: adds `agent_decisions.policy_rule smallint` (nullable — which
+  `chat_orchestrator_policy` rule, if any, pinned a turn's orchestrator).
+  Compose applies it via the `migrate` one-shot service; **Kubernetes does
+  not** — run `/app/migrate` out of the release image before
+  `kubectl apply`, per `docs/runbooks/release.md`. A release carrying a
+  migration has **no one-step rollback**.
+- **New `site_config` keys (Wave 6), both GLOBAL-ONLY and both default to
+  the empty/no-op value, so no deployment's behaviour changes until an
+  operator writes one:**
+  - `chat_orchestrator_policy` (default `[]`) — an ordered table of routing
+    rules `{when: {...}, orchestrator: drift|longcontext|supervisor|
+    plan_execute|plan_execute_dag|agentic|standard, mode: force|prefer}`,
+    evaluated after the comparison/team/corpus-table arms and before the
+    flag ladder, so a rule can route ANY query type (not only
+    `complex_reasoning`, which is all the ladder itself ever dispatches).
+    `force` ignores the named orchestrator's feature flag; `prefer` only
+    applies when that flag is already on. An empty policy leaves the ladder
+    byte-for-byte unchanged (pinned by a frozen-ladder test). Validated at
+    save time (`internal/siteconfig.ValidateGlobalValues`); the admin Agent
+    panel gained a JSON editor with a rule-preview table. Trajectory event
+    `orchestrator_policy`; recorded per turn in the new
+    `agent_decisions.policy_rule` column when a rule actually applied.
+    `cmd/eval --policy '<json>'` measures a candidate policy against a
+    golden set without touching `site_configs`.
+  - `chat_answer_tools_by_route` (default `{}`) — maps a route (`lookup` /
+    `enumeration` / `complex_reasoning` / `global_synthesis`) to the
+    answer-time tool names (14 built-ins only) the catalog is filtered to
+    on that route, enforced at both the catalog projection and the
+    dispatch boundary (a prompt-injected model can still emit a call for a
+    tool hidden from its catalog). Wraps the `ToolDispatcher` interface, so
+    it composes structurally — not on any production path today — with a
+    per-agent allowlist into the intersection of the two, most-restrictive-
+    wins. **A turn with no classified query type (today: a
+    transform/reformat follow-up) gets NO answer tools once ANY route is
+    configured** — it cannot match a route key by name, so it is treated
+    as fully restricted rather than unrestricted. Trajectory event
+    `answer_tools_route` (`Decision: "unknown"` for that case).
+    **`rag.completion`'s `answer_tools_path` log field changes meaning**:
+    it now means "the tool loop actually ran," not merely "tools were
+    configured/enabled" — a route restriction or the unclassified-turn
+    case can leave `chat_answer_tools_enabled` true while this field reads
+    false. Update any dashboard that reads it as a simple flag mirror.
+- **`cmd/eval` gains two more flags.** `--policy '<json>'` (above) and
+  `--chat-overlay key=value` (repeatable) — a generic per-run overlay for
+  any OTHER chat-layer `site_config` key the same reader serves (used to
+  re-test `chat_conflict_max_chunks` without a dedicated flag);
+  `--chat-overlay chat_orchestrator_policy=…` is rejected in favour of
+  `--policy`, which validates.
+- **Judge decoder failures now get one bounded retry, not a dropped
+  sample.** A JSON decoder failure (a brace-balanced-but-invalid object —
+  a raw newline, an unescaped quote, or a trailing comma inside a string;
+  not truncation, not fences) re-asks the judge exactly once with the
+  decoder's own error appended, localized to the question's language. The
+  parser itself is unchanged — this is a retry, not a new tolerance. Every
+  attempted retry, success or failure, is recorded in `judge_warnings` as
+  `retry:<metric>` and increments the new metric
+  `rag_judge_retry_total{judge}`. **Not eval-only:** the same
+  `internal/eval.Judge` backs the runtime RAGAS sampler and the in-app /
+  scheduled eval runner, so both inherit the retry and the metric too.
+  Measured on the 24-question global-synthesis set: 0 retries, 0 remaining
+  failures (the baseline being replaced is 2 decoder failures in 384 judge
+  calls across the Wave 4/5 measurement runs).
+- **`internal/eval.ParseGoldenSetContent` (the admin UI / DB-backed golden
+  set path) now accepts JSONL, not only a JSON array.** The shape is
+  auto-detected from the first non-whitespace byte (`[` = array, else
+  JSONL with `#`/blank-line comments skipped, sharing the same line parser
+  `cmd/eval`'s file loader uses), so a set authored as JSONL can be pasted
+  or uploaded through the admin UI directly. A row carrying `turns`
+  (multi-turn conversations) is still rejected on both shapes — only
+  `cmd/eval` can replay one.
+- **`FileDates` now threads through `publicapi` and `openaicompat`, not
+  only `mcpserver`.** Both surfaces' `ChatContextParams` carry a real
+  `FileDateLookup`, but neither is load-bearing yet for conflict
+  surfacing: both surfaces deliberately run `PrepareChatContext` with a
+  **nil site-config reader** (they read `site_config` for exactly one
+  other thing, the degenerate-run-guard limit), so
+  `chat_conflict_surfacing_enabled` always evaluates false there and the
+  gate can never fire on those two surfaces regardless of the per-KB
+  setting. `mcpserver` passes a real reader, so its `FileDates` is
+  load-bearing: with the flag on for a KB, `ask_kb`'s supersession
+  direction now resolves from real dates instead of always `unknown`.
+- **Conflict surfacing re-measured on the fixed detector — still no
+  recommendation to enable it, at any cap.** The 8 CERT NEU/UPDATE pair
+  questions were rewritten to name the advisory and ask for the delta
+  since the first version, with both halves in `must_cite_file_names`. At
+  the default cap (`chat_conflict_max_chunks = 12`) both halves ARE in the
+  assembled retrieval pool, but the non-cited half sits at score rank ≈15
+  — outside the detector's 12-source window — so 0 of 8 pairs flag (a
+  **detector-window** finding, not a retrieval finding: the earlier
+  hypothesis that MMR discards a half does not hold once measured
+  directly). Forcing the cap to its clamp maximum (30) makes all 8 of 8
+  flag with the correct direction, but the PPM false-positive rate roughly
+  triples (0.281 / 0.303 vs 0.112 / 0.101 at cap 12, two runs each).
+  Neither cap passes both pre-registered criteria at once.
+  `chat_conflict_surfacing_enabled` stays default OFF and
+  `chat_conflict_max_chunks` stays default 12 — **no default change**.
+  Record: `eval/golden/cert-recency-de.acceptance.md`.
+- **Admin eval-run table gains sortable Team and Score columns, no
+  migration.** Both are read out of each run's existing `report` JSONB
+  (`eval_runs`, migration 0038) rather than a new column; the team
+  selector also shows the last completed run's score next to each team
+  name.
+- **CI's integration-test package list gained `internal/adminagentmetrics`.**
+  The step enumerates packages explicitly rather than globbing, and the
+  new `policy_rule` integration test needed adding.
+- **Migration 0074 required** (RAG Wave 7) — now the highest migration in
+  this Unreleased block; **`bm25_tiered_boost_enabled` is removed.** The
+  key, its per-KB registry row, the keyword-arm CASE it rendered, the
+  `--bm25-tiered-boost` eval override and the admin checkbox are all gone.
+  0074 deletes any stored row from `site_configs` and `kb_site_configs`; its
+  Down is deliberately a no-op. Compose applies it via the `migrate`
+  one-shot service; **Kubernetes does not** — run `/app/migrate` out of the
+  release image before `kubectl apply`, per `docs/runbooks/release.md`.
+  The key shipped default **off** and was deprecated in 2026-09 after the
+  Wave-2 A/B measured it net negative on every route under `ts_rank` and
+  neutral under `bm25` (the grid in `docs/retrieval.md` §"Keyword arm
+  scoring: ts_rank vs BM25 (2026-09)", cells B and D — the Wave-3 retune
+  record ran with the boost off throughout and is not the retiring
+  measurement), so a deployment that left it unset sees no ranking change
+  at all — a deployment that had it **on** loses that boost and its ranking
+  changes on upgrade. As with every migration-carrying release there is no
+  one-step rollback.
+- **`cmd/eval --print-keyword-sql`'s JSON lost its `tiered_boost` field.**
+  A documented diagnostic output shape change; the rendered statements also
+  no longer carry the `* <boost>` factor (it was the constant `1` with the
+  boost off, so scores are unchanged). `eval/fixtures/bm25-scale/time-keyword-sql.sh`
+  reads only `executable_sql` and is unaffected.
+
+### Removed
+
+- **`bm25_tiered_boost_enabled` (deprecated 2026-09, Wave 3).** Removed end
+  to end: `siteconfig.kbConfigRegistry`, `vector.KBVectorConfig.BM25TieredBoost`
+  and its site-config parser, `buildBoostExpr` plus the CASE in both keyword
+  scoring modes, the `keyword_arm`/`keywordSQLInput` plumbing,
+  `keyword_sql_print.go`'s `tiered_boost` JSON field,
+  `cmd/eval --bm25-tiered-boost`, `admineval.snapshotConfigKeys`,
+  `pipeline/nodes.go`, the AdminAgentTab checkbox and its two translation
+  keys. Migration 0074 deletes the stored rows. The measurement that retired
+  it stays in `docs/retrieval.md` §"Keyword arm scoring: ts_rank vs BM25
+  (2026-09)" (the Wave-2 grid, cells B and D).
+
+### Fixes
+
+- **Confluence `isPageUpdated` routes through `VersionWhen()`; dead fallback
+  layout removed.** No behaviour change for well-formed timestamps (the
+  second literal-layout parse was unreachable — `time.RFC3339` already
+  accepts the fractional-second component it was trying to catch); a page
+  whose `version.when` is unparseable is now logged once per sync and treated
+  as unchanged (previously silent, same "unchanged" outcome).
+- **Non-streaming chat turns now record an `agent_decisions` row.** The
+  non-streaming JSON response path (`writeJSONResponse`) previously recorded
+  nothing, leaving every `stream=false` standard-path turn invisible to the
+  admin agent-metrics panel. It now shares `recordStandardPathDecision` with
+  the streaming standard path, so the mode/outcome/latency computation cannot
+  drift between the two. No migration.
+- **Admin eval-run table's Score sort moved server-side.** Both list
+  endpoints (`GET /api/admin/eval/runs`, `GET /api/kb/{id}/eval/runs`) now
+  accept `sort` (`created_at` default | `recall` | `mrr`) and `order`
+  (`desc` default | `asc`) query params — validated against a fixed set,
+  400 on an unknown value — and order by the run's `report` aggregate
+  metrics with `NULLS LAST` (a run with no report, e.g. still queued or
+  failed, always sorts last) plus `created_at DESC` as the tiebreak. The
+  Score column header now refetches with these params (desc → asc → none,
+  resetting to the first page each time) instead of reordering only the
+  currently loaded page, which is what the previous client-side sort and
+  its "sort applies to the current page only" tooltip were mitigating. No
+  migration; the tooltip translation key is removed as unused.
+
 ## v0.10.0 — 2026-08-19
 
 ### ⚠ Upgrade notes

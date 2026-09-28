@@ -138,8 +138,10 @@ describe('AdminEvalTab — label/control pairing', () => {
         const { container } = await renderTab();
 
         const labels = Array.from(container.querySelectorAll('label[for]'));
-        // 4 generate-counts + label + kb-id + golden-set + top-k + judge = 9.
-        expect(labels).toHaveLength(9);
+        // 4 generate-counts + label + kb-id + golden-set + top-k + judge = 9,
+        // + one schedule select per golden-set row (upstream W7, the
+        // SyncScheduleSelect in the golden-set table) × 2 rows in GOLDEN_SETS = 11.
+        expect(labels).toHaveLength(11);
 
         const LABELABLE = ['BUTTON', 'INPUT', 'METER', 'OUTPUT', 'PROGRESS', 'SELECT', 'TEXTAREA'];
         const broken = labels

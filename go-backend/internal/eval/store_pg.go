@@ -43,14 +43,27 @@ type Run struct {
 	// plain strings throughout — matching that convention avoids a
 	// round-trip UUID<->string conversion at every call site.
 	TeamID *string `db:"team_id" json:"team_id,omitempty"`
+	// Scheduled is true for sweeper-created runs; drives the regression
+	// delta (W1-R4).
+	Scheduled bool `json:"scheduled"`
 }
 
-// ListOpts controls filtering and pagination for List.
+// ListOpts controls filtering, sorting and pagination for List.
 type ListOpts struct {
 	Limit  int        // default 50 if <=0, max 200
 	Offset int        // default 0
 	Status string     // optional filter; empty = no filter
 	KBID   *uuid.UUID // optional filter
+	// Sort selects the ORDER BY column (W7-R4): "created_at" (default),
+	// "recall", or "mrr". Any value other than those two is treated as
+	// "created_at" — the store never string-interpolates caller-supplied
+	// text into SQL; rejecting an unrecognised value with 400 is the
+	// admineval handlers' job (they validate against a fixed map before
+	// this struct is built).
+	Sort string
+	// Order selects sort direction: "desc" (default) or "asc". Any other
+	// value is treated as "desc".
+	Order string
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +102,7 @@ type evalRunRow struct {
 	ErrorMessage   *string    `db:"error_message"`
 	Label          *string    `db:"label"`
 	TeamID         *string    `db:"team_id"`
+	Scheduled      bool       `db:"scheduled"`
 }
 
 // toRun converts an evalRunRow to a Run domain object.
@@ -107,6 +121,7 @@ func toRun(r evalRunRow) Run {
 		JudgeEnabled:   r.JudgeEnabled,
 		TopK:           r.TopK,
 		TeamID:         r.TeamID,
+		Scheduled:      r.Scheduled,
 	}
 	if r.ErrorMessage != nil {
 		run.ErrorMessage = *r.ErrorMessage
@@ -126,8 +141,8 @@ func (s *Store) Insert(ctx context.Context, r Run) (uuid.UUID, error) {
 	const q = `
 		INSERT INTO eval_runs
 		  (status, triggered_by, kb_id, golden_set_id, fixture_hash,
-		   config_snapshot, judge_enabled, top_k, label, team_id)
-		VALUES ('queued', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+		   config_snapshot, judge_enabled, top_k, label, team_id, scheduled)
+		VALUES ('queued', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id`
 
 	var id uuid.UUID
@@ -141,6 +156,7 @@ func (s *Store) Insert(ctx context.Context, r Run) (uuid.UUID, error) {
 		r.TopK,
 		nullableString(r.Label),
 		r.TeamID,
+		r.Scheduled,
 	).Scan(&id)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("eval insert run: %w", err)
@@ -223,7 +239,7 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Run, error) {
 	const q = `
 		SELECT id, created_at, started_at, finished_at, status, triggered_by,
 		       kb_id, golden_set_id, fixture_hash, config_snapshot,
-		       judge_enabled, top_k, report, error_message, label, team_id
+		       judge_enabled, top_k, report, error_message, label, team_id, scheduled
 		FROM eval_runs
 		WHERE id = $1`
 
@@ -239,11 +255,12 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Run, error) {
 	var judgeEnabled bool
 	var topK int
 	var errorMessage, label, teamID *string
+	var scheduled bool
 
 	err := s.pool.QueryRow(ctx, q, id).Scan(
 		&id2, &createdAt, &startedAt, &finishedAt, &status, &triggeredBy,
 		&kbID, &goldenSetID, &fixtureHash, &configSnapshot,
-		&judgeEnabled, &topK, &report, &errorMessage, &label, &teamID,
+		&judgeEnabled, &topK, &report, &errorMessage, &label, &teamID, &scheduled,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -267,6 +284,7 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Run, error) {
 		TopK:           topK,
 		Report:         json.RawMessage(report),
 		TeamID:         teamID,
+		Scheduled:      scheduled,
 	}
 	if errorMessage != nil {
 		run.ErrorMessage = *errorMessage
@@ -292,9 +310,34 @@ func clampLimit(l int) int {
 	return l
 }
 
-// List returns a paginated slice of runs sorted by created_at DESC together
-// with the total count of matching rows. The report column is intentionally
-// excluded; use Get to retrieve a full record with the report.
+// orderByClause returns the ORDER BY SQL fragment for List, resolved via a
+// fixed switch on Sort/Order (W7-R4) — never by interpolating the caller's
+// raw string. "recall"/"mrr" sort on the report's aggregate metrics, cast
+// to float8, with NULLS LAST in both directions (a run with no report —
+// queued, running, failed, or pre-report — sorts after every run that has
+// one, regardless of asc/desc) and created_at DESC as the tiebreak so runs
+// with an identical score stay in recency order. Any Sort value other than
+// "recall"/"mrr" (including the default "created_at" and anything
+// unrecognised) falls back to a plain created_at sort.
+func orderByClause(sort, order string) string {
+	dir := "DESC"
+	if order == "asc" {
+		dir = "ASC"
+	}
+	switch sort {
+	case "recall":
+		return fmt.Sprintf("ORDER BY (report->'aggregate'->>'mean_recall')::float8 %s NULLS LAST, created_at DESC", dir)
+	case "mrr":
+		return fmt.Sprintf("ORDER BY (report->'aggregate'->>'mrr')::float8 %s NULLS LAST, created_at DESC", dir)
+	default:
+		return fmt.Sprintf("ORDER BY created_at %s", dir)
+	}
+}
+
+// List returns a paginated slice of runs, sorted per opts.Sort/opts.Order
+// (default created_at DESC), together with the total count of matching
+// rows. The report column is intentionally excluded from the result; use
+// Get to retrieve a full record with the report.
 func (s *Store) List(ctx context.Context, opts ListOpts) ([]Run, int, error) {
 	limit := clampLimit(opts.Limit)
 	offset := opts.Offset
@@ -322,13 +365,13 @@ func (s *Store) List(ctx context.Context, opts ListOpts) ([]Run, int, error) {
 	listSQL := fmt.Sprintf(`
 		SELECT id, created_at, started_at, finished_at, status, triggered_by,
 		       kb_id, golden_set_id, fixture_hash, config_snapshot,
-		       judge_enabled, top_k, error_message, label, team_id,
+		       judge_enabled, top_k, error_message, label, team_id, scheduled,
 		       COUNT(*) OVER ()::int AS total_count
 		FROM eval_runs
 		%s
-		ORDER BY created_at DESC
+		%s
 		LIMIT $%d OFFSET $%d`,
-		where, len(args)-1, len(args),
+		where, orderByClause(opts.Sort, opts.Order), len(args)-1, len(args),
 	)
 
 	rows, err := s.pool.Query(ctx, listSQL, args...)
@@ -347,7 +390,7 @@ func (s *Store) List(ctx context.Context, opts ListOpts) ([]Run, int, error) {
 		if err := rows.Scan(
 			&row.ID, &row.CreatedAt, &row.StartedAt, &row.FinishedAt, &row.Status, &row.TriggeredBy,
 			&row.KBID, &row.GoldenSetID, &row.FixtureHash, &row.ConfigSnapshot,
-			&row.JudgeEnabled, &row.TopK, &row.ErrorMessage, &row.Label, &row.TeamID,
+			&row.JudgeEnabled, &row.TopK, &row.ErrorMessage, &row.Label, &row.TeamID, &row.Scheduled,
 			&rowTotal,
 		); err != nil {
 			return nil, 0, fmt.Errorf("eval list runs scan: %w", err)
@@ -427,6 +470,50 @@ func (s *Store) Delete(ctx context.Context, id uuid.UUID) (deleted bool, running
 		return false, true, nil
 	}
 	return true, false, nil
+}
+
+// ---------------------------------------------------------------------------
+// LatestCompletedScheduled
+// ---------------------------------------------------------------------------
+
+// LatestCompletedScheduled returns the most recently finished *scheduled*
+// run for goldenSetID that finished strictly before `exclude`'s finished_at
+// (the predecessor of `exclude`, not merely "any run other than it" — a run
+// created after `exclude` must not come back as its baseline), with its
+// report, or (nil, nil) when there is none (exclude not found, not yet
+// completed, or no earlier scheduled run exists). Manual runs are excluded
+// on purpose: they carry operator-chosen flags and labels and are not a
+// like-for-like baseline.
+func (s *Store) LatestCompletedScheduled(ctx context.Context, goldenSetID, exclude uuid.UUID) (*Run, error) {
+	const q = `
+		SELECT id, created_at, started_at, finished_at, status, triggered_by,
+		       kb_id, golden_set_id, fixture_hash, config_snapshot, judge_enabled,
+		       top_k, error_message, label, team_id, scheduled, report
+		  FROM eval_runs
+		 WHERE golden_set_id = $1
+		   AND scheduled
+		   AND status = 'completed'
+		   AND finished_at < (SELECT finished_at FROM eval_runs WHERE id = $2)
+		 ORDER BY finished_at DESC
+		 LIMIT 1`
+	rows, err := s.pool.Query(ctx, q, goldenSetID, exclude)
+	if err != nil {
+		return nil, fmt.Errorf("latest completed scheduled: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var r evalRunRow
+	var report []byte
+	if err := rows.Scan(&r.ID, &r.CreatedAt, &r.StartedAt, &r.FinishedAt, &r.Status, &r.TriggeredBy,
+		&r.KBID, &r.GoldenSetID, &r.FixtureHash, &r.ConfigSnapshot, &r.JudgeEnabled,
+		&r.TopK, &r.ErrorMessage, &r.Label, &r.TeamID, &r.Scheduled, &report); err != nil {
+		return nil, fmt.Errorf("latest completed scheduled scan: %w", err)
+	}
+	run := toRun(r)
+	run.Report = json.RawMessage(report)
+	return &run, nil
 }
 
 // ---------------------------------------------------------------------------

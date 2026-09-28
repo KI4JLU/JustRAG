@@ -70,6 +70,7 @@ type goldenSetStore interface {
 	List(ctx context.Context) ([]eval.GoldenSet, error)
 	Delete(ctx context.Context, id uuid.UUID) (bool, error)
 	ListByKB(ctx context.Context, kbID uuid.UUID) ([]eval.GoldenSet, error)
+	SetSchedule(ctx context.Context, id uuid.UUID, schedule string) (bool, error)
 }
 
 // kbOverrideLister loads a KB's per-KB site_config overrides so a KB-scoped run
@@ -104,7 +105,13 @@ var snapshotConfigKeys = []string{
 	// search code falls back to defaults (arm disabled, entity alpha
 	// inherits). A live eval would silently run with the prototype off.
 	"bm25_simple_arm_enabled",
-	"bm25_tiered_boost_enabled",
+	// Wave-2 Task 6: BM25 scoring mode (ts_rank | bm25) + its k1/b
+	// parameters. Same reasoning as the pair above — without these in
+	// the snapshot, an eval run silently measures ts_rank even when the
+	// KB override is "bm25".
+	"bm25_scoring_mode",
+	"bm25_k1",
+	"bm25_b",
 	"rerank_blend_alpha_entity",
 	// T1-1 sub-question decomposition. Without these in the snapshot,
 	// re-runs of an eval after flipping the flag silently lose the
@@ -145,6 +152,12 @@ var snapshotConfigKeys = []string{
 	// T2-1 long-context (System 2) routing.
 	"chat_longcontext_enabled",
 	"chat_longcontext_max_tokens",
+	"chat_longcontext_top_k",
+	// W3-R5/R6 long-context orchestrator + map-reduce consumer.
+	"chat_longcontext_mode",
+	"chat_longcontext_map_group_size",
+	"chat_longcontext_map_concurrency",
+	"chat_longcontext_map_model",
 	// Plan-1 per-KB registry keys (cross-checked by snapshot_registry_test.go).
 	// These keys are per-KB-overridable via the registry in internal/siteconfig;
 	// without them here an eval run would silently not exercise a KB's override.
@@ -154,7 +167,12 @@ var snapshotConfigKeys = []string{
 	"top_n_lookup",
 	"top_n_enumeration",
 	"top_n_complex_reasoning",
+	"rerank_candidate_depth",
+	"rerank_candidate_depth_lookup",
+	"rerank_candidate_depth_enumeration",
+	"rerank_candidate_depth_complex_reasoning",
 	"step_back_enabled",
+	"chat_condense_keep_raw_enabled",
 	"adaptive_routing_enabled",
 	"chat_supervisor_enabled",
 	"chat_plan_execute_enabled",
@@ -180,6 +198,33 @@ var snapshotConfigKeys = []string{
 	"chat_self_rag_enabled",
 	"chat_factuality_gate_enabled",
 	"chat_sufficient_context_enabled",
+	// Wave-3 Task 1 span-verified citations. _model is not a registry key
+	// (model selection, same as crag_grader_model above) but is included
+	// here anyway so an eval re-run after changing it isn't silently
+	// stale, matching the other *_model entries in this file.
+	"chat_citation_spans_enabled",
+	"chat_citation_spans_model",
+	"chat_citation_spans_max_sources",
+	"chat_citation_spans_timeout_ms",
+	// Wave-5 Task 3 conflict / supersession surfacing. _model is not a
+	// registry key (model selection, same rationale as the entries above)
+	// but is snapshotted so an eval re-run after changing it isn't stale.
+	"chat_conflict_surfacing_enabled",
+	"chat_conflict_model",
+	"chat_conflict_max_chunks",
+	"chat_conflict_timeout_ms",
+	// Wave-5 Task 7 degenerate-answer guard. Global-only (no registry
+	// entry), but it can truncate an answer, so a snapshotted eval run has
+	// to record the limit that was in force.
+	"chat_answer_degenerate_run_limit",
+	// Wave-6 Task 5 orchestrator policy table (W6-R6). Global-only, no
+	// registry entry, but it decides which orchestrator a turn takes — an
+	// eval run whose snapshot omitted it would silently measure the ladder
+	// while production ran the policy. The sibling key
+	// chat_answer_tools_by_route is deliberately NOT snapshotted: the
+	// in-app eval never runs the answer-tools loop, so snapshotting it
+	// would record a value nothing in that path reads.
+	"chat_orchestrator_policy",
 	// Retrieval/orchestrator registry keys (kb-workflow-editor Phase 2
 	// Task 3; cross-checked by snapshot_registry_test.go like the blocks
 	// above).
@@ -211,6 +256,41 @@ var snapshotConfigKeys = []string{
 	// surface, presets included.
 	"workspace_analysis_presets",
 	"workspace_comparison_presets",
+	// Sheet profiler (spreadsheet rework Phase 1) registry keys; cross-checked
+	// by snapshot_registry_test.go like the blocks above. Ingest-time knobs
+	// (RequiresReingest); the profiler now runs inside the spreadsheet ingest
+	// branch (ingestion-side, not a chat-pipeline node), but the keys are
+	// still per-KB-overridable, so the snapshot must capture them.
+	"tabular_profile_llm_enabled",
+	"tabular_profile_llm_threshold",
+	"tabular_profile_model",
+	"tabular_profile_sample_rows",
+	// Materializer/catalog limits (spreadsheet rework Phase 2) registry keys;
+	// same rationale as the profiler keys above — ingestion-side, not a
+	// chat-pipeline node.
+	"tabular_max_rows",
+	"tabular_embed_max_rows",
+	"tabular_column_values_max_distinct",
+	// Tabular router (spreadsheet rework Phase 3) registry keys; same rationale
+	// as the profiler/materializer keys above — a deterministic chat-pipeline
+	// pre-pass, but still per-KB-overridable, so the snapshot must capture it.
+	"chat_tabular_router_enabled",
+	"chat_tabular_router_model",
+	"chat_tabular_router_max_rows",
+	"chat_tabular_router_max_repairs",
+	"chat_tabular_router_timeout_ms",
+	"chat_tabular_router_schema_max_tokens",
+	// R66 carry (spreadsheet rework Phase 4): the answer-prompt guidance
+	// summary's own token budget, separate from the router's schema budget
+	// directly above.
+	"chat_tabular_guidance_max_tokens",
+	// Upload/ingest sizing knobs (spreadsheet rework Phase 4) registry keys;
+	// same rationale as the profiler/materializer keys above — read at
+	// upload/ingest time, not a chat-pipeline node, but still
+	// per-KB-overridable, so the snapshot must capture them.
+	"tabular_max_file_bytes",
+	"tabular_large_file_bytes",
+	"tabular_large_file_concurrency",
 }
 
 // ---------------------------------------------------------------------------
@@ -571,8 +651,76 @@ func intParam(q url.Values, name string, def, max int) int {
 }
 
 // ---------------------------------------------------------------------------
+// parseSortOrder — validates the sort/order query params (W7-R4) against a
+// fixed set, shared by ListRuns and ListRunsForKB. An empty value means
+// "unspecified" and resolves to eval.Store's own default (created_at /
+// desc); any other unrecognised value is a 400, never silently coerced —
+// the store itself only ever sees one of these validated values, so it
+// never has to interpolate caller-supplied text into SQL.
+// ---------------------------------------------------------------------------
+
+var validRunSort = map[string]bool{"": true, "created_at": true, "recall": true, "mrr": true}
+var validRunOrder = map[string]bool{"": true, "desc": true, "asc": true}
+
+func parseSortOrder(q url.Values) (sort, order string, err error) {
+	sort = q.Get("sort")
+	if !validRunSort[sort] {
+		return "", "", fmt.Errorf("invalid sort %q: must be one of created_at, recall, mrr", sort)
+	}
+	order = q.Get("order")
+	if !validRunOrder[order] {
+		return "", "", fmt.Errorf("invalid order %q: must be one of desc, asc", order)
+	}
+	return sort, order, nil
+}
+
+// ---------------------------------------------------------------------------
 // ListRuns — GET /api/admin/eval/runs
 // ---------------------------------------------------------------------------
+
+// summarizeRun builds a RunSummary for one eval.Run — KB name, aggregate
+// metrics parsed from the stored report, and (when the run carries a
+// TeamID) the team name resolved via h.teamLoader. Shared by ListRuns and
+// ListRunsForKB, which populated an identical loop body before this
+// extraction (W6-R9).
+func (h *Handler) summarizeRun(ctx context.Context, run eval.Run) RunSummary {
+	s := RunSummary{
+		ID:           run.ID,
+		Label:        run.Label,
+		Status:       run.Status,
+		CreatedAt:    run.CreatedAt,
+		StartedAt:    run.StartedAt,
+		FinishedAt:   run.FinishedAt,
+		KBID:         run.KBID,
+		JudgeEnabled: run.JudgeEnabled,
+		ErrorMessage: run.ErrorMessage,
+	}
+
+	// Populate KB name — errors are swallowed; empty name is acceptable.
+	if name, _, kbErr := h.kbStore.GetKBInfo(ctx, run.KBID); kbErr == nil {
+		s.KBName = name
+	}
+
+	// Populate aggregate metrics if report is present.
+	if len(run.Report) > 0 {
+		s.Aggregate, s.RouteMeanRecall = summarize(run.Report)
+	}
+
+	// Populate team id/name. TeamID is copied verbatim regardless of
+	// resolvability; TeamName resolution is best-effort (nil teamLoader or
+	// a load error both leave it empty, mirroring the fail-soft posture
+	// elsewhere in this handler for read-only listings).
+	if run.TeamID != nil {
+		s.TeamID = run.TeamID
+		if h.teamLoader != nil {
+			if team, tErr := h.teamLoader.LoadTeamForChat(ctx, *run.TeamID, run.KBID.String()); tErr == nil {
+				s.TeamName = team.Team.Name
+			}
+		}
+	}
+
+	return s
+}
 
 // ListRuns returns a paginated list of eval runs with optional status/KB filters.
 func (h *Handler) ListRuns(w http.ResponseWriter, r *http.Request) {
@@ -593,11 +741,19 @@ func (h *Handler) ListRuns(w http.ResponseWriter, r *http.Request) {
 		kbIDPtr = &id
 	}
 
+	sort, order, err := parseSortOrder(q)
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	opts := eval.ListOpts{
 		Limit:  limit,
 		Offset: offset,
 		Status: status,
 		KBID:   kbIDPtr,
+		Sort:   sort,
+		Order:  order,
 	}
 
 	runs, total, err := h.store.List(ctx, opts)
@@ -609,29 +765,7 @@ func (h *Handler) ListRuns(w http.ResponseWriter, r *http.Request) {
 
 	summaries := make([]RunSummary, 0, len(runs))
 	for _, run := range runs {
-		s := RunSummary{
-			ID:           run.ID,
-			Label:        run.Label,
-			Status:       run.Status,
-			CreatedAt:    run.CreatedAt,
-			StartedAt:    run.StartedAt,
-			FinishedAt:   run.FinishedAt,
-			KBID:         run.KBID,
-			JudgeEnabled: run.JudgeEnabled,
-			ErrorMessage: run.ErrorMessage,
-		}
-
-		// Populate KB name — errors are swallowed; empty name is acceptable.
-		if name, _, kbErr := h.kbStore.GetKBInfo(ctx, run.KBID); kbErr == nil {
-			s.KBName = name
-		}
-
-		// Populate aggregate metrics if report is present.
-		if len(run.Report) > 0 {
-			s.Aggregate, s.RouteMeanRecall = summarize(run.Report)
-		}
-
-		summaries = append(summaries, s)
+		summaries = append(summaries, h.summarizeRun(ctx, run))
 	}
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, ListRunsResponse{
@@ -939,4 +1073,52 @@ func (h *Handler) DeleteGoldenSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// UpdateGoldenSetRequest is the PATCH body. Only schedule is mutable.
+type UpdateGoldenSetRequest struct {
+	Schedule string `json:"schedule"`
+}
+
+// UpdateGoldenSet — PATCH /api/admin/eval/golden-sets/{id}. Changing the
+// schedule clears the stamped slot; the sweeper re-slots the set inside the
+// next night window (never a daytime run).
+func (h *Handler) UpdateGoldenSet(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid golden set id")
+		return
+	}
+	h.applyScheduleUpdate(ctx, w, r, id)
+}
+
+// applyScheduleUpdate decodes the PATCH body and calls SetSchedule for id,
+// shared by the admin-scoped and KB-scoped update handlers.
+func (h *Handler) applyScheduleUpdate(ctx context.Context, w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	var req UpdateGoldenSetRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	ok, err := h.goldenSetStore.SetSchedule(ctx, id, req.Schedule)
+	if err != nil {
+		if errors.Is(err, eval.ErrInvalidSchedule) {
+			httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "schedule must be manual, daily or weekly")
+			return
+		}
+		httputil.WriteInternalErrorCtx(ctx, w, err)
+		return
+	}
+	if !ok {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "golden set not found")
+		return
+	}
+	gs, err := h.goldenSetStore.Get(ctx, id)
+	if err != nil {
+		httputil.WriteInternalErrorCtx(ctx, w, err)
+		return
+	}
+	gs.Content = nil
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"golden_set": gs})
 }

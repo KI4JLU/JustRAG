@@ -17,6 +17,7 @@ import (
 	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
+	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
@@ -136,6 +137,29 @@ func writeSSE(ctx context.Context, w http.ResponseWriter, data any) {
 	}
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
+	}
+}
+
+// writeOpeningFrames emits a turn's opening metadata frame and, when the
+// turn has conflicts, the W5-R7 `{"conflicts": […]}` frame directly after
+// it. One function so the two streaming paths (the standard path and the
+// orchestrator tail) cannot disagree about the ORDER: the conflict entries
+// reference sources by their [N] index, so a client must already hold the
+// source list by the time the badge arrives.
+//
+// The conflicts frame is omitted entirely when there is nothing to report,
+// so a turn without conflicts streams exactly the frames it streamed before
+// this existed and an old client cannot be confused by an empty array it
+// does not know.
+func writeOpeningFrames(ctx context.Context, w http.ResponseWriter, sources []ChatSource, enhancedQuery, chatID, userMsgID string, report *ConflictReport) {
+	writeSSE(ctx, w, map[string]any{
+		"sources":       sources,
+		"enhancedQuery": enhancedQuery,
+		"chatId":        chatID,
+		"userMessageId": userMsgID,
+	})
+	if cs := ConflictsForWire(report); cs != nil {
+		writeSSE(ctx, w, map[string]any{"conflicts": cs})
 	}
 }
 
@@ -311,6 +335,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if anchor.Regenerate == nil || anchor.Regenerate.HistoryParentID != nil {
 		searchQuery, _ = CondenseFollowUp(ctx, h.aiResolver, h.store, chatID, parentMsgID, body.Message, kbID, lang)
 	}
+	rawQuery := RawQueryForRetrieval(ChatCondenseKeepRawEnabled(ctx, h.siteConfigReader), body.Message, searchQuery)
 
 	cls := h.classifyQuery(ctx, searchQuery, body.Enhance, kbID, lang)
 
@@ -360,15 +385,49 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// W6-R6 / Wave-6 fix round 1: the orchestrator policy is resolved HERE,
+	// above the complexity gate, not inside tryDeepChat. `isComplex` is
+	// definitionally "the classifier said complex_reasoning" (classifyQuery
+	// sets UseHyDE && UseMultiQuery only on that branch), so a policy read
+	// below this line could never steer a lookup or an enumeration turn — and
+	// `when.query_type` exists precisely to name those.
+	turnPol := h.resolveTurnPolicy(ctx, kbID, cls.QueryType, searchQuery, lang, body, answerHistory)
+
 	// Deep chat: complex streaming queries get a 2-step research agent.
 	// Comparison turns also route through tryDeepChat (its switch dispatches
 	// the comparison orchestrator) regardless of complexity classification.
+	//
+	// The policy arm only ever WIDENS this gate — with no policy, or with no
+	// matching rule, opensDeepChatDispatch() is false and the condition is
+	// byte-identical to the pre-W6-R6 one, so a lookup turn still never
+	// enters tryDeepChat. A rule naming "standard" does not widen it either
+	// (see turnPolicy.opensDeepChatDispatch); its rule index is recorded on
+	// the standard path below.
 	isComplex := cls.UseHyDE && cls.UseMultiQuery
-	if (isComplex || runCompare || teamSel != nil) && streamMode {
-		if handled := h.tryDeepChat(ctx, w, r, chatID, kbID, lang, dateLine, searchQuery, cls.QueryType, kbSystemPrompt, reasoningLevel, body, anchor, graphDec, graphChunkIDs, bridgeChunks, answerHistory, teamSel, teamSelReason); handled {
+	deepChatAttempted := false
+	if shouldTryDeepChat(isComplex, runCompare, teamSel != nil, streamMode, turnPol) {
+		deepChatAttempted = true
+		if handled := h.tryDeepChat(ctx, w, r, chatID, kbID, lang, dateLine, searchQuery, rawQuery, cls.QueryType, kbSystemPrompt, reasoningLevel, body, anchor, graphDec, graphChunkIDs, bridgeChunks, answerHistory, teamSel, teamSelReason, turnPol); handled {
 			return
 		}
 		// Deep chat failed — fall through to standard path.
+	}
+
+	// W6-R16: "a forced orchestrator whose dependencies are missing falls back
+	// through the existing orchestrator-error → PrepareChatContext path" — and
+	// that fall-back has to be VISIBLE, or an operator who forces a route with
+	// missing dependencies sees a perfectly ordinary answer and no reason why.
+	// tryDeepChat's own event buffer is discarded when it returns false, so
+	// the event is re-emitted into the standard path's buffer below; the log
+	// line covers the non-streaming and the buffer-less cases.
+	policyFellThrough := deepChatAttempted && turnPol.opensDeepChatDispatch()
+	if policyFellThrough {
+		logctx.From(ctx).Warn("chat.orchestrator_policy.fallthrough",
+			"policy_rule", turnPol.gate.RuleIndex,
+			"orchestrator", turnPol.gate.Orchestrator,
+			"mode", turnPol.gate.Mode,
+			"kb_id", kbID,
+		)
 	}
 
 	// Buffer trajectory/CRAG events emitted during PrepareChatContext —
@@ -382,6 +441,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		collectEmit = func(data map[string]any) {
 			bufferedTrajectory = append(bufferedTrajectory, data)
 		}
+	}
+	if policyFellThrough {
+		idx := turnPol.gate.RuleIndex
+		emitTrajectory(collectEmit, TrajectoryEvent{
+			Stage:      "orchestrator_policy",
+			Decision:   "fallthrough",
+			Reason:     "forced orchestrator " + turnPol.gate.Orchestrator + " could not run; answering on the standard path",
+			Mode:       turnPol.gate.Mode,
+			PolicyRule: &idx,
+		}, nil)
 	}
 	params := ChatContextParams{
 		KbID:                  kbID,
@@ -398,6 +467,9 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		GraphSubgraphChunkIDs: graphChunkIDs,
 		BridgeChunks:          bridgeChunks,
 		RecencyLister:         h.recencyLister,
+		TabularRouter:         h.tabularRouter,
+		RawQuery:              rawQuery,
+		FileDates:             h.fileDates,
 	}
 
 	// AP-C4 trajectory event (standard path): the decision was computed
@@ -459,12 +531,148 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		bufferedTrajectory: bufferedTrajectory,
 		chatStartTime:      time.Now(),
 		history:            answerHistory,
+		// W6-R6: a rule that FORCED the standard route pinned this turn, so
+		// the agent_decisions row records it. standardPathRule() returns nil
+		// for every other case — including a fall-through from a failed
+		// orchestrator, where the forced route did not answer and claiming it
+		// did would corrupt the measurement (that row stays NULL, and the
+		// trajectory event above is where the fall-through is visible).
+		policyRule: standardPathPolicyRule(turnPol, deepChatAttempted),
+		// W6-R8: feeds the per-route answer-tool allowlist in
+		// writeStreamingResponse.
+		queryType:         cls.QueryType,
+		isGlobalSynthesis: IsGlobalSynthesisQuery(searchQuery),
 	}
 	if streamMode {
 		h.writeStreamingResponse(ctx, w, rp)
 		return
 	}
 	h.writeJSONResponse(ctx, w, rp)
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator policy (W6-R6) — resolved once per turn in SendMessage
+// ---------------------------------------------------------------------------
+
+// turnPolicy is the once-per-turn resolution of chat_orchestrator_policy,
+// handed from SendMessage into tryDeepChat so the document is read and the
+// signal bag built exactly once.
+//
+// `gate` is a PRE-decision: it answers "may this turn reach the deep-chat
+// dispatch at all", using the orchestrator flags read straight from
+// site_config. It deliberately knows nothing about the comparison / team /
+// corpus-table arms — those are re-evaluated (and win) inside
+// SelectOrchestratorWithPolicy, which is the authoritative decision for the
+// turn. The two agree by construction: same document, same signals, and
+// policyEnabledFromConfig builds the same map OrchestratorInputs.policyEnabled
+// does (pinned by TestPolicyEnabledMapsAgree).
+type turnPolicy struct {
+	policy  chatpolicy.OrchestratorPolicy
+	signals chatpolicy.Signals
+	gate    chatpolicy.Decision
+}
+
+// opensDeepChatDispatch reports whether the policy alone justifies entering
+// tryDeepChat for a turn the complexity classifier would not have sent there.
+//
+// A rule naming "standard" is deliberately excluded: the standard path is
+// where such a turn already goes, so widening the gate for it would only swap
+// PrepareChatContext for RunDeepChat — a routing change the operator did not
+// ask for. Its rule index is recorded on the standard path instead.
+func (tp turnPolicy) opensDeepChatDispatch() bool {
+	return tp.gate.Applied && tp.gate.Orchestrator != chatpolicy.OrchestratorStandard
+}
+
+// standardPathRule is the rule index the standard path should record: set only
+// when a rule FORCED the standard route for this turn. nil in every other
+// case, including a fall-through from a failed orchestrator (the forced route
+// did not answer, so the row must not claim it did).
+func (tp turnPolicy) standardPathRule() *int {
+	if !tp.gate.Applied || tp.gate.Orchestrator != chatpolicy.OrchestratorStandard {
+		return nil
+	}
+	idx := tp.gate.RuleIndex
+	return &idx
+}
+
+// shouldTryDeepChat is SendMessage's deep-chat entry gate, extracted so the
+// W6-R6 widening is directly testable (a condition written inline in a 300-line
+// handler is only reachable through an end-to-end turn).
+//
+// The first three arms are the pre-W6-R6 gate verbatim. The fourth is the
+// policy, and it can only ever ADD turns: with no policy, or with no matching
+// rule, or with a rule naming "standard", opensDeepChatDispatch() is false and
+// this function returns exactly what the original condition returned — which
+// is what keeps a lookup or enumeration turn out of tryDeepChat by default.
+//
+// streamMode still gates everything: tryDeepChat writes SSE, so a
+// non-streaming turn cannot use it no matter what the policy says. A rule
+// forcing a non-standard orchestrator on a non-streaming turn therefore does
+// not apply, and correctly records no rule index.
+func shouldTryDeepChat(isComplex, runCompare, teamSelected, streamMode bool, tp turnPolicy) bool {
+	return (isComplex || runCompare || teamSelected || tp.opensDeepChatDispatch()) && streamMode
+}
+
+// standardPathPolicyRule is what the standard path records in
+// agent_decisions.policy_rule. A rule that forced "standard" pinned the turn,
+// so it is recorded — but only when the deep-chat dispatch was never
+// attempted. When it WAS attempted and fell through, the route the rule named
+// did not answer; the row stays NULL and the fall-through is reported as a
+// trajectory event and a log line instead.
+func standardPathPolicyRule(tp turnPolicy, deepChatAttempted bool) *int {
+	if deepChatAttempted {
+		return nil
+	}
+	return tp.standardPathRule()
+}
+
+// policyEnabledFromConfig reads the six policy-nameable orchestrator flags
+// from site_config into the enabled map chatpolicy.Decide expects. It is the
+// reader-sourced twin of OrchestratorInputs.policyEnabled, which builds the
+// same map from already-resolved inputs inside tryDeepChat.
+func policyEnabledFromConfig(ctx context.Context, reader SiteConfigReader) map[string]bool {
+	planExecute := ChatPlanExecuteEnabled(ctx, reader)
+	return map[string]bool{
+		"drift":            ChatDriftEnabled(ctx, reader),
+		"longcontext":      ChatLongContextEnabled(ctx, reader),
+		"supervisor":       ChatSupervisorEnabled(ctx, reader),
+		"plan_execute":     planExecute,
+		"plan_execute_dag": planExecute,
+		"agentic":          ChatAgenticEnabled(ctx, reader),
+	}
+}
+
+// resolveTurnPolicy reads chat_orchestrator_policy and, when a policy exists,
+// builds the signal bag and the entry-gate decision.
+//
+// Everything past the read is skipped for an empty policy — the default, and
+// the fail-soft result of an unparseable stored document — so a deployment
+// without a policy pays one site_config read and neither of the two regex
+// classifiers, and every gate below behaves exactly as it did before W6-R6.
+func (h *Handler) resolveTurnPolicy(
+	ctx context.Context,
+	kbID, queryType, searchQuery, lang string,
+	body sendMessageRequest,
+	answerHistory []ai.ChatHistoryEntry,
+) turnPolicy {
+	tp := turnPolicy{
+		policy: ChatOrchestratorPolicy(ctx, h.siteConfigReader),
+		gate:   chatpolicy.Decision{RuleIndex: -1},
+	}
+	if len(tp.policy) == 0 {
+		return tp
+	}
+	tp.signals = chatpolicy.Signals{
+		QueryType:        queryType,
+		GlobalSynthesis:  IsGlobalSynthesisQuery(searchQuery),
+		Enumeration:      IsEnumerationQuery(searchQuery, lang),
+		RecencyListing:   IsRecencyListingQuery(searchQuery),
+		HasFileSelection: len(body.SelectedFileIDs) > 0,
+		HistoryTurns:     len(answerHistory),
+		KBID:             kbID,
+	}
+	tp.gate = chatpolicy.Decide(tp.policy, tp.signals, policyEnabledFromConfig(ctx, h.siteConfigReader))
+	return tp
 }
 
 // ---------------------------------------------------------------------------
@@ -478,7 +686,7 @@ func (h *Handler) tryDeepChat(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	chatID, kbID, lang, dateLine, searchQuery, queryType, kbSystemPrompt, reasoningLevel string,
+	chatID, kbID, lang, dateLine, searchQuery, rawQuery, queryType, kbSystemPrompt, reasoningLevel string,
 	body sendMessageRequest,
 	anchor turnAnchor,
 	graphDec GraphTraversalDecision,
@@ -487,6 +695,7 @@ func (h *Handler) tryDeepChat(
 	answerHistory []ai.ChatHistoryEntry,
 	teamSel *teamSelection,
 	teamSelReason string,
+	turnPol turnPolicy,
 ) bool {
 	ctx, span := observability.Tracer().Start(ctx, "chat.deep_chat")
 	defer span.End()
@@ -578,6 +787,7 @@ func (h *Handler) tryDeepChat(
 	planExecuteEnabled := ChatPlanExecuteEnabled(ctx, h.siteConfigReader)
 	supervisorEnabled := ChatSupervisorEnabled(ctx, h.siteConfigReader)
 	driftEnabled := ChatDriftEnabled(ctx, h.siteConfigReader)
+	longContextEnabled := ChatLongContextEnabled(ctx, h.siteConfigReader)
 	corpusTableEnabled := ChatCorpusTableEnabled(ctx, h.siteConfigReader)
 
 	// In-chat document comparison takes top priority over every orchestrator
@@ -603,6 +813,11 @@ func (h *Handler) tryDeepChat(
 	//     is wasted on narrow lookups). Narrow gate → it rarely intercepts;
 	//     everything else falls through to
 	//     supervisor/plan-execute/agentic/standard unchanged.
+	//   - longcontext (W3-R5): the System-2 wide-retrieval route, promoted
+	//     from a PrepareChatContext-internal branch — which the streaming
+	//     path never reaches — to a real orchestrator. Same narrow
+	//     global-synthesis gate as drift, and below it: DRIFT is the more
+	//     specific answer for those queries when its KG communities exist.
 	//   - supervisor: Phase 3 §3.2 supervisor takes priority over both
 	//     plan-execute and agentic when the gate is on. Plan §3.2 ship
 	//     gate: "non-regression on lookup/enumeration; ≥ 2 pp gain on
@@ -619,25 +834,66 @@ func (h *Handler) tryDeepChat(
 		CorpusRouterLLMOn:     ChatCorpusTableRouterLLMEnabled(ctx, h.siteConfigReader),
 		DriftEnabled:          driftEnabled,
 		IsGlobalSynthesis:     IsGlobalSynthesisQuery(searchQuery),
+		LongContextEnabled:    longContextEnabled,
 		SupervisorEnabled:     supervisorEnabled,
 		PlanExecuteEnabled:    planExecuteEnabled,
 		AgenticEnabled:        agenticEnabled,
 	}
 
+	// W6-R6: the operator's per-query orchestrator policy, resolved once per
+	// turn by SendMessage (resolveTurnPolicy) — it also gates whether this
+	// function is reached at all for a non-complex turn. Re-deciding it HERE
+	// rather than reusing turnPol.gate is deliberate: only this call site
+	// knows the comparison / team / corpus-table arms, and W6-R16 requires
+	// those to win over any rule.
+	//
 	// The corpus-table confirmation is an LLM call; SelectOrchestrator
 	// invokes this at most once, and only after every higher-priority gate
 	// has already failed and the cheap keyword classifier has already
 	// matched — preserving the original short-circuit that kept this call
 	// off the hot path.
-	orch := SelectOrchestrator(orchIn, func() bool {
+	orch, policyDec := SelectOrchestratorWithPolicy(orchIn, turnPol.policy, turnPol.signals, func() bool {
 		return ai.ConfirmCorpusComparison(ctx, h.aiResolver, searchQuery, kbID, lang, ChatCorpusTableModel(ctx, h.siteConfigReader))
 	})
+
+	// policyRule is what agent_decisions.policy_rule records: the rule that
+	// actually PINNED the route. A matched-but-not-applied prefer rule left
+	// the ladder in charge, so it must stay NULL on the row — the trajectory
+	// event below is where that near-miss is visible.
+	var policyRule *int
+	if policyDec.Applied {
+		idx := policyDec.RuleIndex
+		policyRule = &idx
+	}
+	if policyDec.Matched {
+		idx := policyDec.RuleIndex
+		decision, reason := policyDec.Orchestrator, "rule matched (mode="+policyDec.Mode+")"
+		if !policyDec.Applied {
+			decision = "fallthrough"
+			reason = "prefer rule matched but " + policyDec.Orchestrator + " is disabled"
+		}
+		emitTrajectory(collectEmit, TrajectoryEvent{
+			Stage:      "orchestrator_policy",
+			Decision:   decision,
+			Reason:     reason,
+			Mode:       policyDec.Mode,
+			PolicyRule: &idx,
+		}, nil)
+	}
+
+	// The `considered` denominator for rag_longcontext_route_total: the
+	// operator gate is on and the turn was eligible, but the keyword
+	// classifier did not fire. `fired` is recorded inside RunLongContextChat.
+	if longContextEnabled && orchIn.complexAndUnenhanced() && !orchIn.IsGlobalSynthesis {
+		observability.RecordLongContextRoute("considered", "")
+	}
 
 	logctx.From(ctx).Info("rag.deep_chat.dispatch",
 		"supervisor_enabled", supervisorEnabled,
 		"plan_execute_enabled", planExecuteEnabled,
 		"agentic_enabled", agenticEnabled,
 		"drift_enabled", driftEnabled,
+		"longcontext_enabled", longContextEnabled,
 		"corpus_table_enabled", corpusTableEnabled,
 		"query_type", queryType,
 		"enhance", body.Enhance,
@@ -645,6 +901,7 @@ func (h *Handler) tryDeepChat(
 		"will_run_corpus_table", orch == OrchCorpusTable,
 		"will_run_team", orch == OrchTeam,
 		"will_run_drift", orch == OrchDrift,
+		"will_run_longcontext", orch == OrchLongContext,
 		"will_run_supervisor", orch == OrchSupervisor,
 		"will_run_plan_execute", orch == OrchPlanExecute,
 		"will_run_agentic", orch == OrchAgentic,
@@ -809,7 +1066,43 @@ func (h *Handler) tryDeepChat(
 		}
 		chatCtx, err = RunDriftChat(ctx, h.aiResolver, h.searchService, driftParams, collectEmit)
 
+	case OrchLongContext:
+		// Knobs are resolved inside RunLongContextChat from h.siteConfigReader
+		// (the per-KB-overlaid reader SendMessage installed via forKB), so the
+		// per-KB `chat_longcontext_mode` override is honoured. Only the fields
+		// that come from THIS request are set here.
+		chatCtx, err = RunLongContextChat(ctx, h.aiResolver, h.searchService, h.siteConfigReader, LongContextParams{
+			KbID:            kbID,
+			Query:           searchQuery,
+			Language:        lang,
+			CurrentDateLine: dateLine,
+			KbSystemPrompt:  kbSystemPrompt,
+			FileIDs:         body.SelectedFileIDs,
+			RawQuery:        rawQuery,
+			GraphChunkIDs:   graphChunkIDs,
+			BridgeChunks:    bridgeChunks,
+			HyPESearch:      HyPESearchEnabled(ctx, h.siteConfigReader),
+			Emit:            collectEmit,
+		})
+
 	case OrchSupervisor:
+		// Resolved HERE, not at wiring time: h is the per-KB handler
+		// (SendMessage swapped it via forKB before calling tryDeepChat),
+		// so this reader carries the KB's kb_site_configs overrides. The
+		// router's own cfgFn only ever sees the global reader.
+		var tabularCfg *TabularRouterConfig
+		if h.siteConfigReader != nil {
+			cfg := ResolveTabularRouterConfig(ctx, h.siteConfigReader)
+			tabularCfg = &cfg
+		}
+		// Resolve the conflict knobs only behind the master flag: the OFF
+		// path (the default everywhere) then costs one bool read instead of
+		// four config lookups per Supervisor turn. The zero value skips the
+		// pass, which is exactly what an OFF flag means.
+		var conflictCfg ConflictConfig
+		if ChatConflictSurfacingEnabled(ctx, h.siteConfigReader) {
+			conflictCfg = ResolveConflictConfig(ctx, h.siteConfigReader)
+		}
 		supervisorParams := SupervisorChatParams{
 			KbID:            kbID,
 			Query:           searchQuery,
@@ -822,9 +1115,14 @@ func (h *Handler) tryDeepChat(
 			BridgeChunks:    bridgeChunks,
 			HyPESearch:      HyPESearchEnabled(ctx, h.siteConfigReader),
 			MultiSpecialist: ChatSupervisorMultiSpecialist(ctx, h.siteConfigReader),
+			TabularRouter:   h.tabularRouter,
+			RawQuery:        rawQuery,
 
+			TabularRouterConfig:      tabularCfg,
 			SufficientContextEnabled: ChatSufficientContextEnabled(ctx, h.siteConfigReader),
 			SufficientContextModel:   ResolveFastTierModel(ctx, h.siteConfigReader, "chat_sufficient_context_model"),
+			ConflictConfig:           conflictCfg,
+			FileDates:                h.fileDates,
 		}
 		chatCtx, err = RunSupervisorChat(ctx, h.aiResolver, h.searchService, supervisorParams, collectEmit)
 
@@ -846,12 +1144,16 @@ func (h *Handler) tryDeepChat(
 			TokenBudget:     ChatPlanExecuteTokenBudget(ctx, h.siteConfigReader),
 			Plateau:         plateau,
 			Tools:           planExecuteTools,
-			DAG:             ChatPlanExecuteDAG(ctx, h.siteConfigReader),
-			MaxDAGDepth:     ChatPlanExecuteMaxDAGDepth(ctx, h.siteConfigReader),
-			MaxDAGNodes:     ChatPlanExecuteMaxDAGNodes(ctx, h.siteConfigReader),
-			GraphChunkIDs:   graphChunkIDs,
-			BridgeChunks:    bridgeChunks,
-			HyPESearch:      HyPESearchEnabled(ctx, h.siteConfigReader),
+			// W6-R16: a "plan_execute_dag" policy rule is plan-execute with
+			// the DAG pinned on for this turn — the name has no
+			// chat.Orchestrator of its own. OR, never override: a
+			// deployment with chat_plan_execute_dag already on keeps it.
+			DAG:           ChatPlanExecuteDAG(ctx, h.siteConfigReader) || policyDec.ForceDAG,
+			MaxDAGDepth:   ChatPlanExecuteMaxDAGDepth(ctx, h.siteConfigReader),
+			MaxDAGNodes:   ChatPlanExecuteMaxDAGNodes(ctx, h.siteConfigReader),
+			GraphChunkIDs: graphChunkIDs,
+			BridgeChunks:  bridgeChunks,
+			HyPESearch:    HyPESearchEnabled(ctx, h.siteConfigReader),
 		}
 		// AP-B3: tool-aware planner. Only meaningful when DAG is on
 		// AND a dispatcher is wired AND the gate is set. Catalog is
@@ -913,6 +1215,12 @@ func (h *Handler) tryDeepChat(
 
 	// Deep chat succeeded — commit to SSE response.
 
+	// Freshness dates for the cited files (one batch query, fail-soft).
+	// Runs before the `sources` SSE frame below AND before the AddMessage
+	// that persists the same slice, so the stream and messages.sources
+	// carry identical dates.
+	enrichSourceDates(ctx, h.fileDates, chatCtx.Sources)
+
 	// Save user message.
 	enhancedQuery := chatCtx.EnhancedQuery
 	hasEnhanced := enhancedQuery != ""
@@ -950,12 +1258,7 @@ func (h *Handler) tryDeepChat(
 	}
 
 	// Send initial metadata.
-	writeSSE(ctx, w, map[string]any{
-		"sources":       chatCtx.Sources,
-		"enhancedQuery": enhancedQuery,
-		"chatId":        chatID,
-		"userMessageId": userMsg.ID,
-	})
+	writeOpeningFrames(ctx, w, chatCtx.Sources, enhancedQuery, chatID, userMsg.ID, chatCtx.Conflicts)
 
 	// Stream AI completion. When chat_answer_tools_enabled is on AND a
 	// tool dispatcher is wired, route through RunAnswerWithTools so the
@@ -964,16 +1267,20 @@ func (h *Handler) tryDeepChat(
 	// byte-identically to today.
 	deepChatStart := time.Now()
 	var responseBuf, reasoningBuf strings.Builder
-	streamEmit := func(e ai.StreamEvent) {
-		if e.Content != "" {
-			responseBuf.WriteString(e.Content)
-			writeSSE(ctx, w, map[string]string{"content": e.Content})
-		}
-		if e.Reasoning != "" {
-			reasoningBuf.WriteString(e.Reasoning)
-			writeSSE(ctx, w, map[string]string{"reasoning": e.Reasoning})
-		}
-	}
+	// Degenerate-run guard (W5-R4). The completion — and ONLY the
+	// completion — runs under a cancellable child of ctx: when the answer
+	// collapses into a runaway repetition, cancelling genCtx is what stops
+	// the provider generating (and billing) the rest of it. ctx itself
+	// stays live for the SSE writes, the AddMessage and the post-response
+	// tasks that follow, so a guard cancel completes the turn normally
+	// instead of surfacing as a stream error.
+	genCtx, cancelGen := context.WithCancel(ctx)
+	defer cancelGen()
+	guard := newAnswerGuard(ChatAnswerDegenerateRunLimit(ctx, h.siteConfigReader), lang, "web", cancelGen)
+	streamEmit := newGuardedEmit(guard, &responseBuf, &reasoningBuf,
+		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
+		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
+	)
 	// Team synthesis carries user-authored, persona-influenced findings in its
 	// system prompt (a prompt-injection amplifier if handed the full,
 	// unrestricted answer-tool catalog) — answer tools stay off on any turn a
@@ -983,8 +1290,41 @@ func (h *Handler) tryDeepChat(
 	// carries the same kind of team-synthesised content via KbSystemPrompt,
 	// so it needs the same exclusion as a pure OrchTeam turn — not just
 	// "orch != OrchTeam", which teamAuthoredTurn is what makes this drop.
-	answerDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, kbID, body.WebSearch, teamAuthoredTurn(orch, comparisonTeamAnswered))
+	// answerTurnTools resolves the base catalog (admin flag and/or the user's
+	// per-turn web-search opt-in); a per-route allowlist (W6-R8) then narrows
+	// dispatcher and catalog together so the catalog projection and the
+	// dispatch boundary can never drift apart.
+	answerToolsDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, kbID, body.WebSearch, teamAuthoredTurn(orch, comparisonTeamAnswered))
 	if useAnswerTools {
+		byRoute := ChatAnswerToolsByRoute(ctx, h.siteConfigReader)
+		if allow, ok, decision, reason := resolveAnswerToolsRoute(byRoute, queryType, orchIn.IsGlobalSynthesis); ok {
+			answerToolsDispatcher, catalog = restrictToolsForRoute(answerToolsDispatcher, catalog, allow, true)
+			if !hasTool(catalog, webSearchToolName) {
+				// The route allowlist dropped web_search: don't tell the
+				// answer LLM to use a tool it no longer has.
+				webSearchHint = ""
+			}
+			routeEvt := TrajectoryEvent{
+				Stage:    "answer_tools_route",
+				Decision: decision,
+				Reason:   reason,
+				Findings: len(catalog),
+			}
+			if routeEvt.Reason == "" && len(catalog) == 0 {
+				// Findings is omitempty, so a bare {stage, decision} frame
+				// cannot be told apart from "no findings key" — this is the
+				// one case an operator debugging a route restriction most
+				// wants to see (the loop is about to be skipped entirely).
+				routeEvt.Reason = "catalog empty; tool loop skipped"
+			}
+			emitTrajectory(func(pl map[string]any) { writeSSE(ctx, w, pl) }, routeEvt, nil)
+		}
+	}
+	// A route restriction can filter the catalog down to empty; running the
+	// tool loop with zero tools would be pointless scaffolding, so that case
+	// falls through to the plain streaming answer below instead.
+	runAnswerTools := shouldRunAnswerToolsLoop(useAnswerTools, catalog)
+	if runAnswerTools {
 		answerTrace := func(stage, decision, reason string, details map[string]any) {
 			payload := map[string]any{
 				"stage":    stage,
@@ -996,7 +1336,7 @@ func (h *Handler) tryDeepChat(
 			}
 			writeSSE(ctx, w, payload)
 		}
-		err = RunAnswerWithTools(ctx, AnswerToolsParams{
+		err = RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
 			KbID:            kbID,
 			ChatID:          chatID,
@@ -1004,19 +1344,22 @@ func (h *Handler) tryDeepChat(
 			UserPrompt:      body.Message,
 			History:         answerHistory,
 			Tools:           catalog,
-			Dispatcher:      answerDispatcher,
+			Dispatcher:      answerToolsDispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
 			ReasoningEffort: reasoningLevel,
 			Temperature:     ChatAnswerTemperature(ctx, h.siteConfigReader),
 		}, streamEmit, answerTrace)
-		if err != nil {
+		// A guard trip cancels genCtx, which the tool loop reports as a
+		// context error — that is a deliberate abort with a usable answer
+		// behind it, not a stream failure. Only a real error bails.
+		if err != nil && !guard.tripped() {
 			writeSSE(ctx, w, map[string]string{"error": "failed to run AI stream"})
 			writeSSEDone(ctx, w)
 			sseFinished = true
 			return true
 		}
 	} else {
-		events, sErr := ai.StreamCompletionWithHistory(ctx, h.aiResolver, answerHistory, body.Message, chatCtx.SystemPrompt, kbID, reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
+		events, sErr := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, answerHistory, body.Message, chatCtx.SystemPrompt, kbID, reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
 		if sErr != nil {
 			writeSSE(ctx, w, map[string]string{"error": "failed to start AI stream"})
 			writeSSEDone(ctx, w)
@@ -1030,8 +1373,14 @@ func (h *Handler) tryDeepChat(
 				break
 			}
 			streamEmit(ai.StreamEvent{Content: event.Content, Reasoning: event.Reasoning})
+			if guard.tripped() {
+				// genCtx is already cancelled; stop consuming instead of
+				// waiting for the provider's terminal event (which would
+				// arrive carrying context.Canceled).
+				break
+			}
 		}
-		if streamErr != nil {
+		if streamErr != nil && !guard.tripped() {
 			// Mid-stream abort (connection reset, oversized SSE frame): the
 			// buffered content is truncated. Surface the error and bail
 			// instead of persisting it as a complete AI message.
@@ -1044,6 +1393,19 @@ func (h *Handler) tryDeepChat(
 	}
 
 	fullResponse := responseBuf.String()
+	if guard.tripped() {
+		// Strip the run from the answer that gets persisted, append the
+		// notice, and stream that notice as the final content frame so the
+		// user sees why the answer stops mid-sentence. The turn then
+		// completes normally — message saved, post-response tasks run.
+		guarded, appended := guard.finish(fullResponse)
+		fullResponse = guarded
+		writeSSE(ctx, w, map[string]string{"content": appended})
+		guard.recordTrajectory(func(pl map[string]any) { writeSSE(ctx, w, pl) })
+		logctx.From(ctx).Warn("chat.send: degenerate answer run truncated",
+			"chat_id", chatID, "kb_id", kbID,
+			"limit", guard.tracker.Limit(), "run_length", guard.tracker.RunLength())
+	}
 
 	toolCallsThisTurn := 0
 	if rec := ToolCallRecorderFromContext(ctx); rec != nil {
@@ -1062,7 +1424,11 @@ func (h *Handler) tryDeepChat(
 		"low_confidence", len(chatCtx.Sources) < 3,
 		"stream", true,
 		"deep_chat", true,
-		"answer_tools_path", useAnswerTools,
+		// answer_tools_path means "the tool loop actually ran" (W6-R8
+		// fix round 1), not merely "tools were configured" — a route
+		// restriction (or fix-round-2's unknown-query-type case) can
+		// leave useAnswerTools true while this is false.
+		"answer_tools_path", runAnswerTools,
 		"web_search_requested", body.WebSearch,
 		"tool_calls", toolCallsThisTurn,
 	)
@@ -1071,6 +1437,40 @@ func (h *Handler) tryDeepChat(
 		observability.RecordLowConfidence()
 	}
 
+	result := h.finishDeepChatAnswer(ctx, w, chatID, kbID, lang, body, userMsg.ID, chatCtx, fullResponse, &reasoningBuf, orch, comparisonTeamAnswered, teamSel, progressEvents, deepChatStart, policyRule)
+	// finishDeepChatAnswer calls writeSSEDone on every one of its own return
+	// paths (funlen extraction of the former tail of this function, which
+	// did the same inline) — sseFinished is a local of THIS function, so it
+	// has to be set here rather than inside the extracted method.
+	sseFinished = true
+	return result
+}
+
+// finishDeepChatAnswer persists the assembled deep-chat answer, streams the
+// terminal SSE frames (aiMessageId, structuredTable, follow-ups,
+// verification), records the trace id, and logs the agent-decision outcome
+// row. Extracted from the tail of tryDeepChat (funlen) — pure extraction, no
+// behaviour change: every log line, trajectory/SSE frame and early return is
+// identical to the inline version. Always returns true (tryDeepChat's own
+// return value on every path through this block); the caller still owns
+// sseFinished, since that variable belongs to tryDeepChat's own deferred
+// writeSSEDone guard.
+func (h *Handler) finishDeepChatAnswer(
+	ctx context.Context,
+	w http.ResponseWriter,
+	chatID, kbID, lang string,
+	body sendMessageRequest,
+	userMsgID string,
+	chatCtx *ChatContext,
+	fullResponse string,
+	reasoningBuf *strings.Builder,
+	orch Orchestrator,
+	comparisonTeamAnswered bool,
+	teamSel *teamSelection,
+	progressEvents []map[string]any,
+	deepChatStart time.Time,
+	policyRule *int,
+) bool {
 	// Save AI message.
 	var reasoningPtr *string
 	if reasoningBuf.Len() > 0 {
@@ -1085,15 +1485,15 @@ func (h *Handler) tryDeepChat(
 		Content:         fullResponse,
 		Sources:         chatCtx.Sources,
 		Reasoning:       reasoningPtr,
-		ParentMessageID: &userMsg.ID,
+		ParentMessageID: &userMsgID,
 		StructuredTable: chatCtx.StructuredTable,
+		Conflicts:       ConflictsForWire(chatCtx.Conflicts),
 		TeamID:          decTeamID,
 		AgentID:         decAgentID,
 	})
 	if err != nil {
 		writeSSE(ctx, w, map[string]string{"error": "failed to save AI message"})
 		writeSSEDone(ctx, w)
-		sseFinished = true
 		return true
 	}
 
@@ -1107,7 +1507,7 @@ func (h *Handler) tryDeepChat(
 	// AP-A2: emit callback so refine_start/refine_complete trajectory
 	// events stream live; the painted streaming UI mutates in place.
 	emit := func(p map[string]any) { writeSSE(ctx, w, p) }
-	followUps, verification, _ := h.runPostResponseTasks(ctx, body.Message, fullResponse, chatCtx.Context, kbID, lang, aiMsg.ID, chatCtx.Sources, emit)
+	followUps, verification, _ := h.runPostResponseTasks(ctx, body.Message, fullResponse, chatCtx.Context, kbID, lang, aiMsg.ID, chatCtx.Sources, emit, chatCtx.TabularTrace)
 	if len(followUps) > 0 {
 		writeSSE(ctx, w, map[string]any{"followUpQuestions": followUps})
 	}
@@ -1134,6 +1534,8 @@ func (h *Handler) tryDeepChat(
 		mode = "corpus_table"
 	case OrchDrift:
 		mode = "drift"
+	case OrchLongContext:
+		mode = "longcontext"
 	case OrchSupervisor:
 		mode = "supervisor"
 	case OrchPlanExecute:
@@ -1150,10 +1552,9 @@ func (h *Handler) tryDeepChat(
 	} else {
 		hops = 0
 	}
-	h.recordAgentDecision(ctx, kbID, mode, outcome, hops, rounds, time.Since(deepChatStart).Milliseconds(), decTeamID, decAgentID)
+	h.recordAgentDecision(ctx, kbID, mode, outcome, hops, rounds, time.Since(deepChatStart).Milliseconds(), decTeamID, decAgentID, policyRule)
 
 	writeSSEDone(ctx, w)
-	sseFinished = true
 	return true
 }
 

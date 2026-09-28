@@ -15,6 +15,7 @@ import (
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatattach"
+	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -233,8 +234,8 @@ func TestTryDeepChat_ComparisonTeamSummary_Success(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/kb/kb1/chat", nil)
 	w := httptest.NewRecorder()
 
-	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "",
-		"", "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, teamSel, "")
+	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "", "",
+		"", "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, teamSel, "", turnPolicy{gate: chatpolicy.Decision{RuleIndex: -1}})
 	if !handled {
 		t.Fatalf("tryDeepChat did not handle the comparison-team turn; body: %s", w.Body.String())
 	}
@@ -289,8 +290,8 @@ func TestTryDeepChat_ComparisonTeamSummary_TeamRunFails(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/kb/kb1/chat", nil)
 	w := httptest.NewRecorder()
 
-	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "",
-		"", "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, teamSel, "")
+	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "", "",
+		"", "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, teamSel, "", turnPolicy{gate: chatpolicy.Decision{RuleIndex: -1}})
 	if !handled {
 		t.Fatalf("tryDeepChat did not handle the comparison turn; body: %s", w.Body.String())
 	}
@@ -359,8 +360,8 @@ func TestTryDeepChat_ComparisonTeamSummary_AnswerToolsStayOff(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/kb/kb1/chat", nil)
 	w := httptest.NewRecorder()
 
-	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "",
-		"", "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, teamSel, "")
+	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "", "",
+		"", "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, teamSel, "", turnPolicy{gate: chatpolicy.Decision{RuleIndex: -1}})
 	if !handled {
 		t.Fatalf("tryDeepChat did not handle the comparison-team turn; body: %s", w.Body.String())
 	}
@@ -405,8 +406,8 @@ func TestTryDeepChat_ComparisonPlainPath_IgnoresKbSystemPrompt(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// teamSel is nil: no team/agent selected, so this is the plain path.
-	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "",
-		sentinel, "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, nil, "")
+	handled := h.tryDeepChat(ctx, w, r, "chat1", "kb1", "de", "", "Bitte vergleichen", "", "",
+		sentinel, "", wiringBody(attID), turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, nil, "", turnPolicy{gate: chatpolicy.Decision{RuleIndex: -1}})
 	if !handled {
 		t.Fatalf("tryDeepChat did not handle the comparison turn; body: %s", w.Body.String())
 	}

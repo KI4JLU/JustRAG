@@ -2,9 +2,11 @@ package files
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/kbaccess"
@@ -149,18 +151,22 @@ func (s *PGStore) CreateFile(ctx context.Context, data CreateFileData) (*FileRec
 	var sqlStr string
 	var args []any
 
+	// published_at is passed as a typed nil for every origin that has no
+	// publication date of its own, which is all of them but RSS today
+	// (W3-R9) — the column then stays NULL and COALESCE(published_at,
+	// created_at) falls back to the ingest timestamp at every read site.
 	if data.RSSFeedID != "" {
 		sqlStr = `
-			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, rss_feed_id)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, rss_feed_id, published_at)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)
 			RETURNING id, kb_id, name, type, size, status, progress, origin, storage_path, created_at`
-		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.RSSFeedID}
+		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.RSSFeedID, data.PublishedAt}
 	} else {
 		sqlStr = `
-			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, published_at)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
 			RETURNING id, kb_id, name, type, size, status, progress, origin, storage_path, created_at`
-		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath}
+		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.PublishedAt}
 	}
 
 	rows, err := pgxutil.QueryRows[createFileDBRow](ctx, s.pool, sqlStr, args...)
@@ -183,6 +189,53 @@ func (s *PGStore) CreateFile(ctx context.Context, data CreateFileData) (*FileRec
 		StoragePath: r.StoragePath,
 		CreatedAt:   r.CreatedAt,
 	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Source dates (freshness surface)
+// ---------------------------------------------------------------------------
+
+// FileDates carries the two date columns of a files row: CreatedAt is the
+// ingest timestamp, PublishedAt the document's own publication date (NULL for
+// every origin that does not carry one — see CreateFileData.PublishedAt).
+// Mirrors chat.FileDates; this package deliberately does not import the chat
+// package, so production wires a tiny adapter in the route setup, the same
+// way UploadLimits is wired.
+type FileDates struct {
+	CreatedAt   time.Time
+	PublishedAt *time.Time
+}
+
+// fileDatesRow scans one row of the batch date lookup.
+type fileDatesRow struct {
+	ID          string     `db:"id"`
+	CreatedAt   time.Time  `db:"created_at"`
+	PublishedAt *time.Time `db:"published_at"`
+}
+
+// FileDatesByIDs resolves file ids to their dates in one indexed query. Used
+// once per chat turn to stamp freshness onto the answer's sources; ids that
+// no longer exist are simply absent from the result map.
+func (s *PGStore) FileDatesByIDs(ctx context.Context, ids []string) (map[string]FileDates, error) {
+	if len(ids) == 0 {
+		return map[string]FileDates{}, nil
+	}
+	// `id = ANY($1::uuid[])`, never `id::text = ANY($1)`: casting the COLUMN
+	// makes the primary-key index unusable and Postgres falls back to a Seq
+	// Scan over files — which this query would then do on every chat turn.
+	// Casting the PARAMETER instead keeps it an index scan.
+	const sql = `SELECT id::text AS id, created_at, published_at
+	               FROM files
+	              WHERE id = ANY($1::uuid[])`
+	rows, err := pgxutil.QueryRows[fileDatesRow](ctx, s.pool, sql, ids)
+	if err != nil {
+		return nil, fmt.Errorf("FileDatesByIDs: %w", err)
+	}
+	out := make(map[string]FileDates, len(rows))
+	for _, r := range rows {
+		out[r.ID] = FileDates{CreatedAt: r.CreatedAt, PublishedAt: r.PublishedAt}
+	}
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -254,9 +307,35 @@ func (s *PGStore) UpdateFileStage(ctx context.Context, fileID, stage string, ind
 // ClearFileStage nulls the stage columns — the file is no longer actively
 // ingesting (done, errored, or abandoned). Idempotent.
 func (s *PGStore) ClearFileStage(ctx context.Context, fileID string) error {
-	const sql = `UPDATE files SET current_stage = NULL, stage_index = NULL, stage_total = NULL WHERE id = $1`
+	const sql = `UPDATE files SET current_stage = NULL, stage_index = NULL, stage_total = NULL, stage_detail = NULL WHERE id = $1`
 	if _, err := s.pool.Exec(ctx, sql, fileID); err != nil {
 		return fmt.Errorf("ClearFileStage: %w", err)
+	}
+	return nil
+}
+
+// SetFileParseReport records the per-file spreadsheet ingest report (sheet
+// kinds, header rows, row counts, coercion failures — see
+// internal/tabular.ParseReport). May contain cell-derived text (column
+// names, sample-derived diagnostics), so callers must never log it in full.
+func (s *PGStore) SetFileParseReport(ctx context.Context, fileID string, report []byte) error {
+	const sql = `UPDATE files SET parse_report = $1::jsonb WHERE id = $2`
+	if _, err := s.pool.Exec(ctx, sql, report, fileID); err != nil {
+		return fmt.Errorf("SetFileParseReport: %w", err)
+	}
+	return nil
+}
+
+// UpdateFileStageDetail records a human-readable progress detail for the
+// current stage (e.g. "Blatt 2/3 · 120000 Zeilen") so the upload spinner can
+// show more than a bare n/x during a long spreadsheet materialisation. Also
+// bumps progress_updated_at — see UpdateFileStage's comment on why a stage
+// transition doubles as a liveness heartbeat. An empty detail clears the
+// column (NULLIF) rather than storing "".
+func (s *PGStore) UpdateFileStageDetail(ctx context.Context, fileID, detail string) error {
+	const sql = `UPDATE files SET stage_detail = NULLIF($1, ''), progress_updated_at = NOW() WHERE id = $2`
+	if _, err := s.pool.Exec(ctx, sql, detail, fileID); err != nil {
+		return fmt.Errorf("UpdateFileStageDetail: %w", err)
 	}
 	return nil
 }
@@ -274,6 +353,73 @@ func (s *PGStore) MarkFileError(ctx context.Context, fileID, stage, message stri
 	_, err := s.pool.Exec(ctx, sql, stage, message, fileID)
 	if err != nil {
 		return fmt.Errorf("MarkFileError: %w", err)
+	}
+	return nil
+}
+
+// GetFileOrigin returns the files.origin value for fileID ("upload", "rss",
+// "confluence", "git", "crawl", "websearch", "research"), or "" when no such
+// file exists. Split out as its own one-column read because the ingest
+// prompt-injection screen needs the origin and nothing else — threading an
+// Origin field through ProcessFileInput instead would need every one of the
+// (currently six) construction sites to remember to populate it, and a
+// missed one fails open silently.
+func (s *PGStore) GetFileOrigin(ctx context.Context, fileID string) (string, error) {
+	const sql = `SELECT origin FROM files WHERE id = $1`
+	var origin string
+	if err := s.pool.QueryRow(ctx, sql, fileID).Scan(&origin); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("GetFileOrigin: %w", err)
+	}
+	return origin, nil
+}
+
+// SetInjectionFlag records an ingest-time prompt-injection screening hit
+// (migration 0072). detail is a promptsafety.Finding plus a screened_at
+// timestamp, marshalled by the caller. The flag is advisory only — nothing
+// in retrieval or answering reads it, it exists so an operator can see which
+// external documents carry instruction-shaped text.
+//
+// detail contains untrusted, document-derived text and must never be logged
+// in full or fed back into a prompt (same posture as SetFileParseReport).
+func (s *PGStore) SetInjectionFlag(ctx context.Context, fileID string, detail []byte) error {
+	const sql = `UPDATE files SET injection_flag = true, injection_detail = $1::jsonb WHERE id = $2`
+	if _, err := s.pool.Exec(ctx, sql, detail, fileID); err != nil {
+		return fmt.Errorf("SetInjectionFlag: %w", err)
+	}
+	return nil
+}
+
+// MarkInjectionScreenedClean records a screening pass that found nothing:
+// injection_flag = false with a detail carrying ONLY {"screened_at": …} —
+// no rule, no position, no snippet. That is what makes the three states of
+// these two columns distinguishable:
+//
+//	detail IS NULL            never screened (ingested before the screen
+//	                          existed, an origin that is never screened, or
+//	                          the kill switch was off)
+//	detail = {screened_at}    screened, clean
+//	detail carries "rule"     screened, flagged (injection_flag is true)
+//
+// It also drops a stale flag: a re-ingest of a file that was flagged on a
+// previous pass (the source page was fixed, or the pattern set changed)
+// must not keep the badge forever.
+//
+// The WHERE clause makes this a no-op for a row that is already recorded as
+// clean. Every RSS/Confluence/git poll re-ingests unchanged documents, and
+// an unconditional UPDATE would rewrite (and bloat) the files table on every
+// sweep just to store a new timestamp nothing reads. The three disjuncts are
+// exactly the rows whose verdict actually changes: currently flagged, never
+// screened, or carrying an old finding.
+func (s *PGStore) MarkInjectionScreenedClean(ctx context.Context, fileID string, detail []byte) error {
+	const sql = `
+		UPDATE files SET injection_flag = false, injection_detail = $1::jsonb
+		WHERE id = $2
+		  AND (injection_flag OR injection_detail IS NULL OR injection_detail ? 'rule')`
+	if _, err := s.pool.Exec(ctx, sql, detail, fileID); err != nil {
+		return fmt.Errorf("MarkInjectionScreenedClean: %w", err)
 	}
 	return nil
 }
@@ -298,13 +444,19 @@ func (s *PGStore) MarkFileErrorIfUnset(ctx context.Context, fileID, stage, messa
 }
 
 // ResetFileForRetry atomically flips an errored file back to 'pending' and
-// clears its error detail. Returns false when the file is not in 'error'
-// status (already retried, deleted, or still processing) — the WHERE
-// clause doubles as the double-click / concurrent-retry guard.
+// clears its error detail, previous parse report, and stage detail. Returns
+// false when the file is not in 'error' status (already retried, deleted,
+// or still processing) — the WHERE clause doubles as the double-click /
+// concurrent-retry guard. parse_report/stage_detail are cleared here (not
+// only overwritten by a successful re-ingest) so a retry that fails again
+// before reaching the spreadsheet ingester — e.g. a parse-stage error —
+// never leaves the PREVIOUS attempt's report/detail visible as if it were
+// current.
 func (s *PGStore) ResetFileForRetry(ctx context.Context, fileID string) (bool, error) {
 	const sql = `
 		UPDATE files SET status = 'pending', progress = 0,
-		       error_stage = NULL, error_message = NULL
+		       error_stage = NULL, error_message = NULL,
+		       parse_report = NULL, stage_detail = NULL
 		WHERE id = $1 AND status = 'error'`
 	tag, err := s.pool.Exec(ctx, sql, fileID)
 	if err != nil {
@@ -324,6 +476,46 @@ func (s *PGStore) ListErrorFiles(ctx context.Context, kbID string) ([]*FileInfo,
 	rows, err := pgxutil.QueryRows[fileInfoDBRow](ctx, s.pool, sql, kbID)
 	if err != nil {
 		return nil, fmt.Errorf("ListErrorFiles: %w", err)
+	}
+	out := make([]*FileInfo, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &FileInfo{
+			ID:          r.ID,
+			KbID:        r.KbID,
+			Name:        r.Name,
+			Type:        r.Type,
+			StoragePath: r.StoragePath,
+		})
+	}
+	return out, nil
+}
+
+// ListSpreadsheetFiles returns the FileInfo of every spreadsheet file
+// (.xlsx/.xls/.ods/.csv/.tsv, matched case-insensitively on the file name)
+// in kbID that has passed through ingestion at least once — status
+// 'completed', 'partial', or 'error' (the same recovery-inclusive set as
+// ListReembedableFilesByKBID: an errored spreadsheet still needs its old
+// chunks and tables torn down and rebuilt). Backs the per-KB tabular
+// rematerialize endpoint, which enqueues one re-embedding job per row
+// returned here so an operator can apply changed tabular_* settings without
+// re-uploading. Oldest first (stable order).
+func (s *PGStore) ListSpreadsheetFiles(ctx context.Context, kbID string) ([]*FileInfo, error) {
+	const sql = `
+		SELECT id, kb_id, name, type, storage_path
+		FROM files
+		WHERE kb_id = $1
+		  AND status IN ('completed', 'partial', 'error')
+		  AND (
+			lower(name) LIKE '%.xlsx' OR
+			lower(name) LIKE '%.xls' OR
+			lower(name) LIKE '%.ods' OR
+			lower(name) LIKE '%.csv' OR
+			lower(name) LIKE '%.tsv'
+		  )
+		ORDER BY created_at`
+	rows, err := pgxutil.QueryRows[fileInfoDBRow](ctx, s.pool, sql, kbID)
+	if err != nil {
+		return nil, fmt.Errorf("ListSpreadsheetFiles: %w", err)
 	}
 	out := make([]*FileInfo, 0, len(rows))
 	for _, r := range rows {

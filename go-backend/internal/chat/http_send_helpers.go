@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -18,6 +19,7 @@ import (
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/sessionmem"
+	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -275,10 +277,10 @@ func (h *Handler) assembleSystemPrompt(ctx context.Context, chatID, kbID, userID
 		}
 	}
 
-	// Appended AFTER the KB body (unlike the prepended memory blocks): chart
-	// guidance is a lower-priority capability note, so the operator's KB
-	// identity prompt stays at the top.
-	if g := maybeChartGuidance(ctx, h.siteConfigReader, h.tabularCatalog, kbID, lang); g != "" {
+	// Appended AFTER the KB body (unlike the prepended memory blocks):
+	// tabular guidance is a lower-priority capability note, so the
+	// operator's KB identity prompt stays at the top.
+	if g := maybeTabularGuidance(ctx, h.siteConfigReader, h.tabularCatalog, kbID, lang); g != "" {
 		if kbSystemPrompt == "" {
 			kbSystemPrompt = g
 		} else {
@@ -341,24 +343,111 @@ func prependBlock(block, existing string) string {
 	return block + "\n" + existing
 }
 
-// maybeChartGuidance returns the Phase-3 chart-guidance snippet when charts are
-// enabled AND the KB has materialized tabular data; otherwise "". Fails closed
-// on a catalog error (no guidance) so a transient DB issue never blocks the
-// answer.
-func maybeChartGuidance(ctx context.Context, reader SiteConfigReader, cat TabularCatalogChecker, kbID, lang string) string {
-	if !ChatTabularChartsEnabled(ctx, reader) || cat == nil {
+// maybeTabularGuidance returns the Task-9 per-turn tabular-guidance snippet
+// for the answer prompt: when the tabular master flag
+// (chat_tabular_query_enabled) is on and the KB has materialized tables, the
+// full per-KB catalog summary + rules (via prompts.TabularGuidance),
+// optionally folding in chart-rendering rules when charts are also on; when
+// only chart_tabular_charts_enabled is on, the pre-Task-9 chart-only
+// snippet. Returns "" when neither flag is on, when cat is nil, or when the
+// KB has no materialized tabular data. Fails closed on any catalog error (no
+// guidance) so a transient DB issue never blocks the answer.
+//
+// R66: the token budget (ChatTabularGuidanceMaxTokens) is read and applied
+// HERE, on every call, never inside cachedTabularCatalog — that decorator
+// only memoizes ListByKB's raw []tabular.CatalogEntry for tabularCatalogTTL,
+// not the compacted summary text. So a per-KB config override (or an
+// operator changing the global default) takes effect on the very next turn,
+// even for a KB whose catalog entries are still served from the 60s cache;
+// there is no cache key to fold the budget into.
+
+func maybeTabularGuidance(ctx context.Context, reader SiteConfigReader, cat TabularCatalogSummariser, kbID, lang string) string {
+	master := ChatTabularQueryEnabled(ctx, reader)
+	charts := ChatTabularChartsEnabled(ctx, reader)
+	if !master && !charts {
+		return ""
+	}
+	if cat == nil {
 		return ""
 	}
 	has, err := cat.HasDataForKB(ctx, kbID)
 	if err != nil {
-		logctx.From(ctx).Warn("chat: tabular-catalog check failed; skipping chart guidance",
+		logctx.From(ctx).Warn("chat: tabular-catalog check failed; skipping tabular guidance",
 			"kb_id", kbID, "error", err)
 		return ""
 	}
 	if !has {
 		return ""
 	}
-	return prompts.TabularChartGuidance(lang)
+
+	if !master {
+		// Master flag off, charts on (the only remaining case given the
+		// "neither" check above): keep the pre-Task-9 chart-only snippet.
+		return prompts.TabularGuidance(lang, "", true)
+	}
+
+	entries, err := cat.ListByKB(ctx, kbID)
+	if err != nil {
+		logctx.From(ctx).Warn("chat: tabular-catalog listing failed; skipping tabular guidance",
+			"kb_id", kbID, "error", err)
+		return ""
+	}
+	summary := tabular.CompactSchema(entries, nil, "", ChatTabularGuidanceMaxTokens(ctx, reader)).Text
+	if summary == "" {
+		// R41: HasDataForKB reported materialized tables, but the
+		// compacted rendering came back empty. An empty catalogSummary
+		// tells prompts.TabularGuidance to emit chart guidance only (or
+		// nothing) — fall back to a placeholder line so the "## Tables"
+		// rules block still renders.
+		if lang == "de" {
+			summary = "(keine Tabellen katalogisiert)"
+		} else {
+			summary = "(no tables catalogued)"
+		}
+	}
+	return prompts.TabularGuidance(lang, summary, charts)
+}
+
+// tabularCatalogTTL bounds how long cachedTabularCatalog reuses a KB's
+// ListByKB result before re-reading the catalog. maybeTabularGuidance runs
+// on every complex_reasoning chat turn of every KB, but the catalog only
+// changes when a spreadsheet file is ingested or deleted — a minute of
+// staleness costs at most a one-turn-late pickup of a fresh upload.
+const tabularCatalogTTL = 60 * time.Second
+
+type tabularCatalogCacheEntry struct {
+	entries []tabular.CatalogEntry
+	at      time.Time
+}
+
+// cachedTabularCatalog wraps a TabularCatalogSummariser so ListByKB results
+// are memoized per KB for tabularCatalogTTL. HasDataForKB passes straight
+// through the embedded interface — it's already a cheap indexed EXISTS
+// query, so caching it separately isn't worth the staleness. now is
+// injectable for tests; WithTabularCatalog wires time.Now in production.
+type cachedTabularCatalog struct {
+	TabularCatalogSummariser
+	now func() time.Time
+	m   sync.Map // kbID -> tabularCatalogCacheEntry
+}
+
+func newCachedTabularCatalog(c TabularCatalogSummariser, now func() time.Time) *cachedTabularCatalog {
+	return &cachedTabularCatalog{TabularCatalogSummariser: c, now: now}
+}
+
+func (c *cachedTabularCatalog) ListByKB(ctx context.Context, kbID string) ([]tabular.CatalogEntry, error) {
+	now := c.now()
+	if v, ok := c.m.Load(kbID); ok {
+		if e, ok := v.(tabularCatalogCacheEntry); ok && now.Sub(e.at) < tabularCatalogTTL {
+			return e.entries, nil
+		}
+	}
+	entries, err := c.TabularCatalogSummariser.ListByKB(ctx, kbID)
+	if err != nil {
+		return nil, err
+	}
+	c.m.Store(kbID, tabularCatalogCacheEntry{entries: entries, at: now})
+	return entries, nil
 }
 
 // resolveReasoningLevel returns the effective reasoning level for this
@@ -452,6 +541,30 @@ type chatResponseParams struct {
 	// agentMode overrides the mode recorded in agent_decisions; empty means
 	// the legacy "crag" (standard path).
 	agentMode string
+	// policyRule is the chat_orchestrator_policy rule index that pinned this
+	// turn's route (W6-R6), recorded on the agent_decisions row. nil means
+	// the flag ladder decided (no rule matched, a prefer rule's flag was
+	// off, or the policy is empty). The standard-path constructor passes
+	// standardPathPolicyRule(turnPol, deepChatAttempted) — a non-nil rule
+	// index when a "force standard" (or matched "prefer standard") rule
+	// pinned this turn AND the deep-chat dispatch was never attempted for
+	// it; the deep-chat constructor records its own rule separately via
+	// recordAgentDecision inside tryDeepChat.
+	policyRule *int
+	// queryType is the classifier's verdict for this turn (cls.QueryType),
+	// used by the per-route answer-tool allowlist (W6-R8,
+	// chat_answer_tools_by_route). Empty on handleTransformFollowUp, which
+	// skips retrieval/classification entirely — resolveAnswerToolsRoute
+	// treats an empty query type as FULLY RESTRICTED (not "no restriction")
+	// whenever chat_answer_tools_by_route configures at least one route, so
+	// an unclassified turn can never be a classification-based escape hatch
+	// around an operator's restriction.
+	queryType string
+	// isGlobalSynthesis mirrors IsGlobalSynthesisQuery(searchQuery) at
+	// construction time; the "global_synthesis" route key wins over
+	// queryType's own entry only when this is true. False (the zero value)
+	// on handleTransformFollowUp for the same reason as queryType above.
+	isGlobalSynthesis bool
 }
 
 // handleTransformFollowUp answers a transform follow-up ("kannst du das als
@@ -528,6 +641,10 @@ func (h *Handler) handleTransformFollowUp(
 // Caller has already saved the user message; ctx already carries the
 // turn budget + tool-call recorder.
 func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
+	// Freshness dates for the cited files (one batch query, fail-soft).
+	// Runs before the `sources` frame below AND before the AddMessage that
+	// persists the same slice, so the SSE payload and messages.sources agree.
+	enrichSourceDates(ctx, h.fileDates, p.chatCtx.Sources)
 	sources := p.chatCtx.Sources
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
@@ -541,12 +658,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		}
 	}()
 
-	writeSSE(ctx, w, map[string]any{
-		"sources":       sources,
-		"enhancedQuery": enhancedQuery,
-		"chatId":        p.chatID,
-		"userMessageId": p.userMsgID,
-	})
+	writeOpeningFrames(ctx, w, sources, enhancedQuery, p.chatID, p.userMsgID, p.chatCtx.Conflicts)
 
 	// Replay any trajectory events that were buffered during
 	// PrepareChatContext (CRAG branch decisions, etc.) so the
@@ -561,18 +673,52 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// path runs byte-identically when the flag is off.
 	streamStart := time.Now()
 	var responseBuf, reasoningBuf strings.Builder
-	streamEmit := func(e ai.StreamEvent) {
-		if e.Content != "" {
-			responseBuf.WriteString(e.Content)
-			writeSSE(ctx, w, map[string]string{"content": e.Content})
-		}
-		if e.Reasoning != "" {
-			reasoningBuf.WriteString(e.Reasoning)
-			writeSSE(ctx, w, map[string]string{"reasoning": e.Reasoning})
+	// Degenerate-run guard (W5-R4) — same wiring as the orchestrator tail in
+	// tryDeepChat: only the completion runs under the cancellable child ctx,
+	// so a guard cancel ends generation without disturbing the SSE writes,
+	// the AddMessage or the post-response tasks that follow.
+	genCtx, cancelGen := context.WithCancel(ctx)
+	defer cancelGen()
+	guard := newAnswerGuard(ChatAnswerDegenerateRunLimit(ctx, h.siteConfigReader), p.lang, "web", cancelGen)
+	streamEmit := newGuardedEmit(guard, &responseBuf, &reasoningBuf,
+		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
+		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
+	)
+	// answerTurnTools resolves the base catalog (admin flag and/or the user's
+	// per-turn web-search opt-in); a per-route allowlist (W6-R8) then narrows
+	// dispatcher and catalog together so the catalog projection and the
+	// dispatch boundary can never drift apart.
+	answerToolsDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, p.kbID, p.webSearch, false)
+	if useAnswerTools {
+		byRoute := ChatAnswerToolsByRoute(ctx, h.siteConfigReader)
+		if allow, ok, decision, reason := resolveAnswerToolsRoute(byRoute, p.queryType, p.isGlobalSynthesis); ok {
+			answerToolsDispatcher, catalog = restrictToolsForRoute(answerToolsDispatcher, catalog, allow, true)
+			if !hasTool(catalog, webSearchToolName) {
+				// The route allowlist dropped web_search: don't tell the
+				// answer LLM to use a tool it no longer has.
+				webSearchHint = ""
+			}
+			routeEvt := TrajectoryEvent{
+				Stage:    "answer_tools_route",
+				Decision: decision,
+				Reason:   reason,
+				Findings: len(catalog),
+			}
+			if routeEvt.Reason == "" && len(catalog) == 0 {
+				// Findings is omitempty, so a bare {stage, decision} frame
+				// cannot be told apart from "no findings key" — this is the
+				// one case an operator debugging a route restriction most
+				// wants to see (the loop is about to be skipped entirely).
+				routeEvt.Reason = "catalog empty; tool loop skipped"
+			}
+			emitTrajectory(func(pl map[string]any) { writeSSE(ctx, w, pl) }, routeEvt, nil)
 		}
 	}
-	answerDispatcher, catalog, webSearchHint, useAnswerTools := h.answerTurnTools(ctx, p.kbID, p.webSearch, false)
-	if useAnswerTools {
+	// A route restriction can filter the catalog down to empty; running the
+	// tool loop with zero tools would be pointless scaffolding, so that case
+	// falls through to the plain streaming answer below instead.
+	runAnswerTools := shouldRunAnswerToolsLoop(useAnswerTools, catalog)
+	if runAnswerTools {
 		answerTrace := func(stage, decision, reason string, details map[string]any) {
 			payload := map[string]any{
 				"stage":    stage,
@@ -584,7 +730,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			}
 			writeSSE(ctx, w, payload)
 		}
-		err := RunAnswerWithTools(ctx, AnswerToolsParams{
+		err := RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
 			KbID:            p.kbID,
 			ChatID:          p.chatID,
@@ -592,12 +738,15 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			UserPrompt:      p.userMessage,
 			History:         p.history,
 			Tools:           catalog,
-			Dispatcher:      answerDispatcher,
+			Dispatcher:      answerToolsDispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
 			ReasoningEffort: p.reasoningLevel,
 			Temperature:     ChatAnswerTemperature(ctx, h.siteConfigReader),
 		}, streamEmit, answerTrace)
-		if err != nil {
+		// A guard trip cancels genCtx, which the tool loop reports as a
+		// context error — a deliberate abort with a usable answer behind it,
+		// not a stream failure. Only a real error bails.
+		if err != nil && !guard.tripped() {
 			logctx.From(ctx).Error("chat.send: run answer-tools", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
 			writeSSE(ctx, w, map[string]string{"error": "failed to run AI stream"})
 			writeSSEDone(ctx, w)
@@ -605,7 +754,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			return
 		}
 	} else {
-		events, err := ai.StreamCompletionWithHistory(ctx, h.aiResolver, p.history, p.userMessage, systemPrompt, p.kbID, p.reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
+		events, err := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, p.history, p.userMessage, systemPrompt, p.kbID, p.reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
 		if err != nil {
 			logctx.From(ctx).Error("chat.send: start AI stream", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
 			writeSSE(ctx, w, map[string]string{"error": "failed to start AI stream"})
@@ -620,8 +769,14 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 				break
 			}
 			streamEmit(ai.StreamEvent{Content: event.Content, Reasoning: event.Reasoning})
+			if guard.tripped() {
+				// genCtx is already cancelled; stop consuming instead of
+				// waiting for the provider's terminal event (which would
+				// arrive carrying context.Canceled).
+				break
+			}
 		}
-		if streamErr != nil {
+		if streamErr != nil && !guard.tripped() {
 			// Mid-stream abort (connection reset, oversized SSE frame): the
 			// buffered content is truncated. Surface the error and bail
 			// instead of persisting it as a complete AI message.
@@ -634,6 +789,18 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	}
 
 	fullResponse := responseBuf.String()
+	if guard.tripped() {
+		// Strip the run from the persisted answer, append the notice, and
+		// stream that notice as the final content frame so the user sees why
+		// the answer stops. The turn completes normally from here.
+		guarded, appended := guard.finish(fullResponse)
+		fullResponse = guarded
+		writeSSE(ctx, w, map[string]string{"content": appended})
+		guard.recordTrajectory(func(pl map[string]any) { writeSSE(ctx, w, pl) })
+		logctx.From(ctx).Warn("chat.send: degenerate answer run truncated",
+			"chat_id", p.chatID, "kb_id", p.kbID,
+			"limit", guard.tracker.Limit(), "run_length", guard.tracker.RunLength())
+	}
 
 	toolCallsThisTurn := 0
 	if rec := ToolCallRecorderFromContext(ctx); rec != nil {
@@ -647,7 +814,11 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		"source_count", len(sources),
 		"low_confidence", len(sources) < 3,
 		"stream", true,
-		"answer_tools_path", useAnswerTools,
+		// answer_tools_path means "the tool loop actually ran" (W6-R8
+		// fix round 1), not merely "tools were configured" — a route
+		// restriction (or fix-round-2's unknown-query-type case) can
+		// leave useAnswerTools true while this is false.
+		"answer_tools_path", runAnswerTools,
 		"web_search_requested", p.webSearch,
 		"tool_calls", toolCallsThisTurn,
 	)
@@ -672,6 +843,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		Sources:         sources,
 		Reasoning:       reasoningPtr,
 		ParentMessageID: &p.userMsgID,
+		Conflicts:       ConflictsForWire(p.chatCtx.Conflicts),
 	})
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save AI message (stream)", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
@@ -691,7 +863,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// mutates the painted answer in place. The full refined text
 	// is still persisted to DB by runPostResponseTasks.
 	emit := func(pl map[string]any) { writeSSE(ctx, w, pl) }
-	followUps, verification, _ := h.runPostResponseTasks(ctx, p.userMessage, fullResponse, p.chatCtx.Context, p.kbID, p.lang, aiMsg.ID, p.chatCtx.Sources, emit)
+	followUps, verification, _ := h.runPostResponseTasks(ctx, p.userMessage, fullResponse, p.chatCtx.Context, p.kbID, p.lang, aiMsg.ID, p.chatCtx.Sources, emit, p.chatCtx.TabularTrace)
 	if len(followUps) > 0 {
 		writeSSE(ctx, w, map[string]any{"followUpQuestions": followUps})
 	}
@@ -710,15 +882,9 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// outcome is recorded in the global metrics; per-chat logging
 	// for the admin panel uses mode=crag with outcome derived from
 	// the buffered trajectory's final decision event (when present).
-	stdOutcome, _, _ := agentOutcomeFromEvents(p.bufferedTrajectory)
-	if stdOutcome == "" {
-		stdOutcome = "answered"
-	}
-	mode := p.agentMode
-	if mode == "" {
-		mode = "crag"
-	}
-	h.recordAgentDecision(ctx, p.kbID, mode, stdOutcome, 0, 0, time.Since(p.chatStartTime).Milliseconds(), nil, nil)
+	// Shared with writeJSONResponse via recordStandardPathDecision
+	// (W7-R3) so the two cannot drift.
+	h.recordStandardPathDecision(ctx, p, p.bufferedTrajectory)
 
 	writeSSEDone(ctx, w)
 	sseFinished = true
@@ -730,6 +896,8 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 // non-streaming path returns refinedAnswer when AP-A1 produced one
 // (no painted-text mismatch concern since there's no SSE channel).
 func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
+	// Same one-shot enrichment as the streaming branch — see there.
+	enrichSourceDates(ctx, h.fileDates, p.chatCtx.Sources)
 	sources := p.chatCtx.Sources
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
@@ -740,6 +908,14 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 		logctx.From(ctx).Error("chat.send: generate completion", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to generate response")
 		return
+	}
+	// Degenerate-run guard, post hoc (W5-R4): nothing to abort on a
+	// non-streaming completion, but the answer must not be persisted or
+	// returned with the run in it.
+	if guarded, appended := GuardAnswerText(ctx, h.siteConfigReader, result.Content, p.lang, "web"); appended != "" {
+		logctx.From(ctx).Warn("chat.send: degenerate answer run stripped (non-streaming)",
+			"chat_id", p.chatID, "kb_id", p.kbID)
+		result.Content = guarded
 	}
 
 	logctx.From(ctx).Info("rag.completion",
@@ -770,6 +946,7 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 		Sources:         sources,
 		Reasoning:       reasoningPtr,
 		ParentMessageID: &p.userMsgID,
+		Conflicts:       ConflictsForWire(p.chatCtx.Conflicts),
 	})
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save AI message", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
@@ -779,7 +956,7 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 
 	// Non-streaming path: no SSE channel exists, so emit is nil.
 	// The refined answer surfaces via the JSON `answer` field instead.
-	followUps, verification, refinedAnswer := h.runPostResponseTasks(ctx, p.userMessage, result.Content, p.chatCtx.Context, p.kbID, p.lang, aiMsg.ID, p.chatCtx.Sources, nil)
+	followUps, verification, refinedAnswer := h.runPostResponseTasks(ctx, p.userMessage, result.Content, p.chatCtx.Context, p.kbID, p.lang, aiMsg.ID, p.chatCtx.Sources, nil, p.chatCtx.TabularTrace)
 
 	if sc := trace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		if err := h.store.UpdateMessageTraceID(ctx, aiMsg.ID, sc.TraceID().String()); err != nil {
@@ -787,12 +964,18 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 		}
 	}
 
+	// W7-R3: the non-streaming path previously recorded no agent_decisions
+	// row at all, leaving every non-streaming standard-path turn invisible
+	// to the admin metrics panel. Shared with writeStreamingResponse via
+	// recordStandardPathDecision so the two cannot drift.
+	h.recordStandardPathDecision(ctx, p, p.bufferedTrajectory)
+
 	answerForClient := result.Content
 	if refinedAnswer != "" {
 		answerForClient = refinedAnswer
 	}
 
-	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"answer":            answerForClient,
 		"reasoning":         result.Reasoning,
 		"sources":           sources,
@@ -802,5 +985,12 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 		"aiMessageId":       aiMsg.ID,
 		"followUpQuestions": followUps,
 		"verification":      verification,
-	})
+	}
+	// Added only when there is something to report, so a client that never
+	// sees a conflict sees byte-identical JSON to before this existed —
+	// same rule the SSE frame follows.
+	if cs := ConflictsForWire(p.chatCtx.Conflicts); cs != nil {
+		payload["conflicts"] = cs
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, payload)
 }

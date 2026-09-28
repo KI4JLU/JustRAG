@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/hibiken/asynq"
 
@@ -15,19 +16,47 @@ import (
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
+	"github.com/justrag/go-backend/internal/syncwindow"
 )
 
 // Handler holds the dependencies for the Git repo source HTTP endpoints.
 type Handler struct {
-	store       Store
-	jwtSecret   string
-	asynqClient *asynq.Client
+	store        Store
+	jwtSecret    string
+	asynqClient  *asynq.Client
+	tableDropper TableDropper
 }
 
 // NewHandler creates a Handler backed by store, using jwtSecret to encrypt
 // access tokens before storage and asynqClient to enqueue sync jobs.
 func NewHandler(store Store, jwtSecret string, asynqClient *asynq.Client) *Handler {
 	return &Handler{store: store, jwtSecret: jwtSecret, asynqClient: asynqClient}
+}
+
+// SetTableDropper injects the spreadsheet table cleanup hook for
+// DeleteSource. Optional — nil (the default) leaves materialised tables in
+// place. TableDropper is defined in store_pg.go and shared with PGStore's
+// own per-file delete path.
+func (h *Handler) SetTableDropper(d TableDropper) { h.tableDropper = d }
+
+// dropTablesForSource drops every file's materialised spreadsheet tables
+// for the given git repo source. Nil-safe: returns immediately when no
+// dropper is wired. Best effort per file: a failure is logged and the rest
+// still run.
+func (h *Handler) dropTablesForSource(ctx context.Context, sourceID string) {
+	if h.tableDropper == nil {
+		return
+	}
+	srcFiles, err := h.store.ListGitRepoFiles(ctx, sourceID)
+	if err != nil {
+		logctx.From(ctx).Warn("tabular: list files for git repo source delete failed", "sourceId", sourceID, "error", err)
+		return
+	}
+	for _, f := range srcFiles {
+		if err := h.tableDropper.DropTablesForFile(ctx, f.FileID); err != nil {
+			logctx.From(ctx).Warn("tabular: drop tables for deleted git repo file failed", "fileId", f.FileID, "error", err)
+		}
+	}
 }
 
 // kbIDFromContext returns the KB ID from the kbaccess middleware context or
@@ -50,6 +79,8 @@ type gitRepoSourceDTO struct {
 	IsPrivate           bool    `json:"isPrivate"`
 	Branch              *string `json:"branch"`
 	HasToken            bool    `json:"hasToken"`
+	SyncSchedule        string  `json:"syncSchedule"`
+	NextSyncAt          *string `json:"nextSyncAt"`
 	Status              string  `json:"status"`
 	ErrorMessage        *string `json:"errorMessage"`
 	ConsecutiveFailures int     `json:"consecutiveFailures"`
@@ -67,6 +98,11 @@ func toDTO(r GitRepoSourceRow) gitRepoSourceDTO {
 		s := r.LastSyncedAt.Format("2006-01-02T15:04:05Z07:00")
 		last = &s
 	}
+	var next *string
+	if r.NextSyncAt != nil {
+		s := r.NextSyncAt.Format("2006-01-02T15:04:05Z07:00")
+		next = &s
+	}
 	return gitRepoSourceDTO{
 		ID:                  r.ID,
 		KbID:                r.KbID,
@@ -74,6 +110,8 @@ func toDTO(r GitRepoSourceRow) gitRepoSourceDTO {
 		IsPrivate:           r.IsPrivate,
 		Branch:              r.Branch,
 		HasToken:            r.AccessTokenEncrypted != nil && *r.AccessTokenEncrypted != "",
+		SyncSchedule:        r.SyncSchedule,
+		NextSyncAt:          next,
 		Status:              r.Status,
 		ErrorMessage:        r.ErrorMessage,
 		ConsecutiveFailures: r.ConsecutiveFailures,
@@ -91,10 +129,11 @@ func toDTO(r GitRepoSourceRow) gitRepoSourceDTO {
 // ---------------------------------------------------------------------------
 
 type createSourceRequest struct {
-	RepoURL     string `json:"repoUrl"`
-	IsPrivate   bool   `json:"isPrivate"`
-	AccessToken string `json:"accessToken"`
-	Branch      string `json:"branch"`
+	RepoURL      string `json:"repoUrl"`
+	IsPrivate    bool   `json:"isPrivate"`
+	AccessToken  string `json:"accessToken"`
+	Branch       string `json:"branch"`
+	SyncSchedule string `json:"syncSchedule"`
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +167,16 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate syncSchedule (empty string means manual).
+	syncSchedule := syncwindow.ScheduleManual
+	if body.SyncSchedule != "" {
+		syncSchedule = body.SyncSchedule
+	}
+	if !syncwindow.Valid(syncSchedule) {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "syncSchedule must be manual, daily or weekly")
+		return
+	}
+
 	var encTok *string
 	if body.IsPrivate {
 		if body.AccessToken == "" {
@@ -153,6 +202,7 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 		IsPrivate:            body.IsPrivate,
 		AccessTokenEncrypted: encTok,
 		Branch:               branch,
+		SyncSchedule:         syncSchedule,
 	})
 	if err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to create git repo source")
@@ -193,10 +243,15 @@ func (h *Handler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 	sourceID := r.PathValue("sourceId")
 
 	var body struct {
-		Status *string `json:"status"`
+		SyncSchedule *string `json:"syncSchedule"`
+		Status       *string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.SyncSchedule != nil && !syncwindow.Valid(*body.SyncSchedule) {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "syncSchedule must be manual, daily or weekly")
 		return
 	}
 	if body.Status != nil && *body.Status != "active" && *body.Status != "paused" {
@@ -214,11 +269,50 @@ func (h *Handler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.UpdateGitRepoSource(ctx, sourceID, GitRepoSourceUpdate{Status: body.Status}); err != nil {
+	update := GitRepoSourceUpdate{SyncSchedule: body.SyncSchedule, Status: body.Status}
+
+	// A schedule change takes effect immediately: clearing next_sync_at makes
+	// the sweeper re-stamp on its next tick, including a change back to
+	// "manual" — leaving the old stamp in place would leave a source on its
+	// previous cadence until the next slot fires.
+	if body.SyncSchedule != nil {
+		var null *time.Time
+		update.NextSyncAt = &null
+	}
+
+	// Resuming a paused source must not fire an immediate daytime sync from a
+	// next_sync_at stamped before the pause (possibly days or weeks stale).
+	// Clearing it drops the row into ListUnscheduled, which stamps a fresh
+	// slot in the next window occurrence WITHOUT enqueuing. Skip if a
+	// schedule change already cleared it above. Unlike rss/confluence, git
+	// repo sources have no error_message/consecutive_failures fields to
+	// clear here — GitRepoSourceUpdate carries no such fields.
+	if body.Status != nil && *body.Status == "active" && update.NextSyncAt == nil {
+		var null *time.Time
+		update.NextSyncAt = &null
+	}
+
+	if err := h.store.UpdateGitRepoSource(ctx, sourceID, update); err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to update git repo source")
 		return
 	}
-	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]string{"message": "updated"})
+
+	// Return the updated row, matching rss.UpdateRSSFeed and
+	// confluence.UpdateSource: the frontend's updateGitRepoSource hook
+	// applies the response body as the new source state, so a bare
+	// {"message":"updated"} here would overwrite the row with itself,
+	// discarding every field the UI needs to keep rendering it (repoUrl,
+	// status, syncSchedule, nextSyncAt, ...).
+	updated, err := h.store.GetGitRepoSourceByID(ctx, sourceID)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch updated git repo source")
+		return
+	}
+	if updated == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "git repo source not found")
+		return
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, toDTO(*updated))
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +334,14 @@ func (h *Handler) DeleteSource(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "git repo source not found")
 		return
 	}
+
+	// R60: drop this source's files' materialised spreadsheet tables
+	// BEFORE the source delete. DeleteGitRepoSource relies on
+	// files.git_repo_source_id ON DELETE CASCADE, which removes the files
+	// rows (and their tabular_catalog rows) but never drops the physical
+	// tables — deleting the source first would orphan them beyond any
+	// future reach.
+	h.dropTablesForSource(ctx, sourceID)
 
 	if err := h.store.DeleteGitRepoSource(ctx, sourceID); err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to delete git repo source")

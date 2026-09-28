@@ -85,6 +85,15 @@ func NDCG(retrieved []string, truth map[string]struct{}) float64 {
 // Aggregate computes mean + p50/p95 metrics across non-errored QuestionReport entries.
 func Aggregate(reports []QuestionReport, k int) AggregateMetrics {
 	var recalls, precisions, rrs, ndcgs []float64
+	// W6-R7: latencies and llm-call counts are accumulated over the SAME
+	// non-errored question set as the retrieval metrics above, so
+	// MeanLatencyMs/MeanLLMCalls are directly comparable to MeanRecall/MRR
+	// on this aggregate. llmCalls only gets an entry for a question that
+	// carries an Agent trace (r.Agent != nil) — a question answered by an
+	// adapter that never dispatches through an orchestrator (legacy
+	// retrieval-only runs) contributes no LLM-call information at all,
+	// rather than a misleading 0.
+	var latencies, llmCalls []float64
 	for _, r := range reports {
 		if r.Error != "" {
 			continue
@@ -93,6 +102,10 @@ func Aggregate(reports []QuestionReport, k int) AggregateMetrics {
 		precisions = append(precisions, r.Metrics.PrecisionAtK)
 		rrs = append(rrs, r.Metrics.ReciprocalRank)
 		ndcgs = append(ndcgs, r.Metrics.NDCGAtK)
+		latencies = append(latencies, float64(r.LatencyMs))
+		if r.Agent != nil {
+			llmCalls = append(llmCalls, float64(r.Agent.LLMCalls))
+		}
 	}
 	agg := AggregateMetrics{K: k, Count: len(recalls)}
 	if agg.Count == 0 {
@@ -104,8 +117,13 @@ func Aggregate(reports []QuestionReport, k int) AggregateMetrics {
 	agg.MeanNDCG = mean(ndcgs)
 	agg.P50Recall = percentile(recalls, 50)
 	agg.P95Recall = percentile(recalls, 95)
+	agg.MeanLatencyMs = mean(latencies)
+	if len(llmCalls) > 0 {
+		m := mean(llmCalls)
+		agg.MeanLLMCalls = &m
+	}
 
-	var faiths, rels, precs []float64
+	var faiths, rels, precs, covs []float64
 	for _, r := range reports {
 		if r.Error != "" {
 			continue
@@ -122,8 +140,15 @@ func Aggregate(reports []QuestionReport, k int) AggregateMetrics {
 		if r.Judge.ContextPrecision != nil {
 			precs = append(precs, *r.Judge.ContextPrecision)
 		}
+		if r.Judge.Coverage != nil {
+			covs = append(covs, *r.Judge.Coverage)
+		}
 		agg.JudgedCount++
 	}
+	agg.FaithfulnessN = len(faiths)
+	agg.AnswerRelevanceN = len(rels)
+	agg.ContextPrecisionN = len(precs)
+	agg.CoverageN = len(covs)
 	if len(faiths) > 0 {
 		m := mean(faiths)
 		agg.MeanFaithfulness = &m
@@ -135,6 +160,10 @@ func Aggregate(reports []QuestionReport, k int) AggregateMetrics {
 	if len(precs) > 0 {
 		m := mean(precs)
 		agg.MeanContextPrecision = &m
+	}
+	if len(covs) > 0 {
+		m := mean(covs)
+		agg.MeanCoverage = &m
 	}
 
 	return agg
@@ -152,6 +181,36 @@ func AggregateByRoute(reports []QuestionReport, k int) map[string]AggregateMetri
 	out := make(map[string]AggregateMetrics, len(buckets))
 	for route, bucket := range buckets {
 		out[route] = Aggregate(bucket, k)
+	}
+	return out
+}
+
+// AggregateByTurnKind buckets non-errored QuestionReports by
+// r.Question.TurnKind (populated by eval.ExpandTurns on a multi-turn
+// conversation's per-turn Questions) and computes the standard
+// AggregateMetrics per bucket. Mirrors AggregateByOrchestrator.
+//
+// Reports with an empty TurnKind are skipped so a run mixing single-turn
+// and multi-turn golden rows doesn't produce a misleading empty-keyed
+// bucket. Returns nil when no buckets exist so the field stays omitempty
+// in JSON output.
+func AggregateByTurnKind(reports []QuestionReport, k int) map[string]AggregateMetrics {
+	buckets := make(map[string][]QuestionReport)
+	for _, r := range reports {
+		if r.Question.TurnKind == "" {
+			continue
+		}
+		if r.Error != "" {
+			continue
+		}
+		buckets[r.Question.TurnKind] = append(buckets[r.Question.TurnKind], r)
+	}
+	if len(buckets) == 0 {
+		return nil
+	}
+	out := make(map[string]AggregateMetrics, len(buckets))
+	for kind, bucket := range buckets {
+		out[kind] = Aggregate(bucket, k)
 	}
 	return out
 }

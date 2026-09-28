@@ -168,3 +168,93 @@ func TestRenderItem_Labels(t *testing.T) {
 		t.Errorf("code: got %q", got)
 	}
 }
+
+func TestBuildPages_PictureCaptionAndDescriptionLandOnItsPage(t *testing.T) {
+	// The regression: picture items were never emitted at all, so every VLM
+	// caption was paid for and then discarded for any document with page
+	// provenance. They belong to the page the figure sits on.
+	pages := buildPages([]DocItem{
+		{Page: 7, Label: "text", Text: "Vor der Abbildung."},
+		{Page: 7, Label: "picture", Picture: &DocPicture{
+			Caption:     "Abbildung 3: Stoerungsmeldungen je Monat.",
+			Description: "Ein Balkendiagramm; die Meldungen steigen von 12 auf 47.",
+		}},
+		{Page: 8, Label: "text", Text: "Nach der Abbildung."},
+	})
+
+	want := []parser.PageText{
+		{PageNumber: 7, Text: "Vor der Abbildung.\n\nAbbildung 3: Stoerungsmeldungen je Monat.\n\nEin Balkendiagramm; die Meldungen steigen von 12 auf 47."},
+		{PageNumber: 8, Text: "Nach der Abbildung."},
+	}
+	if !reflect.DeepEqual(pages, want) {
+		t.Fatalf("pages mismatch:\n got %+v\nwant %+v", pages, want)
+	}
+}
+
+func TestBuildPages_FurniturePictureIsDropped(t *testing.T) {
+	// A captioned logo in the running header would otherwise repeat on every
+	// page, exactly what the furniture rule exists to prevent.
+	pages := buildPages([]DocItem{
+		{Page: 1, Label: "picture", Furniture: true, Picture: &DocPicture{Description: "Das Logo."}},
+		{Page: 1, Label: "text", Text: "Inhalt."},
+	})
+
+	if len(pages) != 1 || pages[0].Text != "Inhalt." {
+		t.Fatalf("furniture picture must not be ingested, got %+v", pages)
+	}
+}
+
+func TestRenderItem_PictureWithOnlyOnePartHasNoBlankPadding(t *testing.T) {
+	// Captioning off leaves a caption-only figure; a figure with no printed
+	// caption leaves a description only. Neither may emit a leading or
+	// trailing blank line, which would survive into the page text.
+	if got := renderItem(DocItem{Label: "picture", Picture: &DocPicture{Caption: "Abbildung 1: Aufbau."}}); got != "Abbildung 1: Aufbau." {
+		t.Errorf("caption-only picture = %q", got)
+	}
+	if got := renderItem(DocItem{Label: "picture", Picture: &DocPicture{Description: "Ein Schema."}}); got != "Ein Schema." {
+		t.Errorf("description-only picture = %q", got)
+	}
+}
+
+func TestRenderItem_SectionHeaderLevelDrivesDepth(t *testing.T) {
+	// docling's own markdown export: title → "#", section_header level N → N+1 hashes.
+	// A missing level (older sidecars, or hierarchy inference off) reads as 1.
+	cases := map[string]DocItem{
+		"# T":     {Label: "title", Text: "T"},
+		"## S":    {Label: "section_header", Text: "S"},
+		"## S1":   {Label: "section_header", Level: 1, Text: "S1"},
+		"### S2":  {Label: "section_header", Level: 2, Text: "S2"},
+		"#### S3": {Label: "section_header", Level: 3, Text: "S3"},
+	}
+	for want, it := range cases {
+		if got := renderItem(it); got != want {
+			t.Errorf("level %d: got %q want %q", it.Level, got, want)
+		}
+	}
+}
+
+func TestRenderItem_TableCaptionBeforeFootnotesAfter(t *testing.T) {
+	got := renderItem(DocItem{Label: "table", Table: &DocTable{
+		NumRows: 1, NumCols: 1,
+		Cells:     []DocTableCell{{Text: "Giessen", Row: 0, Col: 0}},
+		Caption:   "Tabelle 2: Standorte.",
+		Footnotes: []string{"* Stand 2025."},
+	}})
+	want := "Tabelle 2: Standorte.\n\n| Giessen |\n| --- |\n\n* Stand 2025."
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestRenderItem_PictureOrderIsCaptionInnerTextDescriptionFootnotes(t *testing.T) {
+	got := renderItem(DocItem{Label: "picture", Picture: &DocPicture{
+		Caption:     "Abbildung 1: Meldungen.",
+		InnerText:   "40 31 Jan Feb",
+		Description: "Ein Balkendiagramm.",
+		Footnotes:   []string{"Quelle: Ticketsystem."},
+	}})
+	want := "Abbildung 1: Meldungen.\n\n40 31 Jan Feb\n\nEin Balkendiagramm.\n\nQuelle: Ticketsystem."
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}

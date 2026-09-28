@@ -1,12 +1,13 @@
 import React, { createElement, memo } from 'react';
 import {
     Download, Trash2,
-    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch
+    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, Table as TableIcon, ShieldAlert
 } from 'lucide-react';
 import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
-import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource } from '../../types';
+import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IngestStageIndicator } from './IngestStageIndicator';
+import { SyncScheduleSelect } from './SyncScheduleSelect';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
 import { SourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
@@ -18,19 +19,20 @@ interface SourcesSectionProps {
     onDownloadFile: (id: string) => void;
     onDeleteFile: (id: string, e: React.MouseEvent) => void;
     rssFeeds: RssFeed[];
-    onUpdateRssFeed: (feedId: string, updates: { pollInterval?: number; status?: 'active' | 'paused' }) => void;
+    onUpdateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
     onDeleteRssFeed: (feedId: string) => void;
     onPollFeedNow: (feedId: string) => void;
     onViewFeed: (feed: RssFeed) => void;
     confluenceSources: ConfluenceSource[];
-    onUpdateConfluenceSource: (sourceId: string, updates: { includeAttachments?: boolean; syncInterval?: number | null; status?: 'active' | 'paused' }) => void;
+    onUpdateConfluenceSource: (sourceId: string, updates: { includeAttachments?: boolean; syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
     onDeleteConfluenceSource: (sourceId: string) => void;
     onSyncConfluenceNow: (sourceId: string) => void;
     gitRepoSources: GitRepoSource[];
-    onUpdateGitRepoSource: (sourceId: string, updates: { status?: 'active' | 'paused' }) => void;
+    onUpdateGitRepoSource: (sourceId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
     onDeleteGitRepoSource: (sourceId: string) => void;
     onSyncGitRepoNow: (sourceId: string) => void;
     onRetryFile: (id: string) => void;
+    onOpenTabular: (file: FileEntry) => void;
 }
 
 // Maps files.error_stage values (backend vocabulary, see
@@ -46,13 +48,22 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
     queue: 'fileErrorQueue',
 };
 
+// Extensions the spreadsheet parser handles (parser.SpreadsheetParser),
+// deliberately excluding .xlsm (macro-enabled workbooks, out of scope) — the
+// "Tabellen" file-detail button only makes sense for these.
+const SPREADSHEET_EXTENSIONS = ['.xlsx', '.xls', '.ods', '.csv', '.tsv'];
+const isSpreadsheetFile = (name: string): boolean => {
+    const lower = name.toLowerCase();
+    return SPREADSHEET_EXTENSIONS.some(ext => lower.endsWith(ext));
+};
+
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     files, onPreviewSource, onToggleFilesSelection,
     onDownloadFile, onDeleteFile,
     rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
-    onRetryFile
+    onRetryFile, onOpenTabular
 }) => {
     const { t } = useTheme();
 
@@ -62,6 +73,13 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     useSourcePreviews(nonRssFiles);
     const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
+    // Untrusted, document-derived text: it goes into title/aria-label as a
+    // plain string and is never rendered as markup. The per-KB count of
+    // flagged external-origin files is SourcesHeader's, above the list.
+    const injectionLabel = (file: FileEntry) => {
+        const snippet = file.injectionDetail?.snippet;
+        return snippet ? `${t('fileInjectionFlagged')}: ${snippet}` : t('fileInjectionFlagged');
+    };
     const errorLabel = (file: FileEntry) => {
         if (file.errorStage && ERROR_STAGE_KEYS[file.errorStage]) return t(ERROR_STAGE_KEYS[file.errorStage]);
         return file.errorMessage || t('fileErrorUnknown');
@@ -87,26 +105,50 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         {errorLabel(file)}
                                     </div>
                                 )}
+                                {file.injectionFlag && (
+                                    <div
+                                        className="sidebar-left__file-injection"
+                                        title={injectionLabel(file)}
+                                        aria-label={injectionLabel(file)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning-text, var(--text-secondary))', fontSize: '0.75rem' }}
+                                    >
+                                        <ShieldAlert size={12} aria-hidden="true" /> {t('fileInjectionFlagged')}
+                                    </div>
+                                )}
                                 {file.currentStage && (
                                     <IngestStageIndicator
                                         stage={file.currentStage}
                                         index={file.stageIndex}
                                         total={file.stageTotal}
                                         fileName={file.name}
+                                        detail={file.stageDetail}
                                     />
                                 )}
                             </>}
-                            extra={file.status === 'error' && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={(e) => { e.stopPropagation(); onRetryFile(file.id); }}
-                                    title={t('retrySource')}
-                                    aria-label={`${t('retrySource')} ${file.name}`}
-                                >
-                                    <RefreshCw size={16} aria-hidden="true" />
-                                </Button>
-                            )}
+                            extra={<>
+                                {file.status === 'error' && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={(e) => { e.stopPropagation(); onRetryFile(file.id); }}
+                                        title={t('retrySource')}
+                                        aria-label={`${t('retrySource')} ${file.name}`}
+                                    >
+                                        <RefreshCw size={16} aria-hidden="true" />
+                                    </Button>
+                                )}
+                                {file.status === 'completed' && isSpreadsheetFile(file.name) && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={(e) => { e.stopPropagation(); onOpenTabular(file); }}
+                                        title={t('tabularPanelOpen')}
+                                        aria-label={`${t('tabularPanelOpen')} ${file.name}`}
+                                    >
+                                        <TableIcon size={16} aria-hidden="true" />
+                                    </Button>
+                                )}
+                            </>}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
@@ -140,11 +182,19 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
                                         {feed.itemCount > 0 && <span>{feed.itemCount} {t('items')}</span>}
                                         {feed.lastPolledAt && <span>{t('lastPolled')}: {new Date(feed.lastPolledAt).toLocaleString()}</span>}
+                                        {feed.syncSchedule !== 'manual' && feed.nextSyncAt && (
+                                            <span>{t('nextSync')}: {new Date(feed.nextSyncAt).toLocaleString()}</span>
+                                        )}
                                     </div>
                                 </div>
                                 {feed.status === 'error' && feed.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{feed.errorMessage}</div>
                                 )}
+                                <SyncScheduleSelect
+                                    id={`rss-row-schedule-${feed.id}`}
+                                    value={feed.syncSchedule}
+                                    onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
+                                />
                                 <div className="sidebar-left__rss-feed-actions">
                                     <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                         <RefreshCw size={14} />
@@ -194,6 +244,9 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
                                         {source.pageCount > 0 && <span>{source.pageCount} {t('pages')}</span>}
                                         {source.lastSyncedAt && <span>{t('lastSynced')}: {new Date(source.lastSyncedAt).toLocaleString()}</span>}
+                                        {source.syncSchedule !== 'manual' && source.nextSyncAt && (
+                                            <span>{t('nextSync')}: {new Date(source.nextSyncAt).toLocaleString()}</span>
+                                        )}
                                     </div>
                                 </div>
                                 {source.status === 'syncing' && source.syncTotal > 0 && (
@@ -215,6 +268,11 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 {source.status === 'error' && source.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
                                 )}
+                                <SyncScheduleSelect
+                                    id={`confluence-row-schedule-${source.id}`}
+                                    value={source.syncSchedule}
+                                    onChange={(syncSchedule) => onUpdateConfluenceSource(source.id, { syncSchedule })}
+                                />
                                 <div className="sidebar-left__rss-feed-actions">
                                     <button onClick={() => onSyncConfluenceNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                         <RefreshCw size={14} />
@@ -254,6 +312,9 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
                                             {source.fileCount > 0 && <span>{source.fileCount} {t('gitFiles')}</span>}
                                             {source.lastSyncedAt && <span>{t('lastSynced')}: {new Date(source.lastSyncedAt).toLocaleString()}</span>}
+                                            {source.syncSchedule !== 'manual' && source.nextSyncAt && (
+                                                <span>{t('nextSync')}: {new Date(source.nextSyncAt).toLocaleString()}</span>
+                                            )}
                                         </div>
                                     </div>
                                     {source.status === 'syncing' && source.syncTotal > 0 && (
@@ -269,6 +330,11 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     {source.status === 'error' && source.errorMessage && (
                                         <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
                                     )}
+                                    <SyncScheduleSelect
+                                        id={`gitrepo-row-schedule-${source.id}`}
+                                        value={source.syncSchedule}
+                                        onChange={(syncSchedule) => onUpdateGitRepoSource(source.id, { syncSchedule })}
+                                    />
                                     <div className="sidebar-left__rss-feed-actions">
                                         <button onClick={() => onSyncGitRepoNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                             <RefreshCw size={14} />

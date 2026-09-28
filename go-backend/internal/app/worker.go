@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/justrag/go-backend/internal/admineval"
 	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
@@ -40,11 +41,14 @@ import (
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/parser/docling"
 	"github.com/justrag/go-backend/internal/processor"
+	"github.com/justrag/go-backend/internal/ragassamples"
 	"github.com/justrag/go-backend/internal/redisclient"
 	"github.com/justrag/go-backend/internal/rss"
 	"github.com/justrag/go-backend/internal/safego"
+	"github.com/justrag/go-backend/internal/siteconfig"
 	"github.com/justrag/go-backend/internal/storage"
 	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/tabular/ingest"
 	"github.com/justrag/go-backend/internal/vector"
 	"github.com/justrag/go-backend/internal/widcert"
 	"github.com/justrag/go-backend/internal/worker"
@@ -151,6 +155,7 @@ func RunWorker(cfg *config.Config) error {
 				Fallback: &parser.ImageParser{},
 			})
 			slog.Info("docling image captioning enabled for standalone image uploads")
+			probeDoclingCaptioning(dc)
 		}
 		slog.Info("docling parser enabled for pdf + docx + pptx", "base_url", dc.BaseURL())
 	}
@@ -228,6 +233,14 @@ func RunWorker(cfg *config.Config) error {
 
 	// Register handlers
 	mux := asynq.NewServeMux()
+	// Single Materializer instance: it doubles as the ingester's table
+	// writer AND the TableDropper every delete path outside internal/files
+	// (Confluence/git-repo/RSS sync) must run before removing a files row —
+	// otherwise the tabular_catalog row that indexes a file's physical
+	// tables is gone while the tables themselves are still there,
+	// unreachably orphaned. See internal/files.TableDropper for the full
+	// rationale.
+	tableDropper := tabular.NewMaterializer(db.Main)
 	confStore := confluence.NewStore(db.Main)
 	fileHandler := worker.NewFileProcessingHandler(proc, kbStore, searchService, stor)
 	fileHandler = worker.MarkErrorOnExhaustion(fileHandler, filesStore)
@@ -242,24 +255,34 @@ func RunWorker(cfg *config.Config) error {
 	urlHandler := worker.MarkErrorOnExhaustion(worker.NewURLProcessingHandler(proc, stor, kbStore, searchService), filesStore)
 	mux.HandleFunc(jobs.TypeURLProcessing, worker.Instrument(urlHandler))
 	mux.HandleFunc(jobs.TypeRSSPoll, worker.Instrument(worker.NewRSSPollHandler(worker.RSSPollDeps{
-		RSSStore:    rss.NewStore(db.Main),
-		FileStore:   filesStore,
-		Storage:     stor,
-		AsynqClient: rssClient,
-		Fetcher:     sharedFetcher,
-		WIDClient:   widcert.NewClient(),
-		SiteConfig:  chatStore,
+		RSSStore:     rss.NewStore(db.Main),
+		FileStore:    filesStore,
+		Storage:      stor,
+		AsynqClient:  rssClient,
+		Fetcher:      sharedFetcher,
+		WIDClient:    widcert.NewClient(),
+		SiteConfig:   chatStore,
+		TableDropper: tableDropper,
 	})))
 	proc.SetSiteConfigReader(chatStore)
 	proc.SetKBOverrideLister(kbconfig.NewStore(db.Main))
 	proc.SetMainDB(db.Main)
 	proc.SetVectorPool(db.Vector)
-	proc.SetMaterializer(tabular.NewMaterializer(db.Main))
+	proc.SetIngester(processor.NewIngesterAdapter(ingest.New(tableDropper, nil)))
+	// Large-file gate: the slot count (tabular_large_file_concurrency) is
+	// read once here at startup (Ruling R64) — unlike the per-file size
+	// threshold (tabular_large_file_bytes), which ProcessFile re-reads for
+	// every spreadsheet so it can be retuned without a worker restart.
+	proc.SetLargeFileGate(processor.NewLargeFileGate(chat.TabularLargeFileConcurrency(ctx, chatStore)))
 	proc.SetKGEventPublisher(kgevents.NewPublisher(rdb.Client))
 	proc.SetKGDeleter(kg.NewPgStore(db.Main))
 	mux.HandleFunc(jobs.TypeResearchExecution, worker.Instrument(worker.NewResearchExecutionHandler(aiResolver, searchService, rdb.Client, chatStore, sharedFetcher)))
 	mux.HandleFunc(jobs.TypeAcademicResearchExecution, worker.Instrument(worker.NewAcademicResearchHandler(aiResolver, rdb.Client, chatStore, sharedFetcher)))
-	mux.HandleFunc(jobs.TypeRAGASSample, worker.Instrument(worker.NewRAGASSampleHandlerForResolver(aiResolver)))
+	// RAGAS sampling persists each judged sample to ragas_samples (migration
+	// 0072) in addition to the Prometheus histograms, so a score can be
+	// attributed to a KB, a message and a judge model after the fact.
+	ragasStore := ragassamples.NewStore(db.Main)
+	mux.HandleFunc(jobs.TypeRAGASSample, worker.Instrument(worker.NewRAGASSampleHandlerForResolver(aiResolver, ragasStore)))
 	// Crawl: moved out of the HTTP server so Chromium/rod doesn't run in
 	// go-server. See internal/crawler/handler.go for the HTTP façade and
 	// internal/worker/crawl.go for the BFS loop.
@@ -312,10 +335,12 @@ func RunWorker(cfg *config.Config) error {
 		AsynqClient:  rssClient,
 		Storage:      stor,
 		ChunkService: chunkService,
+		TableDropper: tableDropper,
 	})))
 
 	// Git-repo sync: clone/pull repository, diff against stored SHAs, enqueue changed files.
 	gitStore := gitrepo.NewStore(db.Main)
+	gitStore.SetTableDropper(tableDropper)
 	gitSafeRT := fetcher.SafeHTTPClient(0).Transport // SSRF-safe RoundTripper (no client-level timeout; ctx bounds the clone)
 	gitrepo.InstallSafeGitTransport(gitSafeRT)
 	mux.HandleFunc(jobs.TypeGitRepoSync, worker.Instrument(gitrepo.NewSyncHandler(gitrepo.SyncDeps{
@@ -368,8 +393,20 @@ func RunWorker(cfg *config.Config) error {
 	}
 	evalWorker := admineval.NewWorker(db.Main, evalStore, func(ctx context.Context, r eval.Run) (json.RawMessage, error) {
 		return eval.RunInProcessFromRecord(ctx, r, evalDeps)
-	})
+	}, admineval.WithRegressionCheck(evalStore, siteconfig.NewStore(db.Main)))
 	mux.HandleFunc(jobs.TypeEvalRun, worker.Instrument(evalWorker.HandleRun))
+
+	// Scheduled eval runs: the night-window sweeper enqueues one
+	// TypeEvalScheduled per due golden set; this handler creates the run row
+	// and hands off to TypeEvalRun above.
+	scheduledEval := admineval.NewScheduledWorker(
+		evalStore,
+		eval.NewGoldenSetStore(db.Main),
+		siteconfig.NewStore(db.Main),
+		kbconfig.NewStore(db.Main),
+		rssClient,
+	)
+	mux.HandleFunc(jobs.TypeEvalScheduled, worker.Instrument(scheduledEval.HandleScheduled))
 
 	// Corpus-based golden-set generation.
 	genJobStore := eval.NewGenJobStore(db.Main)
@@ -466,10 +503,21 @@ func RunWorker(cfg *config.Config) error {
 	// deferred DB-pool teardown below cannot race in-flight queries.
 	var stopMaintenance func()
 	if cfg.WorkerMaintenance {
+		bm25Refresher := vector.NewBM25StatsRefresher(db.Vector, db.Main)
+		bm25Refresher.ModeEnabled = bm25ScoringModeEnabledAnywhere(db.Main)
 		stopMaintenance = worker.StartMaintenance(ctx, worker.MaintenanceConfig{
-			MainDB:           db.Main,
-			VectorDB:         db.Vector,
-			StuckFileTimeout: cfg.StuckFileTimeout,
+			MainDB:               db.Main,
+			VectorDB:             db.Vector,
+			StuckFileTimeout:     cfg.StuckFileTimeout,
+			TabularOrphanSweeper: tabular.NewOrphanSweeper(db.Main),
+			BM25StatsRefresher:   bm25Refresher,
+			RagasStore:           ragasStore,
+			// Read per pass, not once here: retention is a knob an operator
+			// may want to lower after noticing the table's size, and a
+			// worker restart should not be the price of that.
+			RagasRetention: func(ctx context.Context) time.Duration {
+				return time.Duration(chat.RagasSamplesRetentionDays(ctx, chatStore)) * 24 * time.Hour
+			},
 		})
 	}
 	defer func() {
@@ -551,6 +599,39 @@ func RunWorker(cfg *config.Config) error {
 	return nil
 }
 
+// bm25ScoringModeEnabledAnywhere returns a vector.BM25StatsRefresher.
+// ModeEnabled closure (finding F1): the BM25 stats sweep is pure overhead —
+// ts_stat() over every chunk table, twice per KB per tick — in a deployment
+// where every KB stays on the default ts_rank scoring mode, since nothing
+// ever reads the bm25_kb_stats_<dim>/bm25_term_stats_<dim> rows it produces.
+// Returns true (run the sweep) when either the global site_config
+// bm25_scoring_mode is "bm25", or at least one KB overrides it to "bm25" in
+// kb_site_configs. Fails open on a read error (logs and returns true)
+// rather than silently going stats-blind for a KB that just flipped the
+// mode.
+func bm25ScoringModeEnabledAnywhere(mainDB *pgxpool.Pool) func(ctx context.Context) bool {
+	return func(ctx context.Context) bool {
+		if mainDB == nil {
+			return false
+		}
+		global, err := siteconfig.NewStore(mainDB).GetSiteConfigValue(ctx, "bm25_scoring_mode")
+		if err != nil {
+			slog.Error("bm25.mode_enabled_check.global_read_failed", "error", err)
+			return true
+		}
+		if global != nil && *global == "bm25" {
+			return true
+		}
+		var overridden bool
+		const q = `SELECT EXISTS(SELECT 1 FROM kb_site_configs WHERE key = 'bm25_scoring_mode' AND value = 'bm25')`
+		if err := mainDB.QueryRow(ctx, q).Scan(&overridden); err != nil {
+			slog.Error("bm25.mode_enabled_check.override_read_failed", "error", err)
+			return true
+		}
+		return overridden
+	}
+}
+
 // siteConfigReaderForDocling is the minimum interface buildDoclingClient
 // needs. *chat.PGStore satisfies it implicitly.
 type siteConfigReaderForDocling interface {
@@ -588,19 +669,72 @@ func buildDoclingClient(ctx context.Context, scr siteConfigReaderForDocling, res
 		}
 	}
 	client := docling.NewClient(*urlRaw, timeout)
+	// Task endpoints: the sync endpoint is capped by the sidecar's
+	// DOCLING_SERVE_MAX_SYNC_WAIT (upstream default 120 s) regardless of the
+	// timeout above; polling has no such cap.
+	client.Async = true
+	// Startup snapshot (used for the parser-registration decision below) plus
+	// a per-request resolver, so an admin-panel edit of any docling_* key
+	// reaches the next conversion rather than the next worker restart.
 	client.Options = readDoclingOptions(ctx, scr, resolver)
+	client.OptionsFunc = func(ctx context.Context) docling.ConvertOptions {
+		return readDoclingOptions(ctx, scr, resolver)
+	}
 	return client
 }
 
-// readDoclingOptions derives caption/table flags from site-config. Read
-// failures degrade to safe defaults (captioning off, table_mode "fast").
+// probeDoclingCaptioning converts a tiny embedded PDF with captioning on, in
+// the background, and logs at error level if the sidecar rejects it. The
+// failure it exists for is silent otherwise: a sidecar started without
+// DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true refuses to build the captioning
+// pipeline, and FallbackParser then routes every PDF/DOCX/PPTX to the
+// built-in parsers with one warn line per file.
+func probeDoclingCaptioning(client *docling.Client) {
+	safego.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := client.Probe(ctx); err != nil {
+			slog.Error("docling: captioning probe failed — every Docling conversion will fall back to the built-in parsers until this is fixed. "+
+				"Check that the sidecar runs with DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true and can reach the model API.",
+				"error", err.Error())
+			return
+		}
+		slog.Info("docling: captioning probe ok")
+	})
+}
+
+// DefaultDoclingPicturePrompt is what the vision model is asked per figure
+// when docling_picture_description_prompt is unset. It replaces docling's
+// "Describe this image in a few sentences.": the corpus is mostly German,
+// and the values printed in a chart are the part worth retrieving.
+//
+// The chart clause is the "external chart extraction": docling's own chart
+// stage runs only its bundled local model, but gemma-4 reads a bar/line/pie
+// chart into a value table just as well — verified live on
+// testdata/figure-2p.pdf, where every bar came back with its month.
+const DefaultDoclingPicturePrompt = "Beschreibe diese Abbildung in der Sprache des Dokuments (sonst auf Deutsch). " +
+	"Nenne zuerst den Typ (z. B. Balkendiagramm, Tabelle, Screenshot, Schema, Foto), dann was sie zeigt. " +
+	"Wenn es ein Diagramm ist, gib alle Datenreihen als Markdown-Tabelle mit den abgelesenen Werten aus " +
+	"(Kategorie | Wert, bei mehreren Reihen eine Spalte je Reihe), danach eine Zeile mit Achsenbeschriftungen und Legende. " +
+	"Übertrage alle lesbaren Zahlen, Achsenbeschriftungen, Legendeneinträge und Beschriftungen wörtlich. " +
+	"Keine Einleitung, keine Wertung."
+
+// readDoclingOptions derives the convert options from site-config. Read
+// failures degrade to safe defaults (captioning off, table_mode "accurate",
+// OCR de+en, 600 s per document).
 //
 // When picture description is on, the vision endpoint + API key are sourced
 // from the app's AI provider config (the same one /api/describe-image uses) and
 // passed to Docling per-request, so the model-API credential never lives on the
 // Docling sidecar.
 func readDoclingOptions(ctx context.Context, scr siteConfigReaderForDocling, resolver *ai.ConfigResolver) docling.ConvertOptions {
-	opts := docling.ConvertOptions{TableMode: "fast"}
+	opts := docling.ConvertOptions{
+		// The sidecar's own default; "fast" was a downgrade.
+		TableMode: "accurate",
+		// Docling's auto engine is RapidOCR with English + Chinese models.
+		OCRLanguages:           []string{"de", "en"},
+		DocumentTimeoutSeconds: 600,
+	}
 
 	if v, err := scr.GetSiteConfigValue(ctx, "docling_picture_description_enabled"); err == nil && v != nil && (*v == "true" || *v == "1") {
 		opts.PictureDescription = true
@@ -621,6 +755,38 @@ func readDoclingOptions(ctx context.Context, scr siteConfigReaderForDocling, res
 		}
 		if opts.PictureAPIModel == "" {
 			slog.Warn("docling: picture description enabled but no vision model resolved (set describe_image_model or model_tier_fast)")
+		}
+		opts.PicturePrompt = DefaultDoclingPicturePrompt
+		if v, err := scr.GetSiteConfigValue(ctx, "docling_picture_description_prompt"); err == nil && v != nil && strings.TrimSpace(*v) != "" {
+			opts.PicturePrompt = strings.TrimSpace(*v)
+		}
+		// Docling's default is 20 s per image and a timed-out image simply
+		// has no description — no error, no log.
+		opts.PictureTimeoutSeconds = 120
+		if v, err := scr.GetSiteConfigValue(ctx, "docling_picture_description_timeout_seconds"); err == nil && v != nil {
+			if f, perr := strconv.ParseFloat(strings.TrimSpace(*v), 64); perr == nil && f > 0 {
+				opts.PictureTimeoutSeconds = f
+			}
+		}
+	}
+
+	if v, err := scr.GetSiteConfigValue(ctx, "docling_ocr_languages"); err == nil && v != nil {
+		var langs []string
+		for _, l := range strings.Split(*v, ",") {
+			if l = strings.TrimSpace(l); l != "" {
+				langs = append(langs, l)
+			}
+		}
+		if len(langs) > 0 {
+			opts.OCRLanguages = langs
+		}
+	}
+	if v, err := scr.GetSiteConfigValue(ctx, "docling_force_ocr"); err == nil && v != nil && (*v == "true" || *v == "1") {
+		opts.ForceOCR = true
+	}
+	if v, err := scr.GetSiteConfigValue(ctx, "docling_document_timeout_seconds"); err == nil && v != nil {
+		if f, perr := strconv.ParseFloat(strings.TrimSpace(*v), 64); perr == nil && f > 0 {
+			opts.DocumentTimeoutSeconds = f
 		}
 	}
 

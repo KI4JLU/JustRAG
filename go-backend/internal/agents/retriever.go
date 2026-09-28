@@ -44,12 +44,14 @@ func (r *RetrieverAgent) Execute(ctx context.Context, in Input) (Output, error) 
 		return Output{}, errSearcherUnconfigured
 	}
 	opts := vector.SearchOptions{
-		FileIDs:       in.FileIDs,
-		ModelOverride: r.PlanningModel,
-		QueryType:     vector.QueryTypeComplexReasoning,
-		GraphChunkIDs: in.GraphChunkIDs,
-		BridgeChunks:  in.BridgeChunks,
-		HyPESearch:    in.HyPESearch,
+		FileIDs:            in.FileIDs,
+		ModelOverride:      r.PlanningModel,
+		QueryType:          vector.QueryTypeComplexReasoning,
+		GraphChunkIDs:      in.GraphChunkIDs,
+		BridgeChunks:       in.BridgeChunks,
+		HyPESearch:         in.HyPESearch,
+		ForceBM25SimpleArm: in.ForceBM25SimpleArm,
+		RawQuery:           in.RawQuery,
 	}
 	res, err := r.Searcher.Search(ctx, in.KbID, in.Query, 0, opts)
 	if err != nil {

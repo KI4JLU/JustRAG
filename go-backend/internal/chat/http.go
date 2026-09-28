@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -23,6 +24,7 @@ import (
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/sessionmem"
 	"github.com/justrag/go-backend/internal/store"
+	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -38,15 +40,17 @@ type Handler struct {
 	searchService      vector.Searcher
 	rdb                *redis.Client // optional, for deep chat relay
 	siteConfigReader   SiteConfigReader
-	asynqClient        *asynq.Client           // optional, for Phase 3 §G RAGAS sampling
-	decisionRecorder   DecisionRecorder        // optional, Phase 1 §1.4 admin metrics panel
-	toolDispatcher     ToolDispatcher          // optional, Phase 2 §2.1 MCP tool dispatch
-	sessionMemory      sessionmem.Store        // optional, Phase 2 §2.3 chat-session memory
-	kbRouterCandidates KBRouterCandidateLister // optional, AP-A4 sub-KB router
-	kgStore            kg.Store                // optional, AP-C4 graph-routing heuristic
-	longmemStore       longmem.Store           // optional, AP-D1 per-user memory
-	tabularCatalog     TabularCatalogChecker   // optional, Phase-3 chart-guidance gate
-	recencyLister      RecencyLister           // optional, deterministic recency-listing path
+	asynqClient        *asynq.Client            // optional, for Phase 3 §G RAGAS sampling
+	decisionRecorder   DecisionRecorder         // optional, Phase 1 §1.4 admin metrics panel
+	toolDispatcher     ToolDispatcher           // optional, Phase 2 §2.1 MCP tool dispatch
+	sessionMemory      sessionmem.Store         // optional, Phase 2 §2.3 chat-session memory
+	kbRouterCandidates KBRouterCandidateLister  // optional, AP-A4 sub-KB router
+	kgStore            kg.Store                 // optional, AP-C4 graph-routing heuristic
+	longmemStore       longmem.Store            // optional, AP-D1 per-user memory
+	tabularCatalog     TabularCatalogSummariser // optional, Phase-3 tabular-guidance gate
+	recencyLister      RecencyLister            // optional, deterministic recency-listing path
+	tabularRouter      *TabularRouter           // optional, deterministic spreadsheet SQL path
+	fileDates          FileDateLookup           // optional, per-turn source freshness dates
 	// raptorDescendants is the Phase F bridge that resolves a set of
 	// RAPTOR summary chunk ids to their transitive leaf descendants.
 	// Used by runPostResponseTasks to feed the citation validator's
@@ -83,6 +87,19 @@ type Handler struct {
 	// ignored (feature not wired).
 	teamLoader    TeamLoader
 	usageRecorder usage.Recorder // optional, per-turn usage ledger (internal/usage)
+	// tabularQueryLog persists one row of the tabular router's SQL audit
+	// trail (tabular_query_log) per turn, written post-response with the
+	// AI message id. Optional — when nil, runPostResponseTasks skips the
+	// insert; the router's decision is still visible via TabularTrace on
+	// the eval harness and via trajectory events.
+	tabularQueryLog TabularQueryLogger
+}
+
+// TabularQueryLogger is the persistence surface the chat handler uses to
+// record one tabular-router decision/execution per turn. Satisfied by
+// *tabular.Catalog. Optional — when nil, no query-log row is written.
+type TabularQueryLogger interface {
+	InsertQueryLog(ctx context.Context, e tabular.QueryLogEntry) error
 }
 
 // TeamLoader loads user-created agent-team selections at chat time,
@@ -121,9 +138,12 @@ type DecisionRecorder interface {
 	// nil/empty signals "no MCP calls this turn" and lands as an
 	// empty JSONB array on disk. teamID / agentID carry the
 	// user-created team/agent selection for mode="team" rows (nil
-	// otherwise). Implementations are fire-and-forget — failures
-	// should log and drop, never propagate.
-	Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []ToolCallRecord, teamID, agentID *string)
+	// otherwise). policyRule (W6-R6) is the chat_orchestrator_policy
+	// rule index that pinned the route, nil when the flag ladder
+	// decided — including for a "prefer" rule that matched but whose
+	// orchestrator was disabled. Implementations are fire-and-forget —
+	// failures should log and drop, never propagate.
+	Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []ToolCallRecord, teamID, agentID *string, policyRule *int)
 }
 
 // TabularCatalogChecker reports whether a KB has materialized tabular sheets.
@@ -131,6 +151,15 @@ type DecisionRecorder interface {
 // guidance is never injected.
 type TabularCatalogChecker interface {
 	HasDataForKB(ctx context.Context, kbID string) (bool, error)
+}
+
+// TabularCatalogSummariser extends TabularCatalogChecker with the catalog
+// listing the Task-9 per-KB tabular-guidance snippet renders into a
+// tabular.CompactSchema summary. Satisfied by *tabular.Catalog. Optional —
+// when nil, maybeTabularGuidance never fires.
+type TabularCatalogSummariser interface {
+	TabularCatalogChecker
+	ListByKB(ctx context.Context, kbID string) ([]tabular.CatalogEntry, error)
 }
 
 // HandlerOption is a functional option for NewHandler.
@@ -253,11 +282,16 @@ func WithKBRouterCandidates(l KBRouterCandidateLister) HandlerOption {
 	}
 }
 
-// WithTabularCatalog attaches the Phase-3 tabular-catalog checker used to gate
-// chart guidance to KBs that actually have spreadsheet data.
-func WithTabularCatalog(c TabularCatalogChecker) HandlerOption {
+// WithTabularCatalog attaches the Phase-3 tabular-catalog summariser used to
+// gate and render the per-KB tabular-guidance snippet (chart guidance when
+// only chat_tabular_charts_enabled is on; the full catalog summary + rules
+// when chat_tabular_query_enabled is also on). Wraps c in a 60s per-KB
+// ListByKB cache (cachedTabularCatalog) since the gate runs on every
+// complex_reasoning chat turn of every KB but the catalog only changes on
+// ingest/delete.
+func WithTabularCatalog(c TabularCatalogSummariser) HandlerOption {
 	return func(h *Handler) {
-		h.tabularCatalog = c
+		h.tabularCatalog = newCachedTabularCatalog(c, time.Now)
 	}
 }
 
@@ -268,6 +302,30 @@ func WithTabularCatalog(c TabularCatalogChecker) HandlerOption {
 func WithRecencyLister(l RecencyLister) HandlerOption {
 	return func(h *Handler) {
 		h.recencyLister = l
+	}
+}
+
+// WithTabularRouter attaches the deterministic tabular router: on a KB with
+// ingested spreadsheet data it answers the question with one validated
+// read-only SQL statement (injected as a system-prompt addendum) and hands
+// retrieval two hints — identifier literals quoted as BM25 phrases and the
+// simple keyword arm forced on. Production wiring only builds it when a
+// read-only DSN is configured (JUSTRAG_DB_URL_READONLY); optional
+// everywhere, and nil-receiver safe.
+func WithTabularRouter(r *TabularRouter) HandlerOption {
+	return func(h *Handler) {
+		h.tabularRouter = r
+	}
+}
+
+// WithTabularQueryLog attaches the tabular router's SQL audit-log writer.
+// Production wiring passes the same *tabular.Catalog used to build the
+// router (Task 4/routes.go) so both read the same tabular_query_log table.
+// Optional — when nil, runPostResponseTasks never writes a query-log row,
+// which only costs observability, never a chat turn.
+func WithTabularQueryLog(l TabularQueryLogger) HandlerOption {
+	return func(h *Handler) {
+		h.tabularQueryLog = l
 	}
 }
 

@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Button } from '@ki4jlu/design-system';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ShieldAlert } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKbData } from '../../contexts/KbDataContext';
 import '../sidebar-primitives.css';
@@ -40,12 +40,23 @@ const SourcesHeaderComp: React.FC = () => {
     const { files, retryAllFailed } = fileMgmt;
 
     const failedCount = files.filter(f => f.status === 'error').length;
+    // The ingest prompt-injection screen only ever runs on external origins
+    // (rss/confluence/git/crawl), and three of those four are NOT rows in the
+    // list below — their files are folded into the feed/source rows. So the
+    // per-file badge alone would be invisible for exactly the sources that get
+    // screened; this count is what makes them visible.
+    //
+    // Uploads are excluded: they are never screened, so a flagged one can only
+    // be a leftover from before an origin change — and it already has its own
+    // row and its own badge. Counting it here would double-report it.
+    const injectionFlaggedCount = files.filter(f => f.injectionFlag && f.origin !== 'upload').length;
 
-    // Only when something failed — an empty row would add height to the head.
-    if (failedCount === 0) return null;
+    // Only when there is something to act on — an empty row would add height
+    // to the head.
+    if (failedCount === 0 && injectionFlaggedCount === 0) return null;
     return (
         <div className="sidebar-left__files-header">
-            {(
+            {failedCount > 0 && (
                 <Button
                     type="button"
                     variant="outline"
@@ -57,6 +68,16 @@ const SourcesHeaderComp: React.FC = () => {
                     <RefreshCw size={14} aria-hidden="true" />
                     {t('retryAllFailedShort')} ({failedCount})
                 </Button>
+            )}
+            {injectionFlaggedCount > 0 && (
+                <span
+                    className="sidebar-left__injection-summary"
+                    title={t('fileInjectionFlaggedHelp')}
+                    aria-label={`${t('fileInjectionFlagged')} (${injectionFlaggedCount})`}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning-text, var(--text-secondary))', fontSize: '0.75rem' }}
+                >
+                    <ShieldAlert size={12} aria-hidden="true" /> {injectionFlaggedCount}
+                </span>
             )}
         </div>
     );

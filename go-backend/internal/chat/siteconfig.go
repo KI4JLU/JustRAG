@@ -4,8 +4,11 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/chatpolicy"
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/siteconfig"
 )
 
@@ -264,6 +267,20 @@ func RAGASSamplingRate(ctx context.Context, reader SiteConfigReader) float64 {
 	return readFloat(ctx, reader, "ragas_sampling_rate", 0.0, 0.0, 1.0)
 }
 
+// RagasSamplesRetentionDays is how long a judged sample stays in the
+// ragas_samples table (migration 0072) before the nightly maintenance pass
+// deletes it. Default 90 days, clamped to [1, 3650]; global-only, since
+// retention is a property of the table, not of a KB.
+//
+// Out-of-range values fall back to 90 rather than clamping to the nearest
+// bound — readInt's documented behaviour, and load-bearing here: a "0" typed
+// into the field would otherwise mean "delete every sample tonight", turning
+// a retention knob into a data-loss one. Tunable via site_configs key
+// "ragas_samples_retention_days".
+func RagasSamplesRetentionDays(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "ragas_samples_retention_days", 90, 1, 3650)
+}
+
 // CitationValidationSemanticThreshold returns the cosine-similarity floor
 // for the semantic-fallback verification tier. The value comes from the
 // site_configs key "citation_validation_semantic_threshold" and must lie
@@ -272,6 +289,46 @@ func RAGASSamplingRate(ctx context.Context, reader SiteConfigReader) float64 {
 // recommendation.
 func CitationValidationSemanticThreshold(ctx context.Context, reader SiteConfigReader) float64 {
 	return readFloat(ctx, reader, "citation_validation_semantic_threshold", 0.85, 0.0, 1.0)
+}
+
+// ChatCitationSpansEnabled reports whether the W3-R1..R3 span-verification
+// pass should run after the n-gram/semantic citation validator. When true,
+// runPostResponseTasks asks a fast-tier model to copy one verbatim quote
+// per still-unresolved-or-eligible citation, matches it exactly (mod
+// normalisation) against the cited source, and — on a match — upgrades the
+// status to Method="span" with an exact rune-offset Span the frontend can
+// highlight. One extra model call per answer that has at least one
+// eligible citation. Default off — only citation_validation_enabled
+// (the pass this extends) is on by default. Tunable via site_configs key
+// "chat_citation_spans_enabled".
+func ChatCitationSpansEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_citation_spans_enabled", false)
+}
+
+// ChatCitationSpansModel resolves the fast-tier model for the span
+// extractor: per-task override ("chat_citation_spans_model") →
+// model_tier_fast → "" (caller falls back to the KB's chat model).
+func ChatCitationSpansModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_citation_spans_model")
+}
+
+// ChatCitationSpansMaxSources returns the cap on distinct cited sources
+// sent to the span extractor in one answer's extraction call (W3-R1).
+// Default 12, valid range [1, 50]; out-of-range or unparseable values fall
+// back to 12. Tunable via site_configs key
+// "chat_citation_spans_max_sources".
+func ChatCitationSpansMaxSources(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_citation_spans_max_sources", 12, 1, 50)
+}
+
+// ChatCitationSpansTimeoutMs returns the time budget, in milliseconds, for
+// the span-extraction call. Post-response processing is synchronous, so
+// this bounds how long a slow/hung fast-tier model can delay persisting
+// the message verification. Default 8000, valid range [1000, 60000];
+// out-of-range or unparseable values fall back to 8000. Tunable via
+// site_configs key "chat_citation_spans_timeout_ms".
+func ChatCitationSpansTimeoutMs(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_citation_spans_timeout_ms", 8000, 1000, 60000)
 }
 
 // ChatAgenticEnabled reports whether the Phase 3 §F agentic chat loop should
@@ -631,6 +688,75 @@ func ChatLongContextMaxTokens(ctx context.Context, reader SiteConfigReader) int 
 	return readInt(ctx, reader, "chat_longcontext_max_tokens", 100_000, 10_000, 500_000)
 }
 
+// ChatLongContextTopK is the chunk-pool size Search() returns on the
+// long-context route. Default 200 (the historical constant), range [50, 500].
+// Wave-3's map-reduce consumer tunes this against the token budget. Tunable
+// via "chat_longcontext_top_k".
+func ChatLongContextTopK(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_longcontext_top_k", 200, 50, 500)
+}
+
+// ChatLongContextMode selects how the OrchLongContext consumer turns the
+// wide chunk pool into an answer prompt:
+//
+//   - "map_reduce" (default since Wave 5) first extracts per-group findings
+//     (claim + verbatim quote, tagged with the source's `[N]`) with one
+//     fast-tier call per chunk group, then hands the answer LLM only those
+//     findings plus the source headers. Trades N/GroupSize cheap calls for a
+//     far shorter answer prompt and much less position bias across a
+//     200-chunk pool.
+//   - "flat" hands the whole token-budgeted pool to the answer LLM raw —
+//     byte-identical to the pre-Wave-3 behaviour.
+//
+// W5-R1 (pre-registered 2026-09-06, decided on the 24-question
+// global-synthesis set): map_reduce won 34/36 pooled decisive judge pairs
+// (0.944, Wilson low 0.819), coverage +5.0 pp against a 1.4 pp same-mode band,
+// control pair 0.364 — all four criteria passed, at 1.28x wall time.
+//
+// Two DIFFERENT fallbacks, deliberately: an UNSET key means "the operator
+// never chose", so it reads the new default; an UNRECOGNISED value is a typo,
+// and a typo must never silently buy the expensive mode — it normalises to the
+// safe "flat" and logs a warning. Tunable via "chat_longcontext_mode".
+func ChatLongContextMode(ctx context.Context, reader SiteConfigReader) string {
+	v := strings.ToLower(strings.TrimSpace(readString(ctx, reader, "chat_longcontext_mode")))
+	switch v {
+	case "":
+		return LongContextModeMapReduce
+	case LongContextModeMapReduce:
+		return LongContextModeMapReduce
+	case LongContextModeFlat:
+		return LongContextModeFlat
+	default:
+		logctx.From(ctx).Warn("chat_longcontext_mode: unrecognised value, falling back to flat",
+			"value", v, "known", []string{LongContextModeFlat, LongContextModeMapReduce})
+		return LongContextModeFlat
+	}
+}
+
+// ChatLongContextMapGroupSize is how many chunks one map-stage extraction call
+// sees (W3-R6). Default 8, range [2, 32]. Smaller groups mean more calls but
+// less per-call position bias; larger groups are cheaper but re-create the
+// crowding the map stage exists to avoid. Only read in map_reduce mode.
+// Tunable via "chat_longcontext_map_group_size".
+func ChatLongContextMapGroupSize(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_longcontext_map_group_size", 8, 2, 32)
+}
+
+// ChatLongContextMapConcurrency caps simultaneous map-stage extraction calls.
+// Default 6, range [1, 32]. This is a per-turn cap; the deployment-wide
+// ceiling is AI_MAX_CONCURRENT_REQUESTS. Tunable via
+// "chat_longcontext_map_concurrency".
+func ChatLongContextMapConcurrency(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_longcontext_map_concurrency", 6, 1, 32)
+}
+
+// ChatLongContextMapModel is the model for the map-stage findings extractor.
+// Fast-tier chain: per-task key → model_tier_fast → empty (caller then uses
+// the KB chat model). Tunable via "chat_longcontext_map_model".
+func ChatLongContextMapModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_longcontext_map_model")
+}
+
 // ChatCommunitySearchEnabled gates community-primed global search: inject KG
 // community summaries into the answer pool for global-synthesis queries. Default off.
 func ChatCommunitySearchEnabled(ctx context.Context, reader SiteConfigReader) bool {
@@ -962,6 +1088,86 @@ func ChatTabularChartsEnabled(ctx context.Context, reader SiteConfigReader) bool
 	return readBool(ctx, reader, "chat_tabular_charts_enabled", false)
 }
 
+// ChatTabularRouterEnabled is the kill switch for the deterministic tabular
+// router (the chat path that answers spreadsheet questions with one
+// validated read-only SQL statement). Default TRUE: the router is inert
+// unless the KB actually has ingested spreadsheet data, and it is gated a
+// second time by the tabular master flag `chat_tabular_query_enabled`, so
+// the useful control is "turn it off for a deployment where it misbehaves".
+// Tunable via "chat_tabular_router_enabled".
+func ChatTabularRouterEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_tabular_router_enabled", true)
+}
+
+// ResolveTabularRouterConfig reads one complete TabularRouterConfig from a
+// SiteConfigReader. It is the SINGLE definition of the router's config
+// resolution: the dispatch-time wiring (internal/app), the standard chat
+// path and the Supervisor path all go through it, so a per-KB overlay
+// reader (Handler.forKB) and the global reader cannot disagree about what
+// the six keys mean. Enabled is the AND of the tabular master flag and the
+// router's own kill switch.
+func ResolveTabularRouterConfig(ctx context.Context, reader SiteConfigReader) TabularRouterConfig {
+	return TabularRouterConfig{
+		Enabled: ChatTabularQueryEnabled(ctx, reader) &&
+			ChatTabularRouterEnabled(ctx, reader),
+		Model:      ChatTabularRouterModel(ctx, reader),
+		MaxRows:    ChatTabularRouterMaxRows(ctx, reader),
+		MaxRepairs: ChatTabularRouterMaxRepairs(ctx, reader),
+		Timeout: time.Duration(ChatTabularRouterTimeoutMs(ctx, reader)) *
+			time.Millisecond,
+		SchemaMaxTokens: ChatTabularRouterSchemaMaxTokens(ctx, reader),
+	}
+}
+
+// ChatTabularRouterModel returns the model the router's SQL generator uses.
+// Falls back through the fast-tier chain (per-task → `model_tier_fast` →
+// empty; empty lets the caller use the KB default chat model). Tunable via
+// "chat_tabular_router_model".
+func ChatTabularRouterModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_tabular_router_model")
+}
+
+// ChatTabularRouterMaxRows caps the rows one router statement may return
+// (the validator wraps an oversized LIMIT and the executor enforces the same
+// cap). Range [10, 1000]; default 200. Tunable via
+// "chat_tabular_router_max_rows".
+func ChatTabularRouterMaxRows(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_tabular_router_max_rows", 200, 10, 1000)
+}
+
+// ChatTabularRouterMaxRepairs bounds the router's repair loop — how many
+// times a rejected / failing / empty statement may be handed back to the
+// generator with the failure text. 0 disables repairs. Range [0, 5];
+// default 3. Tunable via "chat_tabular_router_max_repairs".
+func ChatTabularRouterMaxRepairs(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_tabular_router_max_repairs", 3, 0, 5)
+}
+
+// ChatTabularRouterTimeoutMs is the per-statement execution timeout in
+// milliseconds. Range [500, 30000]; default 5000. Tunable via
+// "chat_tabular_router_timeout_ms".
+func ChatTabularRouterTimeoutMs(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_tabular_router_timeout_ms", 5000, 500, 30000)
+}
+
+// ChatTabularRouterSchemaMaxTokens caps the compact schema rendered into the
+// SQL-generation prompt. Range [1000, 60000]; default 12000. Tunable via
+// "chat_tabular_router_schema_max_tokens".
+func ChatTabularRouterSchemaMaxTokens(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_tabular_router_schema_max_tokens", 12000, 1000, 60000)
+}
+
+// ChatTabularGuidanceMaxTokens caps the per-KB catalog summary text folded
+// into the answer prompt by maybeTabularGuidance (Task 9's TabularGuidance
+// block) — the sibling budget to ChatTabularRouterSchemaMaxTokens, which
+// bounds the SEPARATE schema the router's SQL generator writes against.
+// Replaces the former hardcoded tabularSchemaSummaryMaxTokens constant.
+// Range [1000, 30000]; default 6000 (matches the constant's prior value).
+// Tunable via "chat_tabular_guidance_max_tokens".
+func ChatTabularGuidanceMaxTokens(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_tabular_guidance_max_tokens", 6000, 1000, 30000)
+}
+
 // ChatKBRouterEnabled reports whether the AP-A4 sub-KB router runs
 // when the chat request signals "auto" (via `?route=auto` query
 // param). Default off — existing single-KB requests are unaffected.
@@ -1094,6 +1300,29 @@ func ChatAnswerToolsMaxRounds(ctx context.Context, reader SiteConfigReader) int 
 // --generation-config auto (gemma-4: top_p 0.95 / top_k 64).
 func ChatAnswerTemperature(ctx context.Context, reader SiteConfigReader) float64 {
 	return readFloat(ctx, reader, "chat_answer_temperature", ai.DefaultAnswerTemperature, 0, 2)
+}
+
+// ChatAnswerDegenerateRunLimit is the maximum length, in runes, of a run of
+// one repeated character — or of a repeated 2–4-rune pattern — that an
+// answer may contain before the degenerate-run guard aborts the completion
+// and truncates the answer (W5-R4). See internal/chat/degenerate_guard.go.
+//
+// Default 400: above any realistic Markdown rule width (a 300-`-` table
+// rule is common; 400 is not), well below the ~15 400-rune `_` run the
+// Wave-4 G01 answer produced. **0 disables the guard entirely** — the kill
+// switch. Any other value outside [50, 100000], and anything unparseable,
+// falls back to the default, the same convention as every other int knob
+// here. Global-only: this guards the deployment against a model failure
+// mode, it is not a per-KB retrieval trade-off, so there is no registry
+// entry and no per-KB override.
+func ChatAnswerDegenerateRunLimit(ctx context.Context, reader SiteConfigReader) int {
+	// lo=0 so the explicit "disabled" value survives parseInt's range
+	// check; the [50, …] floor for a real limit is applied after.
+	n := readInt(ctx, reader, "chat_answer_degenerate_run_limit", degenerateRunLimitDefault, 0, degenerateRunLimitMax)
+	if n != 0 && n < degenerateRunLimitMin {
+		return degenerateRunLimitDefault
+	}
+	return n
 }
 
 // ChatAgenticPlateauStop reports whether the Phase 1 §1.3 quality-plateau
@@ -1424,6 +1653,103 @@ func CompareMaxFileBytes(ctx context.Context, r SiteConfigReader) int {
 }
 
 // ---------------------------------------------------------------------------
+// Tabular profiler LLM assist (tabular_profile_*)
+// ---------------------------------------------------------------------------
+
+// TabularProfileLLMEnabled gates the spreadsheet-ingest LLM assist call
+// (ai.ProfileTableRegion): one fast-tier call per table region that adds
+// per-column descriptions and can correct a low-confidence heuristic
+// kind/header/role guess (internal/tabular/profile.ApplyLLM). Default ON.
+// Tunable via "tabular_profile_llm_enabled".
+func TabularProfileLLMEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "tabular_profile_llm_enabled", true)
+}
+
+// TabularProfileLLMThreshold is the confidence threshold profile.ApplyLLM
+// uses to decide whether the LLM's kind/header/role proposal may override
+// the heuristic profiler: the override only fires when the heuristic's own
+// confidence is below this value AND the LLM's proposal confidence is at
+// or above it. Default 0.7; clamped to [0, 1]. Tunable via
+// "tabular_profile_llm_threshold".
+func TabularProfileLLMThreshold(ctx context.Context, reader SiteConfigReader) float64 {
+	return readFloat(ctx, reader, "tabular_profile_llm_threshold", 0.7, 0, 1)
+}
+
+// TabularProfileSampleRows caps how many rows of a sheet the structure
+// heuristics (profile.ProfileSheet) sample per sheet. Default 200; clamped
+// to [20, 2000]. Tunable via "tabular_profile_sample_rows".
+func TabularProfileSampleRows(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_profile_sample_rows", 200, 20, 2000)
+}
+
+// TabularProfileModel is the fast-tier model for the sheet profiler LLM
+// assist call, resolved through the standard chain (per-task
+// "tabular_profile_model" → model_tier_fast → ""). Mirrors EnrichmentModel's
+// one-line wrap of ResolveFastTierModel above.
+func TabularProfileModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "tabular_profile_model")
+}
+
+// TabularMaxRows caps how many data rows of a table region the materializer
+// loads into its native-typed Postgres table before dropping (and counting)
+// the rest. Default 2,000,000; clamped to [1000, 5,000,000]. Tunable via
+// "tabular_max_rows".
+func TabularMaxRows(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_max_rows", 2_000_000, 1000, 5_000_000)
+}
+
+// TabularEmbedMaxRows caps how many rows of an unmaterialised (or
+// render-only) table region the hybrid renderer embeds inline as text
+// before switching to a summary card. Default 50,000; valid range
+// [1, 100,000] — out-of-range values fall back to the default. Tunable via
+// "tabular_embed_max_rows". 0 is deliberately NOT a valid value: the
+// renderer treats a non-positive EmbedMaxRows as "unset" and substitutes
+// its own default, so a 0 here would silently mean 50,000, not "cards only".
+//
+// Ruling R23: the upper bound is 100,000, not 1,000,000. render.RenderSheet
+// buffers this many rows of every table region in memory (neededRows +
+// the rows map) before writing a single line, so a million-row window is a
+// worker OOM, not a slow render. Raising it further waits for the
+// incremental renderer (Phase 4).
+func TabularEmbedMaxRows(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_embed_max_rows", 50_000, 1, 100_000)
+}
+
+// TabularColumnValuesMaxDistinct caps how many distinct values per column
+// the materializer tracks before giving up on cardinality stats for that
+// column. Default 10,000; clamped to [100, 100,000]. Tunable via
+// "tabular_column_values_max_distinct".
+func TabularColumnValuesMaxDistinct(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_column_values_max_distinct", 10_000, 100, 100_000)
+}
+
+// TabularMaxFileBytes caps the size of an uploaded spreadsheet the upload
+// handler will accept. Default 500 MB (524,288,000 bytes); clamped to
+// [1,048,576 .. 2,147,483,647] (1 MB .. just under 2^31). Tunable via
+// "tabular_max_file_bytes". Not a chat-pipeline knob — read at upload time,
+// not ingest or answer time (internal/pipeline's coverage guard ignores it
+// accordingly).
+func TabularMaxFileBytes(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_max_file_bytes", 524_288_000, 1_048_576, 2_147_483_647)
+}
+
+// TabularLargeFileBytes is the size threshold above which an ingested
+// spreadsheet is treated as "large" for concurrency purposes (see
+// TabularLargeFileConcurrency). Default 20 MB (20,971,520 bytes); clamped to
+// [1,048,576 .. 1,073,741,824] (1 MB .. 1 GB). Tunable via
+// "tabular_large_file_bytes".
+func TabularLargeFileBytes(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_large_file_bytes", 20_971_520, 1_048_576, 1_073_741_824)
+}
+
+// TabularLargeFileConcurrency caps how many "large" spreadsheets (per
+// TabularLargeFileBytes) may be materialized concurrently. Default 1;
+// clamped to [1 .. 8]. Tunable via "tabular_large_file_concurrency".
+func TabularLargeFileConcurrency(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "tabular_large_file_concurrency", 1, 1, 8)
+}
+
+// ---------------------------------------------------------------------------
 // Date-aware chat (chat_date_*)
 // ---------------------------------------------------------------------------
 
@@ -1508,4 +1834,119 @@ func AgentsAllowPrivilegedTools(ctx context.Context, reader SiteConfigReader) bo
 // (per-task key → model_tier_fast → KB chat model).
 func AgentTeamRouterModel(ctx context.Context, reader SiteConfigReader) string {
 	return ResolveFastTierModel(ctx, reader, "agent_team_router_model")
+}
+
+// ChatCondenseKeepRawEnabled gates the rewrite ⊕ raw retrieval lane: when a
+// follow-up was condensed (CondenseFollowUp), the user's verbatim utterance
+// is searched as an extra RRF list on both arms (vector.SearchOptions.RawQuery).
+// Default off until the multi-turn golden set (Wave 2) scores it. Tunable via
+// "chat_condense_keep_raw_enabled".
+func ChatCondenseKeepRawEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_condense_keep_raw_enabled", false)
+}
+
+// RawQueryForRetrieval returns the raw utterance to pass as
+// SearchOptions.RawQuery, or "" when the lane is off or nothing was
+// condensed (raw == condensed after trimming). Exported so the eval
+// multi-turn replay (Wave 2 Task 3) can reuse the same decision the
+// production http_send path makes.
+func RawQueryForRetrieval(enabled bool, raw, condensed string) string {
+	if !enabled {
+		return ""
+	}
+	r, c := strings.TrimSpace(raw), strings.TrimSpace(condensed)
+	if r == "" || r == c {
+		return ""
+	}
+	return r
+}
+
+// --- Conflict / supersession surfacing (W5-R7) -----------------------------
+
+// defaultConflictMaxChunks / defaultConflictTimeoutMs are the compiled-in
+// defaults, named so conflicts.go can fall back to them without re-reading
+// site_config on a zero-valued config (an eval or public-API caller that
+// built a ConflictConfig by hand).
+const (
+	defaultConflictMaxChunks = 12
+	defaultConflictTimeoutMs = 6000
+)
+
+// ChatConflictSurfacingEnabled gates the W5-R7 conflict / supersession
+// pass: one structured fast-tier call over the already-assembled chunk set
+// asking which of the cited sources disagree with each other and which of a
+// disagreeing pair is newer. The result becomes a system-prompt addendum, a
+// persisted `conflicts` blob on the AI message and an SSE frame the
+// frontend renders as a badge. Default: OFF — it costs one extra fast-tier
+// call on every turn of a KB that opts in, and its value depends on the
+// corpus actually containing superseding documents (CERT advisories,
+// versioned policies). Tunable via "chat_conflict_surfacing_enabled".
+func ChatConflictSurfacingEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_conflict_surfacing_enabled", false)
+}
+
+// ChatConflictModel resolves the detector's model through the fast-tier
+// chain (per-task key → `model_tier_fast` → empty, i.e. the KB's chat
+// model). Tunable via "chat_conflict_model".
+func ChatConflictModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_conflict_model")
+}
+
+// ChatConflictMaxChunks caps how many of the turn's sources are compared in
+// the single detector call (top-scoring first). Range [2, 30]; default 12.
+// Below 2 there is nothing to compare; the upper bound keeps the prompt —
+// and therefore the added latency — bounded on a wide retrieval set.
+// Tunable via "chat_conflict_max_chunks".
+func ChatConflictMaxChunks(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_conflict_max_chunks", defaultConflictMaxChunks, 2, 30)
+}
+
+// ChatConflictTimeoutMs is the wall-clock budget for the detector call. On
+// expiry the turn continues with no addendum and no badge (fail-soft).
+// Range [1000, 30000]; default 6000. Tunable via
+// "chat_conflict_timeout_ms".
+func ChatConflictTimeoutMs(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_conflict_timeout_ms", defaultConflictTimeoutMs, 1000, 30000)
+}
+
+// ---------------------------------------------------------------------------
+// Routing policy documents (Wave 6, W6-R6 / W6-R8 / W6-R13 / W6-R14)
+// ---------------------------------------------------------------------------
+
+// ChatOrchestratorPolicy reads chat_orchestrator_policy (global-only, default
+// empty = the flag ladder is unchanged). The value is an ordered rule table;
+// see internal/chatpolicy for the shape and the force/prefer semantics.
+//
+// An unparseable stored value is treated as empty and logged. The save path
+// validates through the same parser (siteconfig.ValidateGlobalValues), so this
+// is defence in depth for a value written straight into the table — never a
+// silent route change: falling back to "no policy" leaves the ladder exactly
+// where it was.
+func ChatOrchestratorPolicy(ctx context.Context, reader SiteConfigReader) chatpolicy.OrchestratorPolicy {
+	raw := readString(ctx, reader, "chat_orchestrator_policy")
+	p, err := chatpolicy.ParseOrchestratorPolicy(raw)
+	if err != nil {
+		logctx.From(ctx).Warn("chat_orchestrator_policy: unparseable value, ignoring the policy",
+			"error", err)
+		return nil
+	}
+	return p
+}
+
+// ChatAnswerToolsByRoute reads chat_answer_tools_by_route (global-only,
+// default empty = the answer-tool catalog is not route-filtered). See
+// internal/chatpolicy for the route precedence.
+//
+// Same fail-soft contract as ChatOrchestratorPolicy, and the direction of the
+// fallback matters here too: an empty map imposes NO restriction, so a broken
+// document can never silently strip the catalog down to nothing.
+func ChatAnswerToolsByRoute(ctx context.Context, reader SiteConfigReader) chatpolicy.AnswerToolsByRoute {
+	raw := readString(ctx, reader, "chat_answer_tools_by_route")
+	m, err := chatpolicy.ParseAnswerToolsByRoute(raw)
+	if err != nil {
+		logctx.From(ctx).Warn("chat_answer_tools_by_route: unparseable value, ignoring the tool map",
+			"error", err)
+		return nil
+	}
+	return m
 }

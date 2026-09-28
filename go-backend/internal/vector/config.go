@@ -5,17 +5,19 @@ import (
 	"regexp"
 )
 
-// validVectorTable matches table names produced by GetVectorTableName and
-// GetHyPETableName:
+// validVectorTable matches table names produced by GetVectorTableName,
+// GetHyPETableName, GetBM25KBStatsTableName and GetBM25TermStatsTableName:
 //
 //   - "document_chunks" or "document_chunks_{digits}"   (chunk tables)
 //   - "chunk_hype_questions" or "chunk_hype_questions_{digits}" (HyPE tables)
+//   - "bm25_kb_stats" or "bm25_kb_stats_{digits}"       (BM25 per-KB stats)
+//   - "bm25_term_stats" or "bm25_term_stats_{digits}"   (BM25 per-term stats)
 //
 // Exposed to other packages via IsValidVectorTableName so callers that
 // interpolate a table name into SQL (worker maintenance, future tooling)
 // reuse the same canonical pattern instead of redefining their own regex
 // that could drift out of sync with the table-name generator functions.
-var validVectorTable = regexp.MustCompile(`^(?:document_chunks|chunk_hype_questions)(?:_\d+)?$`)
+var validVectorTable = regexp.MustCompile(`^(?:document_chunks|chunk_hype_questions|bm25_kb_stats|bm25_term_stats)(?:_\d+)?$`)
 
 // IsValidVectorTableName reports whether name matches the format produced
 // by GetVectorTableName: "document_chunks" or "document_chunks_<digits>".
@@ -125,6 +127,30 @@ type KBVectorConfig struct {
 	// "top_n_complex_reasoning". Complex queries usually benefit from a
 	// wider pre-rerank pool because relevant chunks span multiple sources.
 	TopNComplexReasoning int
+
+	// RerankCandidateDepth overrides the pre-rerank candidate pool; 0 =
+	// legacy formula (max(4×limit, 50) with a reranker, max(2×limit, 30)
+	// without). Per-route variants below inherit it when unset. Tunable
+	// via site_configs key "rerank_candidate_depth". See
+	// EffectiveRerankDepth.
+	RerankCandidateDepth int
+
+	// RerankCandidateDepthLookup overrides RerankCandidateDepth when the
+	// query is classified as QueryTypeLookup. Sentinel 0 = inherit.
+	// Tunable via site_configs key "rerank_candidate_depth_lookup".
+	RerankCandidateDepthLookup int
+
+	// RerankCandidateDepthEnumeration overrides RerankCandidateDepth when
+	// the query is classified as QueryTypeEnumeration. Sentinel 0 =
+	// inherit. Tunable via site_configs key
+	// "rerank_candidate_depth_enumeration".
+	RerankCandidateDepthEnumeration int
+
+	// RerankCandidateDepthComplexReasoning overrides RerankCandidateDepth
+	// when the query is classified as QueryTypeComplexReasoning. Sentinel
+	// 0 = inherit. Tunable via site_configs key
+	// "rerank_candidate_depth_complex_reasoning".
+	RerankCandidateDepthComplexReasoning int
 
 	AutoSpellCorrect bool
 
@@ -263,18 +289,39 @@ type KBVectorConfig struct {
 	// Default 0.1. Only applied when the chat layer supplies BridgeChunks.
 	BridgeBoostWeight float64
 
-	// BM25TieredBoost gates a multiplicative ranking adjustment in the BM25
-	// keyword arm: chunks matching the strict (AND-required) websearch
-	// form score ×100, chunks matching only the OR-tokens recall floor
-	// (or proper-noun fallback) score ×10. Single-token queries — where
-	// `composed` collapses to `websearchClause` alone — are unaffected
-	// because every match satisfies the strict form, yielding a uniform
-	// scale that re-normalises out at the RRF stage. Phrases-only queries
-	// (no remainder) skip the boost entirely (no websearch group exists).
-	// External validation reported +7.5% NDCG; flip on after onsite
-	// golden-set eval. Off by default. Tunable via
-	// "bm25_tiered_boost_enabled".
-	BM25TieredBoost bool
+	// BM25ScoringMode selects how the keyword arm scores candidate chunks:
+	// "ts_rank" (default, byte-identical to pre-Task-6 behaviour — term
+	// frequency only, via Postgres's built-in ts_rank()) or "bm25" (real
+	// BM25 with corpus-wide IDF + document-length normalisation, read
+	// from the per-KB bm25_kb_stats_<dim>/bm25_term_stats_<dim> tables
+	// Task 5's refresher maintains). A KB/dimension without usable stats
+	// yet falls back to "ts_rank" for that query (fail-soft; see
+	// SearchService.bm25ArmAvailability + bm25ModeDecision). Tunable via
+	// "bm25_scoring_mode". Bump query_cache_schema_version after
+	// flipping this in production — it is a deployment-wide value and is
+	// deliberately NOT hashed into the query-cache shape.
+	BM25ScoringMode KeywordScoringMode
+
+	// BM25K1 is the BM25 term-frequency saturation parameter (higher =
+	// TF keeps mattering longer before saturating). Range [0.5, 3.0],
+	// default 1.2 (the standard Robertson/Sparck-Jones operating point).
+	// Only consumed when BM25ScoringMode is "bm25". Tunable via
+	// "bm25_k1".
+	BM25K1 float64
+
+	// BM25B is the BM25 document-length normalisation strength (0 = none,
+	// 1 = full). Range [0, 1], default 0.75 (the standard operating
+	// point). Only consumed when BM25ScoringMode is "bm25". Tunable via
+	// "bm25_b".
+	//
+	// Note on BM25K1/BM25B's "standard operating point" framing: the
+	// literature's 1.2/0.75 defaults were tuned against `dl`=token count.
+	// Here `dl` is `length(vector_index)` — the DISTINCT-lexeme count
+	// (W2-R4), consistent with `avg_len` (kb_stats), not the raw token
+	// count the literature assumes. Kept as the starting default anyway
+	// (still a reasonable operating point for chunk-sized documents);
+	// operators should re-tune against the golden set if this matters.
+	BM25B float64
 
 	// RerankBlendAlphaEntity overrides RerankBlendAlpha when the query
 	// matches the entity-asking heuristic (isEntityAskingQuery: starts
@@ -350,21 +397,25 @@ func DefaultConfig() KBVectorConfig {
 		// RerankScoreDropEnabled defaults false (inert). The threshold is
 		// pre-seeded at the documented midpoint so the first enable already
 		// trims a tail; operators tune it against a golden set from there.
-		RerankScoreDropThreshold:         0.5,
-		DefaultTopK:                      15,
-		ContextWindowSize:                3,
-		MMRLambda:                        0.7,
-		RerankBlendAlpha:                 0.8,
-		RerankBlendAlphaLookup:           -1, // sentinel: inherit
-		RerankBlendAlphaEnumeration:      -1,
-		RerankBlendAlphaComplexReasoning: -1,
-		RerankBlendAlphaEntity:           -1,
-		TopNLookup:                       0,
-		TopNEnumeration:                  0,
-		TopNComplexReasoning:             0,
-		HNSWEfSearch:                     150,
-		RRFWeightVector:                  1.0,
-		RRFWeightBM25:                    1.0,
+		RerankScoreDropThreshold:             0.5,
+		DefaultTopK:                          15,
+		ContextWindowSize:                    3,
+		MMRLambda:                            0.7,
+		RerankBlendAlpha:                     0.8,
+		RerankBlendAlphaLookup:               -1, // sentinel: inherit
+		RerankBlendAlphaEnumeration:          -1,
+		RerankBlendAlphaComplexReasoning:     -1,
+		RerankBlendAlphaEntity:               -1,
+		TopNLookup:                           0,
+		TopNEnumeration:                      0,
+		TopNComplexReasoning:                 0,
+		RerankCandidateDepth:                 0,
+		RerankCandidateDepthLookup:           0,
+		RerankCandidateDepthEnumeration:      0,
+		RerankCandidateDepthComplexReasoning: 0,
+		HNSWEfSearch:                         150,
+		RRFWeightVector:                      1.0,
+		RRFWeightBM25:                        1.0,
 		// T2-4 dynamic alpha: default 0.3 sensitivity is "feature
 		// designed but inert" — the heuristic only fires when the
 		// operator flips HybridDynamicAlphaEnabled to true. Setting
@@ -378,5 +429,12 @@ func DefaultConfig() KBVectorConfig {
 		RecencyBoostWeight:  0.1,
 		RecencyHalfLifeDays: 14,
 		BridgeBoostWeight:   0.1,
+		// BM25 scoring mode defaults to ts_rank (byte-identical to
+		// pre-Task-6 behaviour); k1/b are pre-seeded at the standard
+		// operating point so the first flip-on to "bm25" is already
+		// sensible.
+		BM25ScoringMode: KeywordScoringTsRank,
+		BM25K1:          1.2,
+		BM25B:           0.75,
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
+	"github.com/justrag/go-backend/internal/syncwindow"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,8 @@ type RSSFeedRow struct {
 	KbID                string     `json:"kbId"                db:"kb_id"`
 	URL                 string     `json:"url"                 db:"url"`
 	Title               *string    `json:"title"               db:"title"`
-	PollInterval        int        `json:"pollInterval"        db:"poll_interval"`
+	SyncSchedule        string     `json:"syncSchedule"        db:"sync_schedule"`
+	NextSyncAt          *time.Time `json:"nextSyncAt"          db:"next_sync_at"`
 	Status              string     `json:"status"              db:"status"`
 	ErrorMessage        *string    `json:"errorMessage"        db:"error_message"`
 	ConsecutiveFailures int        `json:"consecutiveFailures" db:"consecutive_failures"`
@@ -37,9 +39,12 @@ type RSSFeedRow struct {
 	CreatedAt           time.Time  `json:"createdAt"           db:"created_at"`
 }
 
-// RSSFeedUpdate carries optional fields for a PATCH update.
+// RSSFeedUpdate carries optional fields for a PATCH update. NextSyncAt is a
+// double pointer so "leave untouched" (nil) and "set to NULL" (non-nil
+// pointing at a nil *time.Time) are both expressible.
 type RSSFeedUpdate struct {
-	PollInterval        *int
+	SyncSchedule        *string
+	NextSyncAt          **time.Time
 	Status              *string
 	ErrorMessage        *string
 	ConsecutiveFailures *int
@@ -52,15 +57,29 @@ type RSSFeedUpdate struct {
 
 // RSSStore is the persistence interface required by Handler.
 type RSSStore interface {
-	CreateRSSFeed(ctx context.Context, kbID, url string, title *string, pollInterval int, fetchFullText bool) (*RSSFeedRow, error)
+	CreateRSSFeed(ctx context.Context, kbID, url string, title *string, syncSchedule string, fetchFullText bool) (*RSSFeedRow, error)
 	ListRSSFeeds(ctx context.Context, kbID string) ([]RSSFeedRow, error)
 	GetRSSFeedByID(ctx context.Context, feedID string) (*RSSFeedRow, error)
 	UpdateRSSFeed(ctx context.Context, feedID string, updates RSSFeedUpdate) (*RSSFeedRow, error)
 	DeleteRSSFeed(ctx context.Context, feedID string) error
-	ListActiveRSSFeeds(ctx context.Context) ([]RSSFeedRow, error)
 	UpdateRSSFeedPollSuccess(ctx context.Context, feedID string, itemCount int) error
 	UpdateRSSFeedPollFailure(ctx context.Context, feedID string, errMsg string) error
 	ListFileNamesByRSSFeedID(ctx context.Context, rssFeedID string) (map[string]bool, error)
+	ListFileIDsByRSSFeedID(ctx context.Context, rssFeedID string) ([]string, error)
+}
+
+// TableDropper drops a file's materialised spreadsheet tables (the
+// `tabular.sheet_*` tables), its tabular_column_values rows and its
+// tabular_catalog rows. Satisfied by *tabular.Materializer. See the
+// identical interface documented at internal/files.TableDropper for the
+// full rationale (R60): a feed's own DeleteRSSFeed relies on
+// files.rss_feed_id ON DELETE CASCADE, which removes the files rows but
+// never drops their physical tables — this MUST run before that delete.
+//
+// Optional: a nil dropper (the default) leaves the tables alone, which is
+// what an RSS feed -- never a spreadsheet in practice -- costs nothing for.
+type TableDropper interface {
+	DropTablesForFile(ctx context.Context, fileID string) error
 }
 
 // ---------------------------------------------------------------------------
@@ -101,9 +120,34 @@ type AsynqEnqueuer interface {
 
 // Handler holds the dependencies for the RSS feed endpoints.
 type Handler struct {
-	store       RSSStore
-	validator   FeedValidator
-	asynqClient AsynqEnqueuer
+	store        RSSStore
+	validator    FeedValidator
+	asynqClient  AsynqEnqueuer
+	tableDropper TableDropper
+}
+
+// SetTableDropper injects the spreadsheet table cleanup hook for
+// DeleteRSSFeed. Optional — nil (the default) leaves materialised tables in
+// place.
+func (h *Handler) SetTableDropper(d TableDropper) { h.tableDropper = d }
+
+// dropTablesForFeed drops every file's materialised spreadsheet tables for
+// the given RSS feed. Nil-safe: returns immediately when no dropper is
+// wired. Best effort per file: a failure is logged and the rest still run.
+func (h *Handler) dropTablesForFeed(ctx context.Context, feedID string) {
+	if h.tableDropper == nil {
+		return
+	}
+	ids, err := h.store.ListFileIDsByRSSFeedID(ctx, feedID)
+	if err != nil {
+		logctx.From(ctx).Warn("tabular: list files for rss feed delete failed", "feedId", feedID, "error", err)
+		return
+	}
+	for _, id := range ids {
+		if err := h.tableDropper.DropTablesForFile(ctx, id); err != nil {
+			logctx.From(ctx).Warn("tabular: drop tables for deleted rss file failed", "fileId", id, "error", err)
+		}
+	}
 }
 
 // NewHandler creates a Handler backed by store using the production gofeed validator.
@@ -140,9 +184,9 @@ func kbIDFromContext(r *http.Request) string {
 
 // createRSSFeedRequest is the expected JSON body for creating a feed.
 type createRSSFeedRequest struct {
-	URL           string `json:"url"`
-	PollInterval  *int   `json:"pollInterval"`
-	FetchFullText *bool  `json:"fetchFullText"`
+	URL           string  `json:"url"`
+	SyncSchedule  *string `json:"syncSchedule"`
+	FetchFullText *bool   `json:"fetchFullText"`
 }
 
 // CreateRSSFeed handles POST /api/kb/{id}/rss.
@@ -172,13 +216,13 @@ func (h *Handler) CreateRSSFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate pollInterval (default 60, must be 15-1440).
-	pollInterval := 60
-	if body.PollInterval != nil {
-		pollInterval = *body.PollInterval
+	// Validate syncSchedule (default manual).
+	syncSchedule := syncwindow.ScheduleManual
+	if body.SyncSchedule != nil {
+		syncSchedule = *body.SyncSchedule
 	}
-	if pollInterval < 15 || pollInterval > 1440 {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "pollInterval must be between 15 and 1440")
+	if !syncwindow.Valid(syncSchedule) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "syncSchedule must be manual, daily or weekly")
 		return
 	}
 
@@ -200,7 +244,7 @@ func (h *Handler) CreateRSSFeed(w http.ResponseWriter, r *http.Request) {
 		fetchFullText = *body.FetchFullText
 	}
 
-	feed, err := h.store.CreateRSSFeed(ctx, kbID, body.URL, titlePtr, pollInterval, fetchFullText)
+	feed, err := h.store.CreateRSSFeed(ctx, kbID, body.URL, titlePtr, syncSchedule, fetchFullText)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to create RSS feed")
 		return
@@ -248,7 +292,7 @@ func (h *Handler) ListRSSFeeds(w http.ResponseWriter, r *http.Request) {
 
 // updateRSSFeedRequest is the expected JSON body for updating a feed.
 type updateRSSFeedRequest struct {
-	PollInterval  *int    `json:"pollInterval"`
+	SyncSchedule  *string `json:"syncSchedule"`
 	Status        *string `json:"status"`
 	FetchFullText *bool   `json:"fetchFullText"`
 }
@@ -282,9 +326,9 @@ func (h *Handler) UpdateRSSFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate pollInterval if provided.
-	if body.PollInterval != nil && (*body.PollInterval < 15 || *body.PollInterval > 1440) {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "pollInterval must be between 15 and 1440")
+	// Validate syncSchedule if provided.
+	if body.SyncSchedule != nil && !syncwindow.Valid(*body.SyncSchedule) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "syncSchedule must be manual, daily or weekly")
 		return
 	}
 
@@ -295,9 +339,17 @@ func (h *Handler) UpdateRSSFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updates := RSSFeedUpdate{
-		PollInterval:  body.PollInterval,
+		SyncSchedule:  body.SyncSchedule,
 		Status:        body.Status,
 		FetchFullText: body.FetchFullText,
+	}
+
+	// A schedule change takes effect immediately: clearing next_sync_at makes
+	// the sweeper re-stamp on its next tick. Leaving the old stamp in place
+	// was the pre-0068 bug where an edit did nothing until a leader restart.
+	if body.SyncSchedule != nil {
+		var null *time.Time
+		updates.NextSyncAt = &null
 	}
 
 	// Clear error fields when re-activating.
@@ -306,6 +358,16 @@ func (h *Handler) UpdateRSSFeed(w http.ResponseWriter, r *http.Request) {
 		zero := 0
 		updates.ErrorMessage = &empty
 		updates.ConsecutiveFailures = &zero
+
+		// Resuming a paused feed must not fire an immediate daytime sync from
+		// a next_sync_at stamped before the pause (possibly days or weeks
+		// stale). Clearing it drops the row into ListUnscheduled, which
+		// stamps a fresh slot in the next window occurrence WITHOUT
+		// enqueuing. Skip if a schedule change already cleared it above.
+		if updates.NextSyncAt == nil {
+			var null *time.Time
+			updates.NextSyncAt = &null
+		}
 	}
 
 	feed, err := h.store.UpdateRSSFeed(ctx, feedID, updates)
@@ -346,6 +408,13 @@ func (h *Handler) DeleteRSSFeed(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "RSS feed not found")
 		return
 	}
+
+	// R60: drop this feed's files' materialised spreadsheet tables BEFORE
+	// the feed delete. DeleteRSSFeed relies on files.rss_feed_id ON DELETE
+	// CASCADE, which removes the files rows (and their tabular_catalog
+	// rows) but never drops the physical tables — deleting the feed first
+	// would orphan them beyond any future reach.
+	h.dropTablesForFeed(ctx, feedID)
 
 	if err := h.store.DeleteRSSFeed(ctx, feedID); err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to delete RSS feed")

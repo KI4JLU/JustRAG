@@ -63,7 +63,9 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
+    Textarea,
     type InputProps,
+    type TextareaProps,
 } from '@ki4jlu/design-system';
 
 /**
@@ -279,6 +281,34 @@ export function SelectFieldRow({
                     ))}
                 </SelectContent>
             </Select>
+            {error ? <FormMessage /> : null}
+            {help ? <FormDescription>{help}</FormDescription> : null}
+            {footer}
+        </FormItem>
+    );
+}
+
+export type TextareaFieldRowProps = FieldRowBaseProps &
+    Omit<TextareaProps, 'id' | 'className' | 'aria-describedby' | 'aria-invalid' | 'children'>;
+
+/**
+ * A multi-line FieldRow (the JSON policy editors and the Docling caption
+ * prompt). Same label/help/error wiring as FieldRow, DS Textarea as control.
+ */
+export function TextareaFieldRow({
+    label,
+    help,
+    width = 'default',
+    footer,
+    error,
+    ...textareaProps
+}: TextareaFieldRowProps) {
+    return (
+        <FormItem className={ROW_WIDTH[width]} error={error}>
+            <FormLabel>{label}</FormLabel>
+            <FormControl {...describedBy(help, error)}>
+                <Textarea {...textareaProps} />
+            </FormControl>
             {error ? <FormMessage /> : null}
             {help ? <FormDescription>{help}</FormDescription> : null}
             {footer}

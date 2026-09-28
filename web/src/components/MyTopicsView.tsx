@@ -113,6 +113,7 @@ export function MyTopicsView({
             removingKb={removingKb}
             rtf={rtf}
             t={t}
+            language={language}
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
             onToggleFavourite={onToggleFavourite}

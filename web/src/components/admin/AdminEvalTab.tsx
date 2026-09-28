@@ -18,6 +18,8 @@ import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { fetchKbAgents, type KbAgentOption } from '../agents/api';
 import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/FieldRow';
+import { SyncScheduleSelect } from '../sidebar/SyncScheduleSelect';
+import type { SyncSchedule } from '../../types';
 
 // Types mirror the backend DTOs (internal/admineval/types.go).
 interface AggregateSummary {
@@ -39,6 +41,11 @@ interface RunSummary {
     aggregate?: AggregateSummary;
     route_mean_recall?: Record<string, number>;
     error_message?: string;
+    // W6-R9: which runs dispatched through a user team instead of the
+    // standard orchestrator-dispatch adapter. team_name may be empty even
+    // when team_id is set (best-effort resolution on the backend).
+    team_id?: string;
+    team_name?: string;
 }
 
 interface ListRunsResponse {
@@ -53,6 +60,8 @@ interface GoldenSet {
     content_hash: string;
     question_count: number;
     created_at: string;
+    schedule?: SyncSchedule;
+    next_run_at?: string;
 }
 
 interface ListGoldenSetsResponse {
@@ -126,6 +135,11 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     const [offset, setOffset] = useState(0);
     const [statusFilter, setStatusFilter] = useState<string>('');
     const [listLoading, setListLoading] = useState(false);
+    // W7-R4: server-side sort on the Score column — cycles desc -> asc ->
+    // none (created_at DESC) on repeated header clicks, refetching with the
+    // corresponding sort/order query params (and offset reset to 0) rather
+    // than reordering the one already-fetched page.
+    const [scoreSort, setScoreSort] = useState<'none' | 'desc' | 'asc'>('none');
 
     // State: compare
     const [compareAId, setCompareAId] = useState<string>('');
@@ -213,6 +227,10 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     };
 
     // Fetch list — axios has a global Authorization header set by App.tsx; no per-call header needed.
+    // W7-R4: sort=recall is the only sort key the UI drives (the Score
+    // column blends mean_recall/mrr into one display, but the header cycle
+    // sorts on recall); 'none' omits both params so the backend falls back
+    // to its own created_at DESC default.
     const fetchRuns = useCallback(async () => {
         setListLoading(true);
         try {
@@ -220,6 +238,10 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             params.set('limit', '50');
             params.set('offset', String(offset));
             if (statusFilter) params.set('status', statusFilter);
+            if (scoreSort !== 'none') {
+                params.set('sort', 'recall');
+                params.set('order', scoreSort);
+            }
             const response = await axios.get<ListRunsResponse>(
                 `${API_BASE_URL}${basePath}/runs?${params.toString()}`
             );
@@ -230,7 +252,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
         } finally {
             setListLoading(false);
         }
-    }, [basePath, offset, statusFilter, toast, t]);
+    }, [basePath, offset, statusFilter, scoreSort, toast, t]);
 
     // Poll while any run is queued/running
     const hasInFlight = useMemo(() => runs.some(r => r.status === 'queued' || r.status === 'running'), [runs]);
@@ -249,6 +271,23 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     const goldenSetError = kickOffAttempted && !selectedGoldenSetId
         ? t('evalSelectGoldenSet')
         : undefined;
+
+    // W7-R4: Score column header click cycles desc -> asc -> none, resetting
+    // to the first page each time (a sort change on page 2+ would otherwise
+    // show an offset into a differently-ordered result set).
+    const toggleScoreSort = () => {
+        setOffset(0);
+        setScoreSort(prev => (prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'));
+    };
+
+    // W6-R9: the newest completed team run per team id, for the "last run"
+    // hint next to the team selector.
+    const lastTeamRunFor = useCallback((teamId: string): RunSummary | undefined => {
+        const candidates = runs.filter(r => r.status === 'completed' && r.team_id === teamId && r.aggregate);
+        if (candidates.length === 0) return undefined;
+        const timeOf = (r: RunSummary) => new Date(r.finished_at || r.started_at || r.created_at).getTime();
+        return candidates.reduce((newest, r) => (timeOf(r) > timeOf(newest) ? r : newest));
+    }, [runs]);
 
     const handleUpload = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -289,6 +328,15 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             toast.error(getApiErrorMessage(err, t('evalGoldenSetUploadFailed')));
         } finally {
             setUploadLoading(false);
+        }
+    };
+
+    const handleScheduleChange = async (id: string, schedule: SyncSchedule) => {
+        try {
+            await axios.patch(`${API_BASE_URL}${basePath}/golden-sets/${id}`, { schedule });
+            fetchGoldenSets();
+        } catch (err) {
+            toast.error(getApiErrorMessage(err, t('evalScheduleUpdateFailed')));
         }
     };
 
@@ -416,6 +464,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                                 <th style={{ textAlign: 'right', padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{t('evalQuestionCount')}</th>
                                 <th style={{ textAlign: 'left', padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{t('evalStarted')}</th>
                                 <th style={{ textAlign: 'left', padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{t('evalGoldenSetHash')}</th>
+                                <th style={{ textAlign: 'left', padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{t('evalSchedule')}</th>
                                 <th style={{ textAlign: 'right', padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}>{t('evalActions')}</th>
                             </tr>
                         </thead>
@@ -438,6 +487,12 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                                       * TableLayout migration is Stage 5 (card KI-694). Only the
                                       * two raw <button>s inside it are swapped here, because they
                                       * are part of THIS file's catalogue count. */}
+                                    <td style={{ padding: '0.3rem 0.5rem' }}>
+                                        <SyncScheduleSelect id={`gs-schedule-${gs.id}`} value={gs.schedule ?? 'manual'} onChange={s => handleScheduleChange(gs.id, s)} label={t('evalSchedule')} />
+                                        {gs.next_run_at && gs.schedule !== 'manual' && (
+                                            <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{t('evalNextRun')}: {new Date(gs.next_run_at).toLocaleString()}</div>
+                                        )}
+                                    </td>
                                     <td style={{ padding: '0.3rem 0.5rem', textAlign: 'right' }}>
                                         <Button type="button" variant="ghost" size="icon" onClick={() => handleDownloadGoldenSet(gs.id, gs.name)} title={t('evalDownload')} aria-label={t('evalDownload')}>
                                             <Download size={14} />
@@ -668,7 +723,14 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                     onValueChange={setSelectedTeamId}
                     options={[
                         { value: '', label: t('evalTeamStandard') },
-                        ...kbTeams.map(tm => ({ value: tm.id, label: tm.name })),
+                        ...kbTeams.map(tm => {
+                            // W6-R9: the last completed run's score next to the team name.
+                            const last = lastTeamRunFor(tm.id);
+                            const suffix = last && last.aggregate
+                                ? ` — ${t('evalTeamLastRun')}: Recall ${(last.aggregate.mean_recall * 100).toFixed(1)} % / MRR ${(last.aggregate.mrr * 100).toFixed(1)} %`
+                                : '';
+                            return { value: tm.id, label: `${tm.name}${suffix}` };
+                        }),
                     ]}
                 />
                 )}
@@ -760,7 +822,14 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                                 <th style={{ textAlign: 'left', padding: '0.5rem' }}>{t('evalStarted')}</th>
                                 <th style={{ textAlign: 'right', padding: '0.5rem' }}>{t('evalDuration')}</th>
                                 <th style={{ textAlign: 'left', padding: '0.5rem' }}>{t('evalKbName')}</th>
+                                <th style={{ textAlign: 'left', padding: '0.5rem' }}>{t('evalTeam')}</th>
                                 <th style={{ textAlign: 'center', padding: '0.5rem' }}>{t('evalJudge')}</th>
+                                <th
+                                    style={{ textAlign: 'right', padding: '0.5rem', cursor: 'pointer', userSelect: 'none' }}
+                                    onClick={toggleScoreSort}
+                                >
+                                    {t('evalScore')}{scoreSort === 'desc' ? ' ▼' : scoreSort === 'asc' ? ' ▲' : ''}
+                                </th>
                                 <th style={{ textAlign: 'left', padding: '0.5rem' }}>{t('evalRecallPerRoute')}</th>
                                 <th style={{ textAlign: 'right', padding: '0.5rem' }}>{t('evalActions')}</th>
                             </tr>
@@ -852,7 +921,11 @@ function RunRow({ run, onDelete, onExport, onCompareWith, runs }: { run: RunSumm
             <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}>{run.started_at ? new Date(run.started_at).toLocaleString() : '—'}</td>
             <td style={{ padding: '0.5rem', textAlign: 'right', fontSize: '0.85rem' }}>{duration}</td>
             <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}>{run.kb_name || run.kb_id.slice(0, 8)}</td>
+            <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}>{run.team_name || (run.team_id ? run.team_id.slice(0, 8) : '—')}</td>
             <td style={{ padding: '0.5rem', textAlign: 'center' }}>{run.judge_enabled ? <Check size={14} /> : <X size={14} style={{ opacity: 0.3 }} />}</td>
+            <td style={{ padding: '0.5rem', textAlign: 'right', fontSize: '0.85rem' }}>
+                {run.aggregate ? `${(run.aggregate.mean_recall * 100).toFixed(1)} / ${(run.aggregate.mrr * 100).toFixed(1)}` : '—'}
+            </td>
             <td style={{ padding: '0.5rem' }}>
                 {run.route_mean_recall
                     ? Object.entries(run.route_mean_recall).map(([route, val]) => (

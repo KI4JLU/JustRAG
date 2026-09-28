@@ -16,6 +16,7 @@ import (
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
+	"github.com/justrag/go-backend/internal/syncwindow"
 )
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,8 @@ type ConfluenceSourceRow struct {
 	RootPageID          *string    `json:"rootPageId"          db:"root_page_id"`
 	RootPageTitle       *string    `json:"rootPageTitle"       db:"root_page_title"`
 	IncludeAttachments  bool       `json:"includeAttachments"  db:"include_attachments"`
-	SyncInterval        *int       `json:"syncInterval"        db:"sync_interval"`
+	SyncSchedule        string     `json:"syncSchedule"        db:"sync_schedule"`
+	NextSyncAt          *time.Time `json:"nextSyncAt"          db:"next_sync_at"`
 	Status              string     `json:"status"              db:"status"`
 	ErrorMessage        *string    `json:"errorMessage"        db:"error_message"`
 	ConsecutiveFailures int        `json:"consecutiveFailures" db:"consecutive_failures"`
@@ -55,12 +57,15 @@ type ConfluenceSourceRow struct {
 }
 
 // ConfluenceSourceUpdate carries optional fields for a PATCH update.
+// NextSyncAt is a double pointer so "leave untouched" (nil) and "set to
+// NULL" (non-nil pointing at a nil *time.Time) are both expressible.
 type ConfluenceSourceUpdate struct {
 	SpaceKey            *string
 	RootPageID          *string
 	RootPageTitle       *string
 	IncludeAttachments  *bool
-	SyncInterval        *int
+	SyncSchedule        *string
+	NextSyncAt          **time.Time
 	Status              *string
 	ErrorMessage        *string
 	ConsecutiveFailures *int
@@ -68,6 +73,11 @@ type ConfluenceSourceUpdate struct {
 	SyncProgress        *int
 	SyncTotal           *int
 	LastSyncedAt        *time.Time
+	// LastSuccessAt is stamped only by the sync's success branches. Unlike
+	// LastSyncedAt (which every attempt, including a failing one, refreshes)
+	// it is the timestamp the admin overview and the sync-age gauge trust
+	// (W3-R10).
+	LastSuccessAt *time.Time
 }
 
 // ---------------------------------------------------------------------------
@@ -93,12 +103,11 @@ type ConfluenceStore interface {
 	CreateConfluenceConnection(ctx context.Context, userID, encryptedToken string, displayName *string) (*ConfluenceConnectionRow, error)
 	UpdateConfluenceConnection(ctx context.Context, id string, updates ConfluenceConnectionUpdate) (*ConfluenceConnectionRow, error)
 	// Sources
-	CreateConfluenceSource(ctx context.Context, kbID, connectionID, spaceKey string, rootPageID, rootPageTitle *string, includeAttachments bool, syncInterval *int) (*ConfluenceSourceRow, error)
+	CreateConfluenceSource(ctx context.Context, kbID, connectionID, spaceKey string, rootPageID, rootPageTitle *string, includeAttachments bool, syncSchedule string) (*ConfluenceSourceRow, error)
 	ListConfluenceSources(ctx context.Context, kbID string) ([]ConfluenceSourceRow, error)
 	GetConfluenceSourceByID(ctx context.Context, sourceID string) (*ConfluenceSourceRow, error)
 	UpdateConfluenceSource(ctx context.Context, sourceID string, updates ConfluenceSourceUpdate) (*ConfluenceSourceRow, error)
 	DeleteConfluenceSource(ctx context.Context, sourceID string) error
-	ListActiveConfluenceSources(ctx context.Context) ([]ConfluenceSourceRow, error)
 	// Files
 	CreateConfluenceFile(ctx context.Context, data CreateConfluenceFileData) (*ConfluenceFileRow, error)
 	GetFilesByConfluenceSourceID(ctx context.Context, sourceID string) ([]ConfluenceFileRow, error)
@@ -119,6 +128,13 @@ type CreateConfluenceFileData struct {
 	StoragePath        string
 	ConfluenceSourceID string
 	ConfluencePageID   string
+	// PublishedAt is the document's OWN content date, as opposed to
+	// created_at (the ingest timestamp). Page files carry the page's
+	// current version timestamp (W4-R10), clamped at now like every other
+	// source-supplied date; attachments leave it nil — a Confluence
+	// attachment has no version-date semantics of its own in the REST
+	// shape this client reads, so their effective date stays created_at.
+	PublishedAt *time.Time
 }
 
 // ConfluenceFileRow is a file record with confluence-specific fields.
@@ -142,9 +158,10 @@ type ConfluenceFileRow struct {
 
 // Handler holds the dependencies for the Confluence endpoints.
 type Handler struct {
-	store       ConfluenceStore
-	jwtSecret   string
-	asynqClient *asynq.Client
+	store        ConfluenceStore
+	jwtSecret    string
+	asynqClient  *asynq.Client
+	tableDropper TableDropper
 }
 
 // NewHandler creates a Handler backed by store, using jwtSecret for token
@@ -155,6 +172,32 @@ func NewHandler(store ConfluenceStore, jwtSecret string, asynqClient ...*asynq.C
 		h.asynqClient = asynqClient[0]
 	}
 	return h
+}
+
+// SetTableDropper injects the spreadsheet table cleanup hook for
+// DeleteSource. Optional — nil (the default) leaves materialised tables in
+// place. TableDropper is defined in sync.go and shared with the sync
+// handler's own delete path.
+func (h *Handler) SetTableDropper(d TableDropper) { h.tableDropper = d }
+
+// dropTablesForSource drops every file's materialised spreadsheet tables
+// for the given Confluence source. Nil-safe: returns immediately when no
+// dropper is wired. Best effort per file: a failure is logged and the rest
+// still run.
+func (h *Handler) dropTablesForSource(ctx context.Context, sourceID string) {
+	if h.tableDropper == nil {
+		return
+	}
+	srcFiles, err := h.store.GetFilesByConfluenceSourceID(ctx, sourceID)
+	if err != nil {
+		logctx.From(ctx).Warn("tabular: list files for confluence source delete failed", "sourceId", sourceID, "error", err)
+		return
+	}
+	for _, f := range srcFiles {
+		if err := h.tableDropper.DropTablesForFile(ctx, f.ID); err != nil {
+			logctx.From(ctx).Warn("tabular: drop tables for deleted confluence file failed", "fileId", f.ID, "error", err)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +336,7 @@ type createSourceRequest struct {
 	RootPageID         *string `json:"rootPageId"`
 	RootPageTitle      *string `json:"rootPageTitle"`
 	IncludeAttachments bool    `json:"includeAttachments"`
-	SyncInterval       *int    `json:"syncInterval"`
+	SyncSchedule       *string `json:"syncSchedule"`
 }
 
 // CreateSource handles POST /api/kb/{id}/confluence-sources.
@@ -316,6 +359,16 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate syncSchedule (default manual).
+	syncSchedule := syncwindow.ScheduleManual
+	if body.SyncSchedule != nil {
+		syncSchedule = *body.SyncSchedule
+	}
+	if !syncwindow.Valid(syncSchedule) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "syncSchedule must be manual, daily or weekly")
+		return
+	}
+
 	// Verify the connection belongs to the authenticated user.
 	user := auth.UserFromContext(ctx)
 	if user != nil {
@@ -327,7 +380,7 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	source, err := h.store.CreateConfluenceSource(ctx, kbID, body.ConnectionID, body.SpaceKey,
-		body.RootPageID, body.RootPageTitle, body.IncludeAttachments, body.SyncInterval)
+		body.RootPageID, body.RootPageTitle, body.IncludeAttachments, syncSchedule)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to create Confluence source")
 		return
@@ -379,7 +432,7 @@ type updateSourceRequest struct {
 	RootPageID         *string `json:"rootPageId"`
 	RootPageTitle      *string `json:"rootPageTitle"`
 	IncludeAttachments *bool   `json:"includeAttachments"`
-	SyncInterval       *int    `json:"syncInterval"`
+	SyncSchedule       *string `json:"syncSchedule"`
 	Status             *string `json:"status"`
 }
 
@@ -410,6 +463,12 @@ func (h *Handler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate syncSchedule if provided.
+	if body.SyncSchedule != nil && !syncwindow.Valid(*body.SyncSchedule) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "syncSchedule must be manual, daily or weekly")
+		return
+	}
+
 	// Validate status if provided.
 	if body.Status != nil && *body.Status != "active" && *body.Status != "paused" {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, `status must be "active" or "paused"`)
@@ -421,8 +480,16 @@ func (h *Handler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		RootPageID:         body.RootPageID,
 		RootPageTitle:      body.RootPageTitle,
 		IncludeAttachments: body.IncludeAttachments,
-		SyncInterval:       body.SyncInterval,
+		SyncSchedule:       body.SyncSchedule,
 		Status:             body.Status,
+	}
+
+	// A schedule change takes effect immediately: clearing next_sync_at makes
+	// the sweeper re-stamp on its next tick. Leaving the old stamp in place
+	// would leave a source on its previous cadence until the next slot fires.
+	if body.SyncSchedule != nil {
+		var null *time.Time
+		updates.NextSyncAt = &null
 	}
 
 	// Clear error state when re-activating.
@@ -431,6 +498,16 @@ func (h *Handler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		zero := 0
 		updates.ErrorMessage = &empty
 		updates.ConsecutiveFailures = &zero
+
+		// Resuming a paused source must not fire an immediate daytime sync
+		// from a next_sync_at stamped before the pause (possibly days or
+		// weeks stale). Clearing it drops the row into ListUnscheduled,
+		// which stamps a fresh slot in the next window occurrence WITHOUT
+		// enqueuing. Skip if a schedule change already cleared it above.
+		if updates.NextSyncAt == nil {
+			var null *time.Time
+			updates.NextSyncAt = &null
+		}
 	}
 
 	source, err := h.store.UpdateConfluenceSource(ctx, sourceID, updates)
@@ -470,6 +547,14 @@ func (h *Handler) DeleteSource(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "Confluence source not found")
 		return
 	}
+
+	// R60: drop this source's files' materialised spreadsheet tables BEFORE
+	// the source delete. DeleteConfluenceSource relies on
+	// files.confluence_source_id ON DELETE CASCADE, which removes the
+	// files rows (and their tabular_catalog rows) but never drops the
+	// physical tables — deleting the source first would orphan them
+	// beyond any future reach.
+	h.dropTablesForSource(ctx, sourceID)
 
 	if err := h.store.DeleteConfluenceSource(ctx, sourceID); err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to delete Confluence source")

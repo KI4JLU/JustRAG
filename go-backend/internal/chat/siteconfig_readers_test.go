@@ -1400,6 +1400,232 @@ func TestChatDateReaders(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Tabular profiler LLM assist readers tests
+// ---------------------------------------------------------------------------
+
+func TestTabularProfileReaders(t *testing.T) {
+	ctx := context.Background()
+
+	// Defaults (nil reader → all defaults).
+	if got := TabularProfileLLMEnabled(ctx, nil); got != true {
+		t.Errorf("TabularProfileLLMEnabled default = %v, want true", got)
+	}
+	if got := TabularProfileLLMThreshold(ctx, nil); got != 0.7 {
+		t.Errorf("TabularProfileLLMThreshold default = %v, want 0.7", got)
+	}
+	if got := TabularProfileSampleRows(ctx, nil); got != 200 {
+		t.Errorf("TabularProfileSampleRows default = %d, want 200", got)
+	}
+	if got := TabularProfileModel(ctx, nil); got != "" {
+		t.Errorf("TabularProfileModel default = %q, want empty", got)
+	}
+
+	// Overrides via a struct-backed fake reader.
+	r := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_profile_llm_enabled":   strPtr("false"),
+		"tabular_profile_llm_threshold": strPtr("0.4"),
+		"tabular_profile_sample_rows":   strPtr("500"),
+		"tabular_profile_model":         strPtr("fast-model"),
+	}}
+	if TabularProfileLLMEnabled(ctx, r) != false {
+		t.Error("llm-enabled override not applied")
+	}
+	if TabularProfileLLMThreshold(ctx, r) != 0.4 {
+		t.Error("threshold override not applied")
+	}
+	if TabularProfileSampleRows(ctx, r) != 500 {
+		t.Error("sample-rows override not applied")
+	}
+	if TabularProfileModel(ctx, r) != "fast-model" {
+		t.Error("model override not applied")
+	}
+
+	// Clamping: threshold outside [0, 1] and sample rows outside [20, 2000]
+	// fall back to the default rather than the out-of-range value.
+	clamped := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_profile_llm_threshold": strPtr("1.5"),
+		"tabular_profile_sample_rows":   strPtr("5"),
+	}}
+	if got := TabularProfileLLMThreshold(ctx, clamped); got != 0.7 {
+		t.Errorf("out-of-range threshold = %v, want default 0.7", got)
+	}
+	if got := TabularProfileSampleRows(ctx, clamped); got != 200 {
+		t.Errorf("out-of-range sample rows = %d, want default 200", got)
+	}
+
+	// Falls through to model_tier_fast when the per-task key is unset.
+	tiered := &fakeSiteConfigReader{values: map[string]*string{
+		"model_tier_fast": strPtr("tier-model"),
+	}}
+	if got := TabularProfileModel(ctx, tiered); got != "tier-model" {
+		t.Errorf("TabularProfileModel fast-tier fallback = %q, want tier-model", got)
+	}
+}
+
+// TestTabularCatalogReaders covers the three Phase-2 materializer/catalog
+// limit readers (tabular_max_rows, tabular_embed_max_rows,
+// tabular_column_values_max_distinct): defaults, overrides, and the
+// out-of-range behavior of readInt/parseInt.
+//
+// NOTE on "clamping": readInt/parseInt (siteconfig.go) do NOT clamp an
+// out-of-range value to the nearest bound — an out-of-range value is
+// rejected outright and the reader falls back to its DEFAULT, exactly like
+// TestTabularProfileReaders's "clamped" case above (tabular_profile_llm_threshold
+// "1.5" -> default 0.7, not 1.0; tabular_profile_sample_rows "5" -> default
+// 200, not 20). So "5" for tabular_max_rows (min 1000) yields the default
+// 2_000_000, not 1000. This test asserts the actual fallback-to-default
+// behavior of the existing readers.
+func TestTabularCatalogReaders(t *testing.T) {
+	ctx := context.Background()
+
+	// Defaults (nil reader).
+	if got := TabularMaxRows(ctx, nil); got != 2_000_000 {
+		t.Errorf("TabularMaxRows default = %d, want 2000000", got)
+	}
+	if got := TabularEmbedMaxRows(ctx, nil); got != 50_000 {
+		t.Errorf("TabularEmbedMaxRows default = %d, want 50000", got)
+	}
+	if got := TabularColumnValuesMaxDistinct(ctx, nil); got != 10_000 {
+		t.Errorf("TabularColumnValuesMaxDistinct default = %d, want 10000", got)
+	}
+
+	// Overrides via a struct-backed fake reader.
+	r := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_max_rows":                   strPtr("3000000"),
+		"tabular_embed_max_rows":             strPtr("100000"),
+		"tabular_column_values_max_distinct": strPtr("20000"),
+	}}
+	if got := TabularMaxRows(ctx, r); got != 3_000_000 {
+		t.Errorf("TabularMaxRows override = %d, want 3000000", got)
+	}
+	if got := TabularEmbedMaxRows(ctx, r); got != 100_000 {
+		t.Errorf("TabularEmbedMaxRows override = %d, want 100000", got)
+	}
+	if got := TabularColumnValuesMaxDistinct(ctx, r); got != 20_000 {
+		t.Errorf("TabularColumnValuesMaxDistinct override = %d, want 20000", got)
+	}
+
+	// 0 is deliberately OUTSIDE tabular_embed_max_rows's [1, 100_000] range:
+	// render.RenderSheet treats a non-positive EmbedMaxRows as "unset" and
+	// substitutes its own 50_000 default, so letting 0 through would make
+	// "embed nothing" silently mean "embed the default". It must fall back
+	// to the reader default instead (same outcome, but explicit and pinned).
+	zero := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_embed_max_rows": strPtr("0"),
+	}}
+	if got := TabularEmbedMaxRows(ctx, zero); got != 50_000 {
+		t.Errorf("TabularEmbedMaxRows(\"0\") = %d, want default 50000 (0 is out of range)", got)
+	}
+	one := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_embed_max_rows": strPtr("1"),
+	}}
+	if got := TabularEmbedMaxRows(ctx, one); got != 1 {
+		t.Errorf("TabularEmbedMaxRows(\"1\") = %d, want 1 (lower bound is valid)", got)
+	}
+
+	// Out-of-range values fall back to the default (see NOTE above) rather
+	// than clamping to the nearest bound.
+	outOfRange := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_max_rows":                   strPtr("5"),  // below min 1000
+		"tabular_embed_max_rows":             strPtr("-1"), // below min 0
+		"tabular_column_values_max_distinct": strPtr("7"),  // below min 100
+	}}
+	if got := TabularMaxRows(ctx, outOfRange); got != 2_000_000 {
+		t.Errorf("TabularMaxRows(\"5\") = %d, want default 2000000 (fallback, not clamp-to-1000)", got)
+	}
+	if got := TabularEmbedMaxRows(ctx, outOfRange); got != 50_000 {
+		t.Errorf("TabularEmbedMaxRows(\"-1\") = %d, want default 50000 (fallback, not clamp-to-0)", got)
+	}
+	if got := TabularColumnValuesMaxDistinct(ctx, outOfRange); got != 10_000 {
+		t.Errorf("TabularColumnValuesMaxDistinct(\"7\") = %d, want default 10000 (fallback, not clamp-to-100)", got)
+	}
+
+	// Above-max also falls back to default.
+	aboveMax := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_max_rows":                   strPtr("6000000"), // above max 5000000
+		"tabular_embed_max_rows":             strPtr("200000"),  // above max 100000 (R23)
+		"tabular_column_values_max_distinct": strPtr("200000"),  // above max 100000
+	}}
+	if got := TabularMaxRows(ctx, aboveMax); got != 2_000_000 {
+		t.Errorf("TabularMaxRows(above max) = %d, want default 2000000", got)
+	}
+	if got := TabularEmbedMaxRows(ctx, aboveMax); got != 50_000 {
+		t.Errorf("TabularEmbedMaxRows(above max) = %d, want default 50000", got)
+	}
+	if got := TabularColumnValuesMaxDistinct(ctx, aboveMax); got != 10_000 {
+		t.Errorf("TabularColumnValuesMaxDistinct(above max) = %d, want default 10000", got)
+	}
+}
+
+// TestTabularSizingReaders covers the three Phase-4 upload/ingest sizing
+// readers (tabular_max_file_bytes, tabular_large_file_bytes,
+// tabular_large_file_concurrency): defaults, in-range overrides, and the
+// out-of-range fallback-to-default behavior shared with every other
+// readInt-backed reader in this file.
+func TestTabularSizingReaders(t *testing.T) {
+	ctx := context.Background()
+
+	// Defaults (nil reader).
+	if got := TabularMaxFileBytes(ctx, nil); got != 524_288_000 {
+		t.Errorf("TabularMaxFileBytes default = %d, want 524288000", got)
+	}
+	if got := TabularLargeFileBytes(ctx, nil); got != 20_971_520 {
+		t.Errorf("TabularLargeFileBytes default = %d, want 20971520", got)
+	}
+	if got := TabularLargeFileConcurrency(ctx, nil); got != 1 {
+		t.Errorf("TabularLargeFileConcurrency default = %d, want 1", got)
+	}
+
+	// In-range overrides via a struct-backed fake reader.
+	r := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_max_file_bytes":         strPtr("104857600"), // 100 MB
+		"tabular_large_file_bytes":       strPtr("52428800"),  // 50 MB
+		"tabular_large_file_concurrency": strPtr("4"),
+	}}
+	if got := TabularMaxFileBytes(ctx, r); got != 104_857_600 {
+		t.Errorf("TabularMaxFileBytes override = %d, want 104857600", got)
+	}
+	if got := TabularLargeFileBytes(ctx, r); got != 52_428_800 {
+		t.Errorf("TabularLargeFileBytes override = %d, want 52428800", got)
+	}
+	if got := TabularLargeFileConcurrency(ctx, r); got != 4 {
+		t.Errorf("TabularLargeFileConcurrency override = %d, want 4", got)
+	}
+
+	// Out-of-range values fall back to the default rather than clamping.
+	outOfRange := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_max_file_bytes":         strPtr("1024"), // below min 1048576
+		"tabular_large_file_bytes":       strPtr("1024"), // below min 1048576
+		"tabular_large_file_concurrency": strPtr("0"),    // below min 1
+	}}
+	if got := TabularMaxFileBytes(ctx, outOfRange); got != 524_288_000 {
+		t.Errorf("TabularMaxFileBytes(below min) = %d, want default 524288000", got)
+	}
+	if got := TabularLargeFileBytes(ctx, outOfRange); got != 20_971_520 {
+		t.Errorf("TabularLargeFileBytes(below min) = %d, want default 20971520", got)
+	}
+	if got := TabularLargeFileConcurrency(ctx, outOfRange); got != 1 {
+		t.Errorf("TabularLargeFileConcurrency(below min) = %d, want default 1", got)
+	}
+
+	// Above-max also falls back to default.
+	aboveMax := &fakeSiteConfigReader{values: map[string]*string{
+		"tabular_max_file_bytes":         strPtr("2147483648"), // above max 2147483647
+		"tabular_large_file_bytes":       strPtr("1073741825"), // above max 1073741824
+		"tabular_large_file_concurrency": strPtr("9"),          // above max 8
+	}}
+	if got := TabularMaxFileBytes(ctx, aboveMax); got != 524_288_000 {
+		t.Errorf("TabularMaxFileBytes(above max) = %d, want default 524288000", got)
+	}
+	if got := TabularLargeFileBytes(ctx, aboveMax); got != 20_971_520 {
+		t.Errorf("TabularLargeFileBytes(above max) = %d, want default 20971520", got)
+	}
+	if got := TabularLargeFileConcurrency(ctx, aboveMax); got != 1 {
+		t.Errorf("TabularLargeFileConcurrency(above max) = %d, want default 1", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Recency-listing readers tests
 // ---------------------------------------------------------------------------
 
@@ -1445,5 +1671,139 @@ func TestChatRecencyListingReaders(t *testing.T) {
 	offNM := &fakeSiteConfigReader{values: map[string]*string{"chat_recency_listing_name_match_enabled": strPtr("false")}}
 	if ChatRecencyListingNameMatchEnabled(ctx, offNM) != false {
 		t.Error("name-match override not applied")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tabular router (spreadsheet rework Phase 3) readers tests
+// ---------------------------------------------------------------------------
+
+// TestTabularRouterReaders covers the six chat_tabular_router_* readers:
+// defaults, one in-range non-default override each, out-of-range → DEFAULT
+// (readInt/parseInt convention — no clamping, see TestTabularCatalogReaders's
+// NOTE above), and the enabled kill switch's explicit-false path. The model
+// reader's three-tier fallback (per-task → model_tier_fast → empty) mirrors
+// TestEnrichmentModel_TierFallback.
+func TestTabularRouterReaders(t *testing.T) {
+	ctx := context.Background()
+
+	// Defaults (nil reader).
+	if got := ChatTabularRouterEnabled(ctx, nil); got != true {
+		t.Errorf("ChatTabularRouterEnabled default = %v, want true", got)
+	}
+	if got := ChatTabularRouterModel(ctx, nil); got != "" {
+		t.Errorf("ChatTabularRouterModel default = %q, want empty", got)
+	}
+	if got := ChatTabularRouterMaxRows(ctx, nil); got != 200 {
+		t.Errorf("ChatTabularRouterMaxRows default = %d, want 200", got)
+	}
+	if got := ChatTabularRouterMaxRepairs(ctx, nil); got != 3 {
+		t.Errorf("ChatTabularRouterMaxRepairs default = %d, want 3", got)
+	}
+	if got := ChatTabularRouterTimeoutMs(ctx, nil); got != 5000 {
+		t.Errorf("ChatTabularRouterTimeoutMs default = %d, want 5000", got)
+	}
+	if got := ChatTabularRouterSchemaMaxTokens(ctx, nil); got != 12000 {
+		t.Errorf("ChatTabularRouterSchemaMaxTokens default = %d, want 12000", got)
+	}
+
+	// Explicit-false kill switch.
+	off := &fakeSiteConfigReader{values: map[string]*string{"chat_tabular_router_enabled": strPtr("false")}}
+	if ChatTabularRouterEnabled(ctx, off) != false {
+		t.Error("explicit false must disable the router")
+	}
+
+	// One in-range non-default override per int reader.
+	r := &fakeSiteConfigReader{values: map[string]*string{
+		"chat_tabular_router_max_rows":          strPtr("500"),
+		"chat_tabular_router_max_repairs":       strPtr("1"),
+		"chat_tabular_router_timeout_ms":        strPtr("10000"),
+		"chat_tabular_router_schema_max_tokens": strPtr("20000"),
+	}}
+	if got := ChatTabularRouterMaxRows(ctx, r); got != 500 {
+		t.Errorf("ChatTabularRouterMaxRows override = %d, want 500", got)
+	}
+	if got := ChatTabularRouterMaxRepairs(ctx, r); got != 1 {
+		t.Errorf("ChatTabularRouterMaxRepairs override = %d, want 1", got)
+	}
+	if got := ChatTabularRouterTimeoutMs(ctx, r); got != 10000 {
+		t.Errorf("ChatTabularRouterTimeoutMs override = %d, want 10000", got)
+	}
+	if got := ChatTabularRouterSchemaMaxTokens(ctx, r); got != 20000 {
+		t.Errorf("ChatTabularRouterSchemaMaxTokens override = %d, want 20000", got)
+	}
+
+	// Out-of-range values fall back to the default rather than clamping
+	// (readInt/parseInt convention, house rule R16).
+	outOfRange := &fakeSiteConfigReader{values: map[string]*string{
+		"chat_tabular_router_max_rows":          strPtr("5"),        // below min 10
+		"chat_tabular_router_max_repairs":       strPtr("6"),        // above max 5
+		"chat_tabular_router_timeout_ms":        strPtr("100"),      // below min 500
+		"chat_tabular_router_schema_max_tokens": strPtr("99999999"), // above max 60000
+	}}
+	if got := ChatTabularRouterMaxRows(ctx, outOfRange); got != 200 {
+		t.Errorf("ChatTabularRouterMaxRows out-of-range = %d, want default 200", got)
+	}
+	if got := ChatTabularRouterMaxRepairs(ctx, outOfRange); got != 3 {
+		t.Errorf("ChatTabularRouterMaxRepairs out-of-range = %d, want default 3", got)
+	}
+	if got := ChatTabularRouterTimeoutMs(ctx, outOfRange); got != 5000 {
+		t.Errorf("ChatTabularRouterTimeoutMs out-of-range = %d, want default 5000", got)
+	}
+	if got := ChatTabularRouterSchemaMaxTokens(ctx, outOfRange); got != 12000 {
+		t.Errorf("ChatTabularRouterSchemaMaxTokens out-of-range = %d, want default 12000", got)
+	}
+
+	// Model: three-tier fallback (per-task → model_tier_fast → empty),
+	// mirroring TestEnrichmentModel_TierFallback / TestResolveFastTierModel_Chain.
+	perTask := &fakeSiteConfigReader{values: map[string]*string{
+		"chat_tabular_router_model": strPtr("explicit-model"),
+	}}
+	if got := ChatTabularRouterModel(ctx, perTask); got != "explicit-model" {
+		t.Errorf("per-task override should win, got %q", got)
+	}
+	tierOnly := &fakeSiteConfigReader{values: map[string]*string{
+		"model_tier_fast": strPtr("tier-model"),
+	}}
+	if got := ChatTabularRouterModel(ctx, tierOnly); got != "tier-model" {
+		t.Errorf("tier fallback should apply, got %q", got)
+	}
+	neither := &fakeSiteConfigReader{values: map[string]*string{}}
+	if got := ChatTabularRouterModel(ctx, neither); got != "" {
+		t.Errorf("neither set should yield empty, got %q", got)
+	}
+}
+
+// TestChatTabularGuidanceMaxTokens_DefaultsAndRange is the R66 carry guard:
+// the answer-prompt guidance summary's token budget must be reader-driven
+// (default 6000, matching the retired tabularSchemaSummaryMaxTokens
+// constant) with the same out-of-range-falls-back-to-default convention as
+// its sibling ChatTabularRouterSchemaMaxTokens.
+func TestChatTabularGuidanceMaxTokens_DefaultsAndRange(t *testing.T) {
+	ctx := context.Background()
+
+	if got := ChatTabularGuidanceMaxTokens(ctx, nil); got != 6000 {
+		t.Errorf("ChatTabularGuidanceMaxTokens default = %d, want 6000", got)
+	}
+
+	r := &fakeSiteConfigReader{values: map[string]*string{
+		"chat_tabular_guidance_max_tokens": strPtr("2000"),
+	}}
+	if got := ChatTabularGuidanceMaxTokens(ctx, r); got != 2000 {
+		t.Errorf("ChatTabularGuidanceMaxTokens override = %d, want 2000", got)
+	}
+
+	outOfRange := &fakeSiteConfigReader{values: map[string]*string{
+		"chat_tabular_guidance_max_tokens": strPtr("99999999"), // above max 30000
+	}}
+	if got := ChatTabularGuidanceMaxTokens(ctx, outOfRange); got != 6000 {
+		t.Errorf("ChatTabularGuidanceMaxTokens out-of-range = %d, want default 6000", got)
+	}
+
+	belowMin := &fakeSiteConfigReader{values: map[string]*string{
+		"chat_tabular_guidance_max_tokens": strPtr("500"), // below min 1000
+	}}
+	if got := ChatTabularGuidanceMaxTokens(ctx, belowMin); got != 6000 {
+		t.Errorf("ChatTabularGuidanceMaxTokens below-min = %d, want default 6000", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,19 +23,23 @@ import (
 var _ confluence.ConfluenceStore = (*mockStore)(nil)
 
 type mockStore struct {
-	conn           *confluence.ConfluenceConnectionRow
-	connErr        error
-	createdConn    *confluence.ConfluenceConnectionRow
-	createConnErr  error
-	updatedConn    *confluence.ConfluenceConnectionRow
-	updateConnErr  error
-	lastConnUpdate *confluence.ConfluenceConnectionUpdate
-	deleteErr      error
-	source         *confluence.ConfluenceSourceRow
-	sources        []confluence.ConfluenceSourceRow
-	sourceErr      error
-	updatedSrc     *confluence.ConfluenceSourceRow
-	siteConfigs    map[string]*string
+	conn                *confluence.ConfluenceConnectionRow
+	connErr             error
+	createdConn         *confluence.ConfluenceConnectionRow
+	createConnErr       error
+	updatedConn         *confluence.ConfluenceConnectionRow
+	updateConnErr       error
+	lastConnUpdate      *confluence.ConfluenceConnectionUpdate
+	deleteErr           error
+	source              *confluence.ConfluenceSourceRow
+	sources             []confluence.ConfluenceSourceRow
+	sourceErr           error
+	updatedSrc          *confluence.ConfluenceSourceRow
+	siteConfigs         map[string]*string
+	lastCreatedSchedule string
+	lastUpdate          confluence.ConfluenceSourceUpdate
+	filesForSource      []confluence.ConfluenceFileRow // returned by GetFilesByConfluenceSourceID
+	events              *[]string                      // shared event-order log; nil = untracked
 }
 
 func (m *mockStore) GetConfluenceConnectionByUserID(_ context.Context, _ string) (*confluence.ConfluenceConnectionRow, error) {
@@ -55,7 +60,8 @@ func (m *mockStore) UpdateConfluenceConnection(_ context.Context, _ string, u co
 	return m.updatedConn, m.updateConnErr
 }
 
-func (m *mockStore) CreateConfluenceSource(_ context.Context, kbID, connectionID, spaceKey string, rootPageID, rootPageTitle *string, includeAttachments bool, syncInterval *int) (*confluence.ConfluenceSourceRow, error) {
+func (m *mockStore) CreateConfluenceSource(_ context.Context, kbID, connectionID, spaceKey string, rootPageID, rootPageTitle *string, includeAttachments bool, syncSchedule string) (*confluence.ConfluenceSourceRow, error) {
+	m.lastCreatedSchedule = syncSchedule
 	if m.sourceErr != nil {
 		return nil, m.sourceErr
 	}
@@ -76,14 +82,18 @@ func (m *mockStore) GetConfluenceSourceByID(_ context.Context, _ string) (*confl
 	return m.source, nil
 }
 
-func (m *mockStore) UpdateConfluenceSource(_ context.Context, _ string, _ confluence.ConfluenceSourceUpdate) (*confluence.ConfluenceSourceRow, error) {
+func (m *mockStore) UpdateConfluenceSource(_ context.Context, _ string, updates confluence.ConfluenceSourceUpdate) (*confluence.ConfluenceSourceRow, error) {
+	m.lastUpdate = updates
 	if m.sourceErr != nil {
 		return nil, m.sourceErr
 	}
 	return m.updatedSrc, nil
 }
 
-func (m *mockStore) DeleteConfluenceSource(_ context.Context, _ string) error {
+func (m *mockStore) DeleteConfluenceSource(_ context.Context, sourceID string) error {
+	if m.events != nil {
+		*m.events = append(*m.events, "delete:"+sourceID)
+	}
 	return m.deleteErr
 }
 
@@ -98,13 +108,6 @@ func (m *mockStore) GetSiteConfigValue(_ context.Context, key string) (*string, 
 	return v, nil
 }
 
-func (m *mockStore) ListActiveConfluenceSources(_ context.Context) ([]confluence.ConfluenceSourceRow, error) {
-	if m.sourceErr != nil {
-		return nil, m.sourceErr
-	}
-	return m.sources, nil
-}
-
 func (m *mockStore) GetConfluenceConnectionByID(_ context.Context, _ string) (*confluence.ConfluenceConnectionRow, error) {
 	return m.conn, m.connErr
 }
@@ -114,7 +117,23 @@ func (m *mockStore) CreateConfluenceFile(_ context.Context, _ confluence.CreateC
 }
 
 func (m *mockStore) GetFilesByConfluenceSourceID(_ context.Context, _ string) ([]confluence.ConfluenceFileRow, error) {
-	return nil, nil
+	return m.filesForSource, nil
+}
+
+// fakeTableDropper implements confluence.TableDropper, recording each call
+// (and its position in a shared event log) so tests can assert both "called
+// once per file id" and "before the source delete".
+type fakeTableDropper struct {
+	events  *[]string
+	dropped []string
+}
+
+func (d *fakeTableDropper) DropTablesForFile(_ context.Context, fileID string) error {
+	if d.events != nil {
+		*d.events = append(*d.events, "drop:"+fileID)
+	}
+	d.dropped = append(d.dropped, fileID)
+	return nil
 }
 
 func (m *mockStore) GetConfluenceSourceIDForFile(_ context.Context, _ string) (string, error) {
@@ -455,6 +474,174 @@ func TestCreateSource_MissingSpaceKey(t *testing.T) {
 	}
 }
 
+func TestCreateSource_RejectsUnknownSchedule(t *testing.T) {
+	store := &mockStore{}
+	h := confluence.NewHandler(store, testJWTSecret)
+
+	body := map[string]any{
+		"connectionId": testConnID,
+		"spaceKey":     "DEV",
+		"syncSchedule": "every6h",
+	}
+	req := withKBAccess(newRequest(http.MethodPost, "/api/kb/"+testKBID+"/confluence-sources", body), testKBID)
+	rr := httptest.NewRecorder()
+	h.CreateSource(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateSource_DefaultsToManual(t *testing.T) {
+	source := makeSource()
+	store := &mockStore{source: source}
+	h := confluence.NewHandler(store, testJWTSecret)
+
+	body := map[string]any{
+		"connectionId": testConnID,
+		"spaceKey":     "ENG",
+	}
+	req := withKBAccess(newRequest(http.MethodPost, "/api/kb/"+testKBID+"/confluence-sources", body), testKBID)
+	rr := httptest.NewRecorder()
+	h.CreateSource(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.lastCreatedSchedule != "manual" {
+		t.Fatalf("expected manual, got %q", store.lastCreatedSchedule)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: UpdateSource
+// ---------------------------------------------------------------------------
+
+func TestUpdateSource_OK(t *testing.T) {
+	source := makeSource()
+	updated := makeSource()
+	updated.SyncSchedule = "daily"
+
+	store := &mockStore{source: source, updatedSrc: updated}
+	h := confluence.NewHandler(store, testJWTSecret)
+
+	body := map[string]any{"syncSchedule": "daily"}
+	req := withKBAccess(newRequest(http.MethodPatch, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, body), testKBID)
+	rr := serveSourceID(testSourceID, h.UpdateSource, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var got confluence.ConfluenceSourceRow
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.SyncSchedule != "daily" {
+		t.Errorf("expected syncSchedule %q, got %q", "daily", got.SyncSchedule)
+	}
+}
+
+func TestUpdateSource_InvalidSyncSchedule(t *testing.T) {
+	source := makeSource()
+	store := &mockStore{source: source}
+	h := confluence.NewHandler(store, testJWTSecret)
+
+	body := map[string]any{"syncSchedule": "hourly"}
+	req := withKBAccess(newRequest(http.MethodPatch, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, body), testKBID)
+	rr := serveSourceID(testSourceID, h.UpdateSource, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestUpdateSource_ClearsNextSyncAt verifies that changing syncSchedule
+// clears next_sync_at so the sweeper re-stamps the slot on its next tick
+// instead of leaving a stale slot from the previous schedule in place. This
+// must hold for every target schedule, INCLUDING a change back to "manual" —
+// that is the case most likely to get special-cased away by a future edit,
+// since "manual" reads like "nothing to schedule" rather than "a schedule
+// change that must clear the stamp".
+func TestUpdateSource_ClearsNextSyncAt(t *testing.T) {
+	for _, schedule := range []string{"daily", "weekly", "manual"} {
+		t.Run(schedule, func(t *testing.T) {
+			source := makeSource()
+			updated := makeSource()
+			updated.SyncSchedule = schedule
+
+			store := &mockStore{source: source, updatedSrc: updated}
+			h := confluence.NewHandler(store, testJWTSecret)
+
+			body := map[string]any{"syncSchedule": schedule}
+			req := withKBAccess(newRequest(http.MethodPatch, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, body), testKBID)
+			rr := serveSourceID(testSourceID, h.UpdateSource, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+			if store.lastUpdate.NextSyncAt == nil {
+				t.Fatal("expected NextSyncAt to be set (to clear it) when syncSchedule changes")
+			}
+			if *store.lastUpdate.NextSyncAt != nil {
+				t.Fatalf("expected NextSyncAt to be cleared to NULL, got %v", **store.lastUpdate.NextSyncAt)
+			}
+		})
+	}
+}
+
+// TestUpdateSource_NoScheduleChangeLeavesNextSyncAt verifies that a PATCH
+// not touching syncSchedule does not touch next_sync_at.
+func TestUpdateSource_NoScheduleChangeLeavesNextSyncAt(t *testing.T) {
+	source := makeSource()
+	updated := makeSource()
+	updated.IncludeAttachments = true
+
+	store := &mockStore{source: source, updatedSrc: updated}
+	h := confluence.NewHandler(store, testJWTSecret)
+
+	body := map[string]any{"includeAttachments": true}
+	req := withKBAccess(newRequest(http.MethodPatch, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, body), testKBID)
+	rr := serveSourceID(testSourceID, h.UpdateSource, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.lastUpdate.NextSyncAt != nil {
+		t.Fatalf("expected NextSyncAt to stay untouched, got %v", store.lastUpdate.NextSyncAt)
+	}
+}
+
+// TestUpdateSource_ReactivatingClearsNextSyncAt verifies that resuming a
+// paused source (status -> "active", with no syncSchedule in the request
+// body) clears next_sync_at. Without this, resuming a source that was
+// paused for a week fires an immediate daytime sync on the next sweep,
+// because the week-old next_sync_at is still in the past — exactly what the
+// stamp-without-enqueue design in ListUnscheduled exists to prevent.
+func TestUpdateSource_ReactivatingClearsNextSyncAt(t *testing.T) {
+	source := makeSource()
+	source.Status = "paused"
+	updated := makeSource()
+	updated.Status = "active"
+
+	store := &mockStore{source: source, updatedSrc: updated}
+	h := confluence.NewHandler(store, testJWTSecret)
+
+	body := map[string]any{"status": "active"}
+	req := withKBAccess(newRequest(http.MethodPatch, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, body), testKBID)
+	rr := serveSourceID(testSourceID, h.UpdateSource, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.lastUpdate.NextSyncAt == nil {
+		t.Fatal("expected NextSyncAt to be set (to clear it) when re-activating")
+	}
+	if *store.lastUpdate.NextSyncAt != nil {
+		t.Fatalf("expected NextSyncAt to be cleared to NULL, got %v", **store.lastUpdate.NextSyncAt)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Tests: DeleteSource
 // ---------------------------------------------------------------------------
@@ -464,6 +651,62 @@ func TestDeleteSource_OK(t *testing.T) {
 	source := makeSource()
 	store := &mockStore{source: source}
 	h := confluence.NewHandler(store, testJWTSecret)
+
+	req := withKBAccess(
+		newRequest(http.MethodDelete, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, nil),
+		testKBID,
+	)
+	rr := serveSourceID(testSourceID, h.DeleteSource, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestDeleteSource_DropsTablesBeforeDeletingSource pins R60: DeleteSource
+// must drop every one of its files' materialised spreadsheet tables BEFORE
+// the source delete, which relies on files.confluence_source_id ON DELETE
+// CASCADE and never drops the physical tables itself.
+func TestDeleteSource_DropsTablesBeforeDeletingSource(t *testing.T) {
+	source := makeSource()
+	var events []string
+	store := &mockStore{
+		source: source,
+		filesForSource: []confluence.ConfluenceFileRow{
+			{ID: "file-1"}, {ID: "file-2"},
+		},
+		events: &events,
+	}
+	dropper := &fakeTableDropper{events: &events}
+	h := confluence.NewHandler(store, testJWTSecret)
+	h.SetTableDropper(dropper)
+
+	req := withKBAccess(
+		newRequest(http.MethodDelete, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, nil),
+		testKBID,
+	)
+	rr := serveSourceID(testSourceID, h.DeleteSource, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	wantEvents := []string{"drop:file-1", "drop:file-2", "delete:" + testSourceID}
+	if !reflect.DeepEqual(events, wantEvents) {
+		t.Errorf("event order = %v, want %v", events, wantEvents)
+	}
+}
+
+// TestDeleteSource_NilDropperIsNoop pins the nil-safety half: a deployment
+// without a main pool (or a caller that never wired one) must still delete
+// the source, unaffected.
+func TestDeleteSource_NilDropperIsNoop(t *testing.T) {
+	source := makeSource()
+	store := &mockStore{
+		source:         source,
+		filesForSource: []confluence.ConfluenceFileRow{{ID: "file-1"}},
+	}
+	h := confluence.NewHandler(store, testJWTSecret)
+	// TableDropper deliberately left nil.
 
 	req := withKBAccess(
 		newRequest(http.MethodDelete, "/api/kb/"+testKBID+"/confluence-sources/"+testSourceID, nil),

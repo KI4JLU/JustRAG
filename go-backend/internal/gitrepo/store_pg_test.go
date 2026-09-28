@@ -1,6 +1,7 @@
 package gitrepo
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -12,6 +13,56 @@ func TestNewStoreNonNil(t *testing.T) {
 	s := NewStore(nil)
 	if s == nil {
 		t.Fatal("NewStore(nil) returned nil")
+	}
+}
+
+// fakeTableDropper records each DropTablesForFile call, optionally into a
+// shared event-order log (nil = untracked) so http_test.go's DeleteSource
+// tests can additionally assert ordering against another mock's own calls.
+type fakeTableDropper struct {
+	called []string
+	events *[]string
+}
+
+func (d *fakeTableDropper) DropTablesForFile(_ context.Context, fileID string) error {
+	if d.events != nil {
+		*d.events = append(*d.events, "drop:"+fileID)
+	}
+	d.called = append(d.called, fileID)
+	return nil
+}
+
+// TestPGStoreDropTablesForNilDropperIsNoop pins the nil-safety half of the
+// Phase-3 carry directly against dropTablesFor (rather than indirectly via
+// DeleteGitRepoFileByID and a nil-pool panic, which a prior version of this
+// test relied on -- that made a removed nil check and a removed dropper
+// call both look identical from the outside, since either way the next
+// line's nil-pool Exec panics regardless). With no dropper wired,
+// dropTablesFor must return immediately without ever touching the pool, so
+// this must not panic even though s.pool is nil.
+func TestPGStoreDropTablesForNilDropperIsNoop(t *testing.T) {
+	s := NewStore(nil)
+	s.dropTablesFor(context.Background(), []string{"file-1"})
+}
+
+// TestPGStoreDropTablesForCallsOncePerID pins the positive half: with a
+// dropper wired, every id passed in gets exactly one DropTablesForFile
+// call, in order.
+func TestPGStoreDropTablesForCallsOncePerID(t *testing.T) {
+	s := NewStore(nil)
+	d := &fakeTableDropper{}
+	s.SetTableDropper(d)
+
+	s.dropTablesFor(context.Background(), []string{"file-1", "file-2"})
+
+	want := []string{"file-1", "file-2"}
+	if len(d.called) != len(want) {
+		t.Fatalf("called = %v, want %v", d.called, want)
+	}
+	for i, id := range want {
+		if d.called[i] != id {
+			t.Errorf("called[%d] = %q, want %q", i, d.called[i], id)
+		}
 	}
 }
 
@@ -116,5 +167,19 @@ func TestToGitRepoSourceRowNilPointers(t *testing.T) {
 	}
 	if got.LastCommitSHA != nil {
 		t.Errorf("LastCommitSHA: expected nil, got %v", got.LastCommitSHA)
+	}
+}
+
+func TestGitRepoStoreImplementsSweeperContract(t *testing.T) {
+	if k := NewStore(nil).Kind(); k != "git_repo" {
+		t.Fatalf("expected kind git_repo, got %q", k)
+	}
+}
+
+func TestGitRepoSourceRowCarriesSchedule(t *testing.T) {
+	next := time.Date(2026, 9, 5, 3, 0, 0, 0, time.UTC)
+	got := toGitRepoSourceRow(gitRepoSourceDBRow{ID: "g1", SyncSchedule: "daily", NextSyncAt: &next})
+	if got.SyncSchedule != "daily" || got.NextSyncAt == nil {
+		t.Fatalf("schedule fields not carried through: %+v", got)
 	}
 }

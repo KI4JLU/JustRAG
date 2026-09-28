@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/jobs"
@@ -11,25 +12,39 @@ import (
 
 // fakeStore returns canned data without touching Postgres.
 type fakeStore struct {
-	kbs       []KBBase
-	fileMap   map[string]FileStats
-	chatMap   map[string]ChatStats
-	turnStats map[string]TurnStats
-	listErr   error
-	fileErr   error
-	chatErr   error
-	turnErr   error
+	kbs          []KBBase
+	fileMap      map[string]FileStats
+	chatMap      map[string]ChatStats
+	turnStats    map[string]TurnStats
+	syncStats    map[string]SyncStats
+	ragasStats   map[string]RagasStats
+	listErr      error
+	fileErr      error
+	chatErr      error
+	turnErr      error
+	syncErr      error
+	ragasErr     error
+	gotStaleDays int
+	gotSince     time.Time
 }
 
 func (f *fakeStore) ListKBs(context.Context) ([]KBBase, error) { return f.kbs, f.listErr }
-func (f *fakeStore) FileStatsByKB(context.Context) (map[string]FileStats, error) {
+func (f *fakeStore) FileStatsByKB(_ context.Context, staleDays int) (map[string]FileStats, error) {
+	f.gotStaleDays = staleDays
 	return f.fileMap, f.fileErr
+}
+func (f *fakeStore) SyncStatsByKB(context.Context) (map[string]SyncStats, error) {
+	return f.syncStats, f.syncErr
 }
 func (f *fakeStore) ChatStatsByKB(context.Context) (map[string]ChatStats, error) {
 	return f.chatMap, f.chatErr
 }
 func (f *fakeStore) TurnStatsByKB(context.Context) (map[string]TurnStats, error) {
 	return f.turnStats, f.turnErr
+}
+func (f *fakeStore) RagasStatsByKB(_ context.Context, since time.Time) (map[string]RagasStats, error) {
+	f.gotSince = since
+	return f.ragasStats, f.ragasErr
 }
 
 // fakeInspector satisfies queueInspector.

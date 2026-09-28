@@ -6,15 +6,26 @@ export interface MessageSource {
     score: number;
     pages?: number[];
     nodeKind?: string;
+    // Freshness (Wave-3 Task 5/6): the underlying file's created_at, and — RSS
+    // origins only — its published_at. Both omitted on the wire when unset:
+    // old messages predate this enrichment, and non-RSS files have no
+    // publishedAt at all. Display publishedAt ?? createdAt.
+    createdAt?: string;
+    publishedAt?: string;
 }
 
 // CitationStatus is one entry in MessageVerification.citations — produced
-// by the deterministic n-gram validator. `n` is the 1-based citation number
-// as it appears in the answer ([3] → n=3). Discriminated union enforces
-// the backend invariant: verified=true has no reason, verified=false
-// always carries one of the stable keys "out_of_range" / "no_overlap".
+// by the deterministic n-gram validator, or (method: 'span') by the
+// Wave-3 span verifier. `n` is the 1-based citation number as it appears
+// in the answer ([3] → n=3). Discriminated union enforces the backend
+// invariant: verified=true has no reason, verified=false always carries
+// one of the stable keys "out_of_range" / "no_overlap". `span` is present
+// only for method 'span': RUNE offsets (Unicode code points, end
+// exclusive) into the corresponding `sources[n-1].content` — convert with
+// `Array.from(content)` before slicing, never `content.slice`, since JS
+// strings index UTF-16 code units.
 export type CitationStatus =
-    | { n: number; verified: true; method?: 'ngram' | 'semantic' }
+    | { n: number; verified: true; method?: 'ngram' | 'semantic' | 'span'; span?: { start: number; end: number } }
     | { n: number; verified: false; reason: 'out_of_range' | 'no_overlap' };
 
 // FlaggedClaimStatus is one entry produced by the Phase 3 §3.3
@@ -122,6 +133,12 @@ export interface TrajectoryEvent {
     // Set whenever the refine pass actually changed the answer. Use this to
     // rebuild message content — the word-level diff is newline-lossy.
     refined_text?: string;
+    // answer_degenerate_guard: the configured run limit
+    // (chat_answer_degenerate_run_limit) and the length the repeated run had
+    // reached when the guard cut the completion, both in runes. Omitted by the
+    // backend when zero, so both are optional.
+    limit?: number;
+    run_length?: number;
 }
 
 export interface TableColumn {
@@ -171,6 +188,31 @@ export interface Message {
     // In-chat document comparison findings, populated by useChatStream from
     // the `comparisonFindings` SSE event during a comparison turn.
     comparisonFindings?: ComparisonFinding[];
+    // Conflicting-sources report (Wave 5, chat_conflict_surfacing_enabled):
+    // populated live from the `conflicts` SSE frame (useChatStream, right
+    // after `sources`) and from the persisted `conflicts` column on reload
+    // (useChat.handleSelectChat). Bare array on every surface — the backend
+    // omits the key entirely when the turn's report is empty, so this stays
+    // undefined rather than an empty array in that case.
+    conflicts?: MessageConflict[];
+}
+
+// MessageConflict is one entry in Message.conflicts, produced when the
+// conflict-surfacing pass finds two cited sources disagreeing on a claim.
+// `sourceA`/`sourceB` are 1-based citation indices into the same `sources`
+// array the FE already renders (same convention as CitationStatus.n);
+// `fileA`/`fileB` are the two files' names for display. `kind` distinguishes
+// an outright contradiction from one source being superseded by a newer one;
+// `newer` names which side is more recent when known ('a' -> fileA,
+// 'b' -> fileB, 'unknown' -> not determinable).
+export interface MessageConflict {
+    claim: string;
+    sourceA: number;
+    sourceB: number;
+    kind: 'contradiction' | 'superseded';
+    newer: 'a' | 'b' | 'unknown';
+    fileA: string;
+    fileB: string;
 }
 
 export interface ComparisonFinding {
@@ -267,6 +309,9 @@ export interface KnowledgeBase {
     processingFileCount?: number;
     turnCount?: number;
     lastActivityAt?: string | null;
+    // Oldest file's effective date (Wave-3 Task 5/6), omitted when the KB has
+    // no files. Backs the Home-card freshness chip.
+    oldestFileAt?: string;
     // Caller's own role + total member count — returned by the same list
     // endpoints (Task 8). myRole is undefined for an implicit viewer with no
     // kb_members row (e.g. a published global KB nobody explicitly joined).
@@ -326,6 +371,87 @@ export interface FileEntry {
     currentStage?: string;
     stageIndex?: number;
     stageTotal?: number;
+    stageDetail?: string;
+    // Ingest prompt-injection screening verdict (migration 0072, W5-R8).
+    // Advisory only: a flagged file was ingested, chunked and is retrieved
+    // exactly like any other — the flag says the document carries
+    // instruction-shaped text, nothing more. Only files from external
+    // sources (rss/confluence/git/crawl) are ever screened; own uploads
+    // never are, so injectionFlag is always false for them.
+    injectionFlag?: boolean;
+    // Snake_case field names verbatim from the Go Finding struct's JSON
+    // tags (go-backend/internal/promptsafety/screen.go) — do not camelCase
+    // them. snippet is untrusted, document-derived text: render it as data
+    // (a tooltip), never as markup and never back into a prompt.
+    injectionDetail?: {
+        rule?: string;
+        position?: number;
+        snippet?: string;
+        screened_at?: string;
+    };
+}
+
+// Tabular file detail (Phase 4) — mirrors tabular.FileTabularDTO / TableDTO /
+// ColumnDTO (go-backend/internal/tabular/report_dto.go) as served by
+// GET /api/kb/{id}/files/{fileId}/tabular. Field names are snake_case
+// verbatim from the Go JSON tags — do not camelCase them. Optionality
+// mirrors each Go field's `omitempty` tag exactly (go-backend/internal/tabular/types.go).
+export interface TabularColumn {
+    original: string;
+    name: string;
+    type: string;
+    role?: string;
+    description?: string;
+    shadow_of?: string;
+    shadow_column?: string;
+    null_count: number;
+    distinct_count: number;
+    coercion_failed: number;
+    samples?: string[];
+    value_set?: string[];
+}
+
+export interface TabularTable {
+    sheet_index: number;
+    region_index: number;
+    sheet_name: string;
+    table_name: string;
+    sheet_kind: string;
+    hidden: boolean;
+    header_row: number; // -1 = none
+    row_count: number;
+    columns: TabularColumn[];
+}
+
+// TabularSheetReport mirrors tabular.SheetReport. Note: dropped_columns is an
+// INT COUNT, not a list (Ruling R71) — the Go field is `DroppedColumns int`.
+export interface TabularSheetReport {
+    name: string;
+    kind: string;
+    hidden: boolean;
+    header_row: number;
+    columns: number;
+    rows_read: number;
+    rows_materialised: number;
+    rows_embedded: number;
+    rows_past_cap: number;
+    formula_cells_empty: number;
+    coercion_failures: number;
+    used_llm: boolean;
+    dropped_columns: number;
+    notes?: string[];
+    tables?: string[];
+}
+
+export interface TabularParseReport {
+    version: number;
+    materialised: boolean;
+    sheets: TabularSheetReport[];
+}
+
+export interface TabularFileDetail {
+    report: TabularParseReport | null;
+    tables: TabularTable[];
 }
 
 export interface ChatEntry {
@@ -405,12 +531,19 @@ export type GeneratedContent = GeneratedContentBase & (
     | { type: 'quiz'; content: QuizItem[]; }
 );
 
+/**
+ * Automatic syncs run only inside an admin-configured night window, which is
+ * why the shared select's labels say "nachts" rather than naming a time.
+ */
+export type SyncSchedule = 'manual' | 'daily' | 'weekly';
+
 export interface RssFeed {
     id: string;
     kbId: string;
     url: string;
     title: string | null;
-    pollInterval: number;
+    syncSchedule: SyncSchedule;
+    nextSyncAt: string | null;
     status: 'active' | 'paused' | 'error';
     errorMessage: string | null;
     consecutiveFailures: number;
@@ -443,7 +576,8 @@ export interface ConfluenceSource {
     rootPageId: string | null;
     rootPageTitle: string | null;
     includeAttachments: boolean;
-    syncInterval: number | null;
+    syncSchedule: SyncSchedule;
+    nextSyncAt: string | null;
     status: 'active' | 'syncing' | 'error' | 'paused';
     errorMessage: string | null;
     consecutiveFailures: number;
@@ -461,6 +595,8 @@ export interface GitRepoSource {
     isPrivate: boolean;
     branch: string | null;
     hasToken: boolean;
+    syncSchedule: SyncSchedule;
+    nextSyncAt: string | null;
     status: 'active' | 'syncing' | 'error' | 'paused';
     errorMessage: string | null;
     consecutiveFailures: number;

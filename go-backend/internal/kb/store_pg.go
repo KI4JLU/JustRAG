@@ -2,6 +2,7 @@ package kb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/pgxutil"
 	"github.com/justrag/go-backend/internal/store"
+	"github.com/justrag/go-backend/internal/tabular"
 )
 
 // PGStore is a PostgreSQL-backed implementation of kb.Store and
@@ -90,6 +92,7 @@ const kbStatsCols = `,
        COALESCE(fs.file_count, 0)::int            AS file_count,
        COALESCE(fs.failed_file_count, 0)::int     AS failed_file_count,
        COALESCE(fs.processing_file_count, 0)::int AS processing_file_count,
+       fs.oldest_file_at                          AS oldest_file_at,
        COALESCE(us.turn_count, 0)::int            AS turn_count,
        us.last_activity_at                        AS last_activity_at`
 
@@ -97,7 +100,11 @@ const kbStatsJoins = `
        LEFT JOIN LATERAL (
            SELECT COUNT(*)                                              AS file_count,
                   COUNT(*) FILTER (WHERE status IN ('error','partial'))      AS failed_file_count,
-                  COUNT(*) FILTER (WHERE status IN ('pending','processing')) AS processing_file_count
+                  COUNT(*) FILTER (WHERE status IN ('pending','processing')) AS processing_file_count,
+                  -- Effective date, the same COALESCE the retrieval
+                  -- date-window filter uses, so "the corpus reaches back to
+                  -- X" on a card agrees with what a date-scoped search sees.
+                  MIN(COALESCE(published_at, created_at))                    AS oldest_file_at
            FROM files f WHERE f.kb_id = kb.id
        ) fs ON true
        LEFT JOIN LATERAL (
@@ -129,7 +136,7 @@ func kbMembershipCols(userIDParam string) string {
 }
 
 // kbUserFilterCols surfaces the caller's own per-user topic filters
-// (migration 0068, owned by internal/kbfilters): whether this KB is starred,
+// (migration 0075, owned by internal/kbfilters): whether this KB is starred,
 // and which of the caller's own categories it carries. Joined into the list
 // queries rather than fetched per row afterwards — the chip row filters
 // client-side off one payload, and a follow-up request per card is exactly
@@ -192,6 +199,7 @@ type kbListRow struct {
 	FileCount           int        `db:"file_count"`
 	FailedFileCount     int        `db:"failed_file_count"`
 	ProcessingFileCount int        `db:"processing_file_count"`
+	OldestFileAt        *time.Time `db:"oldest_file_at"`
 	TurnCount           int        `db:"turn_count"`
 	LastActivityAt      *time.Time `db:"last_activity_at"`
 	MyRole              *string    `db:"my_role"`
@@ -205,6 +213,7 @@ func toKBRowWithStats(r kbListRow) KBRow {
 	row.FileCount = r.FileCount
 	row.FailedFileCount = r.FailedFileCount
 	row.ProcessingFileCount = r.ProcessingFileCount
+	row.OldestFileAt = r.OldestFileAt
 	row.TurnCount = r.TurnCount
 	row.LastActivityAt = r.LastActivityAt
 	row.MyRole = r.MyRole
@@ -562,10 +571,18 @@ type fileDBRow struct {
 	CurrentStage       *string   `db:"current_stage"`
 	StageIndex         *int      `db:"stage_index"`
 	StageTotal         *int      `db:"stage_total"`
+	StageDetail        *string   `db:"stage_detail"`
 	RSSFeedID          *string   `db:"rss_feed_id"`
 	ConfluenceSourceID *string   `db:"confluence_source_id"`
 	CreatedAt          time.Time `db:"created_at"`
-	TotalCount         int       `db:"total_count"`
+	// Ingest prompt-injection screening verdict (migration 0072). The flag
+	// is NOT NULL DEFAULT false, so false covers both "screened and clean"
+	// and "never screened"; InjectionDetail is what tells them apart —
+	// NULL = never screened, {"screened_at": …} alone = screened and clean,
+	// a payload carrying "rule" = the finding behind a true flag.
+	InjectionFlag   bool            `db:"injection_flag"`
+	InjectionDetail json.RawMessage `db:"injection_detail"`
+	TotalCount      int             `db:"total_count"`
 }
 
 // ListFiles returns a paginated slice of files for kbID, ordered by created_at DESC,
@@ -576,8 +593,9 @@ type fileDBRow struct {
 func (s *PGStore) ListFiles(ctx context.Context, kbID string, limit, offset int) ([]FileRow, int, error) {
 	const listSQL = `
 		SELECT id, name, type, size, status, progress, origin,
-		       error_stage, error_message, current_stage, stage_index, stage_total,
+		       error_stage, error_message, current_stage, stage_index, stage_total, stage_detail,
 		       rss_feed_id, confluence_source_id, created_at,
+		       injection_flag, injection_detail,
 		       COUNT(*) OVER ()::int AS total_count
 		FROM files
 		WHERE kb_id = $1
@@ -618,12 +636,65 @@ func (s *PGStore) ListFiles(ctx context.Context, kbID string, limit, offset int)
 			CurrentStage:       r.CurrentStage,
 			StageIndex:         r.StageIndex,
 			StageTotal:         r.StageTotal,
+			StageDetail:        r.StageDetail,
 			RSSFeedID:          r.RSSFeedID,
 			ConfluenceSourceID: r.ConfluenceSourceID,
 			CreatedAt:          r.CreatedAt,
+			InjectionFlag:      r.InjectionFlag,
+			InjectionDetail:    r.InjectionDetail,
 		}
 	}
 	return result, rows[0].TotalCount, nil
+}
+
+// fileRefRow is an internal struct with db tags for scanning GetFileByID.
+type fileRefRow struct {
+	ID   string `db:"id"`
+	KbID string `db:"kb_id"`
+}
+
+// GetFileByID returns the (id, kb_id) of fileID, or (nil, nil) when no such
+// file exists — see the Store interface doc comment for why this mirrors
+// internal/files.PGStore.GetFileByID's not-found convention rather than
+// store.ErrNotFound.
+func (s *PGStore) GetFileByID(ctx context.Context, fileID string) (*FileRef, error) {
+	row, err := pgxutil.QueryOne[fileRefRow](ctx, s.pool,
+		`SELECT id::text, kb_id::text FROM files WHERE id = $1`, fileID)
+	if err != nil {
+		return nil, fmt.Errorf("GetFileByID: %w", err)
+	}
+	if row == nil {
+		return nil, nil
+	}
+	return &FileRef{ID: row.ID, KbID: row.KbID}, nil
+}
+
+// fileParseReportRow is an internal struct with db tags for scanning
+// GetFileParseReport.
+type fileParseReportRow struct {
+	ParseReport json.RawMessage `db:"parse_report"`
+}
+
+// GetFileParseReport returns the file's persisted spreadsheet ingest report
+// (files.parse_report), nil when that column is NULL, or store.ErrNotFound
+// when no file with that id exists.
+func (s *PGStore) GetFileParseReport(ctx context.Context, fileID string) (json.RawMessage, error) {
+	row, err := pgxutil.QueryOne[fileParseReportRow](ctx, s.pool,
+		`SELECT parse_report FROM files WHERE id = $1`, fileID)
+	if err != nil {
+		return nil, fmt.Errorf("GetFileParseReport: %w", err)
+	}
+	if row == nil {
+		return nil, fmt.Errorf("GetFileParseReport: %w", store.ErrNotFound)
+	}
+	return row.ParseReport, nil
+}
+
+// ListTabularCatalogByFile returns the tabular_catalog rows for fileID
+// (empty for a non-spreadsheet file). Delegates to tabular.Catalog, which
+// owns the join with files for the file-name column.
+func (s *PGStore) ListTabularCatalogByFile(ctx context.Context, fileID string) ([]tabular.CatalogEntry, error) {
+	return tabular.NewCatalog(s.pool).ListByFile(ctx, fileID)
 }
 
 // ---------------------------------------------------------------------------

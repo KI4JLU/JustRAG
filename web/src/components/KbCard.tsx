@@ -1,9 +1,11 @@
 import {
-  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star, Clock,
 } from 'lucide-react';
 import { ActionMenu, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
+import type { Language } from '../translations';
+import { formatRelative } from '../utils/dates';
 import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
@@ -111,7 +113,8 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
 
 // KbCardChips is the compact metadata slice on each Home KB card (improvement
 // #6): up to two scent chips (files · messages) plus a single needs-attention
-// chip (failed, else processing). Lucide icons (#2), status tokens (#1).
+// chip (failed, else processing), plus a freshness chip (Wave-3 Task 6) when
+// the KB has files with a known date. Lucide icons (#2), status tokens (#1).
 /**
  * `compact` drops `.home-view__chip-row`, whose `margin-top: var(--space-2)` is
  * stacked-card spacing: in the list ROW that margin pushes the chips below the
@@ -120,11 +123,12 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
  * unlayered one wins (`scripts/check-css-cascade.mjs` gates on that) — so the
  * compact form carries no legacy class at all.
  */
-function KbCardChips({ kb, t, compact = false }: { kb: KnowledgeBase; t: T; compact?: boolean }) {
+function KbCardChips({ kb, t, language, compact = false }: { kb: KnowledgeBase; t: T; language: Language; compact?: boolean }) {
   const processing = kb.processingFileCount ?? 0;
   const files = kb.fileCount ?? 0;
   const messages = kb.turnCount ?? 0;
-  if (files === 0 && messages === 0 && processing === 0) return null;
+  const hasFreshness = !!kb.oldestFileAt;
+  if (files === 0 && messages === 0 && processing === 0 && !hasFreshness) return null;
   return (
     <div className={compact ? 'flex shrink-0 items-center gap-stack-sm' : 'home-view__chip-row'}>
       {files > 0 && (
@@ -137,6 +141,12 @@ function KbCardChips({ kb, t, compact = false }: { kb: KnowledgeBase; t: T; comp
         <span className="home-view__chip home-view__chip--processing">
           <Loader2 size={12} className="spin" aria-hidden="true" />
           {t('kbProcessingChip').replace('{n}', String(processing))}
+        </span>
+      )}
+      {hasFreshness && (
+        <span className="home-view__chip" title={kb.oldestFileAt}>
+          <Clock size={12} aria-hidden="true" />
+          {t('kbFreshnessChip').replace('{date}', formatRelative(kb.oldestFileAt, language))}
         </span>
       )}
     </div>
@@ -247,6 +257,7 @@ export interface PrivateKbCardProps {
   removingKb: boolean;
   rtf: Intl.RelativeTimeFormat;
   t: T;
+  language: Language;
   onSelectKB: (kb: KnowledgeBase) => void;
   onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
@@ -312,7 +323,7 @@ const isControlClick = (e: React.MouseEvent) =>
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
+  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
@@ -371,7 +382,7 @@ export function PrivateKbCard({
           <span className="truncate">{nameButton}</span>
         </div>
         <div className="flex shrink-0 items-center gap-stack-sm">
-          <KbCardChips kb={kb} t={t} compact />
+          <KbCardChips kb={kb} t={t} language={language} compact />
           <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
             {lastActiveLabel(kb, rtf, t)}
           </span>
@@ -414,7 +425,7 @@ export function PrivateKbCard({
       </div>
       {/* Footer: scent chips left, the visibility badge right. */}
       <div className="home-view__card-footer">
-        <KbCardChips kb={kb} t={t} compact />
+        <KbCardChips kb={kb} t={t} language={language} compact />
         <VisibilityBadge kb={kb} t={t} />
       </div>
     </div>

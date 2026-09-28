@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/kbmembers"
 	"github.com/justrag/go-backend/internal/pgxutil"
+	"github.com/justrag/go-backend/internal/ragassamples"
 )
 
 // ErrKBNotFound is returned by TransferKBOwner when the target KB no longer
@@ -23,11 +25,12 @@ var ErrKBNotFound = errors.New("knowledge base not found")
 type PGStore struct {
 	pool    *pgxpool.Pool
 	members kbmembers.Store
+	ragas   ragassamples.Store
 }
 
 // NewStore creates a PGStore over the main pool.
 func NewStore(pool *pgxpool.Pool) *PGStore {
-	return &PGStore{pool: pool, members: kbmembers.NewStore(pool)}
+	return &PGStore{pool: pool, members: kbmembers.NewStore(pool), ragas: ragassamples.NewStore(pool)}
 }
 
 // Compile-time interface assertion.
@@ -59,20 +62,39 @@ type fileStatRow struct {
 	FailedFileCount     int     `db:"failed_file_count"`
 	ProcessingFileCount int     `db:"processing_file_count"`
 	LastFileUploadAt    *string `db:"last_file_upload_at"`
+	OldestFileAt        *string `db:"oldest_file_at"`
+	StaleFileCount      int     `db:"stale_file_count"`
+	InjectionFlagged    int     `db:"injection_flagged"`
 }
 
 // FileStatsByKB returns per-KB file aggregates keyed by kb_id (text).
-func (s *PGStore) FileStatsByKB(ctx context.Context) (map[string]FileStats, error) {
+//
+// staleDays is the caller-resolved kb_stale_days threshold (already clamped);
+// it is passed as a parameter rather than interpolated so the interval cannot
+// become an injection site, and make_interval takes it as a named argument
+// because `NOW() - $1 * INTERVAL '1 day'` needs a cast dance pgx would have to
+// guess at.
+//
+// The staleness and oldest-file columns both key on
+// COALESCE(published_at, created_at) — the same effective-date expression the
+// retrieval date-window filter uses, so "old" here means the same thing it
+// means to the search pipeline.
+func (s *PGStore) FileStatsByKB(ctx context.Context, staleDays int) (map[string]FileStats, error) {
 	const sql = `
 		SELECT kb_id::text                                                          AS kb_id,
 		       COUNT(*)::int                                                        AS file_count,
 		       COALESCE(SUM(size), 0)::bigint                                       AS total_size_bytes,
 		       COUNT(*) FILTER (WHERE status IN ('error','partial'))::int          AS failed_file_count,
 		       COUNT(*) FILTER (WHERE status IN ('pending','processing'))::int      AS processing_file_count,
-		       to_char(MAX(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_file_upload_at
+		       to_char(MAX(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_file_upload_at,
+		       to_char(MIN(COALESCE(published_at, created_at)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS oldest_file_at,
+		       COUNT(*) FILTER (
+		           WHERE COALESCE(published_at, created_at) < NOW() - make_interval(days => $1)
+		       )::int                                                               AS stale_file_count,
+		       COUNT(*) FILTER (WHERE injection_flag)::int                          AS injection_flagged
 		FROM files
 		GROUP BY kb_id`
-	rows, err := pgxutil.QueryRows[fileStatRow](ctx, s.pool, sql)
+	rows, err := pgxutil.QueryRows[fileStatRow](ctx, s.pool, sql, staleDays)
 	if err != nil {
 		return nil, err
 	}
@@ -84,9 +106,103 @@ func (s *PGStore) FileStatsByKB(ctx context.Context) (map[string]FileStats, erro
 			FailedFileCount:     r.FailedFileCount,
 			ProcessingFileCount: r.ProcessingFileCount,
 			LastFileUploadAt:    r.LastFileUploadAt,
+			OldestFileAt:        r.OldestFileAt,
+			StaleFileCount:      r.StaleFileCount,
+			InjectionFlagged:    r.InjectionFlagged,
 		}
 	}
 	return out, nil
+}
+
+// syncKindStatRow scans one per-(kb_id, kind) row. GROUP BY kb_id, kind
+// (rather than kb_id alone) is what makes the per-kind breakdown possible —
+// the aggregate in SyncStats is folded from these rows in Go rather than
+// computed by a second SQL query, so the two views can never drift apart.
+type syncKindStatRow struct {
+	KbID          string  `db:"kb_id"`
+	Kind          string  `db:"kind"`
+	LastSuccessAt *string `db:"last_success_at"`
+	LastAttemptAt *string `db:"last_attempt_at"`
+	Failing       bool    `db:"failing"`
+	SourceCount   int     `db:"source_count"`
+}
+
+// SyncStatsByKB returns per-KB source-sync stats over the three source
+// tables, both as a per-kind breakdown (W4-R9) and as the folded aggregate
+// used for the KB-wide badge. last_success_at (migration 0071) moves only on
+// a success; the last-attempt column of each table is carried alongside as
+// the display fallback for sources that have not succeeded since the column
+// landed (W3-R10). A KB with no external sources simply has no row.
+func (s *PGStore) SyncStatsByKB(ctx context.Context) (map[string]SyncStats, error) {
+	const sql = `
+		WITH src AS (
+		    SELECT kb_id, 'rss'::text AS kind, last_success_at,
+		           last_polled_at AS last_attempt_at, consecutive_failures
+		      FROM rss_feeds
+		    UNION ALL
+		    SELECT kb_id, 'confluence'::text, last_success_at,
+		           last_synced_at, consecutive_failures
+		      FROM confluence_sources
+		    UNION ALL
+		    SELECT kb_id, 'git'::text, last_success_at,
+		           last_synced_at, consecutive_failures
+		      FROM git_repo_sources
+		)
+		SELECT kb_id::text                                                          AS kb_id,
+		       kind,
+		       to_char(MAX(last_success_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_success_at,
+		       to_char(MAX(last_attempt_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS last_attempt_at,
+		       BOOL_OR(COALESCE(consecutive_failures, 0) > 0)                        AS failing,
+		       COUNT(*)::int                                                         AS source_count
+		FROM src
+		WHERE kb_id IS NOT NULL
+		GROUP BY kb_id, kind
+		ORDER BY kb_id, kind`
+	rows, err := pgxutil.QueryRows[syncKindStatRow](ctx, s.pool, sql)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]SyncStats)
+	for _, r := range rows {
+		agg := out[r.KbID]
+
+		kindStatus := SyncKindStatus{
+			Kind:        r.Kind,
+			SyncFailing: r.Failing,
+			SourceCount: r.SourceCount,
+		}
+		if r.LastSuccessAt != nil {
+			kindStatus.LastSyncAt = r.LastSuccessAt
+			kindStatus.SyncSucceeded = true
+		} else {
+			kindStatus.LastSyncAt = r.LastAttemptAt
+		}
+		agg.ByKind = append(agg.ByKind, kindStatus)
+		agg.Kinds = append(agg.Kinds, r.Kind)
+		agg.Failing = agg.Failing || r.Failing
+		agg.LastSuccessAt = laterTimestamp(agg.LastSuccessAt, r.LastSuccessAt)
+		agg.LastAttemptAt = laterTimestamp(agg.LastAttemptAt, r.LastAttemptAt)
+
+		out[r.KbID] = agg
+	}
+	return out, nil
+}
+
+// laterTimestamp returns whichever of a, b is chronologically later, treating
+// nil as "no timestamp". Both are to_char'd as fixed-width
+// 'YYYY-MM-DDTHH:MI:SSZ' UTC strings, so a plain string comparison sorts
+// them correctly without a parse.
+func laterTimestamp(a, b *string) *string {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case *b > *a:
+		return b
+	default:
+		return a
+	}
 }
 
 // chatStatRow scans the chat aggregate.
@@ -147,6 +263,29 @@ func (s *PGStore) TurnStatsByKB(ctx context.Context) (map[string]TurnStats, erro
 	out := make(map[string]TurnStats, len(rows))
 	for _, r := range rows {
 		out[r.KbID] = TurnStats{WebTurns: r.WebTurns, APITurns: r.APITurns, LastTurnAt: r.LastTurnAt}
+	}
+	return out, nil
+}
+
+// RagasStatsByKB returns each KB's RAGAS judge-score aggregate for the window
+// starting at since, keyed by kb_id (text).
+//
+// Deliberately delegates to ragassamples.Store.DailyStats (Task 1) rather
+// than writing a second aggregate query against ragas_samples: the two
+// packages must never be able to compute this number two different ways.
+func (s *PGStore) RagasStatsByKB(ctx context.Context, since time.Time) (map[string]RagasStats, error) {
+	daily, err := s.ragas.DailyStats(ctx, since)
+	if err != nil {
+		return nil, fmt.Errorf("RagasStatsByKB: %w", err)
+	}
+	out := make(map[string]RagasStats, len(daily))
+	for kbID, st := range daily {
+		out[kbID] = RagasStats{
+			N24h:             st.N,
+			Faithfulness:     st.Faithfulness,
+			AnswerRelevance:  st.AnswerRelevance,
+			ContextPrecision: st.ContextPrecision,
+		}
 	}
 	return out, nil
 }

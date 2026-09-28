@@ -2,24 +2,98 @@ package eval
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 )
 
 // ParseGoldenSetContent decodes the JSONB content of an eval_golden_sets row
-// into a slice of Questions. Applies the same validation as LoadGoldenSet.
-// Returns an error with a 1-based index into the array when any question fails
-// validation.
+// into a slice of Questions. Accepts either a JSON array (the original
+// shape) or JSONL with '#' comment / blank lines (the shape a file upload
+// carries), sharing ParseGoldenSetJSONL's line parser (W6-R3): the first
+// non-whitespace byte of raw decides which — '[' means array, anything else
+// (including a bare '{' object row) is parsed as JSONL. Applies the same
+// validation as LoadGoldenSet. Returns an error with a 1-based index into
+// the array when any question fails validation on the array path, or a
+// 1-based line number on the JSONL path.
+//
+// Array path: unchanged in behaviour and error wording from before JSONL
+// support existed — validateContentQuestions still walks the array once,
+// per index in document order, checking turns then validation then
+// duplicate id for that row before moving to the next, so an earlier row's
+// validation error always wins over a later row's turns error, exactly as
+// the original single loop did.
+//
+// Multi-turn rows (turns) are rejected on both shapes: ExpandTurns — the
+// only code that replays a conversation row into per-turn Questions with
+// History — is called exclusively by cmd/eval (see cmd/eval/main.go). The
+// DB/admin path this function backs (runner_inproc.go, the admin eval
+// handlers) never calls ExpandTurns, so a turns row saved through the admin
+// UI would otherwise run silently as an empty top-level question instead of
+// the authored conversation. ParseGoldenSetJSONL itself (the file-upload
+// path cmd/eval reads through directly) keeps accepting turns rows; the
+// rejection here is specific to this function.
 func ParseGoldenSetContent(raw json.RawMessage) ([]Question, error) {
-	var qs []Question
-	if err := json.Unmarshal(raw, &qs); err != nil {
+	trimmed := bytes.TrimLeft(raw, " \t\r\n")
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var qs []Question
+		if err := json.Unmarshal(trimmed, &qs); err != nil {
+			return nil, fmt.Errorf("parse golden set content: %w", err)
+		}
+		return validateContentQuestions(qs)
+	}
+
+	// JSONL (the shape a file upload carries): '#' / blank lines skipped by
+	// the shared line parser, exactly as LoadGoldenSet does for cmd/eval.
+	// ParseGoldenSetJSONL already validates + de-dups per line as it scans
+	// (accepting turns rows, per its own doc comment), so once it returns a
+	// full list every row still needs the turns rejection this function
+	// adds — applied per row, in document order, via the same single-row
+	// check the array path uses.
+	qs, err := ParseGoldenSetJSONL(bytes.NewReader(raw))
+	if err != nil {
 		return nil, fmt.Errorf("parse golden set content: %w", err)
 	}
+	if len(qs) == 0 {
+		return nil, errors.New("parse golden set content: no questions found (neither a JSON array nor JSONL rows)")
+	}
+	for _, q := range qs {
+		if err := rejectTurnsRow(q); err != nil {
+			return nil, err
+		}
+	}
+	return qs, nil
+}
+
+// rejectTurnsRow errors when q carries turns — see the ParseGoldenSetContent
+// doc comment for why this function (unlike ParseGoldenSetJSONL/
+// LoadGoldenSet) refuses conversation rows outright. Shared, single-row
+// check so both the array-path loop and the JSONL-path loop produce the
+// identical message.
+func rejectTurnsRow(q Question) error {
+	if len(q.Turns) > 0 {
+		return fmt.Errorf("question %q: multi-turn rows (turns) are supported only by cmd/eval; the in-app eval runner cannot replay conversations", q.ID)
+	}
+	return nil
+}
+
+// validateContentQuestions re-validates and de-duplicates an array parsed
+// from the JSON-array shape. Reproduces the original (pre-JSONL-support)
+// single loop exactly: per index, in document order, turns-check then
+// validate then duplicate-id-check for that row, returning on the first
+// failure at that index — so an earlier row's validation error always takes
+// priority over a later row's turns error.
+func validateContentQuestions(qs []Question) ([]Question, error) {
 	seen := make(map[string]int, len(qs))
 	for i, q := range qs {
+		if err := rejectTurnsRow(q); err != nil {
+			return nil, err
+		}
 		if err := validateQuestion(q); err != nil {
 			return nil, fmt.Errorf("validate question %d: %w", i+1, err)
 		}
@@ -84,6 +158,17 @@ func validateQuestion(q Question) error {
 	if q.ID == "" {
 		return fmt.Errorf("missing id")
 	}
+	if len(q.Turns) > 0 {
+		// Conversation row: ground truth lives per turn, so the
+		// top-level question/must_cite fields are not required here.
+		if q.KbID == "" {
+			return fmt.Errorf("missing kb_id")
+		}
+		if q.Language != "de" && q.Language != "en" {
+			return fmt.Errorf("language must be 'de' or 'en', got %q", q.Language)
+		}
+		return validateTurns(q)
+	}
 	if q.Question == "" {
 		return fmt.Errorf("missing question")
 	}
@@ -106,11 +191,8 @@ func validateQuestion(q Question) error {
 			return fmt.Errorf("must_cite_file_names[%d] is empty", i)
 		}
 	}
-	switch q.QueryType {
-	case "", "lookup", "enumeration", "global_synthesis", "complex_reasoning":
-		// accepted
-	default:
-		return fmt.Errorf("query_type must be one of lookup|enumeration|global_synthesis|complex_reasoning, got %q", q.QueryType)
+	if err := validateQueryType(q.QueryType); err != nil {
+		return err
 	}
 	// AP-A4 ExpectedKBIDs: optional. When present every entry must be
 	// non-empty; KbID need not appear in the list (a multi-KB question
@@ -120,5 +202,34 @@ func validateQuestion(q Question) error {
 			return fmt.Errorf("expected_kb_ids[%d] is empty", i)
 		}
 	}
+	// R75 TabularExpected: optional *bool, nothing to validate — absent,
+	// true, and false are all accepted values.
+	// W4-R5 ExpectedPoints: optional; when present each point must be
+	// non-empty after trimming, at most 300 runes, and at most 12 points
+	// total (the coverage judge sends every point in one call, and a
+	// runaway list would inflate its prompt without adding signal).
+	if len(q.ExpectedPoints) > 12 {
+		return fmt.Errorf("expected_points: at most 12 points allowed, got %d", len(q.ExpectedPoints))
+	}
+	for i, p := range q.ExpectedPoints {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			return fmt.Errorf("expected_points[%d] is empty", i)
+		}
+		if utf8.RuneCountInString(trimmed) > 300 {
+			return fmt.Errorf("expected_points[%d] exceeds 300 runes", i)
+		}
+	}
 	return nil
+}
+
+// validateQueryType checks the shared query_type enum used both at the
+// top-level Question and per Turn.
+func validateQueryType(qt string) error {
+	switch qt {
+	case "", "lookup", "enumeration", "global_synthesis", "complex_reasoning":
+		return nil
+	default:
+		return fmt.Errorf("query_type must be one of lookup|enumeration|global_synthesis|complex_reasoning, got %q", qt)
+	}
 }

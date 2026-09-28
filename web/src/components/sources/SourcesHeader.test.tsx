@@ -50,3 +50,45 @@ describe('SourcesHeader', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
+
+// Wave-5 Task 6 (moved here from SourcesSection with the header): the count of
+// flagged external-origin files. rss/confluence/git files are folded into their
+// feed/source rows and have no own row, so without this count the badge would be
+// invisible for three of the four screened origins.
+describe('SourcesHeader injection screening summary', () => {
+  it('counts flagged rss files even though they have no own row', () => {
+    files = [
+      makeFile({ id: 'r1', origin: 'rss', rssFeedId: 'feed-1', injectionFlag: true }),
+      makeFile({ id: 'r2', origin: 'rss', rssFeedId: 'feed-1', injectionFlag: true }),
+      makeFile({ id: 'r3', origin: 'rss', rssFeedId: 'feed-1' }),
+    ];
+    render(<SourcesHeader />);
+    expect(screen.getByLabelText('fileInjectionFlagged (2)')).toBeInTheDocument();
+    // Nothing failed, so the retry button stays away.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('renders no summary when nothing is flagged', () => {
+    files = [makeFile({})];
+    render(<SourcesHeader />);
+    expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
+  });
+
+  // A flagged upload can only be a leftover from before an origin change (the
+  // screen never runs on uploads); it keeps its own row badge in the list, and
+  // counting it here too would double-report it.
+  it('excludes upload-origin files from the count', () => {
+    files = [
+      makeFile({ id: 'u1', origin: 'upload', injectionFlag: true }),
+      makeFile({ id: 'c1', name: 'page.html', origin: 'crawl', injectionFlag: true }),
+    ];
+    render(<SourcesHeader />);
+    expect(screen.getByLabelText('fileInjectionFlagged (1)')).toBeInTheDocument();
+  });
+
+  it('renders no summary when only an upload is flagged', () => {
+    files = [makeFile({ origin: 'upload', injectionFlag: true })];
+    render(<SourcesHeader />);
+    expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
+  });
+});

@@ -70,7 +70,7 @@ const SECTION_IDS = [
     'general', 'hybrid', 'reranker', 'topn', 'compression', 'queryEnh', 'crag',
     'graph', 'multistep', 'conversation', 'corpusTable', 'compare', 'teams',
     'longmem', 'validation', 'ingestion', 'observability', 'tools', 'tabular',
-    'dateAware',
+    'dateAware', 'syncWindow', 'evalSchedule',
 ];
 
 /**
@@ -161,17 +161,24 @@ describe('AdminAgentTab — control census', () => {
         // The migration must preserve that count exactly: a checkbox silently
         // dropped, or a row duplicated, changes these numbers. They come from
         // a different artifact (the old file) than the code under test.
+        //
+        // RE-CENSUSED at the upstream merge (Lutzi92/JustRAG 8865c0cf), with the
+        // same grep over UPSTREAM's still-raw AdminAgentTab.tsx: 60 checkbox,
+        // 92 number, 18 text (17 rows + the filter field), 5 <select>,
+        // 3 <textarea> — the Wave 3–7 settings, minus the removed
+        // bm25_tiered_boost / tabular_semantic_* rows.
         const { container } = renderTab();
 
         // Radix Checkbox renders role="checkbox" on a <button>, plus a hidden
         // bubble <input> for native form submission — count the ARIA role.
-        expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(56);
+        expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(60);
 
         // Radix Select's trigger is role="combobox".
-        expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(2);
+        expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(5);
 
-        expect(container.querySelectorAll('input[type="number"]')).toHaveLength(72);
-        expect(container.querySelectorAll('input[type="text"]')).toHaveLength(14);
+        expect(container.querySelectorAll('input[type="number"]')).toHaveLength(92);
+        expect(container.querySelectorAll('input[type="text"]')).toHaveLength(18);
+        expect(container.querySelectorAll('textarea')).toHaveLength(3);
     });
 
     it('keeps every raw <button> out of the tab except the DS ones', () => {
@@ -247,7 +254,10 @@ describe('AdminAgentTab — bindings survive the migration', () => {
         expect(latest().default_top_k).toBe('12');
         expect(typeof latest().default_top_k).toBe('string');
         expect(screen.getByLabelText(tMock('defaultTopK'))).toHaveValue(12);
-    });
+        // Two getByLabelText scans over every section expanded (~180 controls
+        // since the upstream Wave 3–7 settings) run past the 5s default when
+        // the full suite loads the machine; alone it takes well under a second.
+    }, 15000);
 
     it('keeps the min/max/step validation attributes on the control', () => {
         // ORACLE: the pre-migration source, which set min="1" max="50" on this
@@ -413,14 +423,16 @@ describe('AdminAgentTab — submit', () => {
         const { container } = renderTab();
 
         const numbers = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-        expect(numbers).toHaveLength(72); // same census as the control-census test above
+        expect(numbers).toHaveLength(92); // same census as the control-census test above
 
         const withDefault = numbers.filter(i => i.getAttribute('value') !== '');
-        // 60 of the 72 rows ship a default; the other 12 default to '' (the four
+        // 80 of the 92 rows ship a default (60 before the upstream merge, -2
+        // removed tabular_semantic_* rows, +22 new rows that all carry one in
+        // upstream's source); the other 12 default to '' (the four
         // rerank_blend_alpha_* overrides, the three top_n_* overrides, the four
         // query_cache_similarity_threshold* rows and query_cache_ttl_hours),
         // and an empty value is exempt from range/step validation by the spec.
-        expect(withDefault).toHaveLength(60);
+        expect(withDefault).toHaveLength(80);
 
         const offenders = withDefault
             .filter(input => {

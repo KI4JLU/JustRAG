@@ -57,6 +57,23 @@ const (
 // without raising the budget just wastes the wider DB query.
 const LongContextTopK = 200
 
+// longContextLimit resolves the top-k cap Search() applies when
+// LongContextMode is on: override (from SearchOptions.LongContextTopK, set
+// by the chat layer from chat_longcontext_top_k) when positive, else the
+// LongContextTopK constant — and never below the caller's own limit (a
+// smaller override than what the caller already asked for is a no-op, not
+// a narrowing). Pure function, unit-tested directly.
+func longContextLimit(limit, override int) int {
+	wide := LongContextTopK
+	if override > 0 {
+		wide = override
+	}
+	if wide > limit {
+		return wide
+	}
+	return limit
+}
+
 type SearchOptions struct {
 	Enhance    string            // "rewrite", "expand", "spell", or ""
 	Filters    map[string]string // metadata filters (currently reserved for future use)
@@ -104,6 +121,17 @@ type SearchOptions struct {
 	// Each sub-query incurs one embedding call + one ANN search.
 	SubQueries []string
 
+	// RawQuery is the user's verbatim last-turn utterance when the chat
+	// layer condensed a follow-up into a standalone question (CondenseFollowUp)
+	// and chat_condense_keep_raw_enabled is on. It is searched as ONE extra
+	// list on BOTH arms (vector + BM25, regardless of rag_fusion_enabled):
+	// the rewrite resolves references, the raw turn preserves the exact
+	// surface tokens the user typed, which is what the keyword arm needs
+	// (SemEval-2026 Task 8 / MTRAG finding). Skipped when empty or when it
+	// equals the final query after trimming — a single-turn question costs
+	// nothing extra. Never set by users.
+	RawQuery string
+
 	// GraphChunkIDs is a caller-supplied list of chunk IDs the AP-C4
 	// graph router resolved from the KB's knowledge graph
 	// (kg.Store.LookupSubgraph). When non-empty, the search service
@@ -146,8 +174,9 @@ type SearchOptions struct {
 	NodeKindFilter string
 
 	// LongContextMode is the T2-1 System-2 routing signal. When
-	// true, Search() raises top-k to LongContextTopK (or the
-	// admin-configured `chat_longcontext_top_k`), skips MMR, skips
+	// true, Search() raises top-k to LongContextTopK (or
+	// SearchOptions.LongContextTopK when set from
+	// `chat_longcontext_top_k`), skips MMR, skips
 	// score-drop filtering, and skips parent-child swap — every
 	// operation whose purpose is to narrow the candidate pool. The
 	// resulting wide chunk pool is what enables a long-context
@@ -159,6 +188,21 @@ type SearchOptions struct {
 	// from normal-mode is NOT poisoned by long-context shape and
 	// vice-versa (the shape hash differs).
 	LongContextMode bool
+
+	// LongContextTopK overrides the LongContextTopK constant (200) when
+	// LongContextMode is on. 0 = the constant. Set by the chat layer from
+	// chat_longcontext_top_k.
+	LongContextTopK int
+
+	// ForceBM25SimpleArm forces the prototype-A "simple" keyword arm on for
+	// this request even when the deployment-wide `bm25_simple_arm_enabled`
+	// site_config is off. Set by the chat layer's tabular router for KBs
+	// that have ingested spreadsheet data: cell values are short, literal
+	// and unstemmable ("01.1440.055_.10", "0002001919"), which is exactly
+	// the regime where the simple arm out-recalls the tiered one. Never set
+	// by users. The flag participates in the query-cache shape hash — it
+	// selects a different candidate pool.
+	ForceBM25SimpleArm bool
 
 	// CreatedAfter / CreatedBefore bound the retrieval pool to documents
 	// whose effective date (files.created_at in phase 1) falls within the
@@ -359,6 +403,14 @@ type SearchService struct {
 	kbLangSF       singleflight.Group
 
 	feedback FeedbackReader // nil when the feedback loop is unwired/disabled
+
+	// bm25AvailCache memoises bm25ArmAvailability() verdicts (both arms)
+	// for bm25StatsCacheTTL. Defined in bm25_stats.go; declared here so
+	// the struct stays the canonical "things SearchService owns" view
+	// (same convention as kbTableCache above). Consulted by Search() and
+	// the KeywordSearch MCP tool, via bm25ModeDecision, to decide the
+	// per-query bm25→ts_rank fallback.
+	bm25AvailCache sync.Map
 }
 
 const (
@@ -441,7 +493,8 @@ func (s *SearchService) CloneWithSiteConfigReader(r SiteConfigReader) *SearchSer
 		// clone path (nil reader = boost off, fail-open).
 		feedback: s.feedback,
 		// rerankDefaultNoticeOnce, kbTableCache, siteConfigCache, siteConfigSF,
-		// kbLangCachePtr, kbLangSF: zero values — fresh, independent caches.
+		// kbLangCachePtr, kbLangSF, bm25AvailCache: zero values — fresh,
+		// independent caches.
 		// NOTE for future fields: every new dependency field must be copied
 		// here explicitly or per-KB-override KBs silently lose it.
 	}
@@ -622,30 +675,21 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 	if limit <= 0 {
 		limit = EffectiveTopN(siteCfg, opts.QueryType)
 	}
-	// T2-1: Long-context mode raises the cap to LongContextTopK so
-	// the wide pool reaches the chat-layer's token-budget cut. The
-	// chat layer is responsible for the token budget (not the
-	// chunk-count cap) — this number just guarantees Search hands
-	// it enough chunks to fill that budget.
-	if opts.LongContextMode && LongContextTopK > limit {
-		limit = LongContextTopK
+	// T2-1: Long-context mode raises the cap to LongContextTopK (or the
+	// caller-supplied SearchOptions.LongContextTopK override, resolved by
+	// the chat layer from chat_longcontext_top_k) so the wide pool reaches
+	// the chat-layer's token-budget cut. The chat layer is responsible for
+	// the token budget (not the chunk-count cap) — this number just
+	// guarantees Search hands it enough chunks to fill that budget.
+	if opts.LongContextMode {
+		limit = longContextLimit(limit, opts.LongContextTopK)
 	}
 
 	// searchLimit fetches more candidates than the caller wants so that RRF,
 	// reranking, dedup, and filtering have enough material to work with.
-	// When a reranker is active, fetch more (4x, min 50) to give it better material.
-	var searchLimit int
-	if cfg.RerankModel != "" {
-		searchLimit = limit * 4
-		if searchLimit < 50 {
-			searchLimit = 50
-		}
-	} else {
-		searchLimit = limit * 2
-		if searchLimit < 30 {
-			searchLimit = 30
-		}
-	}
+	// Pre-rerank candidate depth: knob (rerank_candidate_depth*) or the
+	// legacy max(4×k,50) / max(2×k,30). See EffectiveRerankDepth.
+	searchLimit := EffectiveRerankDepth(siteCfg, opts.QueryType, limit, cfg.RerankModel != "")
 
 	// ------------------------------------------------------------------
 	// 0. Semantic query cache lookup (Feature 3 — see query_cache.go)
@@ -753,14 +797,22 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 	}
 	timer.Mark("embed")
 
+	// The keyword-arm decision (simple arm + BM25 scoring mode, including
+	// its stats-availability fallback) is made exactly once per search
+	// and reused by every BM25 fan-out below (primary, multi-query,
+	// step-back, sub-queries) so the request can never run a mixed set
+	// of arms or scoring modes. Extracted to resolveKeywordArm to keep
+	// Search's own statement count down (funlen).
+	simpleArm := effectiveSimpleArm(ctx, siteCfg.BM25SimpleArmEnabled, opts.ForceBM25SimpleArm)
+	keywordArm := s.resolveKeywordArm(ctx, siteCfg, kbID, dimensions, simpleArm)
+
 	// ------------------------------------------------------------------
 	// 5 & 6. Vector + keyword search
 	// ------------------------------------------------------------------
 	vectorResults, keywordResults, err := s.runPrimarySearches(
 		ctx, tableName, embeddingStr, finalQuery, kbID, pgConfig,
 		opts.FileIDs, searchLimit, dimensions, useHalfvec, siteCfg.HNSWEfSearch,
-		siteCfg.MRLTwoPass, embeddingLowStr, siteCfg.BM25SimpleArmEnabled,
-		siteCfg.BM25TieredBoost, opts.NodeKindFilter,
+		siteCfg.MRLTwoPass, embeddingLowStr, keywordArm, opts.NodeKindFilter,
 	)
 	if err != nil {
 		return nil, err
@@ -809,6 +861,7 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 		"vector_docs", len(vectorResults), "vector_files", countFilesRaw(vectorResults),
 		"keyword_docs", len(keywordResults), "keyword_files", countFilesRaw(keywordResults),
 		"top_n_route", routeLabelFor(opts.QueryType),
+		"keyword_mode", string(keywordArm.Mode),
 	)
 
 	// ------------------------------------------------------------------
@@ -833,7 +886,7 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 			)
 			if siteCfg.RAGFusionEnabled {
 				bm25Lists := s.runMultiQueryBM25Searches(
-					ctx, tableName, altQueries, kbID, pgConfig, opts.FileIDs, searchLimit, siteCfg.BM25SimpleArmEnabled, siteCfg.BM25TieredBoost,
+					ctx, tableName, altQueries, kbID, pgConfig, opts.FileIDs, searchLimit, keywordArm,
 				)
 				keywordExtraLists = append(keywordExtraLists, bm25Lists...)
 			}
@@ -876,7 +929,7 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 			stageLog = append(stageLog, "stepback_lists", len(sbLists))
 			if siteCfg.RAGFusionEnabled {
 				sbBM25 := s.runMultiQueryBM25Searches(
-					ctx, tableName, []string{stepBackQuery}, kbID, pgConfig, opts.FileIDs, searchLimit, siteCfg.BM25SimpleArmEnabled, siteCfg.BM25TieredBoost,
+					ctx, tableName, []string{stepBackQuery}, kbID, pgConfig, opts.FileIDs, searchLimit, keywordArm,
 				)
 				keywordExtraLists = append(keywordExtraLists, sbBM25...)
 			}
@@ -904,12 +957,31 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 		)
 		if siteCfg.RAGFusionEnabled {
 			subBM25 := s.runMultiQueryBM25Searches(
-				ctx, tableName, opts.SubQueries, kbID, pgConfig, opts.FileIDs, searchLimit, siteCfg.BM25SimpleArmEnabled, siteCfg.BM25TieredBoost,
+				ctx, tableName, opts.SubQueries, kbID, pgConfig, opts.FileIDs, searchLimit, keywordArm,
 			)
 			keywordExtraLists = append(keywordExtraLists, subBM25...)
 		}
 	}
 	timer.Mark("sub_queries")
+
+	// ------------------------------------------------------------------
+	// 7c'. Raw last-turn utterance alongside the condensed rewrite.
+	// ------------------------------------------------------------------
+	if raw := effectiveRawQuery(opts.RawQuery, finalQuery); raw != "" {
+		rawVec := s.runMultiQuerySearches(
+			ctx, tableName, []string{raw}, kbID, siteCfg.QueryInstruction,
+			opts.FileIDs, searchLimit, dimensions, useHalfvec, siteCfg.HNSWEfSearch,
+			siteCfg.MRLTwoPass,
+		)
+		extraLists = append(extraLists, rawVec...)
+		rawBM25 := s.runMultiQueryBM25Searches(
+			ctx, tableName, []string{raw}, kbID, pgConfig, opts.FileIDs, searchLimit, keywordArm,
+		)
+		keywordExtraLists = append(keywordExtraLists, rawBM25...)
+		stageLog = append(stageLog, "raw_query_lists", len(rawVec)+len(rawBM25))
+		observability.RecordRawQueryList("added")
+	}
+	timer.Mark("raw_query")
 
 	// ------------------------------------------------------------------
 	// 7d. AP-C4 graph-router chunk injection
@@ -1227,7 +1299,7 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 	stageLog = append(stageLog,
 		"final_docs", len(fused), "final_files", countFilesRanked(fused),
 		"final_with_prefix", prefixCount,
-		"limit", limit, "search_limit", searchLimit,
+		"limit", limit, "search_limit", searchLimit, "rerank_depth", searchLimit,
 		"mmr_lambda", siteCfg.MMRLambda, "rerank_used", useReranker,
 		"rerank_blend_alpha_global", siteCfg.RerankBlendAlpha,
 		"min_sim_threshold", siteCfg.MinSimilarityThreshold,
@@ -1354,6 +1426,48 @@ func (s *SearchService) Search(ctx context.Context, kbID, query string, limit in
 	return result, nil
 }
 
+// effectiveSimpleArm is the single decision point for the BM25 keyword arm.
+// cfg is the deployment-wide `bm25_simple_arm_enabled` site_config; force is
+// the per-request override (SearchOptions.ForceBM25SimpleArm, set by the chat
+// layer's tabular router for KBs with ingested spreadsheet data). Every BM25
+// fan-out in one search reads the result of this one call, so a request can
+// never mix arms. The override is logged once per search when it actually
+// flips the decision — an operator reading `bm25_simple_arm_enabled = false`
+// must be able to see why the simple arm ran anyway.
+func effectiveSimpleArm(ctx context.Context, cfg, force bool) bool {
+	if force && !cfg {
+		logctx.From(ctx).Info("bm25 simple arm forced on for a KB with tabular data")
+	}
+	return cfg || force
+}
+
+// resolveKeywordArm resolves the BM25 scoring mode (including its
+// stats-availability fallback, per bm25ModeDecision) exactly once per
+// search and bundles it with the already-resolved simpleArm/k1/b
+// settings into the keywordArmSettings every downstream keyword-arm
+// fan-out (runPrimarySearches, runMultiQueryBM25Searches) reuses unchanged.
+// Records both keyword-arm-mode metrics. Extracted out of Search itself
+// purely to keep that function's statement count under the funlen limit.
+func (s *SearchService) resolveKeywordArm(ctx context.Context, siteCfg KBVectorConfig, kbID string, dimensions int, simpleArm bool) keywordArmSettings {
+	keywordMode := siteCfg.BM25ScoringMode
+	if keywordMode == KeywordScoringBM25 {
+		langAvailable, simpleAvailable := s.bm25ArmAvailability(ctx, kbID, dimensions)
+		var fallbackReason string
+		keywordMode, fallbackReason = bm25ModeDecision(keywordMode, simpleArm, langAvailable, simpleAvailable)
+		if fallbackReason != "" {
+			observability.RecordBM25ModeFallback(fallbackReason)
+		}
+	}
+	observability.RecordKeywordArmMode(string(keywordMode))
+	return keywordArmSettings{
+		SimpleArm: simpleArm,
+		Mode:      keywordMode,
+		Dim:       dimensions,
+		K1:        siteCfg.BM25K1,
+		B:         siteCfg.BM25B,
+	}
+}
+
 // ---------------------------------------------------------------------------
 // runPrimarySearches — vector + keyword in parallel
 // ---------------------------------------------------------------------------
@@ -1367,7 +1481,7 @@ func (s *SearchService) runPrimarySearches(
 	efSearch int,
 	mrlTwoPass bool,
 	embeddingLowJSON string,
-	bm25SimpleArm, bm25TieredBoost bool,
+	arm keywordArmSettings,
 	nodeKindFilter string,
 ) (vector []rawRow, keyword []rawRow, err error) {
 	// Each goroutine below writes exactly one of these (vectorRows vs
@@ -1391,7 +1505,7 @@ func (s *SearchService) runPrimarySearches(
 	g.Go(func() (gErr error) {
 		defer safego.RecoverError(&gErr)
 		rows, kErr := s.runKeywordSearch(
-			gCtx, tableName, query, kbID, pgConfig, fileIDs, limit, bm25SimpleArm, bm25TieredBoost, nodeKindFilter,
+			gCtx, tableName, query, kbID, pgConfig, fileIDs, limit, arm, nodeKindFilter,
 		)
 		if kErr != nil {
 			// Non-fatal: leave keywordRows nil, do not propagate. Surface the
@@ -1527,7 +1641,7 @@ func (s *SearchService) runMultiQueryBM25Searches(
 	kbID, pgConfig string,
 	fileIDs []string,
 	limit int,
-	simpleArm, tieredBoost bool,
+	arm keywordArmSettings,
 ) [][]RankedDoc {
 	type result struct {
 		docs []RankedDoc
@@ -1549,7 +1663,7 @@ func (s *SearchService) runMultiQueryBM25Searches(
 				return
 			}
 			defer func() { <-sem }()
-			rows, err := s.runKeywordSearch(ctx, tableName, q, kbID, pgConfig, fileIDs, limit, simpleArm, tieredBoost, "")
+			rows, err := s.runKeywordSearch(ctx, tableName, q, kbID, pgConfig, fileIDs, limit, arm, "")
 			if err != nil {
 				observability.RecordKeywordSearchFailed("multi_query")
 				logctx.From(ctx).Warn("multi-query bm25: keyword search failed", "alt_query", q, "error", err)

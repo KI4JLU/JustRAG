@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -164,6 +165,13 @@ type mockGoldenSetStore struct {
 	// Delete
 	deleteDeleted bool
 	deleteErr     error
+
+	// SetSchedule
+	setScheduleID     uuid.UUID
+	setScheduleValue  string
+	setScheduleOK     bool
+	setScheduleErr    error
+	setScheduleCalled bool
 }
 
 func (m *mockGoldenSetStore) Create(_ context.Context, _ eval.GoldenSet) (uuid.UUID, time.Time, error) {
@@ -184,6 +192,13 @@ func (m *mockGoldenSetStore) Delete(_ context.Context, _ uuid.UUID) (bool, error
 
 func (m *mockGoldenSetStore) ListByKB(_ context.Context, _ uuid.UUID) ([]eval.GoldenSet, error) {
 	return m.listSets, m.listErr
+}
+
+func (m *mockGoldenSetStore) SetSchedule(_ context.Context, id uuid.UUID, schedule string) (bool, error) {
+	m.setScheduleCalled = true
+	m.setScheduleID = id
+	m.setScheduleValue = schedule
+	return m.setScheduleOK, m.setScheduleErr
 }
 
 // ---------------------------------------------------------------------------
@@ -291,16 +306,22 @@ func TestCreateRun_Valid_201(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // fakeTeamLoader is a minimal eval.TeamLoaderForEval fake: err (if set) is
-// returned from LoadTeamForChat; otherwise a stub team loads successfully.
+// returned from LoadTeamForChat; otherwise a stub team loads successfully,
+// carrying name (defaulting to "Sec-Team" when unset for existing callers).
 type fakeTeamLoader struct {
-	err error
+	err  error
+	name string
 }
 
 func (f *fakeTeamLoader) LoadTeamForChat(_ context.Context, _, _ string) (*agentteams.TeamForChat, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &agentteams.TeamForChat{Team: agentteams.TeamRecord{ID: "team-1", Name: "Sec-Team"}}, nil
+	name := f.name
+	if name == "" {
+		name = "Sec-Team"
+	}
+	return &agentteams.TeamForChat{Team: agentteams.TeamRecord{ID: "team-1", Name: name}}, nil
 }
 
 var testTeamID = uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
@@ -706,6 +727,128 @@ func TestListRuns_KBIDFilter(t *testing.T) {
 	}
 	if *store.listOpts.KBID != filterKBID {
 		t.Errorf("store called with KBID=%s, want %s", *store.listOpts.KBID, filterKBID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// W7-R4: server-side sort/order query params for ListRuns.
+// ---------------------------------------------------------------------------
+
+// TestListRuns_SortOrder_ForwardsValidValues verifies sort=recall&order=asc
+// is parsed and forwarded to the store's ListOpts verbatim.
+func TestListRuns_SortOrder_ForwardsValidValues(t *testing.T) {
+	store := &mockRunStore{listRuns: []eval.Run{}, listTotal: 0}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs?sort=recall&order=asc", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.listOpts.Sort != "recall" || store.listOpts.Order != "asc" {
+		t.Errorf("store called with Sort=%q Order=%q, want recall/asc", store.listOpts.Sort, store.listOpts.Order)
+	}
+}
+
+// TestListRuns_SortOrder_Unspecified verifies that omitting sort/order
+// forwards empty strings (the store's own created_at DESC default applies),
+// not some handler-invented default value.
+func TestListRuns_SortOrder_Unspecified(t *testing.T) {
+	store := &mockRunStore{listRuns: []eval.Run{}, listTotal: 0}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.listOpts.Sort != "" || store.listOpts.Order != "" {
+		t.Errorf("store called with Sort=%q Order=%q, want empty/empty", store.listOpts.Sort, store.listOpts.Order)
+	}
+}
+
+// TestListRuns_SortOrder_InvalidSort400 verifies an unrecognised sort value
+// is rejected with 400 and never reaches the store.
+func TestListRuns_SortOrder_InvalidSort400(t *testing.T) {
+	store := &mockRunStore{listRuns: []eval.Run{}, listTotal: 0}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs?sort=bogus", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.listOpts != (eval.ListOpts{}) {
+		t.Errorf("store.List must not be called on an invalid sort; got listOpts=%+v", store.listOpts)
+	}
+}
+
+// TestListRuns_SortOrder_InvalidOrder400 verifies an unrecognised order
+// value is rejected with 400 and never reaches the store.
+func TestListRuns_SortOrder_InvalidOrder400(t *testing.T) {
+	store := &mockRunStore{listRuns: []eval.Run{}, listTotal: 0}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs?sort=recall&order=bogus", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.listOpts != (eval.ListOpts{}) {
+		t.Errorf("store.List must not be called on an invalid order; got listOpts=%+v", store.listOpts)
+	}
+}
+
+// TestListRunsForKB_SortOrder_ForwardsValidValues verifies the KB-scoped
+// list endpoint forwards sort/order the same way as the global one.
+func TestListRunsForKB_SortOrder_ForwardsValidValues(t *testing.T) {
+	store := &mockRunStore{listRuns: []eval.Run{}, listTotal: 0}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/kb/"+testKBID.String()+"/eval/runs?sort=mrr&order=desc", nil)
+	req.SetPathValue("id", testKBID.String())
+	rec := httptest.NewRecorder()
+	h.ListRunsForKB(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.listOpts.Sort != "mrr" || store.listOpts.Order != "desc" {
+		t.Errorf("store called with Sort=%q Order=%q, want mrr/desc", store.listOpts.Sort, store.listOpts.Order)
+	}
+}
+
+// TestListRunsForKB_SortOrder_InvalidSort400 verifies the KB-scoped list
+// endpoint rejects an unrecognised sort value with 400, matching the
+// global endpoint's validation.
+func TestListRunsForKB_SortOrder_InvalidSort400(t *testing.T) {
+	store := &mockRunStore{listRuns: []eval.Run{}, listTotal: 0}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/kb/"+testKBID.String()+"/eval/runs?sort=bogus", nil)
+	req.SetPathValue("id", testKBID.String())
+	rec := httptest.NewRecorder()
+	h.ListRunsForKB(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.listOpts != (eval.ListOpts{}) {
+		t.Errorf("store.List must not be called on an invalid sort; got listOpts=%+v", store.listOpts)
 	}
 }
 
@@ -1302,5 +1445,250 @@ func TestDeleteGoldenSet_InvalidUUID(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// newUpdateGoldenSetRequest builds a PATCH request for /api/admin/eval/golden-sets/{id}.
+func newUpdateGoldenSetRequest(id string, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/eval/golden-sets/"+id, strings.NewReader(body))
+	req.SetPathValue("id", id)
+	return req
+}
+
+// TestUpdateGoldenSet_SetsSchedule verifies a valid schedule PATCH returns
+// 200 and the store records the requested schedule.
+func TestUpdateGoldenSet_SetsSchedule(t *testing.T) {
+	gsStore := &mockGoldenSetStore{setScheduleOK: true, getGoldenSet: defaultGoldenSet()}
+	h := NewHandler(&mockRunStore{}, &mockKBReader{}, &mockSiteConfig{}, &mockEnqueuer{}, gsStore, nil, nil)
+
+	req := newUpdateGoldenSetRequest(testGoldenSetID.String(), `{"schedule":"daily"}`)
+	rec := httptest.NewRecorder()
+	h.UpdateGoldenSet(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !gsStore.setScheduleCalled {
+		t.Fatal("expected SetSchedule to be called")
+	}
+	if gsStore.setScheduleID != testGoldenSetID {
+		t.Fatalf("expected SetSchedule id %s, got %s", testGoldenSetID, gsStore.setScheduleID)
+	}
+	if gsStore.setScheduleValue != "daily" {
+		t.Fatalf("expected schedule %q, got %q", "daily", gsStore.setScheduleValue)
+	}
+}
+
+// TestUpdateGoldenSet_RejectsInvalidSchedule verifies an invalid schedule
+// value yields 400.
+func TestUpdateGoldenSet_RejectsInvalidSchedule(t *testing.T) {
+	gsStore := &mockGoldenSetStore{setScheduleErr: fmt.Errorf("%w: %q", eval.ErrInvalidSchedule, "hourly")}
+	h := NewHandler(&mockRunStore{}, &mockKBReader{}, &mockSiteConfig{}, &mockEnqueuer{}, gsStore, nil, nil)
+
+	req := newUpdateGoldenSetRequest(testGoldenSetID.String(), `{"schedule":"hourly"}`)
+	rec := httptest.NewRecorder()
+	h.UpdateGoldenSet(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestUpdateGoldenSet_UnknownIDIs404 verifies (false, nil) from SetSchedule
+// yields 404.
+func TestUpdateGoldenSet_UnknownIDIs404(t *testing.T) {
+	gsStore := &mockGoldenSetStore{setScheduleOK: false}
+	h := NewHandler(&mockRunStore{}, &mockKBReader{}, &mockSiteConfig{}, &mockEnqueuer{}, gsStore, nil, nil)
+
+	req := newUpdateGoldenSetRequest(testGoldenSetID.String(), `{"schedule":"daily"}`)
+	rec := httptest.NewRecorder()
+	h.UpdateGoldenSet(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestUpdateGoldenSet_EmptyBodyIs400 verifies an empty PATCH body (invalid
+// JSON — io.EOF from the decoder) yields 400 and never reaches the store.
+func TestUpdateGoldenSet_EmptyBodyIs400(t *testing.T) {
+	gsStore := &mockGoldenSetStore{}
+	h := NewHandler(&mockRunStore{}, &mockKBReader{}, &mockSiteConfig{}, &mockEnqueuer{}, gsStore, nil, nil)
+
+	req := newUpdateGoldenSetRequest(testGoldenSetID.String(), ``)
+	rec := httptest.NewRecorder()
+	h.UpdateGoldenSet(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gsStore.setScheduleCalled {
+		t.Fatal("must not call SetSchedule for an unparsable body")
+	}
+}
+
+// TestUpdateGoldenSet_MalformedJSONIs400 verifies a syntactically invalid
+// JSON body yields 400 and never reaches the store.
+func TestUpdateGoldenSet_MalformedJSONIs400(t *testing.T) {
+	gsStore := &mockGoldenSetStore{}
+	h := NewHandler(&mockRunStore{}, &mockKBReader{}, &mockSiteConfig{}, &mockEnqueuer{}, gsStore, nil, nil)
+
+	req := newUpdateGoldenSetRequest(testGoldenSetID.String(), `{"schedule":`)
+	rec := httptest.NewRecorder()
+	h.UpdateGoldenSet(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if gsStore.setScheduleCalled {
+		t.Fatal("must not call SetSchedule for an unparsable body")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 9: team/score columns — RunSummary.team_id / team_name (W6-R9)
+// ---------------------------------------------------------------------------
+
+// TestListRuns_TeamName_Resolved verifies a run carrying a TeamID resolves
+// its team name via the injected team loader and surfaces both fields.
+func TestListRuns_TeamName_Resolved(t *testing.T) {
+	run := eval.Run{
+		ID:     testRunID,
+		Status: "completed",
+		KBID:   testKBID,
+		TeamID: strPtr("team-1"),
+	}
+	store := &mockRunStore{listRuns: []eval.Run{run}, listTotal: 1}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, &fakeTeamLoader{name: "Recherche-Team"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	var resp ListRunsResponse
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(resp.Runs))
+	}
+	s := resp.Runs[0]
+	if s.TeamID == nil || *s.TeamID != "team-1" {
+		t.Errorf("TeamID = %v, want \"team-1\"", s.TeamID)
+	}
+	if s.TeamName != "Recherche-Team" {
+		t.Errorf("TeamName = %q, want %q", s.TeamName, "Recherche-Team")
+	}
+
+	// The raw JSON must actually carry both keys — a nil-vs-empty struct
+	// bug in the DTO would still pass the decoded-struct assertions above.
+	if !strings.Contains(body, `"team_id":"team-1"`) {
+		t.Errorf("expected raw JSON to contain team_id, got %s", body)
+	}
+	if !strings.Contains(body, `"team_name":"Recherche-Team"`) {
+		t.Errorf("expected raw JSON to contain team_name, got %s", body)
+	}
+}
+
+// TestListRuns_TeamName_OmittedWithoutTeam verifies a standard (non-team)
+// run omits both team_id and team_name from the JSON body entirely — they
+// are omitempty, so "present but empty" would be a regression.
+func TestListRuns_TeamName_OmittedWithoutTeam(t *testing.T) {
+	run := eval.Run{ID: testRunID, Status: "completed", KBID: testKBID}
+	store := &mockRunStore{listRuns: []eval.Run{run}, listTotal: 1}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, &fakeTeamLoader{name: "Recherche-Team"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `"team_id"`) {
+		t.Errorf("expected team_id to be omitted for a non-team run, got %s", body)
+	}
+	if strings.Contains(body, `"team_name"`) {
+		t.Errorf("expected team_name to be omitted for a non-team run, got %s", body)
+	}
+}
+
+// TestListRuns_TeamName_LoaderErrorLeavesEmptyName verifies a team-loader
+// error is swallowed (read-only listing, fail-soft) — team_id still
+// surfaces (the run IS a team run) but team_name stays empty and is
+// therefore omitted.
+func TestListRuns_TeamName_LoaderErrorLeavesEmptyName(t *testing.T) {
+	run := eval.Run{
+		ID:     testRunID,
+		Status: "completed",
+		KBID:   testKBID,
+		TeamID: strPtr("team-1"),
+	}
+	store := &mockRunStore{listRuns: []eval.Run{run}, listTotal: 1}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, &fakeTeamLoader{err: agentteams.ErrNotFound})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/eval/runs", nil)
+	rec := httptest.NewRecorder()
+	h.ListRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp ListRunsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(resp.Runs))
+	}
+	s := resp.Runs[0]
+	if s.TeamID == nil || *s.TeamID != "team-1" {
+		t.Errorf("TeamID = %v, want \"team-1\" (must survive a loader error)", s.TeamID)
+	}
+	if s.TeamName != "" {
+		t.Errorf("TeamName = %q, want empty (loader error swallowed)", s.TeamName)
+	}
+}
+
+// TestListRunsForKB_TeamName_Resolved verifies the KB-scoped list endpoint
+// resolves team names through the same shared summarizeRun helper as the
+// global list endpoint.
+func TestListRunsForKB_TeamName_Resolved(t *testing.T) {
+	run := eval.Run{
+		ID:     testRunID,
+		Status: "completed",
+		KBID:   testKBID,
+		TeamID: strPtr("team-1"),
+	}
+	store := &mockRunStore{listRuns: []eval.Run{run}, listTotal: 1}
+	kbStore := &mockKBReader{name: "Test KB", found: true}
+	h := NewHandler(store, kbStore, &mockSiteConfig{}, &mockEnqueuer{}, &mockGoldenSetStore{}, nil, &fakeTeamLoader{name: "Recherche-Team"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/kb/"+testKBID.String()+"/eval/runs", nil)
+	req.SetPathValue("id", testKBID.String())
+	rec := httptest.NewRecorder()
+	h.ListRunsForKB(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp ListRunsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(resp.Runs))
+	}
+	s := resp.Runs[0]
+	if s.TeamName != "Recherche-Team" {
+		t.Errorf("TeamName = %q, want %q", s.TeamName, "Recherche-Team")
 	}
 }

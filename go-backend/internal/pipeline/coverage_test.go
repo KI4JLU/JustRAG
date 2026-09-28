@@ -183,6 +183,7 @@ var ignoredKeys = map[string]string{
 	"hype_model":                     "model selection",
 	"chat_longmem_conflict_model":    "model selection",
 	"chat_factuality_verifier_model": "model selection",
+	"chat_citation_spans_model":      "model selection",
 	"chat_plan_execute_model":        "model selection",
 	"agent_team_router_model":        "model selection",
 	"describe_image_model":           "model selection",
@@ -210,8 +211,9 @@ var ignoredKeys = map[string]string{
 	"chat_turn_budget_seconds": "operational budget",
 
 	// Observability / sampling — no user-visible pipeline stage.
-	"ragas_sampling_enabled": "background eval sampling",
-	"ragas_sampling_rate":    "tuning knob for the out-of-scope background eval sampling",
+	"ragas_sampling_enabled":       "background eval sampling",
+	"ragas_sampling_rate":          "tuning knob for the out-of-scope background eval sampling",
+	"ragas_samples_retention_days": "storage retention for the out-of-scope background eval sampling; read by the worker's nightly pass, not by a chat turn",
 
 	// --- Resolved during Task 4's first coverage run ---
 
@@ -248,8 +250,13 @@ var ignoredKeys = map[string]string{
 
 	"chat_session_memory_enabled": "session-scoped chat memory subsystem, unrepresented in the phase-0/1 node vocabulary",
 
-	"chat_longcontext_enabled":    "System-2 long-context routing for global-synthesis queries, unrepresented in the phase-0/1 node vocabulary",
-	"chat_longcontext_max_tokens": "tuning knob for the out-of-scope long-context routing subsystem",
+	"chat_longcontext_enabled":         "System-2 long-context routing for global-synthesis queries, unrepresented in the phase-0/1 node vocabulary",
+	"chat_longcontext_max_tokens":      "tuning knob for the out-of-scope long-context routing subsystem",
+	"chat_longcontext_top_k":           "tuning knob for the out-of-scope long-context routing subsystem; belongs to the longcontext node, not per-KB",
+	"chat_longcontext_mode":            "selects the long-context CONSUMER (flat | map_reduce) inside the out-of-scope long-context route, not a step of the standard pipeline",
+	"chat_longcontext_map_group_size":  "tuning knob for the out-of-scope long-context map-reduce consumer",
+	"chat_longcontext_map_concurrency": "tuning knob for the out-of-scope long-context map-reduce consumer",
+	"chat_longcontext_map_model":       "model selection",
 
 	"chat_community_search_enabled": "community-primed global search variant, unrepresented in the phase-0/1 node vocabulary",
 	"chat_community_search_top_k":   "tuning knob for the out-of-scope community-search variant",
@@ -287,6 +294,12 @@ var ignoredKeys = map[string]string{
 	"chat_answer_history_max_chars":   "tuning knob for the answer-time conversation-history correctness fix",
 	"chat_transform_followup_enabled": "retrieval-free reformat follow-ups, default-on correctness/UX kill switch, not a retrieval/answer pipeline stage",
 
+	// Generation-layer safety guard, not a pipeline stage: it watches the
+	// answer stream for a runaway repetition and aborts the completion. It
+	// is global-only (a model failure mode, not a per-KB trade-off), so it
+	// has no registry entry and nothing for a KB admin to wire on a canvas.
+	"chat_answer_degenerate_run_limit": "degenerate-answer guard on the generation layer (aborts a runaway repeated run); a deployment-wide safety limit, not a per-KB pipeline stage",
+
 	// Operational budget siblings of the already-ignored chat_turn_budget_seconds.
 	"chat_turn_budget_tokens":     "operational budget, sibling of chat_turn_budget_seconds",
 	"chat_turn_budget_tool_calls": "operational budget, sibling of chat_turn_budget_seconds",
@@ -299,6 +312,53 @@ var ignoredKeys = map[string]string{
 	// Utility endpoint unrelated to the answering pipeline, sibling of the
 	// already-ignored describe_image_model.
 	"describe_image_enabled": "utility endpoint (POST /api/describe-image), not part of the answering pipeline",
+
+	// Sheet profiler (spreadsheet rework Phase 1): ingest-time knobs. The
+	// profiler runs inside the spreadsheet ingest branch (ingestion-side),
+	// not a chat-pipeline node, so it is not drawn by any NodeSpec.
+	"tabular_profile_llm_enabled":   "sheet profiler (spreadsheet rework Phase 1): ingest-time knob, runs inside the spreadsheet ingest branch (ingestion-side), not a chat-pipeline node",
+	"tabular_profile_llm_threshold": "sheet profiler (spreadsheet rework Phase 1): ingest-time knob, runs inside the spreadsheet ingest branch (ingestion-side), not a chat-pipeline node",
+	"tabular_profile_model":         "sheet profiler (spreadsheet rework Phase 1): ingest-time knob, runs inside the spreadsheet ingest branch (ingestion-side), not a chat-pipeline node",
+	"tabular_profile_sample_rows":   "sheet profiler (spreadsheet rework Phase 1): ingest-time knob, runs inside the spreadsheet ingest branch (ingestion-side), not a chat-pipeline node",
+
+	// Materializer/catalog limits (spreadsheet rework Phase 2): ingest-time
+	// knobs read by the table materializer, not a chat-pipeline node.
+	"tabular_max_rows":                   "materializer limit (spreadsheet rework Phase 2): ingest-time knob, not a chat-pipeline node",
+	"tabular_embed_max_rows":             "materializer limit (spreadsheet rework Phase 2): ingest-time knob, not a chat-pipeline node",
+	"tabular_column_values_max_distinct": "materializer limit (spreadsheet rework Phase 2): ingest-time knob, not a chat-pipeline node",
+
+	// Tabular router (spreadsheet rework Phase 3): deterministic tabular router
+	// pre-pass on the standard + supervisor paths — unrepresented in the
+	// phase-0/1 node vocabulary, like chat_recency_listing_*.
+	"chat_tabular_router_enabled":           "deterministic tabular router pre-pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_recency_listing_*",
+	"chat_tabular_router_model":             "deterministic tabular router pre-pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_recency_listing_*",
+	"chat_tabular_router_max_rows":          "deterministic tabular router pre-pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_recency_listing_*",
+	"chat_tabular_router_max_repairs":       "deterministic tabular router pre-pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_recency_listing_*",
+	"chat_tabular_router_timeout_ms":        "deterministic tabular router pre-pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_recency_listing_*",
+	"chat_tabular_router_schema_max_tokens": "deterministic tabular router pre-pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_recency_listing_*",
+	"chat_tabular_guidance_max_tokens":      "R66 carry (spreadsheet rework Phase 4): token budget for the answer-prompt tabular guidance summary — same rationale as chat_tabular_router_schema_max_tokens directly above, a separate budget for a separate (non-router) prompt block",
+
+	// Upload/ingest sizing knobs (spreadsheet rework Phase 4): read by the
+	// upload handler and the table materializer, not a chat-pipeline node.
+	"tabular_max_file_bytes":         "ingest/upload sizing knob, not a chat-pipeline node",
+	"tabular_large_file_bytes":       "ingest/upload sizing knob, not a chat-pipeline node",
+	"tabular_large_file_concurrency": "ingest/upload sizing knob, not a chat-pipeline node",
+
+	// Conflict / supersession surfacing (Wave-5 Task 3, W5-R7): a post-
+	// assembly pass on the standard + supervisor paths — unrepresented in
+	// the phase-0/1 node vocabulary, like chat_tabular_router_* above.
+	"chat_conflict_surfacing_enabled": "conflict / supersession pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_tabular_router_*",
+	"chat_conflict_model":             "conflict / supersession pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_tabular_router_*",
+	"chat_conflict_max_chunks":        "conflict / supersession pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_tabular_router_*",
+	"chat_conflict_timeout_ms":        "conflict / supersession pass on the standard + supervisor paths — unrepresented in the phase-0/1 node vocabulary, like chat_tabular_router_*",
+
+	// Routing policy documents (Wave-6, W6-R6 / W6-R8): these two keys do not
+	// switch a stage on or off — they decide WHICH orchestrator a turn takes
+	// and WHICH tools the answer node may call. Neither is a node; drawing
+	// them would mean drawing the dispatch ladder itself, a separate design
+	// decision.
+	"chat_orchestrator_policy":   "routing policy table, not a pipeline stage (W6-R6)",
+	"chat_answer_tools_by_route": "per-route tool allowlist, a property of the answer node (W6-R8)",
 }
 
 // TestEveryPipelineFlagIsDrawnOrIgnored is the anti-drift guard (spec §4.4).

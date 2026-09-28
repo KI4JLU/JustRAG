@@ -6,6 +6,8 @@ import {
     PopoverContent, PopoverTrigger, Spinner, Stack, cn,
 } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
+import { formatRelative } from './utils/dates';
+import { translations } from './translations';
 import { API_BASE_URL } from './api';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
@@ -53,6 +55,17 @@ interface QueueStats {
     failed: number;
 }
 
+// Per-source-kind sync status (Wave-4 Task 7 / W4-R9). One entry per kind
+// ("rss" | "confluence" | "git") the KB actually has sources of — a healthy
+// RSS feed must not hide a git source that has never succeeded.
+interface SyncKindStatus {
+    kind: string;
+    lastSyncAt?: string;
+    syncSucceeded: boolean;
+    syncFailing: boolean;
+    sourceCount: number;
+}
+
 interface KBRow {
     id: string;
     name: string;
@@ -71,18 +84,63 @@ interface KBRow {
     lastFileUploadAt?: string;
     lastTurnAt?: string;
     createdAt: string;
+    // Freshness (Wave-3 Task 5/6). All optional on the wire — a KB with no
+    // files, or no RSS/Confluence/git source, sends none of these.
+    oldestFileAt?: string;
+    staleFileCount?: number;
+    staleShare?: number;
+    lastSyncAt?: string;
+    syncSucceeded?: boolean;
+    syncFailing?: boolean;
+    syncKinds?: string[];
+    // Per-kind breakdown (Wave-4 Task 7). Empty/absent for a KB with no
+    // external sources, same as syncKinds above.
+    syncByKind?: SyncKindStatus[];
+    // RAGAS 24h sample stats (Wave-5 Task 2). Absent for a KB with no
+    // samples in the trailing 24h window — distinct from a zeroed block.
+    ragas?: RagasStats;
+    // Files the ingest prompt-injection screen flagged (Wave-5 Task 6).
+    // Always sent, 0 for a KB with no external sources — optional here only
+    // so a pod serving the previous image does not break the column.
+    injectionFlagged?: number;
+}
+
+interface RagasStats {
+    n24h: number;
+    faithfulness?: number;
+    answerRelevance?: number;
+    contextPrecision?: number;
 }
 
 interface OverviewResponse {
     rows: KBRow[];
     queueSummary: Record<string, QueueStats>;
     timestamp: string;
+    // Threshold (days) behind staleFileCount/staleShare above — global
+    // kb_stale_days, default 180. Surfaced in the colStaleShare tooltip.
+    staleDays?: number;
 }
 
 type SortKey = keyof Pick<KBRow,
     'name' | 'ownerName' | 'fileCount' | 'totalSizeBytes' | 'failedFileCount' |
-    'processingFileCount' | 'chatCount' | 'createdAt'>
-    | 'lastActivity' | 'activity';
+    'processingFileCount' | 'chatCount' | 'createdAt' |
+    'oldestFileAt' | 'staleShare' | 'lastSyncAt'>
+    | 'lastActivity' | 'activity' | 'ragasN24h';
+
+// n24h is the sort value for the ragasN24h column — nested under row.ragas,
+// so it cannot be read via a[sortKey] like the other numeric columns.
+function ragasN24h(row: KBRow): number | undefined {
+    return row.ragas?.n24h;
+}
+
+// "n · F 0.61 / AR 0.98 / CP 0.47" with a dash for any missing metric — a
+// judge prompt that failed leaves that one mean nil (see RagasStats' backend
+// doc comment), which must not be conflated with a score of exactly zero.
+function formatRagasCell(row: KBRow): string {
+    if (!row.ragas) return '—';
+    const fmt = (v?: number) => (v != null ? v.toFixed(2) : '–');
+    return `${row.ragas.n24h} · F ${fmt(row.ragas.faithfulness)} / AR ${fmt(row.ragas.answerRelevance)} / CP ${fmt(row.ragas.contextPrecision)}`;
+}
 
 interface ColumnDef {
     key: SortKey;
@@ -111,10 +169,93 @@ function mergedActivityIso(row: KBRow): string | undefined {
     return a >= b ? row.lastFileUploadAt : row.lastTurnAt;
 }
 
+// syncKindRank orders a per-kind sync status from worst to best: a kind that
+// has never succeeded is worse than one that is currently failing but has
+// succeeded before, which is worse than a healthy kind (W4-R9 — the whole
+// point is that a single healthy kind must not mask a worse one).
+function syncKindRank(k: SyncKindStatus): number {
+    if (!k.syncSucceeded) return 0;
+    if (k.syncFailing) return 1;
+    return 2;
+}
+
+// The worst-ranked entry in row.syncByKind, or undefined for a KB with no
+// per-kind breakdown (no external sources, or an older backend response).
+function worstSyncKind(row: KBRow): SyncKindStatus | undefined {
+    if (!row.syncByKind || row.syncByKind.length === 0) return undefined;
+    return [...row.syncByKind].sort((a, b) => syncKindRank(a) - syncKindRank(b))[0];
+}
+
+// Label for one sync kind. t() returns the KEY when a translation is missing,
+// so an unknown kind would render "syncKindLabel_svn" at the operator; fall
+// back to the raw kind string instead. The lookup goes against the translation
+// table rather than t()'s return value because "did t() find it?" is not
+// answerable from the return value alone — the key IS the fallback.
+function syncKindLabel(t: (key: string) => string, kind: string): string {
+    const key = `syncKindLabel_${kind}`;
+    return key in translations ? t(key) : kind;
+}
+
+// Tooltip text listing EVERY sync kind with its own last-sync time (raw ISO,
+// matching the other columns' title convention) — the cell above shows only
+// the worst kind, this is where an operator finds the other ones. Falls back
+// to the pre-Wave-4 syncKinds + single lastSyncAt tooltip when no per-kind
+// breakdown is present.
+function syncTooltip(row: KBRow, t: (key: string) => string): string | undefined {
+    if (row.syncByKind && row.syncByKind.length > 0) {
+        return row.syncByKind
+            .map((k) => {
+                const label = syncKindLabel(t, k.kind);
+                const when = k.lastSyncAt ?? '—';
+                return k.syncSucceeded ? `${label}: ${when}` : `${label}: ${when} (${t('syncNeverSucceeded')})`;
+            })
+            .join(' · ');
+    }
+    // syncKinds is the missing half of "5 days ago": which source kinds
+    // that timestamp describes (rss / confluence / git).
+    return [row.syncKinds?.length ? row.syncKinds.join(', ') : null, row.lastSyncAt]
+        .filter(Boolean).join(' · ') || undefined;
+}
+
 // Aktivität = every accepted turn on every surface. One combined column
 // (web + API) keeps an already-wide table narrow; the split rides the tooltip.
 function turnTotal(row: KBRow): number {
     return (row.webTurns ?? 0) + (row.apiTurns ?? 0);
+}
+
+// Sort comparator for the "Last sync" column (Wave-4 Task 7 fix round 1):
+// the cell displays the WORST kind, so the column must sort by that same
+// severity — never-succeeded, then currently-failing, then healthy — before
+// falling back to that kind's own timestamp for a tie. Ascending numeric
+// order on syncKindRank (0 = worst) is exactly descending order on
+// "urgency" (2 - rank), i.e. ascending puts problems on top; the caller's
+// sortAsc flip mirrors that for the other direction, same as every other
+// numeric column in this table.
+//
+// A row with no per-kind breakdown (no external sources at all, or an
+// older cached response) falls back to row.lastSyncAt directly and is
+// treated as the same severity tier as a healthy kind, so it sorts purely
+// by timestamp among rows lacking a real breakdown. A row with neither a
+// breakdown nor a lastSyncAt has nothing to rank on and sorts last
+// regardless of direction — matching the "nullish sorts last" convention
+// the generic branch below uses for every other column, which is why the
+// direction flip is applied here (not by the caller) and skipped for that
+// case specifically.
+function compareSyncUrgency(a: KBRow, b: KBRow, sortAsc: boolean): number {
+    const wa = worstSyncKind(a);
+    const wb = worstSyncKind(b);
+    const ta = wa ? wa.lastSyncAt : a.lastSyncAt;
+    const tb = wb ? wb.lastSyncAt : b.lastSyncAt;
+    const hasA = wa != null || ta != null;
+    const hasB = wb != null || tb != null;
+    if (!hasA && !hasB) return 0;
+    if (!hasA) return 1;
+    if (!hasB) return -1;
+
+    const ra = wa ? syncKindRank(wa) : 2;
+    const rb = wb ? syncKindRank(wb) : 2;
+    const cmp = ra !== rb ? ra - rb : (ta ?? '').localeCompare(tb ?? '');
+    return sortAsc ? cmp : -cmp;
 }
 
 function formatBytes(bytes: number): string {
@@ -122,23 +263,6 @@ function formatBytes(bytes: number): string {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
     return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-// Locale-aware relative time (improvement #5): drives "vor 2 Std." / "2 hr. ago"
-// from the active UI language instead of the old hand-rolled mixed-language strings.
-function formatRelative(iso: string | undefined, rtf: Intl.RelativeTimeFormat): string {
-    if (!iso) return '—';
-    const then = new Date(iso).getTime();
-    if (Number.isNaN(then)) return '—';
-    const diffMs = then - Date.now(); // negative => in the past
-    const sec = Math.round(diffMs / 1000);
-    const min = Math.round(diffMs / 60000);
-    const hr = Math.round(diffMs / 3600000);
-    const day = Math.round(diffMs / 86400000);
-    if (Math.abs(sec) < 60) return rtf.format(sec, 'second');
-    if (Math.abs(min) < 60) return rtf.format(min, 'minute');
-    if (Math.abs(hr) < 24) return rtf.format(hr, 'hour');
-    return rtf.format(day, 'day');
 }
 
 const QUEUE_NAMES = ['rag-quick', 'rag-heavy', 'rag-batch'];
@@ -157,7 +281,6 @@ export default function KBOverviewDashboard() {
     const [transferTarget, setTransferTarget] = useState<KBRow | null>(null);
     const [actionBusy, setActionBusy] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
-    const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
     const [data, setData] = useState<OverviewResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -170,6 +293,10 @@ export default function KBOverviewDashboard() {
         processingFileCount: false,
         chatCount: false,
         createdAt: false,
+        oldestFileAt: false,
+        staleShare: false,
+        lastSyncAt: false,
+        ragasN24h: false,
     });
     // The DS Checkbox is a Radix <button role="checkbox">, which IS a labelable
     // element per HTML 4.10.4, so `Label htmlFor` + `Checkbox id` is a real
@@ -274,6 +401,23 @@ export default function KBOverviewDashboard() {
                 const cmp = turnTotal(a) - turnTotal(b);
                 return sortAsc ? cmp : -cmp;
             }
+            // 'lastSyncAt' sorts by the same worst-kind severity the cell
+            // displays (never-succeeded > failing > ok), not the aggregate
+            // MAX(success) timestamp — see compareSyncUrgency.
+            if (sortKey === 'lastSyncAt') {
+                return compareSyncUrgency(a, b, sortAsc);
+            }
+            // 'ragasN24h' is nested under row.ragas, so it cannot go through
+            // the generic a[sortKey] lookup below.
+            if (sortKey === 'ragasN24h') {
+                const an = ragasN24h(a);
+                const bn = ragasN24h(b);
+                if (an == null && bn == null) return 0;
+                if (an == null) return 1;
+                if (bn == null) return -1;
+                const cmp = an - bn;
+                return sortAsc ? cmp : -cmp;
+            }
             const av = a[sortKey];
             const bv = b[sortKey];
             // Nullish values sort last regardless of direction.
@@ -311,6 +455,10 @@ export default function KBOverviewDashboard() {
         { key: 'processingFileCount', label: t('colProcessing'), numeric: true, optional: true },
         { key: 'chatCount', label: t('colChats'), numeric: true, optional: true },
         { key: 'createdAt', label: t('colCreated'), optional: true },
+        { key: 'oldestFileAt', label: t('colOldestContent'), optional: true },
+        { key: 'staleShare', label: t('colStaleShare'), numeric: true, optional: true },
+        { key: 'lastSyncAt', label: t('colLastSync'), optional: true },
+        { key: 'ragasN24h', label: t('colRagas'), numeric: true, optional: true },
     ];
     const columns = ALL_COLUMNS.filter((c) => !c.optional || optionalVisible[c.key]);
     const optionalColumns = ALL_COLUMNS.filter((c) => c.optional);
@@ -358,9 +506,56 @@ export default function KBOverviewDashboard() {
             case 'chatCount':
                 return row.chatCount;
             case 'lastActivity':
-                return formatRelative(mergedActivityIso(row), rtf);
+                return formatRelative(mergedActivityIso(row), language);
             case 'createdAt':
-                return formatRelative(row.createdAt, rtf);
+                return formatRelative(row.createdAt, language);
+            case 'oldestFileAt':
+                return formatRelative(row.oldestFileAt, language);
+            case 'staleShare':
+                return row.staleShare != null ? `${Math.round(row.staleShare * 100)}%` : '—';
+            case 'lastSyncAt': {
+                // W4-R9: with a per-kind breakdown, show the WORST kind
+                // (never-succeeded beats currently-failing beats healthy) so
+                // one healthy RSS feed cannot hide a git/Confluence source
+                // that has never synced. Falls back to the pre-Wave-4
+                // aggregate-only rendering when no breakdown is present.
+                const worst = worstSyncKind(row);
+                if (worst) {
+                    const neverSucceeded = !worst.syncSucceeded;
+                    const badge = neverSucceeded || worst.syncFailing;
+                    return (
+                        <>
+                            {badge && (
+                                <span
+                                    data-testid="kb-sync-failing-badge"
+                                    title={neverSucceeded ? t('syncNeverSucceeded') : t('kbSyncFailing')}
+                                >
+                                    <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 4, color: 'var(--error-text)' }} />
+                                </span>
+                            )}
+                            {syncKindLabel(t, worst.kind)}: {worst.lastSyncAt ? formatRelative(worst.lastSyncAt, language) : '—'}
+                        </>
+                    );
+                }
+                if (!row.lastSyncAt) return '—';
+                // syncSucceeded=false means the shown time is only the last
+                // ATTEMPT (no success yet) — flag it the same way a currently
+                // failing streak (syncFailing) is flagged, so an operator does
+                // not read either as a healthy recent sync.
+                const failing = row.syncFailing || row.syncSucceeded === false;
+                return (
+                    <>
+                        {failing && (
+                            <span data-testid="kb-sync-failing-badge" title={t('kbSyncFailing')}>
+                                <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 4, color: 'var(--error-text)' }} />
+                            </span>
+                        )}
+                        {formatRelative(row.lastSyncAt, language)}
+                    </>
+                );
+            }
+            case 'ragasN24h':
+                return formatRagasCell(row);
             default:
                 return null;
         }
@@ -546,13 +741,27 @@ export default function KBOverviewDashboard() {
                                                 cellStyle.whiteSpace = 'normal';
                                                 cellStyle.minWidth = '14rem';
                                             }
-                                            const title = c.key === 'lastActivity'
-                                                ? mergedActivityIso(row)
-                                                : c.key === 'activity'
-                                                    ? `Web: ${row.webTurns ?? 0} · API: ${row.apiTurns ?? 0}`
-                                                    : c.key === 'createdAt'
-                                                        ? row.createdAt
-                                                        : undefined;
+                                            // The files column doubles as the screening
+                                            // surface: a flagged file is advisory, so it
+                                            // gets a tooltip on a count that is already
+                                            // there rather than a column of its own.
+                                            const title = c.key === 'fileCount'
+                                                ? `${t('colInjectionFlagged')}: ${row.injectionFlagged ?? 0}`
+                                                : c.key === 'lastActivity'
+                                                    ? mergedActivityIso(row)
+                                                    : c.key === 'activity'
+                                                        ? `Web: ${row.webTurns ?? 0} · API: ${row.apiTurns ?? 0}`
+                                                        : c.key === 'createdAt'
+                                                            ? row.createdAt
+                                                            : c.key === 'oldestFileAt'
+                                                                ? row.oldestFileAt
+                                                                : c.key === 'staleShare'
+                                                                    ? `${row.staleFileCount ?? 0}/${row.fileCount} > ${data?.staleDays ?? 180}d`
+                                                                    : c.key === 'lastSyncAt'
+                                                                        ? syncTooltip(row, t)
+                                                                        : c.key === 'ragasN24h'
+                                                                            ? t('colRagasTooltip')
+                                                                            : undefined;
                                             return (
                                                 <td key={c.key} style={cellStyle} title={title}>
                                                     {renderCell(row, c.key)}

@@ -10,7 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/observability"
+	"github.com/justrag/go-backend/internal/ragassamples"
 	"github.com/justrag/go-backend/internal/safego"
+	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -43,6 +46,46 @@ type MaintenanceConfig struct {
 	// MetricsRetention is how long to keep metrics rows before pruning.
 	// Default: 90 days.
 	MetricsRetention time.Duration
+
+	// TabularOrphanSweeper drops materialized tabular tables (and their
+	// tabular_column_values rows) whose owning `files` row is gone (R65).
+	// Nil disables the sweep loop entirely (e.g. in tests that don't wire
+	// one).
+	TabularOrphanSweeper *tabular.OrphanSweeper
+
+	// TabularOrphanInterval is how often the tabular orphan-table sweep
+	// runs. Default: 6 hours.
+	TabularOrphanInterval time.Duration
+
+	// BM25StatsRefresher recomputes per-KB/per-term BM25 statistics (W2-R5
+	// staleness) from ts_stat(). Nil disables the sweep loop entirely (e.g.
+	// tests that don't wire one, or a deployment that hasn't run the
+	// dim-keyed table DDL yet).
+	BM25StatsRefresher *vector.BM25StatsRefresher
+
+	// BM25StatsInterval is how often the BM25 stats sweep runs.
+	// Default: 15 minutes.
+	BM25StatsInterval time.Duration
+
+	// RagasStore backs the nightly RAGAS aggregate + retention pass
+	// (migration 0072). Nil disables the loop entirely (e.g. tests, or a
+	// worker without a main pool) rather than looping on a nil store.
+	RagasStore ragassamples.Store
+
+	// RagasRetention resolves how long a judged sample is kept, read fresh
+	// each pass so the knob can be retuned without a worker restart. Nil
+	// falls back to ragasDefaultRetention.
+	RagasRetention func(ctx context.Context) time.Duration
+
+	// RagasDailyInterval is how often the RAGAS aggregate + retention pass
+	// runs. Default: 24 hours.
+	RagasDailyInterval time.Duration
+
+	// BM25StatsMaxAge is the staleness threshold (W2-R5) applied to the
+	// sweep's StaleKBs call — a KB whose stats are older than this is
+	// refreshed even if no new chunk has landed since (catches deletions,
+	// which don't move max(created_at)). Default: 24 hours.
+	BM25StatsMaxAge time.Duration
 }
 
 // StartMaintenance starts periodic background maintenance tasks (stuck file
@@ -67,6 +110,21 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 	}
 	if cfg.MetricsRetention == 0 {
 		cfg.MetricsRetention = 90 * 24 * time.Hour // 90 days
+	}
+	if cfg.TabularOrphanInterval == 0 {
+		cfg.TabularOrphanInterval = 6 * time.Hour
+	}
+	if cfg.BM25StatsInterval == 0 {
+		cfg.BM25StatsInterval = 15 * time.Minute
+	}
+	if cfg.BM25StatsMaxAge == 0 {
+		cfg.BM25StatsMaxAge = 24 * time.Hour
+	}
+	if cfg.RagasDailyInterval == 0 {
+		cfg.RagasDailyInterval = 24 * time.Hour
+	}
+	if cfg.BM25StatsRefresher != nil {
+		cfg.BM25StatsRefresher.StaleMaxAge = cfg.BM25StatsMaxAge
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -209,12 +267,103 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 		}
 	})
 
+	// Tabular orphan-table sweep (R65): drops materialized spreadsheet
+	// tables (and their tabular_column_values rows) whose owning `files`
+	// row is gone. Nil sweeper (no MainDB wired, or explicitly disabled)
+	// skips the loop entirely rather than looping on a nil-pointer panic.
+	if cfg.TabularOrphanSweeper != nil {
+		launch("tabular_orphan_cleanup", func() {
+			startupDelay := time.NewTimer(5 * time.Minute)
+			defer startupDelay.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-startupDelay.C:
+				sweepTabularOrphans(ctx, cfg.TabularOrphanSweeper)
+			}
+
+			ticker := time.NewTicker(cfg.TabularOrphanInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					sweepTabularOrphans(ctx, cfg.TabularOrphanSweeper)
+				}
+			}
+		})
+	}
+
+	// BM25 stats sweep (W2-R5): recomputes per-KB/per-term BM25 statistics
+	// for KBs whose stats are missing or stale. Nil refresher (no VectorDB
+	// wired, or explicitly disabled) skips the loop entirely rather than
+	// looping on a nil-pointer panic.
+	if cfg.BM25StatsRefresher != nil {
+		launch("bm25_stats_refresh", func() {
+			startupDelay := time.NewTimer(3 * time.Minute)
+			defer startupDelay.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-startupDelay.C:
+				refreshBM25Stats(ctx, cfg.BM25StatsRefresher)
+			}
+
+			ticker := time.NewTicker(cfg.BM25StatsInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					refreshBM25Stats(ctx, cfg.BM25StatsRefresher)
+				}
+			}
+		})
+	}
+
+	// Nightly RAGAS aggregate + retention (W5-R6): republishes the per-KB
+	// daily gauges from ragas_samples and deletes rows past the retention
+	// window. Nil store (persistence not wired) skips the loop entirely.
+	if cfg.RagasStore != nil {
+		launch("ragas_daily", func() {
+			// 10 minutes rather than the shorter delays above: this pass is
+			// neither latency-sensitive nor cheap to repeat, and starting it
+			// after the ingest-side loops keeps startup contention down.
+			startupDelay := time.NewTimer(10 * time.Minute)
+			defer startupDelay.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-startupDelay.C:
+				refreshRagasDaily(ctx, cfg.RagasStore, ragasRetention(ctx, cfg.RagasRetention))
+			}
+
+			ticker := time.NewTicker(cfg.RagasDailyInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					refreshRagasDaily(ctx, cfg.RagasStore, ragasRetention(ctx, cfg.RagasRetention))
+				}
+			}
+		})
+	}
+
 	slog.Info("maintenance tasks started",
 		"stuckCheckInterval", cfg.StuckCheckInterval,
 		"stuckFileTimeout", cfg.StuckFileTimeout,
 		"orphanCleanupInterval", cfg.OrphanCleanupInterval,
 		"metricsInterval", cfg.MetricsInterval,
 		"metricsRetention", cfg.MetricsRetention,
+		"tabularOrphanInterval", cfg.TabularOrphanInterval,
+		"bm25StatsInterval", cfg.BM25StatsInterval,
+		"bm25StatsMaxAge", cfg.BM25StatsMaxAge,
+		"ragasDailyInterval", cfg.RagasDailyInterval,
+		"ragasDailyEnabled", cfg.RagasStore != nil,
 	)
 
 	return func() {
@@ -251,6 +400,40 @@ func checkStuckFiles(ctx context.Context, mainDB *pgxpool.Pool, timeout time.Dur
 			"count", tag.RowsAffected(),
 			"timeoutMinutes", int(timeout.Minutes()),
 		)
+	}
+}
+
+// sweepTabularOrphans drops materialized tabular tables (and their
+// tabular_column_values rows) whose owning `files` row no longer exists
+// (R65). The metric this should feed (rag_tabular_orphan_tables_dropped_total)
+// is not wired here — deferred, not blocked on anything: the drop count is
+// already surfaced via the "tabular orphan sweep completed"/"tabular orphan
+// sweep failed" log lines below (the maintenance loop registers this task as
+// "tabular_orphan_cleanup") and the sweep's return value, so an operator has
+// a way to see it today. Adding the Prometheus counter is a documented
+// follow-up — see docs/runbooks/spreadsheet-ingest-ops.md §7.
+func sweepTabularOrphans(ctx context.Context, sweeper *tabular.OrphanSweeper) {
+	dropped, err := sweeper.Sweep(ctx, 100)
+	if err != nil {
+		slog.Error("tabular orphan sweep failed", "error", err)
+		return
+	}
+	if len(dropped) > 0 {
+		slog.Info("tabular orphan sweep completed", "dropped", len(dropped))
+	}
+}
+
+// refreshBM25Stats runs one BM25 stats sweep (W2-R5), capped at 20 KBs per
+// tick so a large stale backlog spreads across several ticks instead of
+// holding the maintenance goroutine for one long run.
+func refreshBM25Stats(ctx context.Context, r *vector.BM25StatsRefresher) {
+	refreshed, err := r.Sweep(ctx, 20)
+	if err != nil {
+		slog.Error("bm25 stats sweep failed", "error", err)
+		return
+	}
+	if refreshed > 0 {
+		slog.Info("bm25 stats sweep completed", "refreshed", refreshed)
 	}
 }
 
@@ -292,7 +475,74 @@ func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool) {
 		}
 	}
 
+	refreshSourceSyncAge(ctx, mainDB)
+
 	slog.Debug("metrics snapshot recorded")
+}
+
+// sourceSyncAgeSQL reports, per (kb, source kind), the age in seconds of the
+// OLDEST last-successful sync among that KB's sources of that kind.
+//
+// Oldest, not newest, deliberately: the gauge is an alerting signal, so a KB
+// with ten healthy feeds and one that has not synced in a month must read as
+// a month, not as a minute. COALESCE falls back to the last ATTEMPT column
+// for a source that has not succeeded since migration 0071 added
+// last_success_at (there was nothing to backfill it from); a source with
+// neither timestamp has never run and is skipped rather than reported as
+// infinitely stale.
+const sourceSyncAgeSQL = `
+	SELECT kb_id::text AS kb_id, kind,
+	       EXTRACT(EPOCH FROM (NOW() - MIN(ts)))::float8 AS age_seconds
+	  FROM (
+	      SELECT kb_id, 'rss'::text AS kind, COALESCE(last_success_at, last_polled_at) AS ts
+	        FROM rss_feeds
+	      UNION ALL
+	      SELECT kb_id, 'confluence'::text, COALESCE(last_success_at, last_synced_at)
+	        FROM confluence_sources
+	      UNION ALL
+	      SELECT kb_id, 'git'::text, COALESCE(last_success_at, last_synced_at)
+	        FROM git_repo_sources
+	  ) s
+	 WHERE kb_id IS NOT NULL AND ts IS NOT NULL
+	 GROUP BY kb_id, kind`
+
+// refreshSourceSyncAge republishes the rag_source_sync_age_seconds gauge from
+// the three source tables as a full SNAPSHOT: the vector is reset once the
+// query has succeeded, so a source (or a whole KB) that has since been
+// deleted loses its series instead of keeping a frozen age that no future
+// tick can ever lower — which would leave an age alert permanently firing for
+// something that no longer exists.
+//
+// The reset deliberately happens AFTER the query returns, not before it: a
+// query failure must leave the previous snapshot intact (a slightly stale
+// gauge beats a blank one), and the maintenance tick retries in minutes.
+func refreshSourceSyncAge(ctx context.Context, mainDB *pgxpool.Pool) {
+	if mainDB == nil {
+		return
+	}
+	rows, err := mainDB.Query(ctx, sourceSyncAgeSQL)
+	if err != nil {
+		slog.Error("source sync age: query failed", "error", err)
+		return
+	}
+	defer rows.Close()
+	observability.ResetSourceSyncAge()
+	n := 0
+	for rows.Next() {
+		var kbID, kind string
+		var age float64
+		if err := rows.Scan(&kbID, &kind, &age); err != nil {
+			slog.Error("source sync age: scan failed", "error", err)
+			return
+		}
+		observability.SetSourceSyncAge(kind, kbID, age)
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("source sync age: row iteration failed", "error", err)
+		return
+	}
+	slog.Debug("source sync age refreshed", "series", n)
 }
 
 // pruneOldMetrics deletes system_metrics rows older than the retention period.

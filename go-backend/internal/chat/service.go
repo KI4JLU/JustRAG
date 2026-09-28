@@ -80,6 +80,28 @@ type ChatContextParams struct {
 	// Nil disables the path — public API / OpenAI-compat / mcpserver
 	// callers leave it unset.
 	RecencyLister RecencyLister
+	// TabularRouter backs the deterministic spreadsheet path: one
+	// validated read-only SQL statement against the KB's materialized
+	// tables, injected as a system-prompt addendum, plus two retrieval
+	// hints (id literals quoted in the search query, BM25 simple arm
+	// forced). Nil disables it entirely — public API / OpenAI-compat /
+	// mcpserver callers leave it unset, and so does any deployment
+	// without a read-only DSN. Nil-receiver safe either way.
+	TabularRouter *TabularRouter
+	// RawQuery is the verbatim user utterance for the rewrite ⊕ raw
+	// lane; empty = off. Set by the caller via RawQueryForRetrieval
+	// (gated on chat_condense_keep_raw_enabled) and forwarded verbatim
+	// into vector.SearchOptions.RawQuery.
+	RawQuery string
+	// FileDates resolves the cited files' published_at/created_at in one
+	// batch query. PrepareChatContext needs it for the W5-R7 conflict pass,
+	// which decides supersession direction from those dates — the
+	// enrichSourceDates call that fills ChatSource.CreatedAt runs LATER, in
+	// the HTTP layer, so the dates are not on `sources` yet at that point.
+	// Nil disables the date lines (conflicts can then only be reported as
+	// contradictions, never as supersession) — public API / OpenAI-compat /
+	// mcpserver callers leave it unset.
+	FileDates FileDateLookup
 }
 
 // ChatSource represents a single source document surfaced in a chat response.
@@ -104,6 +126,15 @@ type ChatSource struct {
 	NodeKind string `json:"nodeKind,omitempty"`
 	// TreeLevel is 0 for leaves, 1..N for RAPTOR summaries.
 	TreeLevel int `json:"treeLevel,omitempty"`
+	// CreatedAt / PublishedAt are the cited file's dates, filled by
+	// enrichSourceDates (source_dates.go) right before the sources are
+	// emitted and persisted. CreatedAt is the ingest timestamp;
+	// PublishedAt is the document's own publication date and is set only
+	// for origins that carry one (RSS today, W3-R9). Both are omitted
+	// from the JSON when unset, so a deployment without the lookup wired
+	// serialises exactly the same payload as before.
+	CreatedAt   *time.Time `json:"createdAt,omitempty"`
+	PublishedAt *time.Time `json:"publishedAt,omitempty"`
 	// DescendantContents is populated by the chat post-response path
 	// when NodeKind == "summary": the verbatim text of every
 	// transitive leaf descendant under this summary. The citation
@@ -161,6 +192,18 @@ type ChatContext struct {
 	// non-nil, the HTTP layer emits it as a {"structuredTable": …} SSE event
 	// and persists it on the AI message. nil for every other orchestrator.
 	StructuredTable *StructuredTable
+	// TabularTrace records what the deterministic tabular router did this
+	// turn (fired / skipped reason, the executed SQL, row count, repair
+	// count). nil whenever no router was attached — post-response query
+	// logging and the eval harness read it, nothing in the answer path
+	// depends on it.
+	TabularTrace *TabularTrace
+	// Conflicts is the W5-R7 conflict / supersession report over this
+	// turn's assembled source set: which cited sources disagree and which
+	// of a disagreeing pair is newer. nil when the pass is off, found
+	// nothing, or failed (it is fail-soft). The HTTP layer emits it as a
+	// {"conflicts": …} SSE frame and persists it on the AI message.
+	Conflicts *ConflictReport
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +508,7 @@ func runCRAG(
 	cfg cragConfig,
 	result *vector.SearchResult,
 	params ChatContextParams,
+	forceSimpleArm bool,
 ) bool {
 	if !cfg.enabled || !result.Graded {
 		return false
@@ -521,6 +565,11 @@ func runCRAG(
 			Grade:       true,
 			GraderModel: cfg.graderModel,
 			QueryType:   params.QueryType,
+			// The retry searches the same corpus, so it needs the same
+			// keyword arm: dropping the tabular router's override here
+			// would silently re-rank the CRAG second round under a
+			// different BM25 regime than the first.
+			ForceBM25SimpleArm: forceSimpleArm,
 		}
 		retry, err := searchSvc.Search(ctx, params.KbID, rewritten, 0, retryOpts)
 		if err != nil || retry == nil || len(retry.Chunks) == 0 {
@@ -881,6 +930,7 @@ func PrepareChatContext(
 		GraphChunkIDs: params.GraphSubgraphChunkIDs,
 		BridgeChunks:  params.BridgeChunks,
 		HyPESearch:    HyPESearchEnabled(ctx, siteConfig),
+		RawQuery:      params.RawQuery,
 	}
 
 	// T2-1 long-context routing: keyword-classifier-gated wide
@@ -894,25 +944,44 @@ func PrepareChatContext(
 	// long-context budget can be raised independently of the
 	// general pipeline ceiling.
 	longContextRoute := ShouldRouteLongContext(ctx, siteConfig, params.QueryType, params.SearchQuery)
+	longContextMode := ""
 	if longContextRoute {
 		opts.LongContextMode = true
+		opts.LongContextTopK = ChatLongContextTopK(ctx, siteConfig)
 		// Replace the token budget with the long-context budget.
 		// The two are kept separate (constant vs. site_config) so
 		// operators can raise the long-context window independently
 		// of the general pipeline ceiling.
 		maxTokens = ChatLongContextMaxTokens(ctx, siteConfig)
-		observability.RecordLongContextRoute("fired")
+		longContextMode = ChatLongContextMode(ctx, siteConfig)
+		observability.RecordLongContextRoute("fired", longContextMode)
 		logctx.From(ctx).Info("rag.longcontext.fired",
 			"query", params.SearchQuery,
+			"mode", longContextMode,
 			"max_tokens", maxTokens,
+			"top_k", opts.LongContextTopK,
 		)
-		if params.Emit != nil {
-			params.Emit(map[string]any{
-				"type":       "longcontext_route",
-				"query":      params.SearchQuery,
-				"max_tokens": maxTokens,
-			})
-		}
+		emitTrajectory(params.Emit, TrajectoryEvent{
+			Stage: "longcontext_route",
+			Mode:  longContextMode,
+			Query: params.SearchQuery,
+		}, map[string]any{
+			// Legacy raw-map shape, kept for one release alongside the
+			// unified agentTrajectory envelope.
+			"type":       "longcontext_route",
+			"query":      params.SearchQuery,
+			"max_tokens": maxTokens,
+			"top_k":      opts.LongContextTopK,
+		})
+	} else if ChatLongContextEnabled(ctx, siteConfig) &&
+		params.QueryType == vector.QueryTypeComplexReasoning && params.Enhance == "" {
+		// The operator gate is on and this turn was ELIGIBLE, but the keyword
+		// classifier did not fire — the denominator operators need to audit
+		// the firing rate. The eligibility conditions must match the ones
+		// http_send.go's ladder applies before its own `considered` emission
+		// (complex_reasoning AND no explicit Enhance), or `fired/considered`
+		// would mean a different thing depending on which surface answered.
+		observability.RecordLongContextRoute("considered", "")
 	}
 
 	// Community-primed global search: for gated global-synthesis
@@ -934,6 +1003,51 @@ func PrepareChatContext(
 		}
 	}
 
+	// Deterministic tabular path (design §5.1). Runs BEFORE recency and
+	// decomposition because it rewrites the retrieval query: on a KB with
+	// ingested spreadsheet data it quotes identifier literals
+	// ("01.1440.055_.10") so BM25 matches them as phrases and forces the
+	// simple keyword arm on. When it also produces a result set, the rows
+	// are injected as a system-prompt addendum below. Fail-open by
+	// construction — Run never errors and is nil-receiver safe, so the
+	// only cost of a broken tabular path is a little latency.
+	//
+	// The promotion applies to RETRIEVAL ONLY: params.SearchQuery stays
+	// the user's phrasing for the enumeration pre-pass, logs and history.
+	searchQuery := params.SearchQuery
+	var tabularAddendum string
+	var tabularTrace *TabularTrace
+	if params.TabularRouter != nil {
+		in := TabularRouterInput{
+			KbID:     params.KbID,
+			Query:    params.SearchQuery,
+			Language: params.Language,
+			Emit:     params.Emit,
+		}
+		// Resolve the config from THIS request's reader: the chat handler
+		// overlays it per KB (Handler.forKB), so the router's wiring-time
+		// cfgFn — which closes over the global reader — would ignore a
+		// per-KB `chat_tabular_router_enabled = false`. A nil reader
+		// (eval / public API) falls back to that cfgFn.
+		if siteConfig != nil {
+			cfg := ResolveTabularRouterConfig(ctx, siteConfig)
+			in.Config = &cfg
+		}
+		tab := params.TabularRouter.Run(ctx, in)
+		tabularTrace = tab.Trace
+		tabularAddendum = tab.Addendum
+		// The promoted query is a BM25 phrase hint, and it is dropped
+		// under an explicit Enhance mode: the search service would feed it
+		// to RewriteQuery / ExpandQuery / SpellCorrect and persist the
+		// result as messages.enhanced_query, i.e. the user would see their
+		// own question with router-inserted quotes in it. The other two
+		// hints (forced keyword arm, result addendum) are unaffected.
+		if tab.SearchQuery != "" && params.Enhance == "" {
+			searchQuery = tab.SearchQuery
+		}
+		opts.ForceBM25SimpleArm = tab.ForceSimpleArm
+	}
+
 	// Deterministic recency listing: for "what is new / recently added"
 	// queries, window-scope retrieval to recently created files and
 	// fetch the complete file listing for the window (injected as a
@@ -941,7 +1055,7 @@ func PrepareChatContext(
 	// arbitrary subset for these content-free queries — prod bug
 	// 2026-07-02, "Welche neuen Meldungen gibt es?" listed 1 of many.
 	recency := applyRecencyListing(ctx, siteConfig, params.RecencyLister,
-		params.KbID, params.SearchQuery, &opts, time.Now())
+		params.KbID, searchQuery, &opts, time.Now())
 	if recency.fired && params.Emit != nil {
 		params.Emit(map[string]any{
 			"type":         "recency_listing",
@@ -967,13 +1081,15 @@ func PrepareChatContext(
 	// primary beneficiary of this flag.
 	maybeDecomposeQuery(ctx, aiResolver, siteConfig, params, &opts)
 
-	// Pass 0 so Search() applies the admin-configured default_top_k from site_configs.
-	result, err := searchSvc.Search(ctx, params.KbID, params.SearchQuery, 0, opts)
+	// Pass 0 so Search() applies the admin-configured default_top_k from
+	// site_configs. searchQuery is params.SearchQuery unless the tabular
+	// router promoted identifier literals to quoted phrases.
+	result, err := searchSvc.Search(ctx, params.KbID, searchQuery, 0, opts)
 	if err != nil {
 		return nil, fmt.Errorf("chat: search: %w", err)
 	}
 
-	abstain := runCRAG(ctx, aiResolver, searchSvc, cragCfg, result, params)
+	abstain := runCRAG(ctx, aiResolver, searchSvc, cragCfg, result, params, opts.ForceBM25SimpleArm)
 
 	// Expand chunks with neighboring content from same file.
 	if result.ContextWindowSize > 0 && result.TableName != "" {
@@ -984,6 +1100,38 @@ func PrepareChatContext(
 	}
 
 	chunks := TruncateChunksToFit(result.Chunks, maxTokens)
+
+	// Wave-3 W3-R5: the long-context CONSUMER is shared with the
+	// OrchLongContext orchestrator. In map_reduce mode it owns prompt
+	// assembly entirely (findings instead of raw bodies), so it takes over
+	// here — before SandwichOrder, because the map stage groups in score
+	// order. Flat mode falls through to the historical tail below, which is
+	// itself the same assembler (assembleFlatFromParts).
+	//
+	// Skipped on abstain: the abstain notice belongs to the flat tail and
+	// there is nothing to synthesise. A consumer error degrades to flat,
+	// matching the fail-soft rule for every other optional stage.
+	if longContextRoute && !abstain && longContextMode == LongContextModeMapReduce {
+		lcCtx, lcErr := consumeLongContext(ctx, aiResolver, siteConfig, LongContextParams{
+			KbID:            params.KbID,
+			Query:           params.SearchQuery,
+			Language:        params.Language,
+			KbSystemPrompt:  params.KbSystemPrompt,
+			CurrentDateLine: params.CurrentDateLine,
+			FileIDs:         params.FileIDs,
+			RawQuery:        params.RawQuery,
+			Mode:            LongContextModeMapReduce,
+			MaxTokens:       maxTokens,
+			Emit:            params.Emit,
+		}, chunks)
+		if lcErr == nil {
+			lcCtx.EnhancedQuery = result.EnhancedQuery
+			lcCtx.TabularTrace = tabularTrace
+			return lcCtx, nil
+		}
+		logctx.From(ctx).Warn("longcontext: map_reduce consumer failed; falling back to flat assembly", "error", lcErr)
+	}
+
 	chunks = SandwichOrder(chunks)
 
 	// T2-3 ECoRAG evidentiality compression: when the chunk pool is
@@ -1118,43 +1266,62 @@ func PrepareChatContext(
 		)
 	}
 
-	// Build system prompt.
-	var sb strings.Builder
-	if params.KbSystemPrompt != "" {
-		sb.WriteString(params.KbSystemPrompt)
-		sb.WriteString("\n\n")
+	// Build system prompt. The assembly itself lives in
+	// assembleFlatFromParts (longcontext_consume.go) so the OrchLongContext
+	// orchestrator's flat mode and this path cannot drift; the three addenda
+	// below are the parts only PrepareChatContext can compute.
+	// W5-R7 conflict / supersession pass. Runs on the FINAL source set (post
+	// CRAG, post truncation, post sandwich order) because the [N] numbers it
+	// reports have to be the ones the answer prompt uses. Fail-soft inside
+	// DetectConflicts; nil report ⇒ empty addendum.
+	//
+	// Two short-circuits before the config is even resolved:
+	//   - the master flag, so the OFF path (every deployment by default)
+	//     costs one bool read rather than four config lookups per turn;
+	//   - abstain, because the answer is about to decline — there is nothing
+	//     to reconcile between sources, and a fast-tier call for it is pure
+	//     latency.
+	var conflicts *ConflictReport
+	if !abstain && ChatConflictSurfacingEnabled(ctx, siteConfig) {
+		conflicts = DetectConflicts(ctx, aiResolver, ConflictInput{
+			KbID:      params.KbID,
+			Question:  params.SearchQuery,
+			Language:  params.Language,
+			Sources:   sources,
+			Config:    ResolveConflictConfig(ctx, siteConfig),
+			FileDates: params.FileDates,
+			Emit:      params.Emit,
+		})
 	}
-	sb.WriteString(prompts.ChatSystemPromptWithDate(params.Language, params.CurrentDateLine))
-	switch {
-	case abstain:
-		sb.WriteString(prompts.ChatAbstainNotice(params.Language))
-	case IsLowConfidence(chunks):
-		sb.WriteString(prompts.ChatLowConfidenceNotice(params.Language))
+
+	add := flatAddenda{
+		Abstain:   abstain,
+		Tabular:   tabularAddendum,
+		Conflicts: ConflictAddendumText(params.Language, conflicts),
 	}
 	if runEnumeration {
 		// Inject the verified-matches addendum even when the list is empty —
 		// the prose LLM should then tell the user "no matches" rather than
 		// improvising from the raw chunks.
 		matchesJSON := ai.FormatEnumerationMatchesJSON(enumerationMatches)
-		sb.WriteString(prompts.EnumerationVerifiedMatchesAddendum(params.Language, matchesJSON))
+		add.Enumeration = prompts.EnumerationVerifiedMatchesAddendum(params.Language, matchesJSON)
 	}
 	if recency.fired {
 		// Injected even when empty: the model should answer "nothing new
 		// was added since <date>" instead of presenting older context
 		// content as new.
-		sb.WriteString(prompts.RecencyListingAddendum(params.Language, recency.entries, recency.sinceISO, recency.truncated))
+		add.Recency = prompts.RecencyListingAddendum(params.Language, recency.entries, recency.sinceISO, recency.truncated)
 	}
-	sb.WriteString("\n\nCONTEXT:\n")
-	sb.WriteString(contextText)
 
-	return &ChatContext{
-		EnhancedQuery: result.EnhancedQuery,
-		SystemPrompt:  sb.String(),
-		Sources:       sources,
-		Context:       contextText,
-		FinalChunks:   chunks,
-		Abstain:       abstain,
-	}, nil
+	chatCtx := assembleFlatFromParts(chunks, sources, contextText, LongContextParams{
+		Language:        params.Language,
+		KbSystemPrompt:  params.KbSystemPrompt,
+		CurrentDateLine: params.CurrentDateLine,
+	}, add)
+	chatCtx.EnhancedQuery = result.EnhancedQuery
+	chatCtx.TabularTrace = tabularTrace
+	chatCtx.Conflicts = conflicts
+	return chatCtx, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1192,31 +1359,13 @@ func CondenseFollowUp(
 		return message, nil
 	}
 
-	if len(messages) < 2 {
-		return message, nil
-	}
-
-	// Take last 6 messages, truncate content to 500 chars each.
-	if len(messages) > 6 {
-		messages = messages[len(messages)-6:]
-	}
-
 	history := make([]ai.ChatHistoryEntry, len(messages))
 	for i, m := range messages {
-		content := m.Content
-		if len(content) > 500 {
-			content = content[:500]
-		}
 		history[i] = ai.ChatHistoryEntry{
 			Role:    m.Role,
-			Content: content,
+			Content: m.Content,
 		}
 	}
 
-	condensed, err := ai.CondenseQuestion(ctx, aiResolver, history, message, kbID, language)
-	if err != nil {
-		// Fail open.
-		return message, nil
-	}
-	return condensed, nil
+	return CondenseFromHistory(ctx, aiResolver, history, message, kbID, language)
 }

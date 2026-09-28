@@ -648,6 +648,7 @@ const ChatViewComp = () => {
                             reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
                             sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
                             confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
+                            conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
                             onToggleSection={messageSections.toggle}
                           />
                         );

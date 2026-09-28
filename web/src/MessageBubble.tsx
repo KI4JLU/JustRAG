@@ -1,7 +1,7 @@
 import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, ChevronDown, Check, ArrowRight, Network, Users, Bot } from 'lucide-react';
-import type { Message, BranchInfo, MessageVerification, MessageSource } from './types';
+import { FileText, ChevronDown, Check, ArrowRight, Network, Users, Bot, AlertTriangle } from 'lucide-react';
+import type { Message, BranchInfo, MessageVerification, MessageSource, MessageConflict } from './types';
 import { flaggedClaimsFor } from './utils/verification';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 import { BranchIndicator } from './components/BranchIndicator';
@@ -14,6 +14,7 @@ import { useIsMobileContext } from './contexts/MobileContext';
 import { useTheme } from './contexts/ThemeContext';
 import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
 import { extractCitedSourceIndices, formatPageRanges } from './utils/citations';
+import { formatDate } from './utils/dates';
 
 interface MessageBubbleProps {
     message: Message;
@@ -42,6 +43,7 @@ interface MessageBubbleProps {
     reasoningOpen?: boolean;
     sourcesOpen?: boolean;
     confidenceOpen?: boolean;
+    conflictsOpen?: boolean;
     onToggleSection?: (messageId: string, section: MessageSection) => void;
     // Resolves an AI message's teamId/agentId to a display name for the
     // attribution chip. Returns undefined on a lookup miss (e.g. the team or
@@ -111,6 +113,20 @@ function semanticCitationSet(v: MessageVerification | null | undefined): Set<num
     return out.size > 0 ? out : undefined;
 }
 
+// citationSpanMap collects every citation N with a verified span (method =
+// "span") into the Map MessageContent expects, keyed by N. Returns undefined
+// when the span verifier didn't run or found nothing, so MessageContent
+// skips the highlighted-excerpt path entirely and popovers render the old
+// flat snippet.
+function citationSpanMap(v: MessageVerification | null | undefined): Map<number, { start: number; end: number }> | undefined {
+    if (!v?.citations?.length) return undefined;
+    const out = new Map<number, { start: number; end: number }>();
+    for (const c of v.citations) {
+        if (c.verified && c.span) out.set(c.n, c.span);
+    }
+    return out.size > 0 ? out : undefined;
+}
+
 // ConfidenceChip is the always-visible answer-footer chip ("✓ Geprüft · 92%").
 // Clicking it toggles the ConfidenceDetails breakdown (owned by MessageBubble).
 function ConfidenceChip({ verification, t, open, onToggle }: ConfidenceProps & { open: boolean; onToggle: () => void }) {
@@ -168,8 +184,60 @@ function ConfidenceDetails({ verification, t }: ConfidenceProps) {
     );
 }
 
-function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, onToggleSection }: MessageBubbleProps) {
-    const { t } = useTheme();
+// ConflictsChip is the "Widersprüchliche Quellen" / "Conflicting sources"
+// answer-footer badge (Wave 5 conflict surfacing), shown next to the
+// confidence chip whenever the turn's report found at least one conflict
+// among the cited sources. Click toggles ConflictsDetails — same
+// caller-owned-open-state pattern as ConfidenceChip (see useMessageSections;
+// the state has to live above the virtualized message list).
+function ConflictsChip({ count, t, open, onToggle }: { count: number; t: (key: string) => string; open: boolean; onToggle: () => void }) {
+    return (
+        <button
+            type="button"
+            className="conflict-badge"
+            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            aria-expanded={open}
+            aria-label={t('conflictsBadge')}
+        >
+            <AlertTriangle size={12} aria-hidden="true" />
+            <span>{t('conflictsBadge')} · {count}</span>
+            <ChevronDown size={12} aria-hidden="true" style={{ transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }} />
+        </button>
+    );
+}
+
+// CONFLICT_KIND_KEY maps the backend's closed `kind` enum to its translation
+// key: "contradiction" -> Widerspruch/Contradiction, "superseded" ->
+// überholt/superseded.
+const CONFLICT_KIND_KEY: Record<MessageConflict['kind'], string> = {
+    contradiction: 'conflictKindContradiction',
+    superseded: 'conflictKindSuperseded',
+};
+
+// ConflictsDetails lists every reported conflict: the claim, the two cited
+// files, the kind, and — only when `newer` is 'a' or 'b' (never 'unknown') —
+// which file is the more recent one. `newer` resolves against fileA/fileB by
+// the backend's fixed convention: 'a' -> fileA, 'b' -> fileB.
+function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (key: string) => string }) {
+    return (
+        <div className="conflict-details">
+            {conflicts.map((c, i) => {
+                const newerFile = c.newer === 'a' ? c.fileA : c.newer === 'b' ? c.fileB : undefined;
+                return (
+                    <div key={i} className="conflict-item">
+                        <div className="conflict-claim">{c.claim}</div>
+                        <div className="conflict-files">{c.fileA} vs. {c.fileB}</div>
+                        <div className="conflict-kind">{t(CONFLICT_KIND_KEY[c.kind])}</div>
+                        {newerFile && <div className="conflict-newer">{t('conflictNewerPrefix')}: {newerFile}</div>}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+    const { t, language } = useTheme();
     const isThinking = Boolean(isStreaming && message.reasoning && !message.content);
     const isMobile = useIsMobileContext();
     const reducedMotion = useReducedMotion();
@@ -180,6 +248,7 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
     // by message id, so it survives virtualization remounts (see the props).
     const confOpen = confidenceOpen;
     const sourcesExpanded = sourcesOpen;
+    const conflictsExpanded = conflictsOpen;
     const toggleSection = useCallback((section: MessageSection) => {
         if (message.id) onToggleSection?.(message.id, section);
     }, [message.id, onToggleSection]);
@@ -233,18 +302,22 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
 
         if (visibleSources.length === 0) return [];
 
-        const grouped = new Map<string, { fileId?: string; pages: Set<number>; count: number }>();
+        const grouped = new Map<string, { fileId?: string; pages: Set<number>; count: number; dateIso?: string }>();
         for (const s of visibleSources) {
             if (!s.fileName) continue;
-            const entry = grouped.get(s.fileName) || { fileId: s.fileId, pages: new Set<number>(), count: 0 };
+            const entry = grouped.get(s.fileName) || { fileId: s.fileId, pages: new Set<number>(), count: 0, dateIso: undefined };
             if (s.pages) s.pages.forEach(p => entry.pages.add(p));
             if (s.fileId) entry.fileId = s.fileId;
+            // Same file's chunks share the same file-level dates; the first
+            // one found is as good as any. publishedAt wins over createdAt
+            // (RSS-only; see the citation popover's identical rule).
+            if (!entry.dateIso) entry.dateIso = s.publishedAt ?? s.createdAt;
             entry.count += 1;
             grouped.set(s.fileName, entry);
         }
 
-        return [...grouped.entries()].map(([name, { fileId, pages, count }]) => ({
-            name, fileId, pages: [...pages].sort((a, b) => a - b), count,
+        return [...grouped.entries()].map(([name, { fileId, pages, count, dateIso }]) => ({
+            name, fileId, pages: [...pages].sort((a, b) => a - b), count, dateIso,
         }));
     }, [message.sources, message.content]);
 
@@ -332,6 +405,7 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
                         sources={message.sources}
                         suspectCitations={suspectCitationMap(message.verification)}
                         semanticCitations={semanticCitationSet(message.verification)}
+                        citationSpans={citationSpanMap(message.verification)}
                         trajectory={message.trajectory}
                         flaggedClaims={flaggedClaimsFor(message.verification)}
                         onOpenSource={handleOpenSource}
@@ -363,6 +437,14 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
                                 t={t}
                                 open={confOpen}
                                 onToggle={() => toggleSection('confidence')}
+                            />
+                        )}
+                        {message.conflicts != null && message.conflicts.length > 0 && (
+                            <ConflictsChip
+                                count={message.conflicts.length}
+                                t={t}
+                                open={conflictsExpanded}
+                                onToggle={() => toggleSection('conflicts')}
                             />
                         )}
                         {sourceGroups.length > 0 && (
@@ -418,18 +500,23 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
                         <ConfidenceDetails verification={message.verification} t={t} />
                     )}
 
+                    {conflictsExpanded && message.conflicts != null && message.conflicts.length > 0 && (
+                        <ConflictsDetails conflicts={message.conflicts} t={t} />
+                    )}
+
                     {sourcesExpanded && sourceGroups.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
                             {sourceGroups.map((g, i) => {
                                 const isPdf = g.name.toLowerCase().endsWith('.pdf');
                                 const pageLabel = g.pages.length ? `S. ${formatPageRanges(g.pages)} · ` : '';
+                                const dateLabel = g.dateIso ? `${formatDate(g.dateIso, language)} · ` : '';
                                 const canOpen = !!g.fileId && (isPdf ? !!onPdfOpen : !!onPreviewSource);
                                 return (
                                     <div key={`${g.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--shape-md)' }}>
                                         <FileText size={18} aria-hidden="true" style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />
                                         <div style={{ minWidth: 0, flex: 1 }}>
                                             <div style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{pageLabel}{g.count} {t('hitsLabel')}</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{dateLabel}{pageLabel}{g.count} {t('hitsLabel')}</div>
                                         </div>
                                         {canOpen && (
                                             <button

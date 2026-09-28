@@ -86,9 +86,21 @@ type FileRow struct {
 	CurrentStage       *string   `json:"currentStage,omitempty" db:"current_stage"`
 	StageIndex         *int      `json:"stageIndex,omitempty"   db:"stage_index"`
 	StageTotal         *int      `json:"stageTotal,omitempty"   db:"stage_total"`
+	StageDetail        *string   `json:"stageDetail,omitempty"  db:"stage_detail"`
 	RSSFeedID          *string   `json:"rssFeedId"          db:"rss_feed_id"`
 	ConfluenceSourceID *string   `json:"confluenceSourceId" db:"confluence_source_id"`
 	CreatedAt          time.Time `json:"createdAt"           db:"created_at"`
+	// InjectionFlag / InjectionDetail carry the ingest-time prompt-injection
+	// screening verdict (migration 0072, W5-R8). The flag is advisory: it
+	// never affected what was ingested, chunked or retrieved, it only tells
+	// an operator that this externally sourced document contains
+	// instruction-shaped text. InjectionDetail is {rule, position, snippet,
+	// screened_at} on a hit, {screened_at} alone on a clean pass, and absent
+	// when the file was never screened; the snippet is untrusted,
+	// document-derived text and must be rendered as data (a tooltip), never
+	// re-sent to a model.
+	InjectionFlag   bool            `json:"injectionFlag"             db:"injection_flag"`
+	InjectionDetail json.RawMessage `json:"injectionDetail,omitempty" db:"injection_detail"`
 }
 
 // ---------------------------------------------------------------------------

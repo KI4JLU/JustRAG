@@ -11,6 +11,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/chat"
+	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -49,6 +50,55 @@ type TrajectoryRunDeps struct {
 	SiteReader     chat.SiteConfigReader
 	KbSystemPrompt func(ctx context.Context, kbID string) string // may be nil
 	PlanningModel  string                                        // empty = inherit KB default
+	// TabularRouter wires the deterministic spreadsheet path (design §5.1)
+	// into the two trajectory modes that carry a TabularRouter field on
+	// their params struct — TrajectoryModeOff (chat.ChatContextParams) and
+	// TrajectoryModeSupervisor (chat.SupervisorChatParams) — the same way
+	// production wires it (internal/app/routes.go, and
+	// WithTabularRouter for the --production-context adapters). Nil
+	// (the default) is a no-op: chat.TabularRouter.Run and the params'
+	// own nil-checks (params.TabularRouter != nil) both degrade cleanly,
+	// so every trajectory run that doesn't set this behaves exactly as
+	// before the field existed. Agentic and Plan-Execute have no
+	// TabularRouter field at all, so this is never wired for those modes.
+	//
+	// The router's CONFIG (Enabled/MaxRows/MaxRepairs/Timeout/
+	// SchemaMaxTokens) is a separate concern from wiring the router
+	// itself: TrajectoryModeOff resolves it inside chat.PrepareChatContext
+	// from SiteReader directly (no params field needed), and
+	// TrajectoryModeSupervisor resolves it explicitly below, from
+	// SiteReader, into SupervisorChatParams.TabularRouterConfig — mirroring
+	// internal/chat/http_send.go's OrchSupervisor case. Production
+	// supplies that per-KB-overlaid reader on essentially every request
+	// (SiteReader is only nil in degenerate/test wiring), so skipping this
+	// resolution here would silently ignore a per-KB override for every
+	// realistic --production-context trajectory run, not just a rare one.
+	TabularRouter *chat.TabularRouter
+}
+
+// trajectoryPolicyRule evaluates the operator's chat_orchestrator_policy for
+// one question and returns the rule index that WOULD have pinned its route,
+// or nil. It does not steer this run — --trajectory dispatches by the mode
+// flag, deliberately, so every mode is comparable on every question — it only
+// records which rule a production turn with the same signals would have hit
+// (W6-R6, W6-R7).
+//
+// The question's query type comes from the golden row's own label rather than
+// the classifier: RunTrajectory makes no LLM call of its own for routing, and
+// an unlabeled row simply cannot match a query_type rule (matching the
+// classifier here would cost one call per question for a field nothing
+// dispatches on).
+func trajectoryPolicyRule(ctx context.Context, siteCfg chat.SiteConfigReader, q Question) *int {
+	pol := chat.ChatOrchestratorPolicy(ctx, siteCfg)
+	if len(pol) == 0 {
+		return nil
+	}
+	dec := chatpolicy.Decide(pol, PolicySignalsForQuestion(q.QueryType, q), policyEnabledMap(ctx, siteCfg))
+	if !dec.Applied {
+		return nil
+	}
+	idx := dec.RuleIndex
+	return &idx
 }
 
 // RunTrajectory runs one question through one orchestrator mode and
@@ -58,6 +108,7 @@ type TrajectoryRunDeps struct {
 // results back into Score before persisting).
 func RunTrajectory(ctx context.Context, deps TrajectoryRunDeps, q Question, mode TrajectoryMode) TrajectoryRecord {
 	rec := TrajectoryRecord{QuestionID: q.ID, Mode: string(mode)}
+	rec.PolicyRule = trajectoryPolicyRule(ctx, deps.SiteReader, q)
 	var events []chat.TrajectoryEvent
 	emit := CollectEmit(&events)
 
@@ -101,12 +152,31 @@ func RunTrajectory(ctx context.Context, deps TrajectoryRunDeps, q Question, mode
 		}
 
 	case TrajectoryModeSupervisor:
+		// Resolved HERE, not at wiring time — mirrors
+		// internal/chat/http_send.go's OrchSupervisor case exactly:
+		// deps.SiteReader is the per-KB-overlaid reader (when the caller
+		// supplies one; cmd/eval's production-context setup does), so
+		// this must be the source of the router's config on THIS
+		// question's KB. The router's own wiring-time cfgFn only ever
+		// sees whatever reader it was constructed with (typically the
+		// global one), so leaving TabularRouterConfig unset here would
+		// silently ignore a per-KB override (e.g.
+		// chat_tabular_router_enabled=false on one KB, or a tuned
+		// _max_rows) under --trajectory --orchestrator supervisor
+		// --production-context.
+		var tabularCfg *chat.TabularRouterConfig
+		if deps.SiteReader != nil {
+			cfg := chat.ResolveTabularRouterConfig(ctx, deps.SiteReader)
+			tabularCfg = &cfg
+		}
 		params := chat.SupervisorChatParams{
-			KbID:           q.KbID,
-			Query:          q.Question,
-			Language:       q.Language,
-			KbSystemPrompt: kbSystemPrompt,
-			PlanningModel:  deps.PlanningModel,
+			KbID:                q.KbID,
+			Query:               q.Question,
+			Language:            q.Language,
+			KbSystemPrompt:      kbSystemPrompt,
+			PlanningModel:       deps.PlanningModel,
+			TabularRouter:       deps.TabularRouter,
+			TabularRouterConfig: tabularCfg,
 		}
 		if _, err := chat.RunSupervisorChat(ctx, deps.AIResolver, deps.SearchService, params, emit); err != nil {
 			events = append(events, chat.TrajectoryEvent{Stage: "answer", Decision: "orchestrator_error", Reason: err.Error()})
@@ -120,6 +190,7 @@ func RunTrajectory(ctx context.Context, deps TrajectoryRunDeps, q Question, mode
 			KbSystemPrompt: kbSystemPrompt,
 			QueryType:      q.QueryType,
 			Emit:           emit,
+			TabularRouter:  deps.TabularRouter,
 		}
 		if _, err := chat.PrepareChatContext(ctx, deps.AIResolver, deps.SearchService, deps.SiteReader, params); err != nil {
 			events = append(events, chat.TrajectoryEvent{Stage: "answer", Decision: "prepare_error", Reason: err.Error()})

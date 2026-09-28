@@ -52,6 +52,14 @@ type Handler struct {
 
 	// usageRecorder writes one usage_events row per accepted turn. Optional.
 	usageRecorder usage.Recorder
+
+	// fileDates resolves the cited files' dates for the citation payload.
+	// Optional — see SetFileDates.
+	fileDates chat.FileDateLookup
+
+	// siteConfig backs the degenerate-run guard's limit only. Optional —
+	// see SetSiteConfig.
+	siteConfig chat.SiteConfigReader
 }
 
 // NewHandler creates a Handler backed by the given store, AI resolver, and
@@ -68,6 +76,40 @@ func NewHandler(store Store, aiResolver *ai.ConfigResolver, searchSvc vector.Sea
 // this surface are not counted.
 func (h *Handler) SetUsageRecorder(r usage.Recorder) {
 	h.usageRecorder = r
+}
+
+// SetFileDates injects the per-turn source-date lookup used to stamp
+// created_at/published_at onto the citations this surface returns. Optional —
+// when unset, the date fields are simply omitted, exactly as before the
+// freshness surface existed.
+func (h *Handler) SetFileDates(l chat.FileDateLookup) {
+	h.fileDates = l
+}
+
+// SetSiteConfig injects a site_config reader. This surface has no
+// site-config-driven behaviour otherwise (see capAnswerHistory's fixed
+// caps); the reader exists for exactly ONE key,
+// chat_answer_degenerate_run_limit, whose 0 value is a deployment-wide kill
+// switch that has to reach every answering surface. Optional — when unset
+// the guard runs at its default limit.
+func (h *Handler) SetSiteConfig(r chat.SiteConfigReader) {
+	h.siteConfig = r
+}
+
+// contextParams builds the chat.ChatContextParams for PrepareChatContext.
+// FileDates is threaded through even though this surface passes a nil
+// site-config reader below (so the conflict / supersession detector never
+// actually runs here yet, W6-R2): FileDates is read only by that detector,
+// so carrying it costs nothing today and keeps this surface uniform with
+// the web chat and MCP paths for whenever the reader is flipped.
+func (h *Handler) contextParams(kbID, searchQuery, kbSystemPrompt string) chat.ChatContextParams {
+	return chat.ChatContextParams{
+		KbID:           kbID,
+		SearchQuery:    searchQuery,
+		Language:       "en",
+		KbSystemPrompt: kbSystemPrompt,
+		FileDates:      h.fileDates,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -444,12 +486,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// ------------------------------------------------------------------
 	// 8. Run the RAG context pipeline.
 	// ------------------------------------------------------------------
-	params := chat.ChatContextParams{
-		KbID:           kbID,
-		SearchQuery:    searchQuery,
-		Language:       "en",
-		KbSystemPrompt: kbSystemPrompt,
-	}
+	params := h.contextParams(kbID, searchQuery, kbSystemPrompt)
 
 	// OpenAI-compat clients don't read site_configs — pass nil so CRAG is
 	// implicitly disabled here (its toggles only meaningfully apply via
@@ -463,6 +500,12 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(ctx, w, http.StatusInternalServerError, "failed to prepare context")
 		return
 	}
+
+	// Freshness dates for the cited files (one batch query, fail-soft) —
+	// the same enrichment the web chat and public-API paths do, applied
+	// once here so both response shapes see it: the streaming path emits
+	// the citations on its OPENING chunk, before a single token exists.
+	chat.EnrichSourceDates(ctx, h.fileDates, chatCtx.Sources)
 
 	// ------------------------------------------------------------------
 	// 9. Generate completion (streaming or non-streaming).
@@ -524,6 +567,15 @@ func (h *Handler) nonStreamResponse(
 		writeAPIError(ctx, w, http.StatusInternalServerError, "failed to generate response")
 		return
 	}
+	// Degenerate-run guard, post hoc (W5-R4): nothing to abort on a
+	// non-streaming completion, but the answer must not be returned — nor
+	// its citation annotations computed — with the run in it. The answer
+	// language on this surface is pinned to English (see PrepareChatContext
+	// above), so the notice is too.
+	if guarded, appended := chat.GuardAnswerText(ctx, h.siteConfig, result.Content, "en", "openai_compat"); appended != "" {
+		logctx.From(ctx).Warn("openaicompat: degenerate answer run stripped (non-streaming)", "kbId", kbID)
+		result.Content = guarded
+	}
 
 	resp := buildCompletionResponse(completionID, model, created, result.Content, sources)
 
@@ -568,7 +620,14 @@ func (h *Handler) streamResponse(
 	// token lands.
 	writeSSEChunk(w, initialChunk(completionID, model, created, sources))
 
-	events, err := ai.StreamCompletionWithHistory(ctx, h.aiResolver, history, prompt, systemPrompt, kbID, "", ai.DefaultAnswerTemperature)
+	// Degenerate-run guard (W5-R4): this surface has its own stream loop, so
+	// it gets the same treatment as the web one — the completion runs under
+	// a cancellable child of ctx, and a trip cuts the provider off.
+	genCtx, cancelGen := context.WithCancel(ctx)
+	defer cancelGen()
+	tracker := chat.NewRunTracker(chat.ChatAnswerDegenerateRunLimit(ctx, h.siteConfig))
+
+	events, err := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, history, prompt, systemPrompt, kbID, "", ai.DefaultAnswerTemperature)
 	if err != nil {
 		// The initial assistant-role chunk has already gone out, so we can't
 		// fall back to an HTTP error. Log for operators and emit an
@@ -594,6 +653,12 @@ func (h *Handler) streamResponse(
 	// Accumulate the answer so the closing chunk can carry citation
 	// annotations, whose indices are offsets into the finished text.
 	var fullResponse strings.Builder
+	// sentLen is how much of the buffered answer has reached the client. The
+	// annotations in the closing chunk are offsets into the guarded text, so
+	// the client's assembled text has to carry every rune of it — including
+	// the pre-run prefix of the trip chunk, which is buffered but not
+	// forwarded and which chat.GuardStreamedAnswer streams back below.
+	sentLen := 0
 	var streamErr error
 	for event := range events {
 		if event.Done {
@@ -602,6 +667,12 @@ func (h *Handler) streamResponse(
 		}
 		if event.Content != "" {
 			fullResponse.WriteString(event.Content)
+			// The chunk that trips the guard is buffered (the strip needs the
+			// run and the text around it) but not forwarded.
+			if tracker.Feed(event.Content) {
+				cancelGen()
+				break
+			}
 			writeSSEChunk(w, completionChunk{
 				ID:      completionID,
 				Object:  "chat.completion.chunk",
@@ -615,10 +686,34 @@ func (h *Handler) streamResponse(
 					},
 				},
 			})
+			sentLen = fullResponse.Len()
 		}
 	}
 
-	if streamErr != nil {
+	answerText := fullResponse.String()
+	if tracker.Tripped() {
+		// The FORCED guard, on the tracker's own limit: the completion was
+		// cancelled, so the answer is truncated whether or not a second
+		// detection over the buffer re-finds the run, and the limit that
+		// fired is the one to strip against (no second site_config read).
+		guarded, appended := chat.GuardStreamedAnswer(answerText, answerText[:sentLen], tracker.Limit(), "en", "openai_compat")
+		answerText = guarded
+		if appended != "" {
+			writeSSEChunk(w, completionChunk{
+				ID:      completionID,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{Content: appended}, FinishReason: nil}},
+			})
+		}
+		logctx.From(ctx).Warn("openaicompat: degenerate answer run truncated",
+			"kbId", kbID, "limit", tracker.Limit(), "run_length", tracker.RunLength())
+	}
+
+	// A guard trip cancels genCtx; the provider's terminal event is then the
+	// abort we asked for, not a stream failure.
+	if streamErr != nil && !tracker.Tripped() {
 		// Mid-stream abort: don't pretend the completion finished with
 		// "stop" — emit an OpenAI-compat error object so clients see a
 		// diagnostic instead of a silently truncated answer.
@@ -639,8 +734,10 @@ func (h *Handler) streamResponse(
 		return
 	}
 
-	// Final chunk with finish_reason and the citation annotations.
-	writeSSEChunk(w, finalChunk(completionID, model, created, fullResponse.String(), sources))
+	// Final chunk with finish_reason and the citation annotations. The
+	// annotation offsets are computed over the guarded text, so a truncated
+	// answer's markers still line up with what the client holds.
+	writeSSEChunk(w, finalChunk(completionID, model, created, answerText, sources))
 
 	writeSSEDone(w)
 }

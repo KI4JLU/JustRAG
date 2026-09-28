@@ -255,86 +255,14 @@ func TestHalfvecSQLShape(t *testing.T) {
 	}
 }
 
-func TestKeywordSQLShape(t *testing.T) {
-	// Mimics the SQL shape produced by runKeywordSearch for the
-	// natural-language case (no quoted phrases, just an unquoted remainder).
-	// After the union fix, the unquoted-remainder path emits BOTH
-	// websearch_to_tsquery (AND) and to_tsquery (OR-of-tokens), joined with
-	// the tsquery || operator inside a single sub-clause. ts_rank weights
-	// both, so AND-matches dominate and OR-matches provide a recall floor.
-	t.Parallel()
-
-	tableName := GetVectorTableName(1536)
-	pgConfig := PgTextSearchConfig("de")
-	filterClause := "kb_id = $1::uuid"
-	limit := 15
-
-	// Unioned remainder clause.
-	composed := "((websearch_to_tsquery($2::regconfig, $3) || to_tsquery($2::regconfig, $4)))"
-
-	sql := fmt.Sprintf(`
-		SELECT id::text, content, COALESCE(contextual_prefix, ''), metadata::text, file_id::text,
-		       ts_rank(vector_index, %s) AS score
-		FROM "%s"
-		WHERE %s AND vector_index @@ %s
-		ORDER BY score DESC
-		LIMIT %d
-	`, composed, tableName, filterClause, composed, limit)
-
-	for _, want := range []string{
-		"document_chunks",
-		"ts_rank",
-		"websearch_to_tsquery($2::regconfig, $3)",
-		"to_tsquery($2::regconfig, $4)",
-		" || ",
-		"vector_index @@",
-		"LIMIT 15",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Errorf("keyword SQL missing %q:\n%s", want, sql)
-		}
-	}
-	if pgConfig != "german" {
-		t.Errorf("expected pgConfig=german, got %q", pgConfig)
-	}
-}
-
-func TestKeywordSQLShape_WithPhrase(t *testing.T) {
-	// Mixed query: remainder (union AND+OR) AND-joined with one phrase.
-	// runKeywordSearch builds queryParts in order — remainder first (lower
-	// $-param numbers), phrases second.
-	t.Parallel()
-
-	tableName := GetVectorTableName(1536)
-	pgConfig := PgTextSearchConfig("de")
-	filterClause := "kb_id = $1::uuid"
-	limit := 15
-
-	// Remainder union sub-clause (params $3, $4) AND-joined with phrase ($5).
-	composed := "((websearch_to_tsquery($2::regconfig, $3) || to_tsquery($2::regconfig, $4)) && phraseto_tsquery($2::regconfig, $5))"
-
-	sql := fmt.Sprintf(`
-		SELECT id::text, content, COALESCE(contextual_prefix, ''), metadata::text, file_id::text,
-		       ts_rank(vector_index, %s) AS score
-		FROM "%s"
-		WHERE %s AND vector_index @@ %s
-		ORDER BY score DESC
-		LIMIT %d
-	`, composed, tableName, filterClause, composed, limit)
-
-	for _, want := range []string{
-		"websearch_to_tsquery($2::regconfig, $3)",
-		"to_tsquery($2::regconfig, $4)",
-		"phraseto_tsquery($2::regconfig, $5)",
-		" || ",
-		" && ",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Errorf("keyword SQL missing %q:\n%s", want, sql)
-		}
-	}
-	_ = pgConfig
-}
+// TestKeywordSQLShape and TestKeywordSQLShape_WithPhrase used to live here
+// as hand-written replicas of runKeywordSearch's SQL — they built their own
+// local strings and never called production code, so they could pass even
+// while the real builder drifted. Task 6 extracted that logic into
+// buildKeywordSQL (keyword_sql.go) and replaced both with tests that call
+// it directly: TestBuildKeywordSQL_TsRank_SingleArm,
+// TestBuildKeywordSQL_TsRank_DualArm, and the byte-stable pin
+// TestBuildKeywordSQL_TsRankIsByteStable (keyword_sql_test.go).
 
 // TestSearchLimitCandidateMultiplier verifies the candidate over-fetch logic.
 func TestSearchLimitCandidateMultiplier(t *testing.T) {
@@ -477,33 +405,79 @@ func TestLoadSiteConfig_Overrides(t *testing.T) {
 	}
 }
 
-// TestLoadSiteConfig_BM25TieredBoost pins the tiered-boost gate.
-// Default off; explicit "true" enables; bad values fall back to
-// default (false). Scoring impact is exercised by the keyword-SQL
-// shape tests; this one just verifies the site_config plumbing.
-func TestLoadSiteConfig_BM25TieredBoost(t *testing.T) {
+// TestLoadSiteConfig_BM25ScoringMode pins the ts_rank/bm25 mode + k1/b
+// plumbing: default ts_rank/1.2/0.75; any casing/whitespace of "bm25"
+// (case/whitespace-insensitive comparison) switches the mode; anything else
+// (typos, "ts_rank", empty) inherits the default; and k1/b out-of-range
+// values fall back to their defaults.
+func TestLoadSiteConfig_BM25ScoringMode(t *testing.T) {
 	t.Parallel()
 
 	// default
 	svc := NewSearchService(nil, nil, nil, WithSiteConfigReader(&stubSiteConfig{values: map[string]*string{}}))
-	if cfg := svc.loadSiteConfig(context.Background()); cfg.BM25TieredBoost {
-		t.Errorf("BM25TieredBoost: default must be false, got true")
+	cfg := svc.loadSiteConfig(context.Background())
+	if cfg.BM25ScoringMode != KeywordScoringTsRank {
+		t.Errorf("BM25ScoringMode: default must be ts_rank, got %q", cfg.BM25ScoringMode)
+	}
+	if cfg.BM25K1 != 1.2 {
+		t.Errorf("BM25K1: default must be 1.2, got %v", cfg.BM25K1)
+	}
+	if cfg.BM25B != 0.75 {
+		t.Errorf("BM25B: default must be 0.75, got %v", cfg.BM25B)
 	}
 
-	// explicit true
+	// explicit "bm25"
 	svc = NewSearchService(nil, nil, nil, WithSiteConfigReader(&stubSiteConfig{values: map[string]*string{
-		"bm25_tiered_boost_enabled": strPtr("true"),
+		"bm25_scoring_mode": strPtr("bm25"),
 	}}))
-	if cfg := svc.loadSiteConfig(context.Background()); !cfg.BM25TieredBoost {
-		t.Errorf("BM25TieredBoost: explicit true must be true")
+	if cfg := svc.loadSiteConfig(context.Background()); cfg.BM25ScoringMode != KeywordScoringBM25 {
+		t.Errorf("BM25ScoringMode: explicit \"bm25\" must switch the mode, got %q", cfg.BM25ScoringMode)
 	}
 
-	// garbage falls back to default (false)
+	// case-insensitive: any casing of "bm25" still switches the mode.
+	for _, v := range []string{"BM25", "Bm25", " bm25 "} {
+		svc = NewSearchService(nil, nil, nil, WithSiteConfigReader(&stubSiteConfig{values: map[string]*string{
+			"bm25_scoring_mode": strPtr(v),
+		}}))
+		if cfg := svc.loadSiteConfig(context.Background()); cfg.BM25ScoringMode != KeywordScoringBM25 {
+			t.Errorf("BM25ScoringMode: value %q must switch the mode (case/whitespace-insensitive), got %q", v, cfg.BM25ScoringMode)
+		}
+	}
+
+	// typos / unrelated values inherit the default
+	for _, v := range []string{"ts_rank", "tsrank", "", "bm-25"} {
+		svc = NewSearchService(nil, nil, nil, WithSiteConfigReader(&stubSiteConfig{values: map[string]*string{
+			"bm25_scoring_mode": strPtr(v),
+		}}))
+		if cfg := svc.loadSiteConfig(context.Background()); cfg.BM25ScoringMode != KeywordScoringTsRank {
+			t.Errorf("BM25ScoringMode: value %q must inherit default ts_rank, got %q", v, cfg.BM25ScoringMode)
+		}
+	}
+
+	// k1/b explicit in-range values
 	svc = NewSearchService(nil, nil, nil, WithSiteConfigReader(&stubSiteConfig{values: map[string]*string{
-		"bm25_tiered_boost_enabled": strPtr("perhaps"),
+		"bm25_k1": strPtr("2.0"),
+		"bm25_b":  strPtr("0.5"),
 	}}))
-	if cfg := svc.loadSiteConfig(context.Background()); cfg.BM25TieredBoost {
-		t.Errorf("BM25TieredBoost: garbage value must yield default (false)")
+	cfg = svc.loadSiteConfig(context.Background())
+	if cfg.BM25K1 != 2.0 {
+		t.Errorf("BM25K1: want 2.0, got %v", cfg.BM25K1)
+	}
+	if cfg.BM25B != 0.5 {
+		t.Errorf("BM25B: want 0.5, got %v", cfg.BM25B)
+	}
+
+	// k1/b out-of-range fall back to defaults
+	svc = NewSearchService(nil, nil, nil, WithSiteConfigReader(&stubSiteConfig{values: map[string]*string{
+		"bm25_k1": strPtr("10"),
+		"bm25_b":  strPtr("2"),
+	}}))
+	cfg = svc.loadSiteConfig(context.Background())
+	if cfg.BM25K1 != 1.2 {
+		t.Errorf("BM25K1: out-of-range value must inherit default 1.2, got %v", cfg.BM25K1)
+	}
+	if cfg.BM25B != 0.75 {
+		t.Errorf("BM25B: out-of-range value must inherit default 0.75, got %v", cfg.BM25B)
 	}
 }
 
@@ -766,5 +740,43 @@ func TestBuildTwoPassVectorSQL(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// effectiveSimpleArm — the single BM25 keyword-arm decision
+// ---------------------------------------------------------------------------
+
+// TestEffectiveSimpleArm covers the OR semantics of the per-request
+// ForceBM25SimpleArm override against the deployment-wide site_config. All
+// four BM25 fan-outs inside Search (primary, multi-query, step-back,
+// sub-queries) consume the single value this helper returns, so the arm can
+// never differ between them within one request.
+func TestEffectiveSimpleArm(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		cfg, force, want bool
+	}{
+		{false, false, false},
+		{true, false, true},
+		{false, true, true}, // the tabular router's override turns it on
+		{true, true, true},
+	}
+	for _, c := range cases {
+		if got := effectiveSimpleArm(context.Background(), c.cfg, c.force); got != c.want {
+			t.Errorf("effectiveSimpleArm(cfg=%v, force=%v) = %v, want %v", c.cfg, c.force, got, c.want)
+		}
+	}
+}
+
+// TestShapeHash_ForceBM25SimpleArm guards the cache-correctness half: the
+// forced arm selects a different BM25 candidate pool, so a forced request
+// must not read a non-forced request's cached SearchResult.
+func TestShapeHash_ForceBM25SimpleArm(t *testing.T) {
+	t.Parallel()
+	base := shapeHash(SearchOptions{}, 10, "emb")
+	forced := shapeHash(SearchOptions{ForceBM25SimpleArm: true}, 10, "emb")
+	if string(base) == string(forced) {
+		t.Fatal("ForceBM25SimpleArm must fragment the query-cache shape hash")
 	}
 }

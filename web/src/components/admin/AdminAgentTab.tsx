@@ -4,9 +4,10 @@ import { motion } from 'framer-motion';
 import { Button, Input } from '@ki4jlu/design-system';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/FieldRow';
+import { CheckboxFieldRow, FieldRow, SelectFieldRow, TextareaFieldRow } from '../form/FieldRow';
 import AdminAgentMetricsCard from './AdminAgentMetricsCard';
 import AdminMCPSection from './AdminMCPSection';
+import { validatePolicyJSON, validateToolsByRouteJSON, previewPolicy, type PolicyEnabledMap } from './policyPreview';
 
 interface AdminAgentTabProps {
     siteConfigs: Record<string, string>;
@@ -18,25 +19,27 @@ const STORAGE_KEY = 'admin-agent-sections-open-v1';
 
 const SECTION_CONFIGS = [
     { id: 'general', titleKey: 'agentSectionGeneral', i18nKeys: ['defaultTopK', 'scoreDropThreshold', 'contextWindowSize', 'chatAnswerTemperature'], settingKeys: ['default_top_k', 'score_drop_threshold', 'context_window_size', 'chat_answer_temperature'] },
-    { id: 'hybrid', titleKey: 'agentSectionHybridSearch', i18nKeys: ['minSimilarityThreshold', 'mmrLambda', 'rrfWeightVector', 'rrfWeightBM25', 'bm25SimpleArmEnabled', 'bm25TieredBoostEnabled', 'hnswEfSearch', 'mrlTwoPassEnabled', 'queryInstruction', 'hyPESearchEnabled'], settingKeys: ['min_similarity_threshold', 'mmr_lambda', 'rrf_weight_vector', 'rrf_weight_bm25', 'bm25_simple_arm_enabled', 'bm25_tiered_boost_enabled', 'hnsw_ef_search', 'mrl_two_pass_enabled', 'query_instruction', 'hype_search_enabled'] },
+    { id: 'hybrid', titleKey: 'agentSectionHybridSearch', i18nKeys: ['minSimilarityThreshold', 'mmrLambda', 'rrfWeightVector', 'rrfWeightBM25', 'bm25SimpleArmEnabled', 'bm25ScoringMode', 'bm25K1', 'bm25B', 'hnswEfSearch', 'mrlTwoPassEnabled', 'queryInstruction', 'hyPESearchEnabled'], settingKeys: ['min_similarity_threshold', 'mmr_lambda', 'rrf_weight_vector', 'rrf_weight_bm25', 'bm25_simple_arm_enabled', 'bm25_scoring_mode', 'bm25_k1', 'bm25_b', 'hnsw_ef_search', 'mrl_two_pass_enabled', 'query_instruction', 'hype_search_enabled'] },
     { id: 'reranker', titleKey: 'agentSectionReranker', i18nKeys: ['rerankBlendAlpha', 'rerankBlendAlphaLookup', 'rerankBlendAlphaEnumeration', 'rerankBlendAlphaComplexReasoning', 'rerankBlendAlphaEntity', 'hybridDynamicAlphaEnabled', 'hybridDynamicAlphaSensitivity', 'rerankUseChatTemplate', 'rerankInstruction'], settingKeys: ['rerank_blend_alpha', 'rerank_blend_alpha_lookup', 'rerank_blend_alpha_enumeration', 'rerank_blend_alpha_complex_reasoning', 'rerank_blend_alpha_entity', 'hybrid_dynamic_alpha_enabled', 'hybrid_dynamic_alpha_sensitivity', 'rerank_use_chat_template', 'rerank_instruction'] },
     { id: 'topn', titleKey: 'agentSectionPerRouteTopN', i18nKeys: ['topNLookup', 'topNEnumeration', 'topNComplexReasoning'], settingKeys: ['top_n_lookup', 'top_n_enumeration', 'top_n_complex_reasoning'] },
     { id: 'compression', titleKey: 'agentSectionCompression', i18nKeys: ['chatContextCompressionEnabled', 'chatContextCompressionMinChunks', 'chatContextCompressionThreshold', 'chatContextCompressionModel'], settingKeys: ['chat_context_compression_enabled', 'chat_context_compression_min_chunks', 'chat_context_compression_threshold', 'chat_context_compression_model'] },
-    { id: 'queryEnh', titleKey: 'agentSectionQueryEnhancement', i18nKeys: ['autoSpellCorrect', 'stepBackEnabled', 'queryDecomposeEnabled', 'queryDecomposeModel', 'chatLongcontextEnabled', 'chatLongcontextMaxTokens', 'queryCacheEnabled', 'queryCacheSimilarityThreshold', 'queryCacheSimilarityThresholdLookup', 'queryCacheSimilarityThresholdEnumeration', 'queryCacheSimilarityThresholdComplexReasoning', 'queryCacheTtlHours'], settingKeys: ['auto_spell_correct', 'step_back_enabled', 'query_decompose_enabled', 'query_decompose_model', 'chat_longcontext_enabled', 'chat_longcontext_max_tokens', 'query_cache_enabled', 'query_cache_similarity_threshold', 'query_cache_similarity_threshold_lookup', 'query_cache_similarity_threshold_enumeration', 'query_cache_similarity_threshold_complex_reasoning', 'query_cache_ttl_hours'] },
+    { id: 'queryEnh', titleKey: 'agentSectionQueryEnhancement', i18nKeys: ['autoSpellCorrect', 'stepBackEnabled', 'queryDecomposeEnabled', 'queryDecomposeModel', 'chatLongcontextEnabled', 'chatLongcontextMaxTokens', 'chatLongcontextMode', 'chatLongcontextMapGroupSize', 'chatLongcontextMapConcurrency', 'queryCacheEnabled', 'queryCacheSimilarityThreshold', 'queryCacheSimilarityThresholdLookup', 'queryCacheSimilarityThresholdEnumeration', 'queryCacheSimilarityThresholdComplexReasoning', 'queryCacheTtlHours'], settingKeys: ['auto_spell_correct', 'step_back_enabled', 'query_decompose_enabled', 'query_decompose_model', 'chat_longcontext_enabled', 'chat_longcontext_max_tokens', 'chat_longcontext_mode', 'chat_longcontext_map_group_size', 'chat_longcontext_map_concurrency', 'query_cache_enabled', 'query_cache_similarity_threshold', 'query_cache_similarity_threshold_lookup', 'query_cache_similarity_threshold_enumeration', 'query_cache_similarity_threshold_complex_reasoning', 'query_cache_ttl_hours'] },
     { id: 'crag', titleKey: 'agentSectionCragAdaptive', i18nKeys: ['cragEnabled', 'cragMinRelevantChunks', 'adaptiveRoutingEnabled'], settingKeys: ['crag_enabled', 'crag_min_relevant_chunks', 'adaptive_routing_enabled'] },
     { id: 'graph', titleKey: 'agentSectionGraph', i18nKeys: ['kgExtractionEnabled', 'chatGraphRoutingEnabled', 'chatGraphRoutingInjectChunks', 'chatGraphRoutingMaxChunks', 'chatGraphRoutingPathMode', 'chatGraphRoutingPPRDamping', 'chatGraphRoutingPPRMaxIter', 'chatGraphRoutingPPRTopEntities', 'chatGraphRoutingPathsMaxLen', 'chatGraphRoutingPathsMaxPaths'], settingKeys: ['kg_extraction_enabled', 'chat_graph_routing_enabled', 'chat_graph_routing_inject_chunks', 'chat_graph_routing_max_chunks', 'chat_graph_routing_path_mode', 'chat_graph_routing_ppr_damping', 'chat_graph_routing_ppr_max_iter', 'chat_graph_routing_ppr_top_entities', 'chat_graph_routing_paths_max_len', 'chat_graph_routing_paths_max_paths'] },
-    { id: 'multistep', titleKey: 'agentSectionMultiStep', i18nKeys: ['chatKBRouterEnabled', 'chatKBRouterMinConfidence', 'chatTurnBudgetSeconds', 'chatTurnBudgetTokens', 'chatTurnBudgetToolCalls', 'chatAgenticEnabled', 'chatAgenticMaxHops', 'chatPlanExecuteEnabled', 'chatPlanExecuteMaxSubQueries', 'chatPlanExecuteMaxIterations', 'chatPlanExecuteTokenBudget', 'chatPlanExecuteToolAware', 'chatPlanExecuteDAGIterative', 'chatAnswerToolsEnabled', 'chatAnswerToolsMaxRounds', 'chatSupervisorEnabled', 'chatSupervisorMultiSpecialist', 'chatDriftEnabled', 'chatCommunitySearchEnabled'], settingKeys: ['chat_kb_router_enabled', 'chat_kb_router_min_confidence', 'chat_turn_budget_seconds', 'chat_turn_budget_tokens', 'chat_turn_budget_tool_calls', 'chat_agentic_enabled', 'chat_agentic_max_hops', 'chat_plan_execute_enabled', 'chat_plan_execute_max_sub_queries', 'chat_plan_execute_max_iterations', 'chat_plan_execute_token_budget', 'chat_plan_execute_tool_aware', 'chat_plan_execute_dag_iterative', 'chat_answer_tools_enabled', 'chat_answer_tools_max_rounds', 'chat_supervisor_enabled', 'chat_supervisor_multi_specialist', 'chat_drift_enabled', 'chat_community_search_enabled'] },
+    { id: 'multistep', titleKey: 'agentSectionMultiStep', i18nKeys: ['chatKBRouterEnabled', 'chatKBRouterMinConfidence', 'chatTurnBudgetSeconds', 'chatTurnBudgetTokens', 'chatTurnBudgetToolCalls', 'chatAgenticEnabled', 'chatAgenticMaxHops', 'chatPlanExecuteEnabled', 'chatPlanExecuteMaxSubQueries', 'chatPlanExecuteMaxIterations', 'chatPlanExecuteTokenBudget', 'chatPlanExecuteToolAware', 'chatPlanExecuteDAGIterative', 'chatAnswerToolsEnabled', 'chatAnswerToolsMaxRounds', 'chatOrchestratorPolicy', 'chatOrchestratorPolicyHelp', 'chatOrchestratorPolicyPreview', 'chatOrchestratorPolicyNoRule', 'chatOrchestratorPolicyFlagOff', 'chatAnswerToolsByRoute', 'chatAnswerToolsByRouteHelp', 'chatSupervisorEnabled', 'chatSupervisorMultiSpecialist', 'chatDriftEnabled', 'chatCommunitySearchEnabled'], settingKeys: ['chat_kb_router_enabled', 'chat_kb_router_min_confidence', 'chat_turn_budget_seconds', 'chat_turn_budget_tokens', 'chat_turn_budget_tool_calls', 'chat_agentic_enabled', 'chat_agentic_max_hops', 'chat_plan_execute_enabled', 'chat_plan_execute_max_sub_queries', 'chat_plan_execute_max_iterations', 'chat_plan_execute_token_budget', 'chat_plan_execute_tool_aware', 'chat_plan_execute_dag_iterative', 'chat_answer_tools_enabled', 'chat_answer_tools_max_rounds', 'chat_orchestrator_policy', 'chat_answer_tools_by_route', 'chat_supervisor_enabled', 'chat_supervisor_multi_specialist', 'chat_drift_enabled', 'chat_community_search_enabled'] },
     { id: 'conversation', titleKey: 'agentSectionConversation', i18nKeys: ['chatAnswerHistoryEnabled', 'chatAnswerHistoryMessages', 'chatAnswerHistoryMaxChars', 'chatTransformFollowupEnabled'], settingKeys: ['chat_answer_history_enabled', 'chat_answer_history_messages', 'chat_answer_history_max_chars', 'chat_transform_followup_enabled'] },
     { id: 'corpusTable', titleKey: 'agentSectionCorpusTable', i18nKeys: ['chatCorpusTableEnabled', 'chatCorpusTableModel', 'chatCorpusTableMaxFiles', 'chatCorpusTableConcurrency', 'chatCorpusTableRouterLlmEnabled'], settingKeys: ['chat_corpus_table_enabled', 'chat_corpus_table_model', 'chat_corpus_table_max_files', 'chat_corpus_table_concurrency', 'chat_corpus_table_router_llm_enabled'] },
     { id: 'compare', titleKey: 'agentSectionCompare', i18nKeys: ['chatCompareEnabled', 'chatCompareModel', 'chatCompareMaxSections', 'chatCompareConcurrency', 'chatComparePeersPerSection', 'chatCompareAttachmentTtlHours', 'chatCompareMaxFileBytes'], settingKeys: ['chat_compare_enabled', 'chat_compare_model', 'chat_compare_max_sections', 'chat_compare_concurrency', 'chat_compare_peers_per_section', 'chat_compare_attachment_ttl_hours', 'chat_compare_max_file_bytes'] },
     { id: 'teams', titleKey: 'agentSectionTeams', i18nKeys: ['agentTeamRouterModel', 'agentsAllowPrivilegedTools'], settingKeys: ['agent_team_router_model', 'agents_allow_privileged_tools'] },
     { id: 'longmem', titleKey: 'agentSectionLongmem', i18nKeys: ['chatLongmemEnabled', 'chatLongmemMinSalience', 'chatLongmemRecallTopK', 'chatLongmemDecayDays', 'chatLongmemRecallSemantic', 'chatLongmemConflictResolution', 'chatLongmemConflictModel', 'chatLongmemConflictCandidates'], settingKeys: ['chat_longmem_enabled', 'chat_longmem_min_salience', 'chat_longmem_recall_top_k', 'chat_longmem_decay_days', 'chat_longmem_recall_semantic', 'chat_longmem_conflict_resolution', 'chat_longmem_conflict_model', 'chat_longmem_conflict_candidates'] },
-    { id: 'validation', titleKey: 'agentSectionValidation', i18nKeys: ['factcheckInChat', 'citationValidationEnabled', 'citationValidationSemanticThreshold', 'chatFactualityGateEnabled', 'chatFactualityGateMaxRefines', 'chatSelfRAGEnabled', 'ragasSamplingEnabled', 'ragasSamplingRate'], settingKeys: ['factcheck_in_chat', 'citation_validation_enabled', 'citation_validation_semantic_threshold', 'chat_factuality_gate_enabled', 'chat_factuality_gate_max_refines', 'chat_self_rag_enabled', 'ragas_sampling_enabled', 'ragas_sampling_rate'] },
-    { id: 'ingestion', titleKey: 'agentSectionIngestion', i18nKeys: ['doclingEnabled', 'doclingBaseUrl', 'describeImageEnabled', 'describeImageEnabledHelp', 'describeImageModel', 'describeImageModelHelp', 'contextualEnrichment', 'embeddingBatchSize', 'lateChunkingEnabled', 'lateChunkingMaxInputTokens', 'parentChildEnabled', 'parentChunkSize', 'childChunkSize', 'raptorEnabled', 'raptorMinChunks', 'raptorMaxLevels', 'raptorBranchingFactor', 'raptorClusteringAlgorithm', 'raptorLeidenResolution', 'hyPEEnabled', 'hyPEQuestionsPerChunk', 'hyPEModel'], settingKeys: ['docling_enabled', 'docling_base_url', 'describe_image_enabled', 'describe_image_model', 'contextual_enrichment', 'embedding_batch_size', 'late_chunking_enabled', 'late_chunking_max_input_tokens', 'parent_child_enabled', 'parent_chunk_size', 'child_chunk_size', 'raptor_enabled', 'raptor_min_chunks', 'raptor_max_levels', 'raptor_branching_factor', 'raptor_clustering_algorithm', 'raptor_leiden_resolution', 'hype_enabled', 'hype_questions_per_chunk', 'hype_model'] },
-    { id: 'observability', titleKey: 'agentSectionObservability', i18nKeys: ['langfuseBaseUrl'], settingKeys: ['langfuse_base_url'] },
+    { id: 'validation', titleKey: 'agentSectionValidation', i18nKeys: ['factcheckInChat', 'citationValidationEnabled', 'citationValidationSemanticThreshold', 'chatFactualityGateEnabled', 'chatFactualityGateMaxRefines', 'chatSelfRAGEnabled', 'ragasSamplingEnabled', 'ragasSamplingRate', 'ragasSamplesRetentionDays', 'chatCitationSpansEnabled', 'chatCitationSpansMaxSources', 'chatCitationSpansTimeoutMs', 'chatConflictSurfacingEnabled', 'chatConflictModel', 'chatConflictMaxChunks', 'chatConflictTimeoutMs', 'chatAnswerDegenerateRunLimit'], settingKeys: ['factcheck_in_chat', 'citation_validation_enabled', 'citation_validation_semantic_threshold', 'chat_factuality_gate_enabled', 'chat_factuality_gate_max_refines', 'chat_self_rag_enabled', 'ragas_sampling_enabled', 'ragas_sampling_rate', 'ragas_samples_retention_days', 'chat_citation_spans_enabled', 'chat_citation_spans_max_sources', 'chat_citation_spans_timeout_ms', 'chat_conflict_surfacing_enabled', 'chat_conflict_model', 'chat_conflict_max_chunks', 'chat_conflict_timeout_ms', 'chat_answer_degenerate_run_limit'] },
+    { id: 'ingestion', titleKey: 'agentSectionIngestion', i18nKeys: ['doclingEnabled', 'doclingBaseUrl', 'doclingTableMode', 'doclingOcrLanguages', 'doclingForceOcr', 'doclingPictureDescriptionEnabled', 'doclingPictureAreaThreshold', 'doclingPictureDescriptionPrompt', 'describeImageEnabled', 'describeImageEnabledHelp', 'describeImageModel', 'describeImageModelHelp', 'contextualEnrichment', 'ingestScreeningEnabled', 'ingestScreeningEnabledHelp', 'ingestScreeningWindowRunes', 'ingestScreeningWindowRunesHelp', 'embeddingBatchSize', 'lateChunkingEnabled', 'lateChunkingMaxInputTokens', 'parentChildEnabled', 'parentChunkSize', 'childChunkSize', 'raptorEnabled', 'raptorMinChunks', 'raptorMaxLevels', 'raptorBranchingFactor', 'raptorClusteringAlgorithm', 'raptorLeidenResolution', 'hyPEEnabled', 'hyPEQuestionsPerChunk', 'hyPEModel'], settingKeys: ['docling_enabled', 'docling_base_url', 'docling_table_mode', 'docling_ocr_languages', 'docling_force_ocr', 'docling_picture_description_enabled', 'docling_picture_area_threshold', 'docling_picture_description_prompt', 'describe_image_enabled', 'describe_image_model', 'contextual_enrichment', 'ingest_screening_enabled', 'ingest_screening_window_runes', 'embedding_batch_size', 'late_chunking_enabled', 'late_chunking_max_input_tokens', 'parent_child_enabled', 'parent_chunk_size', 'child_chunk_size', 'raptor_enabled', 'raptor_min_chunks', 'raptor_max_levels', 'raptor_branching_factor', 'raptor_clustering_algorithm', 'raptor_leiden_resolution', 'hype_enabled', 'hype_questions_per_chunk', 'hype_model'] },
+    { id: 'observability', titleKey: 'agentSectionObservability', i18nKeys: ['langfuseBaseUrl', 'kbStaleDays'], settingKeys: ['langfuse_base_url', 'kb_stale_days'] },
     { id: 'tools', titleKey: 'agentSectionTools', i18nKeys: ['chatCodeExecEnabled'], settingKeys: ['mcp_servers', 'chat_use_mcp_tools', 'chat_code_exec_enabled'] },
-    { id: 'tabular', titleKey: 'agentSectionTabular', i18nKeys: ['chatTabularQueryEnabled', 'chatTabularSemanticColumnsEnabled', 'tabularSemanticMinAvgLen', 'tabularSemanticMinDistinctRatio', 'chatTabularChartsEnabled'], settingKeys: ['chat_tabular_query_enabled', 'chat_tabular_semantic_columns_enabled', 'tabular_semantic_min_avg_len', 'tabular_semantic_min_distinct_ratio', 'chat_tabular_charts_enabled'] },
+    { id: 'tabular', titleKey: 'agentSectionTabular', i18nKeys: ['chatTabularQueryEnabled', 'chatTabularChartsEnabled', 'chatTabularRouterEnabled', 'chatTabularRouterModel', 'chatTabularRouterMaxRows', 'chatTabularRouterMaxRepairs', 'chatTabularRouterTimeoutMs', 'chatTabularRouterSchemaMaxTokens', 'chatTabularGuidanceMaxTokens'], settingKeys: ['chat_tabular_query_enabled', 'chat_tabular_charts_enabled', 'chat_tabular_router_enabled', 'chat_tabular_router_model', 'chat_tabular_router_max_rows', 'chat_tabular_router_max_repairs', 'chat_tabular_router_timeout_ms', 'chat_tabular_router_schema_max_tokens', 'chat_tabular_guidance_max_tokens'] },
     { id: 'dateAware', titleKey: 'agentSectionDateAware', i18nKeys: ['chatDateAwarenessEnabled', 'chatDateTimezone', 'chatDateToolsEnabled', 'chatDateToolsMaxResults', 'chatRecencyListingEnabled', 'chatRecencyListingNameMatchEnabled', 'chatRecencyListingWindowDays', 'chatRecencyListingMaxResults'], settingKeys: ['chat_date_awareness_enabled', 'chat_date_timezone', 'chat_date_tools_enabled', 'chat_date_tools_max_results', 'chat_recency_listing_enabled', 'chat_recency_listing_name_match_enabled', 'chat_recency_listing_window_days', 'chat_recency_listing_max_results'] },
+    { id: 'syncWindow', titleKey: 'agentSectionSyncWindow', i18nKeys: ['syncWindowStartHour', 'syncWindowEndHour', 'syncWindowTimezone'], settingKeys: ['sync_window_start_hour', 'sync_window_end_hour', 'sync_window_timezone'] },
+    { id: 'evalSchedule', titleKey: 'agentSectionEvalSchedule', i18nKeys: ['evalRegressionRecallPP', 'evalRegressionMrrPP'], settingKeys: ['eval_regression_recall_pp', 'eval_regression_mrr_pp'] },
 ] as const;
 type SectionId = typeof SECTION_CONFIGS[number]['id'];
 
@@ -96,10 +99,56 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
     const isCragEnabled = siteConfigs.crag_enabled === 'true' || siteConfigs.crag_enabled === '1';
     const isDoclingEnabled = siteConfigs.docling_enabled === 'true' || siteConfigs.docling_enabled === '1';
     const isDescribeImageEnabled = siteConfigs.describe_image_enabled === 'true' || siteConfigs.describe_image_enabled === '1';
+    const isDoclingCaptioningEnabled = siteConfigs.docling_picture_description_enabled === 'true' || siteConfigs.docling_picture_description_enabled === '1';
     const isContextualEnrichmentEnabled = siteConfigs.contextual_enrichment !== 'false' && siteConfigs.contextual_enrichment !== '0';
+    // Kill switch: default ON, so anything but an explicit false/0 is on
+    // (mirrors processor.resolveScreeningEnabled).
+    const isIngestScreeningEnabled = siteConfigs.ingest_screening_enabled !== 'false' && siteConfigs.ingest_screening_enabled !== '0';
     const isQueryCacheEnabled = siteConfigs.query_cache_enabled === 'true' || siteConfigs.query_cache_enabled === '1';
-    const isTabularSemanticEnabled = siteConfigs.chat_tabular_semantic_columns_enabled === 'true' || siteConfigs.chat_tabular_semantic_columns_enabled === '1';
     const isCorpusTableEnabled = siteConfigs.chat_corpus_table_enabled === 'true' || siteConfigs.chat_corpus_table_enabled === '1';
+    const isLongcontextEnabled = siteConfigs.chat_longcontext_enabled === 'true' || siteConfigs.chat_longcontext_enabled === '1';
+    // The two map knobs only do anything in map_reduce mode. An unset key is
+    // map_reduce since Wave 5 (W5-R1), so the fallback has to match the backend
+    // default or the knobs would be hidden on exactly the deployments that use them.
+    const isLongcontextMapReduce = isLongcontextEnabled && (siteConfigs.chat_longcontext_mode || 'map_reduce') === 'map_reduce';
+
+    // Client-side mirror of the Go validators in internal/chatpolicy — the
+    // server stays the authority (internal/siteconfig runs the real
+    // validators at save time); this only catches an operator's mistake
+    // before they hit Save and drives the rule preview below.
+    const policyValidation = useMemo(() => validatePolicyJSON(siteConfigs.chat_orchestrator_policy || ''), [siteConfigs.chat_orchestrator_policy]);
+    const toolsByRouteValidation = useMemo(() => validateToolsByRouteJSON(siteConfigs.chat_answer_tools_by_route || ''), [siteConfigs.chat_answer_tools_by_route]);
+    // S5 (final review): the live orchestrator flags, read from the same
+    // siteConfigs the rest of this component already has, so the preview
+    // can tell a `prefer` row that actually applies from one that falls
+    // through to the ladder because its orchestrator's flag is off.
+    // "standard" is deliberately absent — chatpolicy.Decide always treats
+    // it as enabled (it has no flag of its own).
+    const policyEnabledFlags: PolicyEnabledMap = useMemo(() => {
+        const isOn = (v: string | undefined) => v === 'true' || v === '1';
+        return {
+            drift: isOn(siteConfigs.chat_drift_enabled),
+            longcontext: isOn(siteConfigs.chat_longcontext_enabled),
+            supervisor: isOn(siteConfigs.chat_supervisor_enabled),
+            plan_execute: isOn(siteConfigs.chat_plan_execute_enabled),
+            // plan_execute_dag shares chat_plan_execute_enabled server-side
+            // (policyEnabledFromConfig, http_send.go) — there is no separate
+            // flag for the DAG shape in the policy-enabled map.
+            plan_execute_dag: isOn(siteConfigs.chat_plan_execute_enabled),
+            agentic: isOn(siteConfigs.chat_agentic_enabled),
+        };
+    }, [
+        siteConfigs.chat_drift_enabled,
+        siteConfigs.chat_longcontext_enabled,
+        siteConfigs.chat_supervisor_enabled,
+        siteConfigs.chat_plan_execute_enabled,
+        siteConfigs.chat_agentic_enabled,
+    ]);
+    const policyPreviewRows = useMemo(
+        () => (policyValidation.errors.length === 0 ? previewPolicy(policyValidation.rules, policyEnabledFlags) : []),
+        [policyValidation, policyEnabledFlags],
+    );
+    const hasPolicyEditorErrors = policyValidation.errors.length > 0 || toolsByRouteValidation.errors.length > 0;
 
     const [openMap, setOpenMap] = useState<Record<string, boolean>>(() => {
         try {
@@ -269,11 +318,39 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, bm25_simple_arm_enabled: checked ? 'true' : 'false' }))}
                     />
 
-                    <CheckboxFieldRow
-                        label={t('bm25TieredBoostEnabled')}
-                        help={t('bm25TieredBoostEnabledHelp')}
-                        checked={siteConfigs.bm25_tiered_boost_enabled === 'true' || siteConfigs.bm25_tiered_boost_enabled === '1'}
-                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, bm25_tiered_boost_enabled: checked ? 'true' : 'false' }))}
+                    <SelectFieldRow
+                        label={t('bm25ScoringMode')}
+                        help={t('bm25ScoringModeHelp')}
+                        value={siteConfigs.bm25_scoring_mode || 'ts_rank'}
+                        onValueChange={value => setSiteConfigs(prev => ({ ...prev, bm25_scoring_mode: value }))}
+                        options={[
+                            { value: 'ts_rank', label: t('bm25ScoringModeTsRank') },
+                            { value: 'bm25', label: t('bm25ScoringModeBM25') },
+                        ]}
+                    />
+
+                    <FieldRow
+                        label={t('bm25K1')}
+                        help={t('bm25K1Help')}
+                        type="number"
+                        min={0.5}
+                        max={3.0}
+                        step={0.1}
+                        value={siteConfigs.bm25_k1 || '1.2'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, bm25_k1: e.target.value }))}
+                        disabled={(siteConfigs.bm25_scoring_mode || 'ts_rank') !== 'bm25'}
+                    />
+
+                    <FieldRow
+                        label={t('bm25B')}
+                        help={t('bm25BHelp')}
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={siteConfigs.bm25_b || '0.75'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, bm25_b: e.target.value }))}
+                        disabled={(siteConfigs.bm25_scoring_mode || 'ts_rank') !== 'bm25'}
                     />
 
                     {/* `step` is VALIDATION, not a spinner increment: HTML defines the
@@ -545,7 +622,43 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         step={5000}
                         value={siteConfigs.chat_longcontext_max_tokens || '100000'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_longcontext_max_tokens: e.target.value }))}
-                        disabled={!(siteConfigs.chat_longcontext_enabled === 'true' || siteConfigs.chat_longcontext_enabled === '1')}
+                        disabled={!isLongcontextEnabled}
+                    />
+
+                    <SelectFieldRow
+                        label={t('chatLongcontextMode')}
+                        help={t('chatLongcontextModeHelp')}
+                        value={siteConfigs.chat_longcontext_mode || 'map_reduce'}
+                        onValueChange={value => setSiteConfigs(prev => ({ ...prev, chat_longcontext_mode: value }))}
+                        disabled={!isLongcontextEnabled}
+                        options={[
+                            { value: 'flat', label: t('chatLongcontextModeFlat') },
+                            { value: 'map_reduce', label: t('chatLongcontextModeMapReduce') },
+                        ]}
+                    />
+
+                    <FieldRow
+                        label={t('chatLongcontextMapGroupSize')}
+                        help={t('chatLongcontextMapGroupSizeHelp')}
+                        type="number"
+                        min={2}
+                        max={32}
+                        step={1}
+                        value={siteConfigs.chat_longcontext_map_group_size || '8'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_longcontext_map_group_size: e.target.value }))}
+                        disabled={!isLongcontextMapReduce}
+                    />
+
+                    <FieldRow
+                        label={t('chatLongcontextMapConcurrency')}
+                        help={t('chatLongcontextMapConcurrencyHelp')}
+                        type="number"
+                        min={1}
+                        max={32}
+                        step={1}
+                        value={siteConfigs.chat_longcontext_map_concurrency || '6'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_longcontext_map_concurrency: e.target.value }))}
+                        disabled={!isLongcontextMapReduce}
                     />
 
                     <CheckboxFieldRow
@@ -902,6 +1015,57 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         step="1"
                         value={siteConfigs.chat_answer_tools_max_rounds || '5'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_answer_tools_max_rounds: e.target.value }))}
+                    />
+
+                    <TextareaFieldRow
+                        label={t('chatOrchestratorPolicy')}
+                        help={t('chatOrchestratorPolicyHelp')}
+                        width="wide"
+                        rows={8}
+                        placeholder='[{"when":{"query_type":["lookup"]},"orchestrator":"standard","mode":"force"},{"when":{"global_synthesis":true},"orchestrator":"longcontext","mode":"prefer"}]'
+                        value={siteConfigs.chat_orchestrator_policy || ''}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_orchestrator_policy: e.target.value }))}
+                        footer={policyValidation.errors.length > 0 ? (
+                            <ul className="mt-1 list-disc pl-5 text-label-sm text-error">
+                                {policyValidation.errors.map((err, i) => <li key={i}>{err}</li>)}
+                            </ul>
+                        ) : (
+                            <div className="mt-3">
+                                <p className="mb-1 font-label-sm text-label-sm font-semibold text-on-surface-variant">{t('chatOrchestratorPolicyPreview')}</p>
+                                <table className="w-full border-collapse text-label-sm">
+                                    <tbody>
+                                        {policyPreviewRows.map(row => (
+                                            <tr key={row.label} className="border-t border-outline-variant">
+                                                <td className="py-1 pr-2">{t(row.label)}</td>
+                                                <td className="px-2 py-1 text-on-surface-variant">{row.ruleIndex === null ? t('chatOrchestratorPolicyNoRule') : `#${row.ruleIndex}`}</td>
+                                                <td className="px-2 py-1">
+                                                    {row.orchestrator ?? '—'}
+                                                    {row.appliedFallthrough && (
+                                                        <span className="text-on-surface-variant"> {t('chatOrchestratorPolicyFlagOff')}</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-1">{row.mode ?? '—'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    />
+
+                    <TextareaFieldRow
+                        label={t('chatAnswerToolsByRoute')}
+                        help={t('chatAnswerToolsByRouteHelp')}
+                        width="wide"
+                        rows={8}
+                        placeholder='{"lookup":["kb_search","chunk_read"],"complex_reasoning":["kb_search","keyword_search","chunk_read","document_outline"]}'
+                        value={siteConfigs.chat_answer_tools_by_route || ''}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_answer_tools_by_route: e.target.value }))}
+                        footer={toolsByRouteValidation.errors.length > 0 && (
+                            <ul className="mt-1 list-disc pl-5 text-label-sm text-error">
+                                {toolsByRouteValidation.errors.map((err, i) => <li key={i}>{err}</li>)}
+                            </ul>
+                        )}
                     />
 
                     <CheckboxFieldRow
@@ -1265,6 +1429,94 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         value={siteConfigs.ragas_sampling_rate || '0.0'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, ragas_sampling_rate: e.target.value }))}
                     />
+
+                    <FieldRow
+                        label={t('ragasSamplesRetentionDays')}
+                        help={t('ragasSamplesRetentionDaysHelp')}
+                        type="number"
+                        min={1}
+                        max={3650}
+                        step={1}
+                        value={siteConfigs.ragas_samples_retention_days || '90'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, ragas_samples_retention_days: e.target.value }))}
+                    />
+
+                    <CheckboxFieldRow
+                        label={t('chatCitationSpansEnabled')}
+                        help={t('chatCitationSpansEnabledHelp')}
+                        checked={siteConfigs.chat_citation_spans_enabled === 'true' || siteConfigs.chat_citation_spans_enabled === '1'}
+                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_citation_spans_enabled: checked ? 'true' : 'false' }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatCitationSpansMaxSources')}
+                        help={t('chatCitationSpansMaxSourcesHelp')}
+                        type="number"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={siteConfigs.chat_citation_spans_max_sources || '12'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_citation_spans_max_sources: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatCitationSpansTimeoutMs')}
+                        help={t('chatCitationSpansTimeoutMsHelp')}
+                        type="number"
+                        min={1000}
+                        max={60000}
+                        step={500}
+                        value={siteConfigs.chat_citation_spans_timeout_ms || '8000'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_citation_spans_timeout_ms: e.target.value }))}
+                    />
+
+                    <CheckboxFieldRow
+                        label={t('chatConflictSurfacingEnabled')}
+                        help={t('chatConflictSurfacingEnabledHelp')}
+                        checked={siteConfigs.chat_conflict_surfacing_enabled === 'true' || siteConfigs.chat_conflict_surfacing_enabled === '1'}
+                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_conflict_surfacing_enabled: checked ? 'true' : 'false' }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatConflictModel')}
+                        help={t('chatConflictModelHelp')}
+                        type="text"
+                        value={siteConfigs.chat_conflict_model || ''}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_conflict_model: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatConflictMaxChunks')}
+                        help={t('chatConflictMaxChunksHelp')}
+                        type="number"
+                        min={2}
+                        max={30}
+                        step={1}
+                        value={siteConfigs.chat_conflict_max_chunks || '12'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_conflict_max_chunks: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatConflictTimeoutMs')}
+                        help={t('chatConflictTimeoutMsHelp')}
+                        type="number"
+                        min={1000}
+                        max={30000}
+                        step={500}
+                        value={siteConfigs.chat_conflict_timeout_ms || '6000'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_conflict_timeout_ms: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatAnswerDegenerateRunLimit')}
+                        help={t('chatAnswerDegenerateRunLimitHelp')}
+                        type="number"
+                        min={0}
+                        max={100000}
+                        step={50}
+                        value={siteConfigs.chat_answer_degenerate_run_limit || '400'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_answer_degenerate_run_limit: e.target.value }))}
+                    />
                 </Section>
 
                 <Section title={t('agentSectionIngestion')} {...sectionState('ingestion')}>
@@ -1284,6 +1536,67 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         value={siteConfigs.docling_base_url || ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, docling_base_url: e.target.value }))}
                         disabled={!isDoclingEnabled}
+                    />
+
+                    <SelectFieldRow
+                        label={t('doclingTableMode')}
+                        help={t('doclingTableModeHelp')}
+                        value={siteConfigs.docling_table_mode || 'accurate'}
+                        onValueChange={value => setSiteConfigs(prev => ({ ...prev, docling_table_mode: value }))}
+                        disabled={!isDoclingEnabled}
+                        options={[
+                            { value: 'accurate', label: t('doclingTableModeAccurate') },
+                            { value: 'fast', label: t('doclingTableModeFast') },
+                        ]}
+                    />
+
+                    <FieldRow
+                        label={t('doclingOcrLanguages')}
+                        help={t('doclingOcrLanguagesHelp')}
+                        type="text"
+                        placeholder="de,en"
+                        value={siteConfigs.docling_ocr_languages ?? 'de,en'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, docling_ocr_languages: e.target.value }))}
+                        disabled={!isDoclingEnabled}
+                    />
+
+                    <CheckboxFieldRow
+                        label={t('doclingForceOcr')}
+                        help={t('doclingForceOcrHelp')}
+                        checked={siteConfigs.docling_force_ocr === 'true' || siteConfigs.docling_force_ocr === '1'}
+                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, docling_force_ocr: checked ? 'true' : 'false' }))}
+                        disabled={!isDoclingEnabled}
+                    />
+
+                    <CheckboxFieldRow
+                        label={t('doclingPictureDescriptionEnabled')}
+                        help={t('doclingPictureDescriptionEnabledHelp')}
+                        checked={isDoclingCaptioningEnabled}
+                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, docling_picture_description_enabled: checked ? 'true' : 'false' }))}
+                        disabled={!isDoclingEnabled}
+                    />
+
+                    <FieldRow
+                        label={t('doclingPictureAreaThreshold')}
+                        help={t('doclingPictureAreaThresholdHelp')}
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={siteConfigs.docling_picture_area_threshold || '0.05'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, docling_picture_area_threshold: e.target.value }))}
+                        disabled={!isDoclingEnabled || !isDoclingCaptioningEnabled}
+                    />
+
+                    <TextareaFieldRow
+                        label={t('doclingPictureDescriptionPrompt')}
+                        help={t('doclingPictureDescriptionPromptHelp')}
+                        width="wide"
+                        rows={4}
+                        placeholder="Beschreibe diese Abbildung in der Sprache des Dokuments …"
+                        value={siteConfigs.docling_picture_description_prompt || ''}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, docling_picture_description_prompt: e.target.value }))}
+                        disabled={!isDoclingEnabled || !isDoclingCaptioningEnabled}
                     />
 
                     <CheckboxFieldRow
@@ -1308,6 +1621,25 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         help={t('contextualEnrichmentHelp')}
                         checked={isContextualEnrichmentEnabled}
                         onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, contextual_enrichment: checked ? 'true' : 'false' }))}
+                    />
+
+                    <CheckboxFieldRow
+                        label={t('ingestScreeningEnabled')}
+                        help={t('ingestScreeningEnabledHelp')}
+                        checked={isIngestScreeningEnabled}
+                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, ingest_screening_enabled: checked ? 'true' : 'false' }))}
+                    />
+
+                    <FieldRow
+                        label={t('ingestScreeningWindowRunes')}
+                        help={t('ingestScreeningWindowRunesHelp')}
+                        type="number"
+                        min={100}
+                        max={5000}
+                        step={50}
+                        value={siteConfigs.ingest_screening_window_runes || '600'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, ingest_screening_window_runes: e.target.value }))}
+                        disabled={!isIngestScreeningEnabled}
                     />
 
                     <FieldRow
@@ -1485,6 +1817,17 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         value={siteConfigs.langfuse_base_url || ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, langfuse_base_url: e.target.value }))}
                     />
+
+                    <FieldRow
+                        label={t('kbStaleDays')}
+                        help={t('kbStaleDaysHelp')}
+                        type="number"
+                        min={1}
+                        max={3650}
+                        step={1}
+                        value={siteConfigs.kb_stale_days ?? '180'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, kb_stale_days: e.target.value }))}
+                    />
                 </Section>
 
                 <Section title={t('agentSectionTools')} {...sectionState('tools')}>
@@ -1509,42 +1852,83 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                     />
 
                     <CheckboxFieldRow
-                        label={t('chatTabularSemanticColumnsEnabled')}
-                        help={t('chatTabularSemanticColumnsEnabledHelp')}
-                        width="wide"
-                        checked={isTabularSemanticEnabled}
-                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_tabular_semantic_columns_enabled: checked ? 'true' : 'false' }))}
-                    />
-
-                    <FieldRow
-                        label={t('tabularSemanticMinAvgLen')}
-                        help={t('tabularSemanticMinAvgLenHelp')}
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={siteConfigs.tabular_semantic_min_avg_len || '32'}
-                        onChange={e => setSiteConfigs(prev => ({ ...prev, tabular_semantic_min_avg_len: e.target.value }))}
-                        disabled={!isTabularSemanticEnabled}
-                    />
-
-                    <FieldRow
-                        label={t('tabularSemanticMinDistinctRatio')}
-                        help={t('tabularSemanticMinDistinctRatioHelp')}
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={siteConfigs.tabular_semantic_min_distinct_ratio || '0.6'}
-                        onChange={e => setSiteConfigs(prev => ({ ...prev, tabular_semantic_min_distinct_ratio: e.target.value }))}
-                        disabled={!isTabularSemanticEnabled}
-                    />
-
-                    <CheckboxFieldRow
                         label={t('chatTabularChartsEnabled')}
                         help={t('chatTabularChartsEnabledHelp')}
                         width="wide"
                         checked={siteConfigs.chat_tabular_charts_enabled === 'true' || siteConfigs.chat_tabular_charts_enabled === '1'}
                         onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_tabular_charts_enabled: checked ? 'true' : 'false' }))}
+                    />
+
+                    <CheckboxFieldRow
+                        label={t('chatTabularRouterEnabled')}
+                        help={t('chatTabularRouterEnabledHelp')}
+                        width="wide"
+                        checked={siteConfigs.chat_tabular_router_enabled !== 'false' && siteConfigs.chat_tabular_router_enabled !== '0'}
+                        onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_tabular_router_enabled: checked ? 'true' : 'false' }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatTabularRouterModel')}
+                        help={t('chatTabularRouterModelHelp')}
+                        type="text"
+                        placeholder="model_tier_fast"
+                        value={siteConfigs.chat_tabular_router_model ?? ''}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_tabular_router_model: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatTabularRouterMaxRows')}
+                        help={t('chatTabularRouterMaxRowsHelp')}
+                        type="number"
+                        min={10}
+                        max={1000}
+                        step={1}
+                        value={siteConfigs.chat_tabular_router_max_rows || '200'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_tabular_router_max_rows: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatTabularRouterMaxRepairs')}
+                        help={t('chatTabularRouterMaxRepairsHelp')}
+                        type="number"
+                        min={0}
+                        max={5}
+                        step={1}
+                        value={siteConfigs.chat_tabular_router_max_repairs || '3'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_tabular_router_max_repairs: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatTabularRouterTimeoutMs')}
+                        help={t('chatTabularRouterTimeoutMsHelp')}
+                        type="number"
+                        min={500}
+                        max={30000}
+                        step={1}
+                        value={siteConfigs.chat_tabular_router_timeout_ms || '5000'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_tabular_router_timeout_ms: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatTabularRouterSchemaMaxTokens')}
+                        help={t('chatTabularRouterSchemaMaxTokensHelp')}
+                        type="number"
+                        min={1000}
+                        max={60000}
+                        step={1}
+                        value={siteConfigs.chat_tabular_router_schema_max_tokens || '12000'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_tabular_router_schema_max_tokens: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatTabularGuidanceMaxTokens')}
+                        help={t('chatTabularGuidanceMaxTokensHelp')}
+                        type="number"
+                        min={1000}
+                        max={30000}
+                        step={1}
+                        value={siteConfigs.chat_tabular_guidance_max_tokens || '6000'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_tabular_guidance_max_tokens: e.target.value }))}
                     />
                 </Section>
 
@@ -1617,15 +2001,77 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                     />
                 </Section>
 
+                <Section title={t('agentSectionSyncWindow')} {...sectionState('syncWindow')}>
+                    <FieldRow
+                        label={t('syncWindowStartHour')}
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={siteConfigs.sync_window_start_hour || '1'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, sync_window_start_hour: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('syncWindowEndHour')}
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={siteConfigs.sync_window_end_hour || '5'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, sync_window_end_hour: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('syncWindowTimezone')}
+                        help={t('syncWindowHelp')}
+                        type="text"
+                        placeholder="Europe/Berlin"
+                        value={siteConfigs.sync_window_timezone ?? ''}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, sync_window_timezone: e.target.value }))}
+                    />
+                </Section>
+
+                <Section title={t('agentSectionEvalSchedule')} {...sectionState('evalSchedule')}>
+                    {/* step="0.1", not upstream's 0.5: with min 0.1 as the step base,
+                      * 0.5 accepted only 0.1, 0.6, 1.1 … — so both rows' own defaults
+                      * (2 and 3) failed constraint validation and blocked Save for the
+                      * whole form (the card KI-710 failure class). */}
+                    <FieldRow
+                        label={t('evalRegressionRecallPP')}
+                        type="number"
+                        min={0.1}
+                        max={100}
+                        step={0.1}
+                        value={siteConfigs.eval_regression_recall_pp || '2'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, eval_regression_recall_pp: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('evalRegressionMrrPP')}
+                        type="number"
+                        min={0.1}
+                        max={100}
+                        step={0.1}
+                        value={siteConfigs.eval_regression_mrr_pp || '3'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, eval_regression_mrr_pp: e.target.value }))}
+                    />
+                </Section>
+
                 {/* `.search-button` DOES have CSS (index.css:1308 — the legacy primary
                   * tier: accent-primary fill, --shape-md radius, flex+gap). Dropping the
                   * class is the point: the DS Button's `default` variant is that tier
                   * now. `width: fit-content` goes with it — Button is inline-flex, so it
                   * already sizes to its content, unlike the `.search-button` rule's
                   * `width: 100%` that the inline style existed to undo. */}
-                <Button type="submit">
-                    <Save size={18} /> {t('saveSettings')}
-                </Button>
+                <div className="flex flex-col items-start gap-2">
+                    <Button type="submit" disabled={hasPolicyEditorErrors}>
+                        <Save size={18} /> {t('saveSettings')}
+                    </Button>
+                    {hasPolicyEditorErrors && (
+                        <span role="alert" className="text-label-sm text-error">
+                            {t('saveDisabledPolicyErrorHint').replace('{{section}}', t('agentSectionMultiStep'))}
+                        </span>
+                    )}
+                </div>
             </form>
 
             <AdminAgentMetricsCard />

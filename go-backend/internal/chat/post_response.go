@@ -13,6 +13,7 @@ import (
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/safego"
+	"github.com/justrag/go-backend/internal/tabular"
 )
 
 // detachedContext returns a fresh background context that carries any
@@ -100,6 +101,7 @@ func (h *Handler) runPostResponseTasks(
 	userMessage, aiResponse, contextText, kbID, lang, aiMsgID string,
 	sources []ChatSource,
 	emit func(map[string]any),
+	trace *TabularTrace,
 ) ([]string, *MessageVerification, string) {
 	// Detach from client disconnect: the AI message is already persisted by
 	// the time we run, so letting a disconnect cancel this work would
@@ -155,6 +157,48 @@ func (h *Handler) runPostResponseTasks(
 				h.runLongmemExtract(ctx, user.ID, kbID, lang, userMessage, aiResponse)
 			})
 		}
+	}
+
+	// Tabular router SQL audit log (Task 7, R26; R59): write one
+	// tabular_query_log row for every turn the router had an opinion
+	// on — including most skipped outcomes, which are cheap and are
+	// what makes fire-rate analysis possible from the table alone.
+	// The two exceptions are skipped_disabled and skipped_no_tables:
+	// with the router attached to every KB (not just ones with
+	// spreadsheet data), these two outcomes fire on essentially every
+	// chat turn deployment-wide — a KB with no tabular data at all,
+	// or the feature turned off — and logging them would grow the
+	// table unboundedly for zero analytical value (the fire-rate
+	// denominator only ever counts fired vs. eligible questions, and
+	// neither of these outcomes is ever "eligible" in a way that
+	// changes that ratio). Every other skipped_* reason (no_cue,
+	// catalog_error, schema_empty) only occurs on a KB that DOES have
+	// tables, so those stay logged — they're the interesting "why
+	// didn't the router fire on a KB that could have answered this"
+	// signal. Runs only when a router is actually wired (trace !=
+	// nil, set by PrepareChatContext/RunSupervisorChat) and a logger
+	// is configured (WithTabularQueryLog); either being absent is a
+	// normal deployment shape, not an error. Fire-and-forget: a
+	// failed insert only costs one row of observability, never the
+	// chat turn, so it logs a warning and moves on.
+	if trace != nil && h.tabularQueryLog != nil &&
+		trace.Outcome != "skipped_disabled" && trace.Outcome != "skipped_no_tables" {
+		wg.Add(1)
+		safego.GoCtx(ctx, func() {
+			defer wg.Done()
+			entry := tabular.QueryLogEntry{
+				KBID:      kbID,
+				MessageID: aiMsgID,
+				Question:  trace.Question,
+				SQL:       trace.SQL,
+				RowCount:  trace.RowCount,
+				Outcome:   trace.Outcome,
+			}
+			if err := h.tabularQueryLog.InsertQueryLog(ctx, entry); err != nil {
+				logctx.From(ctx).Warn("tabular query log insert failed",
+					"kbId", kbID, "messageId", aiMsgID, "outcome", trace.Outcome, "err", err)
+			}
+		})
 	}
 
 	// Citation validator + factuality verifier share one goroutine so the
@@ -250,15 +294,56 @@ func (h *Handler) runPostResponseTasks(
 					},
 					Threshold: CitationValidationSemanticThreshold(ctx, h.siteConfigReader),
 				}
-				verRes.citationStatuses = RunCitationValidation(ctx, aiResponse, sources, sem)
+				det := RunCitationValidation(ctx, aiResponse, sources, sem)
+
+				// W3-R1..R3: span verification. Runs after the n-gram/
+				// semantic pass so it only spends its one extra model call
+				// on citations that pass could not already resolve into a
+				// still-eligible verdict (collectQuoteRequests skips
+				// out_of_range and summary sources on its own). Guarded on
+				// the citation validator itself being enabled — span
+				// verification has no independent value without it, since
+				// it only ever upgrades an existing CitationStatus.
+				var applySpans func([]CitationStatus) []CitationStatus
+				if ChatCitationSpansEnabled(ctx, h.siteConfigReader) {
+					applySpans = func(in []CitationStatus) []CitationStatus {
+						spanStart := time.Now()
+						reqCount := len(collectQuoteRequests(aiResponse, sources, in, ChatCitationSpansMaxSources(ctx, h.siteConfigReader)))
+						if reqCount == 0 {
+							return in
+						}
+						spanCfg := SpanConfig{
+							Model:      ChatCitationSpansModel(ctx, h.siteConfigReader),
+							MaxSources: ChatCitationSpansMaxSources(ctx, h.siteConfigReader),
+							Timeout:    time.Duration(ChatCitationSpansTimeoutMs(ctx, h.siteConfigReader)) * time.Millisecond,
+							Lang:       lang,
+							KbID:       kbID,
+						}
+						out := ApplySpanVerification(ctx, h.aiResolver, spanCfg, aiResponse, sources, in)
+						matched := 0
+						for _, c := range out {
+							if c.Method == "span" {
+								matched++
+							}
+						}
+						logctx.From(ctx).Info("citation.spans", "kbId", kbID,
+							"requested", reqCount, "matched", matched,
+							"ms", time.Since(spanStart).Milliseconds())
+						return out
+					}
+				}
+				// The gate signal comes from the PRE-span verdicts (see
+				// citationStatusesAndGate); the statuses we display and
+				// persist carry the span upgrade.
+				verRes.citationStatuses, hasCitationSuspect = citationStatusesAndGate(det, applySpans)
+
 				for _, c := range verRes.citationStatuses {
 					// Per-marker attribution telemetry: verified/(verified+
 					// unverified) over a window is the attribution rate. Record
 					// every marker (no early break) so the denominator is whole.
+					// Deliberately post-span: this measures what the reader
+					// actually sees, unlike the verifier gate above.
 					observability.RecordCitationAttribution(c.Verified, c.Method)
-					if !c.Verified {
-						hasCitationSuspect = true
-					}
 				}
 				// Phase F cite-by-kind telemetry: increment after
 				// validation so we count only the citations the
@@ -285,6 +370,11 @@ func (h *Handler) runPostResponseTasks(
 			// enabled (so we have no gate signal). always_run
 			// bypasses both conditions. The same gate applies to
 			// Self-RAG when it's the active verifier.
+			//
+			// hasCitationSuspect is the PRE-span verdict by
+			// construction: an LLM-matched quote may upgrade a
+			// citation for display, but must never talk this gate
+			// out of running the verifier (citationStatusesAndGate).
 			if !verifierAlwaysRun && !hasCitationSuspect {
 				if selfRAGEnabled {
 					observability.RecordSelfRAG("skipped_no_citation_warn")

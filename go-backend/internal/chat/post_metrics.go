@@ -17,7 +17,9 @@ import (
 // turn start by the chat handler) and forwards it to the recorder so
 // agent_decisions.tool_calls captures which tools the orchestrator
 // actually dispatched.
-func (h *Handler) recordAgentDecision(ctx context.Context, kbID, mode, outcome string, hops, rounds int, latencyMs int64, teamID, agentID *string) {
+// W6-R6: policyRule is the 0-based chat_orchestrator_policy rule index that
+// pinned this turn's orchestrator, or nil when the flag ladder decided.
+func (h *Handler) recordAgentDecision(ctx context.Context, kbID, mode, outcome string, hops, rounds int, latencyMs int64, teamID, agentID *string, policyRule *int) {
 	if h.decisionRecorder == nil {
 		return
 	}
@@ -36,7 +38,7 @@ func (h *Handler) recordAgentDecision(ctx context.Context, kbID, mode, outcome s
 		// span in the distributed trace.
 		bgCtx, cancel := detachedContext(ctx, 5*time.Second)
 		defer cancel()
-		h.decisionRecorder.Record(bgCtx, kbID, mode, outcome, hops, rounds, int(latencyMs), toolCalls, teamID, agentID)
+		h.decisionRecorder.Record(bgCtx, kbID, mode, outcome, hops, rounds, int(latencyMs), toolCalls, teamID, agentID, policyRule)
 	})
 }
 
@@ -61,4 +63,31 @@ func agentOutcomeFromEvents(events []map[string]any) (outcome string, hops int, 
 		}
 	}
 	return outcome, hops, rounds
+}
+
+// recordStandardPathDecision records the agent_decisions row for a turn
+// that went through the standard (no-orchestrator) path — CRAG via
+// PrepareChatContext, or a transform follow-up. It is shared by the
+// streaming and non-streaming response writers (writeStreamingResponse /
+// writeJSONResponse) so the mode/outcome/latency computation cannot drift
+// between them (W7-R3): mode falls back to "crag" when p.agentMode is
+// unset, outcome comes from the buffered trajectory's final answer-stage
+// event (agentOutcomeFromEvents) and defaults to "answered" when that
+// event never fired, and latency is measured from p.chatStartTime.
+// events is normally p.bufferedTrajectory — passed explicitly so callers
+// stay in control of which buffer they hand in. On the non-streaming path
+// it is always nil today: both the CRAG branch (http_send.go's
+// collectEmit) and the transform-follow-up branch (handleTransformFollowUp)
+// only populate the buffer `if streamMode`, so outcome falls back to
+// "answered" on every non-streaming standard-path turn regardless of mode.
+func (h *Handler) recordStandardPathDecision(ctx context.Context, p chatResponseParams, events []map[string]any) {
+	outcome, _, _ := agentOutcomeFromEvents(events)
+	if outcome == "" {
+		outcome = "answered"
+	}
+	mode := p.agentMode
+	if mode == "" {
+		mode = "crag"
+	}
+	h.recordAgentDecision(ctx, p.kbID, mode, outcome, 0, 0, time.Since(p.chatStartTime).Milliseconds(), nil, nil, p.policyRule)
 }

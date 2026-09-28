@@ -11,6 +11,8 @@ package adminkboverview
 import (
 	"context"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -40,6 +42,99 @@ type FileStats struct {
 	FailedFileCount     int
 	ProcessingFileCount int
 	LastFileUploadAt    *string
+	// OldestFileAt is MIN(effective date) over the KB's files — how far back
+	// the corpus reaches. Effective date = COALESCE(published_at, created_at).
+	OldestFileAt *string
+	// StaleFileCount counts files whose effective date is older than the
+	// kb_stale_days threshold the service passes into the query.
+	StaleFileCount int
+	// InjectionFlagged counts files the ingest prompt-injection screen
+	// flagged (files.injection_flag, W5-R8). Advisory: it says how much
+	// instruction-shaped text this corpus absorbed from external sources,
+	// not that anything was blocked.
+	InjectionFlagged int
+}
+
+// SyncStats are the per-KB source-sync aggregates, unioned over the three
+// source tables (RSS feeds, Confluence spaces, git repositories).
+type SyncStats struct {
+	// LastSuccessAt is the newest verified success across the KB's sources
+	// (migration 0071). Nil for a KB whose sources have not succeeded since
+	// the column was added — no backfill was possible, so "unknown" is the
+	// honest value.
+	LastSuccessAt *string
+	// LastAttemptAt is the newest ATTEMPT (last_polled_at / last_synced_at),
+	// which a failing sync also refreshes. Used only as the display fallback
+	// when LastSuccessAt is nil (W3-R10).
+	LastAttemptAt *string
+	// Failing is true when any of the KB's sources has consecutive_failures > 0.
+	Failing bool
+	// Kinds lists the source kinds the KB actually has ("rss", "confluence",
+	// "git") so the UI can label the timestamp.
+	Kinds []string
+	// ByKind is the per-source-kind breakdown (W4-R9): one entry per kind the
+	// KB actually has sources of. A KB whose RSS feed is healthy but whose
+	// git source has never succeeded must not read as fully synced just
+	// because the aggregate LastSuccessAt above picks up the RSS success.
+	ByKind []SyncKindStatus
+}
+
+// SyncKindStatus is the sync status of one source kind ("rss", "confluence",
+// "git") within a KB. LastSyncAt follows the same success-preferred-over-
+// attempt fallback as the aggregate: SyncSucceeded says which of the two it
+// is, so a fallback timestamp cannot be mistaken for a verified success.
+type SyncKindStatus struct {
+	Kind          string  `json:"kind"`
+	LastSyncAt    *string `json:"lastSyncAt,omitempty"`
+	SyncSucceeded bool    `json:"syncSucceeded"`
+	SyncFailing   bool    `json:"syncFailing"`
+	SourceCount   int     `json:"sourceCount"`
+}
+
+// SiteConfigReader reads one global site_config value. This package needs
+// exactly one key — kb_stale_days, which is global-only: no per-KB registry
+// entry and no overlay (W3-R12).
+type SiteConfigReader interface {
+	GetSiteConfigValue(ctx context.Context, key string) (*string, error)
+}
+
+// Staleness threshold bounds. The clamp exists because a zero or negative
+// value would silently mark every file stale (NOW() - 0 days) and an
+// unbounded one would silently mark nothing stale.
+const (
+	staleDaysKey     = "kb_stale_days"
+	defaultStaleDays = 180
+	minStaleDays     = 1
+	maxStaleDays     = 3650
+)
+
+// resolveStaleDays reads kb_stale_days, falling back to the default on a nil
+// reader, a missing or blank value, an unparseable one, or a read error — an
+// admin panel must still render when site_configs is unreachable.
+func resolveStaleDays(ctx context.Context, cfg SiteConfigReader) int {
+	if cfg == nil {
+		return defaultStaleDays
+	}
+	raw, err := cfg.GetSiteConfigValue(ctx, staleDaysKey)
+	if err != nil {
+		slog.Debug("kboverview: kb_stale_days read failed; using default", "error", err)
+		return defaultStaleDays
+	}
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return defaultStaleDays
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(*raw))
+	if err != nil {
+		slog.Warn("kboverview: kb_stale_days is not an integer; using default", "value", *raw)
+		return defaultStaleDays
+	}
+	if n < minStaleDays {
+		return minStaleDays
+	}
+	if n > maxStaleDays {
+		return maxStaleDays
+	}
+	return n
 }
 
 // ChatStats is the per-KB chat aggregate. Message counts moved to the usage
@@ -64,6 +159,19 @@ type QueueStats struct {
 	Failed  int `json:"failed"`
 }
 
+// RagasStats is one KB's RAGAS judge-score aggregate over the trailing 24h
+// window (Wave 5 / Task 2), reusing internal/ragassamples' DailyStats shape
+// (Task 1). N24h counts every sample in the window, including rows whose
+// judge failed; each mean is nil when no row in the window carried that
+// metric — N24h is deliberately NOT the denominator of the means (see
+// ragassamples.DailyStats' doc comment for why).
+type RagasStats struct {
+	N24h             int      `json:"n24h"`
+	Faithfulness     *float64 `json:"faithfulness,omitempty"`
+	AnswerRelevance  *float64 `json:"answerRelevance,omitempty"`
+	ContextPrecision *float64 `json:"contextPrecision,omitempty"`
+}
+
 // KBRow is one row of the rendered table.
 type KBRow struct {
 	ID                  string  `json:"id"`
@@ -83,6 +191,40 @@ type KBRow struct {
 	LastFileUploadAt    *string `json:"lastFileUploadAt,omitempty"`
 	LastTurnAt          *string `json:"lastTurnAt,omitempty"`
 	CreatedAt           string  `json:"createdAt"`
+
+	// Freshness columns (Wave 3 / Task 5). OldestFileAt is the age of the
+	// corpus, StaleFileCount/StaleShare how much of it is older than
+	// kb_stale_days (StaleShare is a 0..1 fraction, 0 for an empty KB).
+	OldestFileAt   *string `json:"oldestFileAt,omitempty"`
+	StaleFileCount int     `json:"staleFileCount"`
+	StaleShare     float64 `json:"staleShare"`
+	// InjectionFlagged is how many of this KB's files the ingest
+	// prompt-injection screen flagged (Wave-5 Task 6). Always present, 0
+	// for a KB with no external sources or with screening switched off.
+	InjectionFlagged int `json:"injectionFlagged"`
+	// LastSyncAt is the newest successful source sync, falling back to the
+	// newest attempt when no success is recorded yet. SyncFailing flags a
+	// source with consecutive failures; SyncKinds names the source kinds
+	// this KB has (empty for a KB with no external sources, where
+	// LastSyncAt is nil).
+	//
+	// SyncSucceeded (W4-R9) means "every kind that has sources has a
+	// verified success" — NOT "at least one has", which is what it meant
+	// through Wave 3. Under the old ANY semantics one healthy RSS feed
+	// could mask a git source that has never synced; the per-kind
+	// breakdown in SyncByKind is what the FE needs to show that source
+	// specifically instead of the KB's best kind.
+	LastSyncAt    *string          `json:"lastSyncAt,omitempty"`
+	SyncSucceeded bool             `json:"syncSucceeded"`
+	SyncFailing   bool             `json:"syncFailing"`
+	SyncKinds     []string         `json:"syncKinds,omitempty"`
+	SyncByKind    []SyncKindStatus `json:"syncByKind,omitempty"`
+
+	// Ragas is the KB's RAGAS judge-score sample over the trailing 24h
+	// window (Wave 5 / Task 2). Nil for a KB with no samples in the window —
+	// distinct from a zeroed struct, which would read as "0 samples,
+	// 0 scores" rather than "no data yet".
+	Ragas *RagasStats `json:"ragas,omitempty"`
 }
 
 // OverviewResponse is the JSON returned by GET /api/admin/kb-overview.
@@ -90,15 +232,28 @@ type OverviewResponse struct {
 	Rows         []KBRow               `json:"rows"`
 	QueueSummary map[string]QueueStats `json:"queueSummary"`
 	Timestamp    string                `json:"timestamp"`
+	// StaleDays is the threshold StaleFileCount/StaleShare were computed
+	// against, echoed so the UI can label the column instead of hardcoding
+	// a number that an operator may have changed.
+	StaleDays int `json:"staleDays"`
 }
 
 // Store is the data dependency. Each method is a single aggregate query.
 type Store interface {
 	ListKBs(ctx context.Context) ([]KBBase, error)
-	FileStatsByKB(ctx context.Context) (map[string]FileStats, error)
+	FileStatsByKB(ctx context.Context, staleDays int) (map[string]FileStats, error)
 	ChatStatsByKB(ctx context.Context) (map[string]ChatStats, error)
 	TurnStatsByKB(ctx context.Context) (map[string]TurnStats, error)
+	SyncStatsByKB(ctx context.Context) (map[string]SyncStats, error)
+	// RagasStatsByKB returns each KB's RAGAS judge-score aggregate for
+	// samples with sampled_at >= since, keyed by KB id.
+	RagasStatsByKB(ctx context.Context, since time.Time) (map[string]RagasStats, error)
 }
+
+// ragasWindow bounds the trailing window RagasStatsByKB aggregates over. A
+// fixed 24h window (not a site_config knob): the admin overview column is
+// meant to answer "how is this KB doing right now", not a tunable lookback.
+const ragasWindow = 24 * time.Hour
 
 // queueInspector is the subset of *asynq.Inspector we use (for testability).
 type queueInspector interface {
@@ -109,12 +264,17 @@ type queueInspector interface {
 type Service struct {
 	store     Store
 	inspector queueInspector
+	cfg       SiteConfigReader
 }
 
 // NewService creates a Service. inspector may be nil (queue summary degrades to zeros).
 func NewService(store Store, inspector queueInspector) *Service {
 	return &Service{store: store, inspector: inspector}
 }
+
+// SetSiteConfig injects the global site_config reader used for kb_stale_days.
+// Optional — without it the staleness threshold is the documented default.
+func (s *Service) SetSiteConfig(cfg SiteConfigReader) { s.cfg = cfg }
 
 // Overview computes the full payload: per-KB rows merged from three aggregates,
 // plus the global queue summary.
@@ -123,7 +283,8 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 	if err != nil {
 		return OverviewResponse{}, err
 	}
-	fileStats, err := s.store.FileStatsByKB(ctx)
+	staleDays := resolveStaleDays(ctx, s.cfg)
+	fileStats, err := s.store.FileStatsByKB(ctx, staleDays)
 	if err != nil {
 		return OverviewResponse{}, err
 	}
@@ -132,6 +293,14 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 		return OverviewResponse{}, err
 	}
 	turnStats, err := s.store.TurnStatsByKB(ctx)
+	if err != nil {
+		return OverviewResponse{}, err
+	}
+	syncStats, err := s.store.SyncStatsByKB(ctx)
+	if err != nil {
+		return OverviewResponse{}, err
+	}
+	ragasStats, err := s.store.RagasStatsByKB(ctx, time.Now().Add(-ragasWindow))
 	if err != nil {
 		return OverviewResponse{}, err
 	}
@@ -154,6 +323,16 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 			row.FailedFileCount = fs.FailedFileCount
 			row.ProcessingFileCount = fs.ProcessingFileCount
 			row.LastFileUploadAt = fs.LastFileUploadAt
+			row.OldestFileAt = fs.OldestFileAt
+			row.StaleFileCount = fs.StaleFileCount
+			row.InjectionFlagged = fs.InjectionFlagged
+			// Guard the division: a KB with no files has no stale share,
+			// and float64(0)/float64(0) is NaN — which encoding/json
+			// refuses to marshal, i.e. one empty KB would 500 the whole
+			// admin panel.
+			if fs.FileCount > 0 {
+				row.StaleShare = float64(fs.StaleFileCount) / float64(fs.FileCount)
+			}
 		}
 		if cs, ok := chatStats[kb.ID]; ok {
 			row.ChatCount = cs.ChatCount
@@ -163,6 +342,27 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 			row.APITurns = ts.APITurns
 			row.LastTurnAt = ts.LastTurnAt
 		}
+		if ss, ok := syncStats[kb.ID]; ok {
+			row.SyncFailing = ss.Failing
+			row.SyncKinds = ss.Kinds
+			row.SyncByKind = ss.ByKind
+			// Prefer the verified success; fall back to the last attempt
+			// only when no success is recorded (pre-0071 rows, or a source
+			// that has never succeeded).
+			if ss.LastSuccessAt != nil {
+				row.LastSyncAt = ss.LastSuccessAt
+			} else {
+				row.LastSyncAt = ss.LastAttemptAt
+			}
+			// SyncSucceeded is "every kind that has sources has a
+			// verified success" (W4-R9) — computed from the per-kind
+			// breakdown, not from the aggregate LastSuccessAt above,
+			// which only proves ONE kind succeeded.
+			row.SyncSucceeded = allSyncKindsSucceeded(ss.ByKind)
+		}
+		if rs, ok := ragasStats[kb.ID]; ok {
+			row.Ragas = &rs
+		}
 		rows = append(rows, row)
 	}
 
@@ -170,7 +370,29 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 		Rows:         rows,
 		QueueSummary: s.queueSummary(),
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		StaleDays:    staleDays,
 	}, nil
+}
+
+// allSyncKindsSucceeded reports whether every kind in byKind has a verified
+// success. A KB with no external sources (empty byKind) is NOT "succeeded" —
+// there is nothing to have succeeded, so the aggregate stays false, matching
+// the pre-W4-R9 behaviour for a KB with no sync stats row at all.
+//
+// Mutation: revert this to "at least one kind succeeded" (the pre-W4-R9 ANY
+// semantics) → a KB with a healthy RSS feed and a never-succeeded git source
+// reports SyncSucceeded=true again, which is exactly the masking bug W4-R9
+// exists to fix.
+func allSyncKindsSucceeded(byKind []SyncKindStatus) bool {
+	if len(byKind) == 0 {
+		return false
+	}
+	for _, k := range byKind {
+		if !k.SyncSucceeded {
+			return false
+		}
+	}
+	return true
 }
 
 // queueSummary reads Asynq queue depths; any failure degrades that queue to zeros.

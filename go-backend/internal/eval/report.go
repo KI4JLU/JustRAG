@@ -15,6 +15,27 @@ func WriteJSONReport(w io.Writer, rep Report) error {
 	return enc.Encode(rep)
 }
 
+// ReadJSONReport is the inverse of WriteJSONReport. Used by `cmd/eval
+// --baseline` to load a previously written report for comparison, and by
+// the scheduled-regression check to load the current/predecessor reports.
+// A payload that decodes cleanly but carries zero questions (e.g. `{}`, or
+// any other JSON object missing the "questions" field) is rejected: it is
+// almost certainly not a report at all — a truncated file, a different JSON
+// shape, an empty object — and letting it through would hand callers a
+// zero-valued Report that silently passes as a legitimate (empty) baseline
+// rather than erroring, e.g. `cmd/eval --baseline wrong.json` would exit 0
+// against a zero-valued gate instead of failing loudly.
+func ReadJSONReport(r io.Reader) (Report, error) {
+	var rep Report
+	if err := json.NewDecoder(r).Decode(&rep); err != nil {
+		return Report{}, fmt.Errorf("read json report: %w", err)
+	}
+	if len(rep.Questions) == 0 {
+		return Report{}, fmt.Errorf("read json report: report has no questions")
+	}
+	return rep, nil
+}
+
 // WriteHumanSummary writes a one-screen summary of rep to w. Stable format
 // suitable for CI log scraping as well as human eyeballing.
 func WriteHumanSummary(w io.Writer, rep Report) error {
@@ -32,6 +53,7 @@ Aggregate (k=%d, count=%d):
   mean_ndcg      = %.3f
   p50_recall     = %.3f
   p95_recall     = %.3f
+  mean_latency_ms = %.1f
 `,
 		rep.GeneratedAt.UTC().Format(time.RFC3339),
 		rep.GoldenPath,
@@ -46,21 +68,34 @@ Aggregate (k=%d, count=%d):
 		rep.Aggregate.MeanNDCG,
 		rep.Aggregate.P50Recall,
 		rep.Aggregate.P95Recall,
+		rep.Aggregate.MeanLatencyMs,
 	)
 	if err != nil {
 		return err
 	}
-	if rep.Aggregate.MeanFaithfulness != nil || rep.Aggregate.MeanAnswerRelevance != nil || rep.Aggregate.MeanContextPrecision != nil {
+	// mean_llm_calls (W6-R7) is printed only when at least one question
+	// carried an Agent trace — omitted otherwise (legacy retrieval-only
+	// adapters, or a pre-Wave-6 report) so the summary stays byte-stable
+	// for runs that never dispatch through an orchestrator.
+	if rep.Aggregate.MeanLLMCalls != nil {
+		if _, err := fmt.Fprintf(w, "  mean_llm_calls  = %.2f\n", *rep.Aggregate.MeanLLMCalls); err != nil {
+			return err
+		}
+	}
+	if rep.Aggregate.MeanFaithfulness != nil || rep.Aggregate.MeanAnswerRelevance != nil || rep.Aggregate.MeanContextPrecision != nil || rep.Aggregate.MeanCoverage != nil {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "Judge (judged_count=%d):\n", rep.Aggregate.JudgedCount)
 		if rep.Aggregate.MeanFaithfulness != nil {
-			fmt.Fprintf(w, "  mean_faithfulness       = %.3f\n", *rep.Aggregate.MeanFaithfulness)
+			fmt.Fprintf(w, "  mean_faithfulness       = %.3f (n=%d)\n", *rep.Aggregate.MeanFaithfulness, rep.Aggregate.FaithfulnessN)
 		}
 		if rep.Aggregate.MeanAnswerRelevance != nil {
-			fmt.Fprintf(w, "  mean_answer_relevance   = %.3f\n", *rep.Aggregate.MeanAnswerRelevance)
+			fmt.Fprintf(w, "  mean_answer_relevance   = %.3f (n=%d)\n", *rep.Aggregate.MeanAnswerRelevance, rep.Aggregate.AnswerRelevanceN)
 		}
 		if rep.Aggregate.MeanContextPrecision != nil {
-			fmt.Fprintf(w, "  mean_context_precision  = %.3f\n", *rep.Aggregate.MeanContextPrecision)
+			fmt.Fprintf(w, "  mean_context_precision  = %.3f (n=%d)\n", *rep.Aggregate.MeanContextPrecision, rep.Aggregate.ContextPrecisionN)
+		}
+		if rep.Aggregate.MeanCoverage != nil {
+			fmt.Fprintf(w, "  mean_coverage           = %.3f (n=%d)\n", *rep.Aggregate.MeanCoverage, rep.Aggregate.CoverageN)
 		}
 	}
 	if len(rep.RouteAggregates) > 0 {
@@ -78,8 +113,22 @@ Aggregate (k=%d, count=%d):
 				label = "unlabeled"
 			}
 			a := rep.RouteAggregates[r]
+			fmt.Fprintf(w, "  %-20s count=%-3d mean_recall=%.3f mean_precision=%.3f mrr=%.3f ndcg=%.3f latency_ms=%.1f%s\n",
+				label, a.Count, a.MeanRecall, a.MeanPrecision, a.MRR, a.MeanNDCG, a.MeanLatencyMs, meanLLMCallsSuffix(a.MeanLLMCalls))
+		}
+	}
+	if len(rep.TurnKindAggregates) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Per turn kind:")
+		kinds := make([]string, 0, len(rep.TurnKindAggregates))
+		for k := range rep.TurnKindAggregates {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		for _, k := range kinds {
+			a := rep.TurnKindAggregates[k]
 			fmt.Fprintf(w, "  %-20s count=%-3d mean_recall=%.3f mean_precision=%.3f mrr=%.3f ndcg=%.3f\n",
-				label, a.Count, a.MeanRecall, a.MeanPrecision, a.MRR, a.MeanNDCG)
+				k, a.Count, a.MeanRecall, a.MeanPrecision, a.MRR, a.MeanNDCG)
 		}
 	}
 	if len(rep.OrchestratorAggregates) > 0 {
@@ -96,8 +145,8 @@ Aggregate (k=%d, count=%d):
 				label = "unlabeled"
 			}
 			a := rep.OrchestratorAggregates[n]
-			fmt.Fprintf(w, "  %-20s count=%-3d mean_recall=%.3f mean_precision=%.3f mrr=%.3f ndcg=%.3f\n",
-				label, a.Count, a.MeanRecall, a.MeanPrecision, a.MRR, a.MeanNDCG)
+			fmt.Fprintf(w, "  %-20s count=%-3d mean_recall=%.3f mean_precision=%.3f mrr=%.3f ndcg=%.3f latency_ms=%.1f%s\n",
+				label, a.Count, a.MeanRecall, a.MeanPrecision, a.MRR, a.MeanNDCG, a.MeanLatencyMs, meanLLMCallsSuffix(a.MeanLLMCalls))
 		}
 	}
 	if rep.RoutingAccuracy != nil {
@@ -119,6 +168,67 @@ Aggregate (k=%d, count=%d):
 			fmt.Fprintf(w, "  %-20s %.3f (%d/%d)\n", e, acc, b.Correct, b.Scored)
 		}
 	}
+	// explicitTabularEligibility: per Ruling R75, a golden set that carries
+	// Question.TabularExpected on any question switches the fire_rate
+	// denominator from the query_type fallback to the explicit flag (see
+	// tabularEligibilityIsExplicit / TabularRouterRates). When that rule is
+	// in effect and it yields zero eligible (tabular_expected=true)
+	// questions, TabularRouterFireRate is nil — but that nil is a genuine,
+	// reportable "0 tabular_expected questions" fact about the golden set,
+	// not the ordinary "nothing to report" silence the legacy query_type
+	// rule's nil should stay as. Print it as n/a instead of dropping the
+	// line (and, if it's the only tabular signal available, the whole
+	// section) silently.
+	explicitTabularEligibility := tabularEligibilityIsExplicit(rep.Questions)
+	if rep.TabularRouterFireRate != nil || rep.TabularSQLErrorRate != nil || explicitTabularEligibility {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Tabular router:")
+		switch {
+		case rep.TabularRouterFireRate != nil:
+			eligibilityDesc := "of lookup/complex_reasoning questions"
+			if explicitTabularEligibility {
+				eligibilityDesc = "of tabular_expected questions"
+			}
+			fmt.Fprintf(w, "  fire_rate      = %.3f (%s)\n", *rep.TabularRouterFireRate, eligibilityDesc)
+		case explicitTabularEligibility:
+			fmt.Fprintln(w, "  fire_rate      = n/a (0 tabular_expected questions)")
+		}
+		if rep.TabularSQLErrorRate != nil {
+			fmt.Fprintf(w, "  sql_error_rate = %.3f (of fired questions)\n", *rep.TabularSQLErrorRate)
+		}
+	}
+	// Conflict surfacing (W5-R7). Printed only when at least one question
+	// carries an entry, so every report from a run with the flag off (i.e.
+	// every pre-Wave-5 report) keeps its exact previous text.
+	if flagged, withNewer := ConflictCounts(rep.Questions); flagged > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Conflict surfacing:")
+		fmt.Fprintf(w, "  questions_with_conflict     = %d/%d (%.3f)\n",
+			flagged, len(rep.Questions), float64(flagged)/float64(len(rep.Questions)))
+		fmt.Fprintf(w, "  with_superseded_newer_known = %d\n", withNewer)
+	}
+	// Orchestrator policy (W6-R6). The per-question rule index lives on
+	// AgentTrace.PolicyRule in the JSON report; this block summarises it, and
+	// is printed ONLY when at least one question was routed by a rule — so a
+	// report from a run without a policy (every pre-Wave-6 report, and every
+	// run without --policy) keeps its exact previous text.
+	if byRule := PolicyRuleCounts(rep.Questions); len(byRule) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Orchestrator policy:")
+		rules := make([]int, 0, len(byRule))
+		for r := range byRule {
+			rules = append(rules, r)
+		}
+		sort.Ints(rules)
+		routed := 0
+		for _, r := range rules {
+			routed += byRule[r]
+		}
+		fmt.Fprintf(w, "  questions_routed_by_a_rule = %d/%d\n", routed, len(rep.Questions))
+		for _, r := range rules {
+			fmt.Fprintf(w, "  rule %-3d                   = %d\n", r, byRule[r])
+		}
+	}
 	if rep.DepthBuckets != nil {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "Depth buckets (k=%d, min_total_chunks=%d, eligible_questions=%d):\n",
@@ -133,4 +243,62 @@ Aggregate (k=%d, count=%d):
 		}
 	}
 	return nil
+}
+
+// meanLLMCallsSuffix renders the optional " llm_calls=N.NN" tail for a
+// per-route/per-orchestrator summary line. Empty when m is nil (no question
+// in that bucket carried an Agent trace), which is how a report with no
+// orchestrator dispatch — every pre-Wave-6 report, and every run against a
+// retrieval-only adapter — keeps its exact previous line text.
+func meanLLMCallsSuffix(m *float64) string {
+	if m == nil {
+		return ""
+	}
+	return fmt.Sprintf(" llm_calls=%.2f", *m)
+}
+
+// ConflictCounts summarises the W5-R7 conflict reports across a run.
+//
+// Rules, stated once so the acceptance record and the printer cannot
+// disagree:
+//   - flagged = number of questions whose Conflicts array has >= 1 entry.
+//     The flag RATE is that count over ALL questions in the report,
+//     errored ones included (an errored question produced no chat context
+//     and therefore no conflicts, which is the honest denominator for
+//     "how often does a turn get a badge").
+//   - withSupersededNewer = number of questions carrying at least one entry
+//     with kind "superseded" AND newer neither empty nor "unknown", i.e. a
+//     supersession the detector actually gave a direction for.
+func ConflictCounts(qs []QuestionReport) (flagged, withSupersededNewer int) {
+	for _, q := range qs {
+		if len(q.Conflicts) == 0 {
+			continue
+		}
+		flagged++
+		for _, c := range q.Conflicts {
+			if c.Kind == "superseded" && c.Newer != "" && c.Newer != "unknown" {
+				withSupersededNewer++
+				break
+			}
+		}
+	}
+	return flagged, withSupersededNewer
+}
+
+// PolicyRuleCounts counts, per chat_orchestrator_policy rule index, how many
+// questions that rule actually routed (W6-R6). Questions the flag ladder
+// decided carry no rule and are absent from the map, so an empty result means
+// "no policy was in effect" and the printer stays silent.
+func PolicyRuleCounts(qs []QuestionReport) map[int]int {
+	var out map[int]int
+	for _, q := range qs {
+		if q.Agent == nil || q.Agent.PolicyRule == nil {
+			continue
+		}
+		if out == nil {
+			out = map[int]int{}
+		}
+		out[*q.Agent.PolicyRule]++
+	}
+	return out
 }

@@ -74,6 +74,7 @@ import (
 	"github.com/justrag/go-backend/internal/proxy"
 	"github.com/justrag/go-backend/internal/publicapi"
 	"github.com/justrag/go-backend/internal/publicconfigs"
+	"github.com/justrag/go-backend/internal/recencylister"
 	"github.com/justrag/go-backend/internal/research"
 	"github.com/justrag/go-backend/internal/rss"
 	"github.com/justrag/go-backend/internal/safego"
@@ -82,6 +83,8 @@ import (
 	"github.com/justrag/go-backend/internal/sserelay"
 	"github.com/justrag/go-backend/internal/systemhealth"
 	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/tabular/rematerialize"
+	"github.com/justrag/go-backend/internal/tabular/sqlexec"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/users"
 	"github.com/justrag/go-backend/internal/vector"
@@ -236,6 +239,16 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	// Wire the KG file-eventer so file-delete handlers clean up KG data and
 	// notify mindmap subscribers via Redis pub/sub.
 	filesHandler.SetKGFileEventer(kgevents.NewFileHook(kgevents.NewPublisher(infra.rdb.Client), kgStore))
+	// Wire the spreadsheet table dropper so deleting a file also removes the
+	// `tabular.sheet_*` tables it materialised. Without it the tabular_catalog
+	// row (keyed on the file id) goes with the files row and the physical
+	// tables become unreachable orphans (C1/R20).
+	filesHandler.SetTableDropper(tabular.NewMaterializer(infra.db.Main))
+	// Wire the upload sizing-knob resolver so Upload can reject an oversize
+	// spreadsheet with a 413 naming the configured tabular_max_file_bytes
+	// limit. Adapter, not a direct chat.SiteConfigReader wiring, so
+	// internal/files stays free of the internal/chat import.
+	filesHandler.SetUploadLimits(tabularUploadLimits{reader: chatStore})
 	cascadeDeleter.SetQueryCacheInvalidator(searchService)
 
 	// Online feedback loop: per-chunk feedback aggregate reader (main DB).
@@ -290,7 +303,8 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		// kbAdminChain is the plain four-role gate: KB role 'admin' or better,
 		// independent of the system role. It carries the per-KB decisions any
 		// KB admin may make — description/prompt/models, membership,
-		// categories, canonicalize, community build. One exception sits
+		// categories, canonicalize, community build, tabular rematerialize.
+		// One exception sits
 		// inside PATCH /api/kb/{id}: the `name` field is owner-only
 		// (system admin on a public KB) — see kbaccess.CanRename.
 		kbAdminChain: func(h http.HandlerFunc) http.Handler {
@@ -479,6 +493,9 @@ func registerAdminRoutes(rc *routeCtx) {
 
 	kbOverviewStore := adminkboverview.NewStore(rc.infra.db.Main)
 	kbOverviewSvc := adminkboverview.NewService(kbOverviewStore, rc.asynqInspector)
+	// kb_stale_days is global-only (W3-R12): read straight off the shared
+	// site_config reader, with no per-KB overlay and no registry entry.
+	kbOverviewSvc.SetSiteConfig(rc.chatStore)
 	kbOverviewHandler := adminkboverview.NewHandlerWithActions(kbOverviewSvc, kbOverviewStore, rc.cascadeDeleter)
 	rc.mux.Handle("GET /api/admin/kb-overview", rc.adminChain(kbOverviewHandler.Overview))
 	// Mutating KB actions are superadmin-only: the KB-Übersicht tab itself is
@@ -565,6 +582,13 @@ func registerAdminRoutes(rc *routeCtx) {
 	)
 	rc.mux.Handle("POST /api/kb/{id}/communities/build", rc.kbAdminChain(communitiesHandler.PostBuildCommunities))
 
+	// Admin-triggered tabular rematerialize: re-ingests every spreadsheet
+	// file in a KB (full re-embedding pipeline, which also rebuilds the
+	// per-file SQL tables) so an operator can apply changed tabular_*
+	// settings without re-uploading. No tabular-only job type.
+	rematerializeHandler := rematerialize.NewHandler(rc.infra.asynqClient, rc.filesStore, rc.chatStore)
+	rc.mux.Handle("POST /api/kb/{id}/tabular/rematerialize", rc.kbAdminChain(rematerializeHandler.PostRematerialize))
+
 	// Phase 1 §1.4 admin agent-metrics panel — per-(window,kb) outcome
 	// distributions for the agentic / plan-execute / CRAG paths. Reads
 	// from the agent_decisions table populated fire-and-forget at the
@@ -648,6 +672,7 @@ func registerAdminEvalRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/admin/eval/golden-sets", rc.adminChain(h.CreateGoldenSet))
 	rc.mux.Handle("GET /api/admin/eval/golden-sets", rc.adminChain(h.ListGoldenSets))
 	rc.mux.Handle("DELETE /api/admin/eval/golden-sets/{id}", rc.adminChain(h.DeleteGoldenSet))
+	rc.mux.Handle("PATCH /api/admin/eval/golden-sets/{id}", rc.adminChain(h.UpdateGoldenSet))
 
 	rc.mux.Handle("POST /api/admin/eval/golden-sets/generate", rc.adminChain(h.GenerateGoldenSet))
 	rc.mux.Handle("GET /api/admin/eval/golden-sets/jobs", rc.adminChain(h.ListGenJobs))
@@ -662,6 +687,7 @@ func registerAdminEvalRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/kb/{id}/eval/golden-sets/jobs", rc.kbAdvancedChain(h.ListGenJobsForKB))
 	rc.mux.Handle("GET /api/kb/{id}/eval/golden-sets/{gsId}", rc.kbAdvancedChain(h.GetGoldenSetForKB))
 	rc.mux.Handle("DELETE /api/kb/{id}/eval/golden-sets/{gsId}", rc.kbAdvancedChain(h.DeleteGoldenSetForKB))
+	rc.mux.Handle("PATCH /api/kb/{id}/eval/golden-sets/{gsId}", rc.kbAdvancedChain(h.UpdateGoldenSetForKB))
 	rc.mux.Handle("POST /api/kb/{id}/eval/runs", rc.kbAdvancedChain(h.CreateRunForKB))
 	rc.mux.Handle("GET /api/kb/{id}/eval/runs", rc.kbAdvancedChain(h.ListRunsForKB))
 	rc.mux.Handle("GET /api/kb/{id}/eval/runs/{runId}", rc.kbAdvancedChain(h.GetRunForKB))
@@ -687,6 +713,16 @@ func (a pendingInviteAdapter) ListPendingInvites(ctx context.Context, kbID strin
 		out[i] = kbmembers.PendingInvite{Username: r.Username, Role: r.Permission, CreatedAt: r.CreatedAt}
 	}
 	return out, nil
+}
+
+// tabularUploadLimits adapts chat.TabularMaxFileBytes to files.UploadLimits.
+// internal/files must not import internal/chat (its much larger dependency
+// graph, and the two packages' Store/Handler names would collide badly), so
+// this narrow adapter is the one place that bridges them.
+type tabularUploadLimits struct{ reader chat.SiteConfigReader }
+
+func (a tabularUploadLimits) TabularMaxFileBytes(ctx context.Context) int {
+	return chat.TabularMaxFileBytes(ctx, a.reader)
 }
 
 func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
@@ -750,6 +786,11 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// middleware chain any tighter than edit would be redundant.
 	rc.mux.Handle("DELETE /api/kb/{id}", rc.kbEditChain(kbDeleteHandler.DeleteKB))
 	rc.mux.Handle("GET /api/kb/{id}/files", rc.kbViewChain(kbUpdateHandler.ListFiles))
+	// The "Tabellen" file-detail panel: the persisted spreadsheet ingest
+	// report plus the tabular_catalog projection for one file. Same
+	// kbViewChain as the list above — GetFileTabular's own fileBelongsToKB
+	// guard rejects a fileId that belongs to a different KB.
+	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbViewChain(kbHandler.GetFileTabular))
 
 	// Member management — the four-role successor to the deprecated /share*
 	// surface, removed in Task 9 of the four-role KB permission model (see
@@ -801,7 +842,7 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	//
 	// Cross-user assignment is refused by the composite FK
 	// (category_id, user_id) -> kb_user_categories (id, user_id) in migration
-	// 0068, not by a handler guard; kbfilters maps that rejection to 404.
+	// 0075, not by a handler guard; kbfilters maps that rejection to 404.
 	kbFiltersHandler := kbfilters.NewHandler(kbfilters.NewStore(rc.infra.db.Main))
 	rc.mux.Handle("PUT /api/kb/{id}/favourite", rc.kbViewChain(kbFiltersHandler.AddFavourite))
 	rc.mux.Handle("DELETE /api/kb/{id}/favourite", rc.kbViewChain(kbFiltersHandler.RemoveFavourite))
@@ -844,6 +885,11 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 
 	// RSS feeds (KB-level)
 	rssHandler := rss.NewHandler(rss.NewStore(rc.infra.db.Main), rc.infra.asynqClient)
+	// R60: wire the spreadsheet table dropper so deleting a feed also drops
+	// the `tabular.sheet_*` tables its files materialised. DeleteRSSFeed
+	// relies on files.rss_feed_id ON DELETE CASCADE, which removes the
+	// files rows but never drops the physical tables (C1/R20, R60).
+	rssHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/kb/{id}/rss", rc.kbEditChain(rssHandler.CreateRSSFeed))
 	rc.mux.Handle("GET /api/kb/{id}/rss", rc.kbViewChain(rssHandler.ListRSSFeeds))
 	rc.mux.Handle("PATCH /api/kb/{id}/rss/{feedId}", rc.kbEditChain(rssHandler.UpdateRSSFeed))
@@ -852,6 +898,12 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 
 	// Confluence connections (auth only, user-level)
 	confluenceHandler := confluence.NewHandler(confluence.NewStore(rc.infra.db.Main), rc.cfg.JWTSecret, rc.infra.asynqClient)
+	// R60: wire the spreadsheet table dropper so deleting a source also
+	// drops the `tabular.sheet_*` tables its files materialised.
+	// DeleteConfluenceSource relies on files.confluence_source_id ON
+	// DELETE CASCADE, which removes the files rows but never drops the
+	// physical tables (C1/R20, R60).
+	confluenceHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
 	rc.mux.Handle("GET /api/confluence/connections", rc.authMw.Authenticate(http.HandlerFunc(confluenceHandler.GetConnection)))
 	rc.mux.Handle("POST /api/confluence/connections", rc.authMw.Authenticate(http.HandlerFunc(confluenceHandler.CreateConnection)))
 	rc.mux.Handle("PUT /api/confluence/connections/{id}", rc.authMw.Authenticate(http.HandlerFunc(confluenceHandler.UpdateConnection)))
@@ -871,6 +923,12 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 
 	// Git repo sources (KB-level)
 	gitRepoHandler := gitrepo.NewHandler(gitrepo.NewStore(rc.infra.db.Main), rc.cfg.JWTSecret, rc.infra.asynqClient)
+	// R60: wire the spreadsheet table dropper so deleting a source also
+	// drops the `tabular.sheet_*` tables its files materialised.
+	// DeleteGitRepoSource relies on files.git_repo_source_id ON DELETE
+	// CASCADE, which removes the files rows but never drops the physical
+	// tables (C1/R20, R60).
+	gitRepoHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/kb/{id}/git-repos", rc.kbEditChain(gitRepoHandler.CreateSource))
 	rc.mux.Handle("GET /api/kb/{id}/git-repos", rc.kbViewChain(gitRepoHandler.ListSources))
 	rc.mux.Handle("PATCH /api/kb/{id}/git-repos/{sourceId}", rc.kbEditChain(gitRepoHandler.UpdateSource))
@@ -966,7 +1024,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		return chat.ChatTabularQueryEnabled(ctx, rc.chatStore)
 	}
 	if rc.infra.sqlToolDB != nil {
-		mcpRegistry.RegisterBuiltin(builtin.NewTableQuery(rc.infra.sqlToolDB, tabularEnabled))
+		mcpRegistry.RegisterBuiltin(builtin.NewTableQuery(rc.infra.sqlToolDB, sqlexec.NewReadOnly(rc.infra.sqlToolDB), tabularEnabled))
 	} else {
 		mcpRegistry.RegisterBuiltin(builtin.NewTableQueryUnconfigured())
 	}
@@ -1031,6 +1089,42 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 	// kb just for this one feature.
 	kbRouterLister := &kbRouterCandidateAdapter{store: rc.kbStore}
 
+	// Deterministic tabular router (design §5.1): answers spreadsheet
+	// questions with one validated read-only SQL statement and hands
+	// retrieval its two hints (quoted id phrases, forced simple BM25 arm).
+	// Built ONLY when the SELECT-only role is configured and reachable —
+	// same boundary as the sql_query / table_query tools: LLM-authored SQL
+	// never touches the read/write pool. Left nil otherwise, which makes
+	// the router a no-op on every chat turn.
+	// tabularCatalog is the single main-pool tabular.Catalog instance shared
+	// by the router, the chart-guidance gate (WithTabularCatalog) and the
+	// SQL query-log writer (WithTabularQueryLog) — all three read/write the
+	// same tabular_* tables, so one *Catalog per pool is all that's needed.
+	tabularCatalog := tabular.NewCatalog(rc.infra.db.Main)
+
+	var tabularRouter *chat.TabularRouter
+	if rc.infra.sqlToolDB != nil {
+		tabularRouter = chat.NewTabularRouter(
+			tabularCatalog,
+			sqlexec.NewReadOnly(rc.infra.sqlToolDB),
+			func(ctx context.Context, req ai.TabularSQLRequest, kbID, model string) (ai.TabularSQLProposal, error) {
+				return ai.GenerateTabularSQL(ctx, rc.aiResolver, req, kbID, model)
+			},
+			// Fallback config only: the chat paths resolve the six keys
+			// themselves from the per-KB overlaid reader and pass the
+			// result via TabularRouterInput.Config. This closure reads the
+			// GLOBAL reader, so it would miss a per-KB override.
+			func(ctx context.Context) chat.TabularRouterConfig {
+				return chat.ResolveTabularRouterConfig(ctx, rc.chatStore)
+			},
+		)
+	} else if chat.ChatTabularQueryEnabled(context.Background(), rc.chatStore) {
+		// Only worth an operator's attention when the tabular feature is
+		// actually switched on — otherwise the missing read-only role is
+		// the expected state, not a misconfiguration.
+		slog.Warn("tabular router disabled although chat_tabular_query_enabled is on; set JUSTRAG_DB_URL_READONLY to a SELECT-only role to enable the deterministic spreadsheet path")
+	}
+
 	chatOpts := []chat.HandlerOption{
 		chat.WithRedis(rc.infra.rdb.Client),
 		chat.WithSiteConfigReader(rc.chatStore),
@@ -1041,7 +1135,11 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		chat.WithKBRouterCandidates(kbRouterLister),
 		chat.WithKGStore(rc.kgStore),
 		chat.WithLongmemStore(longmemStore),
-		chat.WithTabularCatalog(tabular.NewCatalog(rc.infra.db.Main)),
+		chat.WithTabularCatalog(tabularCatalog),
+		// SQL audit log (Task 7, R26): one tabular_query_log row per turn
+		// the router had an opinion on, written post-response with the AI
+		// message id. Same catalog/pool as the router above.
+		chat.WithTabularQueryLog(tabularCatalog),
 		// Phase F RAPTOR: vector.ChunkService implements the
 		// RaptorDescendantsResolver shape via
 		// GetRaptorDescendantLeafContentsAcrossDims. When summary
@@ -1069,11 +1167,17 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		// listing addendum. Reuses the recent_documents store; the
 		// adapter exists because chat cannot import mcp/builtin
 		// (import cycle).
-		chat.WithRecencyLister(&recencyListerAdapter{
-			store: builtin.NewPgxRecentDocsStore(rc.infra.db.Main),
-		}),
+		chat.WithRecencyLister(recencylister.New(rc.infra.db.Main)),
+		// nil when no read-only DSN is configured — the option is safe to
+		// pass unconditionally (the router is nil-receiver safe and the
+		// chat paths skip a nil pointer outright).
+		chat.WithTabularRouter(tabularRouter),
 		chat.WithTeamLoader(rc.agentTeamsStore),
 		chat.WithUsageRecorder(usage.NewRecorder(rc.infra.db.Main)),
+		// Freshness dates on the answer's sources: one batched
+		// created_at/published_at lookup per turn, stamped onto the
+		// sources before they are streamed and persisted.
+		chat.WithFileDates(&fileDatesAdapter{store: rc.filesStore}),
 	}
 	if rc.agentDecisionStore != nil {
 		chatOpts = append(chatOpts, chat.WithDecisionRecorder(&decisionRecorderAdapter{store: rc.agentDecisionStore}))
@@ -1298,6 +1402,10 @@ func registerPublicAPIRoutes(rc *routeCtx, apiRL *middleware.RedisRateLimiter) {
 	apiKeyAuth := apikeyauth.NewMiddleware(apikeyauth.NewStore(rc.infra.db.Main))
 	openaiHandler := openaicompat.NewHandler(&openaiDeps{PGStore: rc.kbStore, kbAccessStore: rc.kbAccessStore}, rc.aiResolver, rc.searchService)
 	openaiHandler.SetUsageRecorder(usage.NewRecorder(rc.infra.db.Main))
+	openaiHandler.SetFileDates(&fileDatesAdapter{store: rc.filesStore})
+	// Only for the degenerate-run guard's limit — this surface otherwise
+	// reads no site_config.
+	openaiHandler.SetSiteConfig(rc.chatStore)
 
 	rc.mux.Handle("GET /openai/v1/models", apiRL.Middleware(apiKeyAuth.Authenticate(http.HandlerFunc(openaiHandler.ListModels))))
 	rc.mux.Handle("POST /openai/v1/chat/completions", apiRL.Middleware(apiKeyAuth.Authenticate(http.HandlerFunc(openaiHandler.ChatCompletions))))
@@ -1305,6 +1413,10 @@ func registerPublicAPIRoutes(rc *routeCtx, apiRL *middleware.RedisRateLimiter) {
 	publicHandler := publicapi.NewHandler(&publicAPIDeps{PGStore: rc.chatStore, kbStore: rc.kbStore}, rc.aiResolver, rc.searchService)
 	publicHandler.SetResearchDeps(rc.chatStore, rc.infra.rdb.Client)
 	publicHandler.SetUsageRecorder(usage.NewRecorder(rc.infra.db.Main))
+	publicHandler.SetFileDates(&fileDatesAdapter{store: rc.filesStore})
+	// Only for the degenerate-run guard's limit — this surface otherwise
+	// runs the pipeline with a nil site-config reader by design.
+	publicHandler.SetSiteConfig(rc.chatStore)
 
 	rc.mux.Handle("GET /api/v1/kb", apiRL.Middleware(apiKeyAuth.Authenticate(http.HandlerFunc(publicHandler.ListKBs))))
 	rc.mux.Handle("GET /api/v1/kb/{id}/chats", apiRL.Middleware(apiKeyAuth.Authenticate(
@@ -1320,7 +1432,8 @@ func registerPublicAPIRoutes(rc *routeCtx, apiRL *middleware.RedisRateLimiter) {
 	// Gated by the mcp_server_enabled site_config flag (default off); per-KB
 	// access is enforced by the same apiKeyAuth + RequireKBRole(kbaccess.RoleView)
 	// chain as the public chat endpoint.
-	mcpAnswerer := mcpserver.NewPipelineAnswerer(rc.aiResolver, rc.searchService, rc.chatStore, rc.chatStore)
+	mcpAnswerer := mcpserver.NewPipelineAnswerer(rc.aiResolver, rc.searchService, rc.chatStore, rc.chatStore,
+		mcpserver.WithFileDates(&fileDatesAdapter{store: rc.filesStore}))
 	mcpKBHandler := mcpserver.NewHandler(mcpAnswerer, rc.chatStore)
 	mcpKBHandler.SetUsageRecorder(usage.NewRecorder(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/v1/kb/{id}/mcp", apiRL.Middleware(apiKeyAuth.Authenticate(
@@ -1475,42 +1588,11 @@ func isImmutableAsset(path string) bool {
 // The conversion is a flat field-by-field copy. If the two structs ever
 // drift, a compile-time error here is the canary; this adapter is the
 // only call site that touches both.
-// recencyListerAdapter implements chat.RecencyLister on top of the
-// recent_documents tool's store. Lives here (not chat/) because chat
-// cannot import mcp/builtin without an import cycle.
-type recencyListerAdapter struct {
-	store *builtin.PgxRecentDocsStore
-}
-
-func (a *recencyListerAdapter) RecentDocuments(ctx context.Context, kbID string, after, before time.Time, limit int) ([]chat.RecencyDoc, error) {
-	rows, err := a.store.RecentDocuments(ctx, kbID, after, before, limit)
-	if err != nil {
-		return nil, err
-	}
-	return toRecencyDocs(rows), nil
-}
-
-func (a *recencyListerAdapter) DocumentsWithNameMarker(ctx context.Context, kbID, nameRegex string, limit int) ([]chat.RecencyDoc, error) {
-	rows, err := a.store.NameMarkerDocuments(ctx, kbID, nameRegex, limit)
-	if err != nil {
-		return nil, err
-	}
-	return toRecencyDocs(rows), nil
-}
-
-func toRecencyDocs(rows []builtin.RecentDocRow) []chat.RecencyDoc {
-	out := make([]chat.RecencyDoc, len(rows))
-	for i, r := range rows {
-		out[i] = chat.RecencyDoc{ID: r.ID, Name: r.Name, CreatedAt: r.CreatedAt}
-	}
-	return out
-}
-
 type decisionRecorderAdapter struct {
 	store *adminagentmetrics.PgStore
 }
 
-func (a *decisionRecorderAdapter) Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []chat.ToolCallRecord, teamID, agentID *string) {
+func (a *decisionRecorderAdapter) Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []chat.ToolCallRecord, teamID, agentID *string, policyRule *int) {
 	if a.store == nil {
 		return
 	}
@@ -1522,7 +1604,31 @@ func (a *decisionRecorderAdapter) Record(ctx context.Context, kbID, mode, outcom
 			Status:     c.Status,
 		}
 	}
-	a.store.Record(ctx, kbID, mode, outcome, hops, rounds, latencyMs, entries, teamID, agentID)
+	a.store.Record(ctx, kbID, mode, outcome, hops, rounds, latencyMs, entries, teamID, agentID, policyRule)
+}
+
+// fileDatesAdapter implements chat.FileDateLookup over the main-DB files
+// store. It lives here (routes layer) for the same reason UploadLimits does:
+// internal/files must not import internal/chat, so the two identical little
+// date structs meet in one flat copy, and a drift between them is a
+// compile-time error at this single call site.
+type fileDatesAdapter struct {
+	store *files.PGStore
+}
+
+func (a *fileDatesAdapter) FileDatesByIDs(ctx context.Context, ids []string) (map[string]chat.FileDates, error) {
+	if a.store == nil {
+		return nil, nil
+	}
+	rows, err := a.store.FileDatesByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]chat.FileDates, len(rows))
+	for id, d := range rows {
+		out[id] = chat.FileDates{CreatedAt: d.CreatedAt, PublishedAt: d.PublishedAt}
+	}
+	return out, nil
 }
 
 // kbRouterCandidateAdapter implements chat.KBRouterCandidateLister by

@@ -129,6 +129,7 @@ export function SharedTopicsView({
             removingKb={removingKb}
             rtf={rtf}
             t={t}
+            language={language}
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
             onToggleFavourite={onToggleFavourite}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
 )
 
@@ -25,6 +26,7 @@ func convertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*p
 	if err != nil {
 		return nil, err
 	}
+	logConfidence(ctx, pctx.FileName, res.Confidence)
 
 	primary := res.Markdown
 	if primary == "" {
@@ -54,6 +56,36 @@ func convertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*p
 		Pages:      pages,
 		IsMarkdown: true,
 	}, nil
+}
+
+// logConfidence records docling's own quality estimate for the conversion,
+// keyed by file name so it joins the request_id trail. A "poor" low grade is
+// the signal to look at the file (scan? rotated? try force OCR), so it logs
+// at warn; everything else at info.
+func logConfidence(ctx context.Context, fileName string, cs *ConfidenceScores) {
+	if cs == nil {
+		return
+	}
+	attrs := []any{
+		"fileName", fileName,
+		"mean_grade", cs.MeanGrade, "low_grade", cs.LowGrade,
+		"parse_score", scoreValue(cs.ParseScore), "layout_score", scoreValue(cs.LayoutScore),
+		"table_score", scoreValue(cs.TableScore), "ocr_score", scoreValue(cs.OCRScore),
+	}
+	if cs.LowGrade == "poor" {
+		logctx.From(ctx).Warn("docling.confidence", attrs...)
+		return
+	}
+	logctx.From(ctx).Info("docling.confidence", attrs...)
+}
+
+// scoreValue dereferences an optional score for logging: slog's text handler
+// prints a *float64 as a pointer address, not a number.
+func scoreValue(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // DoclingPDFParser is a parser.Parser that routes PDFs through a Docling

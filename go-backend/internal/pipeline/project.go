@@ -249,17 +249,27 @@ func boolVal(vals map[string]*string, key string) bool {
 // Only factcheck_in_chat and citation_validation_enabled are actually
 // default-on among the node activation keys; the remaining entries below
 // (chat_answer_history_enabled, chat_date_awareness_enabled,
-// chat_recency_listing_enabled, chat_corpus_table_router_llm_enabled) are not
-// consulted by any Keys[0] or orchestrator predicate today (the latter is
-// hardcoded false in orchestratorCandidates — the projection cannot make an
-// LLM call), but are kept accurate against their real siteconfig.go defaults
-// for whichever future logic reads them via boolVal.
+// chat_recency_listing_enabled, chat_corpus_table_router_llm_enabled,
+// chat_tabular_router_enabled) are not consulted by any Keys[0] or
+// orchestrator predicate today (the latter is hardcoded false in
+// orchestratorCandidates — the projection cannot make an LLM call), but are
+// kept accurate against their real siteconfig.go defaults for whichever
+// future logic reads them via boolVal.
 var defaultOn = map[string]bool{
 	"chat_answer_history_enabled":          true,
 	"chat_date_awareness_enabled":          true,
 	"chat_recency_listing_enabled":         true,
 	"citation_validation_enabled":          true,
 	"chat_corpus_table_router_llm_enabled": true,
+	"chat_tabular_router_enabled":          true,
+	// ingest_screening_enabled is an ingest-time kill switch (Wave-5 Task
+	// 6, processor/screening.go's resolveScreeningEnabled). No node
+	// activates on it and it is in no preset bundle, so guardedBoolKeys()
+	// does not check it; the entry is here because boolVal consults this
+	// map for EVERY key the projection is ever asked about, and reporting
+	// a default-ON key as off is the one drift this table exists to
+	// prevent.
+	"ingest_screening_enabled": true,
 	// factcheck_in_chat is the actual master toggle for post-response
 	// factchecking (readBool default true, siteconfig.go:224) and is
 	// NodeFactuality's Keys[0]. Missing this entry would report
@@ -289,6 +299,14 @@ var defaultOn = map[string]bool{
 // So on the complex lane these stages do not run for the streaming chat a KB
 // admin is looking at, no matter how their flag is set. They are not dead,
 // though — see complexBypassCondition.
+//
+// Wave 3 note: OrchLongContext (chat_longcontext_enabled) joined that switch
+// and bypasses PrepareChatContext exactly like the others. What CHANGED is
+// the long-context route itself — it used to exist only as a branch INSIDE
+// PrepareChatContext, i.e. it was unreachable from streaming chat for the very
+// query class it targets; it is now an orchestrator, and the branch that
+// remains in PrepareChatContext serves the non-streaming surfaces through the
+// same consumer (chat/longcontext_consume.go).
 var prepareChatContextOwned = map[NodeID]bool{
 	NodeStepBack:      true,
 	NodeDecompose:     true,
@@ -328,6 +346,7 @@ var orchestratorLabels = map[chat.Orchestrator]string{
 	chat.OrchTeam:        "Agent oder Team",
 	chat.OrchCorpusTable: "Korpus-Vergleichstabelle",
 	chat.OrchDrift:       "DRIFT",
+	chat.OrchLongContext: "Long-Context (System 2)",
 	chat.OrchSupervisor:  "Supervisor",
 	chat.OrchPlanExecute: "Plan-and-Execute",
 	chat.OrchAgentic:     "Agentische Suche",
@@ -886,6 +905,7 @@ func orchestratorCandidates(vals map[string]*string, queryType string, binding A
 		CorpusChunksAvailable: true,
 		CorpusRouterLLMOn:     false, // projection cannot make an LLM call
 		DriftEnabled:          boolVal(vals, "chat_drift_enabled"),
+		LongContextEnabled:    boolVal(vals, "chat_longcontext_enabled"),
 		SupervisorEnabled:     boolVal(vals, "chat_supervisor_enabled"),
 		PlanExecuteEnabled:    boolVal(vals, "chat_plan_execute_enabled"),
 		AgenticEnabled:        boolVal(vals, "chat_agentic_enabled"),

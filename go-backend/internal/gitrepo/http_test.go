@@ -6,15 +6,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 )
 
 type fakeStore struct {
-	created        *CreateGitRepoSourceInput
-	getByID        *GitRepoSourceRow
-	updateCalled   bool
-	deleteCalled   bool
-	gitRepoEnabled bool // controls GetSiteConfigValue("git_repo_enabled")
+	created         *CreateGitRepoSourceInput
+	getByID         *GitRepoSourceRow
+	updateCalled    bool
+	lastUpdate      GitRepoSourceUpdate
+	deleteCalled    bool
+	gitRepoEnabled  bool             // controls GetSiteConfigValue("git_repo_enabled")
+	filesForSource  []GitRepoFileRow // returned by ListGitRepoFiles
+	events          *[]string        // shared event-order log; nil = untracked
+	deletedSourceID string
 }
 
 func (f *fakeStore) CreateGitRepoSource(_ context.Context, in CreateGitRepoSourceInput) (*GitRepoSourceRow, error) {
@@ -31,17 +37,22 @@ func (f *fakeStore) ListGitRepoSources(context.Context, string) ([]GitRepoSource
 func (f *fakeStore) GetGitRepoSourceByID(context.Context, string) (*GitRepoSourceRow, error) {
 	return f.getByID, nil
 }
-func (f *fakeStore) UpdateGitRepoSource(_ context.Context, _ string, _ GitRepoSourceUpdate) error {
+func (f *fakeStore) UpdateGitRepoSource(_ context.Context, _ string, upd GitRepoSourceUpdate) error {
 	f.updateCalled = true
+	f.lastUpdate = upd
 	return nil
 }
-func (f *fakeStore) DeleteGitRepoSource(_ context.Context, _ string) error {
+func (f *fakeStore) DeleteGitRepoSource(_ context.Context, sourceID string) error {
 	f.deleteCalled = true
+	f.deletedSourceID = sourceID
+	if f.events != nil {
+		*f.events = append(*f.events, "delete:"+sourceID)
+	}
 	return nil
 }
 func (f *fakeStore) SetGitRepoSyncState(context.Context, string, SyncState) error { return nil }
 func (f *fakeStore) ListGitRepoFiles(context.Context, string) ([]GitRepoFileRow, error) {
-	return nil, nil
+	return f.filesForSource, nil
 }
 func (f *fakeStore) CreateGitRepoFile(context.Context, CreateGitRepoFileInput) (string, error) {
 	return "f1", nil
@@ -174,6 +185,63 @@ func TestDeleteSourceCrossKBReturns404(t *testing.T) {
 	}
 }
 
+// TestDeleteSource_DropsTablesBeforeDeletingSource pins R60: DeleteSource
+// must drop every one of its files' materialised spreadsheet tables BEFORE
+// the source delete, which relies on files.git_repo_source_id ON DELETE
+// CASCADE and never drops the physical tables itself.
+func TestDeleteSource_DropsTablesBeforeDeletingSource(t *testing.T) {
+	var events []string
+	fs := &fakeStore{
+		getByID: &GitRepoSourceRow{ID: "SRC1", KbID: "KB-A"},
+		filesForSource: []GitRepoFileRow{
+			{FileID: "file-1"}, {FileID: "file-2"},
+		},
+		events: &events,
+	}
+	dropper := &fakeTableDropper{events: &events}
+	h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+	h.SetTableDropper(dropper)
+
+	req := httptest.NewRequest("DELETE", "/api/kb/KB-A/git-repos/SRC1", nil)
+	req.SetPathValue("id", "KB-A")
+	req.SetPathValue("sourceId", "SRC1")
+	rec := httptest.NewRecorder()
+	h.DeleteSource(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	wantEvents := []string{"drop:file-1", "drop:file-2", "delete:SRC1"}
+	if !reflect.DeepEqual(events, wantEvents) {
+		t.Errorf("event order = %v, want %v", events, wantEvents)
+	}
+}
+
+// TestDeleteSource_NilDropperIsNoop pins the nil-safety half: a deployment
+// without a main pool (or a caller that never wired one) must still delete
+// the source, unaffected.
+func TestDeleteSource_NilDropperIsNoop(t *testing.T) {
+	fs := &fakeStore{
+		getByID:        &GitRepoSourceRow{ID: "SRC1", KbID: "KB-A"},
+		filesForSource: []GitRepoFileRow{{FileID: "file-1"}},
+	}
+	h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+	// TableDropper deliberately left nil.
+
+	req := httptest.NewRequest("DELETE", "/api/kb/KB-A/git-repos/SRC1", nil)
+	req.SetPathValue("id", "KB-A")
+	req.SetPathValue("sourceId", "SRC1")
+	rec := httptest.NewRecorder()
+	h.DeleteSource(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if fs.deletedSourceID != "SRC1" {
+		t.Errorf("deletedSourceID = %q, want %q", fs.deletedSourceID, "SRC1")
+	}
+}
+
 func TestTriggerSyncCrossKBReturns404(t *testing.T) {
 	// Source belongs to KB-B but request targets KB-A → must be 404, no enqueue.
 	fs := &fakeStore{getByID: &GitRepoSourceRow{ID: "SRC1", KbID: "KB-B"}, gitRepoEnabled: true}
@@ -201,5 +269,151 @@ func TestCreateSourceDisabledReturns403(t *testing.T) {
 	}
 	if fs.created != nil {
 		t.Fatal("CreateGitRepoSource must not be called when feature is disabled")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for syncSchedule tests
+// ---------------------------------------------------------------------------
+
+// newTestHandler returns a Handler whose store reports git_repo_enabled=true,
+// plus the fakeStore so tests can inspect captured mock state.
+func newTestHandler(t *testing.T) (*Handler, *fakeStore) {
+	t.Helper()
+	fs := &fakeStore{gitRepoEnabled: true}
+	h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+	return h, fs
+}
+
+// doRequest builds a request with the given method/path/body and invokes handler directly.
+func doRequest(t *testing.T, handler http.HandlerFunc, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	return rec
+}
+
+// ---------------------------------------------------------------------------
+// Tests: syncSchedule
+// ---------------------------------------------------------------------------
+
+func TestCreateSource_RejectsUnknownSchedule(t *testing.T) {
+	h, _ := newTestHandler(t) // must return a handler whose store reports git_repo_enabled=true
+	body := `{"repoUrl":"https://github.com/o/r.git","syncSchedule":"nightly"}`
+	rec := doRequest(t, h.CreateSource, http.MethodPost, "/api/kb/kb-1/git-repos", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateSource_DefaultsToManual(t *testing.T) {
+	h, fs := newTestHandler(t)
+	body := `{"repoUrl":"https://github.com/o/r.git"}`
+	rec := doRequest(t, h.CreateSource, http.MethodPost, "/api/kb/kb-1/git-repos", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fs.created == nil || fs.created.SyncSchedule != "manual" {
+		t.Fatalf("expected manual, got %+v", fs.created)
+	}
+}
+
+func TestUpdateSource_InvalidSyncSchedule(t *testing.T) {
+	fs := &fakeStore{getByID: &GitRepoSourceRow{ID: "SRC1", KbID: "KB-A"}}
+	h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+	body := `{"syncSchedule":"hourly"}`
+	req := httptest.NewRequest("PATCH", "/api/kb/KB-A/git-repos/SRC1", strings.NewReader(body))
+	req.SetPathValue("id", "KB-A")
+	req.SetPathValue("sourceId", "SRC1")
+	rec := httptest.NewRecorder()
+	h.UpdateSource(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fs.updateCalled {
+		t.Fatal("UpdateGitRepoSource must not be called for an invalid syncSchedule")
+	}
+}
+
+// TestUpdateSource_ClearsNextSyncAt verifies that changing syncSchedule
+// clears next_sync_at so the sweeper re-stamps the slot on its next tick
+// instead of leaving a stale slot from the previous schedule in place. This
+// must hold for every target schedule, INCLUDING a change back to "manual" —
+// that is the case most likely to get special-cased away by a future edit,
+// since "manual" reads like "nothing to schedule" rather than "a schedule
+// change that must clear the stamp".
+func TestUpdateSource_ClearsNextSyncAt(t *testing.T) {
+	for _, schedule := range []string{"daily", "weekly", "manual"} {
+		t.Run(schedule, func(t *testing.T) {
+			fs := &fakeStore{getByID: &GitRepoSourceRow{ID: "SRC1", KbID: "KB-A"}}
+			h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+			body := `{"syncSchedule":"` + schedule + `"}`
+			req := httptest.NewRequest("PATCH", "/api/kb/KB-A/git-repos/SRC1", strings.NewReader(body))
+			req.SetPathValue("id", "KB-A")
+			req.SetPathValue("sourceId", "SRC1")
+			rec := httptest.NewRecorder()
+			h.UpdateSource(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if fs.lastUpdate.NextSyncAt == nil {
+				t.Fatal("expected NextSyncAt to be set (to clear it) when syncSchedule changes")
+			}
+			if *fs.lastUpdate.NextSyncAt != nil {
+				t.Fatalf("expected NextSyncAt to be cleared to NULL, got %v", **fs.lastUpdate.NextSyncAt)
+			}
+		})
+	}
+}
+
+// TestUpdateSource_NoScheduleChangeLeavesNextSyncAt verifies that a PATCH
+// not touching syncSchedule and not re-activating does not touch
+// next_sync_at. Pausing a source is exactly this case: it must not disturb
+// the stamped slot, since the row falls out of ListDue/ListUnscheduled by
+// status alone while paused.
+func TestUpdateSource_NoScheduleChangeLeavesNextSyncAt(t *testing.T) {
+	fs := &fakeStore{getByID: &GitRepoSourceRow{ID: "SRC1", KbID: "KB-A"}}
+	h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+	body := `{"status":"paused"}`
+	req := httptest.NewRequest("PATCH", "/api/kb/KB-A/git-repos/SRC1", strings.NewReader(body))
+	req.SetPathValue("id", "KB-A")
+	req.SetPathValue("sourceId", "SRC1")
+	rec := httptest.NewRecorder()
+	h.UpdateSource(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fs.lastUpdate.NextSyncAt != nil {
+		t.Fatalf("expected NextSyncAt to stay untouched, got %v", fs.lastUpdate.NextSyncAt)
+	}
+}
+
+// TestUpdateSource_ReactivatingClearsNextSyncAt verifies that resuming a
+// paused source (status -> "active", with no syncSchedule in the request
+// body) clears next_sync_at. Without this, resuming a source that was
+// paused for a week fires an immediate daytime sync on the next sweep,
+// because the week-old next_sync_at is still in the past — exactly what the
+// stamp-without-enqueue design in ListUnscheduled exists to prevent.
+func TestUpdateSource_ReactivatingClearsNextSyncAt(t *testing.T) {
+	fs := &fakeStore{getByID: &GitRepoSourceRow{ID: "SRC1", KbID: "KB-A", Status: "paused"}}
+	h := NewHandler(fs, "test-jwt-secret-at-least-32-bytes-long!!", nil)
+	body := `{"status":"active"}`
+	req := httptest.NewRequest("PATCH", "/api/kb/KB-A/git-repos/SRC1", strings.NewReader(body))
+	req.SetPathValue("id", "KB-A")
+	req.SetPathValue("sourceId", "SRC1")
+	rec := httptest.NewRecorder()
+	h.UpdateSource(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fs.lastUpdate.NextSyncAt == nil {
+		t.Fatal("expected NextSyncAt to be set (to clear it) when re-activating")
+	}
+	if *fs.lastUpdate.NextSyncAt != nil {
+		t.Fatalf("expected NextSyncAt to be cleared to NULL, got %v", **fs.lastUpdate.NextSyncAt)
 	}
 }

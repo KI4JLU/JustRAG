@@ -9,7 +9,12 @@ import (
 	redsyncredis "github.com/go-redsync/redsync/v4/redis/goredis/v9"
 
 	"github.com/justrag/go-backend/internal/confluence"
+	"github.com/justrag/go-backend/internal/eval"
+	"github.com/justrag/go-backend/internal/gitrepo"
 	"github.com/justrag/go-backend/internal/rss"
+	"github.com/justrag/go-backend/internal/safego"
+	"github.com/justrag/go-backend/internal/siteconfig"
+	"github.com/justrag/go-backend/internal/syncsched"
 )
 
 // schedulerLockKey is the Redis key used to elect a single leader across
@@ -22,14 +27,17 @@ const (
 	acquireRetryPeriod = 15 * time.Second
 )
 
-// startSchedulers runs the RSS and Confluence schedulers under a Redis-based
-// leader lock so that exactly one go-server replica drives scheduled syncs.
-// It blocks until ctx is canceled.
+// startSchedulers runs the leader-election loop that drives scheduled syncs.
+// Exactly one replica holds the leader role at a time; the leader runs a
+// single night-window sweeper (internal/syncsched) that enqueues due RSS,
+// Confluence, and git-repo syncs. This replaced the old per-source ticker
+// schedulers, which anchored a source's period to process start time and
+// only read the DB at leader election.
 //
 // The lock is acquired with a TTL and refreshed periodically. If the leader
 // dies, the TTL expires and another replica acquires the lock on its next
-// retry tick. If the lock is lost while held (e.g. Redis hiccup), running
-// schedulers are torn down and the loop returns to acquisition mode.
+// retry tick. If the lock is lost while held (e.g. Redis hiccup), the
+// sweeper is torn down and the loop returns to acquisition mode.
 func startSchedulers(ctx context.Context, infra *serverInfra) {
 	pool := redsyncredis.NewPool(infra.rdb.Client)
 	rs := redsync.New(pool)
@@ -54,37 +62,57 @@ func startSchedulers(ctx context.Context, infra *serverInfra) {
 			continue
 		}
 
-		slog.Info("scheduler leader lock acquired — starting RSS + Confluence schedulers")
+		slog.Info("scheduler leader lock acquired — starting sync sweeper")
 		runAsLeader(ctx, infra, mutex)
 		slog.Info("scheduler leader role released")
 	}
 }
 
-// runAsLeader starts the schedulers and refreshes the lock until ctx is
-// canceled or the lock is lost. On exit, schedulers are stopped and the lock
-// is released.
+// runAsLeader starts the night-window sync sweeper on a context tied to the
+// leader lock, then refreshes the lock until ctx is canceled or the lock is
+// lost. The sweeper runs on leaderCtx (not the outer ctx) so it is signaled
+// to stop the moment this replica steps down — on lock loss or shutdown —
+// rather than continuing to enqueue syncs after another replica has taken
+// over. On exit, the lock is released only after the sweeper goroutine has
+// actually returned (see the join below) — RunServer's schedulerWg.Wait()
+// runs ahead of asynqClient.Close(), and that guarantee is worthless unless
+// runAsLeader itself does not return while the sweeper it spawned is still
+// running.
 func runAsLeader(ctx context.Context, infra *serverInfra, mutex *redsync.Mutex) {
 	leaderCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	sweeperDone := make(chan struct{})
 
-	rssScheduler := rss.NewScheduler(leaderCtx, infra.asynqClient, rss.NewStore(infra.db.Main))
-	if err := rssScheduler.InitializeAll(leaderCtx); err != nil {
-		slog.Warn("failed to initialize RSS schedules", "error", err)
-	}
-	defer rssScheduler.StopAll()
-
-	confScheduler := confluence.NewConfluenceScheduler(leaderCtx, infra.asynqClient, confluence.NewStore(infra.db.Main))
-	if err := confScheduler.InitializeAll(leaderCtx); err != nil {
-		slog.Warn("failed to initialize Confluence schedules", "error", err)
-	}
-	defer confScheduler.StopAll()
-
+	// Defers run LIFO: release the lock first (declared first, runs last)
+	// only after the cancel-and-join below (declared last, runs first) has
+	// confirmed the sweeper goroutine has actually exited. A cancel alone is
+	// not enough to guarantee that: *asynq.Client.Enqueue ignores the
+	// context it's handed and uses context.Background() internally, so an
+	// in-flight Tick keeps running against the Redis connection until it
+	// finishes or asynqClient.Close() pulls the connection out from under
+	// it. Joining here is what makes that close-after-return ordering safe.
 	defer func() {
 		// Best-effort release; ignore errors (TTL will expire anyway).
 		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer releaseCancel()
 		_, _ = mutex.UnlockContext(releaseCtx)
 	}()
+	defer func() {
+		cancel()
+		<-sweeperDone // wait for the in-flight Tick (if any) to actually finish.
+	}()
+
+	sweeper := syncsched.New(
+		infra.asynqClient,
+		siteconfig.NewStore(infra.db.Main),
+		rss.NewStore(infra.db.Main),
+		confluence.NewStore(infra.db.Main),
+		gitrepo.NewStore(infra.db.Main),
+		eval.NewGoldenSetStore(infra.db.Main),
+	)
+	safego.Go(func() {
+		defer close(sweeperDone)
+		sweeper.Run(leaderCtx)
+	})
 
 	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()

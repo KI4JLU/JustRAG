@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/pgxutil"
+	"github.com/justrag/go-backend/internal/syncwindow"
 )
 
 const gitRepoSourceColumns = `
-	id, kb_id, repo_url, is_private, access_token_encrypted, branch, status,
+	id, kb_id, repo_url, is_private, access_token_encrypted, branch,
+	sync_schedule, next_sync_at, status,
 	error_message, consecutive_failures, last_synced_at, last_commit_sha,
 	file_count, sync_progress, sync_total, created_at`
 
@@ -24,6 +28,8 @@ type GitRepoSourceRow struct {
 	IsPrivate            bool
 	AccessTokenEncrypted *string
 	Branch               *string
+	SyncSchedule         string
+	NextSyncAt           *time.Time
 	Status               string
 	ErrorMessage         *string
 	ConsecutiveFailures  int
@@ -42,6 +48,8 @@ type gitRepoSourceDBRow struct {
 	IsPrivate            bool       `db:"is_private"`
 	AccessTokenEncrypted *string    `db:"access_token_encrypted"`
 	Branch               *string    `db:"branch"`
+	SyncSchedule         string     `db:"sync_schedule"`
+	NextSyncAt           *time.Time `db:"next_sync_at"`
 	Status               string     `db:"status"`
 	ErrorMessage         *string    `db:"error_message"`
 	ConsecutiveFailures  int        `db:"consecutive_failures"`
@@ -63,17 +71,28 @@ type CreateGitRepoSourceInput struct {
 	IsPrivate            bool
 	AccessTokenEncrypted *string // nil for public
 	Branch               *string // nil => default HEAD
+	SyncSchedule         string  // one of syncwindow.Schedule*
 }
 
+// GitRepoSourceUpdate carries optional fields for a PATCH update. NextSyncAt
+// is a double pointer so "leave untouched" (nil) and "set to NULL" (non-nil
+// pointing at a nil *time.Time) are both expressible.
 type GitRepoSourceUpdate struct {
-	Status *string // "active" | "paused"
+	SyncSchedule *string
+	NextSyncAt   **time.Time
+	Status       *string // "active" | "paused"
 }
 
 type SyncState struct {
-	Status              string
-	ErrorMessage        *string
-	LastCommitSHA       *string
-	LastSyncedAt        *time.Time
+	Status        string
+	ErrorMessage  *string
+	LastCommitSHA *string
+	LastSyncedAt  *time.Time
+	// LastSuccessAt is set only by the sync's success paths. last_synced_at
+	// is refreshed by every attempt, a failing one included, so a column
+	// only a success can move is what the admin overview and the sync-age
+	// gauge read (W3-R10).
+	LastSuccessAt       *time.Time
 	FileCount           *int
 	SyncProgress        *int
 	SyncTotal           *int
@@ -96,6 +115,12 @@ type CreateGitRepoFileInput struct {
 	GitRepoSourceID string
 	GitFilePath     string
 	GitBlobSHA      string
+	// PublishedAt is the document's OWN content date, as opposed to
+	// created_at (the ingest timestamp): the HEAD commit's committer time
+	// for every file of that sync (W4-R11), clamped at now. The clone is
+	// shallow, so no per-file history exists to date each file
+	// individually.
+	PublishedAt *time.Time
 }
 
 type Store interface {
@@ -112,20 +137,45 @@ type Store interface {
 	GetSiteConfigValue(ctx context.Context, key string) (*string, error)
 }
 
-type PGStore struct{ pool *pgxpool.Pool }
+// TableDropper drops a file's materialised spreadsheet tables (the
+// `tabular.sheet_*` tables), its tabular_column_values rows and its
+// tabular_catalog rows. Satisfied by *tabular.Materializer. See the
+// identical interface documented at internal/files.TableDropper for the
+// full rationale: the catalog row is the only index from a file to its
+// physical tables, so this MUST run before the files row is deleted.
+//
+// Optional: a nil dropper (the NewStore default) leaves the tables alone,
+// which is what a text-only repository (or any caller that never wires
+// SetTableDropper) gets — cheap and correct for the common case.
+type TableDropper interface {
+	DropTablesForFile(ctx context.Context, fileID string) error
+}
+
+type PGStore struct {
+	pool         *pgxpool.Pool
+	tableDropper TableDropper
+}
 
 func NewStore(pool *pgxpool.Pool) *PGStore { return &PGStore{pool: pool} }
+
+// SetTableDropper injects the spreadsheet table cleanup hook for
+// DeleteGitRepoFileByID. Optional — nil (the default) leaves materialised
+// tables in place.
+func (s *PGStore) SetTableDropper(d TableDropper) { s.tableDropper = d }
 
 // Compile-time interface assertion.
 var _ Store = (*PGStore)(nil)
 
+// CreateGitRepoSource inserts a new git repo source and returns the stored
+// row. SyncSchedule is one of syncwindow.Schedule*; next_sync_at is left
+// NULL and stamped by the sweeper on its next tick.
 func (s *PGStore) CreateGitRepoSource(ctx context.Context, in CreateGitRepoSourceInput) (*GitRepoSourceRow, error) {
 	const q = `
-		INSERT INTO git_repo_sources (kb_id, repo_url, is_private, access_token_encrypted, branch, status)
-		VALUES ($1, $2, $3, $4, $5, 'active')
+		INSERT INTO git_repo_sources (kb_id, repo_url, is_private, access_token_encrypted, branch, sync_schedule, status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'active')
 		RETURNING ` + gitRepoSourceColumns
 	rows, err := pgxutil.QueryRows[gitRepoSourceDBRow](ctx, s.pool, q,
-		in.KbID, in.RepoURL, in.IsPrivate, in.AccessTokenEncrypted, in.Branch)
+		in.KbID, in.RepoURL, in.IsPrivate, in.AccessTokenEncrypted, in.Branch, in.SyncSchedule)
 	if err != nil {
 		return nil, fmt.Errorf("CreateGitRepoSource: %w", err)
 	}
@@ -163,11 +213,37 @@ func (s *PGStore) GetGitRepoSourceByID(ctx context.Context, id string) (*GitRepo
 }
 
 func (s *PGStore) UpdateGitRepoSource(ctx context.Context, id string, upd GitRepoSourceUpdate) error {
-	if upd.Status == nil {
+	var setClauses []string
+	var args []any
+	param := 1
+
+	if upd.SyncSchedule != nil {
+		setClauses = append(setClauses, fmt.Sprintf("sync_schedule = $%d", param))
+		args = append(args, *upd.SyncSchedule)
+		param++
+	}
+	if upd.NextSyncAt != nil {
+		if *upd.NextSyncAt == nil {
+			setClauses = append(setClauses, "next_sync_at = NULL")
+		} else {
+			setClauses = append(setClauses, fmt.Sprintf("next_sync_at = $%d", param))
+			args = append(args, **upd.NextSyncAt)
+			param++
+		}
+	}
+	if upd.Status != nil {
+		setClauses = append(setClauses, fmt.Sprintf("status = $%d", param))
+		args = append(args, *upd.Status)
+		param++
+	}
+
+	if len(setClauses) == 0 {
 		return nil // Nothing to update.
 	}
-	const q = `UPDATE git_repo_sources SET status = $2 WHERE id = $1`
-	_, err := s.pool.Exec(ctx, q, id, *upd.Status)
+
+	args = append(args, id)
+	q := fmt.Sprintf(`UPDATE git_repo_sources SET %s WHERE id = $%d`, strings.Join(setClauses, ", "), param)
+	_, err := s.pool.Exec(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("UpdateGitRepoSource: %w", err)
 	}
@@ -192,10 +268,12 @@ func (s *PGStore) SetGitRepoSyncState(ctx context.Context, id string, st SyncSta
 			file_count = COALESCE($6, file_count),
 			sync_progress = COALESCE($7, sync_progress),
 			sync_total = COALESCE($8, sync_total),
-			consecutive_failures = COALESCE($9, consecutive_failures)
+			consecutive_failures = COALESCE($9, consecutive_failures),
+			last_success_at = COALESCE($10, last_success_at)
 		WHERE id = $1`
 	_, err := s.pool.Exec(ctx, q, id, st.Status, st.ErrorMessage, st.LastCommitSHA,
-		st.LastSyncedAt, st.FileCount, st.SyncProgress, st.SyncTotal, st.ConsecutiveFailures)
+		st.LastSyncedAt, st.FileCount, st.SyncProgress, st.SyncTotal, st.ConsecutiveFailures,
+		st.LastSuccessAt)
 	if err != nil {
 		return fmt.Errorf("SetGitRepoSyncState: %w", err)
 	}
@@ -217,14 +295,15 @@ func (s *PGStore) ListGitRepoFiles(ctx context.Context, sourceID string) ([]GitR
 func (s *PGStore) CreateGitRepoFile(ctx context.Context, in CreateGitRepoFileInput) (string, error) {
 	const q = `
 		INSERT INTO files (kb_id, name, type, size, status, origin, storage_path,
-		                   git_repo_source_id, git_file_path, git_blob_sha)
-		VALUES ($1, $2, $3, $4, 'pending', 'git', $5, $6, $7, $8)
+		                   git_repo_source_id, git_file_path, git_blob_sha, published_at)
+		VALUES ($1, $2, $3, $4, 'pending', 'git', $5, $6, $7, $8, $9)
 		RETURNING id`
 	type idRow struct {
 		ID string `db:"id"`
 	}
 	rows, err := pgxutil.QueryRows[idRow](ctx, s.pool, q,
-		in.KbID, in.Name, in.Type, in.Size, in.StoragePath, in.GitRepoSourceID, in.GitFilePath, in.GitBlobSHA)
+		in.KbID, in.Name, in.Type, in.Size, in.StoragePath, in.GitRepoSourceID, in.GitFilePath, in.GitBlobSHA,
+		in.PublishedAt)
 	if err != nil {
 		return "", fmt.Errorf("CreateGitRepoFile: %w", err)
 	}
@@ -234,7 +313,29 @@ func (s *PGStore) CreateGitRepoFile(ctx context.Context, in CreateGitRepoFileInp
 	return rows[0].ID, nil
 }
 
+// dropTablesFor drops each id's materialised spreadsheet tables via the
+// injected TableDropper. Nil-safe: returns immediately (never touching the
+// pool) when no dropper is wired, so this costs nothing for a deployment
+// without a main pool or a caller that only ever handles text files.
+// Best effort per id: a failure is logged and the rest still run.
+func (s *PGStore) dropTablesFor(ctx context.Context, ids []string) {
+	if s.tableDropper == nil {
+		return
+	}
+	for _, id := range ids {
+		if err := s.tableDropper.DropTablesForFile(ctx, id); err != nil {
+			slog.Warn("tabular: drop tables for deleted git repo file failed",
+				"fileId", id, "error", err)
+		}
+	}
+}
+
 func (s *PGStore) DeleteGitRepoFileByID(ctx context.Context, fileID string) error {
+	// Drop any materialised spreadsheet tables BEFORE the files row goes
+	// away: tabular_catalog is the only index from a file to its physical
+	// tables, so deleting the files row first would orphan them beyond any
+	// future reach (see TableDropper).
+	s.dropTablesFor(ctx, []string{fileID})
 	_, err := s.pool.Exec(ctx, `DELETE FROM files WHERE id = $1`, fileID)
 	if err != nil {
 		return fmt.Errorf("DeleteGitRepoFileByID: %w", err)
@@ -272,4 +373,73 @@ func (s *PGStore) GetGitRepoSourceFileProgress(ctx context.Context, sourceID str
 		return 0, 0, nil
 	}
 	return rows[0].Total, rows[0].Done, nil
+}
+
+// ---------------------------------------------------------------------------
+// Sweeper contract (internal/syncsched)
+// ---------------------------------------------------------------------------
+
+// Kind identifies this store to the sweeper (internal/syncsched).
+func (s *PGStore) Kind() string { return "git_repo" }
+
+// dueSourceRow scans the two columns the sweeper needs.
+type dueSourceRow struct {
+	ID       string `db:"id"`
+	Schedule string `db:"sync_schedule"`
+}
+
+func toDueSources(rows []dueSourceRow) []syncwindow.DueSource {
+	out := make([]syncwindow.DueSource, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, syncwindow.DueSource{ID: r.ID, Schedule: r.Schedule})
+	}
+	return out
+}
+
+// ListDue returns sources whose stamped slot has arrived. status IN
+// ('active','error') deliberately keeps an errored source on the schedule:
+// sync.go sets status='error' on any sync failure (a clone timeout, a
+// revoked PAT), and dropping the predicate to status='active' would take the
+// source out of both ListDue and ListUnscheduled permanently — nothing would
+// ever move next_sync_at again. 'paused' and 'syncing' stay excluded.
+func (s *PGStore) ListDue(ctx context.Context, now time.Time) ([]syncwindow.DueSource, error) {
+	const sql = `
+		SELECT id::text AS id, sync_schedule FROM git_repo_sources
+		 WHERE sync_schedule <> 'manual'
+		   AND status IN ('active', 'error')
+		   AND next_sync_at IS NOT NULL
+		   AND next_sync_at <= $1`
+	rows, err := pgxutil.QueryRows[dueSourceRow](ctx, s.pool, sql, now)
+	if err != nil {
+		return nil, fmt.Errorf("ListDue(git_repo): %w", err)
+	}
+	return toDueSources(rows), nil
+}
+
+// ListUnscheduled returns sources with a schedule but no stamped slot yet
+// (newly created, or newly switched away from manual). The sweeper stamps
+// them WITHOUT enqueuing, so enabling a schedule never triggers a daytime sync.
+func (s *PGStore) ListUnscheduled(ctx context.Context) ([]syncwindow.DueSource, error) {
+	const sql = `
+		SELECT id::text AS id, sync_schedule FROM git_repo_sources
+		 WHERE sync_schedule <> 'manual'
+		   AND status IN ('active', 'error')
+		   AND next_sync_at IS NULL`
+	rows, err := pgxutil.QueryRows[dueSourceRow](ctx, s.pool, sql)
+	if err != nil {
+		return nil, fmt.Errorf("ListUnscheduled(git_repo): %w", err)
+	}
+	return toDueSources(rows), nil
+}
+
+// MarkScheduled stamps the next slot. No status predicate here: it addresses
+// a single row by primary key (the id came from ListDue/ListUnscheduled,
+// which already filtered on status).
+func (s *PGStore) MarkScheduled(ctx context.Context, id string, next time.Time) error {
+	const sql = `UPDATE git_repo_sources SET next_sync_at = $2 WHERE id = $1`
+	_, err := s.pool.Exec(ctx, sql, id, next)
+	if err != nil {
+		return fmt.Errorf("MarkScheduled(git_repo, %s): %w", id, err)
+	}
+	return nil
 }

@@ -184,6 +184,24 @@ func (h *Handler) DeleteGoldenSetForKB(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// UpdateGoldenSetForKB → PATCH /api/kb/{id}/eval/golden-sets/{gsId}
+func (h *Handler) UpdateGoldenSetForKB(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	kbID, ok := pathKB(w, r)
+	if !ok {
+		return
+	}
+	gsID, err := uuid.Parse(r.PathValue("gsId"))
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid golden set id")
+		return
+	}
+	if h.getOwnedGoldenSet(w, r, kbID, gsID) == nil {
+		return
+	}
+	h.applyScheduleUpdate(ctx, w, r, gsID)
+}
+
 // --- Runs ---
 
 // kbCreateRunRequest is the KB-scoped run body (no kb_id — it comes from path).
@@ -313,11 +331,18 @@ func (h *Handler) ListRunsForKB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	sort, order, err := parseSortOrder(q)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, err.Error())
+		return
+	}
 	opts := eval.ListOpts{
 		Limit:  intParam(q, "limit", 50, 200),
 		Offset: intParam(q, "offset", 0, 1_000_000),
 		Status: q.Get("status"),
 		KBID:   &kbID, // forced — ignore any body/query kb_id
+		Sort:   sort,
+		Order:  order,
 	}
 	runs, total, err := h.store.List(ctx, opts)
 	if err != nil {
@@ -326,18 +351,7 @@ func (h *Handler) ListRunsForKB(w http.ResponseWriter, r *http.Request) {
 	}
 	summaries := make([]RunSummary, 0, len(runs))
 	for _, run := range runs {
-		s := RunSummary{
-			ID: run.ID, Label: run.Label, Status: run.Status, CreatedAt: run.CreatedAt,
-			StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, KBID: run.KBID,
-			JudgeEnabled: run.JudgeEnabled, ErrorMessage: run.ErrorMessage,
-		}
-		if name, _, kbErr := h.kbStore.GetKBInfo(ctx, run.KBID); kbErr == nil {
-			s.KBName = name
-		}
-		if len(run.Report) > 0 {
-			s.Aggregate, s.RouteMeanRecall = summarize(run.Report)
-		}
-		summaries = append(summaries, s)
+		summaries = append(summaries, h.summarizeRun(ctx, run))
 	}
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, ListRunsResponse{Runs: summaries, Total: total})
 }
