@@ -224,8 +224,8 @@ func TestSearchStoreErrorIs500(t *testing.T) {
 	}
 }
 
-// Card: topics and sources are arrays ([] not null, the dropdown maps over
-// them); chats and messages are ABSENT until KI-836 fills them, not empty.
+// Card (KI-836): all four groups are always present as arrays — [] not
+// null, the dropdown maps over them — even when the store returns nil.
 func TestSearchResponseShape(t *testing.T) {
 	store := &fakeStore{resp: &search.Response{Query: "abc"}} // nil slices on purpose
 	rec := serve(t, store, get(url.Values{"q": {"abc"}}, auth.RoleUser))
@@ -236,14 +236,9 @@ func TestSearchResponseShape(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	for _, key := range []string{"topics", "sources"} {
-		if got := string(body[key]); got != "[]" {
-			t.Errorf("%s = %s, want []", key, got)
-		}
-	}
-	for _, key := range []string{"chats", "messages"} {
-		if raw, ok := body[key]; ok {
-			t.Errorf("%s present (%s); it must be absent until KI-836", key, raw)
+	for _, key := range []string{"topics", "sources", "chats", "messages"} {
+		if got, ok := body[key]; !ok || string(got) != "[]" {
+			t.Errorf("%s = %s (present=%v), want []", key, got, ok)
 		}
 	}
 	if got := string(body["query"]); got != `"abc"` {
@@ -254,20 +249,32 @@ func TestSearchResponseShape(t *testing.T) {
 	}
 }
 
-// Once a group is searched, an empty result is [] rather than absent — the
-// pointer distinguishes the two states KI-836 will need.
-func TestSearchEmptySearchedGroupIsAnArray(t *testing.T) {
-	chats := []search.ChatHit{}
-	store := &fakeStore{resp: &search.Response{Query: "abc", Chats: &chats}}
+// The chat and message fields are serialised under the documented names.
+func TestSearchChatAndMessageFieldNames(t *testing.T) {
+	store := &fakeStore{resp: &search.Response{
+		Query:    "abc",
+		Chats:    []search.ChatHit{{ID: "c1", Title: "t", Type: "chat", KBID: "k", KBName: "n", Match: search.MatchPrefix}},
+		Messages: []search.MessageHit{{ID: "m1", ChatID: "c1", ChatTitle: "t", ChatType: "research", KBID: "k", KBName: "n", Role: "user", Snippet: "s"}},
+	}}
 	rec := serve(t, store, get(url.Values{"q": {"abc"}}, auth.RoleUser))
-	var body map[string]json.RawMessage
+	var body struct {
+		Chats    []map[string]json.RawMessage `json:"chats"`
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got := string(body["chats"]); got != "[]" {
-		t.Fatalf("chats = %q, want [] for a searched-but-empty group", got)
+	if len(body.Chats) != 1 || len(body.Messages) != 1 {
+		t.Fatalf("body = %s", rec.Body)
 	}
-	if _, ok := body["messages"]; ok {
-		t.Fatal("messages must stay absent when not searched")
+	for _, key := range []string{"id", "title", "type", "kbId", "kbName", "updatedAt", "match"} {
+		if _, ok := body.Chats[0][key]; !ok {
+			t.Errorf("chat hit lacks %q: %s", key, rec.Body)
+		}
+	}
+	for _, key := range []string{"id", "chatId", "chatTitle", "chatType", "kbId", "kbName", "role", "snippet", "createdAt"} {
+		if _, ok := body.Messages[0][key]; !ok {
+			t.Errorf("message hit lacks %q: %s", key, rec.Body)
+		}
 	}
 }

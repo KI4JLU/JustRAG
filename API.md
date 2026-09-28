@@ -74,8 +74,8 @@ All routes below are under `/api`.
 |---|---|---|
 | GET | `/search?q=<text>[&kb_id=<uuid>][&limit=<n>]` | authenticated (no KB role) |
 
-The shell header's global search: one request, one object with one array per
-result group. `internal/search`.
+The shell header's global search: one request, one object with four arrays —
+`topics`, `sources`, `chats`, `messages` — always all present. `internal/search`.
 
 - **Rate limit: 60 requests per minute** (fixed one-minute window, category
   `search`; see Rate Limiting below). Over the budget the answer is:
@@ -116,6 +116,17 @@ result group. `internal/search`.
   before description/header hits), then `fuzzy` by similarity, most similar
   first; ties by name, then id. A fuzzy hit never widens visibility: it is
   drawn from the same visible topics as every other hit.
+- **Chats** match on the title exactly like file names (substring or fuzzy,
+  same `match` tiers and order); ties go to the most recently updated chat.
+- **Messages** match on content with Postgres full-text search
+  (`to_tsvector('simple', …)`, migration 0077): the query is split into words
+  by Postgres' own parser and every word must occur as a **word prefix**
+  (`Statis` finds `Statistik`), case-insensitive, without stemming or
+  typo tolerance. Words shorter than 2 characters are ignored (`ab c`
+  searches only `ab`; `a b` finds no messages). Operator characters in `q`
+  (`& | ! ( ) :`) are ignored, not evaluated. At most **one hit per chat** — its best-ranked message
+  (`ts_rank`, ties to the newest) — ordered by rank. Only the first 100 000
+  characters of a message are searchable.
 
 **Visibility.** Every group contains only topics the caller could open, decided
 per row by one SQL predicate that mirrors `kbaccess.EffectiveRole` rule for rule
@@ -124,6 +135,12 @@ admin; public + published → view; otherwise invisible). That is a superset of
 `GET /kb/catalog`: published public topics the caller has not subscribed to are
 included. Superadmins and system admins therefore see many results; that is
 intended, not a leak.
+
+**Chats are private.** `chats` and `messages` contain **only the caller's own
+chats**, and only in topics the caller can still open under the rule above — a
+chat in a topic the caller has lost access to is not returned. No role widens
+this, superadmin included: members cannot read each other's chats anywhere in
+the app, and search is no exception.
 
 ```json
 {
@@ -146,12 +163,17 @@ intended, not a leak.
     }
   ],
   "chats": [
-    { "id": "uuid", "title": "…", "kbId": "uuid", "kbName": "…", "updatedAt": "RFC 3339" }
+    {
+      "id": "uuid", "title": "Prüfungsfragen", "type": "chat", "kbId": "uuid",
+      "kbName": "Prüfungsordnungen", "updatedAt": "RFC 3339", "match": "prefix"
+    }
   ],
   "messages": [
     {
-      "id": "uuid", "chatId": "uuid", "chatTitle": "…", "kbId": "uuid", "kbName": "…",
-      "role": "user", "snippet": "…", "createdAt": "RFC 3339"
+      "id": "uuid", "chatId": "uuid", "chatTitle": "Prüfungsfragen", "chatType": "chat",
+      "kbId": "uuid", "kbName": "Prüfungsordnungen", "role": "assistant",
+      "snippet": "Laut der \ue000Prüfungsordnung\ue001 von 2024 …",
+      "createdAt": "RFC 3339"
     }
   ]
 }
@@ -161,14 +183,21 @@ intended, not a leak.
 - `topics[].description` is the description, falling back to the header text,
   whitespace-collapsed and cut at 160 characters (ending in `…` when cut);
   `null` when both are empty. `role` is the caller's effective KB role.
-- `match` on topics and sources is one of `prefix`, `substring`, `fuzzy` (see
-  above).
-- `topics` and `sources` are always arrays (`[]` when nothing matched).
-- **`chats` and `messages` are absent** from every response until the chat
-  search (board card KI-836) lands. Absent means "this group was not
-  searched"; once a group is searched, no hits is `[]`. Clients must treat a
-  missing key as "not available", not as "no results". The two shapes above
-  are the proposed contract for KI-836 and may still be refined there.
+- `match` on topics, sources and chats is one of `prefix`, `substring`,
+  `fuzzy` (see above). Message hits carry no `match`: they are always
+  full-text hits.
+- `chats[].type` and `messages[].chatType` are `chats.type`: `chat`,
+  `research` or `academic_research`. `messages[].role` is `user` or
+  `assistant`.
+- `messages[].snippet` is **plain text**, never HTML: one fragment of about
+  8–20 words around the best match, whitespace-collapsed. Each matched word is
+  wrapped in **U+E000** (start) and **U+E001** (end), two Unicode private-use
+  characters that are stripped from the content before the snippet is cut, so
+  every occurrence is a highlight marker. A client splits on them and renders
+  every part as a text node (the marked parts highlighted). HTML/XML tags in
+  the content are dropped by `ts_headline`; any other `<` or `&` stays
+  literal, so the snippet must never be inserted as HTML.
+- All four arrays are always present (`[]` when nothing matched).
 
 ### KB members and ownership
 

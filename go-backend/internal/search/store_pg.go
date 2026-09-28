@@ -156,6 +156,87 @@ var sourcesSQL = `WITH ` + visibleKBsCTE + `
 	         lower(f.name), f.id
 	LIMIT $6`
 
+// chatsSQL matches the CALLER'S OWN chats by title, with the same matching
+// and ranking as file names (match.go): 0 prefix, 1 substring, 2 fuzzy by
+// similarity desc. Ties go to the most recently updated chat — many chats
+// share a title like "New Chat", and the newest is the likeliest target.
+//
+// Privacy: `c.user_id = $1` is unconditional. It is ANDed with the
+// visibility filter, not ORed with any role, so no system role (superadmin
+// included) sees another user's chat, and the caller's own chat disappears
+// once its topic is no longer visible to them (e.g. membership removed).
+// Same parameter layout as sourcesSQL (searchMatch).
+var chatsSQL = `WITH ` + visibleKBsCTE + `
+	SELECT c.id::text AS id, c.title, c.type, v.id::text AS kb_id, v.name AS kb_name, c.updated_at,
+	       CASE r.rank WHEN 0 THEN '` + MatchPrefix + `' WHEN 1 THEN '` + MatchSubstring + `'
+	                   ELSE '` + MatchFuzzy + `' END AS match
+	FROM chats c
+	JOIN visible_kbs v ON v.id = c.kb_id
+	CROSS JOIN LATERAL (
+		SELECT CASE
+		         WHEN ` + searchMatch.hasPrefix("c.title") + ` THEN 0
+		         WHEN ` + searchMatch.contains("c.title") + ` THEN 1
+		         ELSE 2
+		       END AS rank
+	) r
+	WHERE v.role IS NOT NULL
+	  AND c.user_id = $1::uuid
+	  AND ` + searchMatch.matches("c.title") + `
+	ORDER BY r.rank,
+	         CASE WHEN r.rank = 2 THEN ` + searchMatch.similarity("c.title") + ` END DESC NULLS LAST,
+	         c.updated_at DESC, c.id
+	LIMIT $6`
+
+// messagesSQL searches the content of the CALLER'S OWN messages with Postgres
+// full text (fulltext.go) and returns at most one hit per chat: the
+// best-ranked message by ts_rank, ties to the newest. Hits are then ordered
+// by that rank, newest first on ties. Same privacy rule as chatsSQL.
+//
+// Parameters (its own layout — full text needs neither LIKE pattern):
+// $1..$3 visibleKBsCTE's, $4 the raw query text, $5 the limit, $6 the
+// ts_headline options (snippetOptions).
+//
+// query_ts is MATERIALIZED so the tsquery is built once; referenced through
+// scalar subqueries it becomes an InitPlan parameter, which the planner can
+// use as the Index Cond of messages_content_fts_idx (migration 0077).
+// ts_headline — the expensive part — runs only on the final, limited rows,
+// and structurally so: ORDER BY + LIMIT sit in a subquery over best (a
+// subquery with LIMIT is never flattened into its parent), and ts_headline is
+// computed in the SELECT list above it. The outer ORDER BY repeats the order,
+// because a subquery's order is not guaranteed to survive; it sorts at most
+// $5 rows. TestSnippetIsComputedAboveTheLimit pins this with EXPLAIN VERBOSE.
+// The snippet is cut from the content with both highlight delimiters removed
+// first, so every delimiter in a snippet is one ts_headline put there.
+var messagesSQL = `WITH ` + visibleKBsCTE + `,
+	query_ts AS MATERIALIZED (SELECT ` + prefixTSQuery("$4") + ` AS q),
+	best AS (
+		SELECT DISTINCT ON (m.chat_id)
+		       m.id, m.chat_id, c.title AS chat_title, c.type AS chat_type,
+		       v.id AS kb_id, v.name AS kb_name, m.role, m.content, m.created_at,
+		       ts_rank(` + messageTSVector("m.content") + `, (SELECT q FROM query_ts)) AS rank
+		FROM messages m
+		JOIN chats c ON c.id = m.chat_id
+		JOIN visible_kbs v ON v.id = c.kb_id
+		WHERE v.role IS NOT NULL
+		  AND c.user_id = $1::uuid
+		  AND ` + messageTSVector("m.content") + ` @@ (SELECT q FROM query_ts)
+		ORDER BY m.chat_id, rank DESC, m.created_at DESC, m.id
+	)
+	SELECT t.id::text AS id, t.chat_id::text AS chat_id, t.chat_title, t.chat_type,
+	       t.kb_id::text AS kb_id, t.kb_name, t.role, t.created_at,
+	       btrim(regexp_replace(
+	         ts_headline('` + ftsConfig + `',
+	                     left(translate(t.content, '` + SnippetStart + SnippetEnd + `', ''), ` +
+	strconv.Itoa(maxIndexedChars) + `),
+	                     (SELECT q FROM query_ts), $6),
+	         '\s+', ' ', 'g')) AS snippet
+	FROM (
+		SELECT b.* FROM best b
+		ORDER BY b.rank DESC, b.created_at DESC, b.id
+		LIMIT $5
+	) t
+	ORDER BY t.rank DESC, t.created_at DESC, t.id`
+
 // PGStore is the Postgres-backed Store.
 type PGStore struct {
 	pool *pgxpool.Pool
@@ -178,8 +259,8 @@ type scopeRow struct {
 // silently return nothing.
 //
 // All queries run in one read-only transaction: setFuzzyThreshold is
-// transaction-local, and the scope check and both groups then also read one
-// consistent snapshot.
+// transaction-local, and the scope check and all four groups then also read
+// one consistent snapshot.
 func (s *PGStore) Search(ctx context.Context, caller Caller, q Query) (*Response, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -195,6 +276,8 @@ func (s *PGStore) Search(ctx context.Context, caller Caller, q Query) (*Response
 
 	var topics []TopicHit
 	var sources []SourceHit
+	var chats []ChatHit
+	var messages []MessageHit
 	err := pgxutil.WithTxOptions(ctx, s.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		if kbID != nil {
 			scope, err := pgxutil.QueryOne[scopeRow](ctx, tx, scopeSQL, caller.UserID, caller.SysRole, kbID)
@@ -219,13 +302,23 @@ func (s *PGStore) Search(ctx context.Context, caller Caller, q Query) (*Response
 		if err != nil {
 			return fmt.Errorf("search sources: %w", err)
 		}
+		chats, err = pgxutil.QueryRows[ChatHit](ctx, tx, chatsSQL,
+			caller.UserID, caller.SysRole, kbID, contains, prefix, limit, raw)
+		if err != nil {
+			return fmt.Errorf("search chats: %w", err)
+		}
+		messages, err = pgxutil.QueryRows[MessageHit](ctx, tx, messagesSQL,
+			caller.UserID, caller.SysRole, kbID, raw, limit, snippetOptions)
+		if err != nil {
+			return fmt.Errorf("search messages: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	resp := &Response{Query: q.Text, Topics: topics, Sources: sources}
+	resp := &Response{Query: q.Text, Topics: topics, Sources: sources, Chats: chats, Messages: messages}
 	if q.KBID != "" {
 		id := q.KBID
 		resp.KBID = &id

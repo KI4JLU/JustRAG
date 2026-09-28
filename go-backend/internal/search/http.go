@@ -101,5 +101,11 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	if resp.Sources == nil {
 		resp.Sources = []SourceHit{}
 	}
+	if resp.Chats == nil {
+		resp.Chats = []ChatHit{}
+	}
+	if resp.Messages == nil {
+		resp.Messages = []MessageHit{}
+	}
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, resp)
 }

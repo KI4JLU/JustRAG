@@ -1,7 +1,6 @@
 // Package search serves GET /api/search, the shell header's global search:
 // one request, one response with one array per result group (topics,
-// sources, and — from KI-836 on — chats and messages), optionally scoped to a
-// single topic.
+// sources, chats and messages), optionally scoped to a single topic.
 //
 // The load-bearing piece is not the matching but the visibility rule. A
 // search result must never reveal a topic the caller could not open, so every
@@ -12,6 +11,12 @@
 // none of them could be reused here. The integration test in
 // store_pg_integration_test.go runs both over the same fixture matrix and
 // asserts they agree on every row.
+//
+// Chats and messages add a second, stricter rule on top: they are private to
+// their owner everywhere else in the app (chat.GetChats filters user_id,
+// GetMessages 404s for anyone else), so both groups return ONLY the caller's
+// own chats — and only in topics visibleKBsCTE still lets the caller open.
+// No role widens this, superadmin included.
 package search
 
 import (
@@ -57,20 +62,15 @@ type Query struct {
 	Limit int
 }
 
-// Response is the body of GET /api/search. One array per group.
-//
-// Chats and Messages are pointers on purpose. nil means "this group was not
-// searched" and is omitted from the JSON; a non-nil pointer to an empty slice
-// means "searched, nothing found" and serialises as []. Until KI-836 lands
-// both are always nil, so a client can tell "no chat matched" from "chat
-// search does not exist yet" instead of trusting an empty array that lies.
+// Response is the body of GET /api/search. One array per group, all four
+// always present (the handler turns a nil group into [], never null).
 type Response struct {
-	Query    string        `json:"query"`
-	KBID     *string       `json:"kbId"`
-	Topics   []TopicHit    `json:"topics"`
-	Sources  []SourceHit   `json:"sources"`
-	Chats    *[]ChatHit    `json:"chats,omitempty"`
-	Messages *[]MessageHit `json:"messages,omitempty"`
+	Query    string       `json:"query"`
+	KBID     *string      `json:"kbId"`
+	Topics   []TopicHit   `json:"topics"`
+	Sources  []SourceHit  `json:"sources"`
+	Chats    []ChatHit    `json:"chats"`
+	Messages []MessageHit `json:"messages"`
 }
 
 // TopicHit is one knowledge base the caller may open.
@@ -105,33 +105,38 @@ type SourceHit struct {
 	Match string `json:"match" db:"match"`
 }
 
-// ChatHit is one of the caller's chats whose title matches. Defined now so
-// the frontend builds against one contract; filled by KI-836.
-//
-// TODO: field set is this card's proposal; KI-836 may still refine it
-// (together with API.md and the frontend types) — not yet confirmed.
+// ChatHit is one of the CALLER'S OWN chats whose title matches, in a topic
+// the caller can still open.
 type ChatHit struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	KBID      string    `json:"kbId"`
-	KBName    string    `json:"kbName"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID    string `json:"id"    db:"id"`
+	Title string `json:"title" db:"title"`
+	// Type is chats.type: chat, research or academic_research.
+	Type      string    `json:"type"      db:"type"`
+	KBID      string    `json:"kbId"      db:"kb_id"`
+	KBName    string    `json:"kbName"    db:"kb_name"`
+	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+	// Match is the best tier the title reached: MatchPrefix, MatchSubstring
+	// or MatchFuzzy — the same matching as topic and file names (match.go).
+	Match string `json:"match" db:"match"`
 }
 
-// MessageHit is one message in one of the caller's chats whose content
-// matches, with a snippet around the match. Defined now; filled by KI-836.
-//
-// TODO: field set is this card's proposal; KI-836 may still refine it
-// (together with API.md and the frontend types) — not yet confirmed.
+// MessageHit is the best-ranked matching message of one of the CALLER'S OWN
+// chats: at most one hit per chat, so one long conversation cannot fill the
+// dropdown.
 type MessageHit struct {
-	ID        string    `json:"id"`
-	ChatID    string    `json:"chatId"`
-	ChatTitle string    `json:"chatTitle"`
-	KBID      string    `json:"kbId"`
-	KBName    string    `json:"kbName"`
-	Role      string    `json:"role"`
-	Snippet   string    `json:"snippet"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string `json:"id"        db:"id"`
+	ChatID    string `json:"chatId"    db:"chat_id"`
+	ChatTitle string `json:"chatTitle" db:"chat_title"`
+	ChatType  string `json:"chatType"  db:"chat_type"`
+	KBID      string `json:"kbId"      db:"kb_id"`
+	KBName    string `json:"kbName"    db:"kb_name"`
+	// Role is messages.role: user or assistant.
+	Role string `json:"role" db:"role"`
+	// Snippet is PLAIN TEXT around the match, whitespace-collapsed, with each
+	// matched word wrapped in SnippetStart ... SnippetEnd (U+E000 / U+E001,
+	// see fulltext.go). Never render it as HTML.
+	Snippet   string    `json:"snippet"   db:"snippet"`
+	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 }
 
 // Store runs the searches. PGStore is its only implementation.
