@@ -77,6 +77,24 @@ All routes below are under `/api`.
 The shell header's global search: one request, one object with one array per
 result group. `internal/search`.
 
+- **Rate limit: 60 requests per minute** (fixed one-minute window, category
+  `search`; see Rate Limiting below). Over the budget the answer is:
+
+  ```
+  HTTP/1.1 429 Too Many Requests
+  Retry-After: <seconds until the window resets, 1-60>
+  Content-Type: application/json
+
+  {"error":"Too many requests from this IP, please try again later."}
+  ```
+
+  A client should treat this as "too many searches, wait a moment" and retry
+  after `Retry-After` seconds, not as a failed search. The budget is counted
+  **per client IP, not per user**, so users behind one NAT or VPN egress share
+  it. Only authenticated requests count: a request without a valid token is
+  answered `401` before it reaches the limiter. If Redis is unavailable the
+  limit is not enforced (fail open); search keeps working.
+
 - `q` is trimmed; fewer than 2 characters (counted in characters, not bytes)
   is `400` — never a full listing. More than 200 characters is also `400`.
 - `limit` applies **per group**: default 5, maximum 20. A larger value is
@@ -448,3 +466,4 @@ The Go server applies per-category Redis-backed rate limits:
 | research | 5 / min | `POST /api/kb/{id}/research`, `POST /api/kb/{id}/web-research` |
 | generate | 10 / min | `POST /api/kb/{id}/generate/*` |
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
+| search | 60 / min | `GET /api/search` |

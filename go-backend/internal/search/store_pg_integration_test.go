@@ -118,7 +118,9 @@ func insertMember(t *testing.T, pool *pgxpool.Pool, kbID, userID, role string) {
 	}
 }
 
-// insertFile adds a files row; it is removed by the knowledge_bases cascade.
+// insertFile adds a files row. It needs no cleanup of its own: it goes with
+// its topic, through files_kb_id_knowledge_bases_id_fk (ON DELETE CASCADE,
+// migration 0000), when insertKB's cleanup deletes the topic.
 func insertFile(t *testing.T, pool *pgxpool.Pool, kbID, name string) string {
 	t.Helper()
 	var id string
@@ -847,6 +849,13 @@ func TestSearchQueriesUseTrigramIndexes(t *testing.T) {
 	uid := insertUser(t, pool, m+"-super", auth.RoleSuperAdmin)
 
 	kbID := insertKB(t, pool, kbSpec{name: hexOnlyDigits(m) + "-bulk", visibility: "private"})
+	// Deleted explicitly rather than left to the ON DELETE CASCADE that
+	// insertFile relies on: 200 000 rows is the one fixture where a database
+	// whose schema lacks that FK would be left with a real mess. Registered
+	// after insertKB, so it runs first (t.Cleanup is LIFO).
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM files WHERE kb_id = $1::uuid`, kbID) //nolint:errcheck
+	})
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO files (kb_id, name, type, status)
 		SELECT $1::uuid, 'bulk-' || md5(g::text) || '.pdf', 'pdf', 'completed'

@@ -377,11 +377,13 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	inviteRL := middleware.NewRedisRateLimiter(infra.rdb.Client, middleware.RedisRateLimitConfig{
 		Max: 30, Window: time.Minute, Category: "invite",
 	})
+	searchRL := newSearchRateLimiter(infra.rdb.Client)
 
 	registerHealthRoutes(rc, buildVersion)
 	loginLimiter := registerAuthRoutes(ctx, rc, loginRL)
 	registerAdminRoutes(rc)
 	registerKBRoutes(rc, inviteRL)
+	registerSearchRoutes(rc, searchRL, search.NewStore(infra.db.Main))
 	registerChatRoutes(ctx, rc, chatRL)
 	registerAgentTeamRoutes(rc)
 	registerFileRoutes(rc)
@@ -829,14 +831,6 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("PUT /api/kb/{id}/subscription", rc.kbViewChain(kbSubsHandler.Subscribe))
 	rc.mux.Handle("DELETE /api/kb/{id}/subscription", rc.kbViewChain(kbSubsHandler.Unsubscribe))
 	rc.mux.Handle("GET /api/kb/catalog", rc.authMw.Authenticate(http.HandlerFunc(kbSubsHandler.Catalog)))
-
-	// Global search (shell header): topics and sources, optionally scoped to
-	// one topic via ?kb_id=. Authentication only — same "no KB in the path"
-	// pattern as GET /api/kb and GET /api/kb/catalog. Visibility is not a
-	// route gate here but a per-row SQL predicate in internal/search that
-	// mirrors kbaccess.EffectiveRole; a kb_id the caller cannot see is 404.
-	searchHandler := search.NewHandler(search.NewStore(rc.infra.db.Main))
-	rc.mux.Handle("GET /api/search", rc.authMw.Authenticate(http.HandlerFunc(searchHandler.Search)))
 
 	// Per-user topic filters — the shell's chip row ("Alle" / "Favoriten" /
 	// the caller's own categories). Display state only: a favourite or a tag
