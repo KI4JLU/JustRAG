@@ -66,7 +66,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
   const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
-  const systemPromptButton = canEditSystemPrompt ? (
+  const headerActions = canEditSystemPrompt ? (
     <Button
       id="kb-header-system-prompt-toggle"
       type="button"
@@ -79,20 +79,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
     >
       <Settings size={20} aria-hidden="true" />
     </Button>
-  ) : null;
-
-  /* The topic-scoped search (card KI-838) sits HERE, before the gear, for
-     now — an interim decided by the PM because the `search` slot's centre
-     region squeezed the topic title to 0px at 1280px with both columns open.
-     Width and breakpoint are `WORKSPACE_SEARCH_INTERIM_CLASS`'s, where the
-     arithmetic is written down.
-     // TODO: move back to the search slot once DS KI-842 ships. */
-  const headerActions = (
-    <>
-      <WorkspaceSearch />
-      {systemPromptButton}
-    </>
-  );
+  ) : undefined;
 
   // Der Reiter „chat" setzt kbView explizit; andere kbView-Werte gibt es
   // seit dem 22.09.2026 nicht mehr (KbViewType = 'chat').
@@ -168,6 +155,15 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       nav={<HistoryPanel />}
       navLabel={t('history')}
       pageLabel={pageLabel}
+      /* The topic-scoped search (cards KI-838, KI-844), in the shell's own
+         centred `search` slot. Since design-system 0.44.1 that slot gives way
+         first (28rem → 8rem, still exactly centred) while both side regions
+         keep an 11rem floor, so the back button, the title and the gear keep
+         their room — on 0.44.0 the same placement squeezed the title to 0px
+         at 1280px with both columns open, which is why KI-838 had parked the
+         field in `headerActions`. Not rendered below `lg`: phones have no
+         search (out of scope). */
+      search={<WorkspaceSearch />}
       headerActions={headerActions}
       // The same user menu as every other sidebar (account, language, colour
       // scheme, Style); it stays reachable in the collapsed rail as the avatar.

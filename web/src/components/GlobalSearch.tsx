@@ -56,12 +56,12 @@ export interface GlobalSearchProps {
   scopeLabel?: string;
   /**
    * Layout-only overrides for the list's popover: a width utility (the DS
-   * default is the field's width) and which edge of the field it aligns to.
-   * For a field narrower than a result row — the workspace's interim
-   * placement in `headerActions` (KI-838).
+   * default is the field's width) and where it aligns under the field. For a
+   * field narrower than a result row — the workspace search, whose centred
+   * slot can shrink to 8rem (KI-844).
    */
   contentClassName?: string;
-  contentAlign?: 'start' | 'end';
+  contentAlign?: 'start' | 'center' | 'end';
   onOpenTopic: (hit: SearchTopicHit) => void;
   onOpenSource: (hit: SearchSourceHit) => void;
   onOpenChat: (hit: SearchChatHit) => void;

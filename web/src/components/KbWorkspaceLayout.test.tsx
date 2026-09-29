@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AppShellLayoutProps } from '@ki4jlu/design-system';
@@ -201,25 +201,22 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     // ein fremder Nutzer ohne KB-Rolle sieht dort nichts.
     expect(screen.queryByRole('button', { name: 'mindMap' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shareKb' })).not.toBeInTheDocument();
-    // Since KI-838 `headerActions` always holds the search (interim placement);
-    // the gear is what this viewer must not get.
-    render(<div data-testid="actions">{shellProps.headerActions}</div>);
-    expect(screen.getByTestId('actions')).toContainElement(screen.getByTestId('workspace-search'));
-    expect(screen.queryByRole('button', { name: 'systemPromptLabel' })).not.toBeInTheDocument();
+    // Rechts steht nur das Zahnrad, und das nicht für diesen Nutzer (KI-844:
+    // die Suche sitzt wieder im `search`-Slot, nicht in `headerActions`).
+    expect(shellProps.headerActions).toBeUndefined();
   });
 
-  it('legt die Themensuche vor das Zahnrad in `headerActions`, nicht in den `search`-Slot (KI-838, Übergang bis DS KI-842)', () => {
+  it('legt die Themensuche in den zentrierten `search`-Slot; `headerActions` hält nur das Zahnrad (KI-844)', () => {
     authUser = { id: 'u1', role: 'user' };
     kbExtra = { userId: 'u1' };
     renderLayout();
-    expect(shellProps.search).toBeUndefined();
+    render(<div data-testid="slot-search">{shellProps.search}</div>);
+    expect(screen.getByTestId('slot-search')).toContainElement(screen.getByTestId('workspace-search'));
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
     const actions = screen.getByTestId('actions');
-    const search = screen.getByTestId('workspace-search');
-    const gear = screen.getByRole('button', { name: 'systemPromptLabel' });
-    expect(actions).toContainElement(search);
-    // ORACLE: DOM order — the search comes BEFORE the gear.
-    expect(search.compareDocumentPosition(gear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
+    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'systemPromptLabel' })]);
+    expect(within(actions).queryByTestId('workspace-search')).toBeNull();
     // Back + title stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
     expect(screen.getByRole('button', { name: 'backToOverview' })).toBeInTheDocument();
@@ -249,8 +246,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     authUser = { role: 'user' };
     kbExtra = { userId: undefined };
     renderLayout();
-    render(<div>{shellProps.headerActions}</div>);
-    expect(screen.queryByRole('button', { name: 'systemPromptLabel' })).not.toBeInTheDocument();
+    expect(shellProps.headerActions).toBeUndefined();
   });
 
   it('führt mit einem Klick auf das Logo zur Übersicht', async () => {

@@ -27,31 +27,20 @@ import { chatEntryFromTarget, type SearchChatTarget, type SearchSourceTarget } f
  *    beyond closing the list: the user is already there.
  *
  * `WorkspaceSearchField` is the part with no context reads, so the geometry
- * story can render the exact markup the bar gets. For where it sits in the
- * bar (an interim), see `WORKSPACE_SEARCH_INTERIM_CLASS`.
+ * story can render the exact markup the bar gets. It sits in the bar's
+ * centred `search` slot (KI-844; `KbWorkspaceLayout.tsx`).
  * ------------------------------------------------------------------------- */
 
 /**
- * INTERIM PLACEMENT (PM decision on KI-838, 2026-09-28): the field sits in
- * `headerActions`, before the gear, at a fixed width — not in the `search`
- * slot. In the `search` slot the DS centre region keeps its full 28rem and
- * squeezed the topic title to 0px at 1280px with both columns open (measured,
- * card KI-838). Numbers for that case: bar 560px − 2×24px gutter − one 16px
- * gap = 496px, i.e. 248px per side region. Actions = field + 8px + 36px gear,
- * so the field may be at most 204px; `w-48` (192px) leaves margin, and the
- * title keeps 248 − 36 − 8 = 204px. `min-w-0` lets the field shrink instead of
- * overlapping on a narrower bar. `hidden lg:block`: below `lg` the shell
- * renders `headerActions` in the narrow bar, and the workspace had no phone
- * search before — this keeps it that way.
- * // TODO: move back to the search slot once DS KI-842 ships.
+ * The list's own width. The field sits in `AppShellLayout`'s centred `search`
+ * slot (KI-844, design-system 0.44.1), which gives way before the side
+ * regions: at 1280px with both columns at 320px the slot shrinks to its 8rem
+ * (128px) floor, too narrow for a two-line result row. So the popover is
+ * 20rem wide and centred under the field, whatever width the field has.
  */
-export const WORKSPACE_SEARCH_INTERIM_CLASS = 'hidden w-48 min-w-0 lg:block';
-/** The list is wider than the 192px field and hangs from its right edge. */
-const INTERIM_LIST_CLASS = 'w-80';
+const LIST_CLASS = 'w-80';
 
 export interface WorkspaceSearchFieldProps {
-  /** Layout-only classes for the wrapper; defaults to the interim placement. */
-  className?: string;
   kbId: string;
   kbName: string;
   onOpenTopic: (kbId: string) => void;
@@ -61,12 +50,15 @@ export interface WorkspaceSearchFieldProps {
 
 export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearchFieldProps>(
   function WorkspaceSearchField(
-    { className = WORKSPACE_SEARCH_INTERIM_CLASS, kbId, kbName, onOpenTopic, onOpenSource, onOpenChat },
+    { kbId, kbName, onOpenTopic, onOpenSource, onOpenChat },
     ref,
   ) {
     const [query, setQuery] = useState('');
     return (
-      <div className={className} data-testid="workspace-search">
+      /* `w-full` on the wrapper: the field fills the slot, which the design
+         system sizes (28rem, shrinking to 8rem) and centres on the bar — the
+         same recipe as AppChrome's field. */
+      <div className="w-full" data-testid="workspace-search">
         <GlobalSearch
           // A new topic is a new scope: remount, so no widening or result of
           // the previous topic survives the switch.
@@ -76,8 +68,8 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
           onQueryChange={setQuery}
           scopeKbId={kbId}
           scopeLabel={kbName}
-          contentClassName={INTERIM_LIST_CLASS}
-          contentAlign="end"
+          contentClassName={LIST_CLASS}
+          contentAlign="center"
           onOpenTopic={(hit) => onOpenTopic(hit.id)}
           onOpenSource={(hit) => onOpenSource({ id: hit.id, name: hit.name, kbId: hit.kbId })}
           onOpenChat={(hit) => onOpenChat({
@@ -92,7 +84,7 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
   },
 );
 
-export function WorkspaceSearch({ className }: { className?: string } = {}) {
+export function WorkspaceSearch() {
   const { currentKb, setKbView } = useKbCore();
   const { chat } = useKbChat();
   const { webTools } = useKbData();
@@ -129,7 +121,6 @@ export function WorkspaceSearch({ className }: { className?: string } = {}) {
 
   return (
     <WorkspaceSearchField
-      className={className}
       kbId={kbId}
       kbName={currentKb.name}
       onOpenTopic={openTopic}

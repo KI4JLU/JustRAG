@@ -168,40 +168,42 @@ export const KbColumnHeadingBaseline: Story = {
 };
 
 /* ---------------------------------------------------------------------------
- * ACCEPTANCE: the workspace bar WITH the topic-scoped search (card KI-838).
+ * ACCEPTANCE: the workspace bar WITH the topic-scoped search, CENTRED
+ * (cards KI-838, KI-844; design-system 0.44.1).
  *
  * WHAT IT GUARDS. The bar carries four things — back button and title
- * (`pageLabel`), the search and the system-prompt gear (`headerActions`) — and
- * it has to stay 64px (`Toast.css`'s `top: 76px`), keep the topic title
- * readable, overlap nothing, and let the open list hang under the field
- * without the bar clipping it. jsdom performs no layout; only Chromium can say
- * any of that.
+ * (`pageLabel`), the search (`search`, the centre slot) and the system-prompt
+ * gear (`headerActions`). The search must sit on the bar's centre (developer,
+ * 2026-09-29: „the combobox has to sit centred in the KB view"), the bar has
+ * to stay 64px (`Toast.css`'s `top: 76px`), the title must keep at least 120px,
+ * nothing may overlap, and the open list must hang under the field without the
+ * bar clipping it. jsdom performs no layout; only Chromium can say any of that.
  *
- * WHY THE SEARCH IS IN `headerActions` (interim, PM decision 2026-09-28). In
- * the `search` slot this story measured, at 1280px with both columns at 320px:
- * label region 16px, title 0px, the 448px centre region overlapped by the back
- * button and the gear (4px each). That is a DS gap (the centre region never
- * yields), carded as DS KI-842. Until it ships the field sits before the gear
- * at `WORKSPACE_SEARCH_INTERIM_CLASS`'s fixed width.
- * // TODO: move back to the search slot once DS KI-842 ships — and point this
- * // story at the `search` slot again; its assertions stay as they are.
+ * NEGATIVE CONTROL (recorded, KI-838 blocker, same story, same case, the same
+ * `search`-slot placement on design-system 0.44.0): label region 16px, title
+ * **0px**, the 448px centre region overlapped by the back button and the gear
+ * by 4px each. 0.44.0's centre was `w-full max-w-md min-w-0` and never gave
+ * way; 0.44.1 (DS KI-842) shrinks it 28rem → 8rem first, still centred, while
+ * both side regions keep an 11rem floor. For this case that is
+ * 560 − 2×24 gutter − 2×16 gap − 2×176 floor = 128px of search.
  *
- * WHAT IS REAL: the shell, the stylesheets, `WorkspaceSearchField` with its
- * default (interim) wrapper class — the exact markup `KbWorkspaceLayout` puts
- * in `headerActions`, minus the context reads — `GlobalSearch`, the DS
- * Combobox, and `GET /api/search` through the story API mock. The pageLabel
- * and gear are rebuilt from the same DS `Button`s `KbWorkspaceLayout.tsx`
- * uses; the title is a deliberately LONG name, the worst case for width.
+ * WHAT IS REAL: the shell, the stylesheets, `WorkspaceSearchField` — the exact
+ * markup `KbWorkspaceLayout` puts in the `search` slot, minus the context
+ * reads — `GlobalSearch`, the DS Combobox, and `GET /api/search` through the
+ * story API mock. The pageLabel and gear are rebuilt from the same DS
+ * `Button`s `KbWorkspaceLayout.tsx` uses; the title is a deliberately LONG
+ * name, the worst case for width.
  *
- * THE MEASURED CASE is the one that failed: the runner's fixed 1280px
- * viewport (vitest.config.ts) with both columns open at the app's default
- * 320px (`useSidebarResize`). Below `lg` the field is not rendered at all.
+ * THE MEASURED CASE is the one that failed: the runner's fixed 1280px viewport
+ * (vitest.config.ts) with both columns open at the app's default 320px
+ * (`useSidebarResize`). Below `lg` the slot is not rendered at all.
  * // TODO: re-measure at exactly `lg` (1024px) with both columns open — not
  * // yet confirmed.
  *
  * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`,
- * `scrollWidth`), the constant 64 in `Toast.css`, the 120px title minimum set
- * by the PM, the API mock's request log for `kb_id`, `document.activeElement`.
+ * `scrollWidth`), the bar's own centre (computed from the bar's box, not from
+ * anything the app reports), the constant 64 in `Toast.css`, the 120px title
+ * minimum, the API mock's request log for `kb_id`, `document.activeElement`.
  * ------------------------------------------------------------------------- */
 
 const LONG_TOPIC = 'Prüfungs- und Studienordnungen des Fachbereichs Wirtschaftswissenschaften';
@@ -222,19 +224,19 @@ const WorkspaceBarHarness = () => {
           <span className="truncate" data-testid="topic-title">{LONG_TOPIC}</span>
         </span>
       }
+      search={
+        <WorkspaceSearchField
+          kbId="kb-1"
+          kbName={LONG_TOPIC}
+          onOpenTopic={fn()}
+          onOpenSource={fn()}
+          onOpenChat={fn()}
+        />
+      }
       headerActions={
-        <>
-          <WorkspaceSearchField
-            kbId="kb-1"
-            kbName={LONG_TOPIC}
-            onOpenTopic={fn()}
-            onOpenSource={fn()}
-            onOpenChat={fn()}
-          />
-          <Button type="button" variant="ghost" size="icon" aria-label="System-Prompt">
-            <Settings size={20} aria-hidden="true" />
-          </Button>
-        </>
+        <Button type="button" variant="ghost" size="icon" aria-label="System-Prompt">
+          <Settings size={20} aria-hidden="true" />
+        </Button>
       }
       leftOpen={leftOpen}
       onLeftOpenChange={setLeftOpen}
@@ -294,6 +296,9 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
       await expect(box.left, describe).toBeGreaterThanOrEqual(barBox.left);
       await expect(box.right, describe).toBeLessThanOrEqual(barBox.right + 0.5);
     }
+    // The search is centred on the BAR (not in the space the label leaves).
+    const offset = (field.left + field.right) / 2 - (barBox.left + barBox.right) / 2;
+    await expect(Math.abs(offset), describe).toBeLessThanOrEqual(1);
     // …in this order, with no overlap between neighbours.
     await expect(back.right, describe).toBeLessThanOrEqual(title.left + 0.5);
     await expect(title.right, describe).toBeLessThanOrEqual(field.left + 0.5);
@@ -313,18 +318,18 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
       expect.stringMatching(/\/api\/search\?q=Mo&kb_id=kb-1$/),
     ]);
 
-    // Open: still 64px; the list is outside the bar, BELOW the field, hangs
-    // from the field's right edge (`align="end"`), and stays in the viewport.
+    // Open: still 64px; the list is outside the bar, BELOW the field, centred
+    // under it (`align="center"`), and stays in the viewport.
     await expect(bar.getBoundingClientRect().height).toBe(64);
     await expect(bar.contains(listbox)).toBe(false);
     const inputBox = input.getBoundingClientRect();
     const popup = (listbox.closest('[data-radix-popper-content-wrapper]') ?? listbox) as HTMLElement;
     const popupBox = popup.getBoundingClientRect();
     await expect(popupBox.top).toBeGreaterThanOrEqual(inputBox.bottom);
-    await expect(Math.abs(popupBox.right - inputBox.right)).toBeLessThanOrEqual(1);
+    await expect(Math.abs((popupBox.left + popupBox.right) / 2 - (inputBox.left + inputBox.right) / 2)).toBeLessThanOrEqual(1);
     await expect(popupBox.left).toBeGreaterThanOrEqual(0);
     await expect(popupBox.right).toBeLessThanOrEqual(doc.documentElement.clientWidth);
-    // …and wider than the 192px field, so a result row is readable.
+    // …and wider than the (at this width 128px) field, so a row is readable.
     await expect(popupBox.width).toBeGreaterThan(inputBox.width);
 
     // Not clipped or covered: the browser hit-tests the last option.
