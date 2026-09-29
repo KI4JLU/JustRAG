@@ -120,6 +120,8 @@ export function SharedTopicsView({
         }
         filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
         viewMode={filters.viewMode}
+        // One height for every card, across rows (KI-843).
+        uniformRows
         items={filters.apply(sharedKbs).map(kb => (
           <PrivateKbCard
             key={kb.id}

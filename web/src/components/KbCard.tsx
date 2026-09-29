@@ -76,7 +76,10 @@ function visibilityBadge(kb: KnowledgeBase, t: T): string {
 function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const state = visibilityState(kb);
   return (
-    <div className={`home-view__badge home-view__badge--${state}`}>
+    // `shrink-0` (KI-843): in the card footer the chip group is the elastic
+    // half and wraps; the badge keeps its size at the right edge. The legacy
+    // badge rule sets no `flex-shrink`, so the utility is not shadowed.
+    <div className={`home-view__badge home-view__badge--${state} shrink-0`}>
       {state === 'public'
         ? <Globe size={10} aria-hidden="true" />
         : <User size={10} aria-hidden="true" />}
@@ -111,26 +114,75 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
   );
 }
 
+/**
+ * The freshness chip (Wave-3 Task 6), in the same compact shape as
+ * `CountChip`: icon + a short date, the full phrase („Ältester Inhalt vor 485
+ * Tagen") as tooltip and screen-reader text (card KI-843).
+ *
+ * WHY COMPACT. The full phrase was the widest thing in the card footer — 191px
+ * at the grid's narrowest 280px track, where the footer has 248px — and it is
+ * `white-space: nowrap`, so no wrapping of the chip ROW could have fitted it
+ * next to the badge. The two count chips already set the pattern (the glyph
+ * says what, the chip says how much, the tooltip says it in words), so the
+ * freshness chip follows it rather than becoming the one exception.
+ *
+ * WHY A MONTH AND YEAR, not the relative phrase. „How old is the oldest
+ * content" is a month-scale question, `Juni 2025` is 9 characters where the
+ * relative form grows with age („vor 2400 Tagen"), and an absolute date does
+ * not change from one day to the next under the user's eyes. The relative
+ * phrase is kept, exactly as before, as the tooltip and the sr-only text.
+ */
+function FreshnessChip({ iso, t, language }: { iso: string; t: T; language: Language }) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const label = t('kbFreshnessChip').replace('{date}', formatRelative(iso, language));
+  const short = new Intl.DateTimeFormat(language, { month: 'short', year: 'numeric' }).format(date);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="home-view__chip">
+          <Clock size={12} aria-hidden="true" />
+          <span aria-hidden="true">{short}</span>
+          <span className="sr-only">{label}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 // KbCardChips is the compact metadata slice on each Home KB card (improvement
 // #6): up to two scent chips (files · messages) plus a single needs-attention
 // chip (failed, else processing), plus a freshness chip (Wave-3 Task 6) when
 // the KB has files with a known date. Lucide icons (#2), status tokens (#1).
 /**
- * `compact` drops `.home-view__chip-row`, whose `margin-top: var(--space-2)` is
- * stacked-card spacing: in the list ROW that margin pushes the chips below the
- * row's centre line. It cannot be overridden with a utility — the rule is
- * unlayered and Tailwind's utilities are in `@layer utilities`, so the
- * unlayered one wins (`scripts/check-css-cascade.mjs` gates on that) — so the
- * compact form carries no legacy class at all.
+ * TWO LAYOUTS, one per caller, and neither carries a legacy class.
+ * `.home-view__chip-row`'s `margin-top: var(--space-2)` is stacked-card
+ * spacing, and it cannot be overridden with a utility — the rule is unlayered
+ * and Tailwind's utilities are in `@layer utilities`, so the unlayered one
+ * wins (`scripts/check-css-cascade.mjs` gates on that). So both forms are
+ * utilities only:
+ *  - `row`, the compact list row: one line, `shrink-0` — the row's NAME is
+ *    what truncates, the chips keep their size.
+ *  - `footer`, the card footer (card KI-843): `min-w-0 flex-1 flex-wrap`, so
+ *    the chip group takes the footer's width left of the badge and WRAPS onto
+ *    a second line instead of pushing the badge out of the card. It used to
+ *    share the row's `shrink-0` no-wrap form, which is what let the chips plus
+ *    the badge outgrow the card after the upstream merge added the freshness
+ *    chip.
  */
-function KbCardChips({ kb, t, language, compact = false }: { kb: KnowledgeBase; t: T; language: Language; compact?: boolean }) {
+function KbCardChips({ kb, t, language, layout }: { kb: KnowledgeBase; t: T; language: Language; layout: 'row' | 'footer' }) {
   const processing = kb.processingFileCount ?? 0;
   const files = kb.fileCount ?? 0;
   const messages = kb.turnCount ?? 0;
   const hasFreshness = !!kb.oldestFileAt;
   if (files === 0 && messages === 0 && processing === 0 && !hasFreshness) return null;
   return (
-    <div className={compact ? 'flex shrink-0 items-center gap-stack-sm' : 'home-view__chip-row'}>
+    <div
+      className={layout === 'footer'
+        ? 'flex min-w-0 flex-1 flex-wrap items-center gap-stack-sm'
+        : 'flex shrink-0 items-center gap-stack-sm'}
+    >
       {files > 0 && (
         <CountChip icon={<FileText size={12} aria-hidden="true" />} n={files} label={t('kbFilesChip').replace('{n}', String(files))} />
       )}
@@ -143,12 +195,7 @@ function KbCardChips({ kb, t, language, compact = false }: { kb: KnowledgeBase; 
           {t('kbProcessingChip').replace('{n}', String(processing))}
         </span>
       )}
-      {hasFreshness && (
-        <span className="home-view__chip" title={kb.oldestFileAt}>
-          <Clock size={12} aria-hidden="true" />
-          {t('kbFreshnessChip').replace('{date}', formatRelative(kb.oldestFileAt, language))}
-        </span>
-      )}
+      {hasFreshness && <FreshnessChip iso={kb.oldestFileAt!} t={t} language={language} />}
     </div>
   );
 }
@@ -382,7 +429,7 @@ export function PrivateKbCard({
           <span className="truncate">{nameButton}</span>
         </div>
         <div className="flex shrink-0 items-center gap-stack-sm">
-          <KbCardChips kb={kb} t={t} language={language} compact />
+          <KbCardChips kb={kb} t={t} language={language} layout="row" />
           <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
             {lastActiveLabel(kb, rtf, t)}
           </span>
@@ -423,9 +470,11 @@ export function PrivateKbCard({
           </div>
         )}
       </div>
-      {/* Footer: scent chips left, the visibility badge right. */}
+      {/* Footer: scent chips left (wrapping when they do not fit), the
+          visibility badge right — both inside the card at every width the
+          grid renders (card KI-843). */}
       <div className="home-view__card-footer">
-        <KbCardChips kb={kb} t={t} language={language} compact />
+        <KbCardChips kb={kb} t={t} language={language} layout="footer" />
         <VisibilityBadge kb={kb} t={t} />
       </div>
     </div>

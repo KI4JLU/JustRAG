@@ -8,6 +8,7 @@ import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
+import { expectUniformCardHeights } from '../test/kbCardGeometry';
 import type { KnowledgeBase, User } from '../types';
 
 /** Opens the (first) topic card's ⋮ menu — the card actions live there. The
@@ -618,3 +619,28 @@ export const ChromeSearchOpensDropdownInPlace: Story = {
  * the layout here is `SectionedGridLayout`'s, which the design system measures
  * in its own stories. So they are gone rather than duplicated.
  * ------------------------------------------------------------------------- */
+
+/**
+ * „All cards always the same height" on „Geteiltes Wissen" too (developer,
+ * KI-843 scope addition). Same oracle as `CardsShareOneHeight` in
+ * `MyTopicsView.stories.tsx`: the „Thema hinzufügen" tile plus shared cards of
+ * different content — wrapping chips, one chip, none, a long name — across at
+ * least two rows, all one height (±0.5px), footers at one distance from the
+ * bottom edge. ORACLE: Chromium's layout; NEGATIVE CONTROL on 55631d78.
+ */
+export const CardsShareOneHeight: Story = {
+  args: {
+    kbs: [
+      { ...SHARED_EDITOR, fileCount: 1204, turnCount: 98765, processingFileCount: 3, oldestFileAt: '2019-03-01T00:00:00Z', memberCount: 12 },
+      { ...SHARED_VIEWER, fileCount: 3 },
+      SHARED_ADMIN,
+      privateKb({
+        id: 'kb-shared-4', name: 'Sammlung der Modulhandbücher aller Bachelor- und Masterstudiengänge des Fachbereichs',
+        myRole: 'view', userId: 'user-9', ownerUsername: 'ada', memberCount: 2, fileCount: 36, turnCount: 12,
+      }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    await expectUniformCardHeights(canvasElement);
+  },
+};

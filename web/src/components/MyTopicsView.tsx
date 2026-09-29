@@ -104,6 +104,8 @@ export function MyTopicsView({
         }
         filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} showOwnership />}
         viewMode={filters.viewMode}
+        // One height for every card, across rows (KI-843).
+        uniformRows
         items={filters.apply(ownedKbs).map(kb => (
           <PrivateKbCard
             key={kb.id}

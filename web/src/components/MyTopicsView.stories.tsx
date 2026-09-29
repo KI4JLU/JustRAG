@@ -10,6 +10,7 @@ import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSharing } from '../hooks/useSharing';
 import type { SearchChatTarget } from '../hooks/useSearchNavigation';
+import { expectFooterInsideCard, expectUniformCardHeights } from '../test/kbCardGeometry';
 import type { KnowledgeBase, User } from '../types';
 
 /** Opens the (first) topic card's ⋮ menu — the card actions live there. The
@@ -1149,3 +1150,118 @@ export const AppShellGeometryWithSearchOpen: Story = {
   },
 };
 
+
+/**
+ * The KB cards' footer stays inside the card on the real page (bug KI-843).
+ *
+ * The developer's screenshot: files, messages and the freshness chip plus the
+ * „Privat" badge were wider than the card, and the badge sat over the
+ * neighbouring card. This is that page, with the real grid (`Grid
+ * cols="auto"` in `TopicGridPage`) at the runner's width, three cards in a
+ * row so the badge has a neighbour to overlap. The narrowest possible track
+ * (280px) is `Views/KbCard › FooterInsideCardAtNarrowestTrack`.
+ *
+ * ORACLE: Chromium's layout (`expectFooterInsideCard`): each chip's and the
+ * badge's box inside the card's box, the badge right-aligned and overlapping
+ * no chip, and `scrollWidth <= clientWidth` on card and footer.
+ */
+export const CardFooterInsideCard: Story = {
+  args: {
+    kbs: [
+      privateKb({ id: 'kb-f1', name: 'Mikrobiologie Notizen', fileCount: 36, turnCount: 1284, oldestFileAt: '2025-06-01T00:00:00Z' }),
+      privateKb({ id: 'kb-f2', name: 'Pruefungsprotokolle', fileCount: 1204, turnCount: 98765, oldestFileAt: '2019-03-01T00:00:00Z' }),
+      privateKb({ id: 'kb-f3', name: 'Seminar Datenethik', fileCount: 7, turnCount: 12, oldestFileAt: '2026-09-01T00:00:00Z' }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__kb-card'));
+    await expect(cards).toHaveLength(3);
+    for (const card of cards) await expectFooterInsideCard(card);
+  },
+};
+
+/**
+ * …and in the LIST view, the compact row's chips stay inside the row (KI-843).
+ *
+ * The row is one line by design and does not wrap; what must hold is that
+ * the chips, the date line, the badge and the menu stay inside it, with the
+ * NAME truncating instead. Worst case: four-digit files, five-digit messages,
+ * a processing chip, a years-old freshness date and the widest badge
+ * („Geteilt (12)"). Measured at the page's real list width on the runner.
+ *
+ * The view mode is a stored flag (`justrag.topics.listView`), per origin in
+ * the browser runner, so it is removed again afterwards.
+ *
+ * ORACLE: Chromium's layout — each part's box inside the row's box, and
+ * `scrollWidth <= clientWidth` on the row.
+ */
+export const ListRowChipsInsideRow: Story = {
+  args: {
+    kbs: [
+      privateKb({
+        id: 'kb-l1', name: 'Prüfungsordnungen und Studienordnungen des Fachbereichs', fileCount: 1204, turnCount: 98765,
+        processingFileCount: 3, oldestFileAt: '2019-03-01T00:00:00Z', memberCount: 12,
+      }),
+      privateKb({ id: 'kb-l2', name: 'Mikrobiologie Notizen', fileCount: 36, turnCount: 1284, oldestFileAt: '2025-06-01T00:00:00Z' }),
+    ],
+  },
+  beforeEach: () => () => { localStorage.removeItem('justrag.topics.listView'); },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Liste' }));
+    // The rows are the compact form: no `.home-view__kb-card` is left.
+    const badges = await waitFor(() => {
+      expect(canvasElement.querySelectorAll('.home-view__kb-card')).toHaveLength(0);
+      const found = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__badge'));
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    for (const badge of badges) {
+      // badge -> the row's right-hand cluster -> the row.
+      const row = badge.parentElement!.parentElement as HTMLElement;
+      const box = row.getBoundingClientRect();
+      const parts = Array.from(row.querySelectorAll<HTMLElement>('.home-view__chip, .home-view__badge, button[aria-label^="Aktionen: "]'));
+      await expect(parts.length).toBeGreaterThanOrEqual(3);
+      for (const el of parts) {
+        const r = el.getBoundingClientRect();
+        const where = `${el.textContent} ${JSON.stringify(r)} in row ${JSON.stringify(box)}`;
+        await expect(r.left, where).toBeGreaterThanOrEqual(box.left - 0.5);
+        await expect(r.right, where).toBeLessThanOrEqual(box.right + 0.5);
+      }
+      await expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    }
+  },
+};
+
+/**
+ * „All cards always the same height" (developer, KI-843 scope addition).
+ *
+ * Five cells on the real „Mein Wissen" grid at the runner's width (two
+ * tracks, so three rows): the create tile, a card whose chips wrap onto a
+ * second line (widest badge, processing chip), a card with ONE chip, a card
+ * with no chip at all, and a card whose long name wraps. Every cell must have
+ * the same height across all rows, and every footer the same distance from
+ * its card's bottom edge.
+ *
+ * ORACLE: Chromium's layout (`expectUniformCardHeights`) — the first cell's
+ * measured height is the reference, ±0.5px. NEGATIVE CONTROL: fails on the
+ * claim-base code (55631d78); see the card.
+ */
+export const CardsShareOneHeight: Story = {
+  args: {
+    kbs: [
+      privateKb({
+        id: 'kb-h1', name: 'Prüfungsordnungen', fileCount: 1204, turnCount: 98765,
+        processingFileCount: 3, oldestFileAt: '2019-03-01T00:00:00Z', memberCount: 12,
+      }),
+      privateKb({ id: 'kb-h2', name: 'Seminar Datenethik', fileCount: 3 }),
+      privateKb({ id: 'kb-h3', name: 'Leeres Thema' }),
+      privateKb({
+        id: 'kb-h4', name: 'Sammlung der Modulhandbücher aller Bachelor- und Masterstudiengänge des Fachbereichs',
+        fileCount: 36, turnCount: 12,
+      }),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    await expectUniformCardHeights(canvasElement);
+  },
+};

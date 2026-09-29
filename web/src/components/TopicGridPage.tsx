@@ -66,6 +66,19 @@ export interface TopicGridPageProps {
    * „Geteiltes Wissen" pass none either — their tiles speak for themselves.
    */
   emptyState?: ReactNode;
+  /**
+   * Every cell in card mode gets ONE height, across rows, set by the tallest
+   * cell's content (developer, KI-843: „all cards always the same height").
+   * A grid already stretches the cells of one row to that row's tallest; this
+   * makes every row as tall as the tallest row (`grid-auto-rows: 1fr`), so a
+   * card whose footer chips wrap no longer makes its row taller than the
+   * others. Layout only; the cells fill the row by the grid's default
+   * `align-items: stretch`, and `PrivateKbCard` pins its footer to the bottom.
+   *
+   * Opt-in, because the tiles of other pages („Werkzeuge") were not asked to
+   * change. Ignored in list view: one-line rows are not cards.
+   */
+  uniformRows?: boolean;
 }
 
 export function TopicGridPage({
@@ -77,6 +90,7 @@ export function TopicGridPage({
   items,
   emptyState,
   viewMode = 'card',
+  uniformRows = false,
 }: TopicGridPageProps) {
   return (
     <section id={id} aria-label={title} className="flex flex-col">
@@ -96,6 +110,7 @@ export function TopicGridPage({
         <Grid
           cols={viewMode === 'list' ? 1 : 'auto'}
           gap={viewMode === 'list' ? 'sm' : 'gutter'}
+          className={uniformRows && viewMode === 'card' ? 'auto-rows-fr' : undefined}
         >
           {createCell}
           {items}
