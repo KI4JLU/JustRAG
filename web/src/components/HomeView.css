@@ -1,13 +1,3 @@
-.home-view__loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  inline-size: 100%;
-  height: 100%;
-  block-size: 100%;
-}
-
 .home-view__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -15,14 +5,6 @@
   list-style: none;
   margin: 0;
   padding: 0;
-}
-
-.home-view__grid--main {
-  max-width: 1000px;
-  max-inline-size: 1000px;
-  margin-left: auto;
-  margin-right: auto;
-  margin-inline: auto;
 }
 
 /* Tiles follow the app-wide Style (rounded / pill) via the DS box radius. */
@@ -125,11 +107,6 @@
   opacity: 0.6;
 }
 
-.home-view__create-card-btn {
-  width: 100%;
-  inline-size: 100%;
-}
-
 .home-view__create-button {
   display: flex;
   flex-direction: column;
@@ -185,20 +162,6 @@
   font-weight: 600;
   border-radius: 12px;
   opacity: 0.8;
-}
-
-.home-view__badge--publish {
-  border: 1px solid currentcolor;
-}
-
-.home-view__badge--published {
-  color: #15803d;
-  background: #dcfce7;
-}
-
-.home-view__badge--unpublished {
-  color: #b45309;
-  background: #fdecd6;
 }
 
 .home-view__badge--shared {
@@ -272,38 +235,7 @@
   color: var(--text-secondary);
 }
 
-.home-view__kb-meta {
-  margin-top: 0.5rem;
-  margin-block-start: 0.5rem;
-  color: var(--text-secondary);
-}
-
-.home-view__meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  margin-block-start: 0.5rem;
-}
-
-.home-view__owner-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
 /* KB-card information scent (improvement #6) — compact metadata chips. */
-.home-view__chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  margin-block-start: var(--space-2);
-}
-
 .home-view__chip {
   display: inline-flex;
   align-items: center;
@@ -314,11 +246,6 @@
   color: var(--text-secondary);
   font: var(--type-sm);
   white-space: nowrap;
-}
-
-.home-view__chip--attention {
-  color: var(--error-text);
-  background: var(--error-bg);
 }
 
 .home-view__chip--processing {
@@ -376,15 +303,4 @@
   justify-content: center;
   margin-top: 1.25rem;
   margin-block-start: 1.25rem;
-}
-
-.home-view__imprint {
-  margin-top: 4rem;
-  margin-block-start: 4rem;
-  padding: 2rem;
-  white-space: pre-wrap;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  border-top: 1px solid var(--border-color);
-  border-block-start: 1px solid var(--border-color);
 }

@@ -116,20 +116,6 @@
     margin-top: 2px;
 }
 
-.rss-entries-modal__progress-track {
-    height: 3px;
-    background: var(--bg-tertiary);
-    border-radius: 2px;
-    margin-top: 4px;
-    overflow: hidden;
-}
-
-.rss-entries-modal__progress-fill {
-    height: 100%;
-    background: var(--accent-primary);
-    border-radius: 2px;
-}
-
 .rss-entries-modal__delete-btn {
     background: none;
     border: none;

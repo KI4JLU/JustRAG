@@ -28,12 +28,6 @@
   color: var(--text-primary);
 }
 
-.panel-section__meta {
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
 .panel-section__hint {
   margin: 0;
   font-size: 0.875rem;

@@ -1,61 +1,11 @@
-.sidebar-left__collapsed-file-icon {
-  padding: 8px;
-  border-radius: 8px;
-  color: var(--accent-primary);
-  background: var(--tag-bg);
-}
-
-.sidebar-left__spacer {
-  flex: 1;
-}
-
-.sidebar-left__overview-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 48px;
-  padding: 0 16px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  width: 100%;
-  justify-content: flex-start;
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.sidebar-left__overview-btn--icon-only {
-  width: auto;
-  padding: 0 8px;
-}
-
-.sidebar-left__overview-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-  border-color: transparent;
-}
-
 /* The retry-all row in the panel head (only when something failed). */
 .sidebar-left__files-header {
   display: flex;
   justify-content: center;
 }
 
-.sidebar-left__upload-btn {
-  width: 32px;
-  height: 32px;
-}
-
 .sidebar-left__hidden-file-input {
   display: none;
-}
-
-.sidebar-left__uploading-card {
-  opacity: 0.7;
-}
-
-.sidebar-left__uploading-loader {
-  border: 2px solid var(--accent-primary);
-  border-bottom-color: transparent;
 }
 
 /* One flat row per source: origin icon, name (+ status when it is news),
@@ -122,26 +72,6 @@
 
 .sidebar-left__file-meta {
   font-size: 0.75rem;
-}
-
-.sidebar-left__file-progress-text {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--accent-primary);
-}
-
-.sidebar-left__file-progress-track {
-  width: 100%;
-  height: 4px;
-  margin-top: 8px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--tag-bg);
-}
-
-.sidebar-left__file-progress-fill {
-  height: 100%;
-  background: var(--accent-primary);
 }
 
 .sidebar-left__file-stage {
@@ -268,10 +198,6 @@
 }
 
 @media (max-width: 1023px) {
-  .sidebar-left__upload-btn {
-    min-width: 44px;
-    min-height: 44px;
-  }
 
       .sidebar-left__research-cancel {
     min-width: 44px;
@@ -295,18 +221,6 @@
   background: var(--accent-primary);
 }
 
-.sidebar-left__rss-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sidebar-left__rss-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .sidebar-left__tools-select {
   width: 100%;
   padding: 6px 8px;
@@ -314,33 +228,6 @@
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 13px;
-}
-
-.sidebar-left__rss-feeds {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.sidebar-left__rss-feed-item {
-  padding: 8px;
-  border-radius: 6px;
-  background: var(--bg-secondary);
-}
-
-.sidebar-left__rss-feed-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sidebar-left__rss-feed-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
 }
 
@@ -364,14 +251,6 @@
 .sidebar-left__rss-feed-status--error {
   color: var(--error-text, #d32f2f);
   background: var(--error-bg, rgba(211, 47, 47, 0.1));
-}
-
-.sidebar-left__rss-feed-meta {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  display: flex;
-  gap: 8px;
 }
 
 .sidebar-left__rss-feed-error {
