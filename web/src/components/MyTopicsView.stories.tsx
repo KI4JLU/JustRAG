@@ -933,10 +933,11 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
     const card = canvas.getAllByRole('button', { name: /^Aktionen: / })[0].closest('.home-view__kb-card');
     await expect(card).not.toBeNull();
 
-    /* The control: the freshness line is inert markup inside the card, so a
-     * click on it can only reach the parent through the `<li>`'s own handler.
-     * If this is ever 0, the assertion below stops meaning anything. */
-    const cardBody = (card as HTMLElement).querySelector('.home-view__kb-meta');
+    /* The control: the „Genutzt" meta line (KI-848; it was the „Zuletzt
+     * aktiv" line) is inert markup inside the card, so a click on it can only
+     * reach the parent through the card's own handler. If this is ever 0, the
+     * assertion below stops meaning anything. */
+    const cardBody = (card as HTMLElement).querySelector('[data-testid="kb-meta-used"]');
     await expect(cardBody).not.toBeNull();
     await userEvent.click(cardBody as HTMLElement);
     await expect(args.onSelectKB).toHaveBeenCalledTimes(1);

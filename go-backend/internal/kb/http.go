@@ -63,6 +63,10 @@ type KBRow struct {
 	// documents since 2019" next to the file count. Nil for an empty KB and
 	// on single-row fetches, like the other card metadata above.
 	OldestFileAt *time.Time `json:"oldestFileAt,omitempty"`
+	// NewestFileAt is MAX(COALESCE(published_at, created_at)) over the same
+	// files — when the corpus last gained content, for the card's
+	// „Aktualisiert" line (KI-848). Same nil rules as OldestFileAt.
+	NewestFileAt *time.Time `json:"newestFileAt,omitempty"`
 
 	// MyRole is the caller's own kb_members.role for this KB, and MemberCount
 	// the KB's total member count — populated only by the same two list

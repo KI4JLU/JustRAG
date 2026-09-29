@@ -310,8 +310,13 @@ export interface KnowledgeBase {
     turnCount?: number;
     lastActivityAt?: string | null;
     // Oldest file's effective date (Wave-3 Task 5/6), omitted when the KB has
-    // no files. Backs the Home-card freshness chip.
+    // no files. No card surface reads it since KI-848 (the freshness chip is
+    // gone); kept because the list endpoints still send it.
     oldestFileAt?: string;
+    // Newest file's effective date, MAX(COALESCE(published_at, created_at))
+    // (KI-848), omitted when the KB has no files. Backs the card's
+    // „Aktualisiert" line.
+    newestFileAt?: string;
     // Caller's own role + total member count — returned by the same list
     // endpoints (Task 8). myRole is undefined for an implicit viewer with no
     // kb_members row (e.g. a published global KB nobody explicitly joined).

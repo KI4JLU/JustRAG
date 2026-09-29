@@ -1,11 +1,11 @@
 import {
-  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star, Clock,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star, Clock, RefreshCw,
 } from 'lucide-react';
 import { ActionMenu, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
-import { formatRelative } from '../utils/dates';
+import { formatRelativeCoarse } from '../utils/dates';
 import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
@@ -114,47 +114,14 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
   );
 }
 
-/**
- * The freshness chip (Wave-3 Task 6), in the same compact shape as
- * `CountChip`: icon + a short date, the full phrase („Ältester Inhalt vor 485
- * Tagen") as tooltip and screen-reader text (card KI-843).
- *
- * WHY COMPACT. The full phrase was the widest thing in the card footer — 191px
- * at the grid's narrowest 280px track, where the footer has 248px — and it is
- * `white-space: nowrap`, so no wrapping of the chip ROW could have fitted it
- * next to the badge. The two count chips already set the pattern (the glyph
- * says what, the chip says how much, the tooltip says it in words), so the
- * freshness chip follows it rather than becoming the one exception.
- *
- * WHY A MONTH AND YEAR, not the relative phrase. „How old is the oldest
- * content" is a month-scale question, `Juni 2025` is 9 characters where the
- * relative form grows with age („vor 2400 Tagen"), and an absolute date does
- * not change from one day to the next under the user's eyes. The relative
- * phrase is kept, exactly as before, as the tooltip and the sr-only text.
- */
-function FreshnessChip({ iso, t, language }: { iso: string; t: T; language: Language }) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  const label = t('kbFreshnessChip').replace('{date}', formatRelative(iso, language));
-  const short = new Intl.DateTimeFormat(language, { month: 'short', year: 'numeric' }).format(date);
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="home-view__chip">
-          <Clock size={12} aria-hidden="true" />
-          <span aria-hidden="true">{short}</span>
-          <span className="sr-only">{label}</span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-// KbCardChips is the compact metadata slice on each Home KB card (improvement
-// #6): up to two scent chips (files · messages) plus a single needs-attention
-// chip (failed, else processing), plus a freshness chip (Wave-3 Task 6) when
-// the KB has files with a known date. Lucide icons (#2), status tokens (#1).
+// KbCardChips is the compact metadata slice on each KB card (improvement #6):
+// up to two scent chips (files · messages) plus the processing chip while
+// files are being ingested. Lucide icons (#2), status tokens (#1).
+//
+// NO FRESHNESS CHIP ANY MORE (card KI-848, developer mockup). Its information
+// moved: in the card it is the „Aktualisiert" meta line (`newestFileAt`, the
+// NEWEST file's date — the chip showed the OLDEST); in the list row it is
+// dropped, see the row below for why.
 /**
  * TWO LAYOUTS, one per caller, and neither carries a legacy class.
  * `.home-view__chip-row`'s `margin-top: var(--space-2)` is stacked-card
@@ -164,19 +131,15 @@ function FreshnessChip({ iso, t, language }: { iso: string; t: T; language: Lang
  * utilities only:
  *  - `row`, the compact list row: one line, `shrink-0` — the row's NAME is
  *    what truncates, the chips keep their size.
- *  - `footer`, the card footer (card KI-843): `min-w-0 flex-1 flex-wrap`, so
- *    the chip group takes the footer's width left of the badge and WRAPS onto
- *    a second line instead of pushing the badge out of the card. It used to
- *    share the row's `shrink-0` no-wrap form, which is what let the chips plus
- *    the badge outgrow the card after the upstream merge added the freshness
- *    chip.
+ *  - `footer`, the card footer (KI-843): `min-w-0 flex-1 flex-wrap`, so the
+ *    chip group takes the footer's width left of the badge and WRAPS rather
+ *    than pushing the badge out of the card.
  */
-function KbCardChips({ kb, t, language, layout }: { kb: KnowledgeBase; t: T; language: Language; layout: 'row' | 'footer' }) {
+function KbCardChips({ kb, t, layout }: { kb: KnowledgeBase; t: T; layout: 'row' | 'footer' }) {
   const processing = kb.processingFileCount ?? 0;
   const files = kb.fileCount ?? 0;
   const messages = kb.turnCount ?? 0;
-  const hasFreshness = !!kb.oldestFileAt;
-  if (files === 0 && messages === 0 && processing === 0 && !hasFreshness) return null;
+  if (files === 0 && messages === 0 && processing === 0) return null;
   return (
     <div
       className={layout === 'footer'
@@ -195,7 +158,28 @@ function KbCardChips({ kb, t, language, layout }: { kb: KnowledgeBase; t: T; lan
           {t('kbProcessingChip').replace('{n}', String(processing))}
         </span>
       )}
-      {hasFreshness && <FreshnessChip iso={kb.oldestFileAt!} t={t} language={language} />}
+    </div>
+  );
+}
+
+/**
+ * One line of the card's meta block (card KI-848, developer mockup): a muted
+ * 16px icon, a muted label and a BOLD value — „🕒 Genutzt **gestern**".
+ *
+ * Utilities only, and none of the legacy `.source-meta` / `.home-view__kb-meta`
+ * / `.home-view__owner-meta` rules: those are unlayered and carry stacked-card
+ * margins a flex column does not want (see `KbCardChips`). The line truncates
+ * rather than wrapping, so every card's meta block has the same height per
+ * line count — the equal-height grid (KI-843) then only has to absorb the
+ * number of lines, not their wrapping.
+ */
+function MetaLine({ icon, label, value, testId }: { icon: React.ReactNode; label: string; value: React.ReactNode; testId: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 font-label-sm text-label-sm text-on-surface-variant" data-testid={testId}>
+      <span className="flex shrink-0">{icon}</span>
+      <span className="truncate">
+        {label}{' '}<span className="font-semibold text-on-surface">{value}</span>
+      </span>
     </div>
   );
 }
@@ -429,7 +413,13 @@ export function PrivateKbCard({
           <span className="truncate">{nameButton}</span>
         </div>
         <div className="flex shrink-0 items-center gap-stack-sm">
-          <KbCardChips kb={kb} t={t} language={language} layout="row" />
+          {/* No freshness chip in the row (KI-848). It used to show the
+              OLDEST file's date; the card's replacement, „Aktualisiert
+              {relative}", is text, and ~150px of text on top of the row's
+              existing „Zuletzt aktiv …" line pushes the worst-case row
+              (four-digit counts, processing chip, „Geteilt (12)") past its
+              width. The row keeps one date line, the card carries both. */}
+          <KbCardChips kb={kb} t={t} layout="row" />
           <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
             {lastActiveLabel(kb, rtf, t)}
           </span>
@@ -457,24 +447,48 @@ export function PrivateKbCard({
         {menu}
       </div>
 
-      <div className="home-view__meta-row">
-        <div className="source-meta home-view__kb-meta">{lastActiveLabel(kb, rtf, t)}</div>
-        {kb.userId !== currentUserId && (
-          <div className="home-view__owner-meta">
-            <User size={12} aria-hidden="true" />
-            {(() => {
-              const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
-              const displayName = fullName || kb.ownerUsername || t('unknownUser');
-              return t('sharedBy').replace('{name}', displayName);
-            })()}
-          </div>
+      {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
+          „Aktualisiert" (the newest file's effective date — omitted without
+          files) and, for a topic somebody else owns, who shared it. Values
+          are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
+          Stunden" (the unit rule is written down in utils/dates.ts). */}
+      <div className="mt-stack-sm flex min-w-0 flex-col gap-1">
+        <MetaLine
+          testId="kb-meta-used"
+          icon={<Clock size={16} aria-hidden="true" />}
+          label={t('kbCardUsed')}
+          value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
+        />
+        {kb.newestFileAt && (
+          <MetaLine
+            testId="kb-meta-updated"
+            icon={<RefreshCw size={16} aria-hidden="true" />}
+            label={t('kbCardUpdated')}
+            value={formatRelativeCoarse(kb.newestFileAt, language)}
+          />
         )}
+        {kb.userId !== currentUserId && (() => {
+          const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
+          const displayName = fullName || kb.ownerUsername || t('unknownUser');
+          // „von {name}": the words around the name are the muted label, the
+          // name is the bold value — one template, so translators keep the
+          // word order.
+          const [before, after = ''] = t('sharedBy').split('{name}');
+          return (
+            <MetaLine
+              testId="kb-meta-owner"
+              icon={<User size={16} aria-hidden="true" />}
+              label={before.trim()}
+              value={<>{displayName}{after}</>}
+            />
+          );
+        })()}
       </div>
       {/* Footer: scent chips left (wrapping when they do not fit), the
           visibility badge right — both inside the card at every width the
           grid renders (card KI-843). */}
       <div className="home-view__card-footer">
-        <KbCardChips kb={kb} t={t} language={language} layout="footer" />
+        <KbCardChips kb={kb} t={t} layout="footer" />
         <VisibilityBadge kb={kb} t={t} />
       </div>
     </div>

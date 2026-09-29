@@ -837,11 +837,13 @@ describe('KB visibility badge', () => {
 
 });
 
-// Task 10: the KB card's message chip and freshness line read the usage
-// ledger's turnCount/lastActivityAt now, not the old messageCount/
-// lastMessageAt pair the backend no longer sends.
-describe('KB card turn chip and freshness line', () => {
-  it('counts turns and reads lastActivityAt for the freshness line', async () => {
+// Task 10: the KB card's message chip and „Used" line read the usage
+// ledger's turnCount/lastActivityAt, not the old messageCount/lastMessageAt
+// pair the backend no longer sends. Since KI-848 the line is „Used {relative}"
+// (it was „Last active …"); the fixed-clock checks of its wording live in
+// KbCard.test.tsx.
+describe('KB card turn chip and meta lines', () => {
+  it('counts turns and reads lastActivityAt for the „Used" line', async () => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     renderMyTopicsView({
       kbs: [{
@@ -850,34 +852,34 @@ describe('KB card turn chip and freshness line', () => {
       }],
     });
     expect(await screen.findByText(translations.kbMessagesChip.en.replace('{n}', '9'))).toBeInTheDocument();
-    // Assert the relative-time UNIT, not just the constant "Last active"
-    // prefix: lastActiveLabel falls back to kb.createdAt (fixed at
-    // baseKb's 2026-01-01, i.e. many months before "now") whenever
-    // lastActivityAt isn't read, which would still satisfy a prefix-only
-    // match. The fixture's lastActivityAt is 2 hours ago, so only the
-    // real read renders an "hour" unit — the fallback renders "day(s)".
-    expect(screen.getByText(new RegExp(`${translations.kbLastActive.en}.*hour`, 'i'))).toBeInTheDocument();
+    // Assert the relative-time UNIT, not just the constant label: the line
+    // falls back to kb.createdAt (baseKb's 2026-01-01, months before "now")
+    // whenever lastActivityAt isn't read, which would still satisfy a
+    // label-only match. Only the real read renders an "hour" unit.
+    const used = screen.getByTestId('kb-meta-used');
+    expect(used).toHaveTextContent(new RegExp(`^${translations.kbCardUsed.en}.*hour`, 'i'));
   });
 
-  // Wave-3 Task 6 (ported from HomeView.test.tsx): the freshness chip only
-  // appears when the KB actually reports an oldestFileAt — and renders no chip
-  // row at all otherwise.
-  it('renders the freshness chip when oldestFileAt is present', async () => {
-    const monthsAgo = new Date('2026-01-01T00:00:00Z').toISOString();
+  // KI-848: the freshness chip is gone. „Updated" is a meta line, keyed on
+  // newestFileAt, and absent for a KB without files.
+  it('renders the „Updated" line from newestFileAt, and no freshness chip', async () => {
     renderMyTopicsView({
       kbs: [{
-        ...baseKb, id: 'kb-2', name: 'Alte KB', memberCount: 1, myRole: 'owner',
-        oldestFileAt: monthsAgo,
+        ...baseKb, id: 'kb-2', name: 'Alte KB', memberCount: 1, myRole: 'owner', fileCount: 4,
+        oldestFileAt: '2025-01-01T00:00:00Z', newestFileAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       }],
     });
-    expect(await screen.findByText(new RegExp(translations.kbFreshnessChip.en.split('{date}')[0], 'i'))).toBeInTheDocument();
+    await screen.findByText('Alte KB');
+    expect(screen.getByTestId('kb-meta-updated')).toHaveTextContent(new RegExp(`^${translations.kbCardUpdated.en}.*hour`, 'i'));
+    expect(screen.queryByText(/Oldest content/i)).toBeNull();
   });
 
-  it('renders no chips at all when the KB has no files, messages, or freshness data', async () => {
+  it('renders no chips and no „Updated" line when the KB has no files or messages', async () => {
     renderMyTopicsView({
       kbs: [{ ...baseKb, id: 'kb-3', name: 'Leere KB', memberCount: 1, myRole: 'owner' }],
     });
     await screen.findByText('Leere KB');
-    expect(screen.queryByText(new RegExp(translations.kbFreshnessChip.en.split('{date}')[0], 'i'))).toBeNull();
+    expect(screen.queryByTestId('kb-meta-updated')).toBeNull();
+    expect(screen.queryByText(translations.kbFilesChip.en.replace('{n}', '0'))).toBeNull();
   });
 });

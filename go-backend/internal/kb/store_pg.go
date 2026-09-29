@@ -93,6 +93,7 @@ const kbStatsCols = `,
        COALESCE(fs.failed_file_count, 0)::int     AS failed_file_count,
        COALESCE(fs.processing_file_count, 0)::int AS processing_file_count,
        fs.oldest_file_at                          AS oldest_file_at,
+       fs.newest_file_at                          AS newest_file_at,
        COALESCE(us.turn_count, 0)::int            AS turn_count,
        us.last_activity_at                        AS last_activity_at`
 
@@ -104,7 +105,10 @@ const kbStatsJoins = `
                   -- Effective date, the same COALESCE the retrieval
                   -- date-window filter uses, so "the corpus reaches back to
                   -- X" on a card agrees with what a date-scoped search sees.
-                  MIN(COALESCE(published_at, created_at))                    AS oldest_file_at
+                  MIN(COALESCE(published_at, created_at))                    AS oldest_file_at,
+                  -- The same effective date, newest: the card's „Aktualisiert"
+                  -- line (KI-848) — when the corpus last gained content.
+                  MAX(COALESCE(published_at, created_at))                    AS newest_file_at
            FROM files f WHERE f.kb_id = kb.id
        ) fs ON true
        LEFT JOIN LATERAL (
@@ -200,6 +204,7 @@ type kbListRow struct {
 	FailedFileCount     int        `db:"failed_file_count"`
 	ProcessingFileCount int        `db:"processing_file_count"`
 	OldestFileAt        *time.Time `db:"oldest_file_at"`
+	NewestFileAt        *time.Time `db:"newest_file_at"`
 	TurnCount           int        `db:"turn_count"`
 	LastActivityAt      *time.Time `db:"last_activity_at"`
 	MyRole              *string    `db:"my_role"`
@@ -214,6 +219,7 @@ func toKBRowWithStats(r kbListRow) KBRow {
 	row.FailedFileCount = r.FailedFileCount
 	row.ProcessingFileCount = r.ProcessingFileCount
 	row.OldestFileAt = r.OldestFileAt
+	row.NewestFileAt = r.NewestFileAt
 	row.TurnCount = r.TurnCount
 	row.LastActivityAt = r.LastActivityAt
 	row.MyRole = r.MyRole

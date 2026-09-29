@@ -1359,7 +1359,9 @@ export const translations = {
     kbMessagesChip: { de: '{n} Nachrichten', en: '{n} messages' },
     kbFailedChip: { de: '{n} fehlgeschlagen', en: '{n} failed' },
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
-    kbFreshnessChip: { de: 'Ältester Inhalt {date}', en: 'Oldest content {date}' },
+    // The card's meta lines (KI-848): label muted, relative value bold.
+    kbCardUsed: { de: 'Genutzt', en: 'Used' },
+    kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },

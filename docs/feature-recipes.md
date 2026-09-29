@@ -504,7 +504,9 @@ had ever *succeeded* (only when it last ran) and nothing carried a document's ow
   regression. The admin Last-sync cell renders the **worst** kind (never-succeeded > failing >
   ok) with a badge, lists every kind in its tooltip, and sorts by urgency first and timestamp
   second, so the KB with a dead git source outranks one that merely synced a while ago.
-- `GET /api/kb` and `GET /api/kb/global` gain `oldestFileAt`.
+- `GET /api/kb` and `GET /api/kb/global` gain `oldestFileAt`, and since KI-848 `newestFileAt`
+  (`MAX(COALESCE(published_at, created_at))`, omitted for a KB without files), which backs the KB
+  card's „Aktualisiert" line.
 - Chat and public-API sources gain `createdAt` and `publishedAt` (RFC3339, both `omitempty`), also
   inside the persisted `messages.sources` JSONB.
 - **OpenAI-compat** (`POST /openai/v1/chat/completions`): the Azure-shaped
@@ -549,7 +551,8 @@ success). When no success has ever been recorded the API falls back to the last 
 overview gains three **optional** columns (off by default, toggled in the existing "Columns"
 popover, all sortable) — `colOldestContent`, `colStaleShare` (percent, with
 `staleFileCount/fileCount > staleDays` in the tooltip) and `colLastSync` (relative time plus the
-failing badge); the Home KB card gains a freshness chip on `oldestFileAt`. Shared helpers in
+failing badge); the Home KB card gained a freshness chip on `oldestFileAt`, replaced in KI-848 by
+the card's „Aktualisiert" meta line on `newestFileAt`. Shared helpers in
 `web/src/utils/dates.ts`.
 
 **Alerting.** New gauge `rag_source_sync_age_seconds{kind,kb}` — seconds since each KB's OLDEST

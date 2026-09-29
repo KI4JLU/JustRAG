@@ -358,8 +358,11 @@ export const OwnedAndShared: Story = {
      * the signed-in user's — and on this view, by construction, it renders on
      * every card. That is the difference between this page and the overview's
      * „Meine KBs" grid, and it is asserted rather than assumed. */
-    await expect(canvas.getByText('von Ada Lovelace')).toBeInTheDocument();
-    await expect(canvas.getByText('von ada')).toBeInTheDocument();
+    /* Since KI-848 the owner line is a meta line whose NAME is its own (bold)
+     * element, so the phrase is matched on the line's text content, not as
+     * one text node. */
+    const ownerLines = Array.from(canvasElement.querySelectorAll('[data-testid="kb-meta-owner"]')).map((el) => el.textContent);
+    await expect(ownerLines).toEqual(expect.arrayContaining(['von Ada Lovelace', 'von ada']));
   },
 };
 

@@ -6,7 +6,8 @@ import { expect } from 'storybook/test';
  * each element compared with the CARD's own box measured in the same frame. */
 
 /**
- * Asserts that every chip and the badge of `card` lie inside the card's box,
+ * Asserts that every meta line, chip and the badge of `card` lie inside the
+ * card's box (meta lines above the footer),
  * that the badge overlaps no chip and sits at the footer's right edge, and
  * that neither the card nor its footer overflows horizontally.
  */
@@ -17,12 +18,16 @@ export async function expectFooterInsideCard(card: HTMLElement) {
   const footerBox = footer!.getBoundingClientRect();
   const chips = Array.from(footer!.querySelectorAll<HTMLElement>('.home-view__chip'));
   const badge = footer!.querySelector<HTMLElement>('.home-view__badge');
-  await expect(chips.length).toBeGreaterThan(0);
+  // KI-848: the meta lines („Genutzt", „Aktualisiert", owner) must be inside
+  // the card too. Chips are optional — a topic with no files and no messages
+  // has none, and the badge alone must still sit right.
+  const metaLines = Array.from(card.querySelectorAll<HTMLElement>('[data-testid^="kb-meta-"]'));
+  await expect(metaLines.length).toBeGreaterThan(0);
   await expect(badge).not.toBeNull();
   const badgeBox = badge!.getBoundingClientRect();
   const where = (el: HTMLElement) => `${el.textContent} ${JSON.stringify(el.getBoundingClientRect())} in card ${JSON.stringify(box)}`;
 
-  for (const el of [...chips, badge!]) {
+  for (const el of [...metaLines, ...chips, badge!]) {
     const r = el.getBoundingClientRect();
     await expect(r.width, where(el)).toBeGreaterThan(0);
     await expect(r.left, where(el)).toBeGreaterThanOrEqual(box.left - 0.5);
@@ -39,6 +44,10 @@ export async function expectFooterInsideCard(card: HTMLElement) {
   await expect(Math.abs(badgeBox.right - footerBox.right), where(badge!)).toBeLessThanOrEqual(1);
   await expect(footer!.scrollWidth).toBeLessThanOrEqual(footer!.clientWidth);
   await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+  // Every meta line sits above the footer, not over it.
+  for (const line of metaLines) {
+    await expect(line.getBoundingClientRect().bottom, where(line)).toBeLessThanOrEqual(footerBox.top + 0.5);
+  }
 }
 
 
