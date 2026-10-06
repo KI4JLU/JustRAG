@@ -142,6 +142,11 @@ export function useChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  // Changes in the same update that installs a loaded chat's messages, so the
+  // transcript scroller remounts onto THOSE messages (its opening position is
+  // applied once, on mount). Keying it on activeChatId instead would remount
+  // it on the previous chat's rows, before the fetch returns.
+  const [transcriptKey, setTranscriptKey] = useState(0);
   const pendingEditRef = useRef<string | null | undefined>(undefined);
   const pendingFollowUpRef = useRef<string | null>(null);
   const fetchChatsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -280,6 +285,7 @@ export function useChat({
       }));
       const newTree = buildMessageMap(rawMessages);
       setMessageTree(newTree);
+      setTranscriptKey(k => k + 1);
       setActiveLeafId(findDefaultLeaf(newTree));
       setComparisonMode(false);
       setComparisonLeafId(null);
@@ -614,6 +620,7 @@ export function useChat({
     textareaRef,
     messagesContainerRef,
     isAtBottom,
+    transcriptKey,
     // Handlers
     handleScroll,
     handleSelectChat,
@@ -654,6 +661,7 @@ export function useChat({
     loadedResearchSession,
     loadedAcademicSession,
     isAtBottom,
+    transcriptKey,
     handleScroll,
     handleSelectChat,
     handleNewChat,

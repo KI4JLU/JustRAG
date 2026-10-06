@@ -213,7 +213,7 @@ export function remapMessageId(map: Map<string, Message>, tempId: string, realId
     newMap.delete(tempId);
 
     // Add with new ID
-    const updated = { ...msg, id: realId };
+    const updated = { ...msg, id: realId, renderKey: msg.renderKey ?? tempId };
     newMap.set(realId, updated);
 
     // Update parent's childIds reference

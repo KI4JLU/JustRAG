@@ -1,5 +1,4 @@
-import { lazy, Suspense, memo, useCallback, useRef, useEffect, useMemo, useState } from 'react';
-import { Virtuoso } from 'react-virtuoso';
+import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Brain, ArrowUp,
   X, GitBranch, Check,
@@ -26,6 +25,8 @@ import {
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
+  Shimmer,
+  MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
@@ -200,15 +201,16 @@ const ChatViewComp = () => {
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
   }, [currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, siteConfigs.example_prompts, generatedPrompts]);
 
-  const initialRenderRef = useRef(true);
+  const [initialRender, setInitialRender] = useState(true);
   useEffect(() => {
-    const timer = setTimeout(() => { initialRenderRef.current = false; }, 1000);
+    const timer = setTimeout(() => setInitialRender(false), 1000);
     return () => clearTimeout(timer);
   }, []);
 
   // Expand state for the height-changing answer sections, held above the
-  // virtualized list so a message keeps its height across remount.
+  // transcript so it survives the scroller remount on chat switch.
   const messageSections = useMessageSections();
+
   const handleEditCancel = useCallback(() => chat.setEditingMessageId(null), [chat]);
 
   // Resolves a message's teamId/agentId (Task 5 backend fields, stamped by
@@ -564,96 +566,82 @@ const ChatViewComp = () => {
                       </motion.div>
                     </div>
                   ) : (
-                    <Virtuoso
-                      className="messages-container"
-                      style={{ height: '100%' }}
-                      data={chat.messages}
-                      initialTopMostItemIndex={Math.max(0, chat.messages.length - 1)}
-                      // "auto", not "smooth". A streaming answer resizes the last
-                      // item every token, and each resize restarts the smooth
-                      // scroll animation; virtuoso also suppresses its size-change
-                      // compensation for as long as a scroll is in progress and
-                      // then applies the accumulated delta in one step, so the
-                      // answer visibly lurches while it is being written.
-                      followOutput="auto"
-                      // Key by message id, not list position. Ids are remapped
-                      // temp→real mid-stream and branch switches rebuild the
-                      // array, so index keys let virtuoso's cached item sizes
-                      // attach to the wrong message.
-                      computeItemKey={(index: number, msg: Message) => msg?.id ?? index}
-                      // Keep a screen of messages mounted and measured on either
-                      // side. Halves the mid-scroll height revisions that jerk
-                      // the scroll position (measured 13 jumps → 6).
-                      increaseViewportBy={{ top: 2000, bottom: 2000 }}
-                      // Report size changes synchronously instead of a frame
-                      // late, so measurements don't lag the DOM while answers
-                      // stream and resize.
-                      skipAnimationFrameInResizeObserver
-                      scrollerRef={(ref: HTMLElement | Window | null) => {
-                        if (ref instanceof HTMLElement) {
-                          attachHookRef(chat.messagesContainerRef, ref as HTMLDivElement);
-                        } else if (ref === null) {
-                          attachHookRef(chat.messagesContainerRef, null);
-                        }
-                      }}
-                      onScroll={chat.handleScroll}
-                      components={{
-                        Footer: () => {
-                          const lastMsg = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
-                          const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
-                          const showLoader = chat.loading && !(lastMsg?.reasoning && !lastMsg?.content);
-                          return (
-                            <>
-                              {showLoader && (
-                                <div className="message-bubble message-ai message-ai--streaming" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span className="loading-dots" aria-label={isDeepSearching ? t('searchingDeeper') : t('thinking')}>
-                                    <span className="loading-dots__dot" />
-                                    <span className="loading-dots__dot" />
-                                    <span className="loading-dots__dot" />
-                                  </span>
-                                  {isDeepSearching ? t('searchingDeeper') : t('thinking')}
+                    // Remounts when another chat's messages are loaded (transcriptKey),
+                    // so it opens at that chat's last user turn. A new chat getting
+                    // its id mid-stream does not change the key.
+                    <MessageScrollerProvider key={chat.transcriptKey} autoScroll defaultScrollPosition="last-anchor">
+                      <MessageScroller>
+                        <MessageScrollerViewport
+                          className="messages-container"
+                          ref={(el: HTMLDivElement | null) => { attachHookRef(chat.messagesContainerRef, el); }}
+                          onScroll={chat.handleScroll}
+                        >
+                          <MessageScrollerContent className="transcript" aria-busy={chat.loading}>
+                            {chat.messages.map((msg: Message, index: number) => {
+                              const bi = msg.id ? getBranchInfo(chat.messageTree, msg.id) : null;
+                              const questionText = msg.role === 'ai' && msg.parentMessageId
+                                ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
+                                : '';
+                              return (
+                                <MessageScrollerItem
+                                  // renderKey survives the temp→DB id remap mid-stream;
+                                  // keying by id alone remounts the row and replays
+                                  // the bubble's entrance animation.
+                                  key={msg.renderKey ?? msg.id ?? index}
+                                  messageId={msg.renderKey ?? msg.id}
+                                  scrollAnchor={msg.role === 'user'}
+                                  className="transcript-row"
+                                >
+                                  <MessageBubble
+                                    message={msg}
+                                    isStreaming={chat.loading && index === chat.messages.length - 1}
+                                    onPdfOpen={handlePdfSourceOpen}
+                                    onFollowUpClick={chat.handleFollowUpClick}
+                                    showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
+                                    branchInfo={bi}
+                                    onSwitchBranch={chat.handleSwitchBranch}
+                                    animationDelay={initialRender ? Math.min(index * 0.05, 0.3) : 0}
+                                    onEdit={msg.role === 'user' && !msg.isEnhanced ? (chat.editingMessageId === msg.id ? chat.handleEditSubmit : chat.handleStartEdit) : undefined}
+                                    onFork={msg.role === 'ai' ? chat.handleForkFromMessage : undefined}
+                                    onCompare={bi ? chat.handleStartComparison : undefined}
+                                    onRegenerate={msg.role === 'ai' ? chat.handleRegenerate : undefined}
+                                    onFeedback={msg.role === 'ai' ? chat.handleFeedback : undefined}
+                                    isEditing={chat.editingMessageId === msg.id}
+                                    onEditCancel={handleEditCancel}
+                                    onPreviewSource={handlePreviewSource}
+                                    kbId={currentKb?.id}
+                                    questionText={questionText}
+                                    resolveAttribution={resolveAttribution}
+                                    reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
+                                    sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
+                                    confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
+                                    conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
+                                    onToggleSection={messageSections.toggle}
+                                  />
+                                </MessageScrollerItem>
+                              );
+                            })}
+                            {(() => {
+                              const lastMsg = chat.messages[chat.messages.length - 1];
+                              const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
+                              // Only until the first token (the "submitted" phase):
+                              // once reasoning or answer text streams, that output
+                              // is the progress signal, and reasoning has its own
+                              // shimmering label.
+                              const showLoader = chat.loading && !lastMsg?.content && !lastMsg?.reasoning;
+                              return showLoader && (
+                                <div className="message-ai chat-status-line">
+                                  <Shimmer as="span">
+                                    {isDeepSearching ? t('searchingDeeper') : t('thinking')}
+                                  </Shimmer>
                                 </div>
-                              )}
-                            </>
-                          );
-                        }
-                      }}
-                      itemContent={(index: number, msg: Message) => {
-                        const bi = msg.id ? getBranchInfo(chat.messageTree, msg.id) : null;
-                        const questionText = msg.role === 'ai' && msg.parentMessageId
-                          ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
-                          : '';
-                        return (
-                          <MessageBubble
-                            key={msg.id}
-                            message={msg}
-                            isStreaming={chat.loading && index === chat.messages.length - 1}
-                            onPdfOpen={handlePdfSourceOpen}
-                            onFollowUpClick={chat.handleFollowUpClick}
-                            showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
-                            branchInfo={bi}
-                            onSwitchBranch={chat.handleSwitchBranch}
-                            animationDelay={initialRenderRef.current ? Math.min(index * 0.05, 0.3) : 0}
-                            onEdit={msg.role === 'user' && !msg.isEnhanced ? (chat.editingMessageId === msg.id ? chat.handleEditSubmit : chat.handleStartEdit) : undefined}
-                            onFork={msg.role === 'ai' ? chat.handleForkFromMessage : undefined}
-                            onCompare={bi ? chat.handleStartComparison : undefined}
-                            onRegenerate={msg.role === 'ai' ? chat.handleRegenerate : undefined}
-                            onFeedback={msg.role === 'ai' ? chat.handleFeedback : undefined}
-                            isEditing={chat.editingMessageId === msg.id}
-                            onEditCancel={handleEditCancel}
-                            onPreviewSource={handlePreviewSource}
-                            kbId={currentKb?.id}
-                            questionText={questionText}
-                            resolveAttribution={resolveAttribution}
-                            reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                            sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                            confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                            conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
-                            onToggleSection={messageSections.toggle}
-                          />
-                        );
-                      }}
-                    />
+                              );
+                            })()}
+                          </MessageScrollerContent>
+                        </MessageScrollerViewport>
+                        <MessageScrollerButton />
+                      </MessageScroller>
+                    </MessageScrollerProvider>
                   )}
 
                 </ChatStage>

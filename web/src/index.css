@@ -579,12 +579,9 @@ button.source-card {
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  /* Der Scroller ist die VOLLE Spaltenbreite (Mausrad greift überall) und
-     trägt KEINE waagerechte Polsterung: virtuosos Viewport ist inline
-     `position:absolute; width:100%` und liefe rechts hinaus. Die Lesespalte
-     entsteht eine Ebene tiefer, auf den Kindern des Viewports (Item-Liste und
-     Footer), die normal im Fluss liegen und sich mit `margin: 0 auto`
-     zentrieren lassen. */
+  /* The scroller spans the FULL column width (the wheel works everywhere) and
+     carries no horizontal padding; the reading column is one level down
+     (`.transcript`), centred with `margin: 0 auto`. */
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -592,11 +589,9 @@ button.source-card {
   min-width: 0;
 }
 
-/* Die zentrierte Lesespalte: Item-Liste und Footer von virtuoso, und der
-   leere Zustand, der ohne virtuoso direkt im Scroller liegt. Keine senkrechte
-   Polsterung — virtuoso setzt paddingTop/Bottom inline auf der Item-Liste für
-   die Virtualisierung. */
-.messages-container [data-viewport-type] > *,
+/* The centred reading column: the transcript (MessageScrollerContent) and
+   the empty state, which sits directly in the scroller. */
+.messages-container > .transcript,
 .messages-container > .empty-state {
   box-sizing: border-box;
   width: 100%;
@@ -607,10 +602,16 @@ button.source-card {
   padding-right: 1.5rem;
 }
 
-/* Ein Eintrag = eine Flex-Zeile, damit `align-self` der Blase greift:
-   Nutzer rechts, Antwort links. Der Abstand zwischen Nachrichten liegt hier
-   (virtuoso misst die Höhe des Eintrags, Polsterung eingeschlossen). */
-.messages-container [data-testid="virtuoso-item-list"] > [data-index] {
+/* One row = one flex column so the bubble's `align-self` applies: user on
+   the right, answer on the left. The spacing between messages is row
+   PADDING, not the content's gap: rows carry `content-visibility: auto`,
+   whose paint containment clips at the row's border box, so focus rings on
+   controls at a row edge need the padding to stay visible. */
+.messages-container > .transcript {
+  gap: 0;
+}
+
+.messages-container .transcript-row {
   display: flex;
   flex-direction: column;
   padding: 1rem 0;
@@ -1110,68 +1111,9 @@ button.source-card {
   margin-bottom: 1rem;
 }
 
-@keyframes ai-streaming-pulse {
-
-  0%,
-  100% {
-    box-shadow: none;
-  }
-
-  50% {
-    box-shadow: 0 0 12px 2px color-mix(in srgb, var(--accent-primary) 8%, transparent);
-  }
-}
-
-.message-ai--streaming {
-  animation: ai-streaming-pulse 2s ease-in-out infinite;
-}
-
-.loading-dots {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.loading-dots__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  animation: loading-dot-pulse 1.2s ease-in-out infinite;
-}
-
-.loading-dots__dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.loading-dots__dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes loading-dot-pulse {
-
-  0%,
-  100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes reasoning-pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.4;
-  }
+.chat-status-line {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
 }
 
 @keyframes reasoning-cursor-blink {
@@ -2208,13 +2150,13 @@ button.source-card {
    Mobile Layout (< 1024px)
    ======================================== */
 @media (max-width: 1023px) {
-  .messages-container [data-viewport-type] > *,
+  .messages-container > .transcript,
   .messages-container > .empty-state {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
   }
 
-  .messages-container [data-testid="virtuoso-item-list"] > [data-index] {
+  .messages-container .transcript-row {
     padding: 0.5rem 0;
   }
 

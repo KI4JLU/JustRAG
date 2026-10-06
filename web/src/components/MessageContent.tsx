@@ -11,6 +11,7 @@ import { formatDate } from '../utils/dates';
 import { excerptAroundSpan, isValidSpan } from '../utils/verification';
 import { AnchoredPopover } from './AnchoredPopover';
 import { TrajectoryPanel } from './TrajectoryPanel';
+import { Shimmer } from '@ki4jlu/design-system';
 import { MarkdownTable } from './MarkdownTable';
 
 // Lazy load ChartRenderer
@@ -536,11 +537,8 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
                             listStyle: 'none'
                         }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Brain
-                                size={16}
-                                style={isThinking ? { animation: 'reasoning-pulse 1.5s ease-in-out infinite' } : undefined}
-                            />
-                            <span>{reasoningLabel}</span>
+                            <Brain size={16} />
+                            {isThinking ? <Shimmer as="span">{reasoningLabel}</Shimmer> : <span>{reasoningLabel}</span>}
                         </div>
                     </summary>
                     <div className="markdown-content" style={{

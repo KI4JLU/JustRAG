@@ -157,6 +157,10 @@ export interface StructuredTable {
 
 export interface Message {
     id?: string;              // DB UUID, undefined during streaming
+    /** Client-side render key: the temp id a streamed message was created
+     *  under, kept when `id` is remapped to the DB UUID so its row does not
+     *  remount (and replay its entrance animation). Unset for loaded messages. */
+    renderKey?: string;
     parentMessageId?: string; // Parent in tree
     role: 'user' | 'ai';
     content: string;
