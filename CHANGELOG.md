@@ -10,6 +10,19 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## v0.11.1 — 2026-10-06
+
+### ⚠ Upgrade notes
+
+No upgrade actions required. Security patch on top of v0.11.0: no migration
+(still 0074), no changed `site_config` default, no re-ingest. It fixes a
+worker crash / memory exhaustion from a crafted spreadsheet upload (excelize
+GO-2026-6452, GO-2026-6453) and an endpoint-URL leak into info logs when OTel
+tracing is on (GO-2026-6505). Recommended for every v0.11.0 deployment.
+
+### deps
+- Bump excelize to v2.11.0 and OpenTelemetry to v1.45.0 (GO-2026-6452/6453/6505) (ed99553)
+
 ## v0.11.0 — 2026-10-06
 
 ### ⚠ Upgrade notes
