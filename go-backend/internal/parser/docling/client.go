@@ -502,10 +502,24 @@ func (p doclingProv) page() int {
 
 type doclingText struct {
 	Text         string      `json:"text"`
+	Orig         string      `json:"orig"`
 	Label        string      `json:"label"`
 	Level        int         `json:"level"`
 	ContentLayer string      `json:"content_layer"`
 	Prov         doclingProv `json:"prov"`
+}
+
+// content returns the label and text a body text item contributes. A formula
+// docling did not decode (formula enrichment off, or the model failed on it)
+// arrives with an empty text and the PDF's raw characters in orig; it is kept
+// as plain text, because those characters are not LaTeX and must not be
+// wrapped in $$…$$, and dropping it would cut every equation out of the corpus.
+func (t doclingText) content() (label, text string) {
+	text = strings.TrimSpace(t.Text)
+	if text == "" && t.Label == "formula" {
+		return "text", strings.TrimSpace(t.Orig)
+	}
+	return t.Label, text
 }
 
 // contentLayerFurniture is docling's marker for page furniture (running
@@ -681,10 +695,10 @@ func itemsFromJSONContent(rawJSON json.RawMessage) []DocItem {
 			case "texts":
 				if idx < len(doc.Texts) {
 					t := doc.Texts[idx]
-					if s := strings.TrimSpace(t.Text); s != "" {
+					if label, s := t.content(); s != "" {
 						items = append(items, DocItem{
 							Page:      t.Prov.page(),
-							Label:     t.Label,
+							Label:     label,
 							Level:     t.Level,
 							Furniture: t.ContentLayer == contentLayerFurniture,
 							Text:      s,

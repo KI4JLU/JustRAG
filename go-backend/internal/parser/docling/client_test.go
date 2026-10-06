@@ -682,6 +682,30 @@ func TestItemsFromJSONContent_SectionHeaderLevelIsRead(t *testing.T) {
 	}
 }
 
+// Without formula enrichment docling-serve leaves a formula's `text` empty and
+// keeps the PDF's raw characters in `orig` (its markdown prints
+// "<!-- formula-not-decoded -->"). Shape captured from docling-serve v1.32.0.
+func TestItemsFromJSONContent_UndecodedFormulaFallsBackToOrig(t *testing.T) {
+	doc := `{
+	  "body": {"children": [{"$ref": "#/texts/0"}, {"$ref": "#/texts/1"}]},
+	  "texts": [
+	    {"label": "formula", "content_layer": "body", "text": "", "orig": "Attention( Q,K,V ) = softmax( QK T √ d k ) V (1)", "prov": [{"page_no": 1}]},
+	    {"label": "formula", "content_layer": "body", "text": "F F N ( x ) = \\max ( 0 , x W _ { 1 } )", "orig": "FFN( x ) = max(0 , xW 1 )", "prov": [{"page_no": 1}]}
+	  ]
+	}`
+	items := itemsFromJSONContent([]byte(doc))
+	if len(items) != 2 {
+		t.Fatalf("want 2 formula items, got %v", spew(items))
+	}
+	// Raw PDF characters are not LaTeX, so they must not render inside $$…$$.
+	if got := renderItem(items[0]); got != "Attention( Q,K,V ) = softmax( QK T √ d k ) V (1)" {
+		t.Errorf("undecoded formula: got %q", got)
+	}
+	if got := renderItem(items[1]); got != "$$F F N ( x ) = \\max ( 0 , x W _ { 1 } )$$" {
+		t.Errorf("decoded formula: got %q", got)
+	}
+}
+
 // --- request fields beyond captioning -----------------------------------
 
 // captureForm returns a stub sidecar that records every multipart field
