@@ -1,7 +1,7 @@
 import {
   Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star, Clock, RefreshCw,
 } from 'lucide-react';
-import { ActionMenu, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
+import { ActionMenu, Badge, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
@@ -73,18 +73,20 @@ function visibilityBadge(kb: KnowledgeBase, t: T): string {
 // grid — and while the public grid rendered its own static "Global" chip, the
 // 'public' state of this badge was unreachable code and the spec's third state
 // shipped to nobody. One component, one branch, three reachable states.
+const VISIBILITY_TONE = { public: 'success', shared: 'primary', personal: 'neutral' } as const;
+
 function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const state = visibilityState(kb);
   return (
     // `shrink-0` (KI-843): in the card footer the chip group is the elastic
     // half and wraps; the badge keeps its size at the right edge. The legacy
     // badge rule sets no `flex-shrink`, so the utility is not shadowed.
-    <div className={`home-view__badge home-view__badge--${state} shrink-0`}>
+    <Badge tone={VISIBILITY_TONE[state]} className="home-view__badge shrink-0">
       {state === 'public'
         ? <Globe size={10} aria-hidden="true" />
         : <User size={10} aria-hidden="true" />}
       {visibilityBadge(kb, t)}
-    </div>
+    </Badge>
   );
 }
 
@@ -103,11 +105,11 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="home-view__chip">
+        <Badge className="home-view__chip">
           {icon}
           <span aria-hidden="true">{n}</span>
           <span className="sr-only">{label}</span>
-        </span>
+        </Badge>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
@@ -153,10 +155,10 @@ function KbCardChips({ kb, t, layout }: { kb: KnowledgeBase; t: T; layout: 'row'
         <CountChip icon={<MessageSquare size={12} aria-hidden="true" />} n={messages} label={t('kbMessagesChip').replace('{n}', String(messages))} />
       )}
       {processing > 0 && (
-        <span className="home-view__chip home-view__chip--processing">
-          <Loader2 size={12} className="spin" aria-hidden="true" />
+        <Badge tone="primary" className="home-view__chip">
+          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
           {t('kbProcessingChip').replace('{n}', String(processing))}
-        </span>
+        </Badge>
       )}
     </div>
   );

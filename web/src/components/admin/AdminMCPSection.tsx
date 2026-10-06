@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle2, AlertCircle, RefreshCw, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
+import { Badge } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../../api';
 
 // Mirrors mcp.ServerSpec on the backend.
@@ -59,27 +60,14 @@ function parseServers(raw: string): [ServerSpec[] | null, string | null] {
 }
 
 function ServerStatusBadge({ s }: { s: ServerStatus }) {
-    if (s.reachable) {
-        return (
-            <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                padding: '0.2rem 0.5rem', borderRadius: '4px',
-                background: 'rgba(40,160,90,0.15)', color: 'var(--success-color, #28a05a)',
-                fontSize: '0.8rem',
-            }}>
-                <CheckCircle2 size={14} /> reachable
-            </span>
-        );
-    }
-    return (
-        <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-            padding: '0.2rem 0.5rem', borderRadius: '4px',
-            background: 'rgba(220,80,60,0.15)', color: 'var(--error-color, #c33)',
-            fontSize: '0.8rem',
-        }}>
-            <AlertCircle size={14} /> unreachable
-        </span>
+    return s.reachable ? (
+        <Badge tone="success">
+            <CheckCircle2 size={14} aria-hidden="true" /> reachable
+        </Badge>
+    ) : (
+        <Badge tone="error">
+            <AlertCircle size={14} aria-hidden="true" /> unreachable
+        </Badge>
     );
 }
 

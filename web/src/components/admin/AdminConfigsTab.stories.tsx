@@ -59,12 +59,11 @@ import AdminConfigsTab from './AdminConfigsTab';
  *                      while it loads. Real defect; pinned in `Loading` below.
  *   .spin              IS defined — src/AdminUI.tsx:831, together with its
  *                      `@keyframes spin` at :833.
- *   .active-badge      IS defined — src/AdminUI.tsx:775.
  *
  * Those rules live in a `<style>` element inside AdminUI.tsx (the block opens
  * at :634), i.e. they are PAGE-OWNED: present only while AdminUI is mounted,
- * and therefore absent when this tab is mounted on its own. Five classes this
- * file uses are in that situation — `.spin`, `.active-badge`, `.active-config`
+ * and therefore absent when this tab is mounted on its own. Four classes this
+ * file uses are in that situation — `.spin`, `.active-config`
  * (:772), `.config-form-overlay` (:819) and `.configs-list` (:822). `.result-card`
  * is the exception: index.css:2265 defines it globally, so the card surface
  * itself is right in a story.
@@ -313,7 +312,7 @@ type Story = StoryObj<typeof meta>;
  * catalogue to offer.
  */
 export const ConfigsList: Story = {
-    play: async ({ canvas, canvasElement }) => {
+    play: async ({ canvas }) => {
         // ORACLE: the fixture. Both names come from CONFIGS above, and the
         // model line is the component's own join of chat + embedding models —
         // asserted against the strings this file put in, not against anything
@@ -328,24 +327,14 @@ export const ConfigsList: Story = {
         await expect(canvas.getAllByRole('button', { name: 'Konfiguration aktivieren' })).toHaveLength(1);
         await expect(canvas.getAllByRole('button', { name: 'Konfiguration bearbeiten' })).toHaveLength(2);
 
-        /* KNOWN-DEFECT PIN, and read the fidelity note in the file header
-         * before acting on it.
-         *
-         * ORACLE: Chromium's own CSSOM — nothing in this repo computes these
-         * values. `.active-badge` is styled at src/AdminUI.tsx:775, inside a
-         * <style> element that only exists while AdminUI is mounted, so in a
-         * standalone mount of this tab the badge resolves to a bare inline span:
-         * no background, no padding, no uppercase transform.
-         *
-         * This assertion pins the CURRENT arrangement, which means it FAILS if
-         * the rules are moved into src/index.css or replaced by a DS Badge —
-         * and that failure is the intended signal, not a regression. Whoever
-         * makes that change updates this story. */
-        const badge = canvasElement.querySelector('.active-badge');
-        await expect(badge).not.toBeNull();
-        const badgeStyle = getComputedStyle(badge as HTMLElement);
-        await expect(badgeStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
-        await expect(badgeStyle.padding).toBe('0px');
+        /* The active marker is the DS Badge (primary tone), so it is styled
+         * in a standalone mount too. ORACLE: Chromium's CSSOM — a filled Badge
+         * paints a background and padding; the old `.active-badge` span, whose
+         * rules only existed while AdminUI was mounted, resolved to neither. */
+        const badge = canvas.getByText('Aktiv');
+        const badgeStyle = getComputedStyle(badge);
+        await expect(badgeStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+        await expect(badgeStyle.paddingLeft).not.toBe('0px');
     },
 };
 

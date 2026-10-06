@@ -1,6 +1,7 @@
 import { Trash2, Settings, Save, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
+import { Badge } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 interface LdapConfig {
@@ -216,7 +217,7 @@ export default function AdminAuthTab({
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                                         <h3 style={{ margin: 0 }}>{provider.name}</h3>
-                                        {provider.isActive && <span className="active-badge" style={{ background: 'var(--success-text)' }}>{t('enabled')}</span>}
+                                        {provider.isActive && <Badge tone="success" className="uppercase">{t('enabled')}</Badge>}
                                     </div>
                                     <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>{t('providerType')}: {provider.type.toUpperCase()}</p>
                                     <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>URL: {providerSummary(provider)}</p>

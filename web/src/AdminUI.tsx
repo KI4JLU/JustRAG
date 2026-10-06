@@ -749,15 +749,6 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                 .active-config {
                     border-left: 4px solid var(--accent-primary);
                 }
-                .active-badge {
-                    background: var(--accent-primary);
-                    color: white;
-                    font-size: 0.75rem;
-                    font-weight: bold;
-                    padding: 0.1rem 0.5rem;
-                    border-radius: var(--shape-full);
-                    text-transform: uppercase;
-                }
                 .icon-button {
                     background: var(--bg-primary);
                     border: 1px solid var(--border-color);

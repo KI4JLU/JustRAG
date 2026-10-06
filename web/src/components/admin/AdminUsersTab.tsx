@@ -2,6 +2,15 @@ import { Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
+import { Badge, type BadgeProps } from '@ki4jlu/design-system';
+
+// Role pill tones. Was raw hex per role (#6a1b9a, #2563eb); superadmin →
+// secondary is a pick, not a spec: the DS has no purple status tone.
+const ROLE_TONE: Record<string, BadgeProps['tone']> = {
+    superadmin: 'secondary',
+    admin: 'primary',
+    'api-user': 'info',
+};
 
 interface User {
     id: string;
@@ -36,12 +45,7 @@ export default function AdminUsersTab({ usersList, currentUser, handleRoleChange
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                                     <h3 style={{ margin: 0 }}>{u.firstName} {u.lastName}</h3>
-                                    <span className="active-badge" style={{
-                                        background: u.role === 'superadmin' ? '#6a1b9a'
-                                            : u.role === 'admin' ? 'var(--accent-primary)'
-                                            : u.role === 'api-user' ? '#2563eb'
-                                            : 'var(--text-secondary)'
-                                    }}>{u.role}</span>
+                                    <Badge tone={ROLE_TONE[u.role] ?? 'neutral'} className="uppercase">{u.role}</Badge>
                                 </div>
                                 <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>@{u.username} &bull; ID: {u.id.slice(0, 8)}...</p>
                             </div>

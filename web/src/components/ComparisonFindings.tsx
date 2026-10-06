@@ -1,4 +1,5 @@
 import './ComparisonFindings.css';
+import { Badge } from '@ki4jlu/design-system';
 import type { ComparisonFinding } from '../types';
 
 export type { ComparisonFinding };
@@ -8,6 +9,8 @@ export type { ComparisonFinding };
  * `useTheme()` translator) to localize via the `comparisonMode*` keys;
  * English fallbacks are used when `t` is omitted.
  */
+const SEVERITY_TONE = { high: 'error', medium: 'warning', low: 'success' } as const;
+
 const MODE_LABEL: Record<ComparisonFinding['mode'], string> = {
   contradiction: 'Contradictions',
   formal: 'Formal / structural',
@@ -47,7 +50,7 @@ export function ComparisonFindings({
             <h4>{MODE_KEY[m] ? label(MODE_KEY[m], MODE_LABEL[m]) : (MODE_LABEL[m] ?? mode)}</h4>
             {list.map((f, i) => (
               <div key={i} className={`comparison-finding sev-${f.severity}`}>
-                <span className="sev-badge">{f.severity}</span>
+                <Badge tone={SEVERITY_TONE[f.severity]} className="uppercase">{f.severity}</Badge>
                 <p className="issue">{f.issue}</p>
                 {f.uploadQuote && <blockquote className="upload">{'“'}{f.uploadQuote}{'”'}</blockquote>}
                 {f.citedQuote && (

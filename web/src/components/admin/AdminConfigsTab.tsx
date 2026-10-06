@@ -1,6 +1,6 @@
 import { Plus, Trash2, CheckCircle2, Settings, Save, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Button, Input } from '@ki4jlu/design-system';
+import { Badge, Button, Input } from '@ki4jlu/design-system';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { parseDimensionsInput, formatDimensionsValue } from '../../utils/embeddingDimensions';
@@ -558,7 +558,7 @@ export default function AdminConfigsTab({
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                                         <h3 style={{ margin: 0 }}>{config.name}</h3>
-                                        {config.is_active && <span className="active-badge">{t('active')}</span>}
+                                        {config.is_active && <Badge tone="primary" className="uppercase">{t('active')}</Badge>}
                                     </div>
                                     <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>{t('provider')}: {config.provider}</p>
                                     <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>{t('chatModels')}: {[...config.chat_models, ...config.embedding_models].map(m => m.name).join(', ')}</p>
