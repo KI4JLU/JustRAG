@@ -3,6 +3,10 @@ import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { MATH_SPAN_RE, normalizeMathDelimiters } from '../utils/markdownMath';
 import { Brain, Loader2, FileText, ArrowRight } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import type { MessageSource, TrajectoryEvent, FlaggedClaimStatus } from '../types';
@@ -171,13 +175,18 @@ function CitationPreview({ source, span, t, language, onOpenSource }: {
  * and a ⚠ glyph appended; CSS in index.css colors them. The reason string is
  * surfaced via the `title` attribute for hover tooltips.
  */
+// Code spans and math spans are cut out before the citation / flagged-claim
+// rewriters run and restored afterwards: both inject raw HTML, which would
+// break code and formulas alike.
+const PRESERVE_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source, 'g');
+
 function addCitationRefs(content: string, sources?: MessageSource[], suspect?: Map<number, string>, semantic?: Set<number>, language: 'de' | 'en' = 'de'): string {
     // Extract code blocks and inline code, replacing with collision-safe placeholders
     const preserved: string[] = [];
     const placeholder = (i: number) => `\x00CITE_PRESERVE_${i}\x00`;
 
     // Replace fenced code blocks first (``` ... ```), then inline code (` ... `)
-    let safe = content.replace(/```[\s\S]*?```|`[^`\n]+`/g, (match) => {
+    let safe = content.replace(PRESERVE_RE, (match) => {
         const idx = preserved.length;
         preserved.push(match);
         return placeholder(idx);
@@ -232,7 +241,7 @@ function addCitationRefs(content: string, sources?: MessageSource[], suspect?: M
 
     // Restore preserved code blocks
     for (let i = 0; i < preserved.length; i++) {
-        safe = safe.replace(placeholder(i), preserved[i]);
+        safe = safe.replace(placeholder(i), () => preserved[i]);
     }
 
     return safe;
@@ -303,7 +312,7 @@ function addFlaggedClaimHighlights(content: string, flagged?: FlaggedClaimStatus
 
     const preserved: string[] = [];
     const placeholder = (i: number) => `\x00FACT_PRESERVE_${i}\x00`;
-    let safe = content.replace(/```[\s\S]*?```|`[^`\n]+`/g, (match) => {
+    let safe = content.replace(PRESERVE_RE, (match) => {
         const idx = preserved.length;
         preserved.push(match);
         return placeholder(idx);
@@ -326,7 +335,7 @@ function addFlaggedClaimHighlights(content: string, flagged?: FlaggedClaimStatus
     }
 
     for (let i = 0; i < preserved.length; i++) {
-        safe = safe.replace(placeholder(i), preserved[i]);
+        safe = safe.replace(placeholder(i), () => preserved[i]);
     }
     return safe;
 }
@@ -358,8 +367,11 @@ const sanitizeSchema = {
 };
 
 // Optimization: Define static configuration outside component to prevent unnecessary re-renders
-const REMARK_PLUGINS = [remarkGfm];
-const REHYPE_PLUGINS: import('unified').PluggableList = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
+// rehype-katex runs AFTER rehype-sanitize: the sanitizer would strip KaTeX's
+// markup (spans with inline styles, MathML), and KaTeX output is generated
+// from the formula source with trust off, so it needs no sanitizing.
+const REMARK_PLUGINS: import('unified').PluggableList = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS: import('unified').PluggableList = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex];
 
 function buildMarkdownComponents(language: 'de' | 'en') {
     const loadingChartLabel = language === 'en' ? 'Loading chart...' : 'Lade Diagramm...';
@@ -553,7 +565,7 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
                         paddingBottom: '0.25rem'
                     }}>
                         <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={markdownComponents}>
-                            {reasoning}
+                            {normalizeMathDelimiters(reasoning)}
                         </ReactMarkdown>
                         {isThinking && (
                             <span style={{ animation: 'reasoning-cursor-blink 1s step-end infinite' }}>|</span>
@@ -577,7 +589,7 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
                     rehypePlugins={REHYPE_PLUGINS}
                     components={markdownComponents}
                 >
-                    {addFlaggedClaimHighlights(addCitationRefs(content, sources, suspectCitations, semanticCitations, language), flaggedClaims, language)}
+                    {addFlaggedClaimHighlights(addCitationRefs(normalizeMathDelimiters(content), sources, suspectCitations, semanticCitations, language), flaggedClaims, language)}
                 </ReactMarkdown>
             </div>
             {/* Keyed on the citation so switching pills remounts the popover.
