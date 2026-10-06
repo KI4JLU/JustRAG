@@ -16,6 +16,12 @@
 # refuses to build the captioning pipeline and every conversion fails over to
 # the built-in parsers. The Go worker probes for this at startup and logs an
 # error. See docs/observability/docling.md.
+#
+# Formula transcription to LaTeX (docling_formula_enrichment_enabled) needs the
+# docling-project/CodeFormulaV2 model (~611 MB), which the image does NOT ship.
+# The `formula-model` init container downloads it from Hugging Face into its
+# own volume (skipped when already present, never blocks the pod). Behind the
+# egress proxy, uncomment the HTTP(S)_PROXY env on that init container.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -52,6 +58,32 @@ spec:
       # Uncomment if your repo / registry is private:
       # imagePullSecrets:
       # - name: ghcr-secret
+      initContainers:
+        # Fills the CodeFormulaV2 volume. It is mounted at exactly that model's
+        # directory, so the models baked into the image stay visible next to
+        # it. Exits 0 even when the download fails: docling then starts
+        # without the model, and the worker's startup probe logs an error if
+        # formula enrichment is switched on.
+        - name: formula-model
+          image: quay.io/docling-project/docling-serve:v1.32.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - >-
+              D=/opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2;
+              [ -f "$D/model.safetensors" ] && exit 0;
+              docling-tools models download-hf-repo -q docling-project/CodeFormulaV2
+              || echo "WARNING: CodeFormulaV2 download failed; docling_formula_enrichment_enabled will not work";
+              exit 0
+          # env:
+          #   - name: HTTPS_PROXY
+          #     value: http://<proxy>:<port>
+          #   - name: HTTP_PROXY
+          #     value: http://<proxy>:<port>
+          volumeMounts:
+            - name: formula-model
+              mountPath: /opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2
       containers:
         - name: docling
           # Pinned. `latest` is a moving target: the picture_description_api
@@ -120,6 +152,9 @@ spec:
           volumeMounts:
             - name: model-cache
               mountPath: /.cache
+            - name: formula-model
+              mountPath: /opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2
+              readOnly: true
       volumes:
         # emptyDir re-downloads the ~3GB models on every pod restart, which
         # turns a rollout into a multi-minute cold start (readiness gates on
@@ -131,6 +166,11 @@ spec:
         - name: model-cache
           emptyDir:
             sizeLimit: 6Gi
+        # emptyDir re-downloads the formula model on every pod start; a PVC
+        # (as above) makes that a one-time download.
+        - name: formula-model
+          emptyDir:
+            sizeLimit: 1Gi
       restartPolicy: Always
 ---
 apiVersion: v1

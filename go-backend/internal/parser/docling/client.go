@@ -15,7 +15,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,6 +53,12 @@ type ConvertOptions struct {
 	// Each language is sent as its own repeated ocr_lang field.
 	OCRLanguages []string
 	ForceOCR     bool // force_ocr: OCR every page, replacing the PDF text layer
+
+	// FormulaEnrichment asks docling to transcribe each formula to LaTeX
+	// (do_formula_enrichment). It needs the CodeFormulaV2 model, which the
+	// stock docling-serve image does not ship; without it docling fails the
+	// whole document, so Convert retries once with this off.
+	FormulaEnrichment bool
 
 	// DocumentTimeoutSeconds bounds the sidecar's processing time per document
 	// (document_timeout); 0 leaves the server default, which is a week.
@@ -99,8 +107,11 @@ var probePDF []byte
 // DOCLING_SERVE_ENABLE_REMOTE_SERVICES rejects every captioning request at
 // pipeline construction, and the fallback parser then quietly routes every
 // document to the built-in parsers.
+//
+// It never retries without formula enrichment: the probe is what makes a
+// missing formula model visible, and the retry in Convert would hide it.
 func (c *Client) Probe(ctx context.Context) error {
-	_, err := c.Convert(ctx, "justrag-docling-probe.pdf", bytes.NewReader(probePDF))
+	_, err := c.convert(ctx, c.options(ctx), "justrag-docling-probe.pdf", bytes.NewReader(probePDF))
 	return err
 }
 
@@ -212,8 +223,41 @@ type ConfidenceScores struct {
 
 // Convert uploads a document (PDF, DOCX, PPTX, HTML, image) to Docling Serve
 // and returns the parsed result. fileName drives Docling's format auto-detection.
+//
+// With formula enrichment on, a failed conversion is retried once without
+// it: a sidecar lacking the formula model fails every document, and losing
+// the LaTeX beats losing Docling to the built-in parsers for every file.
 func (c *Client) Convert(ctx context.Context, fileName string, r io.Reader) (*ConvertResult, error) {
 	opts := c.options(ctx)
+	if !opts.FormulaEnrichment {
+		return c.convert(ctx, opts, fileName, r)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("docling: read file body: %w", err)
+	}
+	res, err := c.convert(ctx, opts, fileName, bytes.NewReader(data))
+	// A cancelled caller or a timeout is not the sidecar rejecting the
+	// enrichment; retrying would only log a misleading model warning.
+	if err == nil || ctx.Err() != nil || isTimeout(err) {
+		return res, err
+	}
+	slog.Warn("docling: conversion with formula enrichment failed, retrying without it — "+
+		"check that the sidecar has the docling-project/CodeFormulaV2 model (docs/observability/docling.md)",
+		"file", fileName, "error", err.Error())
+	opts.FormulaEnrichment = false
+	return c.convert(ctx, opts, fileName, bytes.NewReader(data))
+}
+
+// isTimeout reports whether err is a deadline rather than a sidecar
+// rejection; a retry would only spend the same time again.
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+}
+
+// convert runs one conversion with the given options.
+func (c *Client) convert(ctx context.Context, opts ConvertOptions, fileName string, r io.Reader) (*ConvertResult, error) {
 	form, contentType, err := buildConvertForm(opts, fileName, r)
 	if err != nil {
 		return nil, err
@@ -308,6 +352,9 @@ func buildConvertForm(opts ConvertOptions, fileName string, r io.Reader) ([]byte
 	}
 	if opts.TableMode != "" {
 		fields["table_mode"] = opts.TableMode
+	}
+	if opts.FormulaEnrichment {
+		fields["do_formula_enrichment"] = "true"
 	}
 	for k, v := range fields {
 		if err := mw.WriteField(k, v); err != nil {

@@ -602,6 +602,9 @@ docling_table_mode                           = accurate    # default (the sideca
 docling_ocr_languages                        = de,en       # default; docling's RapidOCR default is English + Chinese
 docling_force_ocr                            = false       # default; true for scan-heavy KBs or broken text layers
 docling_document_timeout_seconds             = 600         # default; docling's own per-document limit
+docling_formula_enrichment_enabled           = false       # default; true = formulas as LaTeX — needs the CodeFormulaV2 model on the
+                                                           # sidecar (docling-models service / formula-model init container),
+                                                           # else each conversion is retried without it and the probe logs an error
 docling_picture_description_enabled          = true        # gate; default off
 docling_picture_area_threshold               = 0.05        # skip images < 5% of page area (filters logos/icons); [0,1]
 docling_picture_description_prompt           = …           # optional; default asks (in German) for the document's language,

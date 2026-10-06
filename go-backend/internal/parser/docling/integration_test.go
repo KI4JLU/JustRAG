@@ -226,3 +226,56 @@ func TestIntegration_RealSidecar_AcceptsTheDefaultRequest(t *testing.T) {
 		t.Fatalf("sidecar rejected the default request: %v", err)
 	}
 }
+
+// parseFormulaPDF converts testdata/formula.pdf (three display equations,
+// rendered from testdata/formula.typ with Typst) against the live sidecar and
+// returns the joined page text.
+func parseFormulaPDF(t *testing.T, opts ConvertOptions) string {
+	t.Helper()
+	baseURL := os.Getenv("DOCLING_TEST_URL")
+	if baseURL == "" {
+		t.Skip("set DOCLING_TEST_URL to run against a live docling-serve")
+	}
+	c := NewClient(baseURL, 300*time.Second)
+	c.Async = true // what the worker uses
+	c.Options = opts
+	res, err := (&DoclingPDFParser{Client: c}).Parse(context.Background(), parser.ParseContext{
+		FilePath: "testdata/formula.pdf",
+		FileName: "formula.pdf",
+		MimeType: "application/pdf",
+	})
+	if err != nil {
+		t.Fatalf("parse against live sidecar: %v", err)
+	}
+	var sb strings.Builder
+	for _, p := range res.Pages {
+		sb.WriteString(p.Text + "\n")
+	}
+	return sb.String()
+}
+
+// Without enrichment docling hands back formulas with an empty text; they
+// used to vanish from the page entirely.
+func TestIntegration_RealSidecar_KeepsUndecodedFormulas(t *testing.T) {
+	text := parseFormulaPDF(t, ConvertOptions{})
+	for _, want := range []string{"±", "∑", "𝜎"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("raw formula text %q missing from the page:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "$$") {
+		t.Errorf("raw PDF characters must not be wrapped as LaTeX:\n%s", text)
+	}
+}
+
+// Needs a sidecar with the CodeFormulaV2 model (the docling-models service in
+// docker-compose.docling.yml); without it the client's retry drops the LaTeX
+// and this fails on the missing \frac.
+func TestIntegration_RealSidecar_TranscribesFormulasToLaTeX(t *testing.T) {
+	text := parseFormulaPDF(t, ConvertOptions{FormulaEnrichment: true})
+	for _, want := range []string{`$$`, `\frac`, `\sqrt`, `\sum`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("LaTeX %q missing from the page:\n%s", want, text)
+		}
+	}
+}
