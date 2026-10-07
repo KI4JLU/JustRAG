@@ -138,10 +138,7 @@ export function useChat({
   }, [toast, t]);
 
   // Refs
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
   // Changes in the same update that installs a loaded chat's messages, so the
   // transcript scroller remounts onto THOSE messages (its opening position is
   // applied once, on mount). Keying it on activeChatId instead would remount
@@ -177,21 +174,6 @@ export function useChat({
       chatAbort.current?.abort();
     };
   }, [chatAbortRef]);
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (isAtBottom) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isAtBottom]);
-
-  const handleScroll = useCallback(() => {
-    if (messagesContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-      const atBottom = scrollHeight - scrollTop - clientHeight < 100;
-      setIsAtBottom(atBottom);
-    }
-  }, []);
 
   // Textarea height: sized by the design-system composer itself
   // (`field-sizing: content` in PromptInputAdaptiveTextarea, 22.09.2026) —
@@ -616,13 +598,9 @@ export function useChat({
     loadedAcademicSession,
     setLoadedAcademicSession,
     // Refs
-    chatEndRef,
     textareaRef,
-    messagesContainerRef,
-    isAtBottom,
     transcriptKey,
     // Handlers
-    handleScroll,
     handleSelectChat,
     handleNewChat,
     handleDeleteChat,
@@ -660,9 +638,7 @@ export function useChat({
     activeChatId,
     loadedResearchSession,
     loadedAcademicSession,
-    isAtBottom,
     transcriptKey,
-    handleScroll,
     handleSelectChat,
     handleNewChat,
     handleDeleteChat,

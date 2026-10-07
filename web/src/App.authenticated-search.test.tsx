@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import type { ReactNode } from 'react';
 import { stubViewport } from './test/viewport';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -18,10 +17,8 @@ import { translations } from './translations';
  * `useSearchNavigation` sequences it; this file proves the result on screen.
  *
  * ONLY the network is stubbed (axios and `fetch`), plus what jsdom cannot do:
- * pointer capture, `scrollIntoView`, and `react-virtuoso`'s measured
- * virtualisation (the stub renders every row, as `ChatView.conflicts.test.tsx`
- * does — jsdom has no layout, so the real list renders zero rows). No
- * provider, context or app hook is mocked.
+ * pointer capture and `scrollIntoView`. No provider, context or app hook is
+ * mocked.
  *
  * ORACLES, independent of the code under test:
  *  - the FIXTURE message bodies below. They reach the DOM only through
@@ -45,16 +42,6 @@ vi.mock('axios', () => ({
     defaults: { headers: { common: {} as Record<string, string> } },
     interceptors: { response: { use: vi.fn(() => 1), eject: vi.fn() } },
   },
-}));
-
-vi.mock('react-virtuoso', () => ({
-  Virtuoso: (props: { data: unknown[]; itemContent: (index: number, item: unknown) => ReactNode }) => (
-    <div data-testid="virtuoso-stub">
-      {props.data.map((item, index) => (
-        <div key={index}>{props.itemContent(index, item)}</div>
-      ))}
-    </div>
-  ),
 }));
 
 const mockedGet = axios.get as unknown as Mock;

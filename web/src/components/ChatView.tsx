@@ -39,8 +39,7 @@ import { MessageSkeleton } from './Skeleton';
 const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
 
-// Attaches a DOM element to a ref owned by useChat (messagesContainerRef /
-// textareaRef). Done in a module-level helper so the `.current` write — and
+// Attaches a DOM element to a ref owned by useChat (textareaRef). Done in a module-level helper so the `.current` write — and
 // the ref-typed property itself — stay opaque to the React Compiler lint:
 // a direct `ref={chat.xRef}` makes it treat the whole `chat` hook result as
 // ref-carrying and flag every render-time `chat.*` read.
@@ -531,8 +530,6 @@ const ChatViewComp = () => {
                     <div
                       className="messages-container"
                       style={{ position: 'relative' }}
-                      ref={(el) => { attachHookRef(chat.messagesContainerRef, el); }}
-                      onScroll={chat.handleScroll}
                     >
                       <motion.div
                         className="empty-state"
@@ -573,8 +570,6 @@ const ChatViewComp = () => {
                       <MessageScroller>
                         <MessageScrollerViewport
                           className="messages-container"
-                          ref={(el: HTMLDivElement | null) => { attachHookRef(chat.messagesContainerRef, el); }}
-                          onScroll={chat.handleScroll}
                         >
                           <MessageScrollerContent className="transcript" aria-busy={chat.loading}>
                             {chat.messages.map((msg: Message, index: number) => {

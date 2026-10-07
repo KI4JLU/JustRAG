@@ -7,19 +7,14 @@ import { useCallback, useState } from 'react';
 export type MessageSection = 'reasoning' | 'sources' | 'confidence' | 'conflicts';
 
 /**
- * Per-message expand state, owned ABOVE the virtualized message list.
+ * Per-message expand state, owned ABOVE the message list.
  *
- * The chat list is virtualized (react-virtuoso), so off-screen messages are
- * unmounted and re-measured when they scroll back in. Any expand state held
- * inside the message component — `useState`, or the DOM state of a native
- * `<details open>` — dies with the node, so a message that was tall while
- * expanded comes back collapsed and short. Virtuoso then revises its total
- * content height mid-scroll, and when that height shrinks the browser clamps
- * scrollTop: the user is thrown backwards, and near the end of a long chat the
- * bottom becomes unreachable.
- *
- * Keeping the state here means an item's height is identical before and after
- * remount, which is what virtualization requires.
+ * Introduced for the old react-virtuoso list, which unmounted off-screen
+ * messages: expand state held inside the message component (`useState`, or the
+ * DOM state of a native `<details open>`) died with the node, and the height
+ * change threw the scroll position. The DS MessageScroller keeps every row
+ * mounted, but it still remounts the whole transcript on chat switch, and the
+ * caller-owned state keeps the open/closed sections independent of that.
  */
 export function useMessageSections() {
     const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(() => new Set());
