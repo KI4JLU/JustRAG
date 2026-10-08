@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,8 +13,11 @@ import (
 )
 
 const (
-	tUID  = "11111111-1111-1111-1111-111111111111"
-	tUFID = "22222222-2222-2222-2222-222222222222"
+	uOld   = "4a4a4a4a-4444-4444-4444-444444444444"
+	uYoung = "55555555-5555-5555-5555-555555555555"
+	uKept  = "66666666-6666-6666-6666-666666666666"
+	tUID   = "11111111-1111-1111-1111-111111111111"
+	tUFID  = "22222222-2222-2222-2222-222222222222"
 )
 
 type fakeOrphanStore struct {
@@ -21,14 +26,19 @@ type fakeOrphanStore struct {
 	files   map[string]bool // "owner/ufid" existing
 	ownErr  error
 	blobErr error
+	fileErr error
+	onCheck func(key string)
 }
 
 func (f *fakeOrphanStore) OwnerIDs(context.Context) ([]string, error) { return f.owners, f.ownErr }
-func (f *fakeOrphanStore) BlobReferenced(_ context.Context, key string) (bool, error) {
+func (f *fakeOrphanStore) BlobReferenced(_ context.Context, _, _, key string) (bool, error) {
+	if f.onCheck != nil {
+		f.onCheck(key)
+	}
 	return f.blobs[key], f.blobErr
 }
 func (f *fakeOrphanStore) LibraryFileExists(_ context.Context, owner, ufid string) (bool, error) {
-	return f.files[owner+"/"+ufid], nil
+	return f.files[owner+"/"+ufid], f.fileErr
 }
 
 type fakeOrphanStorage struct {
@@ -37,10 +47,15 @@ type fakeOrphanStorage struct {
 	listErr error
 	deleted []string
 	prefix  []string
+	delErr  error
+	onList  func()
 }
 
 func (f *fakeOrphanStorage) List(_ context.Context, prefix string) ([]storage.ObjectInfo, error) {
 	f.prefix = append(f.prefix, prefix)
+	if f.onList != nil {
+		f.onList()
+	}
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -54,6 +69,9 @@ func (f *fakeOrphanStorage) List(_ context.Context, prefix string) ([]storage.Ob
 }
 
 func (f *fakeOrphanStorage) DeleteFile(_ context.Context, k string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
 	f.deleted = append(f.deleted, k)
 	return nil
 }
@@ -63,18 +81,18 @@ func obj(key string, age time.Duration) storage.ObjectInfo {
 }
 
 func TestSweepBlobDecisions(t *testing.T) {
-	st := &fakeOrphanStore{owners: []string{tUID}, blobs: map[string]bool{"users/" + tUID + "/kept": true}}
+	st := &fakeOrphanStore{owners: []string{tUID}, blobs: map[string]bool{"users/" + tUID + "/" + uKept: true}}
 	sg := &fakeOrphanStorage{objs: []storage.ObjectInfo{
-		obj("users/"+tUID+"/old-orphan", 48*time.Hour),
-		obj("users/"+tUID+"/young-orphan", time.Hour),
-		obj("users/"+tUID+"/kept", 48*time.Hour),
+		obj("users/"+tUID+"/"+uOld, 48*time.Hour),
+		obj("users/"+tUID+"/"+uYoung, time.Hour),
+		obj("users/"+tUID+"/"+uKept, 48*time.Hour),
 		obj("legacy/kb/file.txt", 48*time.Hour),
 	}}
 	n, err := NewOrphanSweeper(st, sg).RunOnce(context.Background())
 	if err != nil || n != 1 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
-	if len(sg.deleted) != 1 || sg.deleted[0] != "users/"+tUID+"/old-orphan" {
+	if len(sg.deleted) != 1 || sg.deleted[0] != "users/"+tUID+"/"+uOld {
 		t.Fatalf("deleted=%v", sg.deleted)
 	}
 	for _, p := range sg.prefix {
@@ -106,7 +124,7 @@ func TestSweepCap(t *testing.T) {
 	st := &fakeOrphanStore{owners: []string{tUID}}
 	sg := &fakeOrphanStorage{}
 	for i := 0; i < 700; i++ {
-		sg.objs = append(sg.objs, obj(fmt.Sprintf("users/%s/o%04d", tUID, i), 48*time.Hour))
+		sg.objs = append(sg.objs, obj(fmt.Sprintf("users/%s/00000000-0000-0000-0000-%012d", tUID, i), 48*time.Hour))
 	}
 	n, err := NewOrphanSweeper(st, sg).RunOnce(context.Background())
 	if err != nil || n != 500 || len(sg.deleted) != 500 {
@@ -115,7 +133,7 @@ func TestSweepCap(t *testing.T) {
 }
 
 func TestSweepErrorsAbortWithoutDeleting(t *testing.T) {
-	mk := func() []storage.ObjectInfo { return []storage.ObjectInfo{obj("users/"+tUID+"/a", 48*time.Hour)} }
+	mk := func() []storage.ObjectInfo { return []storage.ObjectInfo{obj("users/"+tUID+"/"+uOld, 48*time.Hour)} }
 	cases := map[string]struct {
 		st *fakeOrphanStore
 		sg *fakeOrphanStorage
@@ -151,5 +169,65 @@ func TestRefreshLibraryGauges(t *testing.T) {
 	}
 	if gn != 3 || gb != 99 {
 		t.Fatalf("%v %v", gn, gb)
+	}
+}
+
+func TestSweepMoreAbortAndSkipCases(t *testing.T) {
+	old := 48 * time.Hour
+	cacheKey := "users/" + tUID + "/parses/" + tUFID + "/chat-text.json"
+
+	// LibraryFileExists error aborts.
+	sg := &fakeOrphanStorage{objs: []storage.ObjectInfo{obj(cacheKey, old)}}
+	n, err := NewOrphanSweeper(&fakeOrphanStore{owners: []string{tUID}, fileErr: errors.New("boom")}, sg).RunOnce(context.Background())
+	if err == nil || n != 0 || len(sg.deleted) != 0 {
+		t.Fatalf("file check: n=%d err=%v", n, err)
+	}
+
+	// Young cache object kept.
+	sg = &fakeOrphanStorage{objs: []storage.ObjectInfo{obj(cacheKey, time.Hour)}}
+	n, err = NewOrphanSweeper(&fakeOrphanStore{owners: []string{tUID}}, sg).RunOnce(context.Background())
+	if err != nil || n != 0 {
+		t.Fatalf("young cache: n=%d err=%v", n, err)
+	}
+
+	// DeleteFile error (not not-found) aborts.
+	sg = &fakeOrphanStorage{objs: []storage.ObjectInfo{obj("users/"+tUID+"/"+uOld, old)}, delErr: errors.New("denied")}
+	n, err = NewOrphanSweeper(&fakeOrphanStore{owners: []string{tUID}}, sg).RunOnce(context.Background())
+	if err == nil || n != 0 {
+		t.Fatalf("delete err: n=%d err=%v", n, err)
+	}
+
+	// DeleteFile not-found counts as success.
+	sg = &fakeOrphanStorage{objs: []storage.ObjectInfo{obj("users/"+tUID+"/"+uOld, old)}, delErr: fmt.Errorf("storage: %w", os.ErrNotExist)}
+	n, err = NewOrphanSweeper(&fakeOrphanStore{owners: []string{tUID}}, sg).RunOnce(context.Background())
+	if err != nil || n != 1 {
+		t.Fatalf("not-found: n=%d err=%v", n, err)
+	}
+
+	// Non-UUID blob name and non-canonical uuid forms are skipped.
+	sg = &fakeOrphanStorage{objs: []storage.ObjectInfo{
+		obj("users/"+tUID+"/notauuid", old),
+		obj("users/"+tUID+"/urn:uuid:"+uOld, old),
+		obj("users/"+tUID+"/{"+uOld+"}", old),
+		obj("users/"+tUID+"/4a4a4a4a444444444444444444444444", old),
+		obj("users/"+tUID+"/"+strings.ToUpper(uOld), old),
+		obj("users/"+tUID+"/parses/urn:uuid:"+tUFID+"/x.json", old),
+	}}
+	n, err = NewOrphanSweeper(&fakeOrphanStore{owners: []string{tUID}}, sg).RunOnce(context.Background())
+	if err != nil || n != 0 || len(sg.deleted) != 0 {
+		t.Fatalf("skip: n=%d err=%v deleted=%v", n, err, sg.deleted)
+	}
+}
+
+// A user_files row that appears after List must keep its blob: the existence
+// check happens per key after the listing, not before.
+func TestSweepRowAppearingAfterListIsKept(t *testing.T) {
+	key := "users/" + tUID + "/" + uOld
+	st := &fakeOrphanStore{owners: []string{tUID}, blobs: map[string]bool{}}
+	sg := &fakeOrphanStorage{objs: []storage.ObjectInfo{obj(key, 48*time.Hour)}}
+	sg.onList = func() { st.blobs[key] = true }
+	n, err := NewOrphanSweeper(st, sg).RunOnce(context.Background())
+	if err != nil || n != 0 || len(sg.deleted) != 0 {
+		t.Fatalf("n=%d err=%v deleted=%v", n, err, sg.deleted)
 	}
 }

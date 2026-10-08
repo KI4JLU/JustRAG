@@ -226,6 +226,7 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 
 	// Metrics collection (every 5 min by default).
 	launch("metrics_snapshot", func() {
+		libraryTotals := userfiles.NewOrphanStore(cfg.MainDB)
 		// Initial delay to let the system stabilize.
 		startupDelay := time.NewTimer(1 * time.Minute)
 		defer startupDelay.Stop()
@@ -233,7 +234,7 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 		case <-ctx.Done():
 			return
 		case <-startupDelay.C:
-			recordMetricsSnapshot(ctx, cfg.MainDB)
+			recordMetricsSnapshot(ctx, cfg.MainDB, libraryTotals)
 		}
 
 		ticker := time.NewTicker(cfg.MetricsInterval)
@@ -243,7 +244,7 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				recordMetricsSnapshot(ctx, cfg.MainDB)
+				recordMetricsSnapshot(ctx, cfg.MainDB, libraryTotals)
 			}
 		}
 	})
@@ -456,7 +457,7 @@ func refreshBM25Stats(ctx context.Context, r *vector.BM25StatsRefresher) {
 
 // recordMetricsSnapshot captures live system metrics and stores them in the
 // system_metrics table for the historical dashboard.
-func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool) {
+func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool, libraryTotals userfiles.TotalsSource) {
 	if mainDB == nil {
 		return
 	}
@@ -490,7 +491,7 @@ func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool) {
 
 	refreshSourceSyncAge(ctx, mainDB)
 
-	if err := userfiles.RefreshLibraryGauges(ctx, userfiles.NewOrphanStore(mainDB), observability.SetUserFileTotals); err != nil {
+	if err := userfiles.RefreshLibraryGauges(ctx, libraryTotals, observability.SetUserFileTotals); err != nil {
 		slog.Error("metrics snapshot: library totals failed", "error", err)
 	}
 

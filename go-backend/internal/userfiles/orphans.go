@@ -2,10 +2,13 @@ package userfiles
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/logctx"
@@ -31,8 +34,8 @@ type OrphanStore interface {
 	// OwnerIDs lists every user id (text form).
 	OwnerIDs(ctx context.Context) ([]string, error)
 	// BlobReferenced reports whether any user_files or files row points at
-	// the storage key.
-	BlobReferenced(ctx context.Context, key string) (bool, error)
+	// the storage key (userFileID is the canonical-UUID tail of the key).
+	BlobReferenced(ctx context.Context, ownerID, userFileID, key string) (bool, error)
 	// LibraryFileExists reports whether user_files has (id, owner).
 	LibraryFileExists(ctx context.Context, ownerID, userFileID string) (bool, error)
 }
@@ -67,7 +70,7 @@ func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 	deleted := 0
 	cutoff := s.now().Add(-OrphanGrace)
 	for _, owner := range owners {
-		if !validID(owner) {
+		if !canonicalID(owner) {
 			continue
 		}
 		if deleted >= OrphanMaxPerRun {
@@ -86,10 +89,13 @@ func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 				continue
 			}
 			kind, ufid := classifyKey(prefix, o.Key)
+			if kind == "" {
+				continue
+			}
 			var orphan bool
 			switch kind {
 			case "blob":
-				ref, err := s.store.BlobReferenced(ctx, o.Key)
+				ref, err := s.store.BlobReferenced(ctx, owner, ufid, o.Key)
 				if err != nil {
 					return deleted, fmt.Errorf("userfiles: sweep: check blob: %w", err)
 				}
@@ -104,7 +110,7 @@ func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 			if !orphan {
 				continue
 			}
-			if err := s.stor.DeleteFile(ctx, o.Key); err != nil {
+			if err := s.stor.DeleteFile(ctx, o.Key); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return deleted, fmt.Errorf("userfiles: sweep: delete %s: %w", o.Key, err)
 			}
 			deleted++
@@ -123,11 +129,14 @@ func classifyKey(prefix, key string) (kind, ufid string) {
 		return "", ""
 	}
 	if !strings.Contains(rest, "/") {
-		return "blob", ""
+		if canonicalID(rest) {
+			return "blob", rest
+		}
+		return "", ""
 	}
 	if after, ok := strings.CutPrefix(rest, "parses/"); ok {
 		id, tail, found := strings.Cut(after, "/")
-		if found && tail != "" && validID(id) {
+		if found && tail != "" && canonicalID(id) {
 			return "cache", id
 		}
 	}
@@ -179,11 +188,22 @@ func (s *PGOrphanStore) OwnerIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
-func (s *PGOrphanStore) BlobReferenced(ctx context.Context, key string) (bool, error) {
+func (s *PGOrphanStore) BlobReferenced(ctx context.Context, ownerID, userFileID, key string) (bool, error) {
+	// Primary-key lookup first: every live blob hits here, so the common
+	// case never touches an unindexed column. Only a miss (a genuine orphan
+	// candidate, rare) falls through to files, where user_files.id doubles as
+	// files.user_file_id for KB copies and storage_path covers legacy rows.
 	var ok bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM user_files
+		              WHERE id = $1::uuid AND owner_user_id = $2::uuid AND storage_path = $3)`,
+		userFileID, ownerID, key).Scan(&ok); err != nil || ok {
+		return ok, err
+	}
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM user_files WHERE storage_path = $1)
-		    OR EXISTS(SELECT 1 FROM files WHERE storage_path = $1)`, key).Scan(&ok)
+		    OR EXISTS(SELECT 1 FROM files WHERE user_file_id = $2::uuid OR storage_path = $1)`,
+		key, userFileID).Scan(&ok)
 	return ok, err
 }
 
@@ -216,4 +236,12 @@ func RefreshLibraryGauges(ctx context.Context, src TotalsSource, set func(files,
 	}
 	set(float64(n), float64(b))
 	return nil
+}
+
+// canonicalID reports whether s is a UUID in canonical lower-case dashed form.
+// Anything else (urn:uuid:, braces, no dashes, upper case) is skipped by the
+// sweep rather than risking a failed ::uuid cast that would abort every tick.
+func canonicalID(s string) bool {
+	u, err := uuid.Parse(s)
+	return err == nil && u.String() == s
 }
