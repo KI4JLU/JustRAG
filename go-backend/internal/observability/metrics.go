@@ -2692,6 +2692,32 @@ func RecordUserFileAdd(mode string) {
 	userFileAddTotal.WithLabelValues(mode).Inc()
 }
 
+var userFileAdoptTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_user_file_adopt_total",
+		Help: "Legacy KB uploads adopted into a user's library, by outcome: " +
+			"adopted, not_found, not_upload, already_library, quota_exceeded " +
+			"or blob_missing. Any other value normalises to not_found.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+// RecordUserFileAdopt increments the adoption outcome counter.
+func RecordUserFileAdopt(outcome string) {
+	switch outcome {
+	case "adopted", "not_found", "not_upload", "already_library", "quota_exceeded", "blob_missing":
+	default:
+		outcome = "not_found"
+	}
+	userFileAdoptTotal.WithLabelValues(outcome).Inc()
+}
+
+// UserFileAdoptTotalForTest exposes the adoption counter to test packages.
+func UserFileAdoptTotalForTest() *prometheus.CounterVec {
+	return userFileAdoptTotal
+}
+
 // UserFileAddTotalForTest exposes the add-mode counter to test packages.
 func UserFileAddTotalForTest() *prometheus.CounterVec {
 	return userFileAddTotal

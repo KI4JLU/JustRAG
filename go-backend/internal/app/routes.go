@@ -764,6 +764,7 @@ func registerLibraryRoutes(rc *routeCtx) {
 	h.SetDeleter(rc.cascadeDeleter)
 	// KB uploads and add-from-library go through the same library.
 	rc.filesHandler.SetLibrary(libraryAdapter{Ingester: ingester, store: store})
+	rc.filesHandler.SetAdopter(userfiles.NewAdopter(userfiles.NewAdoptStore(rc.infra.db.Main), store, rc.infra.stor, quota))
 	wrap := func(f http.HandlerFunc) http.Handler { return rc.authMw.Authenticate(f) }
 	rc.mux.Handle("GET /api/library/files", wrap(h.List))
 	rc.mux.Handle("POST /api/library/files", wrap(h.Upload))
@@ -1315,6 +1316,8 @@ func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/kb/{id}/files", rc.kbEditChain(rc.filesHandler.Upload))
 	rc.mux.Handle("POST /api/kb/{id}/files/from-library", rc.kbEditChain(rc.filesHandler.AddFromLibrary))
 	rc.mux.Handle("POST /api/kb/{id}/files/retry-failed", rc.kbEditChain(rc.filesHandler.RetryFailed))
+	// Owner/system-admin check is stricter than the chain; done in the handler.
+	rc.mux.Handle("POST /api/kb/{id}/files/adopt", rc.kbAdminChain(rc.filesHandler.AdoptLegacy))
 
 	// Generated content — CRUD + download + stream (auth required)
 	genContentHandler := gencontent.NewHandler(rc.genContentStore)
