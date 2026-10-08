@@ -131,7 +131,9 @@ func RunWorker(cfg *config.Config) error {
 	chatStore := chat.NewStore(db.Main)
 	chunkService := vector.NewChunkService(db.Vector)
 	var doclingFront []parser.Parser
+	parseIdentity := "builtin"
 	if dc := buildDoclingClient(ctx, chatStore, aiResolver); dc != nil {
+		parseIdentity = "docling:" + dc.BaseURL()
 		doclingFront = append(doclingFront,
 			&docling.FallbackParser{
 				Primary:  &docling.DoclingPDFParser{Client: dc},
@@ -269,7 +271,7 @@ func RunWorker(cfg *config.Config) error {
 		TableDropper: tableDropper,
 	})))
 	proc.SetSiteConfigReader(chatStore)
-	proc.SetParseCache(processor.NewParseCache(stor))
+	proc.SetParseCache(processor.NewParseCache(stor, parseIdentity))
 	proc.SetKBOverrideLister(kbconfig.NewStore(db.Main))
 	proc.SetMainDB(db.Main)
 	proc.SetVectorPool(db.Vector)

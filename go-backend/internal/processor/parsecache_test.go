@@ -22,7 +22,7 @@ func newTestStorage(t *testing.T) storage.Storage {
 
 func TestParseCache_RoundTripAndMiss(t *testing.T) {
 	ctx := context.Background()
-	c := NewParseCache(newTestStorage(t))
+	c := NewParseCache(newTestStorage(t), "builtin")
 	key := ParseCacheKey("owner", "uf", "abc")
 	if key != "users/owner/parses/uf/abc.json" {
 		t.Fatalf("key = %q", key)
@@ -53,14 +53,14 @@ func TestParseCache_RoundTripAndMiss(t *testing.T) {
 
 func TestParseConfigHash_ChangesPerKey(t *testing.T) {
 	ctx := context.Background()
-	base := ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{}})
-	if base != ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{}}) {
+	base := ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{}}, "builtin")
+	if base != ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{}}, "builtin") {
 		t.Fatal("hash must be stable")
 	}
 	keys := append([]string{"describe_image_model"}, parseConfigKeys...)
 	seen := map[string]string{base: "<empty>"}
 	for _, k := range keys {
-		h := ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{k: strPtr("x")}})
+		h := ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{k: strPtr("x")}}, "builtin")
 		if h == base {
 			t.Errorf("changing %s did not change the hash", k)
 		}
@@ -70,7 +70,7 @@ func TestParseConfigHash_ChangesPerKey(t *testing.T) {
 		seen[h] = k
 	}
 	// model_tier_fast feeds describe_image_model when that is unset.
-	h := ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{"model_tier_fast": strPtr("m")}})
+	h := ParseConfigHash(ctx, &fakeSiteConfigReader{values: map[string]*string{"model_tier_fast": strPtr("m")}}, "builtin")
 	if h == base {
 		t.Error("model_tier_fast must influence the hash through describe_image_model")
 	}
@@ -102,12 +102,12 @@ const cachedMarker = "ZZ-CACHED-MARKER-ZZ " + injectionText
 // via the rss-origin injection screen) and the parser output is ignored.
 func TestProcessFile_ParseCacheHitUsesCachedText(t *testing.T) {
 	ctx := context.Background()
-	cache := NewParseCache(newTestStorage(t))
+	cache := NewParseCache(newTestStorage(t), "builtin")
 	store := &mockStore{origins: map[string]string{"f-lib": "rss"}}
 	p := newScreeningProcessor(store, nil)
 	p.SetParseCache(cache)
 
-	key := ParseCacheKey("owner-1", "uf-1", ParseConfigHash(ctx, p.siteConfigReader))
+	key := ParseCacheKey("owner-1", "uf-1", ParseConfigHash(ctx, p.siteConfigReader, "builtin"))
 	if err := cache.Put(ctx, key, &parser.ParseResult{Text: cachedMarker}); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestProcessFile_ParseCacheHitUsesCachedText(t *testing.T) {
 // A miss parses and then writes the cache entry.
 func TestProcessFile_ParseCacheMissWritesEntry(t *testing.T) {
 	ctx := context.Background()
-	cache := NewParseCache(newTestStorage(t))
+	cache := NewParseCache(newTestStorage(t), "builtin")
 	store := &mockStore{}
 	p := newScreeningProcessor(store, nil)
 	p.SetParseCache(cache)
@@ -143,7 +143,7 @@ func TestProcessFile_ParseCacheMissWritesEntry(t *testing.T) {
 	if out.ParseCacheHit {
 		t.Error("first run must not be a hit")
 	}
-	key := ParseCacheKey("owner-1", "uf-2", ParseConfigHash(ctx, p.siteConfigReader))
+	key := ParseCacheKey("owner-1", "uf-2", ParseConfigHash(ctx, p.siteConfigReader, "builtin"))
 	got, ok, err := cache.Get(ctx, key)
 	if err != nil || !ok || !strings.Contains(got.Text, "real parser text") {
 		t.Fatalf("cache not written: ok=%v err=%v got=%+v", ok, err, got)
@@ -153,11 +153,11 @@ func TestProcessFile_ParseCacheMissWritesEntry(t *testing.T) {
 // Without a UserFileID the cache is never consulted or written.
 func TestProcessFile_NoUserFileIDNeverTouchesCache(t *testing.T) {
 	ctx := context.Background()
-	cache := NewParseCache(newTestStorage(t))
+	cache := NewParseCache(newTestStorage(t), "builtin")
 	store := &mockStore{origins: map[string]string{"f-plain": "rss"}}
 	p := newScreeningProcessor(store, nil)
 	p.SetParseCache(cache)
-	key := ParseCacheKey("owner-1", "uf-1", ParseConfigHash(ctx, p.siteConfigReader))
+	key := ParseCacheKey("owner-1", "uf-1", ParseConfigHash(ctx, p.siteConfigReader, "builtin"))
 	if err := cache.Put(ctx, key, &parser.ParseResult{Text: cachedMarker}); err != nil {
 		t.Fatal(err)
 	}

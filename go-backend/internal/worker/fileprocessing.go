@@ -46,6 +46,11 @@ func invalidateKBQueryCache(ctx context.Context, qc QueryCacheInvalidator, kbID,
 	}
 }
 
+// fileProcessor is the part of *processor.Processor the handler calls.
+type fileProcessor interface {
+	ProcessFileWithResult(ctx context.Context, in processor.ProcessFileInput) (processor.ProcessOutcome, error)
+}
+
 // OwnerLookup resolves the owner of a user-library file. The worker uses it to
 // key the parse cache; a failed lookup just disables the cache for the task.
 type OwnerLookup interface {
@@ -65,7 +70,7 @@ func NewFileProcessingHandler(proc *processor.Processor, kbStore KBChunkConfigSt
 
 // NewFileProcessingHandlerWithOwners is NewFileProcessingHandler plus the
 // owner lookup that enables the library parse cache. owners may be nil.
-func NewFileProcessingHandlerWithOwners(proc *processor.Processor, kbStore KBChunkConfigStore, queryCache QueryCacheInvalidator, owners OwnerLookup, stor ...storage.Storage) asynq.HandlerFunc {
+func NewFileProcessingHandlerWithOwners(proc fileProcessor, kbStore KBChunkConfigStore, queryCache QueryCacheInvalidator, owners OwnerLookup, stor ...storage.Storage) asynq.HandlerFunc {
 	var storageBackend storage.Storage
 	if len(stor) > 0 {
 		storageBackend = stor[0]

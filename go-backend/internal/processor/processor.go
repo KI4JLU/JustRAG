@@ -937,7 +937,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		var parseErr error
 		cacheKey := ""
 		if in.UserFileID != "" && in.OwnerUserID != "" && p.parseCache != nil && parseCacheable(mimeType, fileName) {
-			cacheKey = ParseCacheKey(in.OwnerUserID, in.UserFileID, ParseConfigHash(ctx, p.siteConfigReader))
+			cacheKey = ParseCacheKey(in.OwnerUserID, in.UserFileID, ParseConfigHash(ctx, p.siteConfigReader, p.parseCache.Identity()))
 			if cached, ok, gerr := p.parseCache.Get(ctx, cacheKey); gerr != nil {
 				logctx.From(ctx).Warn("processor: parse cache read failed; parsing normally", "fileId", fileID, "error", gerr)
 			} else if ok {
@@ -957,7 +957,9 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 				_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
 				return fmt.Errorf("processor: parse file: %w", parseErr)
 			}
-			if cacheKey != "" && result != nil {
+			// A degraded (fallback) parse is used for this ingest but never
+			// cached under the preferred parser's configuration.
+			if cacheKey != "" && result != nil && !result.Degraded {
 				if perr := p.parseCache.Put(ctx, cacheKey, result); perr != nil {
 					logctx.From(ctx).Warn("processor: parse cache write failed", "fileId", fileID, "error", perr)
 				}

@@ -21,11 +21,12 @@ import (
 const parseCacheVersion = 1
 
 // parseConfigKeys are the global site_config keys that influence a document
-// parse: docling's on/off switch and every docling_* option read per request
-// (readDoclingOptions in internal/app/worker.go). describe_image_model is
+// parse: every docling_* option read per request (readDoclingOptions in
+// internal/app/worker.go). docling_enabled is deliberately absent: the parser
+// chain is built once at startup, so it is covered by the startup-snapshot
+// parserIdentity instead. describe_image_model is
 // resolved separately through the fast-tier chain.
 var parseConfigKeys = []string{
-	"docling_enabled",
 	"docling_picture_description_enabled",
 	"docling_picture_description_prompt",
 	"docling_picture_description_timeout_seconds",
@@ -39,10 +40,27 @@ var parseConfigKeys = []string{
 
 // ParseCache stores serialized parser.ParseResult objects in object storage
 // (P2-R1: existence of the object is the cache check; no table).
-type ParseCache struct{ stor storage.Storage }
+type ParseCache struct {
+	stor storage.Storage
+	// identity describes the parser chain as built at worker startup, e.g.
+	// "docling:<base_url>" or "builtin". The chain is fixed for the process
+	// lifetime, so it is snapshotted rather than read live from site_config.
+	identity string
+}
 
-// NewParseCache wraps stor.
-func NewParseCache(stor storage.Storage) *ParseCache { return &ParseCache{stor: stor} }
+// NewParseCache wraps stor. parserIdentity must reflect the parser chain
+// actually installed at startup ("docling:<base_url>" or "builtin").
+func NewParseCache(stor storage.Storage, parserIdentity string) *ParseCache {
+	return &ParseCache{stor: stor, identity: parserIdentity}
+}
+
+// Identity returns the parser-chain identity this cache was built with.
+func (c *ParseCache) Identity() string {
+	if c == nil {
+		return ""
+	}
+	return c.identity
+}
 
 // ParseCacheKey returns users/<ownerID>/parses/<userFileID>/<configHash>.json.
 func ParseCacheKey(ownerID, userFileID, configHash string) string {
@@ -93,9 +111,10 @@ func (c *ParseCache) Put(ctx context.Context, key string, r *parser.ParseResult)
 }
 
 // ParseConfigHash hashes every parse-affecting global setting (P2-R2): the
-// docling_* keys, the resolved describe_image_model and parseCacheVersion.
-// Sorted key=value lines, sha256 hex.
-func ParseConfigHash(ctx context.Context, reader SiteConfigReader) string {
+// docling_* keys, the startup parser identity, the resolved
+// describe_image_model and parseCacheVersion. Sorted key=value lines, sha256
+// hex.
+func ParseConfigHash(ctx context.Context, reader SiteConfigReader, parserIdentity string) string {
 	lines := make([]string, 0, len(parseConfigKeys)+2)
 	for _, k := range parseConfigKeys {
 		v := ""
@@ -111,6 +130,7 @@ func ParseConfigHash(ctx context.Context, reader SiteConfigReader) string {
 		model = chat.DescribeImageModel(ctx, reader)
 	}
 	lines = append(lines, "describe_image_model="+model)
+	lines = append(lines, "parser_identity="+parserIdentity)
 	lines = append(lines, fmt.Sprintf("parse_cache_version=%d", parseCacheVersion))
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
