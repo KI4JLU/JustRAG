@@ -26,6 +26,8 @@ type fakeLibrary struct {
 	known     map[string]*userfiles.UserFile // id -> file (owner implicitly user-1)
 	ingestErr error
 	ingested  *userfiles.UserFile
+	getErr    error // returned by Get for every id when set
+	getUsers  []string
 }
 
 func (f *fakeLibrary) Ingest(_ context.Context, _ string, _ *uploadcheck.Upload) (*userfiles.UserFile, bool, error) {
@@ -35,7 +37,11 @@ func (f *fakeLibrary) Ingest(_ context.Context, _ string, _ *uploadcheck.Upload)
 	return f.ingested, true, nil
 }
 
-func (f *fakeLibrary) Get(_ context.Context, _, id string) (*userfiles.UserFile, error) {
+func (f *fakeLibrary) Get(_ context.Context, userID, id string) (*userfiles.UserFile, error) {
+	f.getUsers = append(f.getUsers, userID)
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	if uf, ok := f.known[id]; ok {
 		return uf, nil
 	}

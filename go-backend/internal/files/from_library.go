@@ -185,79 +185,28 @@ func (h *Handler) AddFromLibrary(w http.ResponseWriter, r *http.Request) {
 		kbIsGlobal = access.KB.IsGlobal
 	}
 
-	limits, err := h.store.GetKBFileLimits(ctx, kbID)
-	if err != nil || limits == nil {
-		logctx.From(ctx).Error("from-library: failed to check KB limits", "kbId", kbID, "error", err)
-		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Failed to check KB limits")
+	results, err := h.AddLibraryFiles(ctx, user.ID, kbID, kbIsGlobal, req.UserFileIDs)
+	if err != nil {
+		msg := "Internal Server Error"
+		var ae *libraryAddError
+		if errors.As(err, &ae) {
+			msg = ae.public
+		}
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, msg)
 		return
 	}
-	// Track the running totals locally so one request cannot overshoot the caps.
-	running := *limits
 
 	added := []fromLibraryAdded{}
 	skipped := []fromLibrarySkipped{}
-	skip := func(id, reason string) { skipped = append(skipped, fromLibrarySkipped{UserFileID: id, Reason: reason}) }
-
-	for _, id := range req.UserFileIDs {
-		uf, err := h.library.Get(ctx, user.ID, id)
-		if errors.Is(err, userfiles.ErrNotFound) {
-			skip(id, skipNotFound)
-			continue
+	for _, res := range results {
+		switch res.Status {
+		case AddStatusAdded:
+			added = append(added, fromLibraryAdded{FileID: res.FileID, UserFileID: res.UserFileID})
+		case AddStatusDuplicate:
+			skipped = append(skipped, fromLibrarySkipped{UserFileID: res.UserFileID, Reason: skipAlreadyInKB})
+		default:
+			skipped = append(skipped, fromLibrarySkipped{UserFileID: res.UserFileID, Reason: res.Error})
 		}
-		if err != nil {
-			logctx.From(ctx).Error("from-library: library get failed", "error", err)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-
-		existing, err := h.store.GetKBCopy(ctx, kbID, uf.ID)
-		if err != nil {
-			logctx.From(ctx).Error("from-library: GetKBCopy failed", "kbId", kbID, "error", err)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-		if existing != "" {
-			skip(id, skipAlreadyInKB)
-			continue
-		}
-		if kbFileLimitReached(&running, kbIsGlobal, uf.Size) {
-			skip(id, skipKBFull)
-			continue
-		}
-
-		fileType := uf.Mime
-		if len(fileType) > filesTypeMaxBytes {
-			fileType = "application/octet-stream"
-		}
-		rec, err := h.store.CreateFile(ctx, CreateFileData{
-			KbID:        kbID,
-			UploadedBy:  user.ID,
-			Name:        uf.Name,
-			Type:        fileType,
-			Size:        int(uf.Size),
-			Origin:      "upload",
-			StoragePath: uf.StoragePath,
-			UserFileID:  uf.ID,
-		})
-		if err != nil {
-			if pgxutil.IsUniqueViolation(err) {
-				skip(id, skipAlreadyInKB)
-				continue
-			}
-			logctx.From(ctx).Error("from-library: create file record failed", "kbId", kbID, "error", err)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Failed to create file record")
-			return
-		}
-
-		if err := h.enqueueFileProcessing(rec, kbID, uf.StoragePath, uf.Name, fileType, uf.ID); err != nil {
-			logctx.From(ctx).Error("failed to enqueue file processing job", "fileId", rec.ID, "error", err)
-			h.removeLibraryBackedRow(ctx, rec.ID)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to queue file for processing")
-			return
-		}
-		running.FileCount++
-		running.TotalSize += uf.Size
-		added = append(added, fromLibraryAdded{FileID: rec.ID, UserFileID: uf.ID})
 	}
 
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"added": added, "skipped": skipped})
