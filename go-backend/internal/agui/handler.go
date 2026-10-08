@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -38,6 +39,10 @@ type Config struct {
 	Sessions session.Service
 	Runs     *adkbridge.RunStore
 	Scope    ScopeFunc
+	// Hooks, when set, owns thread identity and persistence: every threadId
+	// is resolved through it (Scope.ChatID becomes the resolved id) and each
+	// started run is reported to it. Nil keeps threads as bare session ids.
+	Hooks TurnHooks
 }
 
 type handler struct{ cfg Config }
@@ -51,7 +56,10 @@ type handler struct{ cfg Config }
 // there); 409 interrupt_expired, interrupt_mismatch, thread_kb_mismatch (a
 // new message on a thread whose first run was in another KB), or
 // thread_has_open_interrupt (a new message on a thread with an open
-// interrupt). Otherwise 200 SSE. Error text from the
+// interrupt). With Hooks, a threadId the caller may not use is 404
+// thread_not_found before anything is read or written, and a resume
+// requires a threadId even before the hook runs. Otherwise 200 SSE. Error
+// text from the
 // model provider or the database never reaches the client.
 func NewHandler(cfg Config) http.Handler { return &handler{cfg: cfg} }
 
@@ -91,6 +99,40 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := adkbridge.WithScope(r.Context(), sc)
 
 	resuming := len(in.Resume) > 0
+	var userText string
+	if h.cfg.Hooks != nil {
+		// The thread is resolved before every thread-keyed step, and nothing
+		// is created for a request that cannot run.
+		if resuming {
+			if in.ThreadID == "" {
+				httpError(w, http.StatusBadRequest, "resume_requires_thread")
+				return
+			}
+		} else {
+			m, err := Input(ctx, &in, nil)
+			if err != nil {
+				httpError(w, http.StatusBadRequest, "no_input")
+				return
+			}
+			userText = contentText(m)
+		}
+		tid, err := h.cfg.Hooks.ResolveThread(ctx, sc, in.ThreadID, userText)
+		switch {
+		case errors.Is(err, ErrThreadNotFound):
+			httpError(w, http.StatusNotFound, "thread_not_found")
+			return
+		case err == nil && tid == "":
+			err = errors.New("agui: hooks resolved an empty thread id")
+			fallthrough
+		case err != nil:
+			slog.ErrorContext(ctx, "agui: resolve thread", "app", h.cfg.AppName, "error", err)
+			httpError(w, http.StatusInternalServerError, "internal_error")
+			return
+		}
+		in.ThreadID = tid
+		sc.ChatID = tid
+		ctx = adkbridge.WithScope(r.Context(), sc)
+	}
 	var msg *genai.Content
 	if resuming {
 		var ref *refusal
@@ -147,16 +189,58 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "internal_error")
 		return
 	}
+	if h.cfg.Hooks != nil {
+		if err := h.cfg.Hooks.TurnStarted(ctx, sc, in.ThreadID, in.RunID, userText); err != nil {
+			slog.ErrorContext(ctx, "agui: turn started", "app", h.cfg.AppName, "run_id", in.RunID, "error", err)
+			h.failBeforeStream(ctx, sc, &in, "turn started: "+err.Error())
+			httpError(w, http.StatusInternalServerError, "internal_error")
+			return
+		}
+	}
 	if resuming {
 		if ref := h.claim(ctx, sc, &in); ref != nil {
-			if err := h.cfg.Runs.Finish(context.WithoutCancel(ctx), in.RunID, adkbridge.RunFailed, "resume refused"); err != nil {
-				slog.ErrorContext(ctx, "agui: finish refused resume", "app", h.cfg.AppName, "run_id", in.RunID, "error", err)
-			}
+			h.failBeforeStream(ctx, sc, &in, "resume refused")
 			httpError(w, ref.code, ref.msg)
 			return
 		}
 	}
-	h.stream(ctx, w, &in, sc.UserID, msg)
+	h.stream(ctx, w, &in, sc, msg)
+}
+
+// failBeforeStream ends a started run that never reached the stream.
+func (h *handler) failBeforeStream(ctx context.Context, sc adkbridge.Scope, in *types.RunAgentInput, detail string) {
+	bg := context.WithoutCancel(ctx)
+	if err := h.cfg.Runs.Finish(bg, in.RunID, adkbridge.RunFailed, detail); err != nil {
+		slog.ErrorContext(ctx, "agui: finish run before stream", "app", h.cfg.AppName, "run_id", in.RunID, "error", err)
+	}
+	h.turnFinished(bg, sc, in.ThreadID, TurnOutput{RunID: in.RunID, Status: adkbridge.RunFailed})
+}
+
+// turnFinished reports a run's end to the hooks and returns the events they
+// want shown before RUN_FINISHED. A hook error is logged, never surfaced:
+// the run row has already reached its end state.
+func (h *handler) turnFinished(ctx context.Context, sc adkbridge.Scope, threadID string, out TurnOutput) []events.Event {
+	if h.cfg.Hooks == nil {
+		return nil
+	}
+	evs, err := h.cfg.Hooks.TurnFinished(ctx, sc, threadID, out)
+	if err != nil {
+		slog.ErrorContext(ctx, "agui: turn finished", "app", h.cfg.AppName, "run_id", out.RunID,
+			"status", out.Status, "error", err)
+		return nil
+	}
+	return evs
+}
+
+// contentText joins the text parts of a user message.
+func contentText(c *genai.Content) string {
+	var b strings.Builder
+	for _, p := range c.Parts {
+		if p != nil {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 // refusal is an HTTP error answered before the stream starts.
@@ -246,15 +330,27 @@ func (h *handler) start(ctx context.Context, in *types.RunAgentInput, sc adkbrid
 // stream runs the agent and writes AG-UI events. The run row reaches exactly
 // one end state — completed, interrupted, failed or cancelled — on every
 // path, through a context that survives a client disconnect.
-func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.RunAgentInput, userID string, msg *genai.Content) {
+func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.RunAgentInput, sc adkbridge.Scope, msg *genai.Content) {
 	bg := context.WithoutCancel(ctx)
 	log := slog.With("app", h.cfg.AppName, "run_id", in.RunID, "thread_id", in.ThreadID)
+	var tr *Translator
+	// ended reports the run's end state to the hooks exactly once; its
+	// events are shown before RUN_FINISHED on the paths that write one.
+	var hookEvents []events.Event
+	ended := func(st adkbridge.RunStatus) {
+		out := TurnOutput{RunID: in.RunID, Status: st}
+		if tr != nil {
+			out.Text, out.Reasoning, out.Custom = tr.Output()
+		}
+		hookEvents = h.turnFinished(bg, sc, in.ThreadID, out)
+	}
 	settled := false
 	finish := func(st adkbridge.RunStatus, detail string) {
 		settled = true
 		if err := h.cfg.Runs.Finish(bg, in.RunID, st, detail); err != nil {
 			log.ErrorContext(bg, "agui: finish run", "status", st, "error", err)
 		}
+		ended(st)
 	}
 	defer func() {
 		// A panic (re-raised to net/http after this) must not leave the row running.
@@ -275,7 +371,7 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 		finish(adkbridge.RunCancelled, "")
 		return
 	}
-	for ev, err := range h.cfg.Runner.Run(ctx, userID, in.ThreadID, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+	for ev, err := range h.cfg.Runner.Run(ctx, sc.UserID, in.ThreadID, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if ctx.Err() != nil {
 			finish(adkbridge.RunCancelled, "")
 			return
@@ -316,8 +412,16 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 		}
 		settled = true
 		tr.SetInterruptExpiry(expires)
+		// Settled first: the hooks see the final text the client gets, and
+		// their events land after the open step closes.
+		_ = tr.settle()
+		ended(adkbridge.RunInterrupted)
 	} else {
+		_ = tr.settle()
 		finish(adkbridge.RunCompleted, "")
+	}
+	for _, ev := range hookEvents {
+		_ = emit(ev)
 	}
 	_ = tr.Finish()
 }

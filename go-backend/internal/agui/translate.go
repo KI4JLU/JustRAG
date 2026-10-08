@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -27,6 +28,17 @@ import (
 // call: {"toolCallId": "...", "chunks": [...]} — chunks are mcp.ResultChunk
 // JSON. Documented in docs/api-contracts/agent-chat.md (Phase 2).
 const SourcesEvent = "justrag.sources.v1"
+
+// customKey is the ADK event CustomMetadata key a node or callback sets to
+// emit generic AG-UI CUSTOM events; build its value with CustomMetadata.
+const customKey = "agui.custom"
+
+// CustomMetadata returns ADK event CustomMetadata that the Translator emits
+// as CUSTOM(name, value). Several events on one ADK event: set the
+// "agui.custom" key to a slice of {"name", "value"} maps.
+func CustomMetadata(name string, value any) map[string]any {
+	return map[string]any{customKey: map[string]any{"name": name, "value": value}}
+}
 
 // ErrResumeNeedsThread: a resume must name the thread it continues.
 var ErrResumeNeedsThread = errors.New("agui: resume requires threadId")
@@ -60,6 +72,18 @@ type Translator struct {
 	lastOutput string
 	// expiresAt, when set, is stamped on every interrupt in RUN_FINISHED.
 	expiresAt string
+
+	// What the client received this run, for Output.
+	outText      strings.Builder
+	outReasoning strings.Builder
+	custom       map[string]any
+}
+
+// Output returns what the client received so far: the assistant text
+// (separate messages joined by a blank line), the reasoning, and the last
+// value of each CUSTOM event by name.
+func (t *Translator) Output() (text, reasoning string, custom map[string]any) {
+	return t.outText.String(), t.outReasoning.String(), maps.Clone(t.custom)
 }
 
 // SetInterruptExpiry records when this run's interrupts stop being
@@ -80,6 +104,9 @@ func (t *Translator) Event(ev *session.Event) error {
 		return nil
 	}
 	if err := t.stepFor(ev); err != nil {
+		return err
+	}
+	if err := t.customFrom(ev.CustomMetadata); err != nil {
 		return err
 	}
 	if ev.RequestedInput != nil {
@@ -124,12 +151,28 @@ func (t *Translator) Event(ev *session.Event) error {
 	return nil
 }
 
-// Finish ends the run: success, or interrupt when the run paused.
-func (t *Translator) Finish() error {
+// settle closes open messages and the step and, when the run did not
+// pause, emits the workflow's final output as text. Idempotent; Finish calls
+// it, and the handler calls it first so Output is complete before the turn
+// is handed to TurnFinished.
+func (t *Translator) settle() error {
 	if err := t.closeAll(); err != nil {
 		return err
 	}
 	if err := t.endStep(); err != nil {
+		return err
+	}
+	if len(t.interrupts) == 0 && t.lastOutput != "" {
+		s := t.lastOutput
+		t.lastOutput = ""
+		return t.wholeText(s)
+	}
+	return nil
+}
+
+// Finish ends the run: success, or interrupt when the run paused.
+func (t *Translator) Finish() error {
+	if err := t.settle(); err != nil {
 		return err
 	}
 	opt := events.WithSuccessOutcome()
@@ -141,12 +184,50 @@ func (t *Translator) Finish() error {
 			}
 		}
 		opt = events.WithInterruptOutcome(out)
-	} else if t.lastOutput != "" {
-		if err := t.wholeText(t.lastOutput); err != nil {
+	}
+	return t.emit(events.NewRunFinishedEventWithOptions(t.threadID, t.runID, opt))
+}
+
+// emitCustom emits CUSTOM(name, value) and remembers it for Output.
+func (t *Translator) emitCustom(name string, value any) error {
+	if t.custom == nil {
+		t.custom = map[string]any{}
+	}
+	t.custom[name] = value
+	return t.emit(events.NewCustomEvent(name, events.WithValue(value)))
+}
+
+// customFrom emits the generic CUSTOM events an ADK event carries under
+// CustomMetadata["agui.custom"]: one {"name", "value"} map or a slice of
+// them. Entries without a name are ignored.
+func (t *Translator) customFrom(md map[string]any) error {
+	raw, ok := md[customKey]
+	if !ok {
+		return nil
+	}
+	var entries []map[string]any
+	switch v := raw.(type) {
+	case map[string]any:
+		entries = []map[string]any{v}
+	case []map[string]any:
+		entries = v
+	case []any:
+		for _, e := range v {
+			if m, ok := e.(map[string]any); ok {
+				entries = append(entries, m)
+			}
+		}
+	}
+	for _, e := range entries {
+		name, _ := e["name"].(string)
+		if name == "" {
+			continue
+		}
+		if err := t.emitCustom(name, e["value"]); err != nil {
 			return err
 		}
 	}
-	return t.emit(events.NewRunFinishedEventWithOptions(t.threadID, t.runID, opt))
+	return nil
 }
 
 // Fail ends the run with RUN_ERROR.
@@ -189,6 +270,7 @@ func (t *Translator) reasoning(delta string) error {
 			return err
 		}
 	}
+	t.outReasoning.WriteString(delta)
 	return t.emit(events.NewReasoningMessageContentEvent(t.reasoningID, delta))
 }
 
@@ -215,6 +297,9 @@ func (t *Translator) text(s string, partial bool) error {
 	}
 	if t.textID == "" {
 		t.textID = uuid.NewString()
+		if t.outText.Len() > 0 {
+			t.outText.WriteString("\n\n")
+		}
 		if err := t.emit(events.NewTextMessageStartEvent(t.textID, events.WithRole("assistant"))); err != nil {
 			return err
 		}
@@ -222,6 +307,7 @@ func (t *Translator) text(s string, partial bool) error {
 	if partial {
 		t.streamed = true
 	}
+	t.outText.WriteString(s)
 	return t.emit(events.NewTextMessageContentEvent(t.textID, s))
 }
 
@@ -295,9 +381,7 @@ func (t *Translator) result(fr *genai.FunctionResponse) error {
 		return err
 	}
 	if chunks, ok := fr.Response["chunks"]; ok {
-		return t.emit(events.NewCustomEvent(SourcesEvent, events.WithValue(map[string]any{
-			"toolCallId": fr.ID, "chunks": chunks,
-		})))
+		return t.emitCustom(SourcesEvent, map[string]any{"toolCallId": fr.ID, "chunks": chunks})
 	}
 	return nil
 }

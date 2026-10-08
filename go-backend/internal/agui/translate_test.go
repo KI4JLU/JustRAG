@@ -221,3 +221,83 @@ func TestFinishStampsInterruptExpiry(t *testing.T) {
 		t.Fatalf("finish = %s", b)
 	}
 }
+
+func TestCustomMetadataBecomesCustomEvent(t *testing.T) {
+	tr, got := record(t)
+	val := []any{map[string]any{"id": "ch1"}}
+	ev := &session.Event{LLMResponse: model.LLMResponse{CustomMetadata: CustomMetadata("justrag.sources.v1", val)}}
+	if err := tr.Event(ev); err != nil {
+		t.Fatal(err)
+	}
+	var customs []events.Event
+	for _, e := range *got {
+		if e.Type() == events.EventTypeCustom {
+			customs = append(customs, e)
+		}
+	}
+	if len(customs) != 1 {
+		t.Fatalf("custom events = %d (%s)", len(customs), typesOf(*got))
+	}
+	b, _ := json.Marshal(customs[0])
+	if !strings.Contains(string(b), `"name":"justrag.sources.v1"`) || !strings.Contains(string(b), `"value":[{"id":"ch1"}]`) {
+		t.Fatalf("custom = %s", b)
+	}
+	_, _, custom := tr.Output()
+	if v, ok := custom["justrag.sources.v1"].([]any); !ok || len(v) != 1 {
+		t.Fatalf("Output custom = %#v", custom)
+	}
+}
+
+func TestCustomMetadataSliceAndLastValueWins(t *testing.T) {
+	tr, got := record(t)
+	md := map[string]any{"agui.custom": []map[string]any{
+		{"name": "a", "value": 1}, {"name": "b", "value": "x"}}}
+	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{CustomMetadata: md}})
+	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{CustomMetadata: CustomMetadata("a", 2)}})
+	if n := strings.Count(typesOf(*got), "CUSTOM"); n != 3 {
+		t.Fatalf("custom events = %d", n)
+	}
+	_, _, custom := tr.Output()
+	if custom["a"] != 2 || custom["b"] != "x" {
+		t.Fatalf("custom = %#v", custom)
+	}
+}
+
+func TestOutputAccumulatesText(t *testing.T) {
+	tr, _ := record(t)
+	for _, ev := range []*session.Event{textEvent("Hal", true), textEvent("lo", true), textEvent("Hallo", false),
+		textEvent("Welt", false)} {
+		if err := tr.Event(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	thought := &session.Event{LLMResponse: model.LLMResponse{Partial: true,
+		Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "hm", Thought: true}}}}}
+	_ = tr.Event(thought)
+	text, reasoning, _ := tr.Output()
+	// Separate assistant messages (e.g. before and after a tool call) are
+	// joined by a blank line.
+	if text != "Hallo\n\nWelt" || reasoning != "hm" {
+		t.Fatalf("text=%q reasoning=%q", text, reasoning)
+	}
+}
+
+// A workflow's final node output reaches the client as text at settle time,
+// so Output reports it before RUN_FINISHED is written.
+func TestOutputIncludesFinalNodeOutputAfterSettle(t *testing.T) {
+	tr, got := record(t)
+	_ = tr.Event(&session.Event{Output: "Ergebnis"})
+	if err := tr.settle(); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := tr.Output(); text != "Ergebnis" {
+		t.Fatalf("text = %q", text)
+	}
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	want := "RUN_STARTED,TEXT_MESSAGE_START,TEXT_MESSAGE_CONTENT,TEXT_MESSAGE_END,RUN_FINISHED"
+	if typesOf(*got) != want {
+		t.Fatalf("got %s", typesOf(*got))
+	}
+}

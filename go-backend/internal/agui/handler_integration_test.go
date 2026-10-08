@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -224,6 +225,7 @@ type fixture struct {
 	pool         *pgxpool.Pool
 	imports      *atomic.Int64
 	userA, userB string
+	searchArgs   atomic.Value // json.RawMessage of the latest kb_search dispatch
 }
 
 func newFixture(t *testing.T, turns ...fakeTurn) *fixture {
@@ -232,13 +234,19 @@ func newFixture(t *testing.T, turns ...fakeTurn) *fixture {
 
 func newFixtureTTL(t *testing.T, ttl time.Duration, turns ...fakeTurn) *fixture {
 	t.Helper()
+	return newFixtureHooks(t, ttl, nil, turns...)
+}
+
+func newFixtureHooks(t *testing.T, ttl time.Duration, hooks TurnHooks, turns ...fakeTurn) *fixture {
+	t.Helper()
 	pool := isolatedPool(t, "0082_adk_sessions.sql", "0083_agent_runs.sql")
 	f := &fixture{pool: pool, imports: new(atomic.Int64), userA: seedUser(t, pool), userB: seedUser(t, pool)}
 
 	search := adkbridge.NewTool(adkbridge.ToolSpec{Name: "kb_search", Description: "search",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
 		Policy:      adkbridge.PolicyFor("kb_search")},
-		func(context.Context, string, string, json.RawMessage) (mcp.ToolResult, error) {
+		func(_ context.Context, _ string, _ string, args json.RawMessage) (mcp.ToolResult, error) {
+			f.searchArgs.Store(args)
 			return mcp.ToolResult{Text: "Treffer [1]"}, nil
 		})
 	imp := adkbridge.NewTool(adkbridge.ToolSpec{Name: "confluence_import", Description: "import",
@@ -268,6 +276,7 @@ func newFixtureTTL(t *testing.T, ttl time.Duration, turns ...fakeTurn) *fixture 
 		Runner:   r,
 		Sessions: sessions,
 		Runs:     f.runs,
+		Hooks:    hooks,
 		Scope: func(r *http.Request) (adkbridge.Scope, error) {
 			u := r.Header.Get("X-Test-User")
 			if u == "" {
@@ -650,5 +659,260 @@ func TestNewMessageFromOtherKBIs409(t *testing.T) {
 	var n int
 	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM agent_runs WHERE thread_id='t2'`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("refused messages wrote rows: n=%d err=%v", n, err)
+	}
+}
+
+// ---- turn hooks ----
+
+type hookCall struct {
+	name, threadID, runID, text string
+	chatID                      string // Scope.ChatID the hook saw
+	status                      adkbridge.RunStatus
+	ctxErr                      error // ctx.Err() TurnFinished saw
+}
+
+// fakeHooks maps "" to "t-new", refuses "other" and "other-kb" with
+// ErrThreadNotFound and accepts every other id as-is.
+type fakeHooks struct {
+	mu    sync.Mutex
+	calls []hookCall
+	// startErr, when set, is returned by TurnStarted.
+	startErr error
+}
+
+func (h *fakeHooks) add(c hookCall) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, c)
+}
+
+func (h *fakeHooks) snapshot() []hookCall {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]hookCall(nil), h.calls...)
+}
+
+func (h *fakeHooks) ResolveThread(_ context.Context, sc adkbridge.Scope, threadID, first string) (string, error) {
+	h.add(hookCall{name: "resolve", threadID: threadID, text: first, chatID: sc.ChatID})
+	switch threadID {
+	case "":
+		return "t-new", nil
+	case "other", "other-kb":
+		return "", ErrThreadNotFound
+	}
+	return threadID, nil
+}
+
+func (h *fakeHooks) TurnStarted(_ context.Context, sc adkbridge.Scope, threadID, runID, userText string) error {
+	h.add(hookCall{name: "started", threadID: threadID, runID: runID, text: userText, chatID: sc.ChatID})
+	return h.startErr
+}
+
+func (h *fakeHooks) TurnFinished(ctx context.Context, sc adkbridge.Scope, threadID string, out TurnOutput) ([]events.Event, error) {
+	h.add(hookCall{name: "finished", threadID: threadID, runID: out.RunID, text: out.Text, chatID: sc.ChatID,
+		status: out.Status, ctxErr: ctx.Err()})
+	return []events.Event{events.NewCustomEvent("justrag.message.v1", events.WithValue(map[string]any{"id": "msg-1"}))}, nil
+}
+
+func countRuns(t *testing.T, f *fixture) int {
+	t.Helper()
+	var n int
+	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM agent_runs`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestThreadOfOtherUserIs404(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, textTurn("x"))
+	code, _ := post(t, f, f.userA, userMsg("other", "Frage"))
+	if code != 404 || !strings.Contains(lastBody, `"thread_not_found"`) {
+		t.Fatalf("code=%d body=%s", code, lastBody)
+	}
+	if n := countRuns(t, f); n != 0 {
+		t.Fatalf("runs = %d", n)
+	}
+	if c := h.snapshot(); len(c) != 1 || c[0].name != "resolve" {
+		t.Fatalf("calls = %+v", c)
+	}
+}
+
+func TestThreadOfOtherKBIs404(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, textTurn("x"))
+	code, _ := postKB(t, f, f.userA, seedKB(t, f.pool), userMsg("other-kb", "Frage"))
+	if code != 404 || !strings.Contains(lastBody, `"thread_not_found"`) {
+		t.Fatalf("code=%d body=%s", code, lastBody)
+	}
+	if n := countRuns(t, f); n != 0 {
+		t.Fatalf("runs = %d", n)
+	}
+}
+
+// A resume is resolved too: a thread the caller may not use is 404 before
+// any session or interrupt is looked at.
+func TestResumeOnForeignThreadIs404(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h)
+	code, _ := post(t, f, f.userA, resume("other", "i1", "resolved"))
+	if code != 404 || !strings.Contains(lastBody, `"thread_not_found"`) {
+		t.Fatalf("code=%d body=%s", code, lastBody)
+	}
+	if c := h.snapshot(); len(c) != 1 || c[0].text != "" {
+		t.Fatalf("calls = %+v", c)
+	}
+}
+
+func TestResumeWithHooksRequiresThread(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h)
+	code, _ := post(t, f, f.userA, resume("", "i1", "resolved"))
+	if code != 400 || !strings.Contains(lastBody, `"resume_requires_thread"`) || len(h.snapshot()) != 0 {
+		t.Fatalf("code=%d body=%s calls=%+v", code, lastBody, h.snapshot())
+	}
+}
+
+// No thread is created for a request that carries nothing to run.
+func TestNoInputDoesNotResolveThread(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h)
+	code, _ := post(t, f, f.userA, map[string]any{"threadId": "", "runId": uuid.NewString(), "messages": []map[string]any{}})
+	if code != 400 || len(h.snapshot()) != 0 {
+		t.Fatalf("code=%d calls=%+v", code, h.snapshot())
+	}
+}
+
+func TestHooksCalledOnceInOrder(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, toolTurn("c1", "kb_search", `{"query":"q"}`), textTurn("Antwort"))
+	code, evs := post(t, f, f.userA, userMsg("", "Frage"))
+	if code != 200 || last(evs)["type"] != "RUN_FINISHED" {
+		t.Fatalf("code=%d last=%v", code, last(evs))
+	}
+	if evs[0]["type"] != "RUN_STARTED" || evs[0]["threadId"] != "t-new" || last(evs)["threadId"] != "t-new" {
+		t.Fatalf("thread ids: %v / %v", evs[0], last(evs))
+	}
+	// The hook's events come right before RUN_FINISHED.
+	if pen := evs[len(evs)-2]; pen["type"] != "CUSTOM" || pen["name"] != "justrag.message.v1" {
+		t.Fatalf("penultimate = %v", pen)
+	}
+	c := h.snapshot()
+	if len(c) != 3 || c[0].name != "resolve" || c[1].name != "started" || c[2].name != "finished" {
+		t.Fatalf("calls = %+v", c)
+	}
+	runID, _ := evs[0]["runId"].(string)
+	if c[0].threadID != "" || c[0].text != "Frage" {
+		t.Fatalf("resolve = %+v", c[0])
+	}
+	if c[1].threadID != "t-new" || c[1].runID != runID || c[1].text != "Frage" || c[1].chatID != "t-new" {
+		t.Fatalf("started = %+v", c[1])
+	}
+	if c[2].threadID != "t-new" || c[2].runID != runID || c[2].status != adkbridge.RunCompleted || c[2].text != "Antwort" {
+		t.Fatalf("finished = %+v", c[2])
+	}
+	if status(t, f, "t-new") != "completed" {
+		t.Fatal("run row not keyed by the resolved thread")
+	}
+}
+
+func TestTurnFinishedOnDisconnect(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, slowTextTurn(200))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+	postCtx(ctx, t, f, f.userA, userMsg("", "lang"))
+	waitFor(t, func() bool {
+		c := h.snapshot()
+		return len(c) == 3 && c[2].name == "finished"
+	})
+	c := h.snapshot()[2]
+	if c.status != adkbridge.RunCancelled || c.ctxErr != nil {
+		t.Fatalf("finished = %+v", c)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(h.snapshot()); n != 3 {
+		t.Fatalf("calls = %d, want 3", n)
+	}
+}
+
+func TestTurnFinishedOnInterruptAndResume(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`), textTurn("Import läuft"))
+	_, evs := post(t, f, f.userA, userMsg("", "Importiere HRZ"))
+	in := interrupts(last(evs))
+	if len(in) != 1 {
+		t.Fatalf("last = %v", last(evs))
+	}
+	if pen := evs[len(evs)-2]; pen["type"] != "CUSTOM" {
+		t.Fatalf("hook events missing before interrupt RUN_FINISHED: %v", pen)
+	}
+	c := h.snapshot()
+	if len(c) != 3 || c[2].status != adkbridge.RunInterrupted {
+		t.Fatalf("calls = %+v", c)
+	}
+	id, _ := in[0]["id"].(string)
+	code, evs := post(t, f, f.userA, resume("t-new", id, "resolved"))
+	if code != 200 || f.imports.Load() != 1 || last(evs)["type"] != "RUN_FINISHED" {
+		t.Fatalf("code=%d imports=%d last=%v", code, f.imports.Load(), last(evs))
+	}
+	c = h.snapshot()
+	if len(c) != 6 || c[3].name != "resolve" || c[3].threadID != "t-new" || c[3].text != "" ||
+		c[4].name != "started" || c[4].text != "" || c[5].status != adkbridge.RunCompleted {
+		t.Fatalf("calls = %+v", c)
+	}
+}
+
+func TestRefusedResumeCallsTurnFinishedFailed(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`), textTurn("ok"))
+	_, evs := post(t, f, f.userA, userMsg("", "Importiere HRZ"))
+	in := interrupts(last(evs))
+	if len(in) != 1 {
+		t.Fatalf("last = %v", last(evs))
+	}
+	id, _ := in[0]["id"].(string)
+	// The interrupt is open in this user's session but was recorded in the
+	// default KB: claiming it from another KB is refused after Start.
+	code, _ := postKB(t, f, f.userA, seedKB(t, f.pool), resume("t-new", id, "resolved"))
+	if code != 404 {
+		t.Fatalf("code = %d body=%s", code, lastBody)
+	}
+	c := h.snapshot()
+	if len(c) != 6 || c[5].name != "finished" || c[5].status != adkbridge.RunFailed {
+		t.Fatalf("calls = %+v", c)
+	}
+}
+
+func TestTurnStartedFailureFailsRun(t *testing.T) {
+	h := &fakeHooks{startErr: errors.New("db down")}
+	f := newFixtureHooks(t, 24*time.Hour, h, textTurn("x"))
+	code, _ := post(t, f, f.userA, userMsg("", "Frage"))
+	if code != 500 || !strings.Contains(lastBody, `"internal_error"`) || strings.Contains(lastBody, "db down") {
+		t.Fatalf("code=%d body=%s", code, lastBody)
+	}
+	if status(t, f, "t-new") != "failed" {
+		t.Fatal("run row not failed")
+	}
+	c := h.snapshot()
+	if len(c) != 3 || c[2].name != "finished" || c[2].status != adkbridge.RunFailed {
+		t.Fatalf("calls = %+v", c)
+	}
+}
+
+func TestScopeChatIDIsResolvedThread(t *testing.T) {
+	h := &fakeHooks{}
+	f := newFixtureHooks(t, 24*time.Hour, h, toolTurn("c1", "kb_search", `{"query":"q","chat_id":"forged"}`), textTurn("Antwort"))
+	if code, _ := post(t, f, f.userA, userMsg("", "Frage")); code != 200 {
+		t.Fatalf("code = %d", code)
+	}
+	raw, _ := f.searchArgs.Load().(json.RawMessage)
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
+		t.Fatalf("args %s: %v", raw, err)
+	}
+	if args["chat_id"] != "t-new" {
+		t.Fatalf("chat_id = %v", args["chat_id"])
 	}
 }
