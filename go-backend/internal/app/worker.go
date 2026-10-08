@@ -55,6 +55,11 @@ import (
 	"github.com/justrag/go-backend/internal/worker"
 )
 
+// The worker reaches CurrentStoragePath through an optional interface; pin the
+// production store to it so dropping the method is a build error, not a
+// silent return to stale payload paths.
+var _ worker.CurrentPathLookup = (*files.PGStore)(nil)
+
 // sttTranscriber adapts ai.ConfigResolver to the parser.Transcriber interface
 // so the audio parser can transcribe files via the configured STT model
 // without parser/ importing internal/ai (which would create a cycle).
