@@ -507,6 +507,11 @@ const ChatViewComp = () => {
                     </PromptInput>
                     {suggestionsEnabled && chat.messages.length === 0 && !noSources && (
                       <PromptSuggestions
+                        // Lines up with the composer's text start on the left (the
+                        // measured + group, `notch.left`) and with the send button on
+                        // the right: its `size-10` plus the same 12px edge offset and
+                        // 8px gap `observeNotch` adds — not the whole tools group.
+                        style={{ paddingLeft: notch.left, paddingRight: 'calc(2.5rem + 20px)' }}
                         title={t('promptSuggestions')}
                         // Fades in after a pause, so an empty chat opens on the composer first.
                         revealDelay={2500}
