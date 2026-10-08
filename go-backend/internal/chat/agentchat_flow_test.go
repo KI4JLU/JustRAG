@@ -241,7 +241,7 @@ func TestNoEvidenceRoutesToPlaceholderWithoutModelCall(t *testing.T) {
 		t.Fatalf("answer model called %d times on a dead end", n)
 	}
 	outs := outputsOf(evs)
-	if len(outs) == 0 || outs[len(outs)-1] != deadEndPlaceholderText {
+	if len(outs) == 0 || outs[len(outs)-1] != deadEndNoEvidenceText {
 		t.Fatalf("outputs = %q", outs)
 	}
 	reason := ""
@@ -406,7 +406,7 @@ func TestDeadEndPathShowsPlaceholderThroughTranslator(t *testing.T) {
 
 	text, contents := translate(t, mustRunAgentFlow(t, deps, viewScope, "Budget 2027?"))
 
-	if text != deadEndPlaceholderText || strings.Join(contents, "") != deadEndPlaceholderText {
+	if text != deadEndNoEvidenceText || strings.Join(contents, "") != deadEndNoEvidenceText {
 		t.Fatalf("client text = %q, contents = %q", text, contents)
 	}
 }

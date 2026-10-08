@@ -30,9 +30,6 @@ const (
 // model must not see rendered chunks whose [n] markers Sources() lacks.
 const agentNoEvidenceText = "Keine relevanten Treffer in der Wissensbasis."
 
-// deadEndPlaceholderText answers a dead end until suggest/act land (Task 6).
-const deadEndPlaceholderText = "Dazu habe ich in der Wissensbasis nichts gefunden."
-
 // FileCounter reports how many files a KB holds.
 type FileCounter func(ctx context.Context, kbID string) (int, error)
 
@@ -46,18 +43,22 @@ type AgentFlowDeps struct {
 	// FileCounter, when set, routes a KB with no files to no_files before
 	// retrieval. nil skips the check.
 	FileCounter FileCounter
-	Actions     []adkbridge.Action // dead-end suggestions (Task 6)
-	Allowed     []string           // tool names allowlisted for suggestions
+	// Allowed are the tool names a dead end may offer (DeadEndActions,
+	// filtered by adkbridge.VisibleActions). Empty offers nothing.
+	Allowed []string
+	// ActDispatch executes a chosen action (see ActDispatchers); entries
+	// for tools outside Allowed are dropped.
 	ActDispatch map[string]adkbridge.DispatchFunc
 }
 
 // NewAgentFlow returns the per-turn workflow agent:
 //
 //	Start → retrieve ─found→ answer → sources
-//	                 └no_evidence|no_files→ dead end
+//	                 └no_evidence|no_files→ suggest ⏸ → act ─web_answer→ web_answer
+//	                                                  └no_actions→ dead_end
 //
-// The dead-end branch is a fixed answer for now; Task 6 replaces it with
-// suggest ⏸ → act → answer (see deadEndEdges).
+// suggest pauses with the offered actions; the resume payload is act's
+// input. act ends the turn itself unless the user chose a web search.
 func NewAgentFlow(deps AgentFlowDeps) (agent.Agent, error) {
 	if deps.Model == nil || deps.Retriever == nil {
 		return nil, errors.New("chat: agent flow needs a model and a retriever")
@@ -86,8 +87,12 @@ func NewAgentFlow(deps AgentFlowDeps) (agent.Agent, error) {
 		workflow.Chain(workflow.Start, retrieve),
 		[]workflow.Edge{{From: retrieve, To: answer, Route: workflow.StringRoute(adkbridge.RouteFound)}},
 		workflow.Chain(answer, sources),
-		deadEndEdges(retrieve),
 	)
+	deadEnd, err := deadEndEdges(retrieve, deps)
+	if err != nil {
+		return nil, err
+	}
+	edges = append(edges, deadEnd...)
 	return workflowagent.New(workflowagent.Config{
 		Name:        "agentchat",
 		Description: "Agentic chat turn: retrieval floor, then answer.",
@@ -95,13 +100,34 @@ func NewAgentFlow(deps AgentFlowDeps) (agent.Agent, error) {
 	})
 }
 
-// deadEndEdges wires the no_evidence and no_files routes.
-func deadEndEdges(retrieve workflow.Node) []workflow.Edge {
+// deadEndEdges wires the no_evidence and no_files routes to suggest → act.
+// suggest → act is the Default route: a resume hands the payload over
+// with no event, and only unconditional or Default edges fire then.
+func deadEndEdges(retrieve workflow.Node, deps AgentFlowDeps) ([]workflow.Edge, error) {
+	webAgent, err := llmagent.New(llmagent.Config{
+		Name:        "web_answer",
+		Description: "Answers the question from the web search results the user asked for.",
+		Model:       deps.Model,
+		Instruction: webAnswerInstruction,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("chat: web answer agent: %w", err)
+	}
+	webAnswer, err := workflow.NewAgentNode(webAgent, workflow.NodeConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("chat: web answer node: %w", err)
+	}
+	suggest := agentSuggestNode(deps.Allowed)
+	act := agentActNode(deps.Allowed, deps.ActDispatch)
+	// Repeats suggest's text as the turn's final output.
 	deadEnd := workflow.NewFunctionNode("dead_end",
-		func(agent.Context, string) (string, error) { return deadEndPlaceholderText, nil },
-		workflow.NodeConfig{})
-	return []workflow.Edge{{From: retrieve, To: deadEnd,
-		Route: workflow.MultiRoute[string]{adkbridge.RouteNoEvidence, adkbridge.RouteNoFiles}}}
+		func(_ agent.Context, text string) (string, error) { return text, nil }, workflow.NodeConfig{})
+	return []workflow.Edge{
+		{From: retrieve, To: suggest, Route: workflow.MultiRoute[string]{adkbridge.RouteNoEvidence, adkbridge.RouteNoFiles}},
+		{From: suggest, To: deadEnd, Route: workflow.StringRoute(routeNoActions)},
+		{From: suggest, To: act, Route: workflow.Default},
+		{From: act, To: webAnswer, Route: workflow.StringRoute(routeWebAnswer)},
+	}, nil
 }
 
 // agentRetrieveNode runs the production retrieval floor for the question
