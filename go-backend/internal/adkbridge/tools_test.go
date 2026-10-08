@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 
 	"github.com/justrag/go-backend/internal/ai"
@@ -30,14 +31,60 @@ func (r *recorder) dispatch(_ context.Context, kbID, _ string, args json.RawMess
 	return mcp.ToolResult{Text: "ok"}, nil
 }
 
-func runWithScope(t *testing.T, sc Scope, turns [][]ai.StreamChunk, tools ...tool.Tool) {
+func runWithScope(t *testing.T, sc Scope, turns [][]ai.StreamChunk, tools ...tool.Tool) []*session.Event {
 	t.Helper()
 	r := newRunner(t, &fakeClient{turns: turns}, tools, session.InMemoryService())
 	ctx := WithScope(context.Background(), sc)
-	for _, err := range r.Run(ctx, sc.UserID, "s1", genai.NewContentFromText("go", genai.RoleUser), runCfg()) {
+	var evs []*session.Event
+	for ev, err := range r.Run(ctx, sc.UserID, "s1", genai.NewContentFromText("go", genai.RoleUser), runCfg()) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		evs = append(evs, ev)
+	}
+	return evs
+}
+
+// toolOutcome reports whether the run asked for a confirmation and returns
+// the error result the model saw for the named tool.
+func toolOutcome(evs []*session.Event, name string) (asked bool, refusal string) {
+	for _, ev := range evs {
+		if ev.Content == nil || ev.Partial {
+			continue
+		}
+		for _, p := range ev.Content.Parts {
+			if p.FunctionCall != nil && p.FunctionCall.Name == toolconfirmation.FunctionCallName {
+				asked = true
+			}
+			if p.FunctionResponse != nil && p.FunctionResponse.Name == name {
+				refusal, _ = p.FunctionResponse.Response["error"].(string)
+			}
+		}
+	}
+	return asked, refusal
+}
+
+// A call the scope can never run is refused before approval: the user is
+// not asked to approve something that would fail anyway.
+func TestRoleRefusalPrecedesApproval(t *testing.T) {
+	rec := &recorder{}
+	imp := NewTool(ToolSpec{Name: "confluence_import", Policy: PolicyFor("confluence_import")}, rec.dispatch)
+	evs := runWithScope(t, Scope{UserID: "u", KBID: "kb", Role: "view"},
+		[][]ai.StreamChunk{toolTurn("c1", "confluence_import", `{"spaceKey":"X"}`), textTurn("done")}, imp)
+	asked, refusal := toolOutcome(evs, "confluence_import")
+	if asked || !strings.Contains(refusal, "requires role edit") || rec.n != 0 {
+		t.Fatalf("asked=%v refusal=%q n=%d", asked, refusal, rec.n)
+	}
+}
+
+func TestPrivilegeRefusalPrecedesApproval(t *testing.T) {
+	rec := &recorder{}
+	ws := NewTool(ToolSpec{Name: "web_search", Policy: PolicyFor("web_search")}, rec.dispatch)
+	evs := runWithScope(t, Scope{UserID: "u", KBID: "kb", Role: "owner"},
+		[][]ai.StreamChunk{toolTurn("c1", "web_search", `{"query":"x"}`), textTurn("done")}, ws)
+	asked, refusal := toolOutcome(evs, "web_search")
+	if asked || !strings.Contains(refusal, "is privileged") || rec.n != 0 {
+		t.Fatalf("asked=%v refusal=%q n=%d", asked, refusal, rec.n)
 	}
 }
 

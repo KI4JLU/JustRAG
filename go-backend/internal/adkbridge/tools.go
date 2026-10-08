@@ -79,10 +79,15 @@ func (t *dispatchTool) Declaration() *genai.FunctionDeclaration {
 	return d
 }
 
-// Run executes the tool: approval first (pauses the run), then the
-// dispatch-time checks. Policy refusals and dispatch errors are returned to
-// the model as results so it can explain or recover.
+// Run executes the tool: the scope, role and privilege checks first (they
+// need no args, and a call that can never run must not ask the user for
+// approval), then approval (pauses the run), then dispatch. Policy refusals
+// and dispatch errors are returned to the model as results so it can
+// explain or recover.
 func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) {
+	if _, err := t.checkPolicy(ctx); err != nil {
+		return map[string]any{"error": modelVisibleError(ctx, t.spec.Name, err)}, nil
+	}
 	if t.spec.Policy.Approval != ApprovalNever {
 		if c := ctx.ToolConfirmation(); c != nil {
 			if !c.Confirmed {
@@ -129,18 +134,28 @@ func modelVisibleError(ctx context.Context, name string, err error) string {
 	return "tool failed"
 }
 
-// dispatchChecked enforces scope, role and privilege, overwrites the
-// injected ids, then dispatches. Split out so tests can call it directly.
-func (t *dispatchTool) dispatchChecked(ctx context.Context, args map[string]any) (mcp.ToolResult, error) {
+// checkPolicy enforces scope, role and privilege for the running user.
+func (t *dispatchTool) checkPolicy(ctx context.Context) (Scope, error) {
 	sc, ok := ScopeFrom(ctx)
 	if !ok {
-		return mcp.ToolResult{}, ErrNoScope
+		return Scope{}, ErrNoScope
 	}
 	if !RoleAtLeast(sc.Role, t.spec.Policy.RequiresRole) {
-		return mcp.ToolResult{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, t.spec.Name, t.spec.Policy.RequiresRole)
+		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, t.spec.Name, t.spec.Policy.RequiresRole)
 	}
 	if mcp.PrivilegedTools[t.spec.Name] && !sc.AllowPrivileged {
-		return mcp.ToolResult{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, t.spec.Name)
+		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, t.spec.Name)
+	}
+	return sc, nil
+}
+
+// dispatchChecked re-runs checkPolicy (the scope may differ on a resumed
+// run), overwrites the injected ids, then dispatches. Split out so tests
+// can call it directly.
+func (t *dispatchTool) dispatchChecked(ctx context.Context, args map[string]any) (mcp.ToolResult, error) {
+	sc, err := t.checkPolicy(ctx)
+	if err != nil {
+		return mcp.ToolResult{}, err
 	}
 	if args == nil {
 		args = map[string]any{}
