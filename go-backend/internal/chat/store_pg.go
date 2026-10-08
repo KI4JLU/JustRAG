@@ -232,6 +232,23 @@ func (s *PGStore) DeleteChat(ctx context.Context, chatID string) error {
 	return nil
 }
 
+// UpdateChatTitle renames a chat for its owner. One statement checks
+// ownership and writes, so there is no read-then-write window. updated_at is
+// deliberately left alone: the history list orders by it, and a cosmetic
+// rename must not move a chat to the top.
+func (s *PGStore) UpdateChatTitle(ctx context.Context, chatID, userID, title string) error {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE chats SET title = $3 WHERE id = $1 AND user_id = $2`,
+		chatID, userID, title)
+	if err != nil {
+		return fmt.Errorf("UpdateChatTitle: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("chat %s: %w", chatID, store.ErrNotFound)
+	}
+	return nil
+}
+
 // UpdateChatAgentSelection persists the sticky per-chat team/agent pick.
 // NULLs clear it (picker back to Standard).
 func (s *PGStore) UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error {
@@ -675,4 +692,37 @@ func (s *PGStore) fetchAllSiteConfigs(ctx context.Context) (map[string]*string, 
 		out[k] = v
 	}
 	return out, rows.Err()
+}
+
+// StarterContext returns the KB's name and its newest ingested documents
+// (newest first, at most limit): status completed or partial, and never a
+// file the ingest-time prompt-injection screen flagged (injection_flag) —
+// their text would otherwise be fed to the starter-question model.
+func (s *PGStore) StarterContext(ctx context.Context, kbID string, limit int) (StarterSource, error) {
+	var src StarterSource
+	if err := s.pool.QueryRow(ctx, `SELECT name FROM knowledge_bases WHERE id = $1`, kbID).Scan(&src.KBName); err != nil {
+		return StarterSource{}, fmt.Errorf("StarterContext: kb name: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, name FROM files
+		 WHERE kb_id = $1
+		   AND status IN ('completed', 'partial')
+		   AND NOT injection_flag
+		 ORDER BY created_at DESC, id
+		 LIMIT $2`, kbID, limit)
+	if err != nil {
+		return StarterSource{}, fmt.Errorf("StarterContext: files: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f StarterFile
+		if err := rows.Scan(&f.ID, &f.Name); err != nil {
+			return StarterSource{}, fmt.Errorf("StarterContext: scan file: %w", err)
+		}
+		src.Files = append(src.Files, f)
+	}
+	if err := rows.Err(); err != nil {
+		return StarterSource{}, fmt.Errorf("StarterContext: iterate files: %w", err)
+	}
+	return src, nil
 }
