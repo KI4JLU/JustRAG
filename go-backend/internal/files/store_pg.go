@@ -282,9 +282,18 @@ func (s *PGStore) GetKBFileLimits(ctx context.Context, kbID string) (*KBFileLimi
 // any recorded error detail — every non-error transition (pending,
 // processing, completed, partial) invalidates a previous failure reason.
 // Error transitions go through MarkFileError / MarkFileErrorIfUnset instead.
+//
+// A transition to 'processing' also clears index_fingerprint: the file's
+// index is about to be rebuilt (ingest, re-embed, retry, copy), so it must
+// stop qualifying as a copy donor (P2-R3) until the run that rebuilds it
+// stamps a fresh fingerprint at completion. Without this, a re-embed (whose
+// payload carries no UserFileID, so it never re-stamps) would leave a
+// fingerprint that no longer describes the index.
 func (s *PGStore) UpdateFileStatus(ctx context.Context, fileID, status string) error {
-	const sql = `UPDATE files SET status = $1, error_stage = NULL, error_message = NULL WHERE id = $2`
-	_, err := s.pool.Exec(ctx, sql, status, fileID)
+	const sql = `UPDATE files SET status = $1, error_stage = NULL, error_message = NULL,
+		index_fingerprint = CASE WHEN $3 THEN NULL ELSE index_fingerprint END
+		WHERE id = $2`
+	_, err := s.pool.Exec(ctx, sql, status, fileID, status == "processing")
 	if err != nil {
 		return fmt.Errorf("UpdateFileStatus: %w", err)
 	}
@@ -336,6 +345,50 @@ func (s *PGStore) SetIndexFingerprint(ctx context.Context, fileID, fp string) er
 	const sql = `UPDATE files SET index_fingerprint = $2 WHERE id = $1`
 	if _, err := s.pool.Exec(ctx, sql, fileID, fp); err != nil {
 		return fmt.Errorf("SetIndexFingerprint: %w", err)
+	}
+	return nil
+}
+
+// FindCopyDonor returns the id of a 'completed' KB copy of userFileID other
+// than excludeFileID whose index_fingerprint = fp, or "" (most recently
+// created first). Only 'completed' rows qualify (P2-R3): 'partial' and
+// 'error' indexes are incomplete, and a file being rebuilt is 'processing'
+// with its fingerprint cleared.
+func (s *PGStore) FindCopyDonor(ctx context.Context, userFileID, fp, excludeFileID string) (string, error) {
+	const sql = `
+		SELECT id::text
+		  FROM files
+		 WHERE user_file_id = $1::uuid
+		   AND id <> $3::uuid
+		   AND status = 'completed'
+		   AND index_fingerprint = $2
+		 ORDER BY created_at DESC, id
+		 LIMIT 1`
+	if userFileID == "" || fp == "" {
+		return "", nil
+	}
+	var id string
+	if err := s.pool.QueryRow(ctx, sql, userFileID, fp, excludeFileID).Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("FindCopyDonor: %w", err)
+	}
+	return id, nil
+}
+
+// MarkCopied sets status='completed', progress=100, index_fingerprint=fp,
+// clears error/stage columns — the terminal write of a successful copy.
+func (s *PGStore) MarkCopied(ctx context.Context, fileID, fp string) error {
+	const sql = `
+		UPDATE files
+		   SET status = 'completed', progress = 100, progress_updated_at = NOW(),
+		       index_fingerprint = $2,
+		       error_stage = NULL, error_message = NULL,
+		       current_stage = NULL, stage_index = NULL, stage_total = NULL, stage_detail = NULL
+		 WHERE id = $1`
+	if _, err := s.pool.Exec(ctx, sql, fileID, fp); err != nil {
+		return fmt.Errorf("MarkCopied: %w", err)
 	}
 	return nil
 }

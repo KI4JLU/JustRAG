@@ -263,4 +263,19 @@ func TestCopyFileIndex(t *testing.T) {
 	if g := counts(cpTarget2); g != [3]int{0, 0, 0} {
 		t.Errorf("target rows not cleared for empty donor: %v", g)
 	}
+
+	// 10. DeleteHyPEByFileIDAllDims (copy-failure cleanup) removes only the
+	// named file's HyPE rows.
+	if _, err := svc.CopyFileIndex(ctx, cpTarget, cpTarget2, cpKB2, "english"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteHyPEByFileIDAllDims(ctx, cpTarget2); err != nil {
+		t.Fatalf("DeleteHyPEByFileIDAllDims: %v", err)
+	}
+	if g := counts(cpTarget2); g != [3]int{4, 1, 0} {
+		t.Errorf("target2 after hype delete = %v, want [4 1 0]", g)
+	}
+	if g := counts(cpTarget); g != [3]int{4, 1, 2} {
+		t.Errorf("other file's hype touched: %v", g)
+	}
 }

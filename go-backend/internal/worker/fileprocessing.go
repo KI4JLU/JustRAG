@@ -11,6 +11,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/observability"
+	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/processor"
 	"github.com/justrag/go-backend/internal/storage"
 )
@@ -75,6 +76,31 @@ func NewFileProcessingHandlerWithOwners(proc fileProcessor, kbStore KBChunkConfi
 	if len(stor) > 0 {
 		storageBackend = stor[0]
 	}
+	return NewFileProcessingHandlerWithDeps(FileProcessingDeps{
+		Proc:       proc,
+		KBStore:    kbStore,
+		QueryCache: queryCache,
+		Owners:     owners,
+		Storage:    storageBackend,
+	})
+}
+
+// FileProcessingDeps wires the file-processing handler. Everything but Proc
+// is optional; a nil Copy disables copy mode (every payload ingests).
+type FileProcessingDeps struct {
+	Proc       fileProcessor
+	KBStore    KBChunkConfigStore
+	QueryCache QueryCacheInvalidator
+	Owners     OwnerLookup
+	Storage    storage.Storage
+	Copy       *CopyDeps
+}
+
+// NewFileProcessingHandlerWithDeps is the full constructor: on top of the
+// ingest path it can serve a library-backed file by copying another KB
+// copy's index (copy mode, P2-R6) when deps.Copy is set.
+func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc {
+	proc, kbStore, queryCache, owners, storageBackend := deps.Proc, deps.KBStore, deps.QueryCache, deps.Owners, deps.Storage
 	return func(ctx context.Context, task *asynq.Task) error {
 		var payload jobs.FileProcessingPayload
 		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
@@ -93,6 +119,38 @@ func NewFileProcessingHandlerWithOwners(proc fileProcessor, kbStore KBChunkConfi
 			cs, co, err := kbStore.GetKBChunkConfig(ctx, payload.KbID)
 			if err == nil {
 				chunkSize, chunkOverlap = cs, co
+			}
+		}
+
+		// Library-backed payloads carry UserFileID; the owner is read from the
+		// database rather than trusted from the payload. A failed lookup only
+		// costs the parse cache.
+		ownerID := ""
+		if payload.UserFileID != "" && owners != nil {
+			o, oerr := owners.UserFileOwner(ctx, payload.UserFileID)
+			if oerr != nil {
+				slog.Warn("parse cache disabled: owner lookup failed",
+					"fileId", payload.FileID, "userFileId", payload.UserFileID, "error", oerr)
+			} else {
+				ownerID = o
+			}
+		}
+
+		// Copy mode (P2-R6): a library file whose index another KB copy
+		// already built under the same fingerprint is copied server-side
+		// instead of re-ingested. Decided here, at task time, before the
+		// blob is downloaded. Any miss or failure falls through to ingest.
+		if deps.Copy != nil && payload.UserFileID != "" && payload.KbID != "" &&
+			!(&parser.SpreadsheetParser{}).CanParse(payload.MimeType, payload.OriginalName) {
+			copied, cerr := deps.Copy.tryCopy(ctx, payload, chunkSize, chunkOverlap, ownerID)
+			if cerr != nil {
+				slog.Error("file processing failed", "fileId", payload.FileID, "mode", "copy", "error", cerr)
+				return cerr
+			}
+			if copied {
+				invalidateKBQueryCache(ctx, queryCache, payload.KbID, "file_added")
+				slog.Info("file processing completed", "fileId", payload.FileID, "mode", "copy")
+				return nil
 			}
 		}
 
@@ -118,20 +176,6 @@ func NewFileProcessingHandlerWithOwners(proc fileProcessor, kbStore KBChunkConfi
 			stream.Close()
 			tmpFile.Close()
 			localPath = tmpFile.Name()
-		}
-
-		// Library-backed payloads carry UserFileID; the owner is read from the
-		// database rather than trusted from the payload. A failed lookup only
-		// costs the parse cache.
-		ownerID := ""
-		if payload.UserFileID != "" && owners != nil {
-			o, oerr := owners.UserFileOwner(ctx, payload.UserFileID)
-			if oerr != nil {
-				slog.Warn("parse cache disabled: owner lookup failed",
-					"fileId", payload.FileID, "userFileId", payload.UserFileID, "error", oerr)
-			} else {
-				ownerID = o
-			}
 		}
 
 		outcome, err := proc.ProcessFileWithResult(ctx, processor.ProcessFileInput{

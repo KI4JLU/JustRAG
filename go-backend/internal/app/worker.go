@@ -248,7 +248,23 @@ func RunWorker(cfg *config.Config) error {
 	// rationale.
 	tableDropper := tabular.NewMaterializer(db.Main)
 	confStore := confluence.NewStore(db.Main)
-	fileHandler := worker.NewFileProcessingHandlerWithOwners(proc, kbStore, searchService, filesStore, stor)
+	// Copy mode (user file library phase 2): a library file whose index
+	// another KB copy already built under the same fingerprint is copied
+	// server-side instead of re-ingested. Only TypeFileProcessing gets it;
+	// re-embeds always run the full ingest.
+	fileHandler := worker.NewFileProcessingHandlerWithDeps(worker.FileProcessingDeps{
+		Proc:       proc,
+		KBStore:    kbStore,
+		QueryCache: searchService,
+		Owners:     filesStore,
+		Storage:    stor,
+		Copy: &worker.CopyDeps{
+			Proc:   proc,
+			Store:  filesStore,
+			Index:  chunkService,
+			Reader: chatStore,
+		},
+	})
 	fileHandler = worker.MarkErrorOnExhaustion(fileHandler, filesStore)
 	mux.HandleFunc(jobs.TypeFileProcessing, worker.Instrument(func(ctx context.Context, task *asynq.Task) error {
 		err := fileHandler(ctx, task)
@@ -309,6 +325,15 @@ func RunWorker(cfg *config.Config) error {
 			return fmt.Errorf("unmarshal re-embedding payload: %w", err)
 		}
 		slog.Info("re-embedding file", "fileId", payload.FileID, "kbId", payload.KbID)
+
+		// Flip to 'processing' BEFORE deleting the old index: the transition
+		// also clears index_fingerprint, so a library copy stops being a
+		// copy donor before its chunks start disappearing (a copy racing the
+		// delete would otherwise read a half-deleted index; the worker's
+		// post-copy donor recheck catches the rest of that window).
+		if err := filesStore.UpdateFileStatus(ctx, payload.FileID, "processing"); err != nil {
+			return fmt.Errorf("re-embedding: mark file %s processing: %w", payload.FileID, err)
+		}
 
 		// Delete old chunks from every existing chunk table before re-processing.
 		// Using the dynamic table list (not a hardcoded dim slice) guarantees we

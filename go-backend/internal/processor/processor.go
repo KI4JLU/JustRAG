@@ -960,9 +960,8 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		// minutes; progress stays at 5% during this phase so the frontend
 		// still shows activity.
 		var parseErr error
-		cacheKey := ""
-		if in.UserFileID != "" && in.OwnerUserID != "" && p.parseCache != nil && parseCacheable(mimeType, fileName) {
-			cacheKey = ParseCacheKey(in.OwnerUserID, in.UserFileID, ParseConfigHash(ctx, p.siteConfigReader, p.parseCache.Identity()))
+		cacheKey := p.libraryParseCacheKey(ctx, in.OwnerUserID, in.UserFileID, mimeType, fileName)
+		if cacheKey != "" {
 			if cached, ok, gerr := p.parseCache.Get(ctx, cacheKey); gerr != nil {
 				logctx.From(ctx).Warn("processor: parse cache read failed; parsing normally", "fileId", fileID, "error", gerr)
 			} else if ok {
