@@ -335,6 +335,12 @@ func RunWorker(cfg *config.Config) error {
 		}
 		slog.Info("re-embedding file", "fileId", payload.FileID, "kbId", payload.KbID)
 
+		// A missing blob must never destroy a working index: verify it exists
+		// (at its CURRENT path) before anything is flipped or deleted.
+		if err := worker.PreflightReembed(ctx, filesStore, stor, payload); err != nil {
+			return err
+		}
+
 		// Flip to 'processing' BEFORE deleting the old index: the transition
 		// clears index_fingerprint, so no NEW copy picks this file as a donor
 		// while its chunks disappear, and bumps progress_updated_at, the

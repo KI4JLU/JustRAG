@@ -430,6 +430,18 @@ func (s *PGStore) LibraryLink(ctx context.Context, fileID string) (userFileID, o
 	return userFileID, ownerUserID, nil
 }
 
+// CurrentStoragePath returns files.storage_path ("" when NULL). Queued tasks
+// carry the path from enqueue time; library adoption can re-key the blob in
+// between, so the worker re-reads the current value.
+func (s *PGStore) CurrentStoragePath(ctx context.Context, fileID string) (string, error) {
+	var p string
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(storage_path,'') FROM files WHERE id = $1::uuid`, fileID).Scan(&p)
+	if err != nil {
+		return "", fmt.Errorf("CurrentStoragePath: %w", err)
+	}
+	return p, nil
+}
+
 // MarkCopied sets status='completed', progress=100, index_fingerprint=fp,
 // clears error/stage columns — the terminal write of a successful copy.
 func (s *PGStore) MarkCopied(ctx context.Context, fileID, fp string) error {
