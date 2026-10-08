@@ -130,6 +130,8 @@ type fakeCopyIndex struct {
 	leafCalls int
 	cleanup   []string
 	callOrder *[]string
+	// empty makes CopyFileIndex succeed with zero mapped chunks.
+	empty bool
 }
 
 func (f *fakeCopyIndex) CopyFileIndex(_ context.Context, src, dst, kb, pg string) (vector.CopyResult, error) {
@@ -138,7 +140,10 @@ func (f *fakeCopyIndex) CopyFileIndex(_ context.Context, src, dst, kb, pg string
 	if f.callOrder != nil {
 		*f.callOrder = append(*f.callOrder, "copy")
 	}
-	return vector.CopyResult{}, f.copyErr
+	if f.copyErr != nil || f.empty {
+		return vector.CopyResult{ChunkIDMap: map[string]string{}}, f.copyErr
+	}
+	return vector.CopyResult{ChunkIDMap: map[string]string{"old-1": "new-1"}, Dimensions: 8}, nil
 }
 func (f *fakeCopyIndex) GetFileLeafTextAllDims(context.Context, string, string) (string, error) {
 	f.leafCalls++
@@ -471,6 +476,24 @@ func TestCopyMode_RecheckTargetsTheCopiedDonor(t *testing.T) {
 	}
 	if len(r.store.validGens) != 1 || r.store.validGens[0] != "G1" {
 		t.Errorf("recheck generations = %v, want [G1] as FindCopyDonor returned it", r.store.validGens)
+	}
+}
+
+// A copy that mapped zero chunks (the donor's vector rows were deleted under
+// it, e.g. by a cascade delete) is discarded: target cleaned, ingest runs,
+// nothing marked copied.
+func TestCopyMode_ZeroChunkCopyFallsBackToIngest(t *testing.T) {
+	r := newCopyRig()
+	r.idx.empty = true
+	if err := r.run(t, libPayload()); err != nil {
+		t.Fatal(err)
+	}
+	if r.idx.copies != 1 || len(r.idx.cleanup) != 3 || !r.ingested || r.store.marks != 0 {
+		t.Errorf("copies=%d cleanup=%v ingested=%v marks=%d; want cleaned + ingest",
+			r.idx.copies, r.idx.cleanup, r.ingested, r.store.marks)
+	}
+	if len(r.store.validChecks) != 0 || r.proc.kgCalls != 0 {
+		t.Errorf("validChecks=%d kgCalls=%d; want 0/0", len(r.store.validChecks), r.proc.kgCalls)
 	}
 }
 

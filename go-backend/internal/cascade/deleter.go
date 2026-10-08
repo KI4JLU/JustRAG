@@ -388,6 +388,32 @@ func (d *Deleter) getKBIDsByUserID(ctx context.Context, userID string) ([]string
 // Internal helpers — best-effort cleanup
 // ---------------------------------------------------------------------------
 
+// beforeVectorDeleteHook is a test seam, called by deleteVectorChunksForFiles
+// after the donors are retired and before any vector row is deleted. Always
+// nil in production.
+var beforeVectorDeleteHook func(ctx context.Context, fileIDs []string)
+
+// retireCopyDonors clears index_fingerprint and bumps progress_updated_at
+// (the copy-mode donor generation token) on rows about to lose their index.
+// Copy mode (internal/worker) picks donors by fingerprint and re-checks the
+// token after copying, so without this a copy racing the delete could map a
+// half- or fully-deleted donor index and stamp it completed. Best-effort and
+// before every vector delete: the rows themselves go later, in the caller's
+// main-DB delete.
+func (d *Deleter) retireCopyDonors(ctx context.Context, ids []string) {
+	if d.mainDB == nil || len(ids) == 0 {
+		return
+	}
+	if _, err := d.mainDB.Exec(ctx,
+		`UPDATE files SET index_fingerprint = NULL, progress_updated_at = NOW() WHERE id = ANY($1::uuid[])`, ids); err != nil {
+		slog.WarnContext(ctx, "cascade: retire copy donors (best-effort) — a racing copy may read a deleted index",
+			"file_count", len(ids), "error", err)
+	}
+}
+
+// deleteVectorChunksForFiles is the first index-destroying step of every
+// delete path (DeleteFiles, DeleteKB, DeleteUser, DeleteGlobalKB), so it
+// retires the files as copy donors first.
 func (d *Deleter) deleteVectorChunksForFiles(ctx context.Context, files []fileRecord) {
 	if len(files) == 0 {
 		return
@@ -395,6 +421,10 @@ func (d *Deleter) deleteVectorChunksForFiles(ctx context.Context, files []fileRe
 	ids := make([]string, len(files))
 	for i, f := range files {
 		ids[i] = f.ID
+	}
+	d.retireCopyDonors(ctx, ids)
+	if beforeVectorDeleteHook != nil {
+		beforeVectorDeleteHook(ctx, ids)
 	}
 	if err := d.chunkService.DeleteChunksByFileIDsAllDims(ctx, ids); err != nil {
 		observability.RecordCascadeDeletionError(observability.CascadeResourceVector)

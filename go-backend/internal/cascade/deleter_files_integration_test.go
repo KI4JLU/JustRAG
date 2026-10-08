@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/cascade"
+	"github.com/justrag/go-backend/internal/files"
 	"github.com/justrag/go-backend/internal/storage"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -211,4 +212,62 @@ func TestDeleteKB_SkipsLibraryBlobs(t *testing.T) {
 		t.Errorf("parent chunks left after DeleteKB: %d", n)
 	}
 	_ = os.Remove // keep os import used if helpers change
+}
+
+// Every delete path retires a library donor (fingerprint cleared, generation
+// token bumped) BEFORE any of its vector rows is deleted, so copy mode can
+// neither pick it nor keep a copy made from its vanishing index. Ordering is
+// observed through the before-vector-delete seam: inside it the donor must
+// already be retired while its chunks still exist.
+func TestDeletePaths_RetireCopyDonorBeforeVectorDelete(t *testing.T) {
+	for name, del := range map[string]func(d *cascade.Deleter, kbID, fileID string) error{
+		"DeleteFiles": func(d *cascade.Deleter, _, fileID string) error {
+			return d.DeleteFiles(context.Background(), []string{fileID})
+		},
+		"DeleteKB": func(d *cascade.Deleter, kbID, _ string) error {
+			return d.DeleteKB(context.Background(), kbID)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mp, vp := openTestPools(t)
+			ctx := context.Background()
+			userID, kbID, _ := seedFixture(t, mp, false)
+			stor := localFS(t, mp, kbID)
+			ufID, fileID, _ := seedLibraryFile(t, mp, userID, kbID)
+			addIndex(t, vp, kbID, fileID)
+			if _, err := mp.Exec(ctx,
+				`UPDATE files SET status = 'completed', index_fingerprint = 'F', progress_updated_at = now() - interval '1 hour' WHERE id = $1::uuid`,
+				fileID); err != nil {
+				t.Fatal(err)
+			}
+			fstore := files.NewStore(mp)
+			donor, gen, err := fstore.FindCopyDonor(ctx, ufID, "F", "00000000-0000-0000-0000-000000000000")
+			if err != nil || donor != fileID {
+				t.Fatalf("precondition: FindCopyDonor = %q, %v; want %q", donor, err, fileID)
+			}
+
+			hookRan := false
+			restore := cascade.SetBeforeVectorDeleteHook(func(ctx context.Context, ids []string) {
+				hookRan = true
+				if n := vectorCount(t, vp, "document_chunks_8", fileID); n == 0 {
+					t.Error("hook ran after the vector delete; ordering seam misplaced")
+				}
+				if d, _, err := fstore.FindCopyDonor(ctx, ufID, "F", "00000000-0000-0000-0000-000000000000"); err != nil || d != "" {
+					t.Errorf("donor still selectable before the vector delete: %q, %v", d, err)
+				}
+				// A copy that found the donor earlier fails its recheck.
+				if ok, err := fstore.DonorStillValid(ctx, fileID, gen, ufID, "F"); err != nil || ok {
+					t.Errorf("DonorStillValid = %v, %v; want false (token bumped)", ok, err)
+				}
+			})
+			defer restore()
+
+			if err := del(cascade.New(mp, vp, stor), kbID, fileID); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+			if !hookRan {
+				t.Fatal("before-vector-delete seam never ran")
+			}
+		})
+	}
 }

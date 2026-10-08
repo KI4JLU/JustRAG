@@ -82,8 +82,19 @@ func (c *CopyDeps) tryCopy(ctx context.Context, pl jobs.FileProcessingPayload, c
 		return false, nil
 	}
 
-	if _, err := c.Index.CopyFileIndex(ctx, donor, fileID, kbID, c.Proc.TextSearchConfig(ctx, kbID)); err != nil {
+	res, err := c.Index.CopyFileIndex(ctx, donor, fileID, kbID, c.Proc.TextSearchConfig(ctx, kbID))
+	if err != nil {
 		log.Warn("copy mode failed; falling back to ingest", "error", err)
+		c.cleanTarget(ctx, fileID)
+		return false, nil
+	}
+	// A copy that mapped no chunk is never kept: the donor's index may have
+	// been deleted under it (a cascade delete removes vector rows before the
+	// files row), and 0 mapped == 0 inserted passes CopyFileIndex's own
+	// check. A genuinely empty donor (an ingest that produced no chunks) just
+	// costs a cheap ingest.
+	if len(res.ChunkIDMap) == 0 {
+		log.Warn("copy mode discarded: donor index has no chunks; falling back to ingest")
 		c.cleanTarget(ctx, fileID)
 		return false, nil
 	}
