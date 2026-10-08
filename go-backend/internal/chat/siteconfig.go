@@ -688,6 +688,14 @@ func ChatLongContextMaxTokens(ctx context.Context, reader SiteConfigReader) int 
 	return readInt(ctx, reader, "chat_longcontext_max_tokens", 100_000, 10_000, 500_000)
 }
 
+// ChatLibraryFulltextMaxTokens is the total-token ceiling under which a
+// KB-less library chat injects the selected files' full text. Above it (and
+// up to ChatLongContextMaxTokens) the map_reduce consumer is used. Global-only
+// ("chat_library_fulltext_max_tokens"), default 60000, range [4000, 200000].
+func ChatLibraryFulltextMaxTokens(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_library_fulltext_max_tokens", 60_000, 4_000, 200_000)
+}
+
 // ChatLongContextTopK is the chunk-pool size Search() returns on the
 // long-context route. Default 200 (the historical constant), range [50, 500].
 // Wave-3's map-reduce consumer tunes this against the token budget. Tunable
