@@ -551,6 +551,12 @@ func (d *Deleter) deleteKBTransaction(ctx context.Context, kbID string) error {
 }
 
 func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbIDs []string) error {
+	return d.runSteps(ctx, "deleteUserTransaction", userDeleteSteps(userID, kbIDs))
+}
+
+// userDeleteSteps lists the statements of the user-delete transaction, in
+// execution order.
+func userDeleteSteps(userID string, kbIDs []string) []txStep {
 	steps := make([]txStep, 0, 10)
 	if len(kbIDs) > 0 {
 		steps = append(steps,
@@ -572,9 +578,14 @@ func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbID
 		txStep{`DELETE FROM knowledge_base_shares WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_members WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_subscriptions WHERE user_id = $1`, []any{userID}},
+		// ADK sessions (user_id is TEXT, migration 0082): adk_events cascade
+		// from adk_sessions via FK, agent_runs cascade via their users FK.
+		// adk_app_states is app-wide and untouched.
+		txStep{`DELETE FROM adk_sessions WHERE user_id = $1`, []any{userID}},
+		txStep{`DELETE FROM adk_user_states WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM users WHERE id = $1`, []any{userID}},
 	)
-	return d.runSteps(ctx, "deleteUserTransaction", steps)
+	return steps
 }
 
 func (d *Deleter) deleteGlobalKBTransaction(ctx context.Context, kbID string) error {

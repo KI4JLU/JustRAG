@@ -37,8 +37,8 @@ type FileCounter func(ctx context.Context, kbID string) (int, error)
 type AgentFlowDeps struct {
 	Model     *adkbridge.Model
 	Retriever *AgentRetriever
-	// Tools are the answer-time tools (kb_search via Retriever, web_search,
-	// memory_* ...).
+	// Tools are the answer-time tools, approval-free only (kb_search via
+	// Retriever, memory_*; Ruling P2-R15).
 	Tools []tool.Tool
 	// FileCounter, when set, routes a KB with no files to no_files before
 	// retrieval. nil skips the check.

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/justrag/go-backend/internal/adkbridge"
 	"github.com/justrag/go-backend/internal/admineval"
 	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
@@ -562,6 +563,7 @@ func RunWorker(cfg *config.Config) error {
 			VectorDB:             db.Vector,
 			StuckFileTimeout:     cfg.StuckFileTimeout,
 			TabularOrphanSweeper: tabular.NewOrphanSweeper(db.Main),
+			AgentRunExpirer:      adkbridge.NewRunStore(db.Main, 24*time.Hour),
 			BM25StatsRefresher:   bm25Refresher,
 			RagasStore:           ragasStore,
 			// Read per pass, not once here: retention is a knob an operator
