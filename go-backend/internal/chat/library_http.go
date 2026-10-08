@@ -36,6 +36,8 @@ type LibraryChatStore interface {
 	CreateLibraryChat(ctx context.Context, userID, title string) (*ChatRow, error)
 	GetLibraryChats(ctx context.Context, userID string) ([]ChatRow, error)
 	GetChatFileRefs(ctx context.Context, chatID string) ([]string, error)
+	// GetChatsFileRefs is GetChatFileRefs for many chats in one query.
+	GetChatsFileRefs(ctx context.Context, chatIDs []string) (map[string][]string, error)
 	// ReplaceChatFileRefs does no ownership check: every id must have been
 	// validated with LibraryFileGetter.Get first.
 	ReplaceChatFileRefs(ctx context.Context, chatID string, userFileIDs []string) error
@@ -414,10 +416,14 @@ func (h *Handler) libraryChatItem(ctx context.Context, c ChatRow) (libraryChatIt
 	if err != nil {
 		return libraryChatItem{}, err
 	}
+	return newLibraryChatItem(c, refs), nil
+}
+
+func newLibraryChatItem(c ChatRow, refs []string) libraryChatItem {
 	if refs == nil {
 		refs = []string{}
 	}
-	return libraryChatItem{ID: c.ID, Title: c.Title, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, FileIDs: refs}, nil
+	return libraryChatItem{ID: c.ID, Title: c.Title, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, FileIDs: refs}
 }
 
 // ListLibraryChats handles GET /api/library/chats → {items: [...]}, the
@@ -439,15 +445,20 @@ func (h *Handler) ListLibraryChats(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch chats")
 		return
 	}
+	ids := make([]string, len(chats))
+	for i, c := range chats {
+		ids[i] = c.ID
+	}
+	// One query for every chat's selection (not one per chat).
+	refs, err := h.libraryChats.GetChatsFileRefs(ctx, ids)
+	if err != nil {
+		logctx.From(ctx).Error("chat.library: list file refs", "error", err, "user_id", user.ID)
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch chats")
+		return
+	}
 	items := make([]libraryChatItem, 0, len(chats))
 	for _, c := range chats {
-		item, err := h.libraryChatItem(ctx, c)
-		if err != nil {
-			logctx.From(ctx).Error("chat.library: list file refs", "error", err, "chat_id", c.ID)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch chats")
-			return
-		}
-		items = append(items, item)
+		items = append(items, newLibraryChatItem(c, refs[c.ID]))
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"items": items})

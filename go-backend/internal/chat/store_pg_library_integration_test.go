@@ -8,7 +8,9 @@ package chat
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -150,6 +152,108 @@ func TestPGStore_ChatFileRefs(t *testing.T) {
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM chat_file_refs WHERE chat_id = $1::uuid`, chat.ID).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("refs after chat delete = %d, %v", n, err)
+	}
+}
+
+func TestPGStore_GetChatsFileRefs(t *testing.T) {
+	pool := conflictTestPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
+	userID := seedLibraryUser(t, pool, "batchrefs")
+	c1, err := store.CreateLibraryChat(ctx, userID, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := store.CreateLibraryChat(ctx, userID, "two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c3, err := store.CreateLibraryChat(ctx, userID, "empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f1 := seedLibraryFile(t, pool, userID, "a.txt", "a")
+	f2 := seedLibraryFile(t, pool, userID, "b.txt", "b")
+	f3 := seedLibraryFile(t, pool, userID, "c.txt", "c")
+	if err := store.ReplaceChatFileRefs(ctx, c1.ID, []string{f3, f1, f2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceChatFileRefs(ctx, c2.ID, []string{f2}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetChatsFileRefs(ctx, []string{c1.ID, c2.ID, c3.ID})
+	if err != nil {
+		t.Fatalf("GetChatsFileRefs: %v", err)
+	}
+	want := map[string][]string{c1.ID: {f3, f1, f2}, c2.ID: {f2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("refs = %v, want %v (per-chat insert order, empty chat absent)", got, want)
+	}
+	for _, c := range []string{c1.ID, c2.ID} {
+		single, _ := store.GetChatFileRefs(ctx, c)
+		if !reflect.DeepEqual(single, want[c]) {
+			t.Errorf("GetChatFileRefs(%s) = %v disagrees with batch %v", c, single, want[c])
+		}
+	}
+	if got, err := store.GetChatsFileRefs(ctx, nil); err != nil || len(got) != 0 {
+		t.Fatalf("no ids = %v, %v", got, err)
+	}
+}
+
+// ReplaceChatFileRefs locks the chat row, so concurrent replacements
+// serialize instead of storing the union of two selections.
+func TestPGStore_ReplaceChatFileRefsSerializes(t *testing.T) {
+	pool := conflictTestPool(t)
+	store := NewStore(pool)
+	ctx := context.Background()
+	userID := seedLibraryUser(t, pool, "refslock")
+	chat, err := store.CreateLibraryChat(ctx, userID, "lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f1 := seedLibraryFile(t, pool, userID, "a.txt", "a")
+	f2 := seedLibraryFile(t, pool, userID, "b.txt", "b")
+
+	// Direct proof: while another transaction holds the chat row, a replace waits.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM chats WHERE id = $1::uuid FOR UPDATE`, chat.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- store.ReplaceChatFileRefs(ctx, chat.ID, []string{f1}) }()
+	select {
+	case err := <-done:
+		_ = tx.Rollback(ctx)
+		t.Fatalf("replace did not wait for the chat row lock (err %v)", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("replace after lock release: %v", err)
+	}
+
+	// Stress: two selections racing never end as their union.
+	for i := 0; i < 20; i++ {
+		var wg sync.WaitGroup
+		for _, sel := range [][]string{{f1}, {f2}} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := store.ReplaceChatFileRefs(ctx, chat.ID, sel); err != nil {
+					t.Errorf("replace: %v", err)
+				}
+			}()
+		}
+		wg.Wait()
+		got, _ := store.GetChatFileRefs(ctx, chat.ID)
+		if len(got) != 1 {
+			t.Fatalf("round %d: refs = %v, want exactly one selection", i, got)
+		}
 	}
 }
 

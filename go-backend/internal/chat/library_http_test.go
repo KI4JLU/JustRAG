@@ -52,6 +52,9 @@ type libStore struct {
 	ancestors []MessageRow
 	refsErr   error
 	deleted   []string
+	// batchRefCalls counts GetChatsFileRefs calls (the list must not N+1).
+	batchRefCalls int
+	singleRefCall int
 }
 
 func newLibStore() *libStore {
@@ -99,7 +102,23 @@ func (s *libStore) GetLibraryChats(_ context.Context, userID string) ([]ChatRow,
 }
 
 func (s *libStore) GetChatFileRefs(_ context.Context, chatID string) ([]string, error) {
+	s.mu.Lock()
+	s.singleRefCall++
+	s.mu.Unlock()
 	return append([]string{}, s.refs[chatID]...), nil
+}
+
+func (s *libStore) GetChatsFileRefs(_ context.Context, chatIDs []string) (map[string][]string, error) {
+	s.mu.Lock()
+	s.batchRefCalls++
+	s.mu.Unlock()
+	out := map[string][]string{}
+	for _, id := range chatIDs {
+		if r, ok := s.refs[id]; ok && len(r) > 0 {
+			out[id] = append([]string{}, r...)
+		}
+	}
+	return out, nil
 }
 
 func (s *libStore) ReplaceChatFileRefs(_ context.Context, chatID string, ids []string) error {
@@ -817,6 +836,21 @@ func TestListLibraryChats_OnlyOwnLibraryChats(t *testing.T) {
 			t.Errorf("response lacks %s: %s", k, w.Body.String())
 		}
 	}
+	if fx.store.batchRefCalls != 1 || fx.store.singleRefCall != 0 {
+		t.Errorf("refs lookups: batch %d, single %d; want one batch query", fx.store.batchRefCalls, fx.store.singleRefCall)
+	}
+}
+
+// A chat without refs still lists fileIds as [] (the batch map omits it).
+func TestListLibraryChats_ChatWithoutRefs(t *testing.T) {
+	fx := newLibChatFixture(t, nil)
+	fx.seedLibraryChat(libChatID, libUser)
+	r := injectUser(httptest.NewRequest(http.MethodGet, "/api/library/chats", nil), libUser)
+	w := httptest.NewRecorder()
+	fx.h.ListLibraryChats(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"fileIds":[]`) {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
 }
 
 func TestListLibraryChats_EmptyIsArray(t *testing.T) {
@@ -868,8 +902,6 @@ func TestGetLibraryChat(t *testing.T) {
 // Fix round 1
 // ---------------------------------------------------------------------------
 
-// A parentMessageId from another chat must neither steer the history walk nor
-// be stored: the turn falls back to the chat's own linear history.
 // A library turn streams and persists snippet-capped sources, while citation
 // validation still reads the full page text.
 func TestSendLibraryMessage_SourcesSnippetCappedValidationFull(t *testing.T) {
@@ -944,6 +976,8 @@ func TestWireSources_KBTurnUnchanged(t *testing.T) {
 	}
 }
 
+// A parentMessageId from another chat must neither steer the history walk nor
+// be stored: the turn falls back to the chat's own linear history.
 func TestSendLibraryMessage_ForeignParentFallsBackToOwnHistory(t *testing.T) {
 	fx := newLibChatFixture(t, nil)
 	fx.seedLibraryChat(libChatID, libUser, libFileA)

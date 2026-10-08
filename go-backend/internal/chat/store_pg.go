@@ -285,15 +285,49 @@ func (s *PGStore) GetChatFileRefs(ctx context.Context, chatID string) ([]string,
 	return ids, nil
 }
 
+// GetChatsFileRefs returns the selected library file ids of several chats in
+// one query, keyed by chat id, each list in the order GetChatFileRefs uses.
+// A chat without refs is absent from the map.
+func (s *PGStore) GetChatsFileRefs(ctx context.Context, chatIDs []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(chatIDs))
+	if len(chatIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT chat_id::text, user_file_id::text FROM chat_file_refs
+		 WHERE chat_id = ANY($1::uuid[]) ORDER BY chat_id, added_at, user_file_id`, chatIDs)
+	if err != nil {
+		return nil, fmt.Errorf("GetChatsFileRefs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var chatID, id string
+		if err := rows.Scan(&chatID, &id); err != nil {
+			return nil, fmt.Errorf("GetChatsFileRefs scan: %w", err)
+		}
+		out[chatID] = append(out[chatID], id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetChatsFileRefs: %w", err)
+	}
+	return out, nil
+}
+
 // ErrChatFileRefGone means a library file (or the chat) was deleted between
 // validation and ReplaceChatFileRefs, so a reference row could not be written.
 var ErrChatFileRefGone = errors.New("chat file reference target no longer exists")
 
 // ReplaceChatFileRefs atomically replaces a chat's selected library files.
 // The given order is preserved: rows get strictly increasing added_at
-// within the transaction.
+// within the transaction. The chat row is locked first, so two concurrent
+// replacements serialize (the later one wins whole) instead of interleaving
+// their DELETE/INSERT into the union of both selections. A chat deleted
+// meanwhile locks nothing and the INSERT's FK failure reports it.
 func (s *PGStore) ReplaceChatFileRefs(ctx context.Context, chatID string, userFileIDs []string) error {
 	return pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM chats WHERE id = $1::uuid FOR UPDATE`, chatID); err != nil {
+			return fmt.Errorf("ReplaceChatFileRefs lock: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `DELETE FROM chat_file_refs WHERE chat_id = $1::uuid`, chatID); err != nil {
 			return fmt.Errorf("ReplaceChatFileRefs delete: %w", err)
 		}
