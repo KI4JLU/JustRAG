@@ -71,12 +71,21 @@ type fetchURLPreviewResponse struct {
 // the scheme + private-IP check to fetcher.ValidateURL. The actual fetch
 // re-resolves at dial time via fetcher.SafeHTTPClient, closing the DNS-
 // rebinding window.
-func validateURL(ctx context.Context, rawURL string) error {
+func checkFetchURL(ctx context.Context, rawURL string) error {
 	if len(rawURL) > 2048 {
 		return fmt.Errorf("URL exceeds maximum length of 2048 characters")
 	}
 	return fetcher.ValidateURL(ctx, rawURL)
 }
+
+// validateURL and fetchURL are package-level indirections so export_test.go
+// can stub them: the SSRF check and the SSRF-safe dialer both reject the
+// loopback httptest servers a unit test has to use. Production never
+// reassigns them.
+var (
+	validateURL = checkFetchURL
+	fetchURL    = fetchSafeURL
+)
 
 // ---------------------------------------------------------------------------
 // HTTP fetch helper
@@ -148,10 +157,10 @@ type fetchURLResponse struct {
 	ContentType string
 }
 
-// fetchURL fetches rawURL with a 30-second timeout and returns a streaming
+// fetchSafeURL fetches rawURL with a 30-second timeout and returns a streaming
 // reader and Content-Type. The caller must close Body when done.
 // The body is limited to 100 MB to prevent OOM on large downloads.
-func fetchURL(ctx context.Context, rawURL string) (*fetchURLResponse, error) {
+func fetchSafeURL(ctx context.Context, rawURL string) (*fetchURLResponse, error) {
 	client := fetcher.SafeHTTPClient(30 * time.Second)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {

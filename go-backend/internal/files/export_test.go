@@ -1,5 +1,11 @@
 package files
 
+import (
+	"context"
+	"io"
+	"strings"
+)
+
 // SetMaxUploadSizeForTest overrides the transport cap for the duration of a
 // test and returns a function that restores the previous value. Test-only —
 // kept out of http.go (and thus out of the shipped API surface) via Go's
@@ -10,4 +16,16 @@ func SetMaxUploadSizeForTest(n int64) (restore func()) {
 	old := maxUploadSize
 	maxUploadSize = n
 	return func() { maxUploadSize = old }
+}
+
+// StubFetchForTest replaces the SSRF check and the SSRF-safe fetch with a
+// canned response so FetchURL's success path is reachable without network.
+// Test-only; returns a restore func.
+func StubFetchForTest(body, contentType string) (restore func()) {
+	oldV, oldF := validateURL, fetchURL
+	validateURL = func(context.Context, string) error { return nil }
+	fetchURL = func(context.Context, string) (*fetchURLResponse, error) {
+		return &fetchURLResponse{Body: io.NopCloser(strings.NewReader(body)), ContentType: contentType}, nil
+	}
+	return func() { validateURL, fetchURL = oldV, oldF }
 }

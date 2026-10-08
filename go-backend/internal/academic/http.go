@@ -355,9 +355,14 @@ func (h *Handler) AddPapers(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, result)
 }
 
-// validateURL checks that a URL is safe to fetch (SSRF protection). The
+// validateURL is a package-level indirection so export_test.go can stub it
+// (the loopback httptest server fails the SSRF check); production never
+// reassigns it.
+var validateURL = checkFetchURL
+
+// checkFetchURL checks that a URL is safe to fetch (SSRF protection). The
 // resolver call takes ctx so a hung DNS server cannot outlive the request.
-func validateURL(ctx context.Context, rawURL string) error {
+func checkFetchURL(ctx context.Context, rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL")
