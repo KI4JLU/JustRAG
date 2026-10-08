@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS agent_runs_thread_idx ON agent_runs (app_name, thread_id, created_at DESC);
--- At most one paused run per thread (plan §6a: one open interrupt set per thread).
-CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_one_open_per_thread ON agent_runs (app_name, thread_id) WHERE status = 'interrupted';
+CREATE INDEX IF NOT EXISTS agent_runs_thread_idx ON agent_runs (app_name, user_id, thread_id, created_at DESC);
+-- At most one paused run per (user, thread) (plan §6a: one open interrupt set per thread).
+CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_one_open_per_thread ON agent_runs (app_name, user_id, thread_id) WHERE status = 'interrupted';
 CREATE INDEX IF NOT EXISTS agent_runs_expiry_idx ON agent_runs (expires_at) WHERE status = 'interrupted';
 
 -- +goose Down

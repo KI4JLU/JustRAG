@@ -125,3 +125,95 @@ func TestHasOpen(t *testing.T) {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
 }
+
+func startRun(t *testing.T, s *RunStore, user, thread string) string {
+	t.Helper()
+	id := uuid.NewString()
+	if err := s.Start(context.Background(), Run{ID: id, ThreadID: thread, AppName: "chat", UserID: user}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func statusOf(t *testing.T, pool *pgxpool.Pool, id string) string {
+	t.Helper()
+	var st string
+	if err := pool.QueryRow(context.Background(), `SELECT status FROM agent_runs WHERE id=$1`, id).Scan(&st); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func TestInterruptAbandonsExpiredPredecessor(t *testing.T) {
+	pool := isolatedPool(t, "0083_agent_runs.sql")
+	u := seedUser(t, pool)
+	old := pausedRun(t, NewRunStore(pool, -time.Minute), u, "th", "i1")
+	s := NewRunStore(pool, 24*time.Hour)
+	next := startRun(t, s, u, "th")
+	if err := s.Interrupt(context.Background(), next, []OpenInterrupt{{ID: "i2", Reason: "r"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(t, pool, old); got != string(RunAbandoned) {
+		t.Fatalf("old status = %s", got)
+	}
+}
+
+func TestInterruptRejectsSecondOpenSet(t *testing.T) {
+	pool := isolatedPool(t, "0083_agent_runs.sql")
+	s := NewRunStore(pool, 24*time.Hour)
+	u := seedUser(t, pool)
+	pausedRun(t, s, u, "th", "i1")
+	next := startRun(t, s, u, "th")
+	err := s.Interrupt(context.Background(), next, []OpenInterrupt{{ID: "i2", Reason: "r"}})
+	if !errors.Is(err, ErrThreadHasOpenInterrupt) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSameThreadIDDifferentUsers(t *testing.T) {
+	pool := isolatedPool(t, "0083_agent_runs.sql")
+	s := NewRunStore(pool, 24*time.Hour)
+	a, b := seedUser(t, pool), seedUser(t, pool)
+	pausedRun(t, s, a, "same", "i1")
+	pausedRun(t, s, b, "same", "i2") // fatals on error
+}
+
+func TestFinishAndStateGuards(t *testing.T) {
+	pool := isolatedPool(t, "0083_agent_runs.sql")
+	s := NewRunStore(pool, 24*time.Hour)
+	ctx := context.Background()
+	u := seedUser(t, pool)
+
+	r := startRun(t, s, u, "t1")
+	if err := s.Finish(ctx, r, RunFailed, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOf(t, pool, r); got != string(RunFailed) {
+		t.Fatalf("status = %s", got)
+	}
+	if err := s.Finish(ctx, r, RunCompleted, ""); !errors.Is(err, ErrRunNotRunning) {
+		t.Fatalf("finish on finished: %v", err)
+	}
+
+	ab := pausedRun(t, NewRunStore(pool, -time.Minute), u, "t2", "i1")
+	if _, err := s.ExpireStale(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Interrupt(ctx, ab, []OpenInterrupt{{ID: "x", Reason: "r"}}); !errors.Is(err, ErrRunNotRunning) {
+		t.Fatalf("interrupt abandoned: %v", err)
+	}
+	if err := s.Interrupt(ctx, uuid.NewString(), []OpenInterrupt{{ID: "x", Reason: "r"}}); !errors.Is(err, ErrRunNotRunning) {
+		t.Fatalf("interrupt unknown: %v", err)
+	}
+
+	run := startRun(t, s, u, "t3")
+	if err := s.Finish(ctx, run, RunInterrupted, ""); err == nil || errors.Is(err, ErrRunNotRunning) {
+		t.Fatalf("finish(interrupted) err = %v", err)
+	}
+	if err := s.Interrupt(ctx, run, nil); err == nil {
+		t.Fatal("empty interrupt set accepted")
+	}
+	if got := statusOf(t, pool, run); got != string(RunRunning) {
+		t.Fatalf("status = %s", got)
+	}
+}

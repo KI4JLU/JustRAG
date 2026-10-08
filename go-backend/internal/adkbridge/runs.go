@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -43,6 +44,10 @@ var (
 	ErrNoOpenInterrupt   = errors.New("adkbridge: no open interrupt on this thread")
 	ErrInterruptExpired  = errors.New("adkbridge: interrupt expired")
 	ErrInterruptMismatch = errors.New("adkbridge: resume must answer exactly the open interrupts")
+	// ErrThreadHasOpenInterrupt: the thread already has an unexpired paused run.
+	ErrThreadHasOpenInterrupt = errors.New("adkbridge: thread already has an open interrupt")
+	// ErrRunNotRunning: the run does not exist or is not in the running state.
+	ErrRunNotRunning = errors.New("adkbridge: run is not running")
 )
 
 // RunStore persists run bookkeeping for pause/resume.
@@ -73,27 +78,66 @@ func (s *RunStore) Start(ctx context.Context, r Run) error {
 	return nil
 }
 
-// Interrupt marks the run paused on in, expiring after the store's ttl.
+// Interrupt moves a running run to interrupted on in, expiring after the
+// store's ttl. An expired, unswept paused run of the same (app, user, thread)
+// is abandoned first so it cannot block the new pause; a live one yields
+// ErrThreadHasOpenInterrupt.
 func (s *RunStore) Interrupt(ctx context.Context, runID string, in []OpenInterrupt) error {
+	if len(in) == 0 {
+		return errors.New("adkbridge: interrupt requires at least one open interrupt")
+	}
 	body, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `UPDATE agent_runs SET status='interrupted', open_interrupts=$2,
-		expires_at = now() + make_interval(secs => $3), updated_at=now() WHERE id=$1`,
-		runID, body, s.ttl.Seconds())
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var app, user, thread string
+		err := tx.QueryRow(ctx, `SELECT app_name, user_id::text, thread_id FROM agent_runs
+			WHERE id=$1 AND status='running' FOR UPDATE`, runID).Scan(&app, &user, &thread)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRunNotRunning
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE agent_runs SET status='abandoned', updated_at=now()
+			WHERE app_name=$1 AND user_id=$2 AND thread_id=$3 AND status='interrupted' AND expires_at <= now()`,
+			app, user, thread); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE agent_runs SET status='interrupted', open_interrupts=$2,
+			expires_at = now() + make_interval(secs => $3), updated_at=now() WHERE id=$1`,
+			runID, body, s.ttl.Seconds())
+		return err
+	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "agent_runs_one_open_per_thread" {
+		return ErrThreadHasOpenInterrupt
+	}
 	if err != nil {
+		if errors.Is(err, ErrRunNotRunning) {
+			return err
+		}
 		return fmt.Errorf("agent_runs interrupt: %w", err)
 	}
 	return nil
 }
 
-// Finish records a terminal status.
+// Finish records a terminal status (completed, failed or cancelled) on a
+// run that is still running.
 func (s *RunStore) Finish(ctx context.Context, runID string, status RunStatus, errMsg string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE agent_runs SET status=$2, error=$3, updated_at=now() WHERE id=$1`,
-		runID, string(status), nullable(errMsg))
+	switch status {
+	case RunCompleted, RunFailed, RunCancelled:
+	default:
+		return fmt.Errorf("adkbridge: finish status %q is not terminal", status)
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE agent_runs SET status=$2, error=$3, updated_at=now()
+		WHERE id=$1 AND status='running'`, runID, string(status), nullable(errMsg))
 	if err != nil {
 		return fmt.Errorf("agent_runs finish: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrRunNotRunning
 	}
 	return nil
 }
