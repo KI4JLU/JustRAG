@@ -382,3 +382,58 @@ func textTurn(s string) []ai.StreamChunk {
 }
 
 func runCfg() agent.RunConfig { return agent.RunConfig{StreamingMode: agent.StreamingModeSSE} }
+
+// genStream runs one streamed GenerateContent call and returns its partials
+// and final response.
+func genStream(t *testing.T, m *Model) (partials []*model.LLMResponse, final *model.LLMResponse) {
+	t.Helper()
+	req := &model.LLMRequest{Contents: []*genai.Content{genai.NewContentFromText("q", genai.RoleUser)}}
+	for resp, err := range m.GenerateContent(context.Background(), req, true) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Partial {
+			partials = append(partials, resp)
+		} else {
+			final = resp
+		}
+	}
+	return partials, final
+}
+
+// Providers that omit tool-call ids must not yield the same minted id in
+// two turns of one run: AG-UI toolCallIds and ADK's id pairing need them
+// unique across the run.
+func TestMintedToolCallIDsAreUniqueAcrossTurns(t *testing.T) {
+	noID := []ai.StreamChunk{
+		{ToolCallDeltas: []ai.ToolCallDelta{{Index: 0, Name: "kb_search", Arguments: `{"query":"a"}`}}},
+		{FinishReason: "tool_calls", Done: true},
+	}
+	m := NewModel(&fakeClient{turns: [][]ai.StreamChunk{noID, noID}}, "m")
+	_, f1 := genStream(t, m)
+	_, f2 := genStream(t, m)
+	id1, id2 := f1.Content.Parts[0].FunctionCall.ID, f2.Content.Parts[0].FunctionCall.ID
+	if id1 == "" || id2 == "" || id1 == id2 {
+		t.Fatalf("minted ids not unique: %q %q", id1, id2)
+	}
+}
+
+// A tail the think-tag filter held back until Flush must reach the wire as
+// a partial: AG-UI drops the final text once partials were streamed.
+func TestFlushedTailIsStreamedAsPartial(t *testing.T) {
+	m := NewModel(&fakeClient{turns: [][]ai.StreamChunk{{
+		{Content: "a < b, also x <"}, {FinishReason: "stop", Done: true},
+	}}}, "m")
+	partials, final := genStream(t, m)
+	var streamed strings.Builder
+	for _, p := range partials {
+		for _, part := range p.Content.Parts {
+			if !part.Thought {
+				streamed.WriteString(part.Text)
+			}
+		}
+	}
+	if streamed.String() != "a < b, also x <" || final.Content.Parts[0].Text != "a < b, also x <" {
+		t.Fatalf("streamed=%q final=%q", streamed.String(), final.Content.Parts[0].Text)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 
@@ -134,9 +135,18 @@ func (m *Model) stream(ctx context.Context, chatReq ai.ChatRequest, yield func(*
 			finish = chunk.FinishReason
 		}
 	}
-	if seg := filter.Flush(); seg.Reasoning != "" || seg.Content != "" {
+	// A tail the filter held back (e.g. a trailing "<") is streamed too:
+	// AG-UI shows only partials once any were streamed.
+	if seg := filter.Flush(); seg.Reasoning != "" {
 		thought.WriteString(seg.Reasoning)
+		if !yield(partial(&genai.Part{Text: seg.Reasoning, Thought: true}), nil) {
+			return
+		}
+	} else if seg.Content != "" {
 		text.WriteString(seg.Content)
+		if !yield(partial(&genai.Part{Text: seg.Content}), nil) {
+			return
+		}
 	}
 	// The final, non-partial response carries the whole turn: ADK's runner
 	// only processes this one; partials are forwarded for display.
@@ -200,12 +210,13 @@ func assembleContent(thought, text string, calls []ai.ToolCall) *genai.Content {
 	if text != "" {
 		c.Parts = append(c.Parts, &genai.Part{Text: text})
 	}
-	for i, tc := range calls {
+	for _, tc := range calls {
 		id := tc.ID
 		if id == "" {
 			// vLLM's gemma parser has been seen to omit ids; ADK pairs the
-			// response by id, so mint a stable one.
-			id = fmt.Sprintf("call_%d", i)
+			// response by id and AG-UI needs toolCallIds unique across the
+			// run, so mint a random one (a per-turn index would repeat).
+			id = "call_" + uuid.NewString()
 		}
 		c.Parts = append(c.Parts, &genai.Part{FunctionCall: &genai.FunctionCall{
 			ID:   id,
