@@ -490,6 +490,11 @@ func (h *Handler) runPostResponseTasks(
 	return fuRes.followUps, verification, refinedAnswer
 }
 
+// libraryCitationValidator is the validator runLibraryPostResponseTasks
+// calls; a seam so a test can assert it receives the full, uncapped source
+// content (the streamed/persisted copy is snippet-capped, see wireSources).
+var libraryCitationValidator = RunCitationValidation
+
 // runLibraryPostResponseTasks is the post-response pipeline of a KB-less
 // library chat turn (P3-R5). It runs only the KB-independent part of
 // runPostResponseTasks: follow-up questions and the citation validator
@@ -527,7 +532,7 @@ func (h *Handler) runLibraryPostResponseTasks(
 				},
 				Threshold: CitationValidationSemanticThreshold(ctx, h.siteConfigReader),
 			}
-			citations = RunCitationValidation(ctx, aiResponse, sources, sem)
+			citations = libraryCitationValidator(ctx, aiResponse, sources, sem)
 			for _, c := range citations {
 				observability.RecordCitationAttribution(c.Verified, c.Method)
 			}

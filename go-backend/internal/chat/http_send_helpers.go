@@ -647,6 +647,28 @@ func (p chatResponseParams) lowConfidence(sourceCount int) bool {
 	return !p.library && sourceCount < 3
 }
 
+// librarySourceSnippetRunes caps each library source's Content in the copy
+// that is streamed and persisted. A library context is whole pages, so the
+// uncapped pool would put megabytes into the opening SSE frame,
+// messages.sources and every message reload.
+const librarySourceSnippetRunes = 600
+
+// wireSources returns the sources to stream and persist: the turn's own slice
+// on a KB turn (byte-identical), or a copy with each Content capped to
+// librarySourceSnippetRunes on a library turn. Citation validation keeps
+// reading the full in-memory p.chatCtx.Sources.
+func (p chatResponseParams) wireSources() []ChatSource {
+	if !p.library {
+		return p.chatCtx.Sources
+	}
+	out := make([]ChatSource, len(p.chatCtx.Sources))
+	copy(out, p.chatCtx.Sources)
+	for i := range out {
+		out[i].Content = truncateRunes(out[i].Content, librarySourceSnippetRunes)
+	}
+	return out
+}
+
 // enrichResponseSources stamps freshness dates onto the turn's sources. A
 // library turn has no `files` rows to look up (its sources carry UserFileID,
 // never FileID), so it is skipped there (P3-R5).
@@ -678,7 +700,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// Runs before the `sources` frame below AND before the AddMessage that
 	// persists the same slice, so the SSE payload and messages.sources agree.
 	h.enrichResponseSources(ctx, p)
-	sources := p.chatCtx.Sources
+	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
 
@@ -932,7 +954,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
 	// Same one-shot enrichment as the streaming branch — see there.
 	h.enrichResponseSources(ctx, p)
-	sources := p.chatCtx.Sources
+	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
 

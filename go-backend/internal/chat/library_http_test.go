@@ -870,6 +870,80 @@ func TestGetLibraryChat(t *testing.T) {
 
 // A parentMessageId from another chat must neither steer the history walk nor
 // be stored: the turn falls back to the chat's own linear history.
+// A library turn streams and persists snippet-capped sources, while citation
+// validation still reads the full page text.
+func TestSendLibraryMessage_SourcesSnippetCappedValidationFull(t *testing.T) {
+	long := strings.Repeat("Der Himmel ist blau und weit. ", 100) // 3000 runes, one page
+	for _, stream := range []bool{true, false} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			var mu sync.Mutex
+			var validated []ChatSource
+			old := libraryCitationValidator
+			t.Cleanup(func() { libraryCitationValidator = old })
+			libraryCitationValidator = func(ctx context.Context, answer string, sources []ChatSource, sem *SemanticConfig) []CitationStatus {
+				mu.Lock()
+				validated = append([]ChatSource(nil), sources...)
+				mu.Unlock()
+				return old(ctx, answer, sources, sem)
+			}
+
+			fx := newLibChatFixture(t, nil)
+			fx.text.texts[libFileA] = &parser.ParseResult{Text: long}
+			w := fx.send(t, `{"message":"Himmel?","fileIds":["`+libFileA+`"]}`, stream)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+
+			var wire []any
+			if stream {
+				wire, _ = sseFrames(t, w.Body.String())[1]["sources"].([]any)
+			} else {
+				var resp map[string]any
+				_ = json.Unmarshal(w.Body.Bytes(), &resp)
+				wire, _ = resp["sources"].([]any)
+			}
+			if len(wire) != 1 {
+				t.Fatalf("wire sources = %v", wire)
+			}
+			wc, _ := wire[0].(map[string]any)["content"].(string)
+			if n := len([]rune(wc)); n != librarySourceSnippetRunes {
+				t.Errorf("wire content = %d runes, want %d", n, librarySourceSnippetRunes)
+			}
+
+			var persisted []ChatSource
+			for _, m := range fx.store.added {
+				if m.Role == "ai" {
+					persisted = m.Sources
+				}
+			}
+			if len(persisted) != 1 || len([]rune(persisted[0].Content)) != librarySourceSnippetRunes {
+				t.Fatalf("persisted sources = %+v", persisted)
+			}
+			if persisted[0].UserFileID != libFileA {
+				t.Errorf("persisted userFileId = %q", persisted[0].UserFileID)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(validated) != 1 || validated[0].Content != strings.TrimSpace(long) {
+				t.Fatalf("validator got %d sources, content %d runes; want the full page", len(validated), len([]rune(validated[0].Content)))
+			}
+		})
+	}
+}
+
+func TestWireSources_KBTurnUnchanged(t *testing.T) {
+	src := []ChatSource{{Index: 1, Content: strings.Repeat("x", 5000)}}
+	got := chatResponseParams{chatCtx: &ChatContext{Sources: src}}.wireSources()
+	if &got[0] != &src[0] || len(got[0].Content) != 5000 {
+		t.Fatal("a KB turn must stream and persist its own, uncapped slice")
+	}
+	lib := chatResponseParams{library: true, chatCtx: &ChatContext{Sources: src}}.wireSources()
+	if &lib[0] == &src[0] || len(lib[0].Content) != librarySourceSnippetRunes || len(src[0].Content) != 5000 {
+		t.Fatal("a library turn must cap a copy, leaving the in-memory sources full")
+	}
+}
+
 func TestSendLibraryMessage_ForeignParentFallsBackToOwnHistory(t *testing.T) {
 	fx := newLibChatFixture(t, nil)
 	fx.seedLibraryChat(libChatID, libUser, libFileA)
