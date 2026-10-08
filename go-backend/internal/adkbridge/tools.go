@@ -136,15 +136,21 @@ func modelVisibleError(ctx context.Context, name string, err error) string {
 
 // checkPolicy enforces scope, role and privilege for the running user.
 func (t *dispatchTool) checkPolicy(ctx context.Context) (Scope, error) {
+	return checkScopePolicy(ctx, t.spec.Name, t.spec.Policy)
+}
+
+// checkScopePolicy is the scope, role and privilege check shared by the
+// model-driven tool path and ExecuteAction.
+func checkScopePolicy(ctx context.Context, name string, pol ToolPolicy) (Scope, error) {
 	sc, ok := ScopeFrom(ctx)
 	if !ok {
 		return Scope{}, ErrNoScope
 	}
-	if !RoleAtLeast(sc.Role, t.spec.Policy.RequiresRole) {
-		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, t.spec.Name, t.spec.Policy.RequiresRole)
+	if !RoleAtLeast(sc.Role, pol.RequiresRole) {
+		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, name, pol.RequiresRole)
 	}
-	if privilegedInBridge(t.spec.Name) && !sc.AllowPrivileged {
-		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, t.spec.Name)
+	if privilegedInBridge(name) && !sc.AllowPrivileged {
+		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, name)
 	}
 	return sc, nil
 }
