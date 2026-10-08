@@ -117,8 +117,11 @@ func deadEndEdges(retrieve workflow.Node, deps AgentFlowDeps) ([]workflow.Edge, 
 	if err != nil {
 		return nil, fmt.Errorf("chat: web answer node: %w", err)
 	}
-	suggest := agentSuggestNode(deps.Allowed)
-	act := agentActNode(deps.Allowed, deps.ActDispatch)
+	// One allowlist-filtered map for both nodes, so suggest offers exactly
+	// what act can run.
+	dispatch := allowlistedDispatch(deps.ActDispatch, deps.Allowed)
+	suggest := agentSuggestNode(deps.Allowed, dispatch)
+	act := agentActNode(deps.Allowed, dispatch)
 	// Repeats suggest's text as the turn's final output.
 	deadEnd := workflow.NewFunctionNode("dead_end",
 		func(_ agent.Context, text string) (string, error) { return text, nil }, workflow.NodeConfig{})
