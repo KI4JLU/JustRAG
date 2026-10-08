@@ -171,7 +171,7 @@ Backend: `go-backend/internal/chat/library_{http,context,text}.go`, migration 00
 
 - All endpoints require authentication (`401`) and are owner-only. A malformed, missing, foreign or non-library chat id (any KB chat included) answers `404 {"error":"chat not found"}`; a malformed, missing or foreign file id answers `404 {"error":"file not found"}` (never 403/500, no file named). Error bodies are `{"error": "<string>"}`.
 - If the library chat service is not wired: `503 {"error":"library chat is not available"}`.
-- A library chat is an ordinary `chats` row with `type = "library"` and no KB. `GET /api/chats` and every KB chat list never contain it; use `GET /api/library/chats`.
+- A library chat is an ordinary `chats` row with `type = "library"` and no KB. The KB chat list `GET /api/kb/{id}/chats` (and every other KB-scoped chat list) never contains it; use `GET /api/library/chats`.
 
 ### POST /api/library/chat[?stream=true]
 
@@ -199,36 +199,45 @@ Errors:
 | Status | `error` |
 |---|---|
 | 400 | `invalid request body`, `message is required`, `message exceeds maximum length of 32,000 characters`, `message contains disallowed content` |
-| 400 | `regenerate is not supported for library chats` (`regenerateOfMessageId` is rejected) |
+| 400 | any `regenerateOfMessageId` is rejected: `regenerateOfMessageId requires chatId` (no `chatId`), `regenerateOfMessageId must be a message id` (malformed id) — both from the shared KB body validation, checked first — else `regenerate is not supported for library chats` |
 | 400 | `at most 20 library files can be selected` |
 | 400 | `no library files selected` (new chat without `fileIds`, or all stored files deleted) |
 | 400 | `the file "<name>" cannot be read as text` (no parser, or the parser failed; the cause is never echoed) |
+| 400 | `the file "<name>" took too long to read` (the server-side parse of that file ran past 120 s; a later retry may succeed) |
 | 400 | `the selected files contain no text` |
-| 400 | `selected files are too large for one chat turn (<tokens> tokens, maximum <max>)` |
+| 400 | `selected files are too large for one chat turn (<tokens> tokens, maximum <max>)`, or `(at least <tokens> tokens, maximum <max>)` when a cheap pre-check rejected the selection before counting exactly (`<tokens>` is then a lower bound) |
 | 404 | `chat not found`, `file not found` (also when a file is deleted in the instant between validation and saving the selection) |
-| 500 | `failed to create chat`, `failed to save library files`, `failed to load library files`, `failed to read library file`, `failed to prepare context`, `failed to save user message` |
+| 500 | `failed to fetch chat`, `failed to create chat`, `failed to save library files`, `failed to load library files`, `failed to read library file`, `failed to prepare context`, `failed to save user message` |
+
+**Where errors appear in stream mode.** The checks that need no file parsing — body validation, chat ownership, file ownership/selection (`invalid request body` … `no library files selected`, `chat not found`, a `file not found` for a body id, `failed to fetch chat`, `failed to load library files`) — answer with the status code and JSON body above in both modes. After them, a streaming request is committed to SSE (`200`, `text/event-stream`) and its first frame is `{"stage":"library_prepare"}` (a trajectory-event-shaped frame sent before the files are parsed, so a slow parse cannot idle-time-out a proxy). Every error from then on (`cannot be read as text`, `took too long to read`, `contain no text`, `too large`, the refs-race `file not found`, `failed to read library file`, `failed to prepare context`, `failed to create chat`, `failed to save library files`, `failed to save user message`, and the KB-path stream errors like `failed to start AI stream`) arrives as an SSE frame `{"error": "<same message>"}` followed by `[DONE]` — the KB chat's post-SSE error shape. Non-streaming requests return those as status code + JSON exactly as listed.
 
 Audio files are **not supported**: library chat parses with the built-in parsers only (no Docling, no transcriber), so an audio file is `400 the file "<name>" cannot be read as text`.
 
-Response. Non-streaming: the KB chat JSON body (`answer`, `reasoning`, `sources`, `enhancedQuery`, `chatId`, `userMessageId`, `aiMessageId`, `followUpQuestions`, `verification`, ...). Streaming (`?stream=true`): the same SSE frames in the same order as KB chat (opening `sources` / ids frames, trajectory events, `content` / `reasoning` deltas, `aiMessageId`, `followUpQuestions`, `verification`, `[DONE]`), including the degenerate-run guard. Read `chatId` from the opening frame to continue the conversation.
+Parsing happens on demand the first time a file is used in a chat and is cached afterwards. A parse that finishes after the client disconnected is still cached, so retrying a turn on a large scanned PDF gets faster.
+
+Response. Non-streaming: the KB chat JSON body (`answer`, `reasoning`, `sources`, `enhancedQuery`, `chatId`, `userMessageId`, `aiMessageId`, `followUpQuestions`, `verification`, ...). Streaming (`?stream=true`): first `{"stage":"library_prepare"}`, then the same SSE frames in the same order as KB chat (opening `sources` / ids frames, trajectory events, `content` / `reasoning` deltas, `aiMessageId`, `followUpQuestions`, `verification`, `[DONE]`), including the degenerate-run guard. Read `chatId` from the opening frame (the first frame carrying `chatId`, i.e. the second frame) to continue the conversation.
 
 ### Sources: `userFileId`
 
-Each `ChatSource` of a library turn carries `userFileId` (the library file's id) and **no `fileId`** (it is an empty string, not a KB file). Render citations and links from `userFileId` (for example `GET /api/library/files/{id}/download`); never from `fileId`. `pages` is set for paged formats. `createdAt` / `publishedAt` are absent. The same shape is persisted in the message and returned on reload. KB chats never carry `userFileId`.
+Each `ChatSource` of a library turn carries `userFileId` (the library file's id). `fileId` is always present and always the empty string `""` (the key is not omitted) — it is not a KB file. Render citations and links from `userFileId` (for example `GET /api/library/files/{id}/download`); never from `fileId`. `pages` is set for paged formats. `createdAt` / `publishedAt` are absent. The same shape is persisted in the message and returned on reload. KB chats never carry `userFileId`.
+
+A source is one page of a file, or a piece of at most 1,500 tokens of one: a large page, or a file without page structure (plain text, Markdown, …), is split, so one file can yield many sources, several with the same `pages`.
+
+`content` on a library source is a **snippet**: at most the first 600 characters (Unicode code points) of that page/piece, both in the stream and in the persisted message / reload. The answer model and citation validation saw the full text; the snippet is for display only.
 
 ### Budget semantics
 
 Total size of the selected files' text is measured in tokens:
 
-1. At most `chat_library_fulltext_max_tokens` (default 60,000, range 4,000..200,000, global-only): the **full text** goes to the answer model, one source per page (large pages are pre-split to 1,500 tokens).
-2. Above that, up to `chat_longcontext_max_tokens`: a map_reduce pass extracts findings per chunk group first and answers from them. The source list is then the findings' sources. Findings are capped to fit the model context: if there are too many, the tail findings are dropped (logged, trajectory event), so on very large selections some material can be missing from the answer.
-3. Above `chat_longcontext_max_tokens`: `400 selected files are too large for one chat turn (...)`. Nothing is truncated silently; ask the user to select fewer files.
+1. At most `chat_library_fulltext_max_tokens` (default 60,000, range 4,000..200,000, global-only): the **full text** goes to the answer model, one source per page or ≤ 1,500-token piece (see above).
+2. Above that, up to `chat_longcontext_max_tokens` (default 100,000): a map_reduce pass extracts findings per chunk group first and answers from them. This tier exists only when `chat_library_fulltext_max_tokens` is below `chat_longcontext_max_tokens`; with the full-text budget at or above it, a selection is either full text or tier 3. The source list is still the **whole page pool** (every page/piece of the selection, in selection order), not only the pages findings came from. Findings are capped to fit the model context: if there are too many, the tail findings are dropped (logged, trajectory event), so on very large selections some material can be missing from the answer.
+3. Above the larger of the two budgets (normally `chat_longcontext_max_tokens`; `<max>` in the message is that value): `400 selected files are too large for one chat turn (...)`. Nothing is truncated silently; ask the user to select fewer files.
 
-A selected file that yields no text (for example a scanned PDF without OCR text) is skipped and named in a trajectory event `{"stage":"library_files_skipped","files":["a.pdf"]}`; those files are not used for the answer, so the UI should tell the user. All files empty is the `400 the selected files contain no text` above.
+A selected file that yields no text (for example a scanned PDF without OCR text) is skipped and, **in stream mode only**, named in a trajectory event `{"stage":"library_files_skipped","files":["a.pdf"]}` (the non-streaming response has no equivalent field); those files are not used for the answer, so the UI should tell the user. All files empty is the `400 the selected files contain no text` above.
 
 ### GET /api/library/chats
 
-200 `{"items": LibraryChat[]}`, only the caller's library chats, newest activity first. `items` is `[]` when empty. `Cache-Control: no-cache`.
+200 `{"items": LibraryChat[]}`, only the caller's library chats, newest activity first. `items` is `[]` when empty. `Cache-Control: no-cache`. 500 `failed to fetch chats`.
 
 ```
 LibraryChat = {
@@ -242,7 +251,7 @@ LibraryChat = {
 
 ### GET /api/library/chats/{id}
 
-200 `LibraryChat`; 404 `chat not found`.
+200 `LibraryChat`; 404 `chat not found`; 500 `failed to fetch chat`.
 
 ### Reused endpoints
 
