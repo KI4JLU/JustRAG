@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -44,10 +45,34 @@ type libStore struct {
 	refs     map[string][]string
 	replaced map[string][]string
 	added    []AddMessageParams
+	// msgChat maps message id → chat id for MessageInChat.
+	msgChat map[string]string
+	// ancestors, when set, is what GetMessageAncestors returns (a stand-in
+	// for an unscoped walk that would leak another chat's messages).
+	ancestors []MessageRow
+	refsErr   error
+	deleted   []string
 }
 
 func newLibStore() *libStore {
-	return &libStore{mockStore: newMockStore(), refs: map[string][]string{}, replaced: map[string][]string{}}
+	return &libStore{mockStore: newMockStore(), refs: map[string][]string{}, replaced: map[string][]string{}, msgChat: map[string]string{}}
+}
+
+func (s *libStore) MessageInChat(_ context.Context, messageID, chatID string) (bool, error) {
+	return s.msgChat[messageID] == chatID, nil
+}
+
+func (s *libStore) GetMessageAncestors(ctx context.Context, messageID, chatID string) ([]MessageRow, error) {
+	if s.ancestors != nil {
+		return s.ancestors, nil
+	}
+	return s.mockStore.GetMessageAncestors(ctx, messageID, chatID)
+}
+
+func (s *libStore) DeleteChat(_ context.Context, chatID string) error {
+	s.deleted = append(s.deleted, chatID)
+	delete(s.chats, chatID)
+	return nil
 }
 
 func (s *libStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageRow, error) {
@@ -78,6 +103,9 @@ func (s *libStore) GetChatFileRefs(_ context.Context, chatID string) ([]string, 
 }
 
 func (s *libStore) ReplaceChatFileRefs(_ context.Context, chatID string, ids []string) error {
+	if s.refsErr != nil {
+		return s.refsErr
+	}
 	s.replaced[chatID] = append([]string{}, ids...)
 	s.refs[chatID] = append([]string{}, ids...)
 	return nil
@@ -752,5 +780,102 @@ func TestGetLibraryChat(t *testing.T) {
 		if w := get(id); w.Code != http.StatusNotFound {
 			t.Errorf("GET %s: %d, want 404", id, w.Code)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix round 1
+// ---------------------------------------------------------------------------
+
+// A parentMessageId from another chat must neither steer the history walk nor
+// be stored: the turn falls back to the chat's own linear history.
+func TestSendLibraryMessage_ForeignParentFallsBackToOwnHistory(t *testing.T) {
+	fx := newLibChatFixture(t, nil)
+	fx.seedLibraryChat(libChatID, libUser, libFileA)
+	foreignMsg := uuid.NewString()
+	fx.store.msgChat[foreignMsg] = "99999999-9999-4999-8999-999999999999"
+	// What an unscoped ancestor walk from the foreign parent would yield.
+	fx.store.ancestors = []MessageRow{{ID: foreignMsg, Role: "user", Content: "GEHEIMNIS-DES-ANDEREN"}}
+	fx.store.messages = []MessageRow{{ID: uuid.NewString(), ChatID: libChatID, Role: "user", Content: "EIGENE-FRAGE"}}
+
+	w := fx.send(t, `{"message":"Weiter?","chatId":"`+libChatID+`","parentMessageId":"`+foreignMsg+`"}`, true)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var sawOwn bool
+	for _, b := range fx.ai.snapshot() {
+		if strings.Contains(b, "GEHEIMNIS-DES-ANDEREN") {
+			t.Fatalf("foreign message reached the model: %s", b)
+		}
+		sawOwn = sawOwn || strings.Contains(b, "EIGENE-FRAGE")
+	}
+	if !sawOwn {
+		t.Error("the chat's own linear history was not used")
+	}
+	for _, p := range fx.store.added {
+		if p.Role == "user" && p.ParentMessageID != nil {
+			t.Errorf("user message stored with parent %q, want nil", *p.ParentMessageID)
+		}
+	}
+}
+
+func TestParentInChat(t *testing.T) {
+	st := newLibStore()
+	own, foreign := uuid.NewString(), uuid.NewString()
+	st.msgChat[own] = libChatID
+	st.msgChat[foreign] = libNewChatID
+	h := &Handler{store: st}
+	ctx := context.Background()
+	if got := h.parentInChat(ctx, libChatID, &own); got == nil || *got != own {
+		t.Errorf("own parent dropped: %v", got)
+	}
+	if got := h.parentInChat(ctx, libChatID, &foreign); got != nil {
+		t.Errorf("foreign parent kept: %v", *got)
+	}
+	if got := h.parentInChat(ctx, libChatID, nil); got != nil {
+		t.Error("nil parent became non-nil")
+	}
+	// A store without the check keeps the id (the store itself is chat-scoped).
+	plain := &Handler{store: newMockStore()}
+	if got := plain.parentInChat(ctx, libChatID, &foreign); got == nil {
+		t.Error("store without MessageInChat must keep the id")
+	}
+}
+
+// A file deleted between validation and the refs write (FK violation) is a
+// 404 like any missing file, and the just-created chat is removed again.
+func TestSendLibraryMessage_RefsRaceIs404AndLeavesNoChat(t *testing.T) {
+	fx := newLibChatFixture(t, nil)
+	fx.store.refsErr = fmt.Errorf("ReplaceChatFileRefs insert: %w", ErrChatFileRefGone)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, true)
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "file not found") {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if len(fx.store.chats) != 0 || len(fx.store.deleted) != 1 || fx.store.deleted[0] != libNewChatID {
+		t.Errorf("chats = %v, deleted = %v", fx.store.chats, fx.store.deleted)
+	}
+	if len(fx.usage.snapshot()) != 0 {
+		t.Error("usage recorded on a rejected turn")
+	}
+
+	// An existing chat is never deleted on a refs failure.
+	fx2 := newLibChatFixture(t, nil)
+	fx2.seedLibraryChat(libChatID, libUser, libFileB)
+	fx2.store.refsErr = errors.New("db down")
+	w2 := fx2.send(t, `{"message":"x","chatId":"`+libChatID+`","fileIds":["`+libFileA+`"]}`, true)
+	if w2.Code != http.StatusInternalServerError || len(fx2.store.deleted) != 0 {
+		t.Fatalf("existing chat: %d, deleted %v", w2.Code, fx2.store.deleted)
+	}
+}
+
+func TestChatResponseParams_LowConfidenceNeverForLibrary(t *testing.T) {
+	if !(chatResponseParams{}).lowConfidence(1) {
+		t.Error("KB turn with 1 source must stay low confidence")
+	}
+	if (chatResponseParams{}).lowConfidence(3) {
+		t.Error("KB turn with 3 sources is not low confidence")
+	}
+	if (chatResponseParams{library: true}).lowConfidence(1) {
+		t.Error("a library turn must never count as low confidence")
 	}
 }

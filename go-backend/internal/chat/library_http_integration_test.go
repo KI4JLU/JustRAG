@@ -112,6 +112,36 @@ func TestLibraryChat_EndToEnd(t *testing.T) {
 		t.Error("an agent_decisions row was recorded for a library chat")
 	}
 
+	// A parentMessageId from another user's chat neither leaks into the
+	// history nor gets stored as the parent.
+	foreignChat := seedChat(t, pool, "lib-foreign-parent")
+	secret, err := store.AddMessage(ctx, AddMessageParams{ChatID: foreignChat, Role: "user", Content: "FREMDES-GEHEIMNIS"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(fakeAI.snapshot())
+	rf := httptest.NewRequest(http.MethodPost, "/api/library/chat",
+		strings.NewReader(`{"message":"Und weiter?","chatId":"`+chatID+`","parentMessageId":"`+secret.ID+`"}`))
+	rf = rf.WithContext(auth.WithUser(rf.Context(), &auth.Claims{ID: userID, Role: "user"}))
+	wf := httptest.NewRecorder()
+	h.SendLibraryMessage(wf, rf)
+	if wf.Code != http.StatusOK {
+		t.Fatalf("foreign-parent turn %d: %s", wf.Code, wf.Body.String())
+	}
+	for _, b := range fakeAI.snapshot()[before:] {
+		if strings.Contains(b, "FREMDES-GEHEIMNIS") {
+			t.Fatalf("foreign chat content reached the model: %s", b)
+		}
+	}
+	var foreignParents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM messages WHERE chat_id = $1::uuid AND parent_message_id = $2::uuid`,
+		chatID, secret.ID).Scan(&foreignParents); err != nil {
+		t.Fatal(err)
+	}
+	if foreignParents != 0 {
+		t.Errorf("%d messages stored with a foreign parent", foreignParents)
+	}
+
 	// Second turn on the stored refs, then list + get.
 	r2 := httptest.NewRequest(http.MethodPost, "/api/library/chat",
 		strings.NewReader(`{"message":"Und das Gras?","chatId":"`+chatID+`"}`))
@@ -142,7 +172,7 @@ func TestLibraryChat_EndToEnd(t *testing.T) {
 	if w3.Code != http.StatusBadRequest || !strings.Contains(w3.Body.String(), "no library files selected") {
 		t.Fatalf("after delete %d: %s", w3.Code, w3.Body.String())
 	}
-	if msgs, err := store.GetChatMessages(ctx, chatID); err != nil || len(msgs) != 4 {
+	if msgs, err := store.GetChatMessages(ctx, chatID); err != nil || len(msgs) != 6 {
 		t.Fatalf("history after delete = %d msgs, %v", len(msgs), err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
@@ -284,6 +285,10 @@ func (s *PGStore) GetChatFileRefs(ctx context.Context, chatID string) ([]string,
 	return ids, nil
 }
 
+// ErrChatFileRefGone means a library file (or the chat) was deleted between
+// validation and ReplaceChatFileRefs, so a reference row could not be written.
+var ErrChatFileRefGone = errors.New("chat file reference target no longer exists")
+
 // ReplaceChatFileRefs atomically replaces a chat's selected library files.
 // The given order is preserved: rows get strictly increasing added_at
 // within the transaction.
@@ -300,6 +305,9 @@ func (s *PGStore) ReplaceChatFileRefs(ctx context.Context, chatID string, userFi
 			SELECT $1::uuid, f.id, now() + f.ord * interval '1 microsecond'
 			FROM unnest($2::uuid[]) WITH ORDINALITY AS f(id, ord)
 			ON CONFLICT DO NOTHING`, chatID, userFileIDs); err != nil {
+			if pgxutil.IsForeignKeyViolation(err) {
+				return fmt.Errorf("ReplaceChatFileRefs insert: %w", ErrChatFileRefGone)
+			}
 			return fmt.Errorf("ReplaceChatFileRefs insert: %w", err)
 		}
 		return nil
@@ -368,6 +376,10 @@ func (s *PGStore) GetMessageAncestors(ctx context.Context, messageID, chatID str
 			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.team_id, p.agent_id, p.created_at
 			FROM messages p
 			INNER JOIN message_tree mt ON mt.parent_message_id = p.id
+			-- The walk must never leave the chat: a parent_message_id that
+			-- points into another chat would otherwise pull a foreign
+			-- conversation into the answer history.
+			WHERE p.chat_id = $2
 		)
 		SELECT * FROM message_tree ORDER BY created_at ASC`
 
@@ -384,6 +396,21 @@ func (s *PGStore) GetMessageAncestors(ctx context.Context, messageID, chatID str
 		result[i] = mr
 	}
 	return result, nil
+}
+
+// MessageInChat reports whether messageID is a message of chatID. A malformed
+// id is simply not in the chat.
+func (s *PGStore) MessageInChat(ctx context.Context, messageID, chatID string) (bool, error) {
+	if _, err := uuid.Parse(messageID); err != nil {
+		return false, nil
+	}
+	var ok bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM messages WHERE id = $1::uuid AND chat_id = $2::uuid)`,
+		messageID, chatID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("MessageInChat: %w", err)
+	}
+	return ok, nil
 }
 
 // AddMessage inserts a new message and updates the parent chat's updated_at within
@@ -417,7 +444,12 @@ func (s *PGStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageR
 
 	const insertSQL = `
 		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, team_id, agent_id)
-		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7,
+		        -- A parent outside this chat (or a missing one) is stored as
+		        -- NULL: a foreign parent would let a later ancestor walk start
+		        -- in another user's conversation.
+		        (SELECT pm.id FROM messages pm WHERE pm.id = $8::uuid AND pm.chat_id = $1::uuid),
+		        $9::jsonb, $10::jsonb, $11, $12)
 		RETURNING id, chat_id, parent_message_id, role, content, sources,
 		          is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
 		          verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at`

@@ -640,6 +640,13 @@ func (h *Handler) handleTransformFollowUp(
 	h.writeJSONResponse(ctx, w, rp)
 }
 
+// lowConfidence is the "fewer than 3 sources" retrieval signal. A library turn
+// is not retrieval — a full-text context legitimately has one source per page
+// or file — so it never counts as low confidence.
+func (p chatResponseParams) lowConfidence(sourceCount int) bool {
+	return !p.library && sourceCount < 3
+}
+
 // enrichResponseSources stamps freshness dates onto the turn's sources. A
 // library turn has no `files` rows to look up (its sources carry UserFileID,
 // never FileID), so it is skipped there (P3-R5).
@@ -840,7 +847,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		"reasoning_len", reasoningBuf.Len(),
 		"reasoning_level", p.reasoningLevel,
 		"source_count", len(sources),
-		"low_confidence", len(sources) < 3,
+		"low_confidence", p.lowConfidence(len(sources)),
 		"stream", true,
 		// answer_tools_path means "the tool loop actually ran" (W6-R8
 		// fix round 1), not merely "tools were configured" — a route
@@ -854,7 +861,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		attribute.Int("chat.answer_len", len(fullResponse)),
 	)
 	observability.RecordCompletion(true, time.Since(streamStart).Seconds())
-	if len(sources) < 3 {
+	if p.lowConfidence(len(sources)) {
 		observability.RecordLowConfidence()
 	}
 
@@ -950,7 +957,7 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 		"answer_len", len(result.Content),
 		"reasoning_len", len(result.Reasoning),
 		"source_count", len(sources),
-		"low_confidence", len(sources) < 3,
+		"low_confidence", p.lowConfidence(len(sources)),
 		"stream", false,
 	)
 	p.span.SetAttributes(
@@ -958,7 +965,7 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 		attribute.Int("chat.answer_len", len(result.Content)),
 	)
 	observability.RecordCompletion(false, time.Since(nonStreamStart).Seconds())
-	if len(sources) < 3 {
+	if p.lowConfidence(len(sources)) {
 		observability.RecordLowConfidence()
 	}
 

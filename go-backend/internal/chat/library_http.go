@@ -118,7 +118,7 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 	var parentMsgID *string
 	var convRows []MessageRow
 	if chat != nil {
-		parentMsgID = SanitizeParentMessageID(body.ParentMessageID)
+		parentMsgID = h.parentInChat(ctx, chat.ID, SanitizeParentMessageID(body.ParentMessageID))
 		convRows = h.loadConversationRows(ctx, chat.ID, parentMsgID)
 	}
 
@@ -313,31 +313,45 @@ func writeLibraryContextError(ctx context.Context, w http.ResponseWriter, err er
 // runes of the message) and persists a body file selection as the chat's refs.
 // Every id in files was validated owner-scoped by resolveLibraryFiles.
 func (h *Handler) commitLibraryChat(ctx context.Context, w http.ResponseWriter, chat *ChatRow, userID string, body sendMessageRequest, files []*userfiles.UserFile) (string, bool) {
-	if chat == nil {
+	created := chat == nil
+	if created {
 		title := body.Message
 		if runes := []rune(title); len(runes) > 50 {
 			title = string(runes[:50])
 		}
-		created, err := h.libraryChats.CreateLibraryChat(ctx, userID, title)
+		newChat, err := h.libraryChats.CreateLibraryChat(ctx, userID, title)
 		if err != nil {
 			logctx.From(ctx).Error("chat.library: create chat", "error", err)
 			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to create chat")
 			return "", false
 		}
-		chat = created
+		chat = newChat
 	}
-	if len(body.FileIDs) > 0 {
-		ids := make([]string, len(files))
-		for i, uf := range files {
-			ids[i] = uf.ID
-		}
-		if err := h.libraryChats.ReplaceChatFileRefs(ctx, chat.ID, ids); err != nil {
-			logctx.From(ctx).Error("chat.library: replace file refs", "error", err, "chat_id", chat.ID)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to save library files")
-			return "", false
+	if len(body.FileIDs) == 0 {
+		return chat.ID, true
+	}
+	ids := make([]string, len(files))
+	for i, uf := range files {
+		ids[i] = uf.ID
+	}
+	err := h.libraryChats.ReplaceChatFileRefs(ctx, chat.ID, ids)
+	if err == nil {
+		return chat.ID, true
+	}
+	// A failed selection must not leave an empty new chat behind.
+	if created {
+		if derr := h.store.DeleteChat(ctx, chat.ID); derr != nil {
+			logctx.From(ctx).Warn("chat.library: remove chat after failed refs", "error", derr, "chat_id", chat.ID)
 		}
 	}
-	return chat.ID, true
+	if errors.Is(err, ErrChatFileRefGone) {
+		// A file was deleted after validation: same answer as a missing id.
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "file not found")
+		return "", false
+	}
+	logctx.From(ctx).Error("chat.library: replace file refs", "error", err, "chat_id", chat.ID)
+	httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to save library files")
+	return "", false
 }
 
 // libraryChatItem is the list/get shape of a library chat (P3-R4).
