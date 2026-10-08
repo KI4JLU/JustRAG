@@ -5,6 +5,7 @@ package cascade
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -132,6 +133,18 @@ func (d *Deleter) DeleteKB(ctx context.Context, kbID string) error {
 // Returns an error only if the DB transaction fails.
 // ---------------------------------------------------------------------------
 func (d *Deleter) DeleteUser(ctx context.Context, userID string) error {
+	// Library files first: user_files.owner_user_id is RESTRICT, and their
+	// copies live in KBs this user may not own.
+	ufIDs, err := d.userFileIDsByOwner(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("cascade DeleteUser: fetch library files: %w", err)
+	}
+	for _, ufID := range ufIDs {
+		if err := d.DeleteUserFile(ctx, userID, ufID); err != nil {
+			return fmt.Errorf("cascade DeleteUser: library file %s: %w", ufID, err)
+		}
+	}
+
 	kbIDs, err := d.getKBIDsByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("cascade DeleteUser: fetch KBs: %w", err)
@@ -276,6 +289,73 @@ func (d *Deleter) loadFileRecords(ctx context.Context, fileIDs []string) ([]file
 		files = append(files, f)
 	}
 	return files, rows.Err()
+}
+
+// ErrUserFileNotFound means the library file does not exist for this owner
+// (missing, malformed id, or another owner's file).
+var ErrUserFileNotFound = errors.New("user file not found")
+
+// DeleteUserFile removes a library file and every KB copy of it: each copy
+// gets the full per-file cleanup (DeleteFiles), then the user_files row and
+// the blob go. ownerID scopes the lookup — another owner's id is
+// ErrUserFileNotFound. Returns an error if any KB copy's row delete failed
+// (the user_files row is then left in place, so a retry can finish).
+func (d *Deleter) DeleteUserFile(ctx context.Context, ownerID, userFileID string) error {
+	if _, err := uuid.Parse(userFileID); err != nil {
+		return ErrUserFileNotFound
+	}
+	if _, err := uuid.Parse(ownerID); err != nil {
+		return ErrUserFileNotFound
+	}
+	var storagePath string
+	err := d.mainDB.QueryRow(ctx,
+		`SELECT storage_path FROM user_files WHERE id = $1::uuid AND owner_user_id = $2::uuid`,
+		userFileID, ownerID).Scan(&storagePath)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUserFileNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("cascade DeleteUserFile: load: %w", err)
+	}
+
+	rows, err := d.mainDB.Query(ctx, `SELECT id::text FROM files WHERE user_file_id = $1::uuid`, userFileID)
+	if err != nil {
+		return fmt.Errorf("cascade DeleteUserFile: list copies: %w", err)
+	}
+	copyIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("cascade DeleteUserFile: scan copies: %w", err)
+	}
+	if len(copyIDs) > 0 {
+		if err := d.DeleteFiles(ctx, copyIDs); err != nil {
+			return fmt.Errorf("cascade DeleteUserFile: delete copies: %w", err)
+		}
+	}
+
+	if _, err := d.mainDB.Exec(ctx,
+		`DELETE FROM user_files WHERE id = $1::uuid AND owner_user_id = $2::uuid`, userFileID, ownerID); err != nil {
+		return fmt.Errorf("cascade DeleteUserFile: delete row: %w", err)
+	}
+
+	// Best-effort and after the row: an orphan blob is cheaper than a row
+	// pointing at nothing. Detached so a client disconnect cannot skip it.
+	if storagePath != "" {
+		bctx := context.WithoutCancel(ctx)
+		if err := d.storage.DeleteFile(bctx, storagePath); err != nil {
+			observability.RecordCascadeDeletionError(observability.CascadeResourceStorage)
+			slog.WarnContext(bctx, "cascade: delete library blob (best-effort) — orphan object possible",
+				"path", storagePath, "user_file_id", userFileID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (d *Deleter) userFileIDsByOwner(ctx context.Context, ownerID string) ([]string, error) {
+	rows, err := d.mainDB.Query(ctx, `SELECT id::text FROM user_files WHERE owner_user_id = $1::uuid`, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 func (d *Deleter) getKBIDsByUserID(ctx context.Context, userID string) ([]string, error) {

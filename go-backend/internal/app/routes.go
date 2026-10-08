@@ -760,6 +760,7 @@ func registerLibraryRoutes(rc *routeCtx) {
 	quota := userFileQuota{reader: rc.chatStore}
 	ingester := userfiles.NewIngester(store, rc.infra.stor, quota)
 	h := userfiles.NewHandler(store, ingester, rc.infra.stor, tabularUploadLimits{reader: rc.chatStore}, quota)
+	h.SetDeleter(rc.cascadeDeleter)
 	// KB uploads and add-from-library go through the same library.
 	rc.filesHandler.SetLibrary(libraryAdapter{Ingester: ingester, store: store})
 	wrap := func(f http.HandlerFunc) http.Handler { return rc.authMw.Authenticate(f) }
@@ -767,6 +768,7 @@ func registerLibraryRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/library/files", wrap(h.Upload))
 	rc.mux.Handle("GET /api/library/files/{id}", wrap(h.Get))
 	rc.mux.Handle("PATCH /api/library/files/{id}", wrap(h.Rename))
+	rc.mux.Handle("DELETE /api/library/files/{id}", wrap(h.Delete))
 	rc.mux.Handle("GET /api/library/files/{id}/download", wrap(h.Download))
 	rc.mux.Handle("GET /api/library/files/{id}/usage", wrap(h.Usage))
 	rc.mux.Handle("GET /api/library/quota", wrap(h.Quota))

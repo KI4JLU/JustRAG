@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/justrag/go-backend/internal/auth"
+	"github.com/justrag/go-backend/internal/cascade"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/storage"
@@ -31,10 +32,43 @@ type Handler struct {
 	stor     storage.Storage
 	limits   uploadcheck.Limits
 	quota    QuotaReader
+	deleter  FileDeleter
 }
 
 func NewHandler(store Store, in *Ingester, stor storage.Storage, limits uploadcheck.Limits, quota QuotaReader) *Handler {
 	return &Handler{store: store, ingester: in, stor: stor, limits: limits, quota: quota}
+}
+
+// FileDeleter removes a library file together with every KB copy of it
+// (implemented by *cascade.Deleter).
+type FileDeleter interface {
+	DeleteUserFile(ctx context.Context, ownerID, userFileID string) error
+}
+
+// SetDeleter wires the cascade deleter behind DELETE /api/library/files/{id}.
+func (h *Handler) SetDeleter(d FileDeleter) { h.deleter = d }
+
+// Delete handles DELETE /api/library/files/{id}.
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if !validID(id) || h.deleter == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "File not found")
+		return
+	}
+	err := h.deleter.DeleteUserFile(r.Context(), uid, id)
+	if errors.Is(err, cascade.ErrUserFileNotFound) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "File not found")
+		return
+	}
+	if err != nil {
+		httputil.WriteInternalErrorCtx(r.Context(), w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // userID returns the authenticated user's id or writes a 401.

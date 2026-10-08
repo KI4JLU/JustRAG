@@ -17,7 +17,68 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/justrag/go-backend/internal/auth"
+	"github.com/justrag/go-backend/internal/cascade"
 )
+
+// ---- delete ---------------------------------------------------------------
+
+type spyDeleter struct {
+	calls [][2]string
+	err   error
+}
+
+func (s *spyDeleter) DeleteUserFile(_ context.Context, owner, id string) error {
+	s.calls = append(s.calls, [2]string{owner, id})
+	return s.err
+}
+
+func deleteHarness(d FileDeleter) *harness {
+	h := newHarness(0)
+	hd := NewHandler(h.store, nil, h.stor, fakeLimits{}, fakeQuota(0))
+	hd.SetDeleter(d)
+	h.mux.HandleFunc("DELETE /api/library/files/{id}", hd.Delete)
+	return h
+}
+
+func TestDelete(t *testing.T) {
+	id := "11111111-1111-1111-1111-111111111111"
+	cases := []struct {
+		name      string
+		id        string
+		err       error
+		want      int
+		wantCalls int
+	}{
+		{"ok", id, nil, http.StatusNoContent, 1},
+		{"not found", id, cascade.ErrUserFileNotFound, http.StatusNotFound, 1},
+		{"other error", id, errors.New("boom"), http.StatusInternalServerError, 1},
+		{"malformed id", "nope", nil, http.StatusNotFound, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sp := &spyDeleter{err: c.err}
+			h := deleteHarness(sp)
+			rec := h.do(userA(), httptest.NewRequest("DELETE", "/api/library/files/"+c.id, nil))
+			if rec.Code != c.want {
+				t.Fatalf("status = %d, want %d", rec.Code, c.want)
+			}
+			if len(sp.calls) != c.wantCalls {
+				t.Fatalf("calls = %v", sp.calls)
+			}
+			if c.wantCalls == 1 && sp.calls[0] != [2]string{userA(), c.id} {
+				t.Errorf("call = %v", sp.calls[0])
+			}
+		})
+	}
+	t.Run("unauthenticated", func(t *testing.T) {
+		sp := &spyDeleter{}
+		h := deleteHarness(sp)
+		rec := h.do("", httptest.NewRequest("DELETE", "/api/library/files/"+id, nil))
+		if rec.Code != http.StatusUnauthorized || len(sp.calls) != 0 {
+			t.Fatalf("status = %d calls=%v", rec.Code, sp.calls)
+		}
+	})
+}
 
 // ---- fakes ----------------------------------------------------------------
 
