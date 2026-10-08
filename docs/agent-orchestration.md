@@ -370,7 +370,7 @@ Unknown tools (remote MCP servers) get the most restrictive policy: `external_wr
 | `web_search` | external_read | view | always |
 | `confluence_import`, `library_add_to_kb` (planned, not registered) | kb_write | edit | always |
 
-`web_search` is in `mcp.PrivilegedTools`, so it is offered and executable only when `Scope.AllowPrivileged` is true (Ruling R5), in addition to being approval-always.
+`web_search` is in `mcp.PrivilegedTools`, but the ADK bridge exempts it (`privilegedInBridge`, decision 2026-10-08): it is offered and executable without `Scope.AllowPrivileged`, and stays approval-always. The legacy paths still treat it as privileged.
 
 `memory_read`/`memory_write` are chat-**session** memory (`internal/sessionmem`: a Redis scratchpad keyed by `chat_id`, which dispatch injects from `Scope.ChatID`), not the per-user long-term memory of `chat_longmem_*` (Ruling R6, amended).
 

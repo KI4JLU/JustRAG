@@ -143,7 +143,7 @@ func (t *dispatchTool) checkPolicy(ctx context.Context) (Scope, error) {
 	if !RoleAtLeast(sc.Role, t.spec.Policy.RequiresRole) {
 		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, t.spec.Name, t.spec.Policy.RequiresRole)
 	}
-	if mcp.PrivilegedTools[t.spec.Name] && !sc.AllowPrivileged {
+	if privilegedInBridge(t.spec.Name) && !sc.AllowPrivileged {
 		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, t.spec.Name)
 	}
 	return sc, nil

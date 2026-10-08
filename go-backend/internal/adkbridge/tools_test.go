@@ -79,10 +79,10 @@ func TestRoleRefusalPrecedesApproval(t *testing.T) {
 
 func TestPrivilegeRefusalPrecedesApproval(t *testing.T) {
 	rec := &recorder{}
-	ws := NewTool(ToolSpec{Name: "web_search", Policy: PolicyFor("web_search")}, rec.dispatch)
+	ws := NewTool(ToolSpec{Name: "code_exec", Policy: PolicyFor("code_exec")}, rec.dispatch)
 	evs := runWithScope(t, Scope{UserID: "u", KBID: "kb", Role: "owner"},
-		[][]ai.StreamChunk{toolTurn("c1", "web_search", `{"query":"x"}`), textTurn("done")}, ws)
-	asked, refusal := toolOutcome(evs, "web_search")
+		[][]ai.StreamChunk{toolTurn("c1", "code_exec", `{"code":"x"}`), textTurn("done")}, ws)
+	asked, refusal := toolOutcome(evs, "code_exec")
 	if asked || !strings.Contains(refusal, "is privileged") || rec.n != 0 {
 		t.Fatalf("asked=%v refusal=%q n=%d", asked, refusal, rec.n)
 	}
@@ -245,5 +245,17 @@ func TestUnknownToolStaysModelVisible(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"})
 	if got, _ := tl.result(ctx, map[string]any{})["error"].(string); !strings.Contains(got, "unknown tool") {
 		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestWebSearchNeedsNoPrivilegeButApproval(t *testing.T) {
+	rec := &recorder{}
+	ws := NewTool(ToolSpec{Name: "web_search", Policy: PolicyFor("web_search")}, rec.dispatch).(*dispatchTool)
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"}) // AllowPrivileged false
+	if _, err := ws.checkPolicy(ctx); err != nil {
+		t.Fatalf("web_search refused without privilege: %v", err)
+	}
+	if PolicyFor("web_search").Approval != ApprovalAlways {
+		t.Fatal("web_search must stay approval-always")
 	}
 }
