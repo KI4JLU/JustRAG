@@ -22,7 +22,17 @@ import (
 // fileRecord holds the minimal file info needed for cleanup.
 type fileRecord struct {
 	ID          string
+	KbID        string
 	StoragePath *string
+	// UserFileID is non-nil for a KB copy of a user-library file. Such a row
+	// shares the library blob, which only DeleteUserFile may remove.
+	UserFileID *string
+}
+
+// KGFileHook removes a file's KG contribution and announces the graph change.
+// kgevents.FileHook satisfies it.
+type KGFileHook interface {
+	OnFileDeleted(ctx context.Context, kbID, fileID string)
 }
 
 // QueryCacheInvalidator nukes cached SearchResults for a KB. Wired through
@@ -40,6 +50,7 @@ type Deleter struct {
 	hype         *vector.HyPEStore
 	storage      storage.Storage
 	queryCache   QueryCacheInvalidator
+	kgHook       KGFileHook
 }
 
 // New creates a Deleter backed by the given pools and storage.
@@ -58,6 +69,10 @@ func New(mainDB *pgxpool.Pool, vectorDB *pgxpool.Pool, stor storage.Storage) *De
 // being torn down. Optional — when nil, the cache is left to its TTL
 // fallback.
 func (d *Deleter) SetQueryCacheInvalidator(qc QueryCacheInvalidator) { d.queryCache = qc }
+
+// SetKGFileHook injects the per-file KG cleanup + graph_changed hook used by
+// DeleteFiles. Optional — when nil, the KG step is skipped.
+func (d *Deleter) SetKGFileHook(h KGFileHook) { d.kgHook = h }
 
 // invalidateQueryCache fires the optional KB query-cache invalidation
 // hook. Fail-safe: nil invalidator is a no-op; errors are logged but
@@ -90,6 +105,7 @@ func (d *Deleter) DeleteKB(ctx context.Context, kbID string) error {
 	}
 
 	d.deleteVectorChunksForFiles(ctx, files)
+	d.deleteParentChunksForFiles(ctx, files)
 	d.dropTabularTablesForFiles(ctx, files)
 	d.deleteStorageForFiles(ctx, files)
 	d.deleteBM25StatsForKB(ctx, kbID)
@@ -129,6 +145,7 @@ func (d *Deleter) DeleteUser(ctx context.Context, userID string) error {
 			continue
 		}
 		d.deleteVectorChunksForFiles(ctx, files)
+		d.deleteParentChunksForFiles(ctx, files)
 		d.dropTabularTablesForFiles(ctx, files)
 		d.deleteStorageForFiles(ctx, files)
 		d.deleteBM25StatsForKB(ctx, kbID)
@@ -161,6 +178,7 @@ func (d *Deleter) DeleteGlobalKB(ctx context.Context, kbID string) error {
 	}
 
 	d.deleteVectorChunksForFiles(ctx, files)
+	d.deleteParentChunksForFiles(ctx, files)
 	d.dropTabularTablesForFiles(ctx, files)
 	d.deleteStorageForFiles(ctx, files)
 	d.deleteBM25StatsForKB(ctx, kbID)
@@ -173,12 +191,58 @@ func (d *Deleter) DeleteGlobalKB(ctx context.Context, kbID string) error {
 }
 
 // ---------------------------------------------------------------------------
+// DeleteFiles removes the given files rows and everything indexed for them:
+// vector chunks (all dims, incl. RAPTOR nodes), parent chunks, HyPE rows,
+// tabular tables, the files rows, KG contribution and — only for rows with
+// user_file_id IS NULL — the blob. Query caches of every affected KB are
+// invalidated. Best-effort on the non-DB steps; returns an error only if the
+// record load or the row delete fails. Unknown ids are skipped silently.
+// ---------------------------------------------------------------------------
+func (d *Deleter) DeleteFiles(ctx context.Context, fileIDs []string) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	files, err := d.loadFileRecords(ctx, fileIDs)
+	if err != nil {
+		return fmt.Errorf("cascade DeleteFiles: load files: %w", err)
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	d.deleteVectorChunksForFiles(ctx, files)
+	d.deleteParentChunksForFiles(ctx, files)
+	d.dropTabularTablesForFiles(ctx, files)
+	d.deleteStorageForFiles(ctx, files)
+
+	ids := make([]string, len(files))
+	for i, f := range files {
+		ids[i] = f.ID
+	}
+	if _, err := d.mainDB.Exec(ctx, `DELETE FROM files WHERE id = ANY($1::uuid[])`, ids); err != nil {
+		return fmt.Errorf("cascade DeleteFiles: delete rows: %w", err)
+	}
+
+	seen := make(map[string]struct{}, 1)
+	for _, f := range files {
+		if d.kgHook != nil {
+			d.kgHook.OnFileDeleted(ctx, f.KbID, f.ID)
+		}
+		if _, ok := seen[f.KbID]; !ok {
+			seen[f.KbID] = struct{}{}
+			d.invalidateQueryCache(ctx, f.KbID, "file_deleted")
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers — DB queries
 // ---------------------------------------------------------------------------
 
 func (d *Deleter) getFilesByKBID(ctx context.Context, kbID string) ([]fileRecord, error) {
 	rows, err := d.mainDB.Query(ctx,
-		`SELECT id, storage_path FROM files WHERE kb_id = $1`, kbID)
+		`SELECT id, kb_id, storage_path, user_file_id FROM files WHERE kb_id = $1`, kbID)
 	if err != nil {
 		return nil, fmt.Errorf("query files for kb %s: %w", kbID, err)
 	}
@@ -187,7 +251,26 @@ func (d *Deleter) getFilesByKBID(ctx context.Context, kbID string) ([]fileRecord
 	var files []fileRecord
 	for rows.Next() {
 		var f fileRecord
-		if err := rows.Scan(&f.ID, &f.StoragePath); err != nil {
+		if err := rows.Scan(&f.ID, &f.KbID, &f.StoragePath, &f.UserFileID); err != nil {
+			return nil, fmt.Errorf("scan file row: %w", err)
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+func (d *Deleter) loadFileRecords(ctx context.Context, fileIDs []string) ([]fileRecord, error) {
+	rows, err := d.mainDB.Query(ctx,
+		`SELECT id, kb_id, storage_path, user_file_id FROM files WHERE id = ANY($1::uuid[])`, fileIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query files: %w", err)
+	}
+	defer rows.Close()
+
+	var files []fileRecord
+	for rows.Next() {
+		var f fileRecord
+		if err := rows.Scan(&f.ID, &f.KbID, &f.StoragePath, &f.UserFileID); err != nil {
 			return nil, fmt.Errorf("scan file row: %w", err)
 		}
 		files = append(files, f)
@@ -242,6 +325,18 @@ func (d *Deleter) deleteVectorChunksForFiles(ctx context.Context, files []fileRe
 	}
 }
 
+// deleteParentChunksForFiles removes parent-chunk rows (no bulk API, so one
+// call per file). Best-effort.
+func (d *Deleter) deleteParentChunksForFiles(ctx context.Context, files []fileRecord) {
+	for _, f := range files {
+		if err := d.chunkService.DeleteParentChunksByFileID(ctx, f.ID); err != nil {
+			observability.RecordCascadeDeletionError(observability.CascadeResourceVector)
+			slog.WarnContext(ctx, "cascade: delete parent chunks (best-effort) — orphan rows possible",
+				"file_id", f.ID, "error", err)
+		}
+	}
+}
+
 // deleteBM25StatsForKB removes the BM25 stats rows (both tables, both arms,
 // every dim) for a KB that is being deleted outright. Best-effort like
 // deleteVectorChunksForFiles's HyPE cleanup: a bad kbID or a listing/delete
@@ -285,6 +380,10 @@ func (d *Deleter) dropTabularTablesForFiles(ctx context.Context, files []fileRec
 
 func (d *Deleter) deleteStorageForFiles(ctx context.Context, files []fileRecord) {
 	for _, f := range files {
+		if f.UserFileID != nil {
+			// Shared library blob: only DeleteUserFile may remove it.
+			continue
+		}
 		if f.StoragePath == nil || *f.StoragePath == "" {
 			continue
 		}

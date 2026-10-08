@@ -239,7 +239,12 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	filesHandler.SetQueryCacheInvalidator(searchService)
 	// Wire the KG file-eventer so file-delete handlers clean up KG data and
 	// notify mindmap subscribers via Redis pub/sub.
-	filesHandler.SetKGFileEventer(kgevents.NewFileHook(kgevents.NewPublisher(infra.rdb.Client), kgStore))
+	kgFileHook := kgevents.NewFileHook(kgevents.NewPublisher(infra.rdb.Client), kgStore)
+	filesHandler.SetKGFileEventer(kgFileHook)
+	// The shared per-file cleanup carries the same KG hook, and the files
+	// handler's Delete delegates to it.
+	cascadeDeleter.SetKGFileHook(kgFileHook)
+	filesHandler.SetFileDeleter(cascadeDeleter)
 	// Wire the spreadsheet table dropper so deleting a file also removes the
 	// `tabular.sheet_*` tables it materialised. Without it the tabular_catalog
 	// row (keyed on the file id) goes with the files row and the physical

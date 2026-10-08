@@ -132,6 +132,7 @@ type Handler struct {
 	queryCache   QueryCacheInvalidator
 	kgEvents     kgFileEventer
 	tableDropper TableDropper
+	fileDeleter  FileDeleter
 	uploadLimits UploadLimits
 }
 
@@ -191,6 +192,16 @@ type kgFileEventer interface {
 // SetKGFileEventer injects the KG cleanup + mindmap-notify hook for file
 // deletes. Optional.
 func (h *Handler) SetKGFileEventer(e kgFileEventer) { h.kgEvents = e }
+
+// FileDeleter removes files rows and everything indexed for them.
+// *cascade.Deleter satisfies it.
+type FileDeleter interface {
+	DeleteFiles(ctx context.Context, fileIDs []string) error
+}
+
+// SetFileDeleter injects the shared per-file cleanup. When set, Delete
+// delegates to it after its auth checks; when nil the inline path is used.
+func (h *Handler) SetFileDeleter(d FileDeleter) { h.fileDeleter = d }
 
 // SetTableDropper injects the spreadsheet table cleanup hook for file
 // deletes. Optional — nil leaves materialised tables in place.
@@ -458,6 +469,17 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	// Production path: the shared cascade cleanup (chunks, parents, HyPE,
+	// tabular, guarded blob delete, row, KG hook, query cache).
+	if h.fileDeleter != nil {
+		if err := h.fileDeleter.DeleteFiles(r.Context(), []string{fileID}); err != nil {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to delete file record")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
