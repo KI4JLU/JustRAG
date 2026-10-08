@@ -87,6 +87,7 @@ func (m *Model) stream(ctx context.Context, chatReq ai.ChatRequest, yield func(*
 		text, thought strings.Builder
 		calls         = map[int]*ai.ToolCall{}
 		finish        string
+		filter        ai.ThinkTagFilter
 	)
 	for chunk := range ch {
 		if chunk.Err != nil {
@@ -100,9 +101,19 @@ func (m *Model) stream(ctx context.Context, chatReq ai.ChatRequest, yield func(*
 			}
 		}
 		if chunk.Content != "" {
-			text.WriteString(chunk.Content)
-			if !yield(partial(&genai.Part{Text: chunk.Content}), nil) {
-				return
+			for _, seg := range filter.Process(chunk.Content) {
+				if seg.Reasoning != "" {
+					thought.WriteString(seg.Reasoning)
+					if !yield(partial(&genai.Part{Text: seg.Reasoning, Thought: true}), nil) {
+						return
+					}
+				}
+				if seg.Content != "" {
+					text.WriteString(seg.Content)
+					if !yield(partial(&genai.Part{Text: seg.Content}), nil) {
+						return
+					}
+				}
 			}
 		}
 		for _, d := range chunk.ToolCallDeltas {
@@ -122,6 +133,10 @@ func (m *Model) stream(ctx context.Context, chatReq ai.ChatRequest, yield func(*
 		if chunk.FinishReason != "" {
 			finish = chunk.FinishReason
 		}
+	}
+	if seg := filter.Flush(); seg.Reasoning != "" || seg.Content != "" {
+		thought.WriteString(seg.Reasoning)
+		text.WriteString(seg.Content)
 	}
 	// The final, non-partial response carries the whole turn: ADK's runner
 	// only processes this one; partials are forwarded for display.
@@ -154,8 +169,15 @@ func convertResponse(resp *ai.ChatResponse) (*model.LLMResponse, error) {
 		return nil, errors.New("adkbridge: empty completion")
 	}
 	ch := resp.Choices[0]
+	var f ai.ThinkTagFilter
+	var thought, text strings.Builder
+	thought.WriteString(firstNonEmpty(ch.Message.ReasoningContent, ch.Message.Reasoning))
+	for _, seg := range append(f.Process(ch.Message.Content), f.Flush()) {
+		thought.WriteString(seg.Reasoning)
+		text.WriteString(seg.Content)
+	}
 	out := &model.LLMResponse{
-		Content:      assembleContent(firstNonEmpty(ch.Message.ReasoningContent, ch.Message.Reasoning), ch.Message.Content, ch.Message.ToolCalls),
+		Content:      assembleContent(thought.String(), text.String(), ch.Message.ToolCalls),
 		FinishReason: mapFinish(ch.FinishReason),
 		TurnComplete: true,
 	}

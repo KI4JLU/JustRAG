@@ -337,3 +337,42 @@ func TestStreamEarlyStopReleasesProducer(t *testing.T) {
 		t.Fatal("producer goroutine still running after consumer stopped early")
 	}
 }
+
+func TestInlineThinkTagsBecomeThoughts(t *testing.T) {
+	fc := &fakeClient{turns: [][]ai.StreamChunk{{
+		{Content: "<think>abw"}, {Content: "ägen</think>Ant"}, {Content: "wort"}, {FinishReason: "stop", Done: true},
+	}}}
+	var final *model.LLMResponse
+	for resp, err := range NewModel(fc, "m").GenerateContent(context.Background(),
+		&model.LLMRequest{Contents: []*genai.Content{genai.NewContentFromText("q", genai.RoleUser)}}, true) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !resp.Partial {
+			final = resp
+		}
+	}
+	p := final.Content.Parts
+	if len(p) != 2 || !p[0].Thought || p[0].Text != "abwägen" || p[1].Text != "Antwort" {
+		t.Fatalf("parts = %+v", p)
+	}
+}
+
+func TestMalformedToolArgsReachToolAsSentinel(t *testing.T) {
+	fc := &fakeClient{turns: [][]ai.StreamChunk{{
+		{ToolCallDeltas: []ai.ToolCallDelta{{Index: 0, ID: "c", Name: "kb_search", Arguments: `{"query": "unterminated`}}},
+		{FinishReason: "tool_calls", Done: true},
+	}}}
+	var final *model.LLMResponse
+	for resp, err := range NewModel(fc, "m").GenerateContent(context.Background(),
+		&model.LLMRequest{Contents: []*genai.Content{genai.NewContentFromText("q", genai.RoleUser)}}, true) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		final = resp
+	}
+	args := final.Content.Parts[0].FunctionCall.Args
+	if _, ok := args["__invalid_arguments"]; !ok {
+		t.Fatalf("args = %v", args)
+	}
+}
