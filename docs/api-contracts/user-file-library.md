@@ -24,7 +24,8 @@ UserFile = {
 }
 KBLink  = { kbId: string, fileId: string, status: string }
           // fileId = the KB's indexed copy (files row); status = that copy's ingest
-          // status (pending | processing | completed | error)
+          // status (pending | processing | completed | partial | error).
+          // partial = ingested, but some optional stages failed; the file is searchable, treat like completed
 KBUsage = { id: string, name: string, visibility: "private"|"public", memberCount: number }
 ```
 
