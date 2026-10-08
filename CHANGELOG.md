@@ -12,6 +12,14 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 ## Unreleased
 
+<!-- Not a git-cliff section (every other heading below is a released, tagged
+     version). This one exists because the user-file-library phase 0 work landed
+     its hand-written upgrade notes before a release was cut. When cutting the
+     next release, `git cliff --unreleased --tag vX.Y.Z --prepend` will insert
+     the generated "## vX.Y.Z — <date>" section ABOVE this one — fold this
+     block's content into that new section's "### ⚠ Upgrade notes" and delete
+     this heading rather than leaving both. -->
+
 ### ⚠ Upgrade notes
 
 - Migration **0075** adds `files.uploaded_by` (no backfill — existing files show no uploader).
