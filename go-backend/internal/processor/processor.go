@@ -109,6 +109,9 @@ type ProcessorStore interface {
 	// forever, and "screened, clean" stays distinguishable from "never
 	// screened" (a NULL detail).
 	MarkInjectionScreenedClean(ctx context.Context, fileID string, detail []byte) error
+	// SetIndexFingerprint records files.index_fingerprint for a completed
+	// library-backed ingest (P2-R4).
+	SetIndexFingerprint(ctx context.Context, fileID, fp string) error
 }
 
 // SiteConfigReader reads individual site config values.
@@ -1011,6 +1014,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 
 	if len(ichunks) == 0 {
 		_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
+		p.recordIndexFingerprint(ctx, in)
 		logctx.From(ctx).Info("processor: no chunks produced", "fileId", fileID)
 		return nil
 	}
@@ -1087,6 +1091,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		groups := splitter.ParentChildSplit(sourceText, parentCfg, childCfg)
 		if len(groups) == 0 {
 			_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
+			p.recordIndexFingerprint(ctx, in)
 			logctx.From(ctx).Info("processor: parent-child split produced 0 groups", "fileId", fileID)
 			return nil
 		}
@@ -1100,6 +1105,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 			return err
 		}
 		_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
+		p.recordIndexFingerprint(ctx, in)
 		_ = p.store.UpdateFileProgress(ctx, fileID, 100)
 		return nil
 	}
@@ -1129,6 +1135,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 			return err
 		}
 		_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
+		p.recordIndexFingerprint(ctx, in)
 		return nil
 	}
 
@@ -1392,6 +1399,9 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		}
 	} else if err := p.store.UpdateFileStatus(ctx, fileID, finalStatus); err != nil {
 		return fmt.Errorf("processor: update final status: %w", err)
+	}
+	if finalStatus == "completed" {
+		p.recordIndexFingerprint(ctx, in)
 	}
 
 	logctx.From(ctx).Info("processor: finished",

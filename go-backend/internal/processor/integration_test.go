@@ -166,6 +166,10 @@ func (f *fakeFileStore) MarkInjectionScreenedClean(context.Context, string, []by
 	return nil
 }
 
+func (f *fakeFileStore) SetIndexFingerprint(context.Context, string, string) error {
+	return nil
+}
+
 func (f *fakeFileStore) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()

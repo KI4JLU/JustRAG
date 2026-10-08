@@ -330,6 +330,16 @@ func (s *PGStore) ClearFileStage(ctx context.Context, fileID string) error {
 	return nil
 }
 
+// SetIndexFingerprint records the index fingerprint of a completed
+// library-backed ingest (P2-R4).
+func (s *PGStore) SetIndexFingerprint(ctx context.Context, fileID, fp string) error {
+	const sql = `UPDATE files SET index_fingerprint = $2 WHERE id = $1`
+	if _, err := s.pool.Exec(ctx, sql, fileID, fp); err != nil {
+		return fmt.Errorf("SetIndexFingerprint: %w", err)
+	}
+	return nil
+}
+
 // SetFileParseReport records the per-file spreadsheet ingest report (sheet
 // kinds, header rows, row counts, coercion failures — see
 // internal/tabular.ParseReport). May contain cell-derived text (column

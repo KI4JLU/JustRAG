@@ -53,6 +53,16 @@ type mockStore struct {
 	// injectionClean records the screened-clean detail written per file id
 	// (a {"screened_at": …} payload), in call order.
 	injectionClean []cleanScreenCall
+	// fingerprints records SetIndexFingerprint calls per file id.
+	fingerprints map[string]string
+}
+
+func (m *mockStore) SetIndexFingerprint(_ context.Context, fileID, fp string) error {
+	if m.fingerprints == nil {
+		m.fingerprints = make(map[string]string)
+	}
+	m.fingerprints[fileID] = fp
+	return nil
 }
 
 // cleanScreenCall is one MarkInjectionScreenedClean call.
@@ -171,6 +181,10 @@ func (s *contextCapturingStore) SetInjectionFlag(context.Context, string, []byte
 }
 
 func (s *contextCapturingStore) MarkInjectionScreenedClean(context.Context, string, []byte) error {
+	return nil
+}
+
+func (s *contextCapturingStore) SetIndexFingerprint(context.Context, string, string) error {
 	return nil
 }
 
@@ -969,6 +983,8 @@ func (s *gateTestStore) StageDetail(fileID string) string {
 	defer s.mu.Unlock()
 	return s.detail[fileID]
 }
+
+func (s *gateTestStore) SetIndexFingerprint(context.Context, string, string) error { return nil }
 
 var _ ProcessorStore = (*gateTestStore)(nil)
 
