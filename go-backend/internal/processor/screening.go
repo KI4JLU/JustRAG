@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,9 +17,9 @@ import (
 // the ingest prompt-injection screen (W5-R8).
 //
 // User-added origins are deliberately absent: they are screened only in
-// public KBs — see publicOnlyOrigins. "websearch" and "research" are
-// absent too — those files are produced by an agent run the user triggered
-// and are already answer-scoped, not corpus-scoped.
+// public KBs — see publicOnlyOrigins. Any other origin (e.g. "websearch",
+// which no ingest path currently writes) is not screened: it would be
+// agent-produced, answer-scoped content rather than corpus content.
 var screenedOrigins = map[string]bool{
 	"rss":        true,
 	"confluence": true,
@@ -26,15 +27,30 @@ var screenedOrigins = map[string]bool{
 	"crawl":      true,
 }
 
-// publicOnlyOrigins are user-added origins: screened only when the file
+// publicOnlyOrigins are user-added origins (upload, text, url and "research",
+// the academic import: third-party PDFs a user pulls into the corpus):
+// screened only when the file
 // lands in a PUBLIC KB, where it is third-party content for every other
 // reader (user file library spec §11.2). In a private KB the uploader is
 // the audience, and flagging their own text trains operators to ignore
 // the badge.
 var publicOnlyOrigins = map[string]bool{
-	"upload": true,
-	"text":   true,
-	"url":    true,
+	"upload":   true,
+	"text":     true,
+	"url":      true,
+	"research": true,
+}
+
+// PublicOnlyOrigins returns the user-added origins in a stable order. The
+// KB-publish screening job passes it to the files store, so the SQL filter
+// and ShouldScreen cannot drift apart.
+func PublicOnlyOrigins() []string {
+	out := make([]string, 0, len(publicOnlyOrigins))
+	for o := range publicOnlyOrigins {
+		out = append(out, o)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ShouldScreen reports whether a file of this origin, in a KB of this

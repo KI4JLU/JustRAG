@@ -18,7 +18,7 @@ import (
 // (satisfied by *files.PGStore).
 type kbScreeningFiles interface {
 	processor.ScreeningStore
-	ListUnscreenedUserFiles(ctx context.Context, kbID string) ([]files.UnscreenedFile, error)
+	ListUnscreenedUserFiles(ctx context.Context, kbID string, origins []string) ([]files.UnscreenedFile, error)
 }
 
 // KBScreeningDeps are the injected dependencies. Text returns a file's
@@ -54,7 +54,7 @@ func NewKBScreeningHandler(deps KBScreeningDeps) asynq.HandlerFunc {
 		if !processor.ScreeningEnabled(ctx, deps.Reader) {
 			return nil
 		}
-		list, err := deps.Files.ListUnscreenedUserFiles(ctx, p.KbID)
+		list, err := deps.Files.ListUnscreenedUserFiles(ctx, p.KbID, processor.PublicOnlyOrigins())
 		if err != nil {
 			return fmt.Errorf("kb-screening: list files: %w", err)
 		}

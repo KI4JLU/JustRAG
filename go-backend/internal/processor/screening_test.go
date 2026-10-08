@@ -140,10 +140,10 @@ func TestProcessFile_UploadIntoPrivateKBIsNeverScreened(t *testing.T) {
 	}
 }
 
-// Agent-produced origins are answer-scoped, so they stay unscreened even in
-// a public KB.
+// Origins outside both sets (websearch, which no ingest path writes, and the
+// empty origin) stay unscreened even in a public KB.
 func TestProcessFile_NonExternalOriginsAreNeverScreened(t *testing.T) {
-	for _, origin := range []string{"websearch", "research", ""} {
+	for _, origin := range []string{"websearch", ""} {
 		store := &mockStore{
 			origins:      map[string]string{"f": origin},
 			visibilities: map[string]string{"f": "public"},
@@ -317,7 +317,7 @@ func TestPreviewRunes(t *testing.T) {
 // User-added content in a PUBLIC KB is third-party content for everyone else
 // reading that KB, so it is screened like an external source (spec §11.2).
 func TestProcessFile_UserAddedOriginsInPublicKBAreScreened(t *testing.T) {
-	for _, origin := range []string{"upload", "text", "url"} {
+	for _, origin := range []string{"upload", "text", "url", "research"} {
 		store := &mockStore{
 			origins:      map[string]string{"f": origin},
 			visibilities: map[string]string{"f": "public"},
@@ -333,7 +333,7 @@ func TestProcessFile_UserAddedOriginsInPublicKBAreScreened(t *testing.T) {
 // The same origins in a private KB stay unscreened — the positive and the
 // negative half together catch a gate that ignores visibility either way.
 func TestProcessFile_UserAddedOriginsInPrivateKBAreNotScreened(t *testing.T) {
-	for _, origin := range []string{"upload", "text", "url"} {
+	for _, origin := range []string{"upload", "text", "url", "research"} {
 		store := &mockStore{
 			origins:      map[string]string{"f": origin},
 			visibilities: map[string]string{"f": "private"},
@@ -356,7 +356,7 @@ func TestShouldScreen(t *testing.T) {
 		{"confluence", "", true}, {"git", "private", true}, {"crawl", "private", true},
 		{"upload", "public", true}, {"text", "public", true}, {"url", "public", true},
 		{"upload", "private", false}, {"upload", "", false},
-		{"research", "public", false}, {"websearch", "public", false}, {"", "public", false},
+		{"research", "public", true}, {"research", "private", false}, {"websearch", "public", false}, {"", "public", false},
 	} {
 		if got := ShouldScreen(tc.origin, tc.vis); got != tc.want {
 			t.Errorf("ShouldScreen(%q, %q) = %v, want %v", tc.origin, tc.vis, got, tc.want)

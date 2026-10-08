@@ -23,8 +23,8 @@ one-step rollback** (`cmd/migrate` is up-only).
 ### ⚠ Upgrade notes
 
 - Migration **0075** adds `files.uploaded_by` (no backfill — existing files show no uploader).
-- Ingest no longer drops a chunk because another file in the KB already holds the same text. Re-ingested and new files may store duplicate chunks across files; no re-ingest is required, and existing KBs are unaffected until files are re-ingested.
-- User uploads / text / URL sources added to a **public** KB are now prompt-injection screened (flag only, nothing filtered). Publishing a KB screens its existing user files in a background `kb-screening` task.
+- Ingest no longer drops a chunk because another file in the KB already holds the same text. Re-ingested and new files may store duplicate chunks across files; no re-ingest is required, and existing KBs are unaffected until files are re-ingested. **However**, the old cross-file drop was already active on 4096-dim prod since v0.11.0: files ingested under v0.11.x may be missing chunks that another file of the same KB already held, and lost them permanently if that other file was later deleted. Re-ingest affected KBs (at minimum those with file deletions since upgrading to v0.11.0) to restore them.
+- User uploads / text / URL sources / academic imports added to a **public** KB are now prompt-injection screened (flag only, nothing filtered). Publishing a KB screens its existing user files in a background `kb-screening` task.
 
 ## v0.11.1 — 2026-10-06
 

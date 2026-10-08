@@ -34,18 +34,30 @@ func TestListUnscreenedUserFiles(t *testing.T) {
 			pool.Exec(ctx, `DELETE FROM files WHERE id = $1::uuid`, id) //nolint:errcheck
 		})
 	}
+	insert("text.pdf", "text", "completed", "")
+	insert("url.pdf", "url", "completed", "")
+	insert("research.pdf", "research", "completed", "")
 	insert("rss.pdf", "rss", "completed", "")
 	insert("screened.pdf", "upload", "completed", `{"screened_at":"2026-01-01T00:00:00Z"}`)
 	insert("broken.pdf", "upload", "error", "")
 
-	got, err := store.ListUnscreenedUserFiles(ctx, kbID)
+	got, err := store.ListUnscreenedUserFiles(ctx, kbID, []string{"upload", "text", "url", "research"})
 	if err != nil {
 		t.Fatalf("ListUnscreenedUserFiles: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != wantID {
-		t.Fatalf("got %+v, want exactly file %s", got, wantID)
+	names := map[string]string{}
+	for _, f := range got {
+		names[f.Name] = f.Origin
 	}
-	if got[0].Origin != "upload" || got[0].Name != "doc.pdf" {
-		t.Errorf("unexpected row fields: %+v", got[0])
+	if len(got) != 4 || names["doc.pdf"] != "upload" || names["text.pdf"] != "text" ||
+		names["url.pdf"] != "url" || names["research.pdf"] != "research" {
+		t.Fatalf("got %+v, want exactly upload/text/url/research rows", got)
+	}
+	found := false
+	for _, f := range got {
+		found = found || f.ID == wantID
+	}
+	if !found {
+		t.Errorf("seeded file %s missing from %+v", wantID, got)
 	}
 }

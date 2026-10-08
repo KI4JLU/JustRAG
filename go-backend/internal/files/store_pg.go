@@ -400,21 +400,21 @@ type UnscreenedFile struct {
 	Origin string `db:"origin"`
 }
 
-// ListUnscreenedUserFiles returns the KB's user-added files (upload, text,
-// url) that were never screened (injection_detail IS NULL) and finished
+// ListUnscreenedUserFiles returns the KB's files whose origin is in origins
+// (the caller passes processor.PublicOnlyOrigins(): upload, text, url,
+// research) that were never screened (injection_detail IS NULL) and finished
 // ingesting, so their chunk text exists. Used when a KB is published: its
 // files went in while it was private, where user content is not screened.
-// The origin list mirrors processor.publicOnlyOrigins.
-func (s *PGStore) ListUnscreenedUserFiles(ctx context.Context, kbID string) ([]UnscreenedFile, error) {
+func (s *PGStore) ListUnscreenedUserFiles(ctx context.Context, kbID string, origins []string) ([]UnscreenedFile, error) {
 	const sql = `
 		SELECT id::text, name, type, origin
 		  FROM files
 		 WHERE kb_id = $1
-		   AND origin IN ('upload', 'text', 'url')
+		   AND origin = ANY($2::text[])
 		   AND injection_detail IS NULL
 		   AND status IN ('completed', 'partial')
 		 ORDER BY created_at`
-	rows, err := pgxutil.QueryRows[UnscreenedFile](ctx, s.pool, sql, kbID)
+	rows, err := pgxutil.QueryRows[UnscreenedFile](ctx, s.pool, sql, kbID, origins)
 	if err != nil {
 		return nil, fmt.Errorf("ListUnscreenedUserFiles: %w", err)
 	}

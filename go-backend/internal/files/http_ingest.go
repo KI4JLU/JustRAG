@@ -67,10 +67,9 @@ type fetchURLPreviewResponse struct {
 // SSRF helpers — see fetcher.ValidateURL / fetcher.SafeHTTPClient.
 // ---------------------------------------------------------------------------
 
-// validateURL is a thin wrapper that pre-checks URL length, then delegates
-// the scheme + private-IP check to fetcher.ValidateURL. The actual fetch
-// re-resolves at dial time via fetcher.SafeHTTPClient, closing the DNS-
-// rebinding window.
+// checkFetchURL pre-checks URL length, then delegates the scheme +
+// private-IP check to fetcher.ValidateURL. The actual fetch re-resolves at
+// dial time via fetcher.SafeHTTPClient, closing the DNS-rebinding window.
 func checkFetchURL(ctx context.Context, rawURL string) error {
 	if len(rawURL) > 2048 {
 		return fmt.Errorf("URL exceeds maximum length of 2048 characters")
@@ -78,8 +77,9 @@ func checkFetchURL(ctx context.Context, rawURL string) error {
 	return fetcher.ValidateURL(ctx, rawURL)
 }
 
-// validateURL and fetchURL are package-level indirections so export_test.go
-// can stub them: the SSRF check and the SSRF-safe dialer both reject the
+// validateURL (production value: checkFetchURL) and fetchURL (production
+// value: fetchSafeURL, the SSRF-safe fetch) are package-level indirections
+// so export_test.go can stub them: the SSRF check and the SSRF-safe dialer both reject the
 // loopback httptest servers a unit test has to use. Production never
 // reassigns them.
 var (

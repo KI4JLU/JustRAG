@@ -3,23 +3,27 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hibiken/asynq"
 
 	"github.com/justrag/go-backend/internal/files"
 	"github.com/justrag/go-backend/internal/jobs"
+	"github.com/justrag/go-backend/internal/processor"
 )
 
 type fakeScreeningFiles struct {
 	list    []files.UnscreenedFile
 	listed  int
+	origins []string
 	flagged map[string][]byte
 	clean   map[string][]byte
 }
 
-func (f *fakeScreeningFiles) ListUnscreenedUserFiles(context.Context, string) ([]files.UnscreenedFile, error) {
+func (f *fakeScreeningFiles) ListUnscreenedUserFiles(_ context.Context, _ string, origins []string) ([]files.UnscreenedFile, error) {
 	f.listed++
+	f.origins = origins
 	return f.list, nil
 }
 func (f *fakeScreeningFiles) SetInjectionFlag(_ context.Context, id string, d []byte) error {
@@ -66,6 +70,9 @@ func TestKBScreening_FlagsCleansAndSkips(t *testing.T) {
 	})
 	if err := h(context.Background(), screeningTask(t, "kb-1")); err != nil {
 		t.Fatalf("handler: %v", err)
+	}
+	if got, want := strings.Join(fs.origins, ","), strings.Join(processor.PublicOnlyOrigins(), ","); got != want || got == "" {
+		t.Errorf("origins passed to the store = %q, want %q", got, want)
 	}
 	if _, ok := fs.flagged["bad"]; !ok {
 		t.Error("bad: must be flagged")
