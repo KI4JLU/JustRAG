@@ -58,7 +58,7 @@ func TestQuestionRowsAreOnlyInsertedThroughTheSeam(t *testing.T) {
 					continue
 				}
 				questionInserts++
-				if calleeName(call) != seam {
+				if calleeName(call) != seam && !questionInsertExempt[file] {
 					offenders = append(offenders,
 						fset.Position(lit.Pos()).String()+" -> "+calleeName(call))
 				}
@@ -76,6 +76,13 @@ func TestQuestionRowsAreOnlyInsertedThroughTheSeam(t *testing.T) {
 		t.Errorf("question rows are built for a callee other than %s at %v; route them through %s instead, "+
 			"or a regenerate will persist a second copy of the user's question", seam, offenders, seam)
 	}
+}
+
+// questionInsertExempt lists files whose question inserts serve another
+// endpoint with no regenerate: the agent chat (POST /api/kb/{id}/agui/chat)
+// stores each new AG-UI user message once, and a resume stores none.
+var questionInsertExempt = map[string]bool{
+	"agentchat_hooks.go": true,
 }
 
 func isAddMessageParams(lit *ast.CompositeLit) bool {

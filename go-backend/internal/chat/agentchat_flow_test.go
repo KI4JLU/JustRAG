@@ -290,8 +290,8 @@ func TestRetrieveEnforcesViewRole(t *testing.T) {
 }
 
 // A model failure surfaces as a runner error (the handler then persists the
-// user message only — covered end to end in Task 7).
-func TestAnswerFailurePersistsUserMessageOnly(t *testing.T) {
+// user message only — TestAnswerFailurePersistsUserMessageOnly, integration).
+func TestAnswerFailureIsRunError(t *testing.T) {
 	var calls []ChatContextParams
 	fc := &agentFakeClient{err: errors.New("provider down")}
 	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: newTestRetriever(&calls, mensaChunks)}

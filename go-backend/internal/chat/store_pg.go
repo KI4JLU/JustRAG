@@ -223,6 +223,40 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	return &r, nil
 }
 
+// CreateChatWithID inserts a chat with a caller-chosen id (the agent chat's
+// thread id, handed to the client before the chat exists).
+func (s *PGStore) CreateChatWithID(ctx context.Context, id, kbID, userID, title string) (*ChatRow, error) {
+	const sql = `
+		INSERT INTO chats (id, kb_id, user_id, title)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
+
+	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, id, kbID, userID, title)
+	if err != nil {
+		return nil, fmt.Errorf("CreateChatWithID: %w", err)
+	}
+	if row == nil {
+		return nil, fmt.Errorf("CreateChatWithID: no row returned")
+	}
+	r := toChatRow(*row)
+	return &r, nil
+}
+
+// LastMessageID returns the id of the chat's newest message, nil when the
+// chat has none.
+func (s *PGStore) LastMessageID(ctx context.Context, chatID string) (*string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id::text FROM messages WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1`, chatID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("LastMessageID: %w", err)
+	}
+	return &id, nil
+}
+
 // DeleteChat deletes the chat with the given ID (cascade deletes messages via FK).
 func (s *PGStore) DeleteChat(ctx context.Context, chatID string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
