@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { DropdownMenuItem, DropdownMenuSeparator, SidebarUserMenu } from '@ki4jlu/design-system';
 import {
     LogOut, Settings, Shield, User,
@@ -6,7 +5,8 @@ import {
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
-import { UserSettingsModal, type SettingsTab } from './UserSettingsModal';
+import { UserSettingsModal } from './UserSettingsModal';
+import { openSettingsDialog, setSettingsDialogOpen, setSettingsDialogTab, useSettingsDialog } from '../hooks/settingsDialog';
 import { roleLabel } from '../utils/roleLabel';
 
 /**
@@ -16,8 +16,7 @@ import { roleLabel } from '../utils/roleLabel';
  */
 export function AppUserMenu() {
     const { t } = useTheme();
-    const [settingsOpen, setSettingsOpen] = useState(false);
-    const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+    const settingsDialog = useSettingsDialog();
     const { user, logout } = useAuth();
     const { onViewProfile, onViewAdmin } = useAppNav();
     const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
@@ -45,7 +44,7 @@ export function AppUserMenu() {
                 onSelect={() => {
                     // After the menu's own close: Radix hands focus back to the
                     // trigger first, then the dialog takes it.
-                    setTimeout(() => setSettingsOpen(true), 0);
+                    setTimeout(() => openSettingsDialog(), 0);
                 }}
             >
                 <Settings size={16} aria-hidden="true" />
@@ -57,7 +56,7 @@ export function AppUserMenu() {
                 {t('logout')}
             </DropdownMenuItem>
         </SidebarUserMenu>
-        <UserSettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} tab={settingsTab} onTabChange={setSettingsTab} />
+        <UserSettingsModal open={settingsDialog.open} onOpenChange={setSettingsDialogOpen} tab={settingsDialog.tab} onTabChange={setSettingsDialogTab} />
         </>
     );
 }

@@ -1,5 +1,8 @@
-import { forwardRef, useCallback, useState } from 'react';
-import { GlobalSearch } from './GlobalSearch';
+import { forwardRef, useCallback, useMemo, useState } from 'react';
+import { MessageSquare, MessageSquarePlus } from 'lucide-react';
+import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
+import { useTheme } from '../contexts/ThemeContext';
+import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
@@ -31,26 +34,19 @@ import { chatEntryFromTarget, type SearchChatTarget, type SearchSourceTarget } f
  * centred `search` slot (KI-844; `KbWorkspaceLayout.tsx`).
  * ------------------------------------------------------------------------- */
 
-/**
- * The list's own width. The field sits in `AppShellLayout`'s centred `search`
- * slot (KI-844, design-system 0.44.1), which gives way before the side
- * regions: at 1280px with both columns at 320px the slot shrinks to its 8rem
- * (128px) floor, too narrow for a two-line result row. So the popover is
- * 20rem wide and centred under the field, whatever width the field has.
- */
-const LIST_CLASS = 'w-80';
-
 export interface WorkspaceSearchFieldProps {
   kbId: string;
   kbName: string;
   onOpenTopic: (kbId: string) => void;
   onOpenSource: (source: SearchSourceTarget) => void;
   onOpenChat: (target: SearchChatTarget) => void;
+  /** What the empty field offers (see `GlobalSearchProps.defaultGroups`). */
+  defaultGroups?: SearchDefaultGroup[];
 }
 
 export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearchFieldProps>(
   function WorkspaceSearchField(
-    { kbId, kbName, onOpenTopic, onOpenSource, onOpenChat },
+    { kbId, kbName, onOpenTopic, onOpenSource, onOpenChat, defaultGroups },
     ref,
   ) {
     const [query, setQuery] = useState('');
@@ -68,8 +64,7 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
           onQueryChange={setQuery}
           scopeKbId={kbId}
           scopeLabel={kbName}
-          contentClassName={LIST_CLASS}
-          contentAlign="center"
+          defaultGroups={defaultGroups}
           onOpenTopic={(hit) => onOpenTopic(hit.id)}
           onOpenSource={(hit) => onOpenSource({ id: hit.id, name: hit.name, kbId: hit.kbId })}
           onOpenChat={(hit) => onOpenChat({
@@ -90,7 +85,9 @@ export function WorkspaceSearch() {
   const { webTools } = useKbData();
   const appNav = useAppNav();
   const kbId = currentKb.id;
-  const { chats, activeChatId, handleSelectChat } = chat;
+  const { chats, activeChatId, handleSelectChat, handleNewChat } = chat;
+  const { t } = useTheme();
+  const accountSearchGroup = useAccountSearchGroup();
   const { handlePreviewSource } = webTools;
 
   const openTopic = useCallback((id: string) => {
@@ -119,8 +116,43 @@ export function WorkspaceSearch() {
     setKbView('chat');
   }, [kbId, appNav, chats, activeChatId, handleSelectChat, setKbView]);
 
+  /* The empty field offers a new chat, the topic's three most recent
+     conversations — the same entries, opened the same way, as the history
+     sidebar (HistoryPanel.openItem: the chat on screen is not reloaded) — and
+     the account group, ending with „Abmelden". */
+  const defaultGroups = useMemo<SearchDefaultGroup[]>(() => {
+    const recent = [...chats]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 3);
+    return [
+      {
+        heading: t('searchDefaultsChat'),
+        items: [{
+          id: 'new-chat',
+          label: t('newChat'),
+          icon: <MessageSquarePlus aria-hidden="true" />,
+          onSelect: () => { handleNewChat(); setKbView('chat'); },
+        }],
+      },
+      {
+        heading: t('searchDefaultsRecentChats'),
+        items: recent.map((entry) => ({
+          id: `chat-${entry.id}`,
+          label: entry.title,
+          icon: <MessageSquare aria-hidden="true" />,
+          onSelect: () => {
+            if (entry.id !== activeChatId) void handleSelectChat(entry);
+            setKbView('chat');
+          },
+        })),
+      },
+      accountSearchGroup,
+    ];
+  }, [chats, activeChatId, handleSelectChat, handleNewChat, setKbView, t, accountSearchGroup]);
+
   return (
     <WorkspaceSearchField
+      defaultGroups={defaultGroups}
       kbId={kbId}
       kbName={currentKb.name}
       onOpenTopic={openTopic}

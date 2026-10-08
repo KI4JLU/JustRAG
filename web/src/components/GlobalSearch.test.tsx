@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import { GlobalSearch, type GlobalSearchProps } from './GlobalSearch';
+import { Button } from '@ki4jlu/design-system';
+import { GlobalSearch, type GlobalSearchProps, type SearchDefaultGroup } from './GlobalSearch';
 import { translations } from '../translations';
 import type { SearchResponse } from '../types';
 
@@ -275,5 +276,77 @@ describe('GlobalSearch', () => {
     await userEvent.type(field(), 'Prüf');
     await waitFor(() => expect(searchCalls()).toHaveLength(1));
     expect(String(searchCalls()[0][0])).toContain('kb_id=kb-42');
+  });
+
+  // ORACLE: the keyboard convention itself — jsdom reports no Apple platform,
+  // so the chord is Ctrl+K and the hint reads „Strg K" (translations.kbdCtrl).
+  it('focuses and selects the field on Ctrl+K from anywhere, and shows the hint', async () => {
+    render(
+      <>
+        <Button>elsewhere</Button>
+        <Harness />
+      </>,
+    );
+    await userEvent.type(field(), 'Prüf');
+    screen.getByRole('button', { name: 'elsewhere' }).focus();
+    expect(field()).toHaveAttribute('aria-keyshortcuts', 'Control+K');
+
+    await userEvent.keyboard('{Control>}k{/Control}');
+    expect(field()).toHaveFocus();
+    const input = field() as HTMLInputElement;
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'Prüf'.length]);
+
+    const hint = field().parentElement?.querySelector('[data-slot="input-shortcut-hint"]');
+    expect(hint).toHaveTextContent(`${de('kbdCtrl')}K`);
+  });
+
+  // ORACLE: the fixture groups below — the only source of these labels.
+  const defaults = (onSelect = vi.fn()): SearchDefaultGroup[] => [
+    { heading: 'Navigation', items: [{ id: 'discover', label: 'Entdecken', icon: null, onSelect }] },
+    { heading: 'Konto', items: [{ id: 'logout', label: 'Abmelden', icon: null, onSelect: vi.fn() }] },
+    { heading: 'Leer', items: [] },
+  ];
+
+  it('opens the empty field on its default groups when focused, and runs the chosen one', async () => {
+    const onSelect = vi.fn();
+    render(<Harness defaultGroups={defaults(onSelect)} />);
+    await userEvent.click(field());
+    const list = await screen.findByRole('listbox');
+    expect(within(list).getByText('Navigation')).toBeInTheDocument();
+    expect(within(list).getByText('Konto')).toBeInTheDocument();
+    // A group without items is not rendered.
+    expect(within(list).queryByText('Leer')).toBeNull();
+    await userEvent.click(within(list).getByRole('option', { name: 'Entdecken' }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(searchCalls()).toHaveLength(0);
+  });
+
+  it('replaces the defaults with search results once there is text', async () => {
+    mockedGet.mockResolvedValueOnce(response());
+    render(<Harness defaultGroups={defaults()} />);
+    await userEvent.click(field());
+    expect(await screen.findByRole('option', { name: 'Entdecken' })).toBeInTheDocument();
+    await userEvent.type(field(), 'Prüf');
+    await waitFor(() => expect(searchCalls()).toHaveLength(1));
+    expect(screen.queryByRole('option', { name: 'Entdecken' })).toBeNull();
+  });
+
+  it('opens nothing on focus without default groups', async () => {
+    render(<Harness />);
+    await userEvent.click(field());
+    expect(field()).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('ignores K without the modifier, and Ctrl+Shift+K', async () => {
+    render(
+      <>
+        <Button>elsewhere</Button>
+        <Harness />
+      </>,
+    );
+    screen.getByRole('button', { name: 'elsewhere' }).focus();
+    await userEvent.keyboard('k');
+    await userEvent.keyboard('{Control>}{Shift>}k{/Shift}{/Control}');
+    expect(field()).not.toHaveFocus();
   });
 });

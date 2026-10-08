@@ -11,13 +11,14 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAppNav } from '../contexts/AppNavContext';
+import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { useSharingContext } from '../contexts/SharingContext';
 import { AppUserMenu } from './AppUserMenu';
 import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { KBCardSkeleton } from './Skeleton';
-import { GlobalSearch } from './GlobalSearch';
+import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
 // header for why the `home-view__` block name outlived the component.
@@ -104,6 +105,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
     onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools,
     onOpenTopic, onOpenSource, onOpenChat,
   } = useAppNav();
+  const accountSearchGroup = useAccountSearchGroup();
   // The header search, which lives in the chrome bar since KI-787 and is the
   // global search since KI-837. Read from a context for the same reason
   // everything else here is: this component takes no props from the page.
@@ -313,10 +315,27 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    *
    * NOTHING HERE IS A HEADING. The bar is chrome; the page's `<h1>` belongs to
    * the content template (design-system KI-736). */
+  /* What the empty field offers (the command-palette pattern): the sidebar's
+     destinations and the user menu's entries, so ⌘K alone reaches every
+     top-level place. The current view is left out. */
+  const searchDefaults: SearchDefaultGroup[] = [
+    {
+      heading: t('searchDefaultsNavigation'),
+      items: [
+        { id: 'my-topics', label: t('myTopics'), icon: <Home aria-hidden="true" />, onSelect: onViewMyTopics },
+        { id: 'shared-topics', label: t('sharedTopics'), icon: <Users aria-hidden="true" />, onSelect: onViewSharedTopics },
+        { id: 'discover', label: t('discoverTopics'), icon: <Compass aria-hidden="true" />, onSelect: onViewDiscover },
+        { id: 'tools', label: t('tools'), icon: <Wrench aria-hidden="true" />, onSelect: onViewTools },
+      ].filter((item) => item.id !== active),
+    },
+    accountSearchGroup,
+  ];
+
   const headerSearch = (
     <div className="w-full" data-testid="app-chrome-search">
       <GlobalSearch
         ref={searchRef}
+        defaultGroups={searchDefaults}
         query={query}
         onQueryChange={setQuery}
         onOpenTopic={(hit) => onOpenTopic(hit.id)}

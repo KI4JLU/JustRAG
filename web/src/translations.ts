@@ -699,6 +699,11 @@ export const translations = {
      * Quellen, Chats), not „Knowledge Bases". `{query}` is replaced with the
      * trimmed search text. */
     globalSearchPlaceholder: { de: 'Themen, Quellen und Chats durchsuchen…', en: 'Search topics, sources and chats…' },
+    kbdCtrl: { de: 'Strg', en: 'Ctrl' },
+    searchDefaultsNavigation: { de: 'Navigation', en: 'Navigation' },
+    searchDefaultsAccount: { de: 'Konto', en: 'Account' },
+    searchDefaultsChat: { de: 'Chat', en: 'Chat' },
+    searchDefaultsRecentChats: { de: 'Letzte Unterhaltungen', en: 'Recent conversations' },
     globalSearchResults: { de: 'Suchergebnisse', en: 'Search results' },
     globalSearchGroupTopics: { de: 'Themen', en: 'Topics' },
     globalSearchGroupSources: { de: 'Quellen', en: 'Sources' },

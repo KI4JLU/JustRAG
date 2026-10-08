@@ -1,4 +1,4 @@
-import { forwardRef, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState, type ForwardedRef, type ReactNode } from 'react';
 import {
   Combobox,
   ComboboxContent,
@@ -9,6 +9,8 @@ import {
   ComboboxList,
   ComboboxLoading,
   ComboboxSeparator,
+  Kbd,
+  KbdGroup,
 } from '@ki4jlu/design-system';
 import { BookOpen, Compass, FileText, Globe, MessageSquare, Search, TextQuote } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
@@ -41,6 +43,29 @@ import type { SearchChatHit, SearchMessageHit, SearchSourceHit, SearchTopicHit }
  * accessible names).
  * ------------------------------------------------------------------------- */
 
+/* The result list's width: 30rem preferred, never below 33vw nor above
+   100vw — `clamp(min, preferred, max)` — centred under the field, whatever
+   width the field has. Both search fields sit in `AppShellLayout`'s
+   centred `search` slot, which gives way before the side regions and can
+   shrink to its 8rem floor — too narrow for a two-line result row — while a
+   wide slot made the list a long, sparse strip. A caller's `contentClassName`
+   still wins (tailwind-merge in the DS). */
+const DEFAULT_LIST_CLASS = 'w-[clamp(33vw,30rem,100vw)]';
+
+/** One row of the list shown while the field is empty. */
+export interface SearchDefaultItem {
+  /** Unique across all default groups (cmdk keys the option by it). */
+  id: string;
+  label: string;
+  icon: ReactNode;
+  onSelect: () => void;
+}
+
+export interface SearchDefaultGroup {
+  heading: string;
+  items: SearchDefaultItem[];
+}
+
 export interface GlobalSearchProps {
   /** The field text. Held by the caller so it survives a remount. */
   query: string;
@@ -55,10 +80,9 @@ export interface GlobalSearchProps {
   /** The scoped topic's name, for the field's accessible name and placeholder. */
   scopeLabel?: string;
   /**
-   * Layout-only overrides for the list's popover: a width utility (the DS
-   * default is the field's width) and where it aligns under the field. For a
-   * field narrower than a result row — the workspace search, whose centred
-   * slot can shrink to 8rem (KI-844).
+   * Layout-only overrides for the list's popover: a width utility and where
+   * it aligns under the field. Default: 30rem, clamped to 33vw–100vw,
+   * centred (`DEFAULT_LIST_CLASS`).
    */
   contentClassName?: string;
   contentAlign?: 'start' | 'center' | 'end';
@@ -71,6 +95,31 @@ export interface GlobalSearchProps {
    * Omitted → no row (a scoped search has no catalog to hand over to).
    */
   onShowAllTopics?: (query: string) => void;
+  /**
+   * What the list offers while the field is EMPTY — navigation, actions,
+   * recent items — the command-palette pattern: focusing the empty field
+   * (click, Tab or ⌘K) opens the list on these. Typing replaces them with
+   * search results. Omitted or all-empty → the empty field opens nothing.
+   */
+  defaultGroups?: SearchDefaultGroup[];
+}
+
+/* ⌘K on Apple platforms, Ctrl+K elsewhere — the convention of every
+   command-palette search (GitHub, Slack, Linear, the shadcn docs). Read once:
+   the platform does not change while the page is open. */
+const IS_APPLE = typeof navigator !== 'undefined'
+  && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+
+function isSearchShortcut(e: KeyboardEvent): boolean {
+  return e.key.toLowerCase() === 'k'
+    && (IS_APPLE ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
+    && !e.altKey && !e.shiftKey;
+}
+
+/** Writes the field element to both the internal and the caller's ref. */
+function assignRef<T>(ref: ForwardedRef<T>, el: T | null) {
+  if (typeof ref === 'function') ref(el);
+  else if (ref) ref.current = el;
 }
 
 /** A snippet's highlight runs as text nodes inside `<mark>` — never markup. */
@@ -102,13 +151,34 @@ function HitText({ primary, secondary }: { primary: ReactNode; secondary?: React
 
 export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(function GlobalSearch(
   {
-    query, onQueryChange, scopeKbId, scopeLabel, contentClassName, contentAlign,
-    onOpenTopic, onOpenSource, onOpenChat, onOpenMessage, onShowAllTopics,
+    query, onQueryChange, scopeKbId, scopeLabel, contentClassName = DEFAULT_LIST_CLASS, contentAlign = 'center',
+    onOpenTopic, onOpenSource, onOpenChat, onOpenMessage, onShowAllTopics, defaultGroups,
   },
   ref,
 ) {
   const { t } = useTheme();
   const { state, search, hasSearched } = useGlobalSearch();
+
+  /* ⌘K / Ctrl+K focuses the field from anywhere on the page. The shell header
+     and a topic workspace each mount their own instance, in different views,
+     so only one is mounted at a time; a field inside a hidden or inert
+     subtree ignores the key all the same. */
+  const fieldRef = useRef<HTMLInputElement | null>(null);
+  const setFieldRef = useCallback((el: HTMLInputElement | null) => {
+    fieldRef.current = el;
+    assignRef(ref, el);
+  }, [ref]);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const field = fieldRef.current;
+      if (e.defaultPrevented || !isSearchShortcut(e) || !field || field.closest('[hidden], [inert]')) return;
+      e.preventDefault();
+      field.focus();
+      field.select();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const [open, setOpen] = useState(false);
   /* Widened past `scopeKbId` for the current query (KI-838). Mirrored in a
      ref because `ComboboxInput` calls `onValueChange` and then
@@ -171,14 +241,22 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
   };
 
   const trimmed = query.trim();
-  const results = state.status === 'done' ? state.results : null;
+  const defaults = (defaultGroups ?? []).filter((g) => g.items.length > 0);
+  const showDefaults = trimmed === '' && defaults.length > 0;
+  /* The empty field opens onto the defaults on focus and on a click into an
+     already-focused field (after Escape closed the list). With text in it,
+     focus keeps today's behaviour: ↓ or typing opens the list. */
+  const openDefaults = () => {
+    if (showDefaults && !open) setOpen(true);
+  };
+  const results = !showDefaults && state.status === 'done' ? state.results : null;
   // Scoped mode drops the Topics group: every hit is in the one topic anyway.
   const topics = results && !scoped ? results.topics : [];
   const nothingFound = !!results && topics.length + results.sources.length
     + results.chats.length + results.messages.length === 0;
   // The row is offered once a scoped request has settled, found or not —
   // an empty topic and a vanished one are exactly when it helps most.
-  const offerWiden = scoped && (state.status === 'done' || state.status === 'not-found');
+  const offerWiden = !showDefaults && scoped && (state.status === 'done' || state.status === 'not-found');
   const fieldLabel = scoped && scopeLabel
     ? t('workspaceSearchPlaceholder').replace('{topic}', scopeLabel)
     : t('globalSearchPlaceholder');
@@ -186,27 +264,36 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
   return (
     <Combobox
       shouldFilter={false}
-      open={open && isSearchableQuery(query)}
+      open={open && (isSearchableQuery(query) || showDefaults)}
       onOpenChange={handleOpenChange}
     >
       <ComboboxInput
-        ref={ref}
+        ref={setFieldRef}
         aria-label={fieldLabel}
+        aria-keyshortcuts={IS_APPLE ? 'Meta+K' : 'Control+K'}
         placeholder={fieldLabel}
         leadingIcon={<Search aria-hidden="true" />}
+        shortcutHint={(
+          <KbdGroup>
+            <Kbd>{IS_APPLE ? '⌘' : t('kbdCtrl')}</Kbd>
+            <Kbd>K</Kbd>
+          </KbdGroup>
+        )}
         value={query}
         onValueChange={handleQuery}
+        onFocus={openDefaults}
+        onClick={openDefaults}
       />
       <ComboboxContent className={contentClassName} align={contentAlign}>
-        {state.status === 'loading' ? (
+        {!showDefaults && state.status === 'loading' ? (
           <ComboboxLoading label={t('globalSearchLoading')}>{t('globalSearchLoading')}</ComboboxLoading>
         ) : null}
-        {state.status === 'rate-limited' ? (
+        {!showDefaults && state.status === 'rate-limited' ? (
           <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
             {t('globalSearchRateLimited')}
           </p>
         ) : null}
-        {state.status === 'not-found' ? (
+        {!showDefaults && state.status === 'not-found' ? (
           <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
             {t('workspaceSearchTopicUnavailable')}
           </p>
@@ -218,7 +305,7 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
             {t('workspaceSearchNoResults').replace('{query}', trimmed)}
           </p>
         ) : null}
-        {state.status === 'error' ? (
+        {!showDefaults && state.status === 'error' ? (
           <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
             {t('globalSearchError')}
           </p>
@@ -227,6 +314,16 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
           <ComboboxEmpty>{t('globalSearchNoResults').replace('{query}', trimmed)}</ComboboxEmpty>
         ) : null}
         <ComboboxList label={t('globalSearchResults')}>
+          {showDefaults ? defaults.map((group) => (
+            <ComboboxGroup key={group.heading} heading={group.heading}>
+              {group.items.map((item) => (
+                <ComboboxItem key={item.id} value={`default:${item.id}`} onSelect={item.onSelect}>
+                  {item.icon}
+                  <HitText primary={item.label} />
+                </ComboboxItem>
+              ))}
+            </ComboboxGroup>
+          )) : null}
           {results ? (
             <>
               {topics.length > 0 ? (
