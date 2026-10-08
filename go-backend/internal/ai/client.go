@@ -690,7 +690,13 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 		// reported as a clean completion and downstream callers would
 		// persist the partial answer as a complete AI message.
 		if err := scanner.Err(); err != nil {
-			slog.Warn("stream scan error — content truncated", "error", err)
+			if ctx.Err() != nil {
+				// The caller stopped the stream on purpose (client gone,
+				// agent cancelled); the truncation is expected.
+				slog.Debug("stream ended by caller cancellation", "error", err)
+			} else {
+				slog.Warn("stream scan error — content truncated", "error", err)
+			}
 			select {
 			case ch <- StreamChunk{Done: true, Err: fmt.Errorf("ai: stream read: %w", err)}:
 			case <-ctx.Done():
