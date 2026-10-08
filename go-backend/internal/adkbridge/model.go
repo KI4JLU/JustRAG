@@ -352,7 +352,7 @@ func convertContents(contents []*genai.Content) ([]ai.ChatMessage, error) {
 					Name: p.FunctionResponse.Name, Content: string(payload)})
 			case p.InlineData != nil || p.FileData != nil:
 				// Vision goes through ai.DescribeImage today; multimodal agent
-				// turns are out of scope for the spike.
+				// turns are not supported yet.
 				return nil, errors.New("adkbridge: inline/file data parts not supported yet")
 			}
 		}

@@ -17,7 +17,7 @@ import (
 	"google.golang.org/genai"
 )
 
-// suggestionWorkflow is the spike's stand-in for the "nothing found → offer
+// suggestionWorkflow is a stand-in for the "nothing found → offer
 // actions" flow from plan §6a:
 //
 //	Start → retrieve ─found──────→ answer
@@ -83,7 +83,7 @@ func suggestionWorkflow(t *testing.T, hits map[string]string, acted *[]string) a
 		},
 		workflow.Chain(suggest, act),
 	)
-	a, err := workflowagent.New(workflowagent.Config{Name: "suggest_flow", Description: "spike", Edges: edges})
+	a, err := workflowagent.New(workflowagent.Config{Name: "suggest_flow", Description: "suggestion workflow", Edges: edges})
 	if err != nil {
 		t.Fatalf("workflowagent.New: %v", err)
 	}
@@ -122,7 +122,7 @@ func outputs(evs []*session.Event) string {
 }
 
 func TestWorkflowSuggestionPauseSurvivesRestart(t *testing.T) {
-	pool := isolatedPool(t)
+	pool := isolatedPool(t, "0082_adk_sessions.sql")
 	var acted []string
 
 	// Process 1: the question finds nothing, the workflow pauses.
@@ -162,7 +162,7 @@ func TestWorkflowSuggestionPauseSurvivesRestart(t *testing.T) {
 }
 
 func TestWorkflowFoundBranchDoesNotPause(t *testing.T) {
-	pool := isolatedPool(t)
+	pool := isolatedPool(t, "0082_adk_sessions.sql")
 	var acted []string
 	r := newWorkflowRunner(t, suggestionWorkflow(t, map[string]string{"Mensa?": "11 Uhr"}, &acted), NewPGSessionService(pool))
 	evs := collect(t, r, "s1", genai.NewContentFromText("Mensa?", genai.RoleUser))

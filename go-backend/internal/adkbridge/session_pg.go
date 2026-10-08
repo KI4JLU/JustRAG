@@ -18,51 +18,6 @@ import (
 	"google.golang.org/adk/v2/session"
 )
 
-// SessionSchema is the DDL the Postgres session service needs. In production
-// this becomes a goose migration; the spike applies it via EnsureSessionSchema.
-//
-// Events are stored whole as JSONB (session.Event round-trips through JSON),
-// so an ADK release that adds an event field needs no schema change.
-const SessionSchema = `
-CREATE TABLE IF NOT EXISTS adk_sessions (
-    app_name    text        NOT NULL,
-    user_id     text        NOT NULL,
-    id          text        NOT NULL,
-    state       jsonb       NOT NULL DEFAULT '{}',
-    create_time timestamptz NOT NULL DEFAULT now(),
-    update_time timestamptz NOT NULL,
-    PRIMARY KEY (app_name, user_id, id)
-);
-CREATE TABLE IF NOT EXISTS adk_events (
-    app_name   text        NOT NULL,
-    user_id    text        NOT NULL,
-    session_id text        NOT NULL,
-    id         text        NOT NULL,
-    ts         timestamptz NOT NULL,
-    body       jsonb       NOT NULL,
-    PRIMARY KEY (app_name, user_id, session_id, id),
-    FOREIGN KEY (app_name, user_id, session_id) REFERENCES adk_sessions (app_name, user_id, id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS adk_events_session_ts_idx ON adk_events (app_name, user_id, session_id, ts DESC, id DESC);
-CREATE TABLE IF NOT EXISTS adk_app_states (
-    app_name    text        PRIMARY KEY,
-    state       jsonb       NOT NULL DEFAULT '{}',
-    update_time timestamptz NOT NULL
-);
-CREATE TABLE IF NOT EXISTS adk_user_states (
-    app_name    text        NOT NULL,
-    user_id     text        NOT NULL,
-    state       jsonb       NOT NULL DEFAULT '{}',
-    update_time timestamptz NOT NULL,
-    PRIMARY KEY (app_name, user_id)
-);`
-
-// EnsureSessionSchema creates the session tables if they are missing.
-func EnsureSessionSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, SessionSchema)
-	return err
-}
-
 // PGSessionService is a session.Service on our own Postgres pool (pgx), with
 // the semantics of ADK's gorm-based session/database service: app:/user:
 // state shared across sessions, temp: state never persisted, optimistic
