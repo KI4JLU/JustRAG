@@ -389,3 +389,30 @@ func TestListFiles_UploaderHiddenFromViewers(t *testing.T) {
 		}
 	}
 }
+
+// TestListFiles_UserFileID pins the userFileId key: present for a library
+// copy, omitted for a plain file.
+func TestListFiles_UserFileID(t *testing.T) {
+	linked := makeFileRow("f-1", "a.pdf")
+	uf := "7b0c9f64-2b1e-4a39-9d51-0a6a1f0e2c11"
+	linked.UserFileID = &uf
+	store := &mockUpdateStore{files: []kb.FileRow{linked, makeFileRow("f-2", "b.pdf")}, total: 2}
+	h := kb.NewUpdateHandler(store, nil)
+	r := injectKBAccess(httptest.NewRequest(http.MethodGet, "/api/kb/kb-1/files", nil), "kb-1")
+	w := httptest.NewRecorder()
+	h.ListFiles(w, r)
+
+	var raw []map[string]any
+	if err := json.NewDecoder(w.Result().Body).Decode(&raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(raw) != 2 {
+		t.Fatalf("rows = %d", len(raw))
+	}
+	if raw[0]["userFileId"] != uf {
+		t.Errorf("linked row userFileId = %v", raw[0]["userFileId"])
+	}
+	if _, ok := raw[1]["userFileId"]; ok {
+		t.Errorf("plain row must omit userFileId")
+	}
+}

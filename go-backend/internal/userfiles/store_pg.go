@@ -3,6 +3,7 @@ package userfiles
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/pgxutil"
+	"github.com/justrag/go-backend/internal/uploadcheck"
 )
 
 // ErrNotFound means the library file does not exist for this owner. Another
@@ -125,6 +127,11 @@ func (s *PGStore) Insert(ctx context.Context, f NewUserFile) (*UserFile, bool, e
 	if err != nil {
 		return nil, false, err
 	}
+	// The dedup hit may already be linked into KBs; report them like Get does.
+	row, err = s.Get(ctx, f.OwnerUserID, row.ID)
+	if err != nil {
+		return nil, false, err
+	}
 	return row, false, nil
 }
 
@@ -212,6 +219,21 @@ func (s *PGStore) Rename(ctx context.Context, ownerID, id, name string) (*UserFi
 	}
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxNameBytes {
+		return nil, ErrInvalidName
+	}
+	// The extension picks the parser (and the spreadsheet size gate) when the
+	// file is added to a KB, so a rename must not change it and must still
+	// pass the upload filename rules.
+	var oldName string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT name FROM user_files WHERE id = $1::uuid AND owner_user_id = $2::uuid`,
+		id, ownerID).Scan(&oldName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if !strings.EqualFold(filepath.Ext(name), filepath.Ext(oldName)) || uploadcheck.ValidateName(name) != nil {
 		return nil, ErrInvalidName
 	}
 	tag, err := s.pool.Exec(ctx,

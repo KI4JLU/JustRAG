@@ -75,9 +75,9 @@ Dedup is per user and by content hash. Different users uploading the same bytes 
 
 ### PATCH /api/library/files/{id}
 
-Body `{"name":"new name.pdf"}`. The name is trimmed. Renames the library entry only (KB copies keep their own names).
+Body `{"name":"new name.pdf"}`. The name is trimmed. Renames the library entry only (KB copies keep their own names). The file extension cannot change (compared case-insensitively), and the new name must pass the upload filename rules (no dangerous or unsupported extension, at most 255 bytes): the extension decides which parser and size gate a KB copy gets.
 
-200 `UserFile`. 400 `{"error":"invalid name"}` (empty/whitespace-only, longer than 255 bytes, or unparseable body). 404.
+200 `UserFile`. 400 `{"error":"invalid name"}` (empty/whitespace-only, longer than 255 bytes, changed or dangerous/unsupported extension, or unparseable body). 404.
 
 ### DELETE /api/library/files/{id}
 
@@ -85,7 +85,7 @@ Body `{"name":"new name.pdf"}`. The name is trimmed. Renames the library entry o
 
 204 no body. 404 `{"error":"File not found"}`. 500 on partial failure (the library entry is kept so the delete can be retried).
 
-UI: before calling this, fetch `GET .../usage` and confirm with the user, listing the KBs. Deleting a user account deletes their whole library the same way.
+UI: before calling this, fetch `GET .../usage` and confirm with the user, listing the KBs. Deleting a user account deletes their whole library the same way: **KB uploads made after this release are library files of the uploader, so deleting that account removes them from every KB, public KBs included** (uploads from before this release are unaffected). An admin impact preview for this (`GET /api/admin/users/{id}/file-impact`, spec section 6) is **not** part of phase 1; the admin UI cannot show the consequence yet.
 
 ### GET /api/library/files/{id}/download
 
@@ -144,7 +144,9 @@ Errors: 400 `{"error":"userFileIds must contain 1-100 ids"}`, 401, 403 (no `edit
 
 ### Deleting a KB copy
 
-`DELETE /api/files/{fileId}` (existing) removes only the KB copy; the library file stays. The KB file's `userFileId` links back to it.
+`DELETE /api/files/{fileId}` (existing) removes only the KB copy; the library file stays. The KB file's `userFileId` links back to it: `GET /api/kb/{id}/files` rows carry `"userFileId": "<uuid>"` for library-backed copies (key omitted otherwise), visible to every role that can list files.
+
+The 200 response of a deduplicated `POST /api/library/files` (bytes already in the library) lists the KBs the existing file is already in under `kbs`.
 
 ## Quota semantics
 

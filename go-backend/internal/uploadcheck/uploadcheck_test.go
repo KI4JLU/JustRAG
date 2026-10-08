@@ -130,3 +130,16 @@ func TestParse_Valid(t *testing.T) {
 		t.Fatalf("got %q %q", up.MimeType, up.Header.Filename)
 	}
 }
+
+func TestValidateName(t *testing.T) {
+	long := strings.Repeat("a", uploadcheck.MaxFileNameBytes) + ".pdf"
+	for name, wantOK := range map[string]bool{
+		"a.pdf": true, "A.PDF": true, "x.svg": false, "x.exe": false,
+		"x.doc": false, long: false,
+	} {
+		err := uploadcheck.ValidateName(name)
+		if (err == nil) != wantOK {
+			t.Errorf("ValidateName(%q) = %v, wantOK=%v", name, err, wantOK)
+		}
+	}
+}

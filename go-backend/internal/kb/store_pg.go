@@ -543,6 +543,7 @@ type fileDBRow struct {
 	// uploader or the user row is gone (ON DELETE SET NULL).
 	UploaderID          *string `db:"uploader_id"`
 	UploaderDisplayName *string `db:"uploader_display_name"`
+	UserFileID          *string `db:"user_file_id"`
 	TotalCount          int     `db:"total_count"`
 }
 
@@ -559,6 +560,7 @@ func (s *PGStore) ListFiles(ctx context.Context, kbID string, limit, offset int)
 		       f.injection_flag, f.injection_detail,
 		       u.id::text AS uploader_id,
 		       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.username) AS uploader_display_name,
+		       f.user_file_id::text AS user_file_id,
 		       COUNT(*) OVER ()::int AS total_count
 		FROM files f
 		LEFT JOIN users u ON u.id = f.uploaded_by
@@ -606,6 +608,7 @@ func (s *PGStore) ListFiles(ctx context.Context, kbID string, limit, offset int)
 			CreatedAt:          r.CreatedAt,
 			InjectionFlag:      r.InjectionFlag,
 			InjectionDetail:    r.InjectionDetail,
+			UserFileID:         r.UserFileID,
 		}
 		if r.UploaderID != nil && r.UploaderDisplayName != nil {
 			result[i].UploadedBy = &FileUploader{ID: *r.UploaderID, DisplayName: *r.UploaderDisplayName}

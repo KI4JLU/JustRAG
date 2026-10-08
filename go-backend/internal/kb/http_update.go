@@ -106,6 +106,9 @@ type FileRow struct {
 	// handler also nils it for callers below KB role "edit", so the key is
 	// absent rather than null in both cases.
 	UploadedBy *FileUploader `json:"uploadedBy,omitempty" db:"-"`
+	// UserFileID links a KB copy back to its user-library file (migration
+	// 0076); nil for non-library files, so the key is omitted.
+	UserFileID *string `json:"userFileId,omitempty" db:"-"`
 }
 
 // FileUploader is the display identity behind FileRow.UploadedBy — the same

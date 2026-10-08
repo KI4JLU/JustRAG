@@ -28,7 +28,7 @@ one-step rollback** (`cmd/migrate` is up-only).
 - User file library, phase 1: migrations **0076** (`user_files`, `users.file_quota_bytes`, `files.user_file_id`), **0077** and **0078** (indexes on `files`, built `CONCURRENTLY`: on a large `files` table they take time but do not block writes). Run `cmd/migrate` before rolling out the new image (k8s: the manual migrate step). No backfill — uploads from before this release are not library files.
 - `POST /api/kb/{id}/files` now stores the bytes in the uploader's library first. Its success shape is unchanged (the 201 body gains `userFileId`), but two new error responses exist: `413 {"error":"quota_exceeded","usedBytes":…,"quotaBytes":…}` and `409 {"error":"already_in_kb","fileId":…}`. Re-uploading bytes into a KB that already holds them (same uploader) now answers 409 instead of silently creating a duplicate.
 - New global-only site_config key `user_file_quota_bytes` (default `0` = unlimited, so behaviour is unchanged until an operator sets one) and a per-user override `users.file_quota_bytes` (DB only, no admin-UI field yet).
-- New API `/api/library/...` and `POST /api/kb/{id}/files/from-library`; deleting a library file removes it from every KB, and deleting a user deletes their library. Contract: `docs/api-contracts/user-file-library.md`.
+- New API `/api/library/...` and `POST /api/kb/{id}/files/from-library`; deleting a library file removes it from every KB, and deleting a user deletes their library. **KB uploads made after this release are library files of the uploader; deleting that user account deletes them from every KB, public KBs included** (uploads from before this release are unaffected). Contract: `docs/api-contracts/user-file-library.md`.
 
 ## v0.11.1 — 2026-10-06
 

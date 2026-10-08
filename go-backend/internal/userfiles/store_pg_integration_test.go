@@ -92,6 +92,13 @@ func TestStoreInsert(t *testing.T) {
 	if first.KBs == nil || len(first.KBs) != 0 {
 		t.Fatalf("KBs must be non-nil empty, got %#v", first.KBs)
 	}
+	// A dedup hit reports the KBs the file is already in.
+	kb := seedKBNamed(t, pool, "dedup-kb", "private")
+	copyID := addCopy(t, pool, kb, first.ID)
+	linked, created, err := st.Insert(ctx, newFile(o1, sha("a"), 5))
+	if err != nil || created || len(linked.KBs) != 1 || linked.KBs[0].FileID != copyID {
+		t.Fatalf("dedup KBs: created=%v kbs=%#v err=%v", created, linked.KBs, err)
+	}
 }
 
 func TestStoreGet(t *testing.T) {
@@ -120,7 +127,7 @@ func TestStoreList(t *testing.T) {
 	a := mustInsert(t, st, newFile(o, sha("1"), 1))
 	b := mustInsert(t, st, newFile(o, sha("2"), 2))
 	c := mustInsert(t, st, newFile(o, sha("3"), 3))
-	kb := seedKB(t, pool)
+	kb := seedKBNamed(t, pool, "dedup-kb", "private")
 	fid := addCopy(t, pool, kb, a.ID)
 
 	items, total, err := st.List(ctx, o, 10, 0)
@@ -157,13 +164,17 @@ func TestStoreRename(t *testing.T) {
 	if err != nil || got.Name != "neu.pdf" {
 		t.Fatalf("Rename: %#v %v", got, err)
 	}
+	if got, err := st.Rename(ctx, o1, f.ID, "Andere.PDF"); err != nil || got.Name != "Andere.PDF" {
+		t.Fatalf("case-only ext change must pass: %#v %v", got, err)
+	}
 	if _, err := st.Rename(ctx, o2, f.ID, "x"); !errors.Is(err, userfiles.ErrNotFound) {
 		t.Fatalf("other owner: %v", err)
 	}
 	if _, err := st.Rename(ctx, o1, "nope", "x"); !errors.Is(err, userfiles.ErrNotFound) {
 		t.Fatalf("bad id: %v", err)
 	}
-	for _, n := range []string{"", "   ", fmt.Sprintf("%0256d", 1)} {
+	for _, n := range []string{"", "   ", fmt.Sprintf("%0256d", 1),
+		"neu.csv", "neu.PDF.svg", "neu", "neu.exe", "neu.html", "neu.docx"} {
 		if _, err := st.Rename(ctx, o1, f.ID, n); !errors.Is(err, userfiles.ErrInvalidName) {
 			t.Fatalf("name %q: %v", n, err)
 		}

@@ -74,6 +74,26 @@ var dangerousExtensions = map[string]bool{
 	".asp": true, ".aspx": true, ".jsp": true, ".jspx": true,
 }
 
+// ValidateName applies the filename rules every stored file must satisfy:
+// no dangerous extension, a supported extension, and at most MaxFileNameBytes
+// bytes. It returns an *Error carrying the exact upload message, or nil.
+func ValidateName(name string) *Error {
+	ext := strings.ToLower(filepath.Ext(name))
+	if dangerousExtensions[ext] {
+		return &Error{Status: http.StatusBadRequest, Message: "File type not allowed"}
+	}
+	// Without the supported check an unsupported binary (e.g. a legacy .doc)
+	// would be queued for ingestion and fail or be indexed as garbage.
+	if !parser.IsSupportedExtension(name) {
+		return &Error{Status: http.StatusBadRequest, Message: fmt.Sprintf("File type not supported (%s)", ext)}
+	}
+	// files.name is varchar(255); reject cleanly instead of a DB 500.
+	if len(name) > MaxFileNameBytes {
+		return &Error{Status: http.StatusBadRequest, Message: fmt.Sprintf("Filename must not exceed %d bytes", MaxFileNameBytes)}
+	}
+	return nil
+}
+
 // humanBytes renders n as a human-readable KB/MB/GB size with one decimal
 // place, trimming a trailing ".0" (500.0 MB -> "500 MB") so exact values
 // read cleanly. Values under 1 KB render as whole bytes.
@@ -141,26 +161,10 @@ func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, erro
 		return fail(http.StatusBadRequest, "File must not be empty")
 	}
 
-	// 3b. Reject dangerous extensions.
+	// 3b-3c. Reject dangerous / unsupported extensions and over-long names.
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if dangerousExtensions[ext] {
-		return fail(http.StatusBadRequest, "File type not allowed")
-	}
-
-	// 3b-ii. Reject unsupported file types up front. Without this, an
-	// unsupported binary (e.g. a legacy .doc) passes the blocklist and is
-	// queued for ingestion, where it either fails to parse — leaving a file
-	// stuck in the KB with an error — or falls through to the text catch-all
-	// parser and is indexed as garbage. Rejecting here keeps the KB clean.
-	if !parser.IsSupportedExtension(header.Filename) {
-		return fail(http.StatusBadRequest, fmt.Sprintf("File type not supported (%s)", ext))
-	}
-
-	// 3c. Reject over-long names up front. files.name is varchar(255); without
-	// this check an over-long filename surfaces as a DB constraint violation
-	// (HTTP 500) instead of a clean validation error.
-	if len(header.Filename) > MaxFileNameBytes {
-		return fail(http.StatusBadRequest, fmt.Sprintf("Filename must not exceed %d bytes", MaxFileNameBytes))
+	if verr := ValidateName(header.Filename); verr != nil {
+		return nil, verr
 	}
 
 	// Detect MIME type from extension (fall back to octet-stream). Computed

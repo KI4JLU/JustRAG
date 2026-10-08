@@ -2,6 +2,7 @@ package siteconfig
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/justrag/go-backend/internal/chatpolicy"
@@ -20,6 +21,23 @@ import (
 var globalValidators = map[string]func(string) error{
 	"chat_orchestrator_policy":   chatpolicy.ValidateOrchestratorPolicyJSON,
 	"chat_answer_tools_by_route": chatpolicy.ValidateAnswerToolsByRouteJSON,
+	"user_file_quota_bytes":      validateUserFileQuotaBytes,
+}
+
+// userFileQuotaMaxBytes mirrors chat.UserFileQuotaMax (1 TiB); siteconfig
+// cannot import chat. The reader treats anything outside [0, max] as 0 =
+// unlimited, so without this a typo would silently disable the quota.
+const userFileQuotaMaxBytes = 1 << 40
+
+func validateUserFileQuotaBytes(v string) error {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil {
+		return fmt.Errorf("must be an integer number of bytes")
+	}
+	if n < 0 || n > userFileQuotaMaxBytes {
+		return fmt.Errorf("must be between 0 and %d bytes (0 = unlimited)", int64(userFileQuotaMaxBytes))
+	}
+	return nil
 }
 
 // ValidateGlobalValues rejects a site-config batch whose value for a validated
