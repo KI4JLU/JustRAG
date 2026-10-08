@@ -9,7 +9,9 @@ import (
 // RAPTOR summaries), for KG replay and tests.
 type CopyResult struct {
 	ChunkIDMap map[string]string
-	Dimensions int // the dim table the copy wrote to (0 if the donor had no chunks)
+	// Dimensions is the dim table the copy wrote to (0 if the donor had no
+	// chunks). For a (abnormal) multi-dim donor it is the last dim written.
+	Dimensions int
 }
 
 // CopyFileIndex copies every vector-DB row of srcFileID (chunks incl. RAPTOR
@@ -21,9 +23,14 @@ type CopyResult struct {
 //
 // vector_index is recomputed with pgConfig (the TARGET KB's text-search
 // config) and vector_index_simple with 'simple', using the same expressions as
-// insertRowSQLTemplate; embeddings and created_at are copied verbatim.
+// insertRowSQLTemplate (an empty pgConfig falls back to 'simple', like
+// AddDocumentChunks); copies to the same target file serialise on an advisory
+// transaction lock; embeddings and created_at are copied verbatim.
 func (s *ChunkService) CopyFileIndex(ctx context.Context, srcFileID, dstFileID, dstKbID, pgConfig string) (CopyResult, error) {
 	res := CopyResult{ChunkIDMap: map[string]string{}}
+	if pgConfig == "" {
+		pgConfig = "simple"
+	}
 	if srcFileID == "" || dstFileID == "" || dstKbID == "" {
 		return res, fmt.Errorf("CopyFileIndex: source file, target file and target kb are required")
 	}
@@ -41,6 +48,12 @@ func (s *ChunkService) CopyFileIndex(ctx context.Context, srcFileID, dstFileID, 
 		return res, fmt.Errorf("CopyFileIndex: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialise concurrent copies to one target (READ COMMITTED would let two
+	// delete-then-insert sequences interleave and double the rows).
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('justrag.copy_file_index:' || $1::text, 0))`, dstFileID); err != nil {
+		return res, fmt.Errorf("CopyFileIndex: lock: %w", err)
+	}
 
 	// Mapping tables live for this transaction only. chunk_map spans all
 	// dims (ids are UUIDs, so a join from one dim table can only match its

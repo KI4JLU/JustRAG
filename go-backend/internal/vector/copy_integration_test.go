@@ -8,6 +8,7 @@ package vector
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -94,6 +95,11 @@ func TestCopyFileIndex(t *testing.T) {
 	mustExec(ins, c2, cpKB1, cpDonor, "jumping cats", "prefix about houses", "h2", cpEmb(2), nil, "leaf", 0, s1, "20")
 	mustExec(ins, c3, cpKB1, cpDonor, "swimming fish", nil, "h3", cpEmb(3), nil, "leaf", 0, s1, "10")
 	mustExec(ins, s1, cpKB1, cpDonor, "summary of things", nil, "h4", cpEmb(4), nil, "summary", 1, nil, "5")
+	lowParts := make([]string, 256)
+	for i := range lowParts {
+		lowParts[i] = fmt.Sprintf("%d", i%7)
+	}
+	mustExec(`UPDATE `+chunkT+` SET embedding_low = $2::vector WHERE id = $1::uuid`, c1, "["+strings.Join(lowParts, ",")+"]")
 	mustExec(`INSERT INTO `+hypeT+` (kb_id, file_id, parent_chunk_id, question, embedding)
 		VALUES ($1,$2,$3,'q one?',$4::vector), ($1,$2,$3,'q two?',$5::vector)`, cpKB1, cpDonor, c1, cpEmb(5), cpEmb(6))
 
@@ -170,6 +176,7 @@ func TestCopyFileIndex(t *testing.T) {
 	// 4. content, embeddings, created_at preserved
 	if n := cpCount(t, pool, `SELECT count(*) FROM `+chunkT+` d JOIN `+chunkT+` t ON t.content = d.content
 		WHERE d.file_id=$1::uuid AND t.file_id=$2::uuid AND d.embedding::text = t.embedding::text
+		AND d.embedding_low::text IS NOT DISTINCT FROM t.embedding_low::text
 		AND d.created_at = t.created_at AND d.content_hash = t.content_hash AND d.tree_level = t.tree_level
 		AND d.node_kind = t.node_kind
 		AND d.contextual_prefix IS NOT DISTINCT FROM t.contextual_prefix AND d.metadata = t.metadata`, cpDonor, cpTarget); n != 4 {
@@ -229,12 +236,31 @@ func TestCopyFileIndex(t *testing.T) {
 		t.Errorf("donor after delete = %v", g)
 	}
 
-	// 9. donor without rows
+	if n := cpCount(t, pool, `SELECT count(*) FROM `+chunkT+` WHERE file_id=$1::uuid AND embedding_low IS NOT NULL`, cpTarget); n != 1 {
+		t.Errorf("target embedding_low non-null rows = %d, want 1", n)
+	}
+
+	// empty pgConfig falls back to 'simple'
+	if _, err := svc.CopyFileIndex(ctx, cpTarget, cpTarget2, cpKB2, ""); err != nil {
+		t.Fatalf("empty pgConfig: %v", err)
+	}
+	if n := cpCount(t, pool, `SELECT count(*) FROM `+chunkT+` WHERE file_id=$1::uuid
+		AND vector_index = to_tsvector('simple', COALESCE(contextual_prefix,'') || ' ' || content)`, cpTarget2); n != 4 {
+		t.Errorf("%d of 4 tsvectors match simple fallback", n)
+	}
+
+	// 9. donor without rows; pre-existing target rows must be cleared
+	if g := counts(cpTarget2); g != [3]int{4, 1, 2} {
+		t.Fatalf("precondition: target2 counts = %v", g)
+	}
 	res3, err := svc.CopyFileIndex(ctx, cpEmpty, cpTarget2, cpKB2, "english")
 	if err != nil {
 		t.Fatalf("empty donor: %v", err)
 	}
 	if res3.Dimensions != 0 || len(res3.ChunkIDMap) != 0 {
 		t.Errorf("empty donor result = %+v", res3)
+	}
+	if g := counts(cpTarget2); g != [3]int{0, 0, 0} {
+		t.Errorf("target rows not cleared for empty donor: %v", g)
 	}
 }
