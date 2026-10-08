@@ -293,6 +293,10 @@ var ignoredKeys = map[string]string{
 	// has no registry entry and nothing for a KB admin to wire on a canvas.
 	"chat_answer_degenerate_run_limit": "degenerate-answer guard on the generation layer (aborts a runaway repeated run); a deployment-wide safety limit, not a per-KB pipeline stage",
 
+	// KB-less library chat (user file library, phase 3): global-only budget
+	// of POST /api/library/chat, which has no KB and so no per-KB canvas.
+	"chat_library_fulltext_max_tokens": "global-only full-text budget of the KB-less library chat; no KB, so no per-KB pipeline stage",
+
 	// Operational budget siblings of the already-ignored chat_turn_budget_seconds.
 	"chat_turn_budget_tokens":     "operational budget, sibling of chat_turn_budget_seconds",
 	"chat_turn_budget_tool_calls": "operational budget, sibling of chat_turn_budget_seconds",
