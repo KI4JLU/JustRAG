@@ -564,6 +564,13 @@ type chatResponseParams struct {
 	// queryType's own entry only when this is true. False (the zero value)
 	// on handleTransformFollowUp for the same reason as queryType above.
 	isGlobalSynthesis bool
+	// library marks a KB-less library chat turn (P3-R5): kbID is "" and the
+	// writers skip everything KB-bound — source-date enrichment, answer-time
+	// tools, the KB post-response pipeline (longmem, tabular log, factcheck,
+	// verifier, refine, RAGAS) and the agent_decisions row. Frames, the
+	// degenerate guard, history, citation validation, follow-up questions
+	// and [DONE] stay. False everywhere on the KB paths.
+	library bool
 }
 
 // handleTransformFollowUp answers a transform follow-up ("kannst du das als
@@ -633,6 +640,27 @@ func (h *Handler) handleTransformFollowUp(
 	h.writeJSONResponse(ctx, w, rp)
 }
 
+// enrichResponseSources stamps freshness dates onto the turn's sources. A
+// library turn has no `files` rows to look up (its sources carry UserFileID,
+// never FileID), so it is skipped there (P3-R5).
+func (h *Handler) enrichResponseSources(ctx context.Context, p chatResponseParams) {
+	if p.library {
+		return
+	}
+	enrichSourceDates(ctx, h.fileDates, p.chatCtx.Sources)
+}
+
+// runResponsePostTasks runs the post-response pipeline for the writers: the
+// full KB pipeline, or for a library turn only its KB-independent part
+// (follow-up questions + citation validation, P3-R5).
+func (h *Handler) runResponsePostTasks(ctx context.Context, p chatResponseParams, answer, aiMsgID string, emit func(map[string]any)) ([]string, *MessageVerification, string) {
+	if p.library {
+		followUps, verification := h.runLibraryPostResponseTasks(ctx, p.userMessage, answer, p.lang, aiMsgID, p.chatCtx.Sources)
+		return followUps, verification, ""
+	}
+	return h.runPostResponseTasks(ctx, p.userMessage, answer, p.chatCtx.Context, p.kbID, p.lang, aiMsgID, p.chatCtx.Sources, emit, p.chatCtx.TabularTrace)
+}
+
 // writeStreamingResponse handles the SSE branch of SendMessage: sets
 // headers, streams the AI response, persists the AI message, runs
 // post-response tasks, and records the final agent_decision row.
@@ -642,7 +670,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// Freshness dates for the cited files (one batch query, fail-soft).
 	// Runs before the `sources` frame below AND before the AddMessage that
 	// persists the same slice, so the SSE payload and messages.sources agree.
-	enrichSourceDates(ctx, h.fileDates, p.chatCtx.Sources)
+	h.enrichResponseSources(ctx, p)
 	sources := p.chatCtx.Sources
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
@@ -682,7 +710,9 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
 		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
-	useAnswerTools := ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
+	// A library turn never gets answer-time tools (P3-R5): every catalog tool
+	// is KB-scoped, and kbID is "" there.
+	useAnswerTools := !p.library && ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
 	// answerToolsDispatcher/catalog default to the unrestricted pair; a
 	// per-route allowlist (W6-R8) narrows both together below so the catalog
 	// projection and the dispatch boundary can never drift apart.
@@ -860,7 +890,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// mutates the painted answer in place. The full refined text
 	// is still persisted to DB by runPostResponseTasks.
 	emit := func(pl map[string]any) { writeSSE(ctx, w, pl) }
-	followUps, verification, _ := h.runPostResponseTasks(ctx, p.userMessage, fullResponse, p.chatCtx.Context, p.kbID, p.lang, aiMsg.ID, p.chatCtx.Sources, emit, p.chatCtx.TabularTrace)
+	followUps, verification, _ := h.runResponsePostTasks(ctx, p, fullResponse, aiMsg.ID, emit)
 	if len(followUps) > 0 {
 		writeSSE(ctx, w, map[string]any{"followUpQuestions": followUps})
 	}
@@ -894,7 +924,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 // (no painted-text mismatch concern since there's no SSE channel).
 func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
 	// Same one-shot enrichment as the streaming branch — see there.
-	enrichSourceDates(ctx, h.fileDates, p.chatCtx.Sources)
+	h.enrichResponseSources(ctx, p)
 	sources := p.chatCtx.Sources
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
@@ -953,7 +983,7 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 
 	// Non-streaming path: no SSE channel exists, so emit is nil.
 	// The refined answer surfaces via the JSON `answer` field instead.
-	followUps, verification, refinedAnswer := h.runPostResponseTasks(ctx, p.userMessage, result.Content, p.chatCtx.Context, p.kbID, p.lang, aiMsg.ID, p.chatCtx.Sources, nil, p.chatCtx.TabularTrace)
+	followUps, verification, refinedAnswer := h.runResponsePostTasks(ctx, p, result.Content, aiMsg.ID, nil)
 
 	if sc := trace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		if err := h.store.UpdateMessageTraceID(ctx, aiMsg.ID, sc.TraceID().String()); err != nil {

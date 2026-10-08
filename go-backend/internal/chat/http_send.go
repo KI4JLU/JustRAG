@@ -69,6 +69,9 @@ type sendMessageRequest struct {
 	// Mutually exclusive; TeamID wins if both are set.
 	TeamID  string `json:"teamId"`
 	AgentID string `json:"agentId"`
+	// FileIDs selects the user-library files of a KB-less library chat turn
+	// (POST /api/library/chat, P3-R4). The KB send path ignores it.
+	FileIDs []string `json:"fileIds"`
 }
 
 // SanitizeParentMessageID returns a pointer to id when it is a valid UUID, and
