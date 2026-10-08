@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"strings"
+
+	"github.com/justrag/go-backend/internal/uploadcheck"
 )
 
 // SetMaxUploadSizeForTest overrides the transport cap for the duration of a
@@ -13,9 +15,9 @@ import (
 // files.SetMaxUploadSizeForTest is reachable from the external files_test
 // package in tests but does not exist in a production build.
 func SetMaxUploadSizeForTest(n int64) (restore func()) {
-	old := maxUploadSize
-	maxUploadSize = n
-	return func() { maxUploadSize = old }
+	old := uploadcheck.MaxUploadSize
+	uploadcheck.MaxUploadSize = n
+	return func() { uploadcheck.MaxUploadSize = old }
 }
 
 // StubFetchForTest replaces the SSRF check and the SSRF-safe fetch with a
