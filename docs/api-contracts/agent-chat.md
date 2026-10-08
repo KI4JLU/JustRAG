@@ -9,7 +9,7 @@ Protocol: [AG-UI](https://docs.ag-ui.com). Any AG-UI client (for example `@ag-ui
 
 - One endpoint: `POST /api/kb/{id}/agui/chat`. Auth as for the other chat routes (`Authorization: Bearer <jwt>` or the session cookie). KB role `view` or higher.
 - It is a **separate endpoint** from the legacy `POST /api/kb/{id}/chat`. Both write into the same `chats`/`messages` tables, so an agent chat shows up in `GET /api/kb/{id}/chats` and its messages in `GET /api/chats/{id}/messages` like any other chat.
-- **Feature flag:** per KB, `chat_agent_chat_enabled` (default off; a system admin sets it per KB via `PUT /api/kb/{id}/settings` `{"configs":{"chat_agent_chat_enabled":"true"}}`). While it is off the endpoint answers `404 {"error":"not_found"}` for that KB. Hide the agent-chat UI then.
+- **Feature flag:** per KB, `chat_agent_chat_enabled` (default off). It is set per KB via `PUT /api/kb/{id}/settings` `{"configs":{"chat_agent_chat_enabled":"true"}}`; that route needs **both** a system role `api-user`, `admin` or `superadmin` **and** KB role `admin` (the KB advanced-settings gate). While it is off the endpoint answers `404 {"error":"not_found"}` for that KB. Hide the agent-chat UI then.
 - Errors before the stream starts are JSON `{"error":"<string>"}` with a non-200 status (table below). Once the response is `200 text/event-stream`, errors arrive as a `RUN_ERROR` event instead.
 - Provider and database error text never reaches the client. Show a generic failure text for `500`, `RUN_ERROR` and tool errors reading `tool failed`.
 - Rate limit: shared with the legacy chat send route (the `chat` limiter, 20 requests per minute). `429 {"error":"Too many requests from this IP, please try again later."}` with a `Retry-After` header. A resume counts as a request.
@@ -40,7 +40,7 @@ Body cap 1 MiB. `Content-Type: application/json`.
 | Field | Used? | Meaning |
 |---|---|---|
 | `threadId` | yes | chat id, or `""` for a new chat (see above) |
-| `runId` | yes | optional. A canonical UUID is kept; anything else (empty, malformed, or an id that already exists) is replaced by a fresh one. `RUN_STARTED.runId` is the id actually used |
+| `runId` | yes | optional. Any id that parses as a UUID (also upper-case, braced or `urn:uuid:` forms) is used in its canonical lower-case form; an empty or malformed id, or one that already exists, is replaced by a fresh one. `RUN_STARTED.runId` is the id actually used |
 | `messages` | **only the newest `role: "user"` message with non-blank text** | `content` may be a string or an array of parts; only `{"type":"text","text":"..."}` parts are read. Every other message, including earlier turns and any `assistant`/`tool` message, is ignored: the server builds history from its own store. Sending only the new message is enough |
 | `resume` | yes | answers an interrupt (see "Resume") |
 | `forwardedProps.reasoning` | yes | `"low"`, `"medium"` or `"high"` turns model reasoning on at that effort (then `REASONING_*` events stream before the text). Anything else, or absent: off |
@@ -198,8 +198,11 @@ Which actions are offered (display them in this order):
 
 | Action | `no_evidence` | `no_files` | Who sees it |
 |---|---|---|---|
-| `web` | yes | never (an empty KB is a setup problem, not a missing fact) | `view` and up, only if the deployment has the built-in `web_search` tool |
-| `library`, `upload`, `confluence` | yes | yes | KB role `edit` and up (they write to the KB) |
+| `web` | yes | never (an empty KB is a setup problem, not a missing fact) | `view` and up, only if the deployment has the built-in `web_search` tool **and** web search is switched on and configured (`web_search_enabled` plus both Google search keys) |
+| `library`, `upload` | yes | yes | KB role `edit` and up (they write to the KB) |
+| `confluence` | yes | yes | KB role `edit` and up, only if Confluence is switched on (`confluence_enabled`) **and** the user has a Confluence connection |
+
+The server checks availability when it pauses and again when the resume arrives. If an action stopped being available in between (web search switched off, connection deleted), choosing it answers "Diese Aktion kann ich hier leider nicht ausführen." like any action that was not offered.
 
 When nothing is left to offer, there is **no pause**: the turn completes with the plain dead-end text. Recorded for a `view` member on an empty KB:
 
@@ -258,6 +261,7 @@ Outcome texts (one `TEXT_MESSAGE` in the `act` step; the turn then completes):
 | `library` / `upload` | added | "Datei hinzugefügt – sie wird gerade verarbeitet. Frag gleich noch einmal." |
 | | some added, some not | "N von M Dateien hinzugefügt – sie werden gerade verarbeitet. Die übrigen konnten nicht hinzugefügt werden. Frag gleich noch einmal." |
 | | already in the KB | "Die Datei ist bereits in dieser Wissensbasis." |
+| | none added: some already in the KB, the others failed | "Keine Datei hinzugefügt: N von M Dateien sind bereits in dieser Wissensbasis, die übrigen konnten nicht hinzugefügt werden." |
 | | not added (not in the caller's library, KB full) | "Die Datei konnte nicht hinzugefügt werden." |
 | | empty `userFileIds` | "Keine Datei ausgewählt – es wurde nichts hinzugefügt." |
 | `confluence` | import started | "Import gestartet – die Confluence-Seiten werden im Hintergrund importiert. Frag gleich noch einmal." |
@@ -281,7 +285,9 @@ data: {"type":"CUSTOM","name":"justrag.message.v1","value":{"aiMessageId":"013c5
 data: {"type":"RUN_FINISHED","threadId":"a9670fd6-…","runId":"a4664f42-…","outcome":{"type":"success"}}
 ```
 
-`library` and `confluence` look the same with their texts. `web` runs the search and then streams a model answer from the web results in a `web_answer` step (`STEP_STARTED act`, `STEP_FINISHED act`, `STEP_STARTED web_answer`, `TEXT_MESSAGE_*` deltas, `STEP_FINISHED web_answer`, `justrag.message.v1`, `RUN_FINISHED`). The answer says that it comes from the web, names the URLs, and has **no** `justrag.sources.v1` (web results are not KB sources).
+`library` and `confluence` look the same with their texts. `web` runs the search and then streams a model answer from the web results in a `web_answer` step (`STEP_STARTED act`, `STEP_FINISHED act`, `STEP_STARTED web_answer`, `TEXT_MESSAGE_*` deltas, `STEP_FINISHED web_answer`, `justrag.message.v1`, `RUN_FINISHED`). The answer says that it comes from the web, names the URLs, and has **no** `justrag.sources.v1` (web results are not KB sources). The web search runs on the paused turn's query; on a follow-up that is the standalone (condensed) rewrite of the question, not its literal text (see `metadata.query`). The web answer sees only that query and the web results, never the earlier turns of the chat.
+
+**Do not auto-load remote content from agent answers.** Web results are attacker-controllable text, and any model answer can echo a link or a Markdown image. Render images in agent answers as links (or not at all) instead of fetching them, and do not prefetch or unfurl links; open a link only on a user click.
 
 Sending the same resume twice: the second answers `404 {"error":"no_open_interrupt"}` (recorded).
 
@@ -315,6 +321,8 @@ Two kinds:
 
   Afterwards the thread accepts new messages again.
 
+- **Time budget**: when the deployment or KB sets `chat_turn_budget_seconds` (> 0), a turn that runs longer is stopped server-side and ends with `RUN_ERROR` (`"run failed"`); nothing more than the user message is stored, as for any failed run.
+
 - **Stop a running answer**: abort the HTTP request (close the `EventSource`/`fetch`). The server stops the model, records the run as cancelled and stores **no** AI message; the user message stays. No `RUN_FINISHED` or `RUN_ERROR` reaches the client (the connection is gone). Recorded: a turn aborted after 1.5 s left the user message and a `cancelled` run, no answer. The thread accepts new messages immediately.
 
 ### 5. Error
@@ -328,6 +336,8 @@ data: {"type":"RUN_ERROR","message":"run failed"}
 instead of `RUN_FINISHED`. Open text/reasoning messages are closed first. Nothing more than the user message is stored, so on reload the turn shows the question without an answer. Causes: the model provider failed, the dead-end pause could not be recorded, or a **completed answer could not be stored**: then the text already streamed, but `RUN_ERROR` follows instead of `justrag.message.v1` + `RUN_FINISHED`. Treat the streamed text as not saved.
 
 A failing answer-time tool call is not a run error: its `TOOL_CALL_RESULT.content` is `{"error":"tool failed"}` (or a policy message), and the model continues.
+
+The model's tool calls in one turn are capped by `chat_answer_tools_max_rounds` (default 5, counted per call). A call past the cap does not run: its `TOOL_CALL_RESULT.content` is `{"error":"Werkzeug-Budget für diese Antwort erschöpft: beantworte die Frage jetzt mit dem vorhandenen Kontext."}`, and the model then answers without tools.
 
 ## Custom events
 
@@ -381,5 +391,7 @@ An open interrupt cannot be fetched again: there is no endpoint that lists a thr
 - One-click approval: choosing a suggestion executes it. There is no separate confirmation dialog server-side; put any "are you sure" in the UI.
 - No web search during an answer, only via the dead-end `web` action (no tool-approval interrupts).
 - Retrieval quality has not been evaluated against the legacy chat yet (eval gate deferred), and the sources carry no file dates.
+- Retrieval: every search runs the production pipeline (`PrepareChatContext`) with the KB's configured system prompt, the current-date line (when `chat_date_awareness_enabled` is on) and the source-date lookup, and a follow-up's first search uses the standalone rewrite of the question over the chat's stored history (as the legacy chat does). **Not applied on this path yet:** knowledge-graph routing, the tabular (spreadsheet SQL) router, the recency lister ("Welche neuen Meldungen gibt es?"), query classification (so no HyDE / multi-query, no per-query-type tuning) and the session-memory / long-term-memory / tabular-guidance blocks the legacy chat adds to the system prompt. Answers on KBs that rely on those can differ from the legacy chat.
+- Deleting the chat (`DELETE /api/chats/{id}`), leaving the KB, or deleting the KB also deletes the agent's stored conversation state for those chats.
 - No listing of open interrupts (see above).
 - Usage: each new question counts once in the usage ledger (`surface: web`); resumes do not count.
