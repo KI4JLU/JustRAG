@@ -83,3 +83,17 @@ func TestAddLibraryFiles_Bounds(t *testing.T) {
 		t.Fatal("101 ids: want error")
 	}
 }
+
+func TestAddLibraryFiles_EmptyUserID(t *testing.T) {
+	store := &mockStore{}
+	lib := &fakeLibrary{known: map[string]*userfiles.UserFile{"a": libFile("a")}}
+	h := files.NewHandlerWithEnqueuer(store, &mockStorage{}, noopChunks(), &optEnqueuer{})
+	h.SetLibrary(lib)
+	res, err := h.AddLibraryFiles(context.Background(), "", "kb-1", false, []string{"a"})
+	if !errors.Is(err, files.ErrInvalidUser) || res != nil {
+		t.Fatalf("res=%+v err=%v, want ErrInvalidUser", res, err)
+	}
+	if len(lib.getUsers) != 0 || len(store.created) != 0 {
+		t.Fatalf("side effects: lookups=%v created=%d", lib.getUsers, len(store.created))
+	}
+}

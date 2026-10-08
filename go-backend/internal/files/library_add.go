@@ -20,6 +20,9 @@ const (
 // ErrLibraryUnavailable: no user file library is wired into the handler.
 var ErrLibraryUnavailable = errors.New("files: user file library not configured")
 
+// ErrInvalidUser: AddLibraryFiles was called without a user id.
+var ErrInvalidUser = errors.New("files: user id is required")
+
 // AddResult is the per-id outcome of AddLibraryFiles. For Status "error",
 // Error carries the skip reason of the HTTP contract ("not_found" — not in
 // the caller's library — or "kb_full").
@@ -50,6 +53,9 @@ func (e *libraryAddError) Unwrap() error { return e.err }
 func (h *Handler) AddLibraryFiles(ctx context.Context, userID, kbID string, isGlobal bool, userFileIDs []string) ([]AddResult, error) {
 	if h.library == nil {
 		return nil, ErrLibraryUnavailable
+	}
+	if userID == "" {
+		return nil, ErrInvalidUser
 	}
 	if len(userFileIDs) < 1 || len(userFileIDs) > maxFromLibraryIDs {
 		return nil, fmt.Errorf("files: userFileIds must contain 1-%d ids", maxFromLibraryIDs)

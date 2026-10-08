@@ -17,6 +17,14 @@ import (
 // one in the UI first; an agent cannot handle credentials).
 var ErrNoConnection = errors.New("confluence: user has no connection")
 
+// ErrSyncNotQueued: the source was created but its first sync was not
+// enqueued (no queue wired, or the enqueue failed). Import still returns the
+// source id alongside it.
+var ErrSyncNotQueued = errors.New("confluence: source created but first sync not queued")
+
+// ErrInvalidUser: Import was called without a user id.
+var ErrInvalidUser = errors.New("confluence: user id is required")
+
 // Enqueuer is the subset of *asynq.Client the Confluence endpoints use.
 type Enqueuer interface {
 	Enqueue(task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error)
@@ -47,9 +55,13 @@ func nonNilEnqueuer(enq Enqueuer) Enqueuer {
 
 // Import creates a manual-schedule source for spaceKey in kbID using the
 // caller's own connection and enqueues its first sync. Returns the source id.
-// Like the HTTP endpoint, a failed enqueue is logged but not returned: the
-// source exists and can be synced from the UI.
+// When the source was created but the first sync was not queued (enqueue
+// failed, or no queue is wired), it returns the source id together with
+// ErrSyncNotQueued.
 func (im *Importer) Import(ctx context.Context, userID, kbID, spaceKey string, rootPageID *string) (string, error) {
+	if userID == "" {
+		return "", ErrInvalidUser
+	}
 	if spaceKey == "" {
 		return "", errors.New("confluence: spaceKey is required")
 	}
@@ -60,23 +72,27 @@ func (im *Importer) Import(ctx context.Context, userID, kbID, spaceKey string, r
 	if conn == nil {
 		return "", ErrNoConnection
 	}
-	source, err := im.createSource(ctx, kbID, conn.ID, spaceKey, rootPageID, nil, false, syncwindow.ScheduleManual)
+	source, queued, err := im.createSource(ctx, kbID, conn.ID, spaceKey, rootPageID, nil, false, syncwindow.ScheduleManual)
 	if err != nil {
 		return "", err
+	}
+	if !queued {
+		return source.ID, ErrSyncNotQueued
 	}
 	return source.ID, nil
 }
 
 // createSource persists a source and enqueues its initial sync job so the
 // worker fetches pages immediately. Callers have already authorised the
-// connection and validated the schedule.
+// connection and validated the schedule. queued reports whether the first
+// sync task was enqueued; a failed enqueue is logged, not returned.
 func (im *Importer) createSource(ctx context.Context, kbID, connectionID, spaceKey string,
 	rootPageID, rootPageTitle *string, includeAttachments bool, syncSchedule string,
-) (*ConfluenceSourceRow, error) {
-	source, err := im.store.CreateConfluenceSource(ctx, kbID, connectionID, spaceKey,
+) (source *ConfluenceSourceRow, queued bool, err error) {
+	source, err = im.store.CreateConfluenceSource(ctx, kbID, connectionID, spaceKey,
 		rootPageID, rootPageTitle, includeAttachments, syncSchedule)
 	if err != nil {
-		return nil, fmt.Errorf("confluence: create source: %w", err)
+		return nil, false, fmt.Errorf("confluence: create source: %w", err)
 	}
 
 	if im.enq != nil {
@@ -89,8 +105,10 @@ func (im *Importer) createSource(ctx context.Context, kbID, connectionID, spaceK
 				asynq.Timeout(jobs.TimeoutFor(jobs.TypeConfluenceSync)),
 			); enqErr != nil {
 				logctx.From(ctx).Error("failed to enqueue initial confluence sync", "sourceId", source.ID, "error", enqErr)
+			} else {
+				queued = true
 			}
 		}
 	}
-	return source, nil
+	return source, queued, nil
 }

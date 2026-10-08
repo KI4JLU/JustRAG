@@ -384,7 +384,9 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	source, err := h.importer().createSource(ctx, kbID, body.ConnectionID, body.SpaceKey,
+	// A first sync that was not queued is already logged; the endpoint still
+	// answers 201 (the source exists and can be synced from the UI).
+	source, _, err := h.importer().createSource(ctx, kbID, body.ConnectionID, body.SpaceKey,
 		body.RootPageID, body.RootPageTitle, body.IncludeAttachments, syncSchedule)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to create Confluence source")

@@ -101,7 +101,35 @@ func TestImport_NilAsynqClientSkipsEnqueue(t *testing.T) {
 	store := &mockStore{conn: &confluence.ConfluenceConnectionRow{ID: testConnID}, source: makeSource()}
 	var client *asynq.Client
 	id, err := confluence.NewImporter(store, client).Import(context.Background(), testUserID, testKBID, "ENG", nil)
-	if err != nil || id != testSourceID {
-		t.Fatalf("id=%q err=%v", id, err)
+	if !errors.Is(err, confluence.ErrSyncNotQueued) || id != testSourceID {
+		t.Fatalf("id=%q err=%v, want id + ErrSyncNotQueued", id, err)
+	}
+	// Same for an untyped nil enqueuer.
+	id, err = confluence.NewImporter(store, nil).Import(context.Background(), testUserID, testKBID, "ENG", nil)
+	if !errors.Is(err, confluence.ErrSyncNotQueued) || id != testSourceID {
+		t.Fatalf("nil enqueuer: id=%q err=%v", id, err)
+	}
+}
+
+func TestImport_EnqueueErrorReturnsIDAndErrSyncNotQueued(t *testing.T) {
+	store := &mockStore{conn: &confluence.ConfluenceConnectionRow{ID: testConnID}, source: makeSource()}
+	enq := &recEnqueuer{err: errors.New("redis down")}
+	id, err := confluence.NewImporter(store, enq).Import(context.Background(), testUserID, testKBID, "ENG", nil)
+	if !errors.Is(err, confluence.ErrSyncNotQueued) || id != testSourceID {
+		t.Fatalf("id=%q err=%v, want id + ErrSyncNotQueued", id, err)
+	}
+	if len(store.createSourceCalls) != 1 || len(enq.tasks) != 1 {
+		t.Fatalf("creates=%d enqueue attempts=%d", len(store.createSourceCalls), len(enq.tasks))
+	}
+}
+
+func TestImport_EmptyUserID(t *testing.T) {
+	store := &mockStore{conn: &confluence.ConfluenceConnectionRow{ID: testConnID}, source: makeSource()}
+	_, err := confluence.NewImporter(store, &recEnqueuer{}).Import(context.Background(), "", testKBID, "ENG", nil)
+	if !errors.Is(err, confluence.ErrInvalidUser) {
+		t.Fatalf("err = %v, want ErrInvalidUser", err)
+	}
+	if len(store.createSourceCalls) != 0 {
+		t.Fatal("source must not be created")
 	}
 }
