@@ -172,7 +172,7 @@ func isJSONNull(raw json.RawMessage) bool {
 // GetChats returns all chats for the given kbID and userID, ordered by updated_at DESC.
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at
 		FROM chats
 		WHERE kb_id = $1 AND user_id = $2
 		ORDER BY updated_at DESC`
@@ -191,7 +191,7 @@ func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow,
 // GetChatByID returns the chat with the given ID, or nil if not found.
 func (s *PGStore) GetChatByID(ctx context.Context, chatID string) (*ChatRow, error) {
 	const sql = `
-		SELECT id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at
 		FROM chats WHERE id = $1`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, chatID)
@@ -210,7 +210,7 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title)
 		VALUES ($1, $2, $3)
-		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title)
 	if err != nil {
@@ -221,6 +221,89 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	}
 	r := toChatRow(*row)
 	return &r, nil
+}
+
+// CreateLibraryChat inserts a KB-less library chat (kb_id NULL, type
+// 'library') and returns the created row (KbID "").
+func (s *PGStore) CreateLibraryChat(ctx context.Context, userID, title string) (*ChatRow, error) {
+	const sql = `
+		INSERT INTO chats (kb_id, user_id, title, type)
+		VALUES (NULL, $1, $2, 'library')
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
+
+	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, userID, title)
+	if err != nil {
+		return nil, fmt.Errorf("CreateLibraryChat: %w", err)
+	}
+	if row == nil {
+		return nil, fmt.Errorf("CreateLibraryChat: no row returned")
+	}
+	r := toChatRow(*row)
+	return &r, nil
+}
+
+// GetLibraryChats returns the user's library chats, newest activity first.
+func (s *PGStore) GetLibraryChats(ctx context.Context, userID string) ([]ChatRow, error) {
+	const sql = `
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at
+		FROM chats
+		WHERE type = 'library' AND kb_id IS NULL AND user_id = $1
+		ORDER BY updated_at DESC`
+
+	rows, err := pgxutil.QueryRows[chatDBRow](ctx, s.pool, sql, userID)
+	if err != nil {
+		return nil, fmt.Errorf("GetLibraryChats: %w", err)
+	}
+	result := make([]ChatRow, len(rows))
+	for i, r := range rows {
+		result[i] = toChatRow(r)
+	}
+	return result, nil
+}
+
+// GetChatFileRefs returns the library file ids selected for a chat, in the
+// order they were added.
+func (s *PGStore) GetChatFileRefs(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT user_file_id::text FROM chat_file_refs WHERE chat_id = $1::uuid ORDER BY added_at, user_file_id`, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("GetChatFileRefs: %w", err)
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("GetChatFileRefs scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("GetChatFileRefs: %w", err)
+	}
+	return ids, nil
+}
+
+// ReplaceChatFileRefs atomically replaces a chat's selected library files.
+// The given order is preserved: rows get strictly increasing added_at
+// within the transaction.
+func (s *PGStore) ReplaceChatFileRefs(ctx context.Context, chatID string, userFileIDs []string) error {
+	return pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM chat_file_refs WHERE chat_id = $1::uuid`, chatID); err != nil {
+			return fmt.Errorf("ReplaceChatFileRefs delete: %w", err)
+		}
+		if len(userFileIDs) == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO chat_file_refs (chat_id, user_file_id, added_at)
+			SELECT $1::uuid, f.id, now() + f.ord * interval '1 microsecond'
+			FROM unnest($2::uuid[]) WITH ORDINALITY AS f(id, ord)
+			ON CONFLICT DO NOTHING`, chatID, userFileIDs); err != nil {
+			return fmt.Errorf("ReplaceChatFileRefs insert: %w", err)
+		}
+		return nil
+	})
 }
 
 // DeleteChat deletes the chat with the given ID (cascade deletes messages via FK).
@@ -364,6 +447,7 @@ func (s *PGStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageR
 				SELECT $1::uuid, c.chunk_id::uuid,
 				       (SELECT kb_id FROM chats WHERE id = $2::uuid), c.ord
 				FROM unnest($3::uuid[], $4::int[]) AS c(chunk_id, ord)
+				WHERE (SELECT kb_id FROM chats WHERE id = $2::uuid) IS NOT NULL
 				ON CONFLICT (message_id, chunk_id) DO NOTHING`
 			if _, err := tx.Exec(ctx, insertLinksSQL, row.ID, p.ChatID, ids, positions); err != nil {
 				return fmt.Errorf("AddMessage insert chunk links: %w", err)
@@ -529,7 +613,7 @@ func (s *PGStore) CreateResearchSession(ctx context.Context, kbID, userID, goal,
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, goal, sessionType)
 	if err != nil {
