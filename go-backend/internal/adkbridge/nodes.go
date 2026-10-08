@@ -96,10 +96,10 @@ type Action struct {
 	Args         map[string]any `json:"args,omitempty"`
 }
 
-// visibleActions keeps frontend actions and the server tools that are
+// VisibleActions keeps frontend actions and the server tools that are
 // allowlisted and executable by the running user. Execution re-checks at
 // dispatch; this only avoids offering buttons that would fail.
-func visibleActions(sc Scope, actions []Action, allowed []string) []Action {
+func VisibleActions(sc Scope, actions []Action, allowed []string) []Action {
 	out := make([]Action, 0, len(actions))
 	for _, a := range actions {
 		if a.Tool == "" {
@@ -108,7 +108,7 @@ func visibleActions(sc Scope, actions []Action, allowed []string) []Action {
 		}
 		p := PolicyFor(a.Tool)
 		if !slices.Contains(allowed, a.Tool) || !RoleAtLeast(sc.Role, p.RequiresRole) ||
-			(mcp.PrivilegedTools[a.Tool] && !sc.AllowPrivileged) {
+			(privilegedInBridge(a.Tool) && !sc.AllowPrivileged) {
 			continue
 		}
 		a.SideEffect, a.RequiresRole = p.SideEffect, p.RequiresRole
@@ -135,7 +135,7 @@ func SuggestNode(name, message string, actions []Action, allowedTools []string) 
 				Payload: map[string]any{
 					"reason":  reason,
 					"query":   in.Query,
-					"actions": visibleActions(sc, actions, allowedTools),
+					"actions": VisibleActions(sc, actions, allowedTools),
 				},
 			}
 			if err := emit(workflow.NewRequestInputEvent(ctx, req)); err != nil {

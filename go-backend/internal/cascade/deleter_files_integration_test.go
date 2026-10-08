@@ -196,9 +196,28 @@ func TestDeleteKB_SkipsLibraryBlobs(t *testing.T) {
 		t.Fatal("fixture has no legacy rows")
 	}
 
+	// An agent chat in the KB: its ADK session is keyed by the chat id
+	// without an FK (final review item 4).
+	var chatID string
+	if err := mp.QueryRow(context.Background(),
+		`INSERT INTO chats (kb_id, user_id, title) VALUES ($1::uuid, $2::uuid, 'agent') RETURNING id::text`, kbID, userID).Scan(&chatID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mp.Exec(context.Background(),
+		`INSERT INTO adk_sessions (app_name, user_id, id, update_time) VALUES ('agentchat', $1, $2, now())`, userID, chatID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = mp.Exec(context.Background(), `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id = $1`, chatID)
+	})
+
 	d := cascade.New(mp, vp, stor)
 	if err := d.DeleteKB(context.Background(), kbID); err != nil {
 		t.Fatalf("DeleteKB: %v", err)
+	}
+	var sessions int
+	if err := mp.QueryRow(context.Background(), `SELECT count(*) FROM adk_sessions WHERE id = $1`, chatID).Scan(&sessions); err != nil || sessions != 0 {
+		t.Errorf("ADK session of a deleted KB's chat survived: %d (%v)", sessions, err)
 	}
 	for _, p := range legacy {
 		if ok, _ := stor.FileExists(context.Background(), p); ok {

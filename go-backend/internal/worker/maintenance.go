@@ -86,6 +86,20 @@ type MaintenanceConfig struct {
 	// runs. Default: 24 hours.
 	RagasDailyInterval time.Duration
 
+	// AgentRunExpirer abandons interrupted agent runs past their expiry
+	// (adkbridge.RunStore.ExpireStale). Nil disables the loop entirely.
+	AgentRunExpirer interface {
+		ExpireStale(context.Context) (int64, error)
+	}
+
+	// AgentRunExpireInterval is how often the agent-run expiry pass runs.
+	// Default: 15 minutes.
+	AgentRunExpireInterval time.Duration
+
+	// agentRunExpireDelay is the startup delay before the first pass
+	// (default 2 minutes); a test seam.
+	agentRunExpireDelay time.Duration
+
 	// BM25StatsMaxAge is the staleness threshold (W2-R5) applied to the
 	// sweep's StaleKBs call — a KB whose stats are older than this is
 	// refreshed even if no new chunk has landed since (catches deletions,
@@ -124,6 +138,12 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 	}
 	if cfg.BM25StatsMaxAge == 0 {
 		cfg.BM25StatsMaxAge = 24 * time.Hour
+	}
+	if cfg.AgentRunExpireInterval == 0 {
+		cfg.AgentRunExpireInterval = 15 * time.Minute
+	}
+	if cfg.agentRunExpireDelay == 0 {
+		cfg.agentRunExpireDelay = 2 * time.Minute
 	}
 	if cfg.RagasDailyInterval == 0 {
 		cfg.RagasDailyInterval = 24 * time.Hour
@@ -301,6 +321,32 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 		})
 	}
 
+	// Agent-run expiry: abandons interrupted ADK agent runs past their
+	// expiry. Nil expirer skips the loop entirely.
+	if cfg.AgentRunExpirer != nil {
+		launch("agent_runs_expire", func() {
+			startupDelay := time.NewTimer(cfg.agentRunExpireDelay)
+			defer startupDelay.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-startupDelay.C:
+				expireAgentRuns(ctx, cfg.AgentRunExpirer)
+			}
+
+			ticker := time.NewTicker(cfg.AgentRunExpireInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					expireAgentRuns(ctx, cfg.AgentRunExpirer)
+				}
+			}
+		})
+	}
+
 	// Library orphan sweep (P4-R3): first run 10 min after start, then every
 	// 6h; the sweeper's Run owns the schedule.
 	if cfg.UserFileOrphanSweeper != nil {
@@ -434,6 +480,20 @@ func sweepTabularOrphans(ctx context.Context, sweeper *tabular.OrphanSweeper) {
 	}
 	if len(dropped) > 0 {
 		slog.Info("tabular orphan sweep completed", "dropped", len(dropped))
+	}
+}
+
+// expireAgentRuns runs one agent-run expiry pass and logs the count when > 0.
+func expireAgentRuns(ctx context.Context, e interface {
+	ExpireStale(context.Context) (int64, error)
+}) {
+	n, err := e.ExpireStale(ctx)
+	if err != nil {
+		slog.Error("agent runs expiry failed", "error", err)
+		return
+	}
+	if n > 0 {
+		slog.Info("agent runs expired", "count", n)
 	}
 }
 

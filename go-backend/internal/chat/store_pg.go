@@ -224,6 +224,25 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	return &r, nil
 }
 
+// CreateChatWithID inserts a chat with a caller-chosen id (the agent chat's
+// thread id, handed to the client before the chat exists).
+func (s *PGStore) CreateChatWithID(ctx context.Context, id, kbID, userID, title string) (*ChatRow, error) {
+	const sql = `
+		INSERT INTO chats (id, kb_id, user_id, title)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at`
+
+	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, id, kbID, userID, title)
+	if err != nil {
+		return nil, fmt.Errorf("CreateChatWithID: %w", err)
+	}
+	if row == nil {
+		return nil, fmt.Errorf("CreateChatWithID: no row returned")
+	}
+	r := toChatRow(*row)
+	return &r, nil
+}
+
 // CreateLibraryChat inserts a KB-less library chat (kb_id NULL, type
 // 'library') and returns the created row (KbID "").
 func (s *PGStore) CreateLibraryChat(ctx context.Context, userID, title string) (*ChatRow, error) {
@@ -241,6 +260,21 @@ func (s *PGStore) CreateLibraryChat(ctx context.Context, userID, title string) (
 	}
 	r := toChatRow(*row)
 	return &r, nil
+}
+
+// LastMessageID returns the id of the chat's newest message, nil when the
+// chat has none.
+func (s *PGStore) LastMessageID(ctx context.Context, chatID string) (*string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id::text FROM messages WHERE chat_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, chatID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("LastMessageID: %w", err)
+	}
+	return &id, nil
 }
 
 // GetLibraryChats returns the user's library chats, newest activity first.
@@ -348,9 +382,23 @@ func (s *PGStore) ReplaceChatFileRefs(ctx context.Context, chatID string, userFi
 	})
 }
 
-// DeleteChat deletes the chat with the given ID (cascade deletes messages via FK).
+// DeleteChat deletes the chat with the given ID (cascade deletes messages via
+// FK) and, in the same transaction, the agent chat's ADK session (events
+// cascade) and runs of that thread: they are keyed by the chat id without an
+// FK, so nothing else removes them.
 func (s *PGStore) DeleteChat(ctx context.Context, chatID string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM adk_sessions WHERE app_name = $1 AND id = $2`, agentChatApp, chatID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM agent_runs WHERE app_name = $1 AND thread_id = $2`, agentChatApp, chatID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("DeleteChat: %w", err)
 	}

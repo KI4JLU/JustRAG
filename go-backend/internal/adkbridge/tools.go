@@ -136,15 +136,21 @@ func modelVisibleError(ctx context.Context, name string, err error) string {
 
 // checkPolicy enforces scope, role and privilege for the running user.
 func (t *dispatchTool) checkPolicy(ctx context.Context) (Scope, error) {
+	return checkScopePolicy(ctx, t.spec.Name, t.spec.Policy)
+}
+
+// checkScopePolicy is the scope, role and privilege check shared by the
+// model-driven tool path and ExecuteAction.
+func checkScopePolicy(ctx context.Context, name string, pol ToolPolicy) (Scope, error) {
 	sc, ok := ScopeFrom(ctx)
 	if !ok {
 		return Scope{}, ErrNoScope
 	}
-	if !RoleAtLeast(sc.Role, t.spec.Policy.RequiresRole) {
-		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, t.spec.Name, t.spec.Policy.RequiresRole)
+	if !RoleAtLeast(sc.Role, pol.RequiresRole) {
+		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, name, pol.RequiresRole)
 	}
-	if mcp.PrivilegedTools[t.spec.Name] && !sc.AllowPrivileged {
-		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, t.spec.Name)
+	if privilegedInBridge(name) && !sc.AllowPrivileged {
+		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, name)
 	}
 	return sc, nil
 }
@@ -162,15 +168,21 @@ func (t *dispatchTool) dispatchChecked(ctx context.Context, args map[string]any)
 	}
 	// Never trust ids from the model: a prompt-injected document could
 	// otherwise point a tool at another KB or chat.
+	injectScopeIDs(args, sc)
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return mcp.ToolResult{}, fmt.Errorf("adkbridge: marshal args for %q: %w", t.spec.Name, err)
+	}
+	return t.dispatch(ctx, sc.KBID, t.spec.Name, raw)
+}
+
+// injectScopeIDs overwrites kb_id and chat_id with the scope's values; ids
+// from the model or client are never trusted.
+func injectScopeIDs(args map[string]any, sc Scope) {
 	args["kb_id"] = sc.KBID
 	if sc.ChatID != "" {
 		args["chat_id"] = sc.ChatID
 	} else {
 		delete(args, "chat_id")
 	}
-	raw, err := json.Marshal(args)
-	if err != nil {
-		return mcp.ToolResult{}, fmt.Errorf("adkbridge: marshal args for %q: %w", t.spec.Name, err)
-	}
-	return t.dispatch(ctx, sc.KBID, t.spec.Name, raw)
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/academic"
+	"github.com/justrag/go-backend/internal/adkbridge"
 	"github.com/justrag/go-backend/internal/adminagentmetrics"
 	"github.com/justrag/go-backend/internal/adminconfigs"
 	"github.com/justrag/go-backend/internal/admineval"
@@ -1226,6 +1227,25 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		chatOpts = append(chatOpts, chat.WithDecisionRecorder(&decisionRecorderAdapter{store: rc.agentDecisionStore}))
 	}
 	chatHandler := chat.NewHandler(rc.chatStore, rc.aiResolver, rc.searchService, chatOpts...)
+	agentChatConfluence := confluence.NewStore(rc.infra.db.Main)
+	agentChat := chat.NewAgentChatHandler(chat.AgentChatDeps{
+		Store:         rc.chatStore,
+		SiteConfig:    rc.chatStore,
+		KBConfig:      rc.kbConfigStore,
+		AI:            rc.aiResolver,
+		Search:        rc.searchService,
+		Registry:      mcpRegistry,
+		Sessions:      adkbridge.NewPGSessionService(rc.infra.db.Main),
+		Runs:          adkbridge.NewRunStore(rc.infra.db.Main, 24*time.Hour),
+		Usage:         usage.NewRecorder(rc.infra.db.Main),
+		SessionMemory: sessionMemoryStore,
+		// Bridge-only write tools (never registered in mcpRegistry).
+		Importer:        confluence.NewImporter(agentChatConfluence, rc.infra.asynqClient),
+		ConfluenceConns: agentChatConfluence,
+		Library:         rc.filesHandler,
+		Files:           rc.filesStore,
+		FileDates:       &fileDatesAdapter{store: rc.filesStore},
+	})
 
 	// Phase 2 admin UI: load configured remote MCP servers from
 	// site_configs at startup and expose status / reload endpoints so
@@ -1261,6 +1281,9 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 	// auth chain from the outside so unauthenticated requests don't consume
 	// quota — matching the pattern used by registerContentGenRoutes.
 	rc.mux.Handle("POST /api/kb/{id}/chat", chatRL.Middleware(rc.kbViewChain(chatHandler.SendMessage)))
+	// Agentic chat (AG-UI). 404 unless chat_agent_chat_enabled is on for the
+	// KB; same auth + KB-view chain and "chat" rate limiter as the route above.
+	rc.mux.Handle("POST /api/kb/{id}/agui/chat", chatRL.Middleware(rc.kbViewChain(agentChat.ServeHTTP)))
 	// In-chat document comparison: upload a document to compare against the KB.
 	// Same auth + KB-view ACL chain and "chat" rate limiter as the chat send route —
 	// the upload triggers synchronous parsing + a Redis write, so it must be metered.

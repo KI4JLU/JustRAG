@@ -17,6 +17,8 @@ type Scope struct {
 	// LibraryFileIDs scopes retrieval to the user's own library files
 	// (KB-less runs). Empty for KB runs.
 	LibraryFileIDs []string
+	// IsGlobal: the KB is public (kbaccess); KB-write actions need it.
+	IsGlobal bool
 	// AllowPrivileged mirrors site_config agents_allow_privileged_tools.
 	AllowPrivileged bool
 }

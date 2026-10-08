@@ -145,7 +145,7 @@ func TestStepNameStripsInstanceSuffixes(t *testing.T) {
 	}
 }
 
-func TestToolChunksBecomeSourcesEvent(t *testing.T) {
+func TestToolChunksBecomeToolChunksEvent(t *testing.T) {
 	tr, got := record(t)
 	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{Content: &genai.Content{Parts: []*genai.Part{{
 		FunctionResponse: &genai.FunctionResponse{ID: "c1", Name: "kb_search", Response: map[string]any{
@@ -157,7 +157,7 @@ func TestToolChunksBecomeSourcesEvent(t *testing.T) {
 		}
 	}
 	b, _ := json.Marshal(custom)
-	if !strings.Contains(string(b), `"name":"justrag.sources.v1"`) || !strings.Contains(string(b), `"toolCallId":"c1"`) {
+	if !strings.Contains(string(b), `"name":"justrag.tool_chunks.v1"`) || !strings.Contains(string(b), `"toolCallId":"c1"`) {
 		t.Fatalf("custom = %s", b)
 	}
 }
@@ -219,5 +219,116 @@ func TestFinishStampsInterruptExpiry(t *testing.T) {
 	b, _ := json.Marshal((*got)[len(*got)-1])
 	if strings.Count(string(b), `"expiresAt":"2026-10-09T13:04:05Z"`) != 2 {
 		t.Fatalf("finish = %s", b)
+	}
+}
+
+func TestCustomMetadataBecomesCustomEvent(t *testing.T) {
+	tr, got := record(t)
+	val := []any{map[string]any{"id": "ch1"}}
+	ev := &session.Event{LLMResponse: model.LLMResponse{CustomMetadata: CustomMetadata("justrag.sources.v1", val)}}
+	if err := tr.Event(ev); err != nil {
+		t.Fatal(err)
+	}
+	var customs []events.Event
+	for _, e := range *got {
+		if e.Type() == events.EventTypeCustom {
+			customs = append(customs, e)
+		}
+	}
+	if len(customs) != 1 {
+		t.Fatalf("custom events = %d (%s)", len(customs), typesOf(*got))
+	}
+	b, _ := json.Marshal(customs[0])
+	if !strings.Contains(string(b), `"name":"justrag.sources.v1"`) || !strings.Contains(string(b), `"value":[{"id":"ch1"}]`) {
+		t.Fatalf("custom = %s", b)
+	}
+	_, _, custom := tr.Output()
+	if v, ok := custom["justrag.sources.v1"].([]any); !ok || len(v) != 1 {
+		t.Fatalf("Output custom = %#v", custom)
+	}
+}
+
+func TestCustomMetadataSliceAndLastValueWins(t *testing.T) {
+	tr, got := record(t)
+	md := map[string]any{"agui.custom": []map[string]any{
+		{"name": "a", "value": 1}, {"name": "b", "value": "x"}}}
+	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{CustomMetadata: md}})
+	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{CustomMetadata: CustomMetadata("a", 2)}})
+	if n := strings.Count(typesOf(*got), "CUSTOM"); n != 3 {
+		t.Fatalf("custom events = %d", n)
+	}
+	_, _, custom := tr.Output()
+	if custom["a"] != 2 || custom["b"] != "x" {
+		t.Fatalf("custom = %#v", custom)
+	}
+}
+
+func TestOutputAccumulatesText(t *testing.T) {
+	tr, _ := record(t)
+	for _, ev := range []*session.Event{textEvent("Hal", true), textEvent("lo", true), textEvent("Hallo", false),
+		textEvent("Welt", false)} {
+		if err := tr.Event(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	thought := &session.Event{LLMResponse: model.LLMResponse{Partial: true,
+		Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "hm", Thought: true}}}}}
+	_ = tr.Event(thought)
+	text, reasoning, _ := tr.Output()
+	// Separate assistant messages (e.g. before and after a tool call) are
+	// joined by a blank line.
+	if text != "Hallo\n\nWelt" || reasoning != "hm" {
+		t.Fatalf("text=%q reasoning=%q", text, reasoning)
+	}
+}
+
+// A workflow's final node output reaches the client as text at settle time,
+// so Output reports it before RUN_FINISHED is written.
+func TestOutputIncludesFinalNodeOutputAfterSettle(t *testing.T) {
+	tr, got := record(t)
+	_ = tr.Event(&session.Event{Output: "Ergebnis"})
+	if err := tr.settle(); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := tr.Output(); text != "Ergebnis" {
+		t.Fatalf("text = %q", text)
+	}
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	want := "RUN_STARTED,TEXT_MESSAGE_START,TEXT_MESSAGE_CONTENT,TEXT_MESSAGE_END,RUN_FINISHED"
+	if typesOf(*got) != want {
+		t.Fatalf("got %s", typesOf(*got))
+	}
+}
+
+// Model text supersedes an earlier node output (e.g. a retrieve node that
+// outputs the question); a node output after the last model text is still
+// the run's final word.
+func TestModelTextSupersedesEarlierNodeOutput(t *testing.T) {
+	modelText := func(s string, partial bool) *session.Event {
+		return &session.Event{LLMResponse: model.LLMResponse{Partial: partial,
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: s}}}}}
+	}
+
+	tr, _ := record(t)
+	_ = tr.Event(&session.Event{Output: "Wann öffnet die Mensa?"})
+	_ = tr.Event(modelText("Um 11 Uhr.", true))
+	_ = tr.Event(modelText("Um 11 Uhr.", false))
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := tr.Output(); text != "Um 11 Uhr." {
+		t.Fatalf("found path text = %q", text)
+	}
+
+	tr, _ = record(t)
+	_ = tr.Event(modelText("Zwischenstand.", false))
+	_ = tr.Event(&session.Event{Output: "Endergebnis"})
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := tr.Output(); text != "Zwischenstand.\n\nEndergebnis" {
+		t.Fatalf("trailing node output text = %q", text)
 	}
 }

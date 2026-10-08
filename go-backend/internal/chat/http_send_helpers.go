@@ -73,14 +73,8 @@ func parseAndValidateMessage(w http.ResponseWriter, r *http.Request, userID stri
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message is required")
 		return body, false
 	}
-	if len(body.Message) > MaxMessageLength {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message exceeds maximum length of 32,000 characters")
-		return body, false
-	}
-	validation := ValidatePromptInput(body.Message, "message")
-	if !validation.IsValid {
-		LogSecurityWarning(userID, body.Message, validation.Warnings)
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message contains disallowed content")
+	if msg := messageTextError(userID, body.Message); msg != "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, msg)
 		return body, false
 	}
 	// Regenerate is shape-checked here rather than where it is resolved,
@@ -100,6 +94,21 @@ func parseAndValidateMessage(w http.ResponseWriter, r *http.Request, userID stri
 		}
 	}
 	return body, true
+}
+
+// messageTextError applies the length and prompt-security checks to a new
+// user message and returns the client error text, "" when it passes. Shared
+// by the legacy chat and the agent chat so both refuse the same input.
+func messageTextError(userID, message string) string {
+	if len(message) > MaxMessageLength {
+		return "message exceeds maximum length of 32,000 characters"
+	}
+	validation := ValidatePromptInput(message, "message")
+	if !validation.IsValid {
+		LogSecurityWarning(userID, message, validation.Warnings)
+		return "message contains disallowed content"
+	}
+	return ""
 }
 
 // maybeRouteKB applies the AP-A4 sub-KB router when the URL carries
@@ -149,18 +158,21 @@ func (h *Handler) resolveOrCreateChat(ctx context.Context, w http.ResponseWriter
 		}
 		return chatID, true
 	}
-	title := message
-	runes := []rune(title)
-	if len(runes) > 50 {
-		title = string(runes[:50])
-	}
-	newChat, err := h.store.CreateChat(ctx, kbID, userID, title)
+	newChat, err := h.store.CreateChat(ctx, kbID, userID, chatTitle(message))
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: create chat", "error", err, "user_id", userID, "kb_id", kbID)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to create chat")
 		return "", false
 	}
 	return newChat.ID, true
+}
+
+// chatTitle is a new chat's title: the first 50 runes of its first message.
+func chatTitle(message string) string {
+	if runes := []rune(message); len(runes) > 50 {
+		return string(runes[:50])
+	}
+	return message
 }
 
 // queryClassification captures the routing decisions derived from the

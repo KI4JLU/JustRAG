@@ -30,7 +30,7 @@ func runFlow(t *testing.T, sc Scope, dispatch DispatchFunc, q string) []*session
 		{ID: "conf", Tool: "confluence_import", Label: "Confluence"},
 		{ID: "upload", FrontendTool: "upload_file", Label: "Upload"},
 		{ID: "code", Tool: "code_exec", Label: "nope"},
-	}, []string{"web_search", "confluence_import"})
+	}, []string{"web_search", "confluence_import", "code_exec"})
 	done := workflow.NewFunctionNode("done", func(_ agent.Context, r RetrieveResult) (string, error) { return "ok", nil }, workflow.NodeConfig{})
 	a, err := workflowagent.New(workflowagent.Config{Name: "f", Edges: workflow.Concat(
 		workflow.Chain(workflow.Start, ret),
@@ -82,10 +82,10 @@ func TestRetrieveFoundDoesNotPause(t *testing.T) {
 }
 
 func TestSuggestFiltersActionsByRoleAndAllowlist(t *testing.T) {
-	// view role: no confluence_import (needs edit); code_exec not allowlisted.
+	// view role: no confluence_import (needs edit); AllowPrivileged shows code_exec.
 	evs := runFlow(t, Scope{UserID: "u", KBID: "kb", Role: "view", AllowPrivileged: true}, searchReturning(nil), "q")
 	p, ids := actionIDs(t, requested(evs))
-	if p["reason"] != RouteNoEvidence || len(ids) != 2 || ids[0] != "web" || ids[1] != "upload" {
+	if p["reason"] != RouteNoEvidence || len(ids) != 3 || ids[0] != "web" || ids[1] != "upload" || ids[2] != "code" {
 		t.Fatalf("payload = %+v", p)
 	}
 }
@@ -93,7 +93,7 @@ func TestSuggestFiltersActionsByRoleAndAllowlist(t *testing.T) {
 func TestSuggestHidesPrivilegedToolsWithoutAllowPrivileged(t *testing.T) {
 	evs := runFlow(t, Scope{UserID: "u", KBID: "kb", Role: "view"}, searchReturning(nil), "q")
 	p, ids := actionIDs(t, requested(evs))
-	if p["reason"] != RouteNoEvidence || len(ids) != 1 || ids[0] != "upload" {
+	if p["reason"] != RouteNoEvidence || len(ids) != 2 || ids[0] != "web" || ids[1] != "upload" {
 		t.Fatalf("payload = %+v", p)
 	}
 }

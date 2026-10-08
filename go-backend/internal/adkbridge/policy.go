@@ -1,6 +1,9 @@
 package adkbridge
 
-import "github.com/justrag/go-backend/internal/kbaccess"
+import (
+	"github.com/justrag/go-backend/internal/kbaccess"
+	"github.com/justrag/go-backend/internal/mcp"
+)
 
 // SideEffect classifies what a tool does outside the conversation.
 type SideEffect string
@@ -31,7 +34,8 @@ var readOnly = ToolPolicy{SideEffect: SideEffectNone, RequiresRole: kbaccess.Rol
 
 // builtinPolicies covers every built-in tool (pinned by TestBuiltinPoliciesCoverKnownTools)
 // plus the planned KB-write tools that are not yet registered. Decisions (plan §0, §6b):
-// web_search is approval-always (the query leaves the house); every write
+// web_search is approval-always (the query leaves the house) and, unlike in
+// the legacy paths, needs no AllowPrivileged in the bridge; every write
 // is approval-always and needs edit.
 var builtinPolicies = map[string]ToolPolicy{
 	"kb_search":        readOnly,
@@ -71,4 +75,12 @@ func RoleAtLeast(have, need string) bool {
 	h, ok := roleRank[have]
 	n, nok := roleRank[need]
 	return ok && nok && h >= n
+}
+
+// privilegedInBridge reports whether a tool needs Scope.AllowPrivileged in
+// the ADK bridge. web_search is exempt (user decision 2026-10-08): it is
+// approval-always instead. mcp.PrivilegedTools — and the legacy paths that
+// consult it — are unchanged.
+func privilegedInBridge(name string) bool {
+	return mcp.PrivilegedTools[name] && name != "web_search"
 }
