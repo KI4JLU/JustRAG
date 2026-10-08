@@ -36,6 +36,10 @@ type dispatchTool struct {
 
 // NewTool wraps a dispatcher-backed tool as an ADK function tool.
 func NewTool(spec ToolSpec, dispatch DispatchFunc) tool.Tool {
+	// A zero Policy would fail open (no approval, no role floor).
+	if spec.Policy == (ToolPolicy{}) {
+		spec.Policy = PolicyFor(spec.Name)
+	}
 	return &dispatchTool{spec: spec, dispatch: dispatch}
 }
 
@@ -78,7 +82,7 @@ func (t *dispatchTool) Declaration() *genai.FunctionDeclaration {
 // dispatch-time checks. Policy refusals and dispatch errors are returned to
 // the model as results so it can explain or recover.
 func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) {
-	if t.spec.Policy.Approval == ApprovalAlways {
+	if t.spec.Policy.Approval != ApprovalNever {
 		if c := ctx.ToolConfirmation(); c != nil {
 			if !c.Confirmed {
 				return nil, fmt.Errorf("tool %q: %w", t.spec.Name, tool.ErrConfirmationRejected)

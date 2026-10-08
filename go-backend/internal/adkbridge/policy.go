@@ -29,20 +29,23 @@ type ToolPolicy struct {
 
 var readOnly = ToolPolicy{SideEffect: SideEffectNone, RequiresRole: kbaccess.RoleView, Approval: ApprovalNever}
 
-// builtinPolicies covers every built-in tool. Decisions (plan §0, §6b):
+// builtinPolicies covers every built-in tool (pinned by TestBuiltinPoliciesCoverKnownTools)
+// plus the planned KB-write tools that are not yet registered. Decisions (plan §0, §6b):
 // web_search is approval-always (the query leaves the house); every write
 // is approval-always and needs edit.
 var builtinPolicies = map[string]ToolPolicy{
-	"kb_search":         readOnly,
-	"keyword_search":    readOnly,
-	"graph_search":      readOnly,
-	"chunk_read":        readOnly,
-	"document_outline":  readOnly,
-	"table_query":       readOnly,
-	"calculator":        readOnly,
-	"count_mentions":    readOnly,
-	"recent_documents":  readOnly,
-	"memory":            readOnly,
+	"kb_search":        readOnly,
+	"keyword_search":   readOnly,
+	"graph_search":     readOnly,
+	"chunk_read":       readOnly,
+	"document_outline": readOnly,
+	"table_query":      readOnly,
+	"calculator":       readOnly,
+	"count_mentions":   readOnly,
+	"recent_documents": readOnly,
+	"memory_read":      readOnly,
+	// memory_write only touches the running user's own long-term memory.
+	"memory_write":      readOnly,
 	"sql_query":         readOnly, // privileged; gated separately
 	"code_exec":         readOnly, // privileged; gated separately
 	"web_search":        {SideEffect: SideEffectExternalRead, RequiresRole: kbaccess.RoleView, Approval: ApprovalAlways},
@@ -61,8 +64,10 @@ func PolicyFor(name string) ToolPolicy {
 
 var roleRank = map[string]int{kbaccess.RoleView: 1, kbaccess.RoleEdit: 2, kbaccess.RoleAdmin: 3, kbaccess.RoleOwner: 4}
 
-// RoleAtLeast reports whether have meets need; an unknown role meets nothing.
+// RoleAtLeast reports whether have meets need. Fails closed: an unknown have
+// meets nothing, and an unknown or empty need is never met.
 func RoleAtLeast(have, need string) bool {
 	h, ok := roleRank[have]
-	return ok && h >= roleRank[need]
+	n, nok := roleRank[need]
+	return ok && nok && h >= n
 }

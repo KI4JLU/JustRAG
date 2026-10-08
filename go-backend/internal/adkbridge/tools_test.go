@@ -11,6 +11,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -103,6 +104,61 @@ func TestRoleAtLeast(t *testing.T) {
 	for _, c := range cases {
 		if RoleAtLeast(c.have, c.need) != c.ok {
 			t.Errorf("RoleAtLeast(%q,%q) != %v", c.have, c.need, c.ok)
+		}
+	}
+}
+
+func TestRoleAtLeastFailsClosedOnUnknownNeed(t *testing.T) {
+	if RoleAtLeast("owner", "") || RoleAtLeast("owner", "bogus") {
+		t.Fatal("unknown need must never be met")
+	}
+}
+
+func TestZeroPolicyDefaultsToPolicyFor(t *testing.T) {
+	d := NewTool(ToolSpec{Name: "confluence_import"}, (&recorder{}).dispatch).(*dispatchTool)
+	if d.spec.Policy != PolicyFor("confluence_import") {
+		t.Fatalf("policy = %+v", d.spec.Policy)
+	}
+}
+
+func TestToolWithoutPolicyStillRequestsApproval(t *testing.T) {
+	rec := &recorder{}
+	imp := NewTool(ToolSpec{Name: "confluence_import"}, rec.dispatch)
+	runWithScope(t, Scope{UserID: "u", KBID: "kb", Role: "owner"},
+		[][]ai.StreamChunk{toolTurn("c1", "confluence_import", `{"spaceKey":"X"}`), textTurn("done")}, imp)
+	if rec.n != 0 {
+		t.Fatal("dispatched without approval")
+	}
+}
+
+func TestUnknownApprovalValueTreatedAsAlways(t *testing.T) {
+	rec := &recorder{}
+	tl := NewTool(ToolSpec{Name: "x", Policy: ToolPolicy{SideEffect: SideEffectNone, RequiresRole: "view", Approval: "bogus"}}, rec.dispatch)
+	runWithScope(t, Scope{UserID: "u", KBID: "kb", Role: "owner"},
+		[][]ai.StreamChunk{toolTurn("c1", "x", `{}`), textTurn("done")}, tl)
+	if rec.n != 0 {
+		t.Fatal("dispatched despite unrecognised approval value")
+	}
+}
+
+// plannedKBWriteTools have policies but are not registered built-ins yet.
+var plannedKBWriteTools = map[string]bool{"confluence_import": true, "library_add_to_kb": true}
+
+// TestBuiltinPoliciesCoverKnownTools pins builtinPolicies against
+// chatpolicy.KnownAnswerTools, which internal/mcp/builtin's cross-check test
+// pins against the real registry (both directions). Going through chatpolicy
+// avoids importing internal/chat or internal/app.
+func TestBuiltinPoliciesCoverKnownTools(t *testing.T) {
+	known := map[string]bool{}
+	for _, n := range chatpolicy.KnownAnswerTools {
+		known[n] = true
+		if _, ok := builtinPolicies[n]; !ok {
+			t.Errorf("built-in %q has no entry in builtinPolicies", n)
+		}
+	}
+	for n := range builtinPolicies {
+		if !known[n] && !plannedKBWriteTools[n] {
+			t.Errorf("builtinPolicies key %q names no built-in tool", n)
 		}
 	}
 }
