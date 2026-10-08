@@ -73,14 +73,8 @@ func parseAndValidateMessage(w http.ResponseWriter, r *http.Request, userID stri
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message is required")
 		return body, false
 	}
-	if len(body.Message) > MaxMessageLength {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message exceeds maximum length of 32,000 characters")
-		return body, false
-	}
-	validation := ValidatePromptInput(body.Message, "message")
-	if !validation.IsValid {
-		LogSecurityWarning(userID, body.Message, validation.Warnings)
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message contains disallowed content")
+	if msg := messageTextError(userID, body.Message); msg != "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, msg)
 		return body, false
 	}
 	// Regenerate is shape-checked here rather than where it is resolved,
@@ -100,6 +94,21 @@ func parseAndValidateMessage(w http.ResponseWriter, r *http.Request, userID stri
 		}
 	}
 	return body, true
+}
+
+// messageTextError applies the length and prompt-security checks to a new
+// user message and returns the client error text, "" when it passes. Shared
+// by the legacy chat and the agent chat so both refuse the same input.
+func messageTextError(userID, message string) string {
+	if len(message) > MaxMessageLength {
+		return "message exceeds maximum length of 32,000 characters"
+	}
+	validation := ValidatePromptInput(message, "message")
+	if !validation.IsValid {
+		LogSecurityWarning(userID, message, validation.Warnings)
+		return "message contains disallowed content"
+	}
+	return ""
 }
 
 // maybeRouteKB applies the AP-A4 sub-KB router when the URL carries

@@ -57,8 +57,11 @@ func TestQuestionRowsAreOnlyInsertedThroughTheSeam(t *testing.T) {
 				if !ok || !isAddMessageParams(lit) || roleOf(lit) != "user" {
 					continue
 				}
+				if questionInsertExempt[file] {
+					continue
+				}
 				questionInserts++
-				if calleeName(call) != seam && !questionInsertExempt[file] {
+				if calleeName(call) != seam {
 					offenders = append(offenders,
 						fset.Position(lit.Pos()).String()+" -> "+calleeName(call))
 				}
@@ -68,7 +71,8 @@ func TestQuestionRowsAreOnlyInsertedThroughTheSeam(t *testing.T) {
 	}
 
 	// Without this, deleting every question insert — or renaming the params
-	// struct — would leave the test passing over nothing.
+	// struct — would leave the test passing over nothing. Exempt files do
+	// not count: they alone must not satisfy it.
 	if questionInserts == 0 {
 		t.Fatal(`found no AddMessageParams{Role: "user"} anywhere — this guard no longer matches the code it protects`)
 	}

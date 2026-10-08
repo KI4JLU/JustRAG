@@ -69,13 +69,16 @@ func (h *agentChatHooks) ResolveThread(ctx context.Context, sc adkbridge.Scope, 
 	return id, nil
 }
 
-// TurnStarted creates a new thread's chat and stores the user message. A
-// resume (userText "") writes no message: its question is already stored.
+// TurnStarted creates a new thread's chat, stores the user message and
+// records the turn in the usage ledger. A resume (userText "") does none of
+// that: its question is already stored and its turn already counted.
 func (h *agentChatHooks) TurnStarted(ctx context.Context, sc adkbridge.Scope, threadID, _ string, userText string) error {
-	if userText != "" {
-		if err := h.storeUserMessage(ctx, sc, threadID, userText); err != nil {
-			return err
-		}
+	if userText == "" {
+		// A resume continues a turn already counted (Ruling P2-R14).
+		return nil
+	}
+	if err := h.storeUserMessage(ctx, sc, threadID, userText); err != nil {
+		return err
 	}
 	if h.usage != nil {
 		h.usage.Record(ctx, usage.Event{

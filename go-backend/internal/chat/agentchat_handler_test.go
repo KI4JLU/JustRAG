@@ -1,6 +1,11 @@
 package chat
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
+)
 
 func TestAgentChatPropsOf(t *testing.T) {
 	cases := []struct {
@@ -13,10 +18,13 @@ func TestAgentChatPropsOf(t *testing.T) {
 		{`{"forwardedProps":{"reasoning":true}}`, "", "de"},
 		{`{"forwardedProps":"medium"}`, "", "de"},
 		{`{}`, "", "de"},
-		{`not json`, "", "de"},
 	}
 	for _, c := range cases {
-		got := agentChatPropsOf([]byte(c.body))
+		var in types.RunAgentInput
+		if err := json.Unmarshal([]byte(c.body), &in); err != nil {
+			t.Fatalf("%s: %v", c.body, err)
+		}
+		got := agentChatPropsOf(&in)
 		if got.reasoning != c.reasoning || got.language != c.lang {
 			t.Errorf("%s: got %+v, want reasoning %q language %q", c.body, got, c.reasoning, c.lang)
 		}

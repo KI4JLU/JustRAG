@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/genai"
 
 	"github.com/justrag/go-backend/internal/adkbridge"
 	"github.com/justrag/go-backend/internal/agui"
@@ -18,6 +20,7 @@ import (
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/confluence"
 	"github.com/justrag/go-backend/internal/files"
+	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/mcp"
@@ -95,7 +98,27 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeAgentChatError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	props := agentChatPropsOf(raw)
+	var in types.RunAgentInput
+	decoded := json.Unmarshal(raw, &in) == nil
+	if decoded && len(in.Resume) == 0 {
+		// A new question gets the legacy chat's checks (Ruling P2-R13),
+		// before anything is written or sent to a model. A body agui
+		// cannot use is left for agui to refuse.
+		if m, err := agui.Input(ctx, &in, nil); err == nil {
+			userID := ""
+			if u := auth.UserFromContext(ctx); u != nil {
+				userID = u.ID
+			}
+			if msg := messageTextError(userID, contentTextOf(m)); msg != "" {
+				httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+				return
+			}
+		}
+	}
+	props := agentChatProps{language: defaultLanguage}
+	if decoded {
+		props = agentChatPropsOf(&in)
+	}
 
 	if ChatSessionMemoryEnabled(ctx, reader) {
 		ctx = sessionmem.WithWriteCounter(ctx, sessionmem.NewWriteCounter())
@@ -247,15 +270,10 @@ type agentChatProps struct {
 	language  string // a supported language, default otherwise
 }
 
-// agentChatPropsOf reads forwardedProps from the raw body. Anything
-// malformed or unknown falls back to the defaults; agui rejects a body it
-// cannot decode.
-func agentChatPropsOf(raw []byte) agentChatProps {
+// agentChatPropsOf reads forwardedProps. Anything malformed or unknown
+// falls back to the defaults.
+func agentChatPropsOf(in *types.RunAgentInput) agentChatProps {
 	out := agentChatProps{language: defaultLanguage}
-	var in types.RunAgentInput
-	if err := json.Unmarshal(raw, &in); err != nil {
-		return out
-	}
 	fp, _ := in.ForwardedProps.(map[string]any)
 	switch v, _ := fp["reasoning"].(string); v {
 	case "low", "medium", "high":
@@ -265,6 +283,18 @@ func agentChatPropsOf(raw []byte) agentChatProps {
 		out.language = v
 	}
 	return out
+}
+
+// contentTextOf joins the text parts of a message (as agui does for the
+// user text it hands TurnStarted).
+func contentTextOf(c *genai.Content) string {
+	var b strings.Builder
+	for _, p := range c.Parts {
+		if p != nil {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 func writeAgentChatError(w http.ResponseWriter, code int, msg string) {

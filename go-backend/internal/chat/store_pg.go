@@ -247,7 +247,7 @@ func (s *PGStore) CreateChatWithID(ctx context.Context, id, kbID, userID, title 
 func (s *PGStore) LastMessageID(ctx context.Context, chatID string) (*string, error) {
 	var id string
 	err := s.pool.QueryRow(ctx,
-		`SELECT id::text FROM messages WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1`, chatID).Scan(&id)
+		`SELECT id::text FROM messages WHERE chat_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, chatID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
