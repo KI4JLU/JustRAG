@@ -682,6 +682,30 @@ func TestItemsFromJSONContent_SectionHeaderLevelIsRead(t *testing.T) {
 	}
 }
 
+// Without formula enrichment docling-serve leaves a formula's `text` empty and
+// keeps the PDF's raw characters in `orig` (its markdown prints
+// "<!-- formula-not-decoded -->"). Shape captured from docling-serve v1.32.0.
+func TestItemsFromJSONContent_UndecodedFormulaFallsBackToOrig(t *testing.T) {
+	doc := `{
+	  "body": {"children": [{"$ref": "#/texts/0"}, {"$ref": "#/texts/1"}]},
+	  "texts": [
+	    {"label": "formula", "content_layer": "body", "text": "", "orig": "Attention( Q,K,V ) = softmax( QK T √ d k ) V (1)", "prov": [{"page_no": 1}]},
+	    {"label": "formula", "content_layer": "body", "text": "F F N ( x ) = \\max ( 0 , x W _ { 1 } )", "orig": "FFN( x ) = max(0 , xW 1 )", "prov": [{"page_no": 1}]}
+	  ]
+	}`
+	items := itemsFromJSONContent([]byte(doc))
+	if len(items) != 2 {
+		t.Fatalf("want 2 formula items, got %v", spew(items))
+	}
+	// Raw PDF characters are not LaTeX, so they must not render inside $$…$$.
+	if got := renderItem(items[0]); got != "Attention( Q,K,V ) = softmax( QK T √ d k ) V (1)" {
+		t.Errorf("undecoded formula: got %q", got)
+	}
+	if got := renderItem(items[1]); got != "$$F F N ( x ) = \\max ( 0 , x W _ { 1 } )$$" {
+		t.Errorf("decoded formula: got %q", got)
+	}
+}
+
 // --- request fields beyond captioning -----------------------------------
 
 // captureForm returns a stub sidecar that records every multipart field
@@ -1039,5 +1063,109 @@ func TestClient_Convert_AsyncSubmitErrorIsReported(t *testing.T) {
 	_, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x"))
 	if err == nil || !strings.Contains(err.Error(), "422") {
 		t.Fatalf("expected a 422 error, got %v", err)
+	}
+}
+
+// --- formula enrichment --------------------------------------------------
+//
+// do_formula_enrichment needs the CodeFormulaV2 model, which the stock
+// docling-serve image does not ship. Without it docling fails the whole
+// document — not just the formulas — even for a PDF without a single
+// equation (verified live on v1.32.0 with testdata/probe.pdf).
+
+// formulaStub fails every request that asks for formula enrichment, the way
+// a sidecar without the model does, and records each request's value of
+// do_formula_enrichment ("" when the field was absent).
+func formulaStub(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(1 << 20)
+		v := r.MultipartForm.Value["do_formula_enrichment"]
+		val := ""
+		if len(v) > 0 {
+			val = v[0]
+		}
+		seen = append(seen, val)
+		if val == "true" {
+			http.Error(w, `{"detail":"Task result not found. Please wait for a completion status."}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"document": map[string]any{"md_content": "# Ohne Formeln"}})
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &seen
+}
+
+func TestClient_Convert_SendsFormulaEnrichment(t *testing.T) {
+	srv, got := captureForm(t)
+	c := NewClient(srv.URL, 10*time.Second)
+	c.Options = ConvertOptions{FormulaEnrichment: true}
+	if _, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x")); err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if v := (*got)["do_formula_enrichment"]; len(v) != 1 || v[0] != "true" {
+		t.Errorf("do_formula_enrichment = %v, want [true]", v)
+	}
+}
+
+func TestClient_Convert_ZeroOptionsOmitFormulaEnrichment(t *testing.T) {
+	srv, got := captureForm(t)
+	c := NewClient(srv.URL, 10*time.Second)
+	if _, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x")); err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if v, ok := (*got)["do_formula_enrichment"]; ok {
+		t.Errorf("do_formula_enrichment should be omitted with zero options, got %v", v)
+	}
+}
+
+func TestClient_Convert_RetriesWithoutFormulaEnrichmentWhenTheSidecarFails(t *testing.T) {
+	// Losing the LaTeX is much cheaper than losing Docling: without the retry
+	// a missing model sends every PDF to pdftotext.
+	srv, seen := formulaStub(t)
+	c := NewClient(srv.URL, 10*time.Second)
+	c.Options = ConvertOptions{FormulaEnrichment: true, TableMode: "accurate"}
+	res, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("pdf-bytes"))
+	if err != nil {
+		t.Fatalf("convert should succeed on the retry: %v", err)
+	}
+	if res.Markdown != "# Ohne Formeln" {
+		t.Errorf("markdown = %q", res.Markdown)
+	}
+	if got := *seen; len(got) != 2 || got[0] != "true" || got[1] != "" {
+		t.Errorf("requests' do_formula_enrichment = %q, want [true, absent]", got)
+	}
+}
+
+func TestClient_Convert_NoFormulaRetryWhenEnrichmentIsOff(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.Copy(io.Discard, r.Body)
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, 10*time.Second)
+	if _, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x")); err == nil {
+		t.Fatal("expected an error")
+	}
+	if calls != 1 {
+		t.Errorf("sidecar called %d times, want 1", calls)
+	}
+}
+
+func TestClient_Probe_ReportsAMissingFormulaModel(t *testing.T) {
+	// The probe exists to make the failure loud at startup; the per-file
+	// retry would otherwise hide it behind a working conversion.
+	srv, seen := formulaStub(t)
+	c := NewClient(srv.URL, 10*time.Second)
+	c.Options = ConvertOptions{FormulaEnrichment: true}
+	if err := c.Probe(context.Background()); err == nil {
+		t.Fatal("probe must fail when enrichment fails")
+	}
+	if len(*seen) != 1 {
+		t.Errorf("probe must not retry, saw %d requests", len(*seen))
 	}
 }

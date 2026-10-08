@@ -155,7 +155,11 @@ func RunWorker(cfg *config.Config) error {
 				Fallback: &parser.ImageParser{},
 			})
 			slog.Info("docling image captioning enabled for standalone image uploads")
-			probeDoclingCaptioning(dc)
+		}
+		// Both enrichments fail the whole document when the sidecar cannot
+		// serve them, which per file is only a warn line; probe once loudly.
+		if dc.Options.PictureDescription || dc.Options.FormulaEnrichment {
+			probeDoclingEnrichments(dc)
 		}
 		slog.Info("docling parser enabled for pdf + docx + pptx", "base_url", dc.BaseURL())
 	}
@@ -683,23 +687,30 @@ func buildDoclingClient(ctx context.Context, scr siteConfigReaderForDocling, res
 	return client
 }
 
-// probeDoclingCaptioning converts a tiny embedded PDF with captioning on, in
-// the background, and logs at error level if the sidecar rejects it. The
-// failure it exists for is silent otherwise: a sidecar started without
-// DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true refuses to build the captioning
-// pipeline, and FallbackParser then routes every PDF/DOCX/PPTX to the
-// built-in parsers with one warn line per file.
-func probeDoclingCaptioning(client *docling.Client) {
+// probeDoclingEnrichments converts a tiny embedded PDF with the live options,
+// in the background, and logs at error level if the sidecar rejects it. The
+// failures it exists for are silent otherwise:
+//
+//   - a sidecar started without DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true
+//     refuses to build the captioning pipeline, and FallbackParser then routes
+//     every PDF/DOCX/PPTX to the built-in parsers with one warn line per file;
+//   - a sidecar without the docling-project/CodeFormulaV2 model fails every
+//     document that asks for formula enrichment — even one without formulas —
+//     and the client's retry without enrichment then quietly drops the LaTeX.
+func probeDoclingEnrichments(client *docling.Client) {
 	safego.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := client.Probe(ctx); err != nil {
-			slog.Error("docling: captioning probe failed — every Docling conversion will fall back to the built-in parsers until this is fixed. "+
-				"Check that the sidecar runs with DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true and can reach the model API.",
+			slog.Error("docling: enrichment probe failed — conversions will lose captions and/or formulas, or fall back to the built-in parsers, until this is fixed. "+
+				"Check that the sidecar runs with DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true and can reach the model API (captioning), "+
+				"and that it has the docling-project/CodeFormulaV2 model (formula enrichment; see docs/observability/docling.md).",
+				"captioning", client.Options.PictureDescription,
+				"formula_enrichment", client.Options.FormulaEnrichment,
 				"error", err.Error())
 			return
 		}
-		slog.Info("docling: captioning probe ok")
+		slog.Info("docling: enrichment probe ok")
 	})
 }
 
@@ -783,6 +794,9 @@ func readDoclingOptions(ctx context.Context, scr siteConfigReaderForDocling, res
 	}
 	if v, err := scr.GetSiteConfigValue(ctx, "docling_force_ocr"); err == nil && v != nil && (*v == "true" || *v == "1") {
 		opts.ForceOCR = true
+	}
+	if v, err := scr.GetSiteConfigValue(ctx, "docling_formula_enrichment_enabled"); err == nil && v != nil && (*v == "true" || *v == "1") {
+		opts.FormulaEnrichment = true
 	}
 	if v, err := scr.GetSiteConfigValue(ctx, "docling_document_timeout_seconds"); err == nil && v != nil {
 		if f, perr := strconv.ParseFloat(strings.TrimSpace(*v), 64); perr == nil && f > 0 {

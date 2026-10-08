@@ -1723,6 +1723,11 @@ export const translations = {
         de: 'Standard: aus. Jede Seite wird per OCR gelesen und die PDF-Textebene ersetzt. Für KBs, die überwiegend aus Scans bestehen oder deren PDFs eine kaputte Textebene haben (Zeichensalat, fehlende Leerzeichen). Verlangsamt jede Konvertierung deutlich.',
         en: 'Default: off. Every page is OCRed and the PDF text layer replaced. For KBs that are mostly scans or whose PDFs carry a broken text layer (garbage characters, missing spaces). Slows every conversion noticeably.',
     },
+    doclingFormulaEnrichmentEnabled: { de: 'Formeln als LaTeX erkennen', en: 'Transcribe formulas to LaTeX' },
+    doclingFormulaEnrichmentEnabledHelp: {
+        de: 'Standard: aus. Docling liest jede Formel mit dem Modell CodeFormulaV2 als LaTeX ein; ohne diese Option landet nur der rohe PDF-Text der Formel im Chunk. Das Modell ist nicht im Docling-Image enthalten — der Sidecar braucht den Download-Schritt aus docs/observability/docling.md, sonst schlägt jede Konvertierung fehl, wird ohne Formeln wiederholt und der Worker loggt beim Start einen Fehler. Kostet auf CPU einige Sekunden pro Formel. Bestehende Dateien: KB neu ingestieren.',
+        en: 'Default: off. Docling reads every formula as LaTeX with the CodeFormulaV2 model; without it only the formula\'s raw PDF text reaches the chunk. The model is not in the Docling image — the sidecar needs the download step from docs/observability/docling.md, otherwise every conversion fails, is retried without formulas, and the worker logs an error at startup. Costs a few seconds per formula on CPU. Existing files: re-ingest the KB.',
+    },
     doclingPictureDescriptionEnabled: { de: 'Abbildungen per Vision-Modell beschreiben', en: 'Describe figures with the vision model' },
     doclingPictureDescriptionEnabledHelp: {
         de: 'Standard: aus. Docling schickt jede ausreichend große Abbildung an das Bildbeschreibungs-Modell (siehe unten); Beschreibung, gedruckte Bildunterschrift und der Text in der Abbildung landen im Chunk der jeweiligen Seite. Der Sidecar braucht DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — der Worker prüft das beim Start und loggt sonst einen Fehler. Bestehende Dateien: KB neu ingestieren.',

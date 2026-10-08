@@ -34,6 +34,9 @@ In the admin Agent panel:
 - `docling_force_ocr` = `false` (default). `true` OCRs every page and replaces
   the PDF text layer — for KBs that are mostly scans or PDFs with a broken
   text layer (garbage characters, no spaces).
+- `docling_formula_enrichment_enabled` = `false` (default). `true` transcribes
+  formulas to LaTeX; needs the CodeFormulaV2 model on the sidecar — see
+  [Formulas](#formulas-math-in-pdfs).
 - `docling_document_timeout_seconds` = `600` (default). Docling's own
   per-document processing limit; the server default is a week.
 
@@ -47,6 +50,58 @@ restart.
 ```
 curl http://localhost:5001/health
 ```
+
+## Formulas (math in PDFs)
+
+Docling's layout model finds formulas on its own, but turning one into text is
+a separate enrichment step that is **off unless requested**. What reaches the
+chunk depends on it:
+
+| `docling_formula_enrichment_enabled` | Formula on the page |
+|---|---|
+| `false` (default) | The PDF's raw characters, as plain text — e.g. `𝑥 1,2 = -𝑏 ± √ 𝑏 2 -4𝑎𝑐 2𝑎 (1)`. Sub/superscripts and fraction structure are lost, but every symbol is there to retrieve. |
+| `true` | LaTeX in a display block — `$$x _ { 1 , 2 } = \frac { - b \pm \sqrt { b ^ { 2 } - 4 a c } } { 2 a }$$` — which the chat UI renders with KaTeX. |
+
+Without enrichment docling-serve returns each formula with an **empty** `text`
+and the raw characters in `orig` (its own markdown prints
+`<!-- formula-not-decoded -->`). Until 2026-10 the page rebuild read only `text`,
+so every equation of a Docling-parsed PDF was silently cut from the corpus;
+PDFs ingested before that fix need a re-ingest.
+
+**The model is not in the image.** Enrichment runs `docling-project/CodeFormulaV2`
+(~611 MB), which `docling-serve:v1.32.0` does not ship. Without it docling fails
+**the whole document** — not just its formulas, and even a PDF with no formula
+at all. Two guards keep that from sending every PDF to `pdftotext`:
+
+- the client retries a failed enriched conversion once **without** enrichment
+  (warn line `docling: conversion with formula enrichment failed, retrying
+  without it`) — you keep layout, tables and captions, and get the raw formula
+  text;
+- the worker's startup probe converts a tiny PDF with the live options and logs
+  `docling: enrichment probe failed` at **error** level.
+
+Provisioning, both shipped manifests:
+
+- **compose** (`docker-compose.docling.yml`): the one-shot `docling-models`
+  service downloads the model into the `docling-formula-model` volume before
+  `docling` starts; a rerun with the weights present exits in well under a
+  second.
+- **k8s** (`k8s/docling.yml`): the `formula-model` init container does the same
+  into a volume (emptyDir by default — re-downloads per pod start; use a PVC to
+  make it one-time). Behind the egress proxy, uncomment its `HTTP(S)_PROXY` env.
+
+Both mount the volume at exactly
+`/opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2`, so the
+models baked into the image (layout, tables, OCR — under
+`DOCLING_SERVE_ARTIFACTS_PATH`) stay visible next to it. Both download steps
+**exit 0 on failure** (offline, Hugging Face rate limit), so docling always
+starts; the probe above is what tells you the model is missing.
+
+Cost: measured on CPU, about 3–4 s per formula (3 pages / 4 formulas of an
+arXiv paper: 14 s vs 2 s without). A PDF without formulas pays nothing beyond
+pipeline start-up. Live tests: `TestIntegration_RealSidecar_KeepsUndecodedFormulas`
+and `…_TranscribesFormulasToLaTeX` (the latter needs the model) against
+`testdata/formula.pdf`, rendered from `testdata/formula.typ` with Typst.
 
 ## Image captioning (figures inside docs + standalone image uploads)
 
