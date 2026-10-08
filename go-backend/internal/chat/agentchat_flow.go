@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/agent/workflowagent"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/workflow"
@@ -29,6 +31,10 @@ const (
 // agentNoEvidenceText is kb_search's result when retrieval abstains: the
 // model must not see rendered chunks whose [n] markers Sources() lacks.
 const agentNoEvidenceText = "Keine relevanten Treffer in der Wissensbasis."
+
+// agentToolBudgetExhaustedText is the result of an answer-time tool call
+// past the turn's cap.
+const agentToolBudgetExhaustedText = "Werkzeug-Budget für diese Antwort erschöpft: beantworte die Frage jetzt mit dem vorhandenen Kontext."
 
 // FileCounter reports how many files a KB holds.
 type FileCounter func(ctx context.Context, kbID string) (int, error)
@@ -55,6 +61,9 @@ type AgentFlowDeps struct {
 	// offered that would fail. nil treats every dispatchable tool as
 	// available.
 	Available ActionAvailability
+	// MaxToolCalls caps the answer agent's tool calls per turn
+	// (chat_answer_tools_max_rounds); 0 = no cap.
+	MaxToolCalls int
 }
 
 // ActionAvailability is AgentFlowDeps.Available.
@@ -73,6 +82,7 @@ func NewAgentFlow(deps AgentFlowDeps) (agent.Agent, error) {
 		return nil, errors.New("chat: agent flow needs a model and a retriever")
 	}
 	retriever := deps.Retriever
+	budget := &toolCallBudget{max: deps.MaxToolCalls}
 	answerAgent, err := llmagent.New(llmagent.Config{
 		Name:        "answer",
 		Description: "Answers the question from the retrieved knowledge-base context.",
@@ -80,7 +90,9 @@ func NewAgentFlow(deps AgentFlowDeps) (agent.Agent, error) {
 		InstructionProvider: func(agent.ReadonlyContext) (string, error) {
 			return retriever.SystemPrompt(), nil
 		},
-		Tools: deps.Tools,
+		Tools:                deps.Tools,
+		BeforeModelCallbacks: []llmagent.BeforeModelCallback{budget.beforeModel},
+		BeforeToolCallbacks:  []llmagent.BeforeToolCallback{budget.beforeTool},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("chat: answer agent: %w", err)
@@ -227,4 +239,43 @@ func agentSourcesNode(r *AgentRetriever) workflow.Node {
 			ev.CustomMetadata = agui.CustomMetadata(agui.SourcesEvent, r.Sources())
 			return nil, emit(ev)
 		}, workflow.NodeConfig{})
+}
+
+// toolCallBudget caps the answer agent's tool calls in one turn (the
+// legacy answer-tools loop's chat_answer_tools_max_rounds). One per flow,
+// i.e. per request. max 0 = no cap.
+type toolCallBudget struct {
+	max  int
+	mu   sync.Mutex
+	used int
+}
+
+func (b *toolCallBudget) exhausted() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.max > 0 && b.used >= b.max
+}
+
+// beforeTool counts a call, or refuses it past the cap with a model-visible
+// result (the tool does not run).
+func (b *toolCallBudget) beforeTool(_ agent.Context, _ tool.Tool, _ map[string]any) (map[string]any, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.max > 0 && b.used >= b.max {
+		return map[string]any{"error": agentToolBudgetExhaustedText}, nil
+	}
+	b.used++
+	return nil, nil
+}
+
+// beforeModel stops declaring tools once the budget is spent, so the model
+// answers instead of asking for more (as the legacy loop forces a no-tool
+// finish). Only the declarations go: the tool map stays, so a call the
+// model emits anyway is still resolved — and refused by beforeTool.
+func (b *toolCallBudget) beforeModel(_ agent.Context, req *model.LLMRequest) (*model.LLMResponse, error) {
+	if b.exhausted() && req.Config != nil {
+		req.Config.Tools = nil
+		req.Config.ToolConfig = nil
+	}
+	return nil, nil
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"google.golang.org/adk/v2/runner"
@@ -148,15 +149,17 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeAgentChatError(w, http.StatusInternalServerError, "internal_error")
 		return
 	}
+	_, runTimeout := agentTurnLimits(ctx, reader)
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	agui.NewHandler(agui.Config{
-		AppName:  agentChatApp,
-		Runner:   run,
-		Sessions: h.d.Sessions,
-		Runs:     h.d.Runs,
-		Scope:    h.scope(access),
-		Hooks:    hooks,
+		AppName:    agentChatApp,
+		Runner:     run,
+		Sessions:   h.d.Sessions,
+		Runs:       h.d.Runs,
+		Scope:      h.scope(access),
+		Hooks:      hooks,
+		RunTimeout: runTimeout,
 	}).ServeHTTP(w, r)
 }
 
@@ -222,6 +225,14 @@ func (h *AgentChatHandler) condenseFollowUp(ctx context.Context, chatID string, 
 	return CondenseFollowUp(ctx, h.d.AI, h.d.Store, chatID, parent, q, kbID, lang)
 }
 
+// agentTurnLimits are the turn's limits, from the legacy readers on the KB
+// overlay: the answer agent's tool-call cap (chat_answer_tools_max_rounds,
+// counted per call) and the run's time budget (chat_turn_budget_seconds,
+// 0 = none).
+func agentTurnLimits(ctx context.Context, reader SiteConfigReader) (maxToolCalls int, runTimeout time.Duration) {
+	return ChatAnswerToolsMaxRounds(ctx, reader), time.Duration(ChatTurnBudgetSeconds(ctx, reader)) * time.Second
+}
+
 // forKB overlays the KB's per-KB overrides on the global reader and the
 // search service, as Handler.forKB does. searcher is nil without a
 // search service.
@@ -282,18 +293,20 @@ func (h *AgentChatHandler) runner(ctx context.Context, kbID string, reader SiteC
 		allowed = append(allowed, name)
 	}
 	slices.Sort(allowed)
+	maxToolCalls, _ := agentTurnLimits(ctx, reader)
 	var counter FileCounter
 	if h.d.Files != nil {
 		counter = FileCounterFromLimits(h.d.Files)
 	}
 	flow, err := NewAgentFlow(AgentFlowDeps{
-		Model:       model,
-		Retriever:   retriever,
-		Tools:       h.answerTools(ctx, kbID, reader, retriever),
-		FileCounter: counter,
-		Allowed:     allowed,
-		ActDispatch: act,
-		Available:   h.actionAvailable,
+		Model:        model,
+		Retriever:    retriever,
+		Tools:        h.answerTools(ctx, kbID, reader, retriever),
+		FileCounter:  counter,
+		Allowed:      allowed,
+		ActDispatch:  act,
+		Available:    h.actionAvailable,
+		MaxToolCalls: maxToolCalls,
 	})
 	if err != nil {
 		return nil, err

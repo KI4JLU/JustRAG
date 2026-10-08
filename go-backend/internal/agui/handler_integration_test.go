@@ -239,6 +239,11 @@ func newFixtureTTL(t *testing.T, ttl time.Duration, turns ...fakeTurn) *fixture 
 
 func newFixtureHooks(t *testing.T, ttl time.Duration, hooks TurnHooks, turns ...fakeTurn) *fixture {
 	t.Helper()
+	return newFixtureFull(t, ttl, hooks, 0, turns...)
+}
+
+func newFixtureFull(t *testing.T, ttl time.Duration, hooks TurnHooks, runTimeout time.Duration, turns ...fakeTurn) *fixture {
+	t.Helper()
 	pool := isolatedPool(t, "0082_adk_sessions.sql", "0083_agent_runs.sql")
 	f := &fixture{pool: pool, imports: new(atomic.Int64), userA: seedUser(t, pool), userB: seedUser(t, pool)}
 
@@ -272,11 +277,12 @@ func newFixtureHooks(t *testing.T, ttl time.Duration, hooks TurnHooks, turns ...
 	}
 	f.runs = adkbridge.NewRunStore(pool, ttl)
 	f.srv = httptest.NewServer(NewHandler(Config{
-		AppName:  testApp,
-		Runner:   r,
-		Sessions: sessions,
-		Runs:     f.runs,
-		Hooks:    hooks,
+		AppName:    testApp,
+		Runner:     r,
+		Sessions:   sessions,
+		Runs:       f.runs,
+		Hooks:      hooks,
+		RunTimeout: runTimeout,
 		Scope: func(r *http.Request) (adkbridge.Scope, error) {
 			u := r.Header.Get("X-Test-User")
 			if u == "" {
@@ -525,6 +531,26 @@ func TestClientDisconnectMarksRunCancelled(t *testing.T) {
 	postCtx(ctx, t, f, f.userA, map[string]any{"threadId": "t1", "runId": runID,
 		"messages": []map[string]any{{"id": "m1", "role": "user", "content": "lang"}}})
 	waitFor(t, func() bool { return runStatus(t, f, runID) == "cancelled" })
+}
+
+// Final review item 5: a run past its time budget (RunTimeout, the agent
+// chat's chat_turn_budget_seconds) is stopped and failed, and the still
+// connected client is told so with RUN_ERROR.
+func TestRunTimeoutFailsRunWithRunError(t *testing.T) {
+	f := newFixtureFull(t, 24*time.Hour, nil, 60*time.Millisecond, slowTextTurn(200)) // ~1 s of streaming
+	runID := uuid.NewString()
+	start := time.Now()
+	code, evs := post(t, f, f.userA, map[string]any{"threadId": "t1", "runId": runID,
+		"messages": []map[string]any{{"id": "m1", "role": "user", "content": "lang"}}})
+	if code != 200 || last(evs)["type"] != "RUN_ERROR" || last(evs)["message"] != "run failed" {
+		t.Fatalf("code=%d last=%v", code, last(evs))
+	}
+	if d := time.Since(start); d > 700*time.Millisecond {
+		t.Fatalf("run not stopped at its budget: took %v", d)
+	}
+	if st := runStatus(t, f, runID); st != "failed" {
+		t.Fatalf("run status = %q", st)
+	}
 }
 
 func TestUnauthenticatedIs401(t *testing.T) {

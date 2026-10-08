@@ -43,6 +43,8 @@ type Config struct {
 	// is resolved through it (Scope.ChatID becomes the resolved id) and each
 	// started run is reported to it. Nil keeps threads as bare session ids.
 	Hooks TurnHooks
+	// RunTimeout, when > 0, bounds a run's wall-clock time.
+	RunTimeout time.Duration
 }
 
 type handler struct{ cfg Config }
@@ -383,9 +385,27 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 		finish(adkbridge.RunCancelled, "")
 		return
 	}
-	for ev, err := range h.cfg.Runner.Run(ctx, sc.UserID, in.ThreadID, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+	// The run gets its own deadline (RunTimeout) under the request context,
+	// so a run out of time is told apart from a client that left: the
+	// client is still there and gets RUN_ERROR.
+	runCtx := ctx
+	if h.cfg.RunTimeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, h.cfg.RunTimeout)
+		defer cancel()
+	}
+	timedOut := func() {
+		log.WarnContext(bg, "agui: run exceeded its time budget", "timeout", h.cfg.RunTimeout)
+		_ = tr.Fail(errors.New("run failed"))
+		finish(adkbridge.RunFailed, "run time budget exceeded")
+	}
+	for ev, err := range h.cfg.Runner.Run(runCtx, sc.UserID, in.ThreadID, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if ctx.Err() != nil {
 			finish(adkbridge.RunCancelled, "")
+			return
+		}
+		if runCtx.Err() != nil {
+			timedOut()
 			return
 		}
 		if err != nil {
@@ -403,6 +423,10 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 	}
 	if ctx.Err() != nil {
 		finish(adkbridge.RunCancelled, "")
+		return
+	}
+	if runCtx.Err() != nil {
+		timedOut()
 		return
 	}
 	if pending := tr.Interrupts(); len(pending) > 0 {

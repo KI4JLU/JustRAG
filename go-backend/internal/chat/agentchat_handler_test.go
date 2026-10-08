@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
@@ -184,6 +185,26 @@ func TestActionAvailability(t *testing.T) {
 		h := NewAgentChatHandler(AgentChatDeps{SiteConfig: tc.cfg, ConfluenceConns: tc.conns})
 		if got := h.actionAvailable(context.Background(), sc, tc.tool); got != tc.want {
 			t.Errorf("%s: available = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Final review item 5: the turn's limits come from the legacy readers on
+// the KB overlay — chat_answer_tools_max_rounds caps the answer agent's tool
+// calls (default 5), chat_turn_budget_seconds bounds the run (0 = none).
+func TestAgentTurnLimits(t *testing.T) {
+	for _, tc := range []struct {
+		cfg      mapSiteConfig
+		calls    int
+		deadline time.Duration
+	}{
+		{mapSiteConfig{}, 5, 0},
+		{mapSiteConfig{"chat_answer_tools_max_rounds": "2", "chat_turn_budget_seconds": "30"}, 2, 30 * time.Second},
+		{mapSiteConfig{"chat_answer_tools_max_rounds": "99", "chat_turn_budget_seconds": "-1"}, 5, 0},
+	} {
+		calls, deadline := agentTurnLimits(context.Background(), tc.cfg)
+		if calls != tc.calls || deadline != tc.deadline {
+			t.Errorf("%v: limits = %d, %v; want %d, %v", tc.cfg, calls, deadline, tc.calls, tc.deadline)
 		}
 	}
 }

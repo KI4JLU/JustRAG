@@ -11,6 +11,7 @@ import (
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -500,5 +501,70 @@ func TestFloorQueryIsCondensed(t *testing.T) {
 	}
 	if len(condensed) != 1 || calls[1].SearchQuery != "Cafeteria" {
 		t.Fatalf("model kb_search condensed: %q / %+v", condensed, calls[1])
+	}
+}
+
+func agentToolTurn(id, query string) []ai.StreamChunk {
+	return []ai.StreamChunk{
+		{ToolCallDeltas: []ai.ToolCallDelta{{Index: 0, ID: id, Name: "kb_search", Arguments: `{"query":"` + query + `"}`}}},
+		{FinishReason: "tool_calls", Done: true},
+	}
+}
+
+// Final review item 5: answer-time tool calls are capped per turn
+// (chat_answer_tools_max_rounds). Past the cap a call gets a model-visible
+// "budget exhausted" result instead of running, and the model is asked
+// without tools, so it has to answer.
+func TestAnswerToolCallsAreCappedPerTurn(t *testing.T) {
+	var calls []ChatContextParams
+	r := newTestRetriever(&calls, mensaChunks, mensaChunks, mensaChunks, mensaChunks)
+	fc := &agentFakeClient{turns: [][]ai.StreamChunk{
+		agentToolTurn("call-1", "Cafeteria"),
+		agentToolTurn("call-2", "Bibliothek"),
+		agentToolTurn("call-3", "Sporthalle"), // the model ignores the missing tools
+		agentTextTurn("Um 11 Uhr [1]."),
+	}}
+	kbSearch := adkbridge.NewTool(adkbridge.ToolSpec{Name: "kb_search", Description: "search",
+		InputSchema: json.RawMessage(agentKBSearchSchema), Policy: adkbridge.PolicyFor("kb_search")}, r.Dispatch)
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: r, Tools: []tool.Tool{kbSearch}, MaxToolCalls: 2}
+
+	evs := mustRunAgentFlow(t, deps, viewScope, "Wann öffnet die Mensa?")
+
+	if len(calls) != 3 { // the floor + two answer-time searches
+		t.Fatalf("retrievals = %d, want 3: %+v", len(calls), calls)
+	}
+	reqs := fc.requests()
+	if len(reqs) != 4 {
+		t.Fatalf("model requests = %d, want 4", len(reqs))
+	}
+	for i, req := range reqs {
+		if want := i < 2; (len(req.Tools) > 0) != want {
+			t.Errorf("request %d declares tools %v, want tools=%v", i, req.Tools, want)
+		}
+	}
+	var last strings.Builder
+	for _, m := range reqs[3].Messages {
+		last.WriteString(m.Content + "\n")
+	}
+	if !strings.Contains(last.String(), agentToolBudgetExhaustedText) {
+		t.Fatalf("refused call's result not shown to the model:\n%s", last.String())
+	}
+	if got := outputsOf(evs); len(got) == 0 {
+		t.Fatal("no answer")
+	}
+}
+
+// MaxToolCalls 0 leaves the calls uncapped.
+func TestAnswerToolCallsUncappedAtZero(t *testing.T) {
+	var calls []ChatContextParams
+	r := newTestRetriever(&calls, mensaChunks, mensaChunks, mensaChunks, mensaChunks)
+	fc := &agentFakeClient{turns: [][]ai.StreamChunk{
+		agentToolTurn("call-1", "a"), agentToolTurn("call-2", "b"), agentToolTurn("call-3", "c"), agentTextTurn("ok"),
+	}}
+	kbSearch := adkbridge.NewTool(adkbridge.ToolSpec{Name: "kb_search", Description: "search",
+		InputSchema: json.RawMessage(agentKBSearchSchema), Policy: adkbridge.PolicyFor("kb_search")}, r.Dispatch)
+	mustRunAgentFlow(t, AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: r, Tools: []tool.Tool{kbSearch}}, viewScope, "q")
+	if len(calls) != 4 {
+		t.Fatalf("retrievals = %d, want 4", len(calls))
 	}
 }
