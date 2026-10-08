@@ -3,6 +3,7 @@ package adkbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"google.golang.org/adk/v2/agent"
@@ -102,5 +103,21 @@ func TestRetrieveRejectsLibraryOnlyScope(t *testing.T) {
 	_, _, err := n.retrieve(WithScope(context.Background(), Scope{UserID: "u", LibraryFileIDs: []string{"f"}}), "q")
 	if err != ErrLibraryScopeUnsupported {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// RetrieveNode dispatches kb_search directly, so it carries kb_search's
+// view-role floor itself and fails closed on a missing or unknown role.
+func TestRetrieveRequiresViewRole(t *testing.T) {
+	for _, role := range []string{"", "bogus"} {
+		calls := 0
+		n := &retrieveNode{dispatch: func(context.Context, string, string, json.RawMessage) (mcp.ToolResult, error) {
+			calls++
+			return mcp.ToolResult{}, nil
+		}, topK: 8}
+		_, _, err := n.retrieve(WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: role}), "q")
+		if !errors.Is(err, ErrForbiddenTool) || calls != 0 {
+			t.Fatalf("role %q: err=%v calls=%d", role, err, calls)
+		}
 	}
 }

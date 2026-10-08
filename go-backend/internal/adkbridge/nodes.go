@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/google/uuid"
@@ -46,6 +47,12 @@ func (n *retrieveNode) retrieve(ctx context.Context, q string) (RetrieveResult, 
 			return RetrieveResult{}, "", ErrLibraryScopeUnsupported
 		}
 		return RetrieveResult{Query: q}, RouteNoFiles, nil
+	}
+	// The node dispatches kb_search itself, bypassing dispatchTool, so it
+	// enforces kb_search's role floor here. Fails closed on an empty or
+	// unknown role. KB-less runs above touch no KB and need no KB role.
+	if need := PolicyFor("kb_search").RequiresRole; !RoleAtLeast(sc.Role, need) {
+		return RetrieveResult{}, "", fmt.Errorf("%w: kb_search requires role %s", ErrForbiddenTool, need)
 	}
 	args, _ := json.Marshal(map[string]any{"query": q, "top_k": n.topK, "kb_id": sc.KBID})
 	res, err := n.dispatch(ctx, sc.KBID, "kb_search", args)
