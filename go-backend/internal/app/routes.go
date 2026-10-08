@@ -1239,9 +1239,10 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		Usage:         usage.NewRecorder(rc.infra.db.Main),
 		SessionMemory: sessionMemoryStore,
 		// Bridge-only write tools (never registered in mcpRegistry).
-		Importer: confluence.NewImporter(confluence.NewStore(rc.infra.db.Main), rc.infra.asynqClient),
-		Library:  rc.filesHandler,
-		Files:    rc.filesStore,
+		Importer:  confluence.NewImporter(confluence.NewStore(rc.infra.db.Main), rc.infra.asynqClient),
+		Library:   rc.filesHandler,
+		Files:     rc.filesStore,
+		FileDates: &fileDatesAdapter{store: rc.filesStore},
 	})
 
 	// Phase 2 admin UI: load configured remote MCP servers from

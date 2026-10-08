@@ -41,6 +41,11 @@ type agentChatHooks struct {
 	newThread bool
 	// userMsgID is the user message TurnStarted wrote ("" on a resume).
 	userMsgID string
+	// threadID and parentMsgID anchor the floor retrieval's condenser:
+	// the resolved chat and the message this turn's question replies to
+	// (nil on a new thread or a resume — nothing to condense against).
+	threadID    string
+	parentMsgID *string
 }
 
 var _ agui.TurnHooks = (*agentChatHooks)(nil)
@@ -66,6 +71,7 @@ func (h *agentChatHooks) ResolveThread(ctx context.Context, sc adkbridge.Scope, 
 	if c == nil || c.UserID != sc.UserID || c.KbID != sc.KBID {
 		return "", agui.ErrThreadNotFound
 	}
+	h.threadID = id
 	return id, nil
 }
 
@@ -114,6 +120,7 @@ func (h *agentChatHooks) storeUserMessage(ctx context.Context, sc adkbridge.Scop
 		return err
 	}
 	h.userMsgID = msg.ID
+	h.threadID, h.parentMsgID = threadID, parent
 	return nil
 }
 

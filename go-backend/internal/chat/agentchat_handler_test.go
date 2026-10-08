@@ -70,3 +70,75 @@ func (m mapSiteConfig) GetSiteConfigValue(_ context.Context, key string) (*strin
 	}
 	return nil, nil
 }
+
+// Final review item 1: the handler builds the turn's retriever with the
+// KB's prompt, the overlay's date line, the file-date lookup and a
+// condenser over the thread's persisted history.
+func TestNewRetrieverWiresLegacyPromptInputs(t *testing.T) {
+	var condensed []string
+	h := NewAgentChatHandler(AgentChatDeps{
+		FileDates: &fakeFileDates{},
+		kbPrompt: func(_ context.Context, kbID string) (*string, error) {
+			s := "KB-PROMPT " + kbID
+			return &s, nil
+		},
+		condense: func(_ context.Context, chatID string, parent *string, q, kbID, lang string) (string, error) {
+			condensed = append(condensed, strings.Join([]string{chatID, *parent, q, kbID, lang}, "|"))
+			return "Hat die Mensa am Samstag geöffnet?", nil
+		},
+	})
+	hooks := &agentChatHooks{}
+	r := h.newRetriever(context.Background(), "kb1", mapSiteConfig{}, nil, "en", hooks)
+	if r.KbSystemPrompt != "KB-PROMPT kb1" || r.CurrentDateLine == "" || r.FileDates == nil || r.Lang != "en" {
+		t.Fatalf("retriever = %+v", r)
+	}
+	if off := h.newRetriever(context.Background(), "kb1", mapSiteConfig{"chat_date_awareness_enabled": "false"}, nil, "de", hooks); off.CurrentDateLine != "" {
+		t.Fatalf("date line with date awareness off = %q", off.CurrentDateLine)
+	}
+
+	// A new thread has no history: no condense call.
+	if got := r.floorQuery(context.Background(), "Und am Samstag?"); got != "Und am Samstag?" || len(condensed) != 0 {
+		t.Fatalf("new thread: query %q, condense calls %q", got, condensed)
+	}
+	// A follow-up condenses over the history before this turn's question.
+	parent := "m9"
+	hooks.threadID, hooks.parentMsgID = "c1", &parent
+	if got := r.floorQuery(context.Background(), "Und am Samstag?"); got != "Hat die Mensa am Samstag geöffnet?" {
+		t.Fatalf("follow-up query = %q", got)
+	}
+	if len(condensed) != 1 || condensed[0] != "c1|m9|Und am Samstag?|kb1|en" {
+		t.Fatalf("condense calls = %q", condensed)
+	}
+}
+
+// storeUserMessage remembers the thread and the message this turn's
+// question replies to (the condenser's history anchor).
+func TestHooksRememberHistoryAnchor(t *testing.T) {
+	st := &hooksStore{last: "m9"}
+	h := &agentChatHooks{store: st}
+	if _, err := h.ResolveThread(context.Background(), adkbridge.Scope{UserID: "u1", KBID: "kb1"}, "8d1c4b3e-0f5a-4d7e-9a61-2b7c3d4e5f60", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.storeUserMessage(context.Background(), adkbridge.Scope{UserID: "u1", KBID: "kb1"}, "8d1c4b3e-0f5a-4d7e-9a61-2b7c3d4e5f60", "Und am Samstag?"); err != nil {
+		t.Fatal(err)
+	}
+	if h.threadID != "8d1c4b3e-0f5a-4d7e-9a61-2b7c3d4e5f60" || h.parentMsgID == nil || *h.parentMsgID != "m9" {
+		t.Fatalf("thread %q parent %v", h.threadID, h.parentMsgID)
+	}
+}
+
+type hooksStore struct{ last string }
+
+func (s *hooksStore) GetChatByID(_ context.Context, id string) (*ChatRow, error) {
+	return &ChatRow{ID: id, UserID: "u1", KbID: "kb1"}, nil
+}
+func (s *hooksStore) CreateChatWithID(context.Context, string, string, string, string) (*ChatRow, error) {
+	return &ChatRow{}, nil
+}
+func (s *hooksStore) DeleteChat(context.Context, string) error { return nil }
+func (s *hooksStore) LastMessageID(context.Context, string) (*string, error) {
+	return &s.last, nil
+}
+func (s *hooksStore) AddMessage(context.Context, AddMessageParams) (*MessageRow, error) {
+	return &MessageRow{ID: "m10"}, nil
+}

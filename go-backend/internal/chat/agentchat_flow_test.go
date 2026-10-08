@@ -438,3 +438,67 @@ func TestRetrieverFollowUpAbstainHasNoMarkers(t *testing.T) {
 		t.Fatalf("sources changed on abstain: %+v", got)
 	}
 }
+
+// Final review item 1 (Ruling P2-R16): every retrieval of the turn carries
+// the KB prompt, the date line and the file-date lookup, like the legacy
+// standard path.
+func TestRetrieverParamsCarryKBPromptDateLineAndFileDates(t *testing.T) {
+	var calls []ChatContextParams
+	r := newTestRetriever(&calls, mensaChunks)
+	r.KbSystemPrompt = "Du bist der Assistent des HRZ."
+	r.CurrentDateLine = "Heute ist Donnerstag, der 8. Oktober 2026."
+	r.FileDates = &fakeFileDates{}
+	if _, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"Mensa"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d", len(calls))
+	}
+	p := calls[0]
+	if p.KbSystemPrompt != r.KbSystemPrompt || p.CurrentDateLine != r.CurrentDateLine || p.FileDates == nil ||
+		p.SearchQuery != "Mensa" || p.Language != "de" || p.KbID != "kb1" {
+		t.Fatalf("floor params = %+v", p)
+	}
+}
+
+// A follow-up's floor retrieval searches the condensed, standalone query;
+// the dead end's web action and payload use it too. The answer model's own
+// kb_search calls are never condensed.
+func TestFloorQueryIsCondensed(t *testing.T) {
+	var calls []ChatContextParams
+	r := newTestRetriever(&calls) // finds nothing → dead end
+	var condensed []string
+	r.Condense = func(_ context.Context, q string) string {
+		condensed = append(condensed, q)
+		return "Hat die Mensa am Samstag geöffnet?"
+	}
+	deps := AgentFlowDeps{
+		Model:       adkbridge.NewModel(&agentFakeClient{}, "gemma"),
+		Retriever:   r,
+		Allowed:     deadEndTools,
+		ActDispatch: allDispatchers(),
+	}
+	req := pauseOf(newDeadEndHarness(t, deps, viewScope).ask("Und am Samstag?"))
+	if len(condensed) != 1 || condensed[0] != "Und am Samstag?" {
+		t.Fatalf("condenser calls = %q", condensed)
+	}
+	if len(calls) != 1 || calls[0].SearchQuery != "Hat die Mensa am Samstag geöffnet?" {
+		t.Fatalf("floor query = %+v", calls)
+	}
+	if req == nil {
+		t.Fatal("no pause")
+	}
+	p := req.Payload.(map[string]any)
+	acts := p["actions"].([]adkbridge.Action)
+	if p["query"] != "Hat die Mensa am Samstag geöffnet?" || acts[0].ID != "web" || acts[0].Args["query"] != "Hat die Mensa am Samstag geöffnet?" {
+		t.Fatalf("payload = %#v", p)
+	}
+
+	// Direct (model) kb_search calls go through verbatim.
+	if _, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"Cafeteria"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(condensed) != 1 || calls[1].SearchQuery != "Cafeteria" {
+		t.Fatalf("model kb_search condensed: %q / %+v", condensed, calls[1])
+	}
+}

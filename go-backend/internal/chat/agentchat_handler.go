@@ -59,10 +59,17 @@ type AgentChatDeps struct {
 	Library       LibraryAdder         // may be nil
 	// Files counts a KB's files (empty KB → no_files); nil skips the check.
 	Files *files.PGStore
+	// FileDates resolves source files' dates for the retrieval (as the
+	// legacy chat's WithFileDates); may be nil.
+	FileDates FileDateLookup
 
 	// Test seams: the answer model and the retrieval (PrepareChatContext).
 	modelFor func(ctx context.Context, kbID string) (*adkbridge.Model, error)
 	prepare  func(ctx context.Context, p ChatContextParams) (*ChatContext, error)
+	// kbPrompt is Store.GetKBSystemPrompt; condense is CondenseFollowUp
+	// over Store.
+	kbPrompt func(ctx context.Context, kbID string) (*string, error)
+	condense func(ctx context.Context, chatID string, parent *string, q, kbID, lang string) (string, error)
 }
 
 // AgentChatHandler serves POST /api/kb/{id}/agui/chat: the agentic chat as
@@ -123,17 +130,15 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if ChatSessionMemoryEnabled(ctx, reader) {
 		ctx = sessionmem.WithWriteCounter(ctx, sessionmem.NewWriteCounter())
 	}
-	retriever := &AgentRetriever{AI: h.d.AI, Config: reader, Lang: props.language, prepare: h.d.prepare}
-	if searcher != nil {
-		retriever.Search = searcher
-	}
+	hooks := &agentChatHooks{store: h.d.Store, usage: h.d.Usage}
+	retriever := h.newRetriever(ctx, kbID, reader, searcher, props.language, hooks)
+	hooks.retriever = retriever
 	run, err := h.runner(ctx, kbID, reader, retriever, props.reasoning)
 	if err != nil {
 		logctx.From(ctx).Error("agentchat: build turn", "error", err)
 		writeAgentChatError(w, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	hooks := &agentChatHooks{store: h.d.Store, usage: h.d.Usage, retriever: retriever}
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	agui.NewHandler(agui.Config{
@@ -144,6 +149,68 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Scope:    h.scope(access),
 		Hooks:    hooks,
 	}).ServeHTTP(w, r)
+}
+
+// newRetriever builds the turn's retriever with the legacy standard path's
+// prompt inputs (Ruling P2-R16): the KB's configured system prompt, the
+// overlay's current-date line, the file-date lookup, and a condenser that
+// rewrites a follow-up into a standalone query over the thread's persisted
+// history (the history before this turn's question, read when the floor
+// retrieval runs — after TurnStarted stored the question).
+func (h *AgentChatHandler) newRetriever(ctx context.Context, kbID string, reader SiteConfigReader, searcher vector.Searcher, lang string, hooks *agentChatHooks) *AgentRetriever {
+	r := &AgentRetriever{
+		AI:              h.d.AI,
+		Search:          searcher,
+		Config:          reader,
+		Lang:            lang,
+		KbSystemPrompt:  h.kbSystemPrompt(ctx, kbID),
+		CurrentDateLine: SystemPromptDateLine(ctx, reader, lang),
+		FileDates:       h.d.FileDates,
+		prepare:         h.d.prepare,
+	}
+	r.Condense = func(ctx context.Context, q string) string {
+		if hooks.parentMsgID == nil || hooks.threadID == "" {
+			return q // a new thread: no history to resolve against
+		}
+		out, err := h.condenseFollowUp(ctx, hooks.threadID, hooks.parentMsgID, q, kbID, lang)
+		if err != nil {
+			logctx.From(ctx).Warn("agentchat: condense follow-up failed", "chat_id", hooks.threadID, "error", err)
+			return q
+		}
+		return out
+	}
+	return r
+}
+
+// kbSystemPrompt is the KB's configured prompt, "" when unset or on error
+// (as the legacy assembleSystemPrompt).
+func (h *AgentChatHandler) kbSystemPrompt(ctx context.Context, kbID string) string {
+	get := h.d.kbPrompt
+	if get == nil {
+		if h.d.Store == nil {
+			return ""
+		}
+		get = h.d.Store.GetKBSystemPrompt
+	}
+	sp, err := get(ctx, kbID)
+	if err != nil {
+		logctx.From(ctx).Warn("agentchat: kb system prompt", "kb_id", kbID, "error", err)
+		return ""
+	}
+	if sp == nil {
+		return ""
+	}
+	return *sp
+}
+
+func (h *AgentChatHandler) condenseFollowUp(ctx context.Context, chatID string, parent *string, q, kbID, lang string) (string, error) {
+	if h.d.condense != nil {
+		return h.d.condense(ctx, chatID, parent, q, kbID, lang)
+	}
+	if h.d.Store == nil {
+		return q, nil
+	}
+	return CondenseFollowUp(ctx, h.d.AI, h.d.Store, chatID, parent, q, kbID, lang)
 }
 
 // forKB overlays the KB's per-KB overrides on the global reader and the

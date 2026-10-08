@@ -410,6 +410,9 @@ func TestLibraryOutcomeTexts(t *testing.T) {
 		{[]files.AddResult{{Status: files.AddStatusError, Error: "kb_full"}}, libraryNotAddedText},
 		{[]files.AddResult{{Status: files.AddStatusError}, {Status: files.AddStatusAdded}}, fmt.Sprintf(libraryPartialFormat, 1, 2)},
 		{[]files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusAdded}}, libraryAddedText},
+		// Final review item 6: nothing added, a duplicate AND a failure —
+		// the failure must not be hidden behind the duplicate text.
+		{[]files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusError}}, fmt.Sprintf(libraryDuplicateFailedFormat, 1, 2)},
 	} {
 		lib := &fakeLibrary{res: tc.res}
 		res, err := actDispatchers(nil, lib)["library_add_to_kb"](adkbridge.WithScope(context.Background(), editScope),
@@ -537,5 +540,45 @@ func TestConfluenceWithoutSpaceKeyImportsNothing(t *testing.T) {
 		"kb1", "confluence_import", json.RawMessage(`{"spaceKey":"  ","kb_id":"kb1"}`))
 	if err != nil || res.Text != confluenceNoSpaceText || len(imp.calls) != 0 {
 		t.Fatalf("res=%q err=%v calls=%v", res.Text, err, imp.calls)
+	}
+}
+
+// Final review item 3: web_answer sees untrusted web text, so it must not
+// also see the session's earlier turns (KB chunks, answers) it could leak
+// through links or images in its answer.
+func TestWebAnswerSeesNoEarlierTurns(t *testing.T) {
+	var web int
+	fc := &agentFakeClient{turns: [][]ai.StreamChunk{
+		agentTextTurn("ERSTE-ANTWORT aus der Wissensbasis."),
+		agentTextTurn("Laut Web: 4 Mio. Euro."),
+	}}
+	var calls []ChatContextParams
+	deps := AgentFlowDeps{
+		Model:       adkbridge.NewModel(fc, "gemma"),
+		Retriever:   newTestRetriever(&calls, mensaChunks), // turn 1 finds, turn 2 does not
+		Allowed:     deadEndTools,
+		ActDispatch: map[string]adkbridge.DispatchFunc{"web_search": countingDispatch(&web, "Haushaltsplan 2027: 4 Mio. Euro")},
+	}
+	h := newDeadEndHarness(t, deps, viewScope)
+	h.ask("Wann öffnet die Mensa?")
+	req := pauseOf(h.ask("Budget 2027?"))
+	h.resume(req, map[string]any{"actionId": "web"})
+
+	reqs := fc.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("model requests = %d", len(reqs))
+	}
+	var all strings.Builder
+	for _, m := range reqs[1].Messages {
+		all.WriteString(m.Content + "\n")
+	}
+	got := all.String()
+	if !strings.Contains(got, "Haushaltsplan 2027: 4 Mio. Euro") || !strings.Contains(got, "Budget 2027?") {
+		t.Fatalf("web answer request lacks question/results:\n%s", got)
+	}
+	for _, leak := range []string{"Mensa", "ERSTE-ANTWORT", "11 Uhr"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("web answer request carries earlier-turn content %q:\n%s", leak, got)
+		}
 	}
 }

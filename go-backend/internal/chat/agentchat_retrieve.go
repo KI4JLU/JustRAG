@@ -24,6 +24,19 @@ type AgentRetriever struct {
 	Config SiteConfigReader // per-KB overlay
 	Lang   string
 
+	// The turn's prompt inputs, as the legacy standard path passes them to
+	// PrepareChatContext (Ruling P2-R16): the KB's configured prompt, the
+	// date line ("" when chat_date_awareness_enabled is off) and the
+	// source-date lookup. Every retrieval of the turn carries them.
+	KbSystemPrompt  string
+	CurrentDateLine string
+	FileDates       FileDateLookup // may be nil
+	// Condense rewrites the floor question into a standalone query from the
+	// thread's history (legacy CondenseFollowUp). Applied to the floor
+	// retrieval only — the answer model's own kb_search queries are
+	// already standalone. nil searches the question verbatim.
+	Condense func(ctx context.Context, question string) string
+
 	// prepare is PrepareChatContext; a seam for tests.
 	prepare func(ctx context.Context, p ChatContextParams) (*ChatContext, error)
 
@@ -56,7 +69,14 @@ func (r *AgentRetriever) Dispatch(ctx context.Context, kbID, name string, args j
 			return PrepareChatContext(ctx, r.AI, r.Search, r.Config, p)
 		}
 	}
-	cc, err := prepare(ctx, ChatContextParams{KbID: kbID, SearchQuery: a.Query, Language: r.Lang})
+	cc, err := prepare(ctx, ChatContextParams{
+		KbID:            kbID,
+		SearchQuery:     a.Query,
+		Language:        r.Lang,
+		KbSystemPrompt:  r.KbSystemPrompt,
+		CurrentDateLine: r.CurrentDateLine,
+		FileDates:       r.FileDates,
+	})
 	if err != nil {
 		return mcp.ToolResult{}, err
 	}
@@ -113,6 +133,18 @@ func (r *AgentRetriever) indexOf(chunkID string) int {
 		return r.sources[i].Index
 	}
 	return 0
+}
+
+// floorQuery is the query the floor retrieval searches: the condensed
+// question when a condenser is set and returns text, else the question.
+func (r *AgentRetriever) floorQuery(ctx context.Context, q string) string {
+	if r.Condense == nil {
+		return q
+	}
+	if c := strings.TrimSpace(r.Condense(ctx, q)); c != "" {
+		return c
+	}
+	return q
 }
 
 // Sources returns the turn's numbered sources so far.

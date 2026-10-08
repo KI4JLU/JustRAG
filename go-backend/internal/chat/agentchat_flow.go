@@ -109,6 +109,12 @@ func deadEndEdges(retrieve workflow.Node, deps AgentFlowDeps) ([]workflow.Edge, 
 		Description: "Answers the question from the web search results the user asked for.",
 		Model:       deps.Model,
 		Instruction: webAnswerInstruction,
+		// Only the current turn (the question and the fenced results act
+		// hands over): the session's earlier KB chunks and answers must not
+		// sit next to attacker-controlled web text, which could exfiltrate
+		// them through links or images in the answer. Explicit, so it does
+		// not depend on the node placement's default.
+		IncludeContents: llmagent.IncludeContentsNone,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("chat: web answer agent: %w", err)
@@ -139,13 +145,15 @@ func deadEndEdges(retrieve workflow.Node, deps AgentFlowDeps) ([]workflow.Edge, 
 func agentRetrieveNode(r *AgentRetriever, files FileCounter) workflow.Node {
 	return workflow.NewEmittingFunctionNode("retrieve",
 		func(ctx agent.Context, q string, emit func(*session.Event) error) (string, error) {
-			route, err := agentRetrieveRoute(ctx, r, files, q)
+			route, query, err := agentRetrieveRoute(ctx, r, files, q)
 			if err != nil {
 				return "", err
 			}
 			ev := session.NewEvent(ctx, ctx.InvocationID())
 			ev.Routes = []string{route}
-			ev.Actions.StateDelta = map[string]any{AgentChatStateQuestion: q, AgentChatStateReason: route}
+			// The searched (condensed) query: the dead end offers it to the
+			// web search, which sees no history to resolve a follow-up.
+			ev.Actions.StateDelta = map[string]any{AgentChatStateQuestion: query, AgentChatStateReason: route}
 			if err := emit(ev); err != nil {
 				return "", err
 			}
@@ -153,22 +161,25 @@ func agentRetrieveNode(r *AgentRetriever, files FileCounter) workflow.Node {
 		}, workflow.NodeConfig{})
 }
 
-func agentRetrieveRoute(ctx context.Context, r *AgentRetriever, files FileCounter, q string) (string, error) {
+// agentRetrieveRoute routes the turn and returns the query the floor
+// retrieval searched (the question itself when it routed before
+// retrieval).
+func agentRetrieveRoute(ctx context.Context, r *AgentRetriever, files FileCounter, q string) (route, query string, err error) {
 	sc, ok := adkbridge.ScopeFrom(ctx)
 	if !ok {
-		return "", adkbridge.ErrNoScope
+		return "", q, adkbridge.ErrNoScope
 	}
 	if sc.KBID == "" {
 		if len(sc.LibraryFileIDs) > 0 {
-			return "", adkbridge.ErrLibraryScopeUnsupported
+			return "", q, adkbridge.ErrLibraryScopeUnsupported
 		}
-		return adkbridge.RouteNoFiles, nil
+		return adkbridge.RouteNoFiles, q, nil
 	}
 	// The node dispatches kb_search itself, outside the bridge's tool
 	// policy, so it enforces kb_search's role floor (fails closed on an
 	// empty or unknown role) — as adkbridge.RetrieveNode does.
 	if need := adkbridge.PolicyFor("kb_search").RequiresRole; !adkbridge.RoleAtLeast(sc.Role, need) {
-		return "", fmt.Errorf("%w: kb_search requires role %s", adkbridge.ErrForbiddenTool, need)
+		return "", q, fmt.Errorf("%w: kb_search requires role %s", adkbridge.ErrForbiddenTool, need)
 	}
 	if files != nil {
 		n, err := files(ctx, sc.KBID)
@@ -177,21 +188,22 @@ func agentRetrieveRoute(ctx context.Context, r *AgentRetriever, files FileCounte
 			// Fail soft: an empty KB then routes no_evidence via retrieval.
 			logctx.From(ctx).Warn("agentchat: file count failed", "kb_id", sc.KBID, "error", err)
 		case n == 0:
-			return adkbridge.RouteNoFiles, nil
+			return adkbridge.RouteNoFiles, q, nil
 		}
 	}
-	args, err := json.Marshal(map[string]any{"query": q})
+	query = r.floorQuery(ctx, q)
+	args, err := json.Marshal(map[string]any{"query": query})
 	if err != nil {
-		return "", err
+		return "", query, err
 	}
 	res, err := r.Dispatch(ctx, sc.KBID, "kb_search", args)
 	if err != nil {
-		return "", err
+		return "", query, err
 	}
 	if len(res.Chunks) == 0 {
-		return adkbridge.RouteNoEvidence, nil
+		return adkbridge.RouteNoEvidence, query, nil
 	}
-	return adkbridge.RouteFound, nil
+	return adkbridge.RouteFound, query, nil
 }
 
 // agentSourcesNode emits the turn's final numbered sources ([]ChatSource

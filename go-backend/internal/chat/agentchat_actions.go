@@ -30,19 +30,21 @@ const (
 
 // Dead-end texts.
 const (
-	deadEndNoEvidenceText    = "Dazu habe ich in der Wissensbasis nichts gefunden."
-	deadEndNoFilesText       = "Diese Wissensbasis enthält noch keine Dateien."
-	suggestQuestionSuffix    = " Was möchtest du tun?"
-	actCancelledText         = "Okay, ich habe nichts unternommen."
-	actRefusedText           = "Diese Aktion kann ich hier leider nicht ausführen."
-	actFailedText            = "Das hat leider nicht geklappt. Bitte versuche es später noch einmal."
-	libraryAddedText         = "Datei hinzugefügt – sie wird gerade verarbeitet. Frag gleich noch einmal."
-	libraryPartialFormat     = "%d von %d Dateien hinzugefügt – sie werden gerade verarbeitet. Die übrigen konnten nicht hinzugefügt werden. Frag gleich noch einmal."
-	confluenceNoSpaceText    = "Kein Confluence-Bereich ausgewählt – es wurde nichts importiert."
-	libraryDuplicateText     = "Die Datei ist bereits in dieser Wissensbasis."
-	libraryNotAddedText      = "Die Datei konnte nicht hinzugefügt werden."
-	libraryNothingChosenText = "Keine Datei ausgewählt – es wurde nichts hinzugefügt."
-	confluenceStartedText    = "Import gestartet – die Confluence-Seiten werden im Hintergrund importiert. Frag gleich noch einmal."
+	deadEndNoEvidenceText = "Dazu habe ich in der Wissensbasis nichts gefunden."
+	deadEndNoFilesText    = "Diese Wissensbasis enthält noch keine Dateien."
+	suggestQuestionSuffix = " Was möchtest du tun?"
+	actCancelledText      = "Okay, ich habe nichts unternommen."
+	actRefusedText        = "Diese Aktion kann ich hier leider nicht ausführen."
+	actFailedText         = "Das hat leider nicht geklappt. Bitte versuche es später noch einmal."
+	libraryAddedText      = "Datei hinzugefügt – sie wird gerade verarbeitet. Frag gleich noch einmal."
+	libraryPartialFormat  = "%d von %d Dateien hinzugefügt – sie werden gerade verarbeitet. Die übrigen konnten nicht hinzugefügt werden. Frag gleich noch einmal."
+	confluenceNoSpaceText = "Kein Confluence-Bereich ausgewählt – es wurde nichts importiert."
+	libraryDuplicateText  = "Die Datei ist bereits in dieser Wissensbasis."
+	// Nothing added: some files were already there, the rest failed.
+	libraryDuplicateFailedFormat = "Keine Datei hinzugefügt: %d von %d Dateien sind bereits in dieser Wissensbasis, die übrigen konnten nicht hinzugefügt werden."
+	libraryNotAddedText          = "Die Datei konnte nicht hinzugefügt werden."
+	libraryNothingChosenText     = "Keine Datei ausgewählt – es wurde nichts hinzugefügt."
+	confluenceStartedText        = "Import gestartet – die Confluence-Seiten werden im Hintergrund importiert. Frag gleich noch einmal."
 	// Ruling P2-R7: the source exists, but its first sync did not start.
 	confluenceNotStartedText   = "Der Confluence-Import wurde angelegt, aber noch nicht gestartet. Bitte starte die Synchronisierung in den Einstellungen der Wissensbasis."
 	confluenceNoConnectionText = "Keine Confluence-Verbindung — bitte zuerst in den Einstellungen verbinden"
@@ -209,6 +211,8 @@ func libraryOutcomeText(res []files.AddResult) string {
 		return fmt.Sprintf(libraryPartialFormat, added, len(res))
 	case added > 0:
 		return libraryAddedText
+	case dup > 0 && failed > 0:
+		return fmt.Sprintf(libraryDuplicateFailedFormat, dup, len(res))
 	case dup > 0:
 		return libraryDuplicateText
 	default:
