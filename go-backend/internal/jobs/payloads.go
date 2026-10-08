@@ -7,6 +7,9 @@ type FileProcessingPayload struct {
 	FilePath     string `json:"filePath"`
 	OriginalName string `json:"originalName"`
 	MimeType     string `json:"mimetype"`
+	// UserFileID is set only by the library enqueue paths (add-from-library,
+	// upload re-route); empty for every other producer and for retries.
+	UserFileID string `json:"userFileId,omitempty"`
 }
 
 // TextProcessingPayload is the JSON payload for a text-processing job.

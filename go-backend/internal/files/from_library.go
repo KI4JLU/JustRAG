@@ -48,7 +48,7 @@ type fromLibrarySkipped struct {
 
 // enqueueFileProcessing queues the ingest job for a freshly created row.
 // A nil asynq client (unit tests) is a no-op, as in the other ingest paths.
-func (h *Handler) enqueueFileProcessing(rec *FileRecord, kbID, path, name, mimeType string) error {
+func (h *Handler) enqueueFileProcessing(rec *FileRecord, kbID, path, name, mimeType, userFileID string) error {
 	if h.asynqClient == nil {
 		return nil
 	}
@@ -58,6 +58,7 @@ func (h *Handler) enqueueFileProcessing(rec *FileRecord, kbID, path, name, mimeT
 		FilePath:     path,
 		OriginalName: name,
 		MimeType:     mimeType,
+		UserFileID:   userFileID,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal file processing payload: %w", err)
@@ -146,7 +147,7 @@ func (h *Handler) uploadViaLibrary(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 
-	if err := h.enqueueFileProcessing(rec, kbID, uf.StoragePath, up.Header.Filename, up.MimeType); err != nil {
+	if err := h.enqueueFileProcessing(rec, kbID, uf.StoragePath, up.Header.Filename, up.MimeType, uf.ID); err != nil {
 		logctx.From(ctx).Error("failed to enqueue file processing job", "fileId", rec.ID, "error", err)
 		h.removeLibraryBackedRow(ctx, rec.ID)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to queue file for processing")
@@ -248,7 +249,7 @@ func (h *Handler) AddFromLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := h.enqueueFileProcessing(rec, kbID, uf.StoragePath, uf.Name, fileType); err != nil {
+		if err := h.enqueueFileProcessing(rec, kbID, uf.StoragePath, uf.Name, fileType, uf.ID); err != nil {
 			logctx.From(ctx).Error("failed to enqueue file processing job", "fileId", rec.ID, "error", err)
 			h.removeLibraryBackedRow(ctx, rec.ID)
 			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to queue file for processing")

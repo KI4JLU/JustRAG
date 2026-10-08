@@ -2657,6 +2657,34 @@ func TabularIngestTotalForTest() *prometheus.CounterVec {
 	return tabularIngestTotal
 }
 
+var userFileAddTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_user_file_add_total",
+		Help: "Library files added to a KB, by how the index was produced: " +
+			"copy (server-side index copy from a donor), ingest (full " +
+			"ingest) or ingest_cached_parse (ingest reusing the cached " +
+			"parse). Any other mode normalises to ingest.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"mode"},
+)
+
+// RecordUserFileAdd increments the add-mode counter. mode must be copy,
+// ingest or ingest_cached_parse; any other value normalises to ingest.
+func RecordUserFileAdd(mode string) {
+	switch mode {
+	case "copy", "ingest", "ingest_cached_parse":
+	default:
+		mode = "ingest"
+	}
+	userFileAddTotal.WithLabelValues(mode).Inc()
+}
+
+// UserFileAddTotalForTest exposes the add-mode counter to test packages.
+func UserFileAddTotalForTest() *prometheus.CounterVec {
+	return userFileAddTotal
+}
+
 // TabularIngestRowsForTest exposes the tabular-ingest row-kind counter to
 // other test packages. Mirrors AgenticDecisionTotalForTest.
 func TabularIngestRowsForTest() *prometheus.CounterVec {

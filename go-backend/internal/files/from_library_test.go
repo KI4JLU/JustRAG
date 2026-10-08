@@ -127,6 +127,9 @@ func TestAddFromLibrary_AddsAndSkips(t *testing.T) {
 	if p.FilePath != libPath+"/a" || p.KbID != "kb-1" || p.OriginalName != "a.pdf" {
 		t.Fatalf("payload = %+v", p)
 	}
+	if p.UserFileID != "a" {
+		t.Fatalf("payload UserFileID = %q, want %q", p.UserFileID, "a")
+	}
 }
 
 func TestAddFromLibrary_KBFull(t *testing.T) {
@@ -255,6 +258,9 @@ func TestUpload_ViaLibrary_Success(t *testing.T) {
 	_ = json.Unmarshal(enq.tasks[0].Payload(), &p)
 	if p.FilePath != libPath+"/a" || p.OriginalName != "document.pdf" {
 		t.Fatalf("payload %+v", p)
+	}
+	if p.UserFileID != "a" {
+		t.Fatalf("payload UserFileID = %q, want %q", p.UserFileID, "a")
 	}
 	if len(stor.deleted) != 0 {
 		t.Fatal("deleted something")
