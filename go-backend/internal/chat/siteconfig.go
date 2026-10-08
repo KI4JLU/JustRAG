@@ -1733,6 +1733,29 @@ func TabularMaxFileBytes(ctx context.Context, reader SiteConfigReader) int {
 	return readInt(ctx, reader, "tabular_max_file_bytes", 524_288_000, 1_048_576, 2_147_483_647)
 }
 
+// UserFileQuotaMax is the upper clamp of UserFileQuotaBytes (1 TiB).
+const UserFileQuotaMax int64 = 1_099_511_627_776
+
+// UserFileQuotaBytes is the global default per-user library quota in bytes
+// ("user_file_quota_bytes", GLOBAL-ONLY, no per-KB registry entry). 0 (the
+// default) means unlimited; a negative, non-numeric or above-1-TiB value
+// reads as 0. A per-user override on users overrides it. int64 so the 1 TiB
+// ceiling is representable on 32-bit platforms too.
+func UserFileQuotaBytes(ctx context.Context, reader SiteConfigReader) int64 {
+	if reader == nil {
+		return 0
+	}
+	v, err := reader.GetSiteConfigValue(ctx, "user_file_quota_bytes")
+	if err != nil || v == nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(*v), 10, 64)
+	if err != nil || n < 0 || n > UserFileQuotaMax {
+		return 0
+	}
+	return n
+}
+
 // TabularLargeFileBytes is the size threshold above which an ingested
 // spreadsheet is treated as "large" for concurrency purposes (see
 // TabularLargeFileConcurrency). Default 20 MB (20,971,520 bytes); clamped to

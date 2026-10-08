@@ -87,6 +87,7 @@ import (
 	"github.com/justrag/go-backend/internal/tabular/rematerialize"
 	"github.com/justrag/go-backend/internal/tabular/sqlexec"
 	"github.com/justrag/go-backend/internal/usage"
+	"github.com/justrag/go-backend/internal/userfiles"
 	"github.com/justrag/go-backend/internal/users"
 	"github.com/justrag/go-backend/internal/vector"
 	"github.com/justrag/go-backend/internal/websearch"
@@ -390,6 +391,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	registerChatRoutes(ctx, rc, chatRL)
 	registerAgentTeamRoutes(rc)
 	registerFileRoutes(rc)
+	registerLibraryRoutes(rc)
 	registerContentGenRoutes(rc, generateRL)
 	registerResearchRoutes(rc, researchRL)
 	registerPublicAPIRoutes(rc, apiRL)
@@ -742,6 +744,30 @@ type tabularUploadLimits struct{ reader chat.SiteConfigReader }
 
 func (a tabularUploadLimits) TabularMaxFileBytes(ctx context.Context) int {
 	return chat.TabularMaxFileBytes(ctx, a.reader)
+}
+
+// userFileQuota adapts chat.UserFileQuotaBytes to userfiles.QuotaReader.
+type userFileQuota struct{ reader chat.SiteConfigReader }
+
+func (a userFileQuota) GlobalQuotaBytes(ctx context.Context) int64 {
+	return chat.UserFileQuotaBytes(ctx, a.reader)
+}
+
+// registerLibraryRoutes wires the per-user file library API. Owner-only:
+// authentication is the only gate, ownership is enforced per id in the store.
+func registerLibraryRoutes(rc *routeCtx) {
+	store := userfiles.NewStore(rc.infra.db.Main)
+	quota := userFileQuota{reader: rc.chatStore}
+	ingester := userfiles.NewIngester(store, rc.infra.stor, quota)
+	h := userfiles.NewHandler(store, ingester, rc.infra.stor, tabularUploadLimits{reader: rc.chatStore}, quota)
+	wrap := func(f http.HandlerFunc) http.Handler { return rc.authMw.Authenticate(f) }
+	rc.mux.Handle("GET /api/library/files", wrap(h.List))
+	rc.mux.Handle("POST /api/library/files", wrap(h.Upload))
+	rc.mux.Handle("GET /api/library/files/{id}", wrap(h.Get))
+	rc.mux.Handle("PATCH /api/library/files/{id}", wrap(h.Rename))
+	rc.mux.Handle("GET /api/library/files/{id}/download", wrap(h.Download))
+	rc.mux.Handle("GET /api/library/files/{id}/usage", wrap(h.Usage))
+	rc.mux.Handle("GET /api/library/quota", wrap(h.Quota))
 }
 
 func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
