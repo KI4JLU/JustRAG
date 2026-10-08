@@ -27,6 +27,7 @@ import (
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/kbaccess"
+	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -164,7 +165,7 @@ type agentChatFixture struct {
 	chunks  []vector.SearchChunk // what every retrieval returns
 }
 
-func newAgentChatFixture(t *testing.T, flagOn bool) *agentChatFixture {
+func newAgentChatFixture(t *testing.T, flagOn bool, opts ...func(*AgentChatDeps)) *agentChatFixture {
 	t.Helper()
 	pool := agentChatPool(t)
 	f := &agentChatFixture{pool: pool, store: NewStore(pool), client: &agentFakeClient{}, library: &fakeLibrary{},
@@ -193,6 +194,9 @@ func newAgentChatFixture(t *testing.T, flagOn bool) *agentChatFixture {
 			sources, text := buildChatSourcesAndContext(f.chunks)
 			return &ChatContext{SystemPrompt: "SYSTEM\n\nCONTEXT:\n" + text, Sources: sources, Context: text, FinalChunks: f.chunks}, nil
 		},
+	}
+	for _, o := range opts {
+		o(&deps)
 	}
 	h := NewAgentChatHandler(deps)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -556,5 +560,49 @@ func TestNewMessageValidatedBeforeAnyWrite(t *testing.T) {
 	}
 	if n := len(f.client.requests()); n != 0 {
 		t.Fatalf("model calls = %d, want 0", n)
+	}
+}
+
+// Ruling P2-R15: with web_search registered as a builtin, the answer model
+// is not offered it, and a call it emits anyway is never dispatched nor
+// turned into an approval pause.
+func TestAnswerModelCannotCallWebSearch(t *testing.T) {
+	var webCalls atomic.Int64
+	reg := mcp.NewRegistry()
+	reg.RegisterBuiltin(mcp.Tool{Name: "web_search", Description: "web",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+		Handler: mcp.ToolHandlerFunc(func(context.Context, json.RawMessage) (mcp.ToolResult, error) {
+			webCalls.Add(1)
+			return mcp.ToolResult{Text: "Web"}, nil
+		})})
+	f := newAgentChatFixture(t, true, func(d *AgentChatDeps) { d.Registry = reg })
+	f.chunks = agentChunk
+	f.client.turns = [][]ai.StreamChunk{
+		{{ToolCallDeltas: []ai.ToolCallDelta{{Index: 0, ID: "call-1", Name: "web_search", Arguments: `{"query":"Mensa"}`}}},
+			{FinishReason: "tool_calls", Done: true}},
+		agentTextTurn("Um 11 Uhr [1]."),
+	}
+	code, evs := f.post(t, f.userA, agentUserMsg("", "Wann öffnet die Mensa?"))
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	reqs := f.client.requests()
+	if len(reqs) == 0 {
+		t.Fatal("no model call")
+	}
+	var declared []string
+	for _, tl := range reqs[0].Tools {
+		declared = append(declared, tl.Function.Name)
+	}
+	if strings.Join(declared, ",") != "kb_search" {
+		t.Fatalf("declared tools = %v, want kb_search only", declared)
+	}
+	if webCalls.Load() != 0 {
+		t.Fatalf("web_search dispatched %d times", webCalls.Load())
+	}
+	if fin := eventOf(evs, "RUN_FINISHED"); fin != nil {
+		if outcome, _ := fin["outcome"].(map[string]any); outcome != nil && outcome["interrupts"] != nil {
+			t.Fatalf("run paused: %v", outcome)
+		}
 	}
 }

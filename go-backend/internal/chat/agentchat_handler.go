@@ -48,7 +48,7 @@ type AgentChatDeps struct {
 	KBConfig   KBConfigOverrideLister // per-KB overrides (as Handler.forKB)
 	AI         *ai.ConfigResolver
 	Search     *vector.SearchService
-	Registry   *mcp.Registry // web_search, memory_*; may be nil
+	Registry   *mcp.Registry // memory_* tools, dead-end web action; may be nil
 	Sessions   *adkbridge.PGSessionService
 	Runs       *adkbridge.RunStore
 	Usage      usage.Recorder // may be nil
@@ -232,9 +232,16 @@ func (h *AgentChatHandler) model(ctx context.Context, kbID, effort string) (*adk
 }
 
 // answerTools are the answer agent's tools: kb_search over the turn's
-// retriever (production pipeline, numbered into the turn's sources), the
-// built-in web_search when registered, and memory_read/memory_write when
-// session memory is on for the KB.
+// retriever (production pipeline, numbered into the turn's sources) and
+// memory_read/memory_write when session memory is on for the KB — only
+// tools whose policy needs no approval (Ruling P2-R15).
+//
+// Why no approval-gated tools (web_search, remote/unknown tools): in adk-go
+// v2.5.0 a tool confirmation raised inside a workflow AgentNode cannot be
+// resumed. workflowagent's resume detection only handles adk_request_input
+// (the dead-end pause); an adk_request_confirmation reply falls through to
+// a fresh workflow run from Start, so the approved call never runs. Web
+// search stays reachable through the dead-end "web" action.
 func (h *AgentChatHandler) answerTools(ctx context.Context, kbID string, reader SiteConfigReader, retriever *AgentRetriever) []tool.Tool {
 	out := []tool.Tool{adkbridge.NewTool(adkbridge.ToolSpec{
 		Name:        "kb_search",
@@ -243,9 +250,6 @@ func (h *AgentChatHandler) answerTools(ctx context.Context, kbID string, reader 
 		Policy:      adkbridge.PolicyFor("kb_search"),
 	}, retriever.Dispatch)}
 	var names []string
-	if t, ok := registryHas(h.d.Registry, "web_search"); ok && t.Origin == "builtin" {
-		names = append(names, "web_search")
-	}
 	if h.d.SessionMemory != nil && ChatSessionMemoryEnabled(ctx, reader) {
 		for _, n := range []string{"memory_read", "memory_write"} {
 			if _, ok := registryHas(h.d.Registry, n); ok {
@@ -253,15 +257,27 @@ func (h *AgentChatHandler) answerTools(ctx context.Context, kbID string, reader 
 			}
 		}
 	}
-	if len(names) == 0 {
-		return out
+	if len(names) > 0 {
+		more, err := adkbridge.RegistryTools(h.d.Registry, kbID, names)
+		if err != nil {
+			logctx.From(ctx).Warn("agentchat: registry tools", "tools", names, "error", err)
+		} else {
+			out = append(out, more...)
+		}
 	}
-	more, err := adkbridge.RegistryTools(h.d.Registry, kbID, names)
-	if err != nil {
-		logctx.From(ctx).Warn("agentchat: registry tools", "tools", names, "error", err)
-		return out
+	return approvalFreeTools(out)
+}
+
+// approvalFreeTools drops every tool whose policy needs approval (see
+// answerTools for why). The single gate for the answer agent's tools.
+func approvalFreeTools(tools []tool.Tool) []tool.Tool {
+	out := tools[:0:0]
+	for _, t := range tools {
+		if adkbridge.PolicyFor(t.Name()).Approval == adkbridge.ApprovalNever {
+			out = append(out, t)
+		}
 	}
-	return append(out, more...)
+	return out
 }
 
 // agentChatProps are the forwardedProps the agent chat reads.
