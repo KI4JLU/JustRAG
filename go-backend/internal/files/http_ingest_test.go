@@ -180,7 +180,8 @@ func TestFetchURL_Valid(t *testing.T) {
 	// The SSRF check will reject 127.0.0.1, so we call FetchURL indirectly through
 	// the endpoint with the test server URL, which will fail the private-IP check.
 	// To prove the happy-path works, we use an explicitly allowed public host
-	// in a stub test that mocks fetchURL — but that would require unexported access.
+	// in a stub test that mocks fetchURL — files.StubFetchForTest (export_test.go)
+	// now provides exactly that stub; see http_uploader_test.go.
 	//
 	// Resolution: use httptest.NewTLSServer on a loopback is still rejected.
 	// We therefore test the 400 path for private IPs (the SSRF rejection) and

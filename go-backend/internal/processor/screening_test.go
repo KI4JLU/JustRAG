@@ -120,8 +120,9 @@ func TestProcessFile_ScreensExternalOriginAndFlags(t *testing.T) {
 }
 
 // Mutation guard for the origin gate: a user upload into a PRIVATE KB with
-// the very same text is never screened. Dropping screenedOrigins (or
-// defaulting it to "screen everything") fails here.
+// the very same text is never screened. Dropping the publicOnlyOrigins /
+// KB-visibility check in ShouldScreen (or defaulting to "screen everything")
+// fails here.
 func TestProcessFile_UploadIntoPrivateKBIsNeverScreened(t *testing.T) {
 	store := &mockStore{
 		origins:      map[string]string{"f-up": "upload"},

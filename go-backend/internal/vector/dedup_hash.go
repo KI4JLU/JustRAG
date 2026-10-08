@@ -36,7 +36,8 @@ func NormalizeContent(text string) string {
 }
 
 // HashContent returns a SHA256 hex digest of NormalizeContent(text). Empty
-// input returns "" — callers should skip empty hashes (no DB lookup, no insert).
+// input returns "" — an empty hash is stored as-is (the chunk is still inserted)
+// and never collapses with another chunk in the in-batch dedup.
 func HashContent(text string) string {
 	normalized := NormalizeContent(text)
 	if normalized == "" {
