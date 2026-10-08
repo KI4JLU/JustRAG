@@ -159,6 +159,12 @@ func (a *Adopter) adoptOne(ctx context.Context, kbID, callerID, fileID string) (
 		}
 	}
 
+	if lf.StoragePath == "" {
+		// A legacy row without a blob key: FileExists("") on the local backend
+		// would stat the data directory itself, so decide it here as a
+		// per-file skip rather than a batch-wide error.
+		return "", AdoptSkipBlobMissing, nil
+	}
 	sum, size, missing, err := a.hashBlob(ctx, lf.StoragePath)
 	if err != nil {
 		return "", "", fmt.Errorf("adopt: read legacy blob %s: %w", fileID, err)
@@ -244,6 +250,9 @@ func (a *Adopter) copyIntoLibrary(ctx context.Context, lf *LegacyFile, owner, su
 		_ = a.stor.DeleteFile(ctx, path)
 		return nil, "", errors.New("adopt: legacy blob changed while copying")
 	}
+	// filepath.Base: a library name is a bare file name, but the legacy
+	// files.name column was never constrained, so strip any directory part
+	// that a pre-library upload path may have left in it.
 	row, created, err := a.lib.Insert(ctx, NewUserFile{
 		ID: id, OwnerUserID: owner, Name: filepath.Base(lf.Name), Mime: lf.Type,
 		Size: size, SHA256: sum, StoragePath: path,

@@ -326,3 +326,17 @@ func TestAdoptMetricPerOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestAdoptEmptyStoragePathIsBlobMissingSkip(t *testing.T) {
+	e := newAdoptEnv(0)
+	e.as.files["nopath"] = &LegacyFile{ID: "nopath", KBID: kb1, Name: "a.txt", Type: "text/plain", Origin: "upload"}
+	e.addLegacy("ok", "u/kb/ok", "hello")
+
+	res := e.adopt(t, "caller", "nopath", "ok")
+	if len(res.Skipped) != 1 || res.Skipped[0].FileID != "nopath" || res.Skipped[0].Reason != AdoptSkipBlobMissing {
+		t.Fatalf("skipped = %+v", res.Skipped)
+	}
+	if len(res.Adopted) != 1 || res.Adopted[0].FileID != "ok" {
+		t.Fatalf("adopted = %+v", res.Adopted)
+	}
+}

@@ -270,17 +270,6 @@ func (fx *libChatFixture) send(t *testing.T, body string, stream bool) *httptest
 
 // sseFrames splits an SSE body into decoded frames; "[DONE]" is kept as a
 // nil map so its position can be asserted.
-// openingFrame is the first frame carrying a chatId (after the prepare and
-// per-file parse progress frames).
-func openingFrame(frames []map[string]any) map[string]any {
-	for _, f := range frames {
-		if _, ok := f["chatId"]; ok {
-			return f
-		}
-	}
-	return map[string]any{}
-}
-
 func sseFrames(t *testing.T, body string) []map[string]any {
 	t.Helper()
 	var out []map[string]any
@@ -300,6 +289,17 @@ func sseFrames(t *testing.T, body string) []map[string]any {
 		out = append(out, m)
 	}
 	return out
+}
+
+// openingFrame is the first frame carrying a chatId (after the prepare and
+// per-file parse progress frames).
+func openingFrame(frames []map[string]any) map[string]any {
+	for _, f := range frames {
+		if _, ok := f["chatId"]; ok {
+			return f
+		}
+	}
+	return map[string]any{}
 }
 
 func (fx *libChatFixture) seedLibraryChat(id, owner string, refs ...string) {
