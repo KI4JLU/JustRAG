@@ -66,7 +66,7 @@ func TestExtractAndPersistKG_LibraryFileUsesCache(t *testing.T) {
 	var mu sync.Mutex
 	var extracted []string
 	p := &Processor{
-		kgCache: cache,
+		kgCache: cache, kgEffectiveModel: passModel,
 		extractKG: func(_ context.Context, _, _, chunk, _, _, _ string) (ai.KGExtraction, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -98,7 +98,7 @@ func TestExtractAndPersistKG_NoUserFileNeverTouchesCache(t *testing.T) {
 	calls := 0
 	var mu sync.Mutex
 	p := &Processor{
-		kgCache: cache,
+		kgCache: cache, kgEffectiveModel: passModel,
 		extractKG: func(_ context.Context, _, _, chunk, _, _, _ string) (ai.KGExtraction, error) {
 			mu.Lock()
 			calls++
@@ -125,7 +125,7 @@ func TestExtractAndPersistKG_DifferentModelMisses(t *testing.T) {
 	}}
 	calls := 0
 	p := &Processor{
-		kgCache: cache,
+		kgCache: cache, kgEffectiveModel: passModel,
 		extractKG: func(_ context.Context, _, _, _, _, _, _ string) (ai.KGExtraction, error) {
 			calls++
 			return kgExt("fresh"), nil

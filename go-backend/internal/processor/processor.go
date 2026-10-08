@@ -213,8 +213,14 @@ type Processor struct {
 
 	// kgCache caches per-chunk KG extractions of library-backed files (P2-R5);
 	// nil disables caching. extractKG is the extractor seam (nil = ai.ExtractKG).
-	kgCache   kgCache
-	extractKG func(ctx context.Context, fileName, document, chunk, kbID, lang, model string) (ai.KGExtraction, error)
+	kgCache kgCache
+	// Test seams, all nil in production: kgChunks replaces chunkSvc as the
+	// leaf-chunk source, kgPersist replaces the Postgres kgStore, and
+	// kgEffectiveModel replaces the AI-resolver lookup behind the cache key.
+	kgChunks         kgChunkReader
+	kgPersist        kgChunkPersister
+	kgEffectiveModel func(ctx context.Context, kbID, model string) (string, bool)
+	extractKG        func(ctx context.Context, fileName, document, chunk, kbID, lang, model string) (ai.KGExtraction, error)
 	// largeGate bounds how many "large" spreadsheets (per
 	// chat.TabularLargeFileBytes) this process ingests concurrently. nil
 	// (the default) is a no-op — every spreadsheet ingests immediately,
@@ -1560,16 +1566,25 @@ func (p *Processor) runRaptorBuildStage(ctx context.Context, fileID, kbID, fileN
 // this fileID. The first hit wins. Cheap because ListChunkTableDimensions
 // returns 1-2 entries in practice.
 func (p *Processor) runKGExtractionStage(ctx context.Context, fileID, kbID, fileName, document, lang, userFileID string) error {
-	if p.mainDB == nil || p.chunkSvc == nil {
+	var reader kgChunkReader
+	var store kgChunkPersister
+	switch {
+	case p.kgChunks != nil && p.kgPersist != nil:
+		reader, store = p.kgChunks, p.kgPersist
+	case p.mainDB == nil || p.chunkSvc == nil:
 		return fmt.Errorf("kg extraction: missing dependencies (mainDB / chunkSvc)")
+	default:
+		reader, store = p.chunkSvc, newKGStore(p.mainDB)
 	}
-	dims, err := p.chunkSvc.ListChunkTableDimensions(ctx)
+	dims, err := reader.ListChunkTableDimensions(ctx)
 	if err != nil {
 		return fmt.Errorf("kg extraction: list dims: %w", err)
 	}
+	// Leaves only: in copy mode the RAPTOR summary rows already exist when the
+	// graph is rebuilt, and model-written summaries must not be extracted.
 	var chunks []vector.FileChunkRow
 	for _, d := range dims {
-		rows, err := p.chunkSvc.GetChunksByFileID(ctx, kbID, fileID, d)
+		rows, err := reader.GetLeafChunksByFileID(ctx, kbID, fileID, d)
 		if err != nil {
 			// Non-existent table for this dim is logged but not
 			// fatal — we keep probing.
@@ -1590,9 +1605,15 @@ func (p *Processor) runKGExtractionStage(ctx context.Context, fileID, kbID, file
 	// lang is the KB's raw two-letter code ("de"/"en") passed in by
 	// ProcessFile — the KG prompt branches on those, and the regconfig
 	// form ("german") would silently miss the de branch.
-	store := newKGStore(p.mainDB)
 	p.extractAndPersistKG(ctx, store, chunks, fileID, kbID, fileName, document, lang, model, userFileID)
 	return nil
+}
+
+// kgChunkReader is the leaf-chunk source of the KG stage (*vector.ChunkService
+// in production).
+type kgChunkReader interface {
+	ListChunkTableDimensions(ctx context.Context) ([]int, error)
+	GetLeafChunksByFileID(ctx context.Context, kbID, fileID string, dimensions int) ([]vector.FileChunkRow, error)
 }
 
 // kgChunkPersister is the persistence half of the KG stage (*kgStore in
@@ -1607,8 +1628,11 @@ type kgChunkPersister interface {
 // entry. ok=false means the effective model cannot be determined and the cache
 // must be bypassed.
 func (p *Processor) kgCacheModel(ctx context.Context, kbID, model string) (string, bool) {
+	if p.kgEffectiveModel != nil {
+		return p.kgEffectiveModel(ctx, kbID, model)
+	}
 	if p.aiResolver == nil {
-		return model, p.extractKG != nil // test seam: no resolver, model as given
+		return "", false
 	}
 	rc, err := p.aiResolver.Resolve(ctx, kbID)
 	if err != nil {
@@ -1669,8 +1693,11 @@ extract:
 					logctx.From(ctx).Warn("kg extraction: cache read failed; extracting",
 						"fileId", fileID, "chunkId", c.ID, "error", cerr)
 				} else if hit {
+					observability.RecordKGExtractionCache("hit")
 					exts[i] = cached
 					return
+				} else {
+					observability.RecordKGExtractionCache("miss")
 				}
 			}
 			ext, err := extract(ctx, fileName, document, c.Content, kbID, lang, model)

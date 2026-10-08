@@ -2329,6 +2329,18 @@ var (
 	)
 )
 
+var kgExtractionCacheTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_kg_extraction_cache_total",
+		Help:        "Per-chunk KG extraction cache lookups for library-backed files, by outcome (hit = LLM call avoided, miss).",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+// RecordKGExtractionCache counts one cache lookup; outcome is "hit" or "miss".
+func RecordKGExtractionCache(outcome string) { kgExtractionCacheTotal.WithLabelValues(outcome).Inc() }
+
 // RecordRaptorBuild increments the per-outcome counter once per file ingest.
 func RecordRaptorBuild(outcome string) { raptorBuildTotal.WithLabelValues(outcome).Inc() }
 
