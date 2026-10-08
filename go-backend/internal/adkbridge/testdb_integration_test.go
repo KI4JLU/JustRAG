@@ -55,6 +55,13 @@ func isolatedPool(t *testing.T, migrations ...string) *pgxpool.Pool {
 		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
 		admin.Close()
 	})
+	// A schema-local knowledge_bases stub shadows public's (search_path), so
+	// the migrations' kb_id FK targets it and seedKB never inserts into or
+	// deletes from public.knowledge_bases, whose cascades lock tables other
+	// test binaries are migrating concurrently (40P01).
+	if _, err := pool.Exec(ctx, `CREATE TABLE knowledge_bases (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL)`); err != nil {
+		t.Fatalf("create knowledge_bases stub: %v", err)
+	}
 	for _, m := range migrations {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", "main", m))
 		if err != nil {

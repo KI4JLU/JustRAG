@@ -218,6 +218,8 @@ func TestFinishAndStateGuards(t *testing.T) {
 	}
 }
 
+// seedKB inserts into the schema-local knowledge_bases stub (see
+// isolatedPool); it is dropped with the schema.
 func seedKB(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var id string
@@ -225,7 +227,6 @@ func seedKB(t *testing.T, pool *pgxpool.Pool) string {
 		`INSERT INTO knowledge_bases (name) VALUES ($1) RETURNING id`, "adk-test-"+uuid.NewString()).Scan(&id); err != nil {
 		t.Fatalf("seed kb: %v", err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM knowledge_bases WHERE id=$1`, id) })
 	return id
 }
 
