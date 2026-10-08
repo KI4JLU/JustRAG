@@ -374,19 +374,19 @@ Unknown tools (remote MCP servers) get the most restrictive policy: `external_wr
 
 ### Run lifecycle (`agent_runs`)
 
-`running` -> `interrupted` (the run paused for user input) -> `running` again on resume -> terminal `completed` | `failed` | `cancelled` | `abandoned`. A thread may hold at most one open (interrupted, unexpired) run (unique index `agent_runs_one_open_per_thread`; a second pause or a new message yields `ErrThreadHasOpenInterrupt`). Interrupts expire after 24 h. `ClaimResume` is an exclusive atomic claim: exactly one resume wins, and it must answer exactly the open interrupt ids (`ErrNoOpenInterrupt`, `ErrInterruptExpired`, `ErrInterruptMismatch`). `Finish` accepts terminal states only (`ErrRunNotRunning` otherwise). `ExpireStale` moves expired interrupted runs to `abandoned`.
+`running` -> `interrupted` (the run paused for user input) -> terminal `completed` | `failed` | `cancelled` | `abandoned`. On resume the paused run is closed as `completed` and a new run row starts as `running` (inserted before the claim, so a refused claim leaves the new row `failed` with "resume refused"). A thread may hold at most one open (interrupted, unexpired) run (unique index `agent_runs_one_open_per_thread`; a second pause or a new message yields `ErrThreadHasOpenInterrupt`). Interrupts expire after 24 h. `ClaimResume` is an exclusive atomic claim: exactly one resume wins, and it must answer exactly the open interrupt ids (`ErrNoOpenInterrupt`, `ErrInterruptExpired`, `ErrInterruptMismatch`). `Finish` accepts only `completed`, `failed` or `cancelled` (any other target, including `abandoned`, is a plain error) and only on a row that is `running`; `ErrRunNotRunning` means the row is not running. `abandoned` is set only by `Interrupt`'s lazy cleanup of an expired predecessor, by a claim on an expired interrupt, and by `ExpireStale`.
 
 ### AG-UI status codes (before the stream starts)
 
 | Code | Body `error` | Cause |
 |---|---|---|
 | 400 | `bad_request`, `no_input`, `resume_requires_thread`, `bad_resume` | malformed body; nothing to run; resume without thread; resume naming interrupts that do not match while one is open |
-| 401 | `unauthenticated` | `ScopeFunc` returned `ErrUnauthorized` |
+| 401 | `unauthenticated` | `ScopeFunc` returned `ErrUnauthorized`, or a scope with empty `UserID` (fail closed) |
 | 403 | `forbidden` | `ScopeFunc` returned `ErrForbidden` |
 | 404 | `no_open_interrupt` | resume on a thread with no open interrupt for this user (another user's thread looks the same) |
 | 405 | `method_not_allowed` | not POST |
 | 409 | `interrupt_expired`, `interrupt_mismatch`, `thread_has_open_interrupt` | expired or mismatched resume; new message on a thread with an open interrupt |
-| 500 | `internal_error` | provider and database errors are logged, never sent to the client |
+| 500 | `internal_error` | any other `ScopeFunc` error; provider and database errors are logged, never sent to the client |
 | 200 | - | SSE stream |
 
 ### Phase-2 obligations (not implemented)

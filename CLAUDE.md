@@ -81,13 +81,13 @@ Go-first RAG application with a React frontend, PostgreSQL + pgvector, Redis, an
 
 | 0072 | `ragas_samples` (+ a `(kb_id, sampled_at DESC)` index) + `messages.conflicts jsonb` + `files.injection_flag`/`injection_detail` (Wave-5 trust surfaces; one file, **no backfill**, no index on a pre-existing table) |
 | 0073 | `agent_decisions.policy_rule` smallint (Wave 6, W6-R6 — which `chat_orchestrator_policy` rule, if any, pinned the turn's orchestrator; nullable, idempotent `ADD COLUMN IF NOT EXISTS`, **no backfill**) |
-| 0082 | `adk_sessions` / `adk_events` / `adk_app_states` (ADK bridge session store; Phase 1, unmounted) |
-| 0083 | `agent_runs` (ADK/AG-UI run lifecycle, one open interrupt per thread; Phase 1, unmounted) |
 | 0076 | `user_files` (per-user library, `UNIQUE (owner_user_id, sha256)`) + `users.file_quota_bytes` + `files.user_file_id` (both FKs `ON DELETE RESTRICT`; user-file library phase 1) |
 | 0077 | `files_user_file_kb_uidx` — unique partial index `files(user_file_id, kb_id)`, `NO TRANSACTION` + `CREATE INDEX CONCURRENTLY` |
 | 0078 | `files_uploaded_by_idx` — partial index `files(uploaded_by)`, `NO TRANSACTION` + `CREATE INDEX CONCURRENTLY` |
 | 0079 | `files.index_fingerprint text NULL` (user-file library phase 2; no index, no backfill) |
 | 0080 | `kg_extraction_cache` (per-library-file raw KG extraction output; `user_file_id` FK `ON DELETE CASCADE`; no backfill) |
+| 0082 | `adk_sessions` / `adk_events` / `adk_app_states` (ADK bridge session store; Phase 1, unmounted) |
+| 0083 | `agent_runs` (ADK/AG-UI run lifecycle, one open interrupt per thread; Phase 1, unmounted) |
 | 0075 | `files.uploaded_by` (uuid → users, `ON DELETE SET NULL`, **no backfill**, no index) — who added the file; exposed as `uploadedBy` on `GET /api/kb/{id}/files` for KB role ≥ edit |
 
 **Vector tables** are dim-keyed (`document_chunks_2560`, `document_chunks_4096`, …); switching the embedder requires a re-ingest.
