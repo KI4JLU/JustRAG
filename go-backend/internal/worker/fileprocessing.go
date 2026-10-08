@@ -10,6 +10,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/jobs"
+	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/processor"
 	"github.com/justrag/go-backend/internal/storage"
 )
@@ -45,6 +46,12 @@ func invalidateKBQueryCache(ctx context.Context, qc QueryCacheInvalidator, kbID,
 	}
 }
 
+// OwnerLookup resolves the owner of a user-library file. The worker uses it to
+// key the parse cache; a failed lookup just disables the cache for the task.
+type OwnerLookup interface {
+	UserFileOwner(ctx context.Context, userFileID string) (string, error)
+}
+
 // NewFileProcessingHandler returns an asynq.HandlerFunc that processes a single file.
 // It looks up the KB's chunk settings before processing.
 // If storage is S3, the file is downloaded to a temp path first.
@@ -53,6 +60,12 @@ func invalidateKBQueryCache(ctx context.Context, qc QueryCacheInvalidator, kbID,
 // SearchResults for the KB after a successful ingestion so freshly
 // embedded chunks are visible immediately rather than after the cache TTL.
 func NewFileProcessingHandler(proc *processor.Processor, kbStore KBChunkConfigStore, queryCache QueryCacheInvalidator, stor ...storage.Storage) asynq.HandlerFunc {
+	return NewFileProcessingHandlerWithOwners(proc, kbStore, queryCache, nil, stor...)
+}
+
+// NewFileProcessingHandlerWithOwners is NewFileProcessingHandler plus the
+// owner lookup that enables the library parse cache. owners may be nil.
+func NewFileProcessingHandlerWithOwners(proc *processor.Processor, kbStore KBChunkConfigStore, queryCache QueryCacheInvalidator, owners OwnerLookup, stor ...storage.Storage) asynq.HandlerFunc {
 	var storageBackend storage.Storage
 	if len(stor) > 0 {
 		storageBackend = stor[0]
@@ -102,7 +115,21 @@ func NewFileProcessingHandler(proc *processor.Processor, kbStore KBChunkConfigSt
 			localPath = tmpFile.Name()
 		}
 
-		err := proc.ProcessFile(ctx, processor.ProcessFileInput{
+		// Library-backed payloads carry UserFileID; the owner is read from the
+		// database rather than trusted from the payload. A failed lookup only
+		// costs the parse cache.
+		ownerID := ""
+		if payload.UserFileID != "" && owners != nil {
+			o, oerr := owners.UserFileOwner(ctx, payload.UserFileID)
+			if oerr != nil {
+				slog.Warn("parse cache disabled: owner lookup failed",
+					"fileId", payload.FileID, "userFileId", payload.UserFileID, "error", oerr)
+			} else {
+				ownerID = o
+			}
+		}
+
+		outcome, err := proc.ProcessFileWithResult(ctx, processor.ProcessFileInput{
 			FileID:       payload.FileID,
 			FilePath:     localPath,
 			FileName:     payload.OriginalName,
@@ -110,6 +137,8 @@ func NewFileProcessingHandler(proc *processor.Processor, kbStore KBChunkConfigSt
 			KBID:         payload.KbID,
 			ChunkSize:    chunkSize,
 			ChunkOverlap: chunkOverlap,
+			UserFileID:   payload.UserFileID,
+			OwnerUserID:  ownerID,
 		})
 		if err != nil {
 			slog.Error("file processing failed",
@@ -117,6 +146,14 @@ func NewFileProcessingHandler(proc *processor.Processor, kbStore KBChunkConfigSt
 				"error", err,
 			)
 			return err
+		}
+
+		if payload.UserFileID != "" {
+			if outcome.ParseCacheHit {
+				observability.RecordUserFileAdd("ingest_cached_parse")
+			} else {
+				observability.RecordUserFileAdd("ingest")
+			}
 		}
 
 		// Ingestion success — nuke any cached SearchResults for this KB so

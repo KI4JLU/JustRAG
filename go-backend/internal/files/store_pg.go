@@ -574,3 +574,15 @@ func (s *PGStore) ListSpreadsheetFiles(ctx context.Context, kbID string) ([]*Fil
 	}
 	return out, nil
 }
+
+// UserFileOwner returns the owner of a user-library file (worker: parse-cache
+// key). A missing row is an error.
+func (s *PGStore) UserFileOwner(ctx context.Context, userFileID string) (string, error) {
+	var owner string
+	err := s.pool.QueryRow(ctx,
+		`SELECT owner_user_id::text FROM user_files WHERE id = $1::uuid`, userFileID).Scan(&owner)
+	if err != nil {
+		return "", fmt.Errorf("files: user file owner: %w", err)
+	}
+	return owner, nil
+}

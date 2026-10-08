@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/libpaths"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/pgxutil"
 	"github.com/justrag/go-backend/internal/storage"
@@ -339,13 +340,19 @@ func (d *Deleter) DeleteUserFile(ctx context.Context, ownerID, userFileID string
 
 	// Best-effort and after the row: an orphan blob is cheaper than a row
 	// pointing at nothing. Detached so a client disconnect cannot skip it.
+	bctx := context.WithoutCancel(ctx)
 	if storagePath != "" {
-		bctx := context.WithoutCancel(ctx)
 		if err := d.storage.DeleteFile(bctx, storagePath); err != nil {
 			observability.RecordCascadeDeletionError(observability.CascadeResourceStorage)
 			slog.WarnContext(bctx, "cascade: delete library blob (best-effort) — orphan object possible",
 				"path", storagePath, "user_file_id", userFileID, "error", err)
 		}
+	}
+	// The parse cache (P2-R1) lives next to the blob and dies with it.
+	if err := d.storage.DeleteDirectory(bctx, libpaths.ParseCacheDir(ownerID, userFileID)); err != nil {
+		observability.RecordCascadeDeletionError(observability.CascadeResourceStorage)
+		slog.WarnContext(bctx, "cascade: delete library parse cache (best-effort) — orphan objects possible",
+			"user_file_id", userFileID, "error", err)
 	}
 	return nil
 }

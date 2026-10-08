@@ -65,8 +65,15 @@ func TestDeleteUserFile_OwnerScopedAndRemovesEveryCopy(t *testing.T) {
 		t.Fatalf("malformed id: err = %v", err)
 	}
 
+	parseKey := "users/" + f.userA + "/parses/" + f.ufID + "/x.json"
+	if err := f.stor.StoreFile(ctx, parseKey, []byte(`{}`), "application/json"); err != nil {
+		t.Fatalf("seed parse cache: %v", err)
+	}
 	if err := d.DeleteUserFile(ctx, f.userA, f.ufID); err != nil {
 		t.Fatalf("DeleteUserFile: %v", err)
+	}
+	if ok, _ := f.stor.FileExists(ctx, parseKey); ok {
+		t.Error("parse cache object still exists")
 	}
 	assertCountZero(t, mp, `SELECT count(*) FROM user_files WHERE id = $1::uuid`, f.ufID)
 	assertCountZero(t, mp, `SELECT count(*) FROM files WHERE user_file_id = $1::uuid`, f.ufID)

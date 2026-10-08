@@ -246,7 +246,7 @@ func RunWorker(cfg *config.Config) error {
 	// rationale.
 	tableDropper := tabular.NewMaterializer(db.Main)
 	confStore := confluence.NewStore(db.Main)
-	fileHandler := worker.NewFileProcessingHandler(proc, kbStore, searchService, stor)
+	fileHandler := worker.NewFileProcessingHandlerWithOwners(proc, kbStore, searchService, filesStore, stor)
 	fileHandler = worker.MarkErrorOnExhaustion(fileHandler, filesStore)
 	mux.HandleFunc(jobs.TypeFileProcessing, worker.Instrument(func(ctx context.Context, task *asynq.Task) error {
 		err := fileHandler(ctx, task)
@@ -269,6 +269,7 @@ func RunWorker(cfg *config.Config) error {
 		TableDropper: tableDropper,
 	})))
 	proc.SetSiteConfigReader(chatStore)
+	proc.SetParseCache(processor.NewParseCache(stor))
 	proc.SetKBOverrideLister(kbconfig.NewStore(db.Main))
 	proc.SetMainDB(db.Main)
 	proc.SetVectorPool(db.Vector)

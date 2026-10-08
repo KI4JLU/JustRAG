@@ -212,6 +212,8 @@ type Processor struct {
 	// (the default) is a no-op — every spreadsheet ingests immediately,
 	// matching pre-gate behavior. Set via SetLargeFileGate.
 	largeGate *LargeFileGate
+	// parseCache serves/stores parses of library-backed files (P2-R1/R2).
+	parseCache *ParseCache
 }
 
 // indexedChunk pairs a chunk's text with its source page number.
@@ -648,7 +650,24 @@ type ProcessFileInput struct {
 	KBID         string
 	ChunkSize    int // 0 → splitter default (512)
 	ChunkOverlap int // 0 → splitter default (100)
+	// UserFileID and OwnerUserID are set only for KB copies of a user-library
+	// file. Together they key the parse cache; empty UserFileID means the
+	// cache is never consulted.
+	UserFileID  string
+	OwnerUserID string
 }
+
+// ProcessOutcome reports facts about a ProcessFile run that callers record
+// (the worker's add-mode metric).
+type ProcessOutcome struct {
+	// ParseCacheHit is true when the parse step was served from the library
+	// parse cache instead of running the parser.
+	ParseCacheHit bool
+}
+
+// SetParseCache attaches the library parse cache. nil (the default) disables
+// it.
+func (p *Processor) SetParseCache(c *ParseCache) { p.parseCache = c }
 
 // setStage records the current ingestion stage for the upload spinner. The
 // stage must be present in plan; if not (indexOf returns 0) the call is skipped
@@ -668,6 +687,18 @@ func (p *Processor) setStage(ctx context.Context, fileID string, plan stagePlan,
 // parse → split → embed (batches of 20) → store chunks → update progress/status.
 // ChunkSize and ChunkOverlap of 0 use the splitter defaults (512 and 100).
 func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error {
+	var out ProcessOutcome
+	return p.processFile(ctx, in, &out)
+}
+
+// ProcessFileWithResult is ProcessFile plus a report of what the run did.
+func (p *Processor) ProcessFileWithResult(ctx context.Context, in ProcessFileInput) (ProcessOutcome, error) {
+	var out ProcessOutcome
+	err := p.processFile(ctx, in, &out)
+	return out, err
+}
+
+func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) error {
 	// Resolve ingestion config through the file's KB so per-KB overrides
 	// (raptor/parent-child/enrichment/kg_extraction) take effect. Reassigning
 	// the receiver routes every downstream p.siteConfigReader read and every
@@ -904,16 +935,33 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 		// minutes; progress stays at 5% during this phase so the frontend
 		// still shows activity.
 		var parseErr error
-		result, parseErr = par.Parse(ctx, parser.ParseContext{
-			FilePath:  filePath,
-			FileName:  fileName,
-			MimeType:  mimeType,
-			KbID:      kbID,
-			ChunkSize: chunkSize,
-		})
-		if parseErr != nil {
-			_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
-			return fmt.Errorf("processor: parse file: %w", parseErr)
+		cacheKey := ""
+		if in.UserFileID != "" && in.OwnerUserID != "" && p.parseCache != nil && parseCacheable(mimeType, fileName) {
+			cacheKey = ParseCacheKey(in.OwnerUserID, in.UserFileID, ParseConfigHash(ctx, p.siteConfigReader))
+			if cached, ok, gerr := p.parseCache.Get(ctx, cacheKey); gerr != nil {
+				logctx.From(ctx).Warn("processor: parse cache read failed; parsing normally", "fileId", fileID, "error", gerr)
+			} else if ok {
+				result = cached
+				outcome.ParseCacheHit = true
+			}
+		}
+		if !outcome.ParseCacheHit {
+			result, parseErr = par.Parse(ctx, parser.ParseContext{
+				FilePath:  filePath,
+				FileName:  fileName,
+				MimeType:  mimeType,
+				KbID:      kbID,
+				ChunkSize: chunkSize,
+			})
+			if parseErr != nil {
+				_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
+				return fmt.Errorf("processor: parse file: %w", parseErr)
+			}
+			if cacheKey != "" && result != nil {
+				if perr := p.parseCache.Put(ctx, cacheKey, result); perr != nil {
+					logctx.From(ctx).Warn("processor: parse cache write failed", "fileId", fileID, "error", perr)
+				}
+			}
 		}
 	}
 
