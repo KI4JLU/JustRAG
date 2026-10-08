@@ -190,7 +190,7 @@ func newRunner(t *testing.T, fc *fakeClient, tools []tool.Tool, svc session.Serv
 }
 
 func fakeSearch(calls *int) DispatchFunc {
-	return func(_ context.Context, name string, args json.RawMessage) (mcp.ToolResult, error) {
+	return func(_ context.Context, _ string, _ string, _ json.RawMessage) (mcp.ToolResult, error) {
 		*calls++
 		return mcp.ToolResult{Text: "Die Mensa öffnet um 11 Uhr. [1]"}, nil
 	}
@@ -199,7 +199,7 @@ func fakeSearch(calls *int) DispatchFunc {
 func run(t *testing.T, r *runner.Runner, sid string, msg *genai.Content) []*session.Event {
 	t.Helper()
 	var evs []*session.Event
-	for ev, err := range r.Run(context.Background(), "u1", sid, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+	for ev, err := range r.Run(WithScope(context.Background(), Scope{UserID: "u1", KBID: "kb", Role: "edit"}), "u1", sid, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if err != nil {
 			t.Fatalf("run: %v", err)
 		}
@@ -257,7 +257,7 @@ func TestApprovalPausesAndResumes(t *testing.T) {
 		{{Content: "Import gestartet."}, {FinishReason: "stop", Done: true}},
 	}}
 	calls := 0
-	imp := NewTool(ToolSpec{Name: "confluence_import", Description: "import", RequireApproval: true,
+	imp := NewTool(ToolSpec{Name: "confluence_import", Description: "import", Policy: PolicyFor("confluence_import"),
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"spaceKey":{"type":"string"}}}`)}, fakeSearch(&calls))
 	svc := session.InMemoryService()
 	r := newRunner(t, fc, []tool.Tool{imp}, svc)
@@ -376,3 +376,9 @@ func TestMalformedToolArgsReachToolAsSentinel(t *testing.T) {
 		t.Fatalf("args = %v", args)
 	}
 }
+
+func textTurn(s string) []ai.StreamChunk {
+	return []ai.StreamChunk{{Content: s}, {FinishReason: "stop", Done: true}}
+}
+
+func runCfg() agent.RunConfig { return agent.RunConfig{StreamingMode: agent.StreamingModeSSE} }

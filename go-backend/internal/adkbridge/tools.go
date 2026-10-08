@@ -3,6 +3,7 @@ package adkbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"google.golang.org/adk/v2/agent"
@@ -14,22 +15,19 @@ import (
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
-// DispatchFunc executes one tool call. It is the seam to our existing
-// dispatchers (mcp.Registry.Dispatch, chat.RestrictedDispatcher, …), which
-// keep enforcing allowlists at dispatch time — the catalog the model sees is
-// a hint, not a control.
-type DispatchFunc func(ctx context.Context, name string, args json.RawMessage) (mcp.ToolResult, error)
+// DispatchFunc executes one tool call for kbID.
+type DispatchFunc func(ctx context.Context, kbID, name string, args json.RawMessage) (mcp.ToolResult, error)
 
 // ToolSpec describes one tool exposed to an ADK agent.
 type ToolSpec struct {
 	Name        string
 	Description string
 	InputSchema json.RawMessage
-	// RequireApproval pauses the run before execution and asks the user to
-	// confirm (ADK tool confirmation). Enforced here, in code, so a
-	// prompt-injected model cannot skip it.
-	RequireApproval bool
+	Policy      ToolPolicy
 }
+
+// ErrForbiddenTool wraps every policy refusal at dispatch.
+var ErrForbiddenTool = errors.New("adkbridge: tool forbidden by policy")
 
 type dispatchTool struct {
 	spec     ToolSpec
@@ -41,22 +39,19 @@ func NewTool(spec ToolSpec, dispatch DispatchFunc) tool.Tool {
 	return &dispatchTool{spec: spec, dispatch: dispatch}
 }
 
-// RegistryTools exposes the named tools from an MCP registry for one KB.
-// Unknown names are an error, not silently dropped.
-func RegistryTools(reg *mcp.Registry, kbID string, names []string, approval func(name string) bool) ([]tool.Tool, error) {
+// RegistryTools exposes the named tools of reg for kbID, each with
+// PolicyFor(name). Unknown names are an error.
+func RegistryTools(reg *mcp.Registry, kbID string, names []string) ([]tool.Tool, error) {
 	out := make([]tool.Tool, 0, len(names))
 	for _, n := range names {
 		t, ok := reg.Get(kbID, n)
 		if !ok {
 			return nil, fmt.Errorf("adkbridge: unknown tool %q", n)
 		}
-		spec := ToolSpec{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema}
-		if approval != nil {
-			spec.RequireApproval = approval(n)
-		}
-		out = append(out, NewTool(spec, func(ctx context.Context, name string, args json.RawMessage) (mcp.ToolResult, error) {
-			return reg.Dispatch(ctx, kbID, name, args)
-		}))
+		out = append(out, NewTool(ToolSpec{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema, Policy: PolicyFor(n)},
+			func(ctx context.Context, kbID, name string, args json.RawMessage) (mcp.ToolResult, error) {
+				return reg.Dispatch(ctx, kbID, name, args)
+			}))
 	}
 	return out, nil
 }
@@ -79,10 +74,11 @@ func (t *dispatchTool) Declaration() *genai.FunctionDeclaration {
 	return d
 }
 
-// Run executes the tool. Dispatch errors are returned to the model as a
-// result (so it can correct itself) rather than failing the run.
+// Run executes the tool: approval first (pauses the run), then the
+// dispatch-time checks. Policy refusals and dispatch errors are returned to
+// the model as results so it can explain or recover.
 func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) {
-	if t.spec.RequireApproval {
+	if t.spec.Policy.Approval == ApprovalAlways {
 		if c := ctx.ToolConfirmation(); c != nil {
 			if !c.Confirmed {
 				return nil, fmt.Errorf("tool %q: %w", t.spec.Name, tool.ErrConfirmationRejected)
@@ -95,11 +91,8 @@ func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) 
 			return nil, fmt.Errorf("tool %q: %w", t.spec.Name, tool.ErrConfirmationRequired)
 		}
 	}
-	raw, err := json.Marshal(args)
-	if err != nil {
-		return nil, fmt.Errorf("adkbridge: marshal args for %q: %w", t.spec.Name, err)
-	}
-	res, err := t.dispatch(ctx, t.spec.Name, raw)
+	m, _ := args.(map[string]any)
+	res, err := t.dispatchChecked(ctx, m)
 	if err != nil {
 		return map[string]any{"error": err.Error()}, nil
 	}
@@ -111,4 +104,35 @@ func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) 
 		out["structured"] = res.Structured
 	}
 	return out, nil
+}
+
+// dispatchChecked enforces scope, role and privilege, overwrites the
+// injected ids, then dispatches. Split out so tests can call it directly.
+func (t *dispatchTool) dispatchChecked(ctx context.Context, args map[string]any) (mcp.ToolResult, error) {
+	sc, ok := ScopeFrom(ctx)
+	if !ok {
+		return mcp.ToolResult{}, ErrNoScope
+	}
+	if !RoleAtLeast(sc.Role, t.spec.Policy.RequiresRole) {
+		return mcp.ToolResult{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, t.spec.Name, t.spec.Policy.RequiresRole)
+	}
+	if mcp.PrivilegedTools[t.spec.Name] && !sc.AllowPrivileged {
+		return mcp.ToolResult{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, t.spec.Name)
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
+	// Never trust ids from the model: a prompt-injected document could
+	// otherwise point a tool at another KB or chat.
+	args["kb_id"] = sc.KBID
+	if sc.ChatID != "" {
+		args["chat_id"] = sc.ChatID
+	} else {
+		delete(args, "chat_id")
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return mcp.ToolResult{}, fmt.Errorf("adkbridge: marshal args for %q: %w", t.spec.Name, err)
+	}
+	return t.dispatch(ctx, sc.KBID, t.spec.Name, raw)
 }
