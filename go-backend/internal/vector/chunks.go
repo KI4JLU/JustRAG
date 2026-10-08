@@ -312,6 +312,48 @@ type FileChunkRow struct {
 	ContextualPrefix string
 }
 
+// GetFileLeafTextAllDims returns a file's leaf chunks' content joined by a
+// blank line, in chunk order, from whichever dim-keyed table holds them.
+// "" when no table has chunks for the file. RAPTOR summaries
+// (node_kind='summary') are excluded: they are model-written, not document
+// text. Used by publish-time screening, which has no parsed text to read.
+func (s *ChunkService) GetFileLeafTextAllDims(ctx context.Context, kbID, fileID string) (string, error) {
+	dims, err := s.ListChunkTableDimensions(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, d := range dims {
+		table := GetVectorTableName(d)
+		// table comes from GetVectorTableName, never request data.
+		query := fmt.Sprintf(`
+			SELECT content
+			  FROM "%s"
+			 WHERE kb_id = $1::uuid AND file_id = $2::uuid AND node_kind = 'leaf'
+			 ORDER BY (metadata->>'chunkIndex')::int NULLS LAST, created_at`, table)
+		rows, err := s.vectorDB.Query(ctx, query, kbID, fileID)
+		if err != nil {
+			return "", fmt.Errorf("leaf text for file %s from %q: %w", fileID, table, err)
+		}
+		var parts []string
+		for rows.Next() {
+			var c string
+			if err := rows.Scan(&c); err != nil {
+				rows.Close()
+				return "", fmt.Errorf("scan leaf text: %w", err)
+			}
+			parts = append(parts, c)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("iterate leaf text: %w", err)
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n\n"), nil
+		}
+	}
+	return "", nil
+}
+
 // GetChunksByFileID returns every chunk for the given (kb_id, file_id),
 // ordered by created_at ASC (insertion order). Used by the KG
 // extraction stage after AddDocumentChunks completes — the inserter

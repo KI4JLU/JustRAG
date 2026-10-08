@@ -331,6 +331,11 @@ func RunWorker(cfg *config.Config) error {
 		return worker.NewFileProcessingHandler(proc, kbStore, searchService, stor)(ctx, task)
 	})
 	mux.HandleFunc(jobs.TypeReEmbedding, worker.Instrument(worker.MarkErrorOnExhaustion(reembedHandler, filesStore)))
+	mux.HandleFunc(jobs.TypeKBScreening, worker.Instrument(worker.NewKBScreeningHandler(worker.KBScreeningDeps{
+		Files:  filesStore,
+		Text:   chunkService.GetFileLeafTextAllDims,
+		Reader: chatStore,
+	})))
 
 	// Confluence sync: fetch pages, convert to markdown, enqueue file processing.
 	mux.HandleFunc(jobs.TypeConfluenceSync, worker.Instrument(confluence.NewSyncHandler(confluence.SyncDeps{

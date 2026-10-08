@@ -100,3 +100,10 @@ type KGCommunitiesBuildPayload struct {
 type EvalScheduledPayload struct {
 	GoldenSetID string `json:"golden_set_id"`
 }
+
+// KBScreeningPayload is the TypeKBScreening task body: screen a KB's
+// never-screened user-added files after it was published (user file
+// library spec §11.2).
+type KBScreeningPayload struct {
+	KbID string `json:"kbId"`
+}

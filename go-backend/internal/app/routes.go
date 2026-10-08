@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -49,6 +50,7 @@ import (
 	"github.com/justrag/go-backend/internal/gitrepo"
 	"github.com/justrag/go-backend/internal/health"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kb"
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/kbcategories"
@@ -550,6 +552,19 @@ func registerAdminRoutes(rc *routeCtx) {
 	// System-, keine KB-Entscheidung.
 	kbVisibilityHandler := kbvisibility.NewHandler(
 		kbvisibility.NewStore(rc.infra.db.Main), kbOverviewStore)
+	kbVisibilityHandler.SetScreeningEnqueuer(func(ctx context.Context, kbID string) error {
+		payload, err := json.Marshal(jobs.KBScreeningPayload{KbID: kbID})
+		if err != nil {
+			return err
+		}
+		_, err = rc.infra.asynqClient.EnqueueContext(ctx,
+			asynq.NewTask(jobs.TypeKBScreening, payload),
+			asynq.Queue(jobs.QueueBatch),
+			asynq.Timeout(jobs.TimeoutFor(jobs.TypeKBScreening)),
+			asynq.MaxRetry(1),
+		)
+		return err
+	})
 	rc.mux.Handle("POST /api/admin/kb/{id}/publish", rc.adminChain(kbVisibilityHandler.Publish))
 	rc.mux.Handle("POST /api/admin/kb/{id}/unpublish", rc.adminChain(kbVisibilityHandler.Unpublish))
 	rc.mux.Handle("GET /api/admin/kb/{id}/unpublish-impact", rc.adminChain(kbVisibilityHandler.UnpublishImpact))

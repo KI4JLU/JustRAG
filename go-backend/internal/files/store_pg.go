@@ -392,6 +392,35 @@ func (s *PGStore) SetInjectionFlag(ctx context.Context, fileID string, detail []
 	return nil
 }
 
+// UnscreenedFile is one row ListUnscreenedUserFiles returns.
+type UnscreenedFile struct {
+	ID     string `db:"id"`
+	Name   string `db:"name"`
+	Type   string `db:"type"`
+	Origin string `db:"origin"`
+}
+
+// ListUnscreenedUserFiles returns the KB's user-added files (upload, text,
+// url) that were never screened (injection_detail IS NULL) and finished
+// ingesting, so their chunk text exists. Used when a KB is published: its
+// files went in while it was private, where user content is not screened.
+// The origin list mirrors processor.publicOnlyOrigins.
+func (s *PGStore) ListUnscreenedUserFiles(ctx context.Context, kbID string) ([]UnscreenedFile, error) {
+	const sql = `
+		SELECT id::text, name, type, origin
+		  FROM files
+		 WHERE kb_id = $1
+		   AND origin IN ('upload', 'text', 'url')
+		   AND injection_detail IS NULL
+		   AND status IN ('completed', 'partial')
+		 ORDER BY created_at`
+	rows, err := pgxutil.QueryRows[UnscreenedFile](ctx, s.pool, sql, kbID)
+	if err != nil {
+		return nil, fmt.Errorf("ListUnscreenedUserFiles: %w", err)
+	}
+	return rows, nil
+}
+
 // MarkInjectionScreenedClean records a screening pass that found nothing:
 // injection_flag = false with a detail carrying ONLY {"screened_at": …} —
 // no rule, no position, no snippet. That is what makes the three states of
