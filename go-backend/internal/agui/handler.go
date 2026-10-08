@@ -47,8 +47,11 @@ type handler struct{ cfg Config }
 // Status codes before the stream starts: 400 bad body / no input / resume
 // without thread / resume naming an interrupt that is not open while one is;
 // 401/403 from ScopeFunc; 404 resume on a thread with no open interrupt for
-// this user; 409 interrupt_expired, interrupt_mismatch, or a new message on a
-// thread with an open interrupt. Otherwise 200 SSE. Error text from the
+// this user in this KB (a pause recorded in another KB stays claimable
+// there); 409 interrupt_expired, interrupt_mismatch, thread_kb_mismatch (a
+// new message on a thread whose first run was in another KB), or
+// thread_has_open_interrupt (a new message on a thread with an open
+// interrupt). Otherwise 200 SSE. Error text from the
 // model provider or the database never reaches the client.
 func NewHandler(cfg Config) http.Handler { return &handler{cfg: cfg} }
 
@@ -97,6 +100,19 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if in.ThreadID != "" {
+			// A thread is bound to the KB of its first run: continuing it from
+			// another KB would carry that KB's history (and pending approvals)
+			// across the boundary.
+			kb, found, err := h.cfg.Runs.ThreadKB(ctx, h.cfg.AppName, sc.UserID, in.ThreadID)
+			if err != nil {
+				slog.ErrorContext(ctx, "agui: thread kb", "app", h.cfg.AppName, "error", err)
+				httpError(w, http.StatusInternalServerError, "internal_error")
+				return
+			}
+			if found && kb != sc.KBID {
+				httpError(w, http.StatusConflict, "thread_kb_mismatch")
+				return
+			}
 			open, err := h.cfg.Runs.HasOpen(ctx, h.cfg.AppName, sc.UserID, in.ThreadID)
 			if err != nil {
 				slog.ErrorContext(ctx, "agui: check open interrupt", "app", h.cfg.AppName, "error", err)
@@ -132,7 +148,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if resuming {
-		if ref := h.claim(ctx, sc.UserID, &in); ref != nil {
+		if ref := h.claim(ctx, sc, &in); ref != nil {
 			if err := h.cfg.Runs.Finish(context.WithoutCancel(ctx), in.RunID, adkbridge.RunFailed, "resume refused"); err != nil {
 				slog.ErrorContext(ctx, "agui: finish refused resume", "app", h.cfg.AppName, "run_id", in.RunID, "error", err)
 			}
@@ -188,13 +204,15 @@ func (h *handler) resumeInput(ctx context.Context, userID string, in *types.RunA
 	return msg, nil
 }
 
-// claim takes the thread's paused run for userID, exactly once.
-func (h *handler) claim(ctx context.Context, userID string, in *types.RunAgentInput) *refusal {
+// claim takes the thread's paused run for the scope's user and KB, exactly once.
+func (h *handler) claim(ctx context.Context, sc adkbridge.Scope, in *types.RunAgentInput) *refusal {
 	ids := make([]string, 0, len(in.Resume))
 	for _, e := range in.Resume {
 		ids = append(ids, e.InterruptID)
 	}
-	_, err := h.cfg.Runs.ClaimResume(ctx, h.cfg.AppName, userID, in.ThreadID, ids)
+	// Scoped to the request's KB: a pause recorded in another KB is not
+	// found (404) and stays claimable there.
+	_, err := h.cfg.Runs.ClaimResume(ctx, h.cfg.AppName, sc.UserID, in.ThreadID, sc.KBID, ids)
 	switch {
 	case err == nil:
 		return nil

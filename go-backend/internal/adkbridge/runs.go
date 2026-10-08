@@ -145,11 +145,14 @@ func (s *RunStore) Finish(ctx context.Context, runID string, status RunStatus, e
 	return nil
 }
 
-// ClaimResume atomically takes the thread's paused run for userID if its
-// open interrupt ids equal interruptIDs and it has not expired. The row
-// moves to completed (the resumed run is a new run row), so a second claim
-// finds nothing: exactly-once. An expired run is marked abandoned.
-func (s *RunStore) ClaimResume(ctx context.Context, appName, userID, threadID string, interruptIDs []string) (Run, error) {
+// ClaimResume atomically takes the thread's paused run for userID in kbID
+// (empty = a KB-less run) if its open interrupt ids equal interruptIDs and
+// it has not expired. A pause recorded in another KB is not found
+// (ErrNoOpenInterrupt) and stays claimable there: an approval given in one
+// KB can never execute in another. The row moves to completed (the resumed
+// run is a new run row), so a second claim finds nothing: exactly-once. An
+// expired run is marked abandoned.
+func (s *RunStore) ClaimResume(ctx context.Context, appName, userID, threadID, kbID string, interruptIDs []string) (Run, error) {
 	var (
 		out     Run
 		expired bool
@@ -163,8 +166,9 @@ func (s *RunStore) ClaimResume(ctx context.Context, appName, userID, threadID st
 		// SKIP LOCKED: a concurrent claimer sees no row instead of waiting,
 		// so exactly one of N simultaneous resumes wins.
 		err := tx.QueryRow(ctx, `SELECT id, open_interrupts, expires_at, kb_id::text FROM agent_runs
-			WHERE app_name=$1 AND thread_id=$2 AND user_id=$3 AND status='interrupted' FOR UPDATE SKIP LOCKED`,
-			appName, threadID, userID).Scan(&out.ID, &raw, &expires, &kb)
+			WHERE app_name=$1 AND thread_id=$2 AND user_id=$3 AND kb_id IS NOT DISTINCT FROM $4::uuid
+			AND status='interrupted' FOR UPDATE SKIP LOCKED`,
+			appName, threadID, userID, nullable(kbID)).Scan(&out.ID, &raw, &expires, &kb)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNoOpenInterrupt
 		}
@@ -208,6 +212,26 @@ func (s *RunStore) ClaimResume(ctx context.Context, appName, userID, threadID st
 		return Run{}, ErrInterruptExpired
 	}
 	return out, nil
+}
+
+// ThreadKB returns the KB the thread is bound to: the kb_id of userID's
+// first run on it ("" for a KB-less thread). found is false when userID has
+// no run on the thread. The first run, not the latest, defines the binding:
+// a refused resume from another KB still writes a (failed) run row.
+func (s *RunStore) ThreadKB(ctx context.Context, appName, userID, threadID string) (kbID string, found bool, err error) {
+	var kb *string
+	err = s.pool.QueryRow(ctx, `SELECT kb_id::text FROM agent_runs WHERE app_name=$1 AND user_id=$2
+		AND thread_id=$3 ORDER BY created_at ASC, id ASC LIMIT 1`, appName, userID, threadID).Scan(&kb)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("agent_runs thread kb: %w", err)
+	}
+	if kb != nil {
+		kbID = *kb
+	}
+	return kbID, true, nil
 }
 
 // HasOpen reports whether the thread has an unexpired paused run for userID.

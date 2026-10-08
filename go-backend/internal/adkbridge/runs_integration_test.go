@@ -48,13 +48,13 @@ func TestClaimResumeHappyPathAndOwnership(t *testing.T) {
 	u, other := seedUser(t, pool), seedUser(t, pool)
 	runID := pausedRun(t, s, u, "th", "i1", "i2")
 
-	if _, err := s.ClaimResume(context.Background(), "chat", other, "th", []string{"i1", "i2"}); !errors.Is(err, ErrNoOpenInterrupt) {
+	if _, err := s.ClaimResume(context.Background(), "chat", other, "th", "", []string{"i1", "i2"}); !errors.Is(err, ErrNoOpenInterrupt) {
 		t.Fatalf("other user: err = %v", err)
 	}
-	if _, err := s.ClaimResume(context.Background(), "chat", u, "th", []string{"i1"}); !errors.Is(err, ErrInterruptMismatch) {
+	if _, err := s.ClaimResume(context.Background(), "chat", u, "th", "", []string{"i1"}); !errors.Is(err, ErrInterruptMismatch) {
 		t.Fatalf("partial answer: err = %v", err)
 	}
-	got, err := s.ClaimResume(context.Background(), "chat", u, "th", []string{"i2", "i1"})
+	got, err := s.ClaimResume(context.Background(), "chat", u, "th", "", []string{"i2", "i1"})
 	if err != nil || got.ID != runID {
 		t.Fatalf("claim: %v %+v", err, got)
 	}
@@ -73,7 +73,7 @@ func TestClaimResumeIsExclusive(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := s.ClaimResume(context.Background(), "chat", u, "th", []string{"i1"}); err == nil {
+			if _, err := s.ClaimResume(context.Background(), "chat", u, "th", "", []string{"i1"}); err == nil {
 				mu.Lock()
 				wins++
 				mu.Unlock()
@@ -91,7 +91,7 @@ func TestExpiredInterruptCannotBeClaimed(t *testing.T) {
 	s := NewRunStore(pool, -time.Minute) // already expired
 	u := seedUser(t, pool)
 	runID := pausedRun(t, s, u, "th", "i1")
-	if _, err := s.ClaimResume(context.Background(), "chat", u, "th", []string{"i1"}); !errors.Is(err, ErrInterruptExpired) {
+	if _, err := s.ClaimResume(context.Background(), "chat", u, "th", "", []string{"i1"}); !errors.Is(err, ErrInterruptExpired) {
 		t.Fatalf("err = %v", err)
 	}
 	var status string
@@ -215,5 +215,64 @@ func TestFinishAndStateGuards(t *testing.T) {
 	}
 	if got := statusOf(t, pool, run); got != string(RunRunning) {
 		t.Fatalf("status = %s", got)
+	}
+}
+
+func seedKB(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO knowledge_bases (name) VALUES ($1) RETURNING id`, "adk-test-"+uuid.NewString()).Scan(&id); err != nil {
+		t.Fatalf("seed kb: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM knowledge_bases WHERE id=$1`, id) })
+	return id
+}
+
+// A claim is scoped to the KB the run paused in; a mismatch (including a
+// KB-less claim of a KB pause) finds nothing and consumes nothing.
+func TestClaimResumeIsKBScoped(t *testing.T) {
+	pool := isolatedPool(t, "0083_agent_runs.sql")
+	s := NewRunStore(pool, 24*time.Hour)
+	u := seedUser(t, pool)
+	kbA, kbB := seedKB(t, pool), seedKB(t, pool)
+	ctx := context.Background()
+	id := uuid.NewString()
+	if err := s.Start(ctx, Run{ID: id, ThreadID: "th", AppName: "chat", UserID: u, KBID: kbA}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Interrupt(ctx, id, []OpenInterrupt{{ID: "i1", Reason: "tool_approval"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, kb := range []string{kbB, ""} {
+		if _, err := s.ClaimResume(ctx, "chat", u, "th", kb, []string{"i1"}); !errors.Is(err, ErrNoOpenInterrupt) {
+			t.Fatalf("claim from kb %q: err = %v", kb, err)
+		}
+	}
+	got, err := s.ClaimResume(ctx, "chat", u, "th", kbA, []string{"i1"})
+	if err != nil || got.ID != id || got.KBID != kbA {
+		t.Fatalf("claim from own kb: %v %+v", err, got)
+	}
+}
+
+func TestThreadKBIsFirstRunsKB(t *testing.T) {
+	pool := isolatedPool(t, "0083_agent_runs.sql")
+	s := NewRunStore(pool, 24*time.Hour)
+	u, other := seedUser(t, pool), seedUser(t, pool)
+	kbA, kbB := seedKB(t, pool), seedKB(t, pool)
+	ctx := context.Background()
+	if _, found, err := s.ThreadKB(ctx, "chat", u, "th"); found || err != nil {
+		t.Fatalf("empty thread: found=%v err=%v", found, err)
+	}
+	for _, kb := range []string{kbA, kbB} {
+		if err := s.Start(ctx, Run{ID: uuid.NewString(), ThreadID: "th", AppName: "chat", UserID: u, KBID: kb}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if kb, found, err := s.ThreadKB(ctx, "chat", u, "th"); kb != kbA || !found || err != nil {
+		t.Fatalf("kb=%q found=%v err=%v", kb, found, err)
+	}
+	if _, found, _ := s.ThreadKB(ctx, "chat", other, "th"); found {
+		t.Fatal("another user's thread is visible")
 	}
 }

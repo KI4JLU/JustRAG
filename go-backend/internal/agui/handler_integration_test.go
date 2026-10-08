@@ -97,6 +97,17 @@ func isolatedPool(t *testing.T, migrations ...string) *pgxpool.Pool {
 	return pool
 }
 
+func seedKB(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO knowledge_bases (name) VALUES ($1) RETURNING id`, "agui-test-"+uuid.NewString()).Scan(&id); err != nil {
+		t.Fatalf("seed kb: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM knowledge_bases WHERE id=$1`, id) })
+	return id
+}
+
 func seedUser(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	id := uuid.NewString()
@@ -254,7 +265,7 @@ func newFixtureTTL(t *testing.T, ttl time.Duration, turns ...fakeTurn) *fixture 
 			if u == "" {
 				return adkbridge.Scope{}, ErrUnauthorized
 			}
-			return adkbridge.Scope{UserID: u, KBID: "", Role: "edit"}, nil
+			return adkbridge.Scope{UserID: u, KBID: r.Header.Get("X-Test-KB"), Role: "edit"}, nil
 		},
 	}))
 	t.Cleanup(f.srv.Close)
@@ -266,9 +277,20 @@ func post(t *testing.T, f *fixture, user string, body map[string]any) (int, []ma
 	return postCtx(context.Background(), t, f, user, body)
 }
 
+// postKB posts as user with the run scoped to kbID.
+func postKB(t *testing.T, f *fixture, user, kbID string, body map[string]any) (int, []map[string]any) {
+	t.Helper()
+	return postReq(context.Background(), t, f, user, kbID, body)
+}
+
 // postCtx posts body and parses the "data: " lines of the SSE response. A
 // cancelled ctx (client disconnect) returns whatever was read so far.
 func postCtx(ctx context.Context, t *testing.T, f *fixture, user string, body map[string]any) (int, []map[string]any) {
+	t.Helper()
+	return postReq(ctx, t, f, user, "", body)
+}
+
+func postReq(ctx context.Context, t *testing.T, f *fixture, user, kbID string, body map[string]any) (int, []map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -281,6 +303,9 @@ func postCtx(ctx context.Context, t *testing.T, f *fixture, user string, body ma
 	req.Header.Set("Content-Type", "application/json")
 	if user != "" {
 		req.Header.Set("X-Test-User", user)
+	}
+	if kbID != "" {
+		req.Header.Set("X-Test-KB", kbID)
 	}
 	resp, err := f.srv.Client().Do(req)
 	if err != nil {
@@ -571,5 +596,51 @@ func TestRefusedResumeLeavesNewRunFailed(t *testing.T) {
 	}
 	if st := runStatus(t, f, pause["runId"].(string)); st != "abandoned" {
 		t.Fatalf("paused run status = %q", st)
+	}
+}
+
+// An approval given in KB A cannot be spent in KB B: the claim is scoped to
+// the KB the run paused in, so the resume finds nothing (404), the action
+// does not run, and the pause stays claimable from KB A.
+func TestResumeFromOtherKBIs404AndKeepsInterrupt(t *testing.T) {
+	f := newFixture(t, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`), textTurn("Import läuft"))
+	kbA, kbB := seedKB(t, f.pool), seedKB(t, f.pool)
+	pause := userMsg("t1", "Importiere HRZ")
+	_, evs := postKB(t, f, f.userA, kbA, pause)
+	id := interrupts(last(evs))[0]["id"].(string)
+
+	if code, _ := postKB(t, f, f.userA, kbB, resume("t1", id, "resolved")); code != 404 || !strings.Contains(lastBody, "no_open_interrupt") {
+		t.Fatalf("resume from KB B: code=%d body=%s", code, lastBody)
+	}
+	if f.imports.Load() != 0 {
+		t.Fatal("action ran in the wrong KB")
+	}
+	if st := runStatus(t, f, pause["runId"].(string)); st != "interrupted" {
+		t.Fatalf("pause consumed by the refused resume: status=%q", st)
+	}
+	code, evs := postKB(t, f, f.userA, kbA, resume("t1", id, "resolved"))
+	if code != 200 || f.imports.Load() != 1 || last(evs)["type"] != "RUN_FINISHED" {
+		t.Fatalf("resume from KB A: code=%d imports=%d last=%v", code, f.imports.Load(), last(evs))
+	}
+}
+
+// A thread is bound to the KB of its first run; a new message from another
+// KB (paused or not) is refused before any row is written.
+func TestNewMessageFromOtherKBIs409(t *testing.T) {
+	f := newFixture(t, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`), textTurn("x"))
+	kbA, kbB := seedKB(t, f.pool), seedKB(t, f.pool)
+	postKB(t, f, f.userA, kbA, userMsg("t1", "Importiere HRZ")) // paused in A
+	if code, _ := postKB(t, f, f.userA, kbB, userMsg("t1", "noch was")); code != 409 || !strings.Contains(lastBody, "thread_kb_mismatch") {
+		t.Fatalf("paused thread: code=%d body=%s", code, lastBody)
+	}
+	postKB(t, f, f.userA, kbA, userMsg("t2", "Frage")) // completes in A
+	for _, kb := range []string{kbB, ""} {
+		if code, _ := postKB(t, f, f.userA, kb, userMsg("t2", "Folgefrage")); code != 409 || !strings.Contains(lastBody, "thread_kb_mismatch") {
+			t.Fatalf("completed thread, kb %q: code=%d body=%s", kb, code, lastBody)
+		}
+	}
+	var n int
+	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM agent_runs WHERE thread_id='t2'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("refused messages wrote rows: n=%d err=%v", n, err)
 	}
 }
