@@ -277,7 +277,8 @@ func (s *fakeRSSStorage) DeleteDirectory(context.Context, string) error { return
 func (s *fakeRSSStorage) FileExists(context.Context, string) (bool, error) {
 	return false, nil
 }
-func (s *fakeRSSStorage) IsS3() bool { return false }
+func (s *fakeRSSStorage) IsS3() bool                                                 { return false }
+func (s *fakeRSSStorage) List(context.Context, string) ([]storage.ObjectInfo, error) { return nil, nil }
 
 // fakeRSSTableDropper implements rssTableDropper, recording each call (and
 // its position in a shared event log) so the ordering test can assert it

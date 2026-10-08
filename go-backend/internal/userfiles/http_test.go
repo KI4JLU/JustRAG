@@ -18,6 +18,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/cascade"
+	"github.com/justrag/go-backend/internal/storage"
 )
 
 // ---- delete ---------------------------------------------------------------
@@ -238,7 +239,8 @@ func (f *fakeStorage) FileExists(_ context.Context, p string) (bool, error) {
 	_, ok := f.blobs[p]
 	return ok, nil
 }
-func (f *fakeStorage) IsS3() bool { return false }
+func (f *fakeStorage) IsS3() bool                                                 { return false }
+func (f *fakeStorage) List(context.Context, string) ([]storage.ObjectInfo, error) { return nil, nil }
 
 type fakeQuota int64
 
