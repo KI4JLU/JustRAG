@@ -283,6 +283,7 @@ func RunWorker(cfg *config.Config) error {
 	proc.SetLargeFileGate(processor.NewLargeFileGate(chat.TabularLargeFileConcurrency(ctx, chatStore)))
 	proc.SetKGEventPublisher(kgevents.NewPublisher(rdb.Client))
 	proc.SetKGDeleter(kg.NewPgStore(db.Main))
+	proc.SetKGCache(processor.NewKGCache(db.Main))
 	mux.HandleFunc(jobs.TypeResearchExecution, worker.Instrument(worker.NewResearchExecutionHandler(aiResolver, searchService, rdb.Client, chatStore, sharedFetcher)))
 	mux.HandleFunc(jobs.TypeAcademicResearchExecution, worker.Instrument(worker.NewAcademicResearchHandler(aiResolver, rdb.Client, chatStore, sharedFetcher)))
 	// RAGAS sampling persists each judged sample to ragas_samples (migration

@@ -210,6 +210,11 @@ type Processor struct {
 	// kgCleaner clears a file's prior KG rows before re-extraction so re-ingest
 	// replaces rather than accumulates. nil → no pre-clean (back-compat).
 	kgCleaner kgDeleter
+
+	// kgCache caches per-chunk KG extractions of library-backed files (P2-R5);
+	// nil disables caching. extractKG is the extractor seam (nil = ai.ExtractKG).
+	kgCache   kgCache
+	extractKG func(ctx context.Context, fileName, document, chunk, kbID, lang, model string) (ai.KGExtraction, error)
 	// largeGate bounds how many "large" spreadsheets (per
 	// chat.TabularLargeFileBytes) this process ingests concurrently. nil
 	// (the default) is a no-op — every spreadsheet ingests immediately,
@@ -389,6 +394,12 @@ type kgDeleter interface {
 // SetKGDeleter injects the pre-extraction KG cleaner. Optional — when nil,
 // clearStaleKG is a no-op and re-ingest behaves as before (KG accumulates).
 func (p *Processor) SetKGDeleter(d kgDeleter) { p.kgCleaner = d }
+
+// SetKGCache attaches the library-file KG extraction cache (worker wiring).
+func (p *Processor) SetKGCache(c kgCache) { p.kgCache = c }
+
+// NewKGCache builds the Postgres-backed KG extraction cache for SetKGCache.
+func NewKGCache(main *pgxpool.Pool) kgCache { return newPGKGCache(main) }
 
 // clearStaleKG removes the file's prior KG contribution before re-extraction.
 // Best-effort: a nil deleter or a delete error logs and continues, matching the
@@ -1428,7 +1439,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		// INSIDE the enabled gate (not next to the early chunk cleanup) so a KB
 		// with KG extraction currently disabled keeps its existing graph.
 		p.clearStaleKG(ctx, kbID, fileID)
-		kgErr := p.runKGExtractionStage(ctx, fileID, kbID, fileName, result.Text, rawLang)
+		kgErr := p.runKGExtractionStage(ctx, fileID, kbID, fileName, result.Text, rawLang, in.UserFileID)
 		if kgErr != nil {
 			logctx.From(ctx).Warn("processor: kg extraction stage failed",
 				"fileId", fileID, "error", kgErr)
@@ -1548,7 +1559,7 @@ func (p *Processor) runRaptorBuildStage(ctx context.Context, fileID, kbID, fileN
 // Dimensions resolution: probe each known dim table for any row of
 // this fileID. The first hit wins. Cheap because ListChunkTableDimensions
 // returns 1-2 entries in practice.
-func (p *Processor) runKGExtractionStage(ctx context.Context, fileID, kbID, fileName, document, lang string) error {
+func (p *Processor) runKGExtractionStage(ctx context.Context, fileID, kbID, fileName, document, lang, userFileID string) error {
 	if p.mainDB == nil || p.chunkSvc == nil {
 		return fmt.Errorf("kg extraction: missing dependencies (mainDB / chunkSvc)")
 	}
@@ -1580,6 +1591,49 @@ func (p *Processor) runKGExtractionStage(ctx context.Context, fileID, kbID, file
 	// ProcessFile — the KG prompt branches on those, and the regconfig
 	// form ("german") would silently miss the de branch.
 	store := newKGStore(p.mainDB)
+	p.extractAndPersistKG(ctx, store, chunks, fileID, kbID, fileName, document, lang, model, userFileID)
+	return nil
+}
+
+// kgChunkPersister is the persistence half of the KG stage (*kgStore in
+// production, a fake in unit tests).
+type kgChunkPersister interface {
+	persistKGExtraction(ctx context.Context, kbID, fileID, chunkID string, ext ai.KGExtraction) (created, deduped, edges int, err error)
+}
+
+// kgCacheModel is the model string the KG extraction cache keys on: the model
+// the completion actually runs (an empty or unknown override falls back to the
+// KB chat model), so two KBs with different effective models never share an
+// entry. ok=false means the effective model cannot be determined and the cache
+// must be bypassed.
+func (p *Processor) kgCacheModel(ctx context.Context, kbID, model string) (string, bool) {
+	if p.aiResolver == nil {
+		return model, p.extractKG != nil // test seam: no resolver, model as given
+	}
+	rc, err := p.aiResolver.Resolve(ctx, kbID)
+	if err != nil {
+		return "", false
+	}
+	return rc.EffectiveChatModel(model), true
+}
+
+// extractAndPersistKG extracts (cache first, for library files) per chunk in
+// parallel, then persists serially. Best-effort: failures log and skip.
+func (p *Processor) extractAndPersistKG(ctx context.Context, store kgChunkPersister, chunks []vector.FileChunkRow, fileID, kbID, fileName, document, lang, model, userFileID string) {
+	extract := p.extractKG
+	if extract == nil {
+		extract = func(ctx context.Context, fileName, document, chunk, kbID, lang, model string) (ai.KGExtraction, error) {
+			return ai.ExtractKG(ctx, p.aiResolver, fileName, document, chunk, kbID, lang, model)
+		}
+	}
+	// Library-backed files consult/write the per-file extraction cache.
+	var cache kgCache
+	cacheModel := ""
+	if userFileID != "" && p.kgCache != nil {
+		if m, ok := p.kgCacheModel(ctx, kbID, model); ok {
+			cache, cacheModel = p.kgCache, m
+		}
+	}
 
 	// Extract in parallel (LLM-bound, ~all of the stage's wall-clock),
 	// then persist serially below. nil slot = extraction failed/skipped.
@@ -1605,13 +1659,33 @@ extract:
 		safego.GoCtx(ctx, func() {
 			defer extractWg.Done()
 			defer func() { <-sem }()
-			ext, err := ai.ExtractKG(ctx, p.aiResolver, fileName, document, c.Content, kbID, lang, model)
+			hash := ""
+			if cache != nil {
+				hash = vector.HashContent(c.Content)
+			}
+			if hash != "" {
+				cached, hit, cerr := cache.Get(ctx, userFileID, hash, cacheModel, lang)
+				if cerr != nil {
+					logctx.From(ctx).Warn("kg extraction: cache read failed; extracting",
+						"fileId", fileID, "chunkId", c.ID, "error", cerr)
+				} else if hit {
+					exts[i] = cached
+					return
+				}
+			}
+			ext, err := extract(ctx, fileName, document, c.Content, kbID, lang, model)
 			if err != nil {
 				logctx.From(ctx).Warn("kg extraction: chunk extract failed; skipping chunk",
 					"fileId", fileID, "chunkId", c.ID, "error", err)
 				return
 			}
 			exts[i] = &ext
+			if hash != "" {
+				if perr := cache.Put(ctx, userFileID, hash, cacheModel, lang, ext); perr != nil {
+					logctx.From(ctx).Warn("kg extraction: cache write failed",
+						"fileId", fileID, "chunkId", c.ID, "error", perr)
+				}
+			}
 		})
 	}
 	extractWg.Wait()
@@ -1641,7 +1715,27 @@ extract:
 		"entities_deduped", totalDeduped,
 		"edges", totalEdges,
 	)
-	return nil
+}
+
+// RebuildKGForFile runs the KG stage for an already-indexed file (flat-path
+// leaves in the chunk table), consulting/writing the extraction cache. No-op
+// when kg_extraction_enabled is off for kbID (overlay-resolved). documentBody
+// is used only on cache misses (pass the cached parse text if available, else
+// the joined leaf text). Used by copy mode, which skips the ingest KG stage.
+func (p *Processor) RebuildKGForFile(ctx context.Context, kbID, fileID, fileName, userFileID, documentBody string) error {
+	p = p.withKBConfig(ctx, kbID)
+	if !resolveKGExtractionEnabled(ctx, p.siteConfigReader) {
+		return nil
+	}
+	rawLang, _ := p.resolveKBLanguages(ctx, kbID)
+	p.clearStaleKG(ctx, kbID, fileID)
+	err := p.runKGExtractionStage(ctx, fileID, kbID, fileName, documentBody, rawLang, userFileID)
+	if p.kgPub != nil {
+		p.kgPub.PublishGraphChanged(ctx, kbID)
+		active, _ := p.kbHasActiveIngestion(ctx, kbID)
+		p.kgPub.PublishStatus(ctx, kbID, active)
+	}
+	return err
 }
 
 // runHyPEGenerationStage generates + embeds hypothetical questions for
