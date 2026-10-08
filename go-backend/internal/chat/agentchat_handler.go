@@ -56,7 +56,11 @@ type AgentChatDeps struct {
 	// chat session memory on.
 	SessionMemory sessionmem.Store
 	Importer      *confluence.Importer // may be nil
-	Library       LibraryAdder         // may be nil
+	// ConfluenceConns looks up the user's Confluence connection: the
+	// confluence action is offered only to a user who has one. nil never
+	// offers it.
+	ConfluenceConns ConfluenceConnections
+	Library         LibraryAdder // may be nil
 	// Files counts a KB's files (empty KB → no_files); nil skips the check.
 	Files *files.PGStore
 	// FileDates resolves source files' dates for the retrieval (as the
@@ -70,6 +74,11 @@ type AgentChatDeps struct {
 	// over Store.
 	kbPrompt func(ctx context.Context, kbID string) (*string, error)
 	condense func(ctx context.Context, chatID string, parent *string, q, kbID, lang string) (string, error)
+}
+
+// ConfluenceConnections is the connection lookup of confluence.PGStore.
+type ConfluenceConnections interface {
+	GetConfluenceConnectionByUserID(ctx context.Context, userID string) (*confluence.ConfluenceConnectionRow, error)
 }
 
 // AgentChatHandler serves POST /api/kb/{id}/agui/chat: the agentic chat as
@@ -284,11 +293,62 @@ func (h *AgentChatHandler) runner(ctx context.Context, kbID string, reader SiteC
 		FileCounter: counter,
 		Allowed:     allowed,
 		ActDispatch: act,
+		Available:   h.actionAvailable,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return runner.New(runner.Config{AppName: agentChatApp, Agent: flow, SessionService: h.d.Sessions, AutoCreateSession: true})
+}
+
+// actionAvailable reports whether a dead-end tool can run for the user
+// now, from the same settings its executor reads, so the client is never
+// offered a button that can only fail. Reads the GLOBAL reader: web search
+// (research.WebClient) and Confluence read global settings, not KB
+// overrides. Any lookup error fails closed.
+func (h *AgentChatHandler) actionAvailable(ctx context.Context, sc adkbridge.Scope, tool string) bool {
+	switch tool {
+	case "web_search":
+		// research.WebClient.Search refuses without all three.
+		return siteConfigEquals(ctx, h.d.SiteConfig, "web_search_enabled", "true") &&
+			siteConfigSet(ctx, h.d.SiteConfig, "google_search_api_key") &&
+			siteConfigSet(ctx, h.d.SiteConfig, "google_search_cx")
+	case "confluence_import":
+		if h.d.ConfluenceConns == nil || !siteConfigEquals(ctx, h.d.SiteConfig, "confluence_enabled", "true") {
+			return false
+		}
+		conn, err := h.d.ConfluenceConns.GetConfluenceConnectionByUserID(ctx, sc.UserID)
+		if err != nil {
+			logctx.From(ctx).Warn("agentchat: confluence connection lookup", "error", err)
+			return false
+		}
+		return conn != nil
+	default:
+		return true
+	}
+}
+
+func siteConfigValue(ctx context.Context, r SiteConfigReader, key string) string {
+	if r == nil {
+		return ""
+	}
+	v, err := r.GetSiteConfigValue(ctx, key)
+	if err != nil {
+		logctx.From(ctx).Warn("agentchat: read site config", "key", key, "error", err)
+		return ""
+	}
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func siteConfigEquals(ctx context.Context, r SiteConfigReader, key, want string) bool {
+	return siteConfigValue(ctx, r, key) == want
+}
+
+func siteConfigSet(ctx context.Context, r SiteConfigReader, key string) bool {
+	return siteConfigValue(ctx, r, key) != ""
 }
 
 func (h *AgentChatHandler) model(ctx context.Context, kbID, effort string) (*adkbridge.Model, error) {

@@ -49,7 +49,16 @@ type AgentFlowDeps struct {
 	// ActDispatch executes a chosen action (see ActDispatchers); entries
 	// for tools outside Allowed are dropped.
 	ActDispatch map[string]adkbridge.DispatchFunc
+	// Available reports whether a dead-end tool can run for this user right
+	// now (web search enabled and configured, Confluence enabled and
+	// connected). suggest and act both apply it, so a button is never
+	// offered that would fail. nil treats every dispatchable tool as
+	// available.
+	Available ActionAvailability
 }
+
+// ActionAvailability is AgentFlowDeps.Available.
+type ActionAvailability func(ctx context.Context, sc adkbridge.Scope, tool string) bool
 
 // NewAgentFlow returns the per-turn workflow agent:
 //
@@ -126,8 +135,9 @@ func deadEndEdges(retrieve workflow.Node, deps AgentFlowDeps) ([]workflow.Edge, 
 	// One allowlist-filtered map for both nodes, so suggest offers exactly
 	// what act can run.
 	dispatch := allowlistedDispatch(deps.ActDispatch, deps.Allowed)
-	suggest := agentSuggestNode(deps.Allowed, dispatch)
-	act := agentActNode(deps.Allowed, dispatch)
+	offer := actionOffer{allowed: deps.Allowed, dispatch: dispatch, available: deps.Available}
+	suggest := agentSuggestNode(offer)
+	act := agentActNode(offer)
 	// Repeats suggest's text as the turn's final output.
 	deadEnd := workflow.NewFunctionNode("dead_end",
 		func(_ agent.Context, text string) (string, error) { return text, nil }, workflow.NodeConfig{})

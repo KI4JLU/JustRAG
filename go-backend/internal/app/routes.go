@@ -1227,6 +1227,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		chatOpts = append(chatOpts, chat.WithDecisionRecorder(&decisionRecorderAdapter{store: rc.agentDecisionStore}))
 	}
 	chatHandler := chat.NewHandler(rc.chatStore, rc.aiResolver, rc.searchService, chatOpts...)
+	agentChatConfluence := confluence.NewStore(rc.infra.db.Main)
 	agentChat := chat.NewAgentChatHandler(chat.AgentChatDeps{
 		Store:         rc.chatStore,
 		SiteConfig:    rc.chatStore,
@@ -1239,10 +1240,11 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		Usage:         usage.NewRecorder(rc.infra.db.Main),
 		SessionMemory: sessionMemoryStore,
 		// Bridge-only write tools (never registered in mcpRegistry).
-		Importer:  confluence.NewImporter(confluence.NewStore(rc.infra.db.Main), rc.infra.asynqClient),
-		Library:   rc.filesHandler,
-		Files:     rc.filesStore,
-		FileDates: &fileDatesAdapter{store: rc.filesStore},
+		Importer:        confluence.NewImporter(agentChatConfluence, rc.infra.asynqClient),
+		ConfluenceConns: agentChatConfluence,
+		Library:         rc.filesHandler,
+		Files:           rc.filesStore,
+		FileDates:       &fileDatesAdapter{store: rc.filesStore},
 	})
 
 	// Phase 2 admin UI: load configured remote MCP servers from

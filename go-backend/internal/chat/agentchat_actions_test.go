@@ -582,3 +582,29 @@ func TestWebAnswerSeesNoEarlierTurns(t *testing.T) {
 		}
 	}
 }
+
+// Final review item 2: an action the deployment cannot run right now
+// (web search off/unconfigured, Confluence off or no connection) is neither
+// offered by suggest nor executed by act — the same check on both sides.
+func TestUnavailableActionsAreNeitherOfferedNorExecuted(t *testing.T) {
+	var web int
+	dispatch := allDispatchers()
+	dispatch["web_search"] = countingDispatch(&web, "x")
+	var checked []string
+	deps := deadEndDeps(&agentFakeClient{}, dispatch)
+	deps.Available = func(_ context.Context, sc adkbridge.Scope, tool string) bool {
+		checked = append(checked, sc.UserID+"|"+tool)
+		return tool != "web_search" && tool != "confluence_import"
+	}
+	h := newDeadEndHarness(t, deps, editScope)
+	req := pauseOf(h.ask("Budget?"))
+	if got := offeredIDs(t, req); !slices.Equal(got, []string{"library", "upload"}) {
+		t.Fatalf("offered = %v", got)
+	}
+	if !slices.Contains(checked, "u1|web_search") || !slices.Contains(checked, "u1|confluence_import") {
+		t.Fatalf("availability checks = %v", checked)
+	}
+	if got := lastOutput(h.resume(req, map[string]any{"actionId": "web"})); got != actRefusedText || web != 0 {
+		t.Fatalf("forged web: output %q, dispatches %d", got, web)
+	}
+}

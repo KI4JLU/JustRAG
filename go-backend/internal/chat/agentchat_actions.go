@@ -232,13 +232,20 @@ func allowlistedDispatch(in map[string]adkbridge.DispatchFunc, allowed []string)
 	return out
 }
 
+// actionOffer is what decides the dead end's offered actions; suggest and
+// act share one, so they agree.
+type actionOffer struct {
+	allowed []string
+	// dispatch must already be allowlist-filtered: an action whose tool has
+	// no dispatcher cannot execute, so it is never offered.
+	dispatch  map[string]adkbridge.DispatchFunc
+	available ActionAvailability // nil = every dispatchable tool
+}
+
 // offeredActions recomputes the dead end's visible actions from the
 // server-written state (P2-R6) — never from the client. suggest and act
 // both call it, so they agree.
-//
-// dispatch must already be allowlist-filtered: an action whose tool has no
-// dispatcher cannot execute, so it is never offered.
-func offeredActions(ctx agent.Context, allowed []string, dispatch map[string]adkbridge.DispatchFunc) (question, reason string, offered []adkbridge.Action, err error) {
+func offeredActions(ctx agent.Context, o actionOffer) (question, reason string, offered []adkbridge.Action, err error) {
 	sc, ok := adkbridge.ScopeFrom(ctx)
 	if !ok {
 		return "", "", nil, adkbridge.ErrNoScope
@@ -248,8 +255,17 @@ func offeredActions(ctx agent.Context, allowed []string, dispatch map[string]adk
 	if reason != adkbridge.RouteNoEvidence && reason != adkbridge.RouteNoFiles {
 		return question, reason, nil, nil
 	}
-	for _, a := range adkbridge.VisibleActions(sc, DeadEndActions(question, reason), allowed) {
-		if dispatch[a.Tool] != nil {
+	ready := map[string]bool{} // one availability check per tool
+	for _, a := range adkbridge.VisibleActions(sc, DeadEndActions(question, reason), o.allowed) {
+		if o.dispatch[a.Tool] == nil {
+			continue
+		}
+		ok, seen := ready[a.Tool]
+		if !seen {
+			ok = o.available == nil || o.available(ctx, sc, a.Tool)
+			ready[a.Tool] = ok
+		}
+		if ok {
 			offered = append(offered, a)
 		}
 	}
@@ -274,10 +290,10 @@ func deadEndText(reason string) string {
 
 // agentSuggestNode pauses the run with the offered actions. With nothing
 // executable to offer it answers the dead end directly (route no_actions).
-func agentSuggestNode(allowed []string, dispatch map[string]adkbridge.DispatchFunc) workflow.Node {
+func agentSuggestNode(o actionOffer) workflow.Node {
 	return workflow.NewEmittingFunctionNode("suggest",
 		func(ctx agent.Context, _ any, emit func(*session.Event) error) (any, error) {
-			q, reason, offered, err := offeredActions(ctx, allowed, dispatch)
+			q, reason, offered, err := offeredActions(ctx, o)
 			if err != nil {
 				return nil, err
 			}
@@ -305,18 +321,18 @@ func agentSuggestNode(allowed []string, dispatch map[string]adkbridge.DispatchFu
 // payload). A web search routes to the web answer with the results; a KB
 // write ends with a confirmation; a cancel, a refusal or a failure ends
 // with a fixed text.
-func agentActNode(allowed []string, dispatch map[string]adkbridge.DispatchFunc) workflow.Node {
+func agentActNode(o actionOffer) workflow.Node {
 	return workflow.NewEmittingFunctionNode("act",
 		func(ctx agent.Context, in any, emit func(*session.Event) error) (any, error) {
 			choice, ok := decodeResumeChoice(in)
 			if !ok {
 				return actCancelledText, nil
 			}
-			q, _, offered, err := offeredActions(ctx, allowed, dispatch)
+			q, _, offered, err := offeredActions(ctx, o)
 			if err != nil {
 				return nil, err
 			}
-			res, err := adkbridge.ExecuteAction(ctx, offered, choice, dispatch)
+			res, err := adkbridge.ExecuteAction(ctx, offered, choice, o.dispatch)
 			var noConn confluenceNoConnection
 			switch {
 			case errors.As(err, &noConn):

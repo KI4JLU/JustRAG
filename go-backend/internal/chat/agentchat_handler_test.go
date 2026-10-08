@@ -3,12 +3,14 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
 	"github.com/justrag/go-backend/internal/adkbridge"
+	"github.com/justrag/go-backend/internal/confluence"
 	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/sessionmem"
 )
@@ -141,4 +143,47 @@ func (s *hooksStore) LastMessageID(context.Context, string) (*string, error) {
 }
 func (s *hooksStore) AddMessage(context.Context, AddMessageParams) (*MessageRow, error) {
 	return &MessageRow{ID: "m10"}, nil
+}
+
+type fakeConfluenceConns struct {
+	conn bool
+	err  error
+}
+
+func (f fakeConfluenceConns) GetConfluenceConnectionByUserID(context.Context, string) (*confluence.ConfluenceConnectionRow, error) {
+	if f.err != nil || !f.conn {
+		return nil, f.err
+	}
+	return &confluence.ConfluenceConnectionRow{ID: "conn1"}, nil
+}
+
+// Final review item 2: web is offered only when web search is enabled AND
+// configured (the settings research.WebClient reads); confluence only when
+// Confluence is enabled AND the user has a connection.
+func TestActionAvailability(t *testing.T) {
+	sc := adkbridge.Scope{UserID: "u1", KBID: "kb1", Role: "edit"}
+	web := mapSiteConfig{"web_search_enabled": "true", "google_search_api_key": "k", "google_search_cx": "cx"}
+	for _, tc := range []struct {
+		name  string
+		cfg   mapSiteConfig
+		conns ConfluenceConnections
+		tool  string
+		want  bool
+	}{
+		{"web configured", web, nil, "web_search", true},
+		{"web disabled", mapSiteConfig{"google_search_api_key": "k", "google_search_cx": "cx"}, nil, "web_search", false},
+		{"web without key", mapSiteConfig{"web_search_enabled": "true", "google_search_cx": "cx"}, nil, "web_search", false},
+		{"web without cx", mapSiteConfig{"web_search_enabled": "true", "google_search_api_key": "k"}, nil, "web_search", false},
+		{"confluence ok", mapSiteConfig{"confluence_enabled": "true"}, fakeConfluenceConns{conn: true}, "confluence_import", true},
+		{"confluence disabled", mapSiteConfig{}, fakeConfluenceConns{conn: true}, "confluence_import", false},
+		{"confluence no connection", mapSiteConfig{"confluence_enabled": "true"}, fakeConfluenceConns{}, "confluence_import", false},
+		{"confluence lookup error", mapSiteConfig{"confluence_enabled": "true"}, fakeConfluenceConns{err: errors.New("db")}, "confluence_import", false},
+		{"confluence no store", mapSiteConfig{"confluence_enabled": "true"}, nil, "confluence_import", false},
+		{"library", mapSiteConfig{}, nil, "library_add_to_kb", true},
+	} {
+		h := NewAgentChatHandler(AgentChatDeps{SiteConfig: tc.cfg, ConfluenceConns: tc.conns})
+		if got := h.actionAvailable(context.Background(), sc, tc.tool); got != tc.want {
+			t.Errorf("%s: available = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }
