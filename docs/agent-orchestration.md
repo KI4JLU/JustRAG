@@ -350,6 +350,52 @@ On a trip the guard cancels the child context the *completion* runs under (so th
 
 Every answer surface is covered: web (both streaming paths and, post hoc, the non-streaming one), the public API and OpenAI-compat (each has its own stream loop, so both abort rather than only stripping afterwards), and `ask_kb` post hoc. All four streaming trips go through one exported forced variant, `chat.GuardStreamedAnswer(buffered, sent, limit, lang, surface)`: forced because the tracker already tripped (the answer is truncated whether or not a second detection over the buffer re-finds the run), on the tracker's own limit (no second site_config read, and never a limit other than the one that fired), and returning the content the client is still owed — the trip chunk is buffered but not forwarded, so any legitimate text ahead of the run inside it is streamed back before the notice. That is what keeps the client's assembled text equal to the guarded answer, and hence what makes OpenAI-compat's closing-chunk citation annotations, computed over the **guarded** text, line up with what the client holds (pinned by `TestAnnotationOffsetsMatchClientTextAfterADegenerateTrip`). Reasoning tokens are deliberately not guarded. Trajectory `answer_degenerate_guard{limit, run_length}`; metric `rag_answer_degenerate_total{surface}` — alert on any non-zero rate: the guard contains the symptom, it does not fix the model. `0` disables it everywhere (which is why `publicapi`/`openaicompat` gained a site-config reader at all); a real limit clamps to [50, 100000]. 400 sits above any realistic Markdown rule (~300) and three orders of magnitude below the observed failure. `internal/chat/degenerate_guard.go`.
 
+## ADK bridge (Phase 1, unmounted)
+
+Adoption of Google's Agent Development Kit (`google.golang.org/adk/v2`) and the AG-UI event protocol. **Nothing is routed**: no handler is registered in `internal/app` and `internal/chat` is untouched, so there is no behaviour change. Neither package may import `internal/chat`. Plan: `docs/superpowers/specs/2026-10-08-adk-go-adoption-plan.md`.
+
+### Packages
+
+- `internal/adkbridge` - the ADK-facing side. `Model`/`ModelFactory.For` wrap the existing `internal/ai` client (concurrency limiter, call counter, reasoning switch via `WithReasoning`; think-tag filter; early-stop cancel). `Scope` (`WithScope`/`ScopeFrom`, `ErrNoScope`) carries user, KB, role and `AllowPrivileged` through the context. `policy.go` holds the tool policies. `NewTool`/`RegistryTools` expose MCP-registry tools to ADK, enforcing policy at dispatch time, overwriting `kb_id`/`chat_id` from the scope, and returning an opaque "tool failed" for non-policy errors. `PGSessionService` stores ADK sessions (migration 0082). `RunStore` tracks run lifecycle (migration 0083). `RetrieveNode` and `SuggestNode` are workflow nodes (retrieval with routes `found`/`no_evidence`/`no_files`; a pause offering role-filtered `Action`s).
+- `internal/agui` - the wire side. `Translator` turns ADK events into AG-UI events (`StepName`, the `justrag.sources.v1` custom sources event); `Input`/`OpenInterrupts` map an AG-UI resume onto the session's open interrupts (`ErrResumeNeedsThread`). `NewHandler(Config{AppName, Runner, Sessions, Runs, Scope})` is the POST endpoint (RunAgentInput in, SSE out); `ScopeFunc` resolves the `Scope` from the request.
+
+### Tool policy (`builtinPolicies`)
+
+Unknown tools (remote MCP servers) get the most restrictive policy: `external_write`, `edit`, approval `always`. `RoleAtLeast` fails closed.
+
+| Tool | Side effect | Min role | Approval |
+|---|---|---|---|
+| `kb_search`, `keyword_search`, `graph_search`, `chunk_read`, `document_outline`, `table_query`, `calculator`, `count_mentions`, `recent_documents`, `memory_read`, `memory_write` | none | view | never |
+| `sql_query`, `code_exec` | none (privileged, gated separately) | view | never |
+| `web_search` | external_read | view | always |
+| `confluence_import`, `library_add_to_kb` (planned, not registered) | kb_write | edit | always |
+
+`web_search` is in `mcp.PrivilegedTools`, so it is offered and executable only when `Scope.AllowPrivileged` is true (Ruling R5), in addition to being approval-always.
+
+### Run lifecycle (`agent_runs`)
+
+`running` -> `interrupted` (the run paused for user input) -> `running` again on resume -> terminal `completed` | `failed` | `cancelled` | `abandoned`. A thread may hold at most one open (interrupted, unexpired) run (unique index `agent_runs_one_open_per_thread`; a second pause or a new message yields `ErrThreadHasOpenInterrupt`). Interrupts expire after 24 h. `ClaimResume` is an exclusive atomic claim: exactly one resume wins, and it must answer exactly the open interrupt ids (`ErrNoOpenInterrupt`, `ErrInterruptExpired`, `ErrInterruptMismatch`). `Finish` accepts terminal states only (`ErrRunNotRunning` otherwise). `ExpireStale` moves expired interrupted runs to `abandoned`.
+
+### AG-UI status codes (before the stream starts)
+
+| Code | Body `error` | Cause |
+|---|---|---|
+| 400 | `bad_request`, `no_input`, `resume_requires_thread`, `bad_resume` | malformed body; nothing to run; resume without thread; resume naming interrupts that do not match while one is open |
+| 401 | `unauthenticated` | `ScopeFunc` returned `ErrUnauthorized` |
+| 403 | `forbidden` | `ScopeFunc` returned `ErrForbidden` |
+| 404 | `no_open_interrupt` | resume on a thread with no open interrupt for this user (another user's thread looks the same) |
+| 405 | `method_not_allowed` | not POST |
+| 409 | `interrupt_expired`, `interrupt_mismatch`, `thread_has_open_interrupt` | expired or mismatched resume; new message on a thread with an open interrupt |
+| 500 | `internal_error` | provider and database errors are logged, never sent to the client |
+| 200 | - | SSE stream |
+
+### Phase-2 obligations (not implemented)
+
+- `Scope.Role` must come from `kbaccess.EffectiveRole`, and `Scope.AllowPrivileged` from the `agents_allow_privileged_tools` site_config key, when the handler is mounted.
+- `RunStore.ExpireStale` is not wired to a sweeper; expiry is enforced lazily on claim/interrupt. Phase 2 adds a maintenance loop.
+- Resuming a suggested action must execute it through the policy-checked tool (`NewTool`/`dispatchTool`) and resolve the action by id from the server-side definition, never trusting a client-echoed tool name or args.
+- Migration numbering: 0081 is reserved by the parallel user-file-library-phase3 branch. This branch must merge after it (goose rejects out-of-order migrations) or be renumbered.
+
 ## Sections referenced by CLAUDE.md but not yet expanded
 
 Each of these is marked "(`docs/agent-orchestration.md` not yet written)" in the CLAUDE.md feature index. The flag-level operational reference in CLAUDE.md is the source of truth until these subsections land here:
