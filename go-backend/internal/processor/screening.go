@@ -15,9 +15,8 @@ import (
 // screenedOrigins are the files.origin values whose parsed text goes through
 // the ingest prompt-injection screen (W5-R8).
 //
-// User uploads are deliberately absent: a user pasting instruction-shaped
-// text into their own KB is not an attack on themselves, and flagging it
-// would train operators to ignore the badge. "websearch" and "research" are
+// User-added origins are deliberately absent: they are screened only in
+// public KBs — see publicOnlyOrigins. "websearch" and "research" are
 // absent too — those files are produced by an agent run the user triggered
 // and are already answer-scoped, not corpus-scoped.
 var screenedOrigins = map[string]bool{
@@ -25,6 +24,38 @@ var screenedOrigins = map[string]bool{
 	"confluence": true,
 	"git":        true,
 	"crawl":      true,
+}
+
+// publicOnlyOrigins are user-added origins: screened only when the file
+// lands in a PUBLIC KB, where it is third-party content for every other
+// reader (user file library spec §11.2). In a private KB the uploader is
+// the audience, and flagging their own text trains operators to ignore
+// the badge.
+var publicOnlyOrigins = map[string]bool{
+	"upload": true,
+	"text":   true,
+	"url":    true,
+}
+
+// ShouldScreen reports whether a file of this origin, in a KB of this
+// visibility, goes through the ingest prompt-injection screen.
+func ShouldScreen(origin, kbVisibility string) bool {
+	if screenedOrigins[origin] {
+		return true
+	}
+	return publicOnlyOrigins[origin] && kbVisibility == "public"
+}
+
+// ScreeningStore is what ScreenAndRecord writes the verdict through.
+// *files.PGStore satisfies it.
+type ScreeningStore interface {
+	SetInjectionFlag(ctx context.Context, fileID string, detail []byte) error
+	MarkInjectionScreenedClean(ctx context.Context, fileID string, detail []byte) error
+}
+
+// ScreeningEnabled reports the ingest_screening_enabled kill switch.
+func ScreeningEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return resolveScreeningEnabled(ctx, reader)
 }
 
 // injectionDetail is the shape persisted into files.injection_detail on a
@@ -50,39 +81,46 @@ type screenedCleanDetail struct {
 	ScreenedAt time.Time `json:"screened_at"`
 }
 
-// screenIfExternal runs the prompt-injection screen over a file's parsed
-// text and records the verdict on the files row. It is advisory in the
+// screenIfEligible runs the prompt-injection screen over a file's parsed
+// text when its origin (and, for user-added origins, its KB's visibility)
+// calls for it, and records the verdict on the files row. It is advisory in the
 // strongest sense: it never blocks ingestion, never changes what is chunked,
 // embedded or retrieved, and every one of its own failures is swallowed
 // after a log line. The only effect of a hit is files.injection_flag and a
 // badge in the admin UI.
 //
-// The origin is read from the store rather than threaded through
-// ProcessFileInput: there are six ProcessFileInput construction sites and a
-// missed one would silently disable screening for that source, which is the
-// failure mode with no symptom. One extra single-column SELECT per file is a
-// rounding error next to parsing it.
+// The origin and KB visibility are read from the store rather than threaded
+// through ProcessFileInput: there are six ProcessFileInput construction
+// sites and a missed one would silently disable screening for that source,
+// which is the failure mode with no symptom. One extra small SELECT per file
+// is a rounding error next to parsing it.
 //
 // Called after a successful parse and before chunking, on the non-spreadsheet
 // branch only — a spreadsheet's "text" is a generated key:value render of
 // typed cells, and the cell-level equivalent of this check already runs
 // inside the sheet profiler (internal/promptsafety via tabular/profile).
-func (p *Processor) screenIfExternal(ctx context.Context, fileID, text string) {
+func (p *Processor) screenIfEligible(ctx context.Context, fileID, text string) {
 	if p.store == nil || !resolveScreeningEnabled(ctx, p.siteConfigReader) {
 		return
 	}
-	origin, err := p.store.GetFileOrigin(ctx, fileID)
+	origin, kbVisibility, err := p.store.GetFileScreeningInfo(ctx, fileID)
 	if err != nil {
-		logctx.From(ctx).Warn("processor: read origin for injection screening failed",
+		logctx.From(ctx).Warn("processor: read screening info failed",
 			"fileId", fileID, "error", err)
 		return
 	}
-	if !screenedOrigins[origin] {
+	if !ShouldScreen(origin, kbVisibility) {
 		return
 	}
+	ScreenAndRecord(ctx, p.store, p.siteConfigReader, fileID, origin, text)
+}
 
+// ScreenAndRecord runs the screen over text and records the verdict on the
+// files row. Callers have already applied the kill switch and ShouldScreen.
+// Every failure is logged and swallowed — screening never blocks anything.
+func ScreenAndRecord(ctx context.Context, store ScreeningStore, reader SiteConfigReader, fileID, origin, text string) {
 	now := time.Now().UTC()
-	finding, hit := promptsafety.ScreenText(text, resolveScreeningWindowRunes(ctx, p.siteConfigReader))
+	finding, hit := promptsafety.ScreenText(text, resolveScreeningWindowRunes(ctx, reader))
 	if !hit {
 		// Record the clean verdict rather than leaving the row alone: it
 		// drops a stale badge from a previous pass (the upstream page was
@@ -95,7 +133,7 @@ func (p *Processor) screenIfExternal(ctx context.Context, fileID, text string) {
 				"fileId", fileID, "error", err)
 			return
 		}
-		if err := p.store.MarkInjectionScreenedClean(ctx, fileID, clean); err != nil {
+		if err := store.MarkInjectionScreenedClean(ctx, fileID, clean); err != nil {
 			logctx.From(ctx).Warn("processor: mark injection screened clean failed",
 				"fileId", fileID, "error", err)
 		}
@@ -110,7 +148,7 @@ func (p *Processor) screenIfExternal(ctx context.Context, fileID, text string) {
 			"fileId", fileID, "error", err)
 		return
 	}
-	if err := p.store.SetInjectionFlag(ctx, fileID, detail); err != nil {
+	if err := store.SetInjectionFlag(ctx, fileID, detail); err != nil {
 		logctx.From(ctx).Warn("processor: set injection flag failed",
 			"fileId", fileID, "error", err)
 		return

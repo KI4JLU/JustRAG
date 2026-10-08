@@ -153,9 +153,9 @@ func (f *fakeFileStore) UpdateFileStageDetail(context.Context, string, string) e
 }
 
 // The three screening methods are inert here: this fake's files always read
-// as origin "upload", which screenIfExternal skips.
-func (f *fakeFileStore) GetFileOrigin(context.Context, string) (string, error) {
-	return "upload", nil
+// as origin "upload", which screenIfEligible skips.
+func (f *fakeFileStore) GetFileScreeningInfo(context.Context, string) (string, string, error) {
+	return "upload", "", nil
 }
 
 func (f *fakeFileStore) SetInjectionFlag(context.Context, string, []byte) error {

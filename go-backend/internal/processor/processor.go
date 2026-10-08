@@ -96,10 +96,9 @@ type ProcessorStore interface {
 	// UpdateFileStageDetail records a human-readable progress detail for
 	// the current stage (e.g. "Blatt 2/3 · 120000 Zeilen"); "" clears it.
 	UpdateFileStageDetail(ctx context.Context, fileID, detail string) error
-	// GetFileOrigin returns files.origin for fileID ("" when the row is
-	// gone). Read by the ingest prompt-injection screen, which only runs
-	// for external sources — see screening.go's screenedOrigins.
-	GetFileOrigin(ctx context.Context, fileID string) (string, error)
+	// GetFileScreeningInfo returns files.origin and the owning KB's
+	// visibility for fileID ("", "" when the row is gone).
+	GetFileScreeningInfo(ctx context.Context, fileID string) (origin, kbVisibility string, err error)
 	// SetInjectionFlag records a screening hit (files.injection_flag +
 	// injection_detail). detail is document-derived, untrusted text —
 	// never log it in full.
@@ -931,7 +930,7 @@ func (p *Processor) ProcessFile(ctx context.Context, in ProcessFileInput) error 
 	// "text" is a generated key:value render of typed cells, and cell text
 	// already gets the equivalent check inside the sheet profiler.
 	if !isSpreadsheet {
-		p.screenIfExternal(ctx, fileID, result.Text)
+		p.screenIfEligible(ctx, fileID, result.Text)
 	}
 
 	// Parsing done — bump progress so the bar visibly advances before

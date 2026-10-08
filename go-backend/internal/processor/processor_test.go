@@ -45,8 +45,9 @@ type mockStore struct {
 
 	// Ingest prompt-injection screening (W5-R8). origins is the seeded
 	// files.origin per file id (default "upload" for an unseeded id, the
-	// production default); the rest record what screenIfExternal did.
+	// production default); the rest record what screenIfEligible did.
 	origins          map[string]string
+	visibilities     map[string]string
 	originCalls      int
 	injectionDetails map[string][]byte
 	// injectionClean records the screened-clean detail written per file id
@@ -105,12 +106,13 @@ func (m *mockStore) UpdateFileStageDetail(_ context.Context, fileID, detail stri
 	return nil
 }
 
-func (m *mockStore) GetFileOrigin(_ context.Context, fileID string) (string, error) {
+func (m *mockStore) GetFileScreeningInfo(_ context.Context, fileID string) (string, string, error) {
 	m.originCalls++
+	origin := "upload"
 	if o, ok := m.origins[fileID]; ok {
-		return o, nil
+		origin = o
 	}
-	return "upload", nil
+	return origin, m.visibilities[fileID], nil
 }
 
 func (m *mockStore) SetInjectionFlag(_ context.Context, fileID string, detail []byte) error {
@@ -160,8 +162,8 @@ func (s *contextCapturingStore) UpdateFileStageDetail(context.Context, string, s
 	return nil
 }
 
-func (s *contextCapturingStore) GetFileOrigin(context.Context, string) (string, error) {
-	return "upload", nil
+func (s *contextCapturingStore) GetFileScreeningInfo(context.Context, string) (string, string, error) {
+	return "upload", "", nil
 }
 
 func (s *contextCapturingStore) SetInjectionFlag(context.Context, string, []byte) error {
@@ -941,8 +943,8 @@ func (s *gateTestStore) SetFileParseReport(context.Context, string, []byte) erro
 
 // The large-file gate test only ingests spreadsheets, which never reach the
 // screening hook — these three exist to satisfy ProcessorStore.
-func (s *gateTestStore) GetFileOrigin(context.Context, string) (string, error) {
-	return "upload", nil
+func (s *gateTestStore) GetFileScreeningInfo(context.Context, string) (string, string, error) {
+	return "upload", "", nil
 }
 func (s *gateTestStore) SetInjectionFlag(context.Context, string, []byte) error { return nil }
 func (s *gateTestStore) MarkInjectionScreenedClean(context.Context, string, []byte) error {

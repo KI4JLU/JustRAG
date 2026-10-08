@@ -357,23 +357,23 @@ func (s *PGStore) MarkFileError(ctx context.Context, fileID, stage, message stri
 	return nil
 }
 
-// GetFileOrigin returns the files.origin value for fileID ("upload", "rss",
-// "confluence", "git", "crawl", "websearch", "research"), or "" when no such
-// file exists. Split out as its own one-column read because the ingest
-// prompt-injection screen needs the origin and nothing else — threading an
-// Origin field through ProcessFileInput instead would need every one of the
-// (currently six) construction sites to remember to populate it, and a
-// missed one fails open silently.
-func (s *PGStore) GetFileOrigin(ctx context.Context, fileID string) (string, error) {
-	const sql = `SELECT origin FROM files WHERE id = $1`
-	var origin string
-	if err := s.pool.QueryRow(ctx, sql, fileID).Scan(&origin); err != nil {
+// GetFileScreeningInfo returns files.origin and the owning KB's visibility
+// for fileID — the two inputs to processor.ShouldScreen. ("", "", nil) when
+// the row is gone (deleted mid-ingest), which ShouldScreen treats as "skip".
+func (s *PGStore) GetFileScreeningInfo(ctx context.Context, fileID string) (string, string, error) {
+	const sql = `
+		SELECT f.origin, kb.visibility
+		  FROM files f
+		  JOIN knowledge_bases kb ON kb.id = f.kb_id
+		 WHERE f.id = $1`
+	var origin, visibility string
+	if err := s.pool.QueryRow(ctx, sql, fileID).Scan(&origin, &visibility); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
+			return "", "", nil
 		}
-		return "", fmt.Errorf("GetFileOrigin: %w", err)
+		return "", "", fmt.Errorf("GetFileScreeningInfo: %w", err)
 	}
-	return origin, nil
+	return origin, visibility, nil
 }
 
 // SetInjectionFlag records an ingest-time prompt-injection screening hit
