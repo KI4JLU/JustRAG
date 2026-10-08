@@ -335,10 +335,12 @@ func RunWorker(cfg *config.Config) error {
 		slog.Info("re-embedding file", "fileId", payload.FileID, "kbId", payload.KbID)
 
 		// Flip to 'processing' BEFORE deleting the old index: the transition
-		// also clears index_fingerprint, so a library copy stops being a
-		// copy donor before its chunks start disappearing (a copy racing the
-		// delete would otherwise read a half-deleted index; the worker's
-		// post-copy donor recheck catches the rest of that window).
+		// clears index_fingerprint, so no NEW copy picks this file as a donor
+		// while its chunks disappear, and bumps progress_updated_at, the
+		// donor generation token. A copy already reading this file is caught
+		// by that token in the worker's post-copy recheck — not by the
+		// fingerprint, which this re-embed re-stamps unchanged when settings
+		// are unchanged — and by CopyFileIndex's row-count check.
 		if err := filesStore.UpdateFileStatus(ctx, payload.FileID, "processing"); err != nil {
 			return fmt.Errorf("re-embedding: mark file %s processing: %w", payload.FileID, err)
 		}

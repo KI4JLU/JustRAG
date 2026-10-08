@@ -286,12 +286,16 @@ func (s *PGStore) GetKBFileLimits(ctx context.Context, kbID string) (*KBFileLimi
 // A transition to 'processing' also clears index_fingerprint: the file's
 // index is about to be rebuilt (ingest, re-embed, retry, copy), so it must
 // stop qualifying as a copy donor (P2-R3) until the run that rebuilds it
-// stamps a fresh fingerprint at completion. Without this, a re-embed (whose
-// payload carries no UserFileID, so it never re-stamps) would leave a
-// fingerprint that no longer describes the index.
+// stamps a fresh fingerprint at completion.
+//
+// It also bumps progress_updated_at, the donor generation token copy mode
+// re-checks (FindCopyDonor / DonorStillValid): an unchanged-settings re-ingest
+// re-stamps the SAME fingerprint, so only the generation token reveals that a
+// donor's index was rebuilt while a copy was reading it.
 func (s *PGStore) UpdateFileStatus(ctx context.Context, fileID, status string) error {
 	const sql = `UPDATE files SET status = $1, error_stage = NULL, error_message = NULL,
-		index_fingerprint = CASE WHEN $3 THEN NULL ELSE index_fingerprint END
+		index_fingerprint = CASE WHEN $3 THEN NULL ELSE index_fingerprint END,
+		progress_updated_at = CASE WHEN $3 THEN NOW() ELSE progress_updated_at END
 		WHERE id = $2`
 	_, err := s.pool.Exec(ctx, sql, status, fileID, status == "processing")
 	if err != nil {
@@ -354,9 +358,16 @@ func (s *PGStore) SetIndexFingerprint(ctx context.Context, fileID, fp string) er
 // created first). Only 'completed' rows qualify (P2-R3): 'partial' and
 // 'error' indexes are incomplete, and a file being rebuilt is 'processing'
 // with its fingerprint cleared.
-func (s *PGStore) FindCopyDonor(ctx context.Context, userFileID, fp, excludeFileID string) (string, error) {
+//
+// generation is the donor's generation token: progress_updated_at in its
+// text form ("" when NULL). Every re-ingest bumps it (UpdateFileStatus to
+// 'processing', progress and stage writes), so DonorStillValid can tell a
+// donor rebuilt mid-copy from an untouched one even when the rebuild
+// re-stamped the same fingerprint. The text form round-trips exactly (the
+// column is a plain timestamp, so no session time zone applies).
+func (s *PGStore) FindCopyDonor(ctx context.Context, userFileID, fp, excludeFileID string) (id, generation string, err error) {
 	const sql = `
-		SELECT id::text
+		SELECT id::text, COALESCE(progress_updated_at::text, '')
 		  FROM files
 		 WHERE user_file_id = $1::uuid
 		   AND id <> $3::uuid
@@ -365,35 +376,38 @@ func (s *PGStore) FindCopyDonor(ctx context.Context, userFileID, fp, excludeFile
 		 ORDER BY created_at DESC, id
 		 LIMIT 1`
 	if userFileID == "" || fp == "" {
-		return "", nil
+		return "", "", nil
 	}
-	var id string
-	if err := s.pool.QueryRow(ctx, sql, userFileID, fp, excludeFileID).Scan(&id); err != nil {
+	if err := s.pool.QueryRow(ctx, sql, userFileID, fp, excludeFileID).Scan(&id, &generation); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
+			return "", "", nil
 		}
-		return "", fmt.Errorf("FindCopyDonor: %w", err)
+		return "", "", fmt.Errorf("FindCopyDonor: %w", err)
 	}
-	return id, nil
+	return id, generation, nil
 }
 
-// DonorStillValid reports whether donorID is still a valid copy donor for
-// (userFileID, fp): 'completed' with that fingerprint. Copy mode re-checks the
+// DonorStillValid reports whether donorID is still the same valid copy donor
+// for (userFileID, fp): 'completed' with that fingerprint AND an unchanged
+// generation token (as FindCopyDonor returned it). Copy mode re-checks the
 // SPECIFIC donor it copied from after the copy committed — a newer donor
-// appearing meanwhile does not invalidate the copy.
-func (s *PGStore) DonorStillValid(ctx context.Context, donorID, userFileID, fp string) (bool, error) {
+// appearing meanwhile does not invalidate the copy, but any re-ingest of the
+// donor in between does, even one that re-stamped the same fingerprint. A
+// false invalidation only costs a fallback to ingest.
+func (s *PGStore) DonorStillValid(ctx context.Context, donorID, generation, userFileID, fp string) (bool, error) {
 	const sql = `
 		SELECT EXISTS (
 			SELECT 1 FROM files
 			 WHERE id = $1::uuid
 			   AND user_file_id = $2::uuid
 			   AND status = 'completed'
-			   AND index_fingerprint = $3)`
+			   AND index_fingerprint = $3
+			   AND COALESCE(progress_updated_at::text, '') = $4)`
 	if donorID == "" || userFileID == "" || fp == "" {
 		return false, nil
 	}
 	var ok bool
-	if err := s.pool.QueryRow(ctx, sql, donorID, userFileID, fp).Scan(&ok); err != nil {
+	if err := s.pool.QueryRow(ctx, sql, donorID, userFileID, fp, generation).Scan(&ok); err != nil {
 		return false, fmt.Errorf("DonorStillValid: %w", err)
 	}
 	return ok, nil

@@ -9,6 +9,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -86,20 +87,28 @@ func TestFindCopyDonor(t *testing.T) {
 	set(newer, "completed", "F", "1 hour")
 	set(partial, "partial", "F", "1 second") // only 'completed' qualifies
 
-	got, err := store.FindCopyDonor(ctx, ufID, "F", target)
+	got, gen, err := store.FindCopyDonor(ctx, ufID, "F", target)
 	if err != nil || got != newer {
 		t.Fatalf("FindCopyDonor = %q, %v; want the most recent completed copy %q", got, err, newer)
 	}
-	if got, err := store.FindCopyDonor(ctx, ufID, "OTHER", target); err != nil || got != "" {
+	if got, _, err := store.FindCopyDonor(ctx, ufID, "OTHER", target); err != nil || got != "" {
 		t.Fatalf("fingerprint mismatch = %q, %v; want empty", got, err)
 	}
-	if got, err := store.FindCopyDonor(ctx, uuid.NewString(), "F", target); err != nil || got != "" {
+	if got, _, err := store.FindCopyDonor(ctx, uuid.NewString(), "F", target); err != nil || got != "" {
 		t.Fatalf("other user file = %q, %v; want empty", got, err)
 	}
 	set(newer, "processing", "F", "1 hour")
 	set(older, "error", "F", "2 hours")
-	if got, err := store.FindCopyDonor(ctx, ufID, "F", target); err != nil || got != "" {
+	if got, _, err := store.FindCopyDonor(ctx, ufID, "F", target); err != nil || got != "" {
 		t.Fatalf("no completed donor left = %q, %v; want empty", got, err)
+	}
+	// The generation token is progress_updated_at's text form.
+	var want string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(progress_updated_at::text, '') FROM files WHERE id = $1::uuid`, newer).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	if gen != want {
+		t.Errorf("generation = %q, want %q", gen, want)
 	}
 }
 
@@ -119,20 +128,51 @@ func TestDonorStillValid(t *testing.T) {
 	}
 	set(donor, "completed", "F")
 	set(other, "completed", "F") // a second (e.g. newer) donor is irrelevant
-	check := func(name, donorID, uf, fp string, want bool) {
+	if err := store.UpdateFileProgress(ctx, donor, 100); err != nil {
+		t.Fatal(err)
+	}
+	generation := func() string {
 		t.Helper()
-		got, err := store.DonorStillValid(ctx, donorID, uf, fp)
+		id, gen, err := store.FindCopyDonor(ctx, ufID, "F", other)
+		if err != nil || id != donor || gen == "" {
+			t.Fatalf("FindCopyDonor = %q, %q, %v; want donor with a generation", id, gen, err)
+		}
+		return gen
+	}
+	gen := generation()
+	check := func(name, uf, fp, g string, want bool) {
+		t.Helper()
+		got, err := store.DonorStillValid(ctx, donor, g, uf, fp)
 		if err != nil || got != want {
 			t.Errorf("%s: DonorStillValid = %v, %v; want %v", name, got, err, want)
 		}
 	}
-	check("valid", donor, ufID, "F", true)
-	check("other fingerprint", donor, ufID, "G", false)
-	check("other user file", donor, uuid.NewString(), "F", false)
-	set(donor, "processing", "")
-	check("re-ingesting", donor, ufID, "F", false)
-	set(donor, "completed", "G")
-	check("re-stamped differently", donor, ufID, "F", false)
+	check("valid", ufID, "F", gen, true)
+	check("other fingerprint", ufID, "G", gen, false)
+	check("other user file", uuid.NewString(), "F", gen, false)
+	check("other generation", ufID, "F", gen+"x", false)
+
+	// A progress heartbeat alone (status and fingerprint untouched) bumps
+	// the generation.
+	time.Sleep(2 * time.Millisecond)
+	if err := store.UpdateFileProgress(ctx, donor, 100); err != nil {
+		t.Fatal(err)
+	}
+	check("after progress bump", ufID, "F", gen, false)
+
+	// A full unchanged-settings re-ingest: 'processing' (clears the
+	// fingerprint, bumps the generation), then completed with the SAME
+	// fingerprint re-stamped. Status and fingerprint look untouched; only
+	// the generation reveals the rebuild.
+	gen = generation()
+	time.Sleep(2 * time.Millisecond)
+	if err := store.UpdateFileStatus(ctx, donor, "processing"); err != nil {
+		t.Fatal(err)
+	}
+	check("re-ingesting", ufID, "F", gen, false)
+	set(donor, "completed", "F")
+	check("re-stamped the same fingerprint", ufID, "F", gen, false)
+	check("new generation", ufID, "F", generation(), true)
 }
 
 func TestLibraryLink(t *testing.T) {

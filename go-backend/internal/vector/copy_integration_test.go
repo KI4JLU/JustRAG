@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -277,5 +278,55 @@ func TestCopyFileIndex(t *testing.T) {
 	}
 	if g := counts(cpTarget); g != [3]int{4, 1, 2} {
 		t.Errorf("other file's hype touched: %v", g)
+	}
+}
+
+// A donor row that vanishes between chunk_map and the chunk insert (a
+// concurrent re-ingest under READ COMMITTED) must fail the copy and roll it
+// back, never commit a partial index. The seam deletes one donor chunk inside
+// the copy's transaction at exactly that point.
+func TestCopyFileIndex_DonorRowsVanishMidCopyFails(t *testing.T) {
+	pool := openTestVectorPool(t)
+	svc := NewChunkService(pool)
+	ctx := context.Background()
+	if err := EnsureChunkTable(ctx, PgxpoolExec{Pool: pool}, cpDim); err != nil {
+		t.Fatal(err)
+	}
+	chunkT := GetVectorTableName(cpDim)
+	cpCleanup(ctx, svc, pool)
+	t.Cleanup(func() { cpCleanup(context.Background(), svc, pool) })
+
+	const (
+		v1 = "dddddddd-0000-4000-8000-000000000001"
+		v2 = "dddddddd-0000-4000-8000-000000000002"
+	)
+	ins := `INSERT INTO ` + chunkT + ` (id, kb_id, file_id, content, content_hash, embedding, metadata, node_kind, tree_level,
+		vector_index, vector_index_simple)
+		VALUES ($1,$2,$3,$4::text,$5,$6::vector,'{}','leaf',0, to_tsvector('simple',$4::text), to_tsvector('simple',$4::text))`
+	for i, id := range []string{v1, v2} {
+		if _, err := pool.Exec(ctx, `DELETE FROM `+chunkT+` WHERE id = $1::uuid`, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, ins, id, cpKB1, cpDonor, fmt.Sprintf("text %d", i), fmt.Sprintf("hv%d", i), cpEmb(i+1)); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	copyAfterChunkMapHook = func(ctx context.Context, tx pgx.Tx, table string) error {
+		_, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE id = $1::uuid`, v2)
+		return err
+	}
+	t.Cleanup(func() { copyAfterChunkMapHook = nil })
+
+	_, err := svc.CopyFileIndex(ctx, cpDonor, cpTarget, cpKB2, "simple")
+	if err == nil || !strings.Contains(err.Error(), "donor changed during copy") {
+		t.Fatalf("CopyFileIndex err = %v, want a donor-changed error", err)
+	}
+	if n := cpCount(t, pool, `SELECT count(*) FROM `+chunkT+` WHERE file_id = $1::uuid`, cpTarget); n != 0 {
+		t.Errorf("target rows = %d, want 0 (rolled back)", n)
+	}
+	// The hook's delete ran in the copy's (rolled-back) transaction.
+	if n := cpCount(t, pool, `SELECT count(*) FROM `+chunkT+` WHERE file_id = $1::uuid`, cpDonor); n != 2 {
+		t.Errorf("donor rows = %d, want 2", n)
 	}
 }

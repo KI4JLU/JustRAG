@@ -23,8 +23,8 @@ type copyProcessor interface {
 // copyStore is the main-DB surface copy mode needs. *files.PGStore satisfies
 // it.
 type copyStore interface {
-	FindCopyDonor(ctx context.Context, userFileID, fp, excludeFileID string) (string, error)
-	DonorStillValid(ctx context.Context, donorID, userFileID, fp string) (bool, error)
+	FindCopyDonor(ctx context.Context, userFileID, fp, excludeFileID string) (id, generation string, err error)
+	DonorStillValid(ctx context.Context, donorID, generation, userFileID, fp string) (bool, error)
 	MarkCopied(ctx context.Context, fileID, fp string) error
 	UpdateFileStatus(ctx context.Context, fileID, status string) error
 	GetFileScreeningInfo(ctx context.Context, fileID string) (origin, kbVisibility string, err error)
@@ -65,7 +65,7 @@ func (c *CopyDeps) tryCopy(ctx context.Context, pl jobs.FileProcessingPayload, c
 		log.Info("copy mode skipped: fingerprint not computed", "error", err)
 		return false, nil
 	}
-	donor, err := c.Store.FindCopyDonor(ctx, ufID, fp, fileID)
+	donor, gen, err := c.Store.FindCopyDonor(ctx, ufID, fp, fileID)
 	if err != nil {
 		log.Warn("copy mode skipped: donor lookup failed", "error", err)
 		return false, nil
@@ -88,11 +88,15 @@ func (c *CopyDeps) tryCopy(ctx context.Context, pl jobs.FileProcessingPayload, c
 		return false, nil
 	}
 
-	// The donor must still be a donor now that the copy committed: had it
-	// started re-ingesting (status flipped, fingerprint cleared) while the
-	// copy ran, the copy may hold a half-deleted index. Recheck that SAME
-	// donor (a newer donor appearing meanwhile is harmless) and discard.
-	valid, err := c.Store.DonorStillValid(ctx, donor, ufID, fp)
+	// The donor must still be the same donor now that the copy committed:
+	// had it re-ingested while the copy ran, the copy may hold a
+	// half-deleted or mixed index. The cleared fingerprint alone does not
+	// catch that — a re-ingest with unchanged settings re-stamps the same
+	// fingerprint, possibly before this check — so the recheck compares the
+	// generation token (progress_updated_at, bumped by every re-ingest) of
+	// that SAME donor (a newer donor appearing meanwhile is harmless).
+	// CopyFileIndex's row-count check is the second line of defence.
+	valid, err := c.Store.DonorStillValid(ctx, donor, gen, ufID, fp)
 	if err != nil || !valid {
 		log.Warn("copy mode discarded: donor changed during the copy; falling back to ingest",
 			"error", err)

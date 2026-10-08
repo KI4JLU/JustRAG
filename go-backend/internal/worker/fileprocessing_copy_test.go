@@ -55,7 +55,13 @@ type fakeCopyStore struct {
 	donorErr error
 	finds    []findCall
 	// validChecks records DonorStillValid calls (exclude = the donor id).
-	validChecks  []findCall
+	validChecks []findCall
+	validGens   []string
+	// gen is the donor generation FindCopyDonor reports; genAfterCopy, when
+	// set, is the donor's generation by the time of the recheck (a re-ingest
+	// ran in between).
+	gen          string
+	genAfterCopy string
 	donorInvalid bool
 	validErr     error
 	statuses     []string
@@ -69,25 +75,30 @@ type fakeCopyStore struct {
 	callOrder    []string
 }
 
-func (f *fakeCopyStore) FindCopyDonor(_ context.Context, userFileID, fp, exclude string) (string, error) {
+func (f *fakeCopyStore) FindCopyDonor(_ context.Context, userFileID, fp, exclude string) (string, string, error) {
 	f.finds = append(f.finds, findCall{userFileID, fp, exclude})
 	f.callOrder = append(f.callOrder, "find")
 	if f.donorErr != nil {
-		return "", f.donorErr
+		return "", "", f.donorErr
 	}
 	if len(f.donors) == 0 {
-		return "", nil
+		return "", "", nil
 	}
 	d := f.donors[0]
 	if len(f.donors) > 1 {
 		f.donors = f.donors[1:]
 	}
-	return d, nil
+	return d, f.gen, nil
 }
-func (f *fakeCopyStore) DonorStillValid(_ context.Context, donor, userFileID, fp string) (bool, error) {
+func (f *fakeCopyStore) DonorStillValid(_ context.Context, donor, generation, userFileID, fp string) (bool, error) {
 	f.validChecks = append(f.validChecks, findCall{userFileID, fp, donor})
+	f.validGens = append(f.validGens, generation)
 	f.callOrder = append(f.callOrder, "valid")
-	return !f.donorInvalid, f.validErr
+	current := f.gen
+	if f.genAfterCopy != "" {
+		current = f.genAfterCopy
+	}
+	return !f.donorInvalid && generation == current, f.validErr
 }
 func (f *fakeCopyStore) MarkCopied(_ context.Context, _, fp string) error {
 	f.marks++
@@ -167,7 +178,7 @@ type copyRig struct {
 }
 
 func newCopyRig() *copyRig {
-	st := &fakeCopyStore{donors: []string{"donor-1"}, origin: "upload", vis: "private"}
+	st := &fakeCopyStore{donors: []string{"donor-1"}, gen: "G1", origin: "upload", vis: "private"}
 	return &copyRig{
 		ing:   &fakeFileProcessor{},
 		proc:  &fakeCopyProc{fp: "FP", pgConfig: "german", kgOn: true},
@@ -457,6 +468,24 @@ func TestCopyMode_RecheckTargetsTheCopiedDonor(t *testing.T) {
 	}
 	if len(r.store.finds) != 1 {
 		t.Errorf("FindCopyDonor calls = %d, want 1 (no re-lookup)", len(r.store.finds))
+	}
+	if len(r.store.validGens) != 1 || r.store.validGens[0] != "G1" {
+		t.Errorf("recheck generations = %v, want [G1] as FindCopyDonor returned it", r.store.validGens)
+	}
+}
+
+// A donor re-embedded with unchanged settings while the copy ran is again
+// 'completed' with the SAME fingerprint by the time of the recheck; only its
+// generation token changed. The copy must still be discarded.
+func TestCopyMode_DonorGenerationChangedDiscardsCopy(t *testing.T) {
+	r := newCopyRig()
+	r.store.genAfterCopy = "G2"
+	if err := r.run(t, libPayload()); err != nil {
+		t.Fatal(err)
+	}
+	if r.idx.copies != 1 || len(r.idx.cleanup) != 3 || !r.ingested || r.store.marks != 0 {
+		t.Errorf("copies=%d cleanup=%v ingested=%v marks=%d; want cleaned + ingest",
+			r.idx.copies, r.idx.cleanup, r.ingested, r.store.marks)
 	}
 }
 

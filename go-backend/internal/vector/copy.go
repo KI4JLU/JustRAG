@@ -3,6 +3,8 @@ package vector
 import (
 	"context"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // CopyResult maps donor chunk ids to the new target chunk ids (leaves and
@@ -13,6 +15,12 @@ type CopyResult struct {
 	// chunks). For a (abnormal) multi-dim donor it is the last dim written.
 	Dimensions int
 }
+
+// copyAfterChunkMapHook is a test seam: when set, CopyFileIndex calls it
+// inside the transaction after a dim's chunk_map is built and before its
+// chunks are inserted (integration tests simulate a donor re-ingest there).
+// Always nil in production.
+var copyAfterChunkMapHook func(ctx context.Context, tx pgx.Tx, chunkTable string) error
 
 // CopyFileIndex copies every vector-DB row of srcFileID (chunks incl. RAPTOR
 // summaries, parent chunks, HyPE questions) into dstFileID/dstKbID inside ONE
@@ -113,10 +121,16 @@ func (s *ChunkService) CopyFileIndex(ctx context.Context, srcFileID, dstFileID, 
 		if err != nil {
 			return res, fmt.Errorf("CopyFileIndex: map chunks in %s: %w", chunkT, err)
 		}
-		if tag.RowsAffected() == 0 {
+		mapped := tag.RowsAffected()
+		if mapped == 0 {
 			continue
 		}
 		res.Dimensions = d
+		if copyAfterChunkMapHook != nil {
+			if err := copyAfterChunkMapHook(ctx, tx, chunkT); err != nil {
+				return res, err
+			}
+		}
 
 		insertChunks := fmt.Sprintf(`
 			INSERT INTO "%[1]s" (id, kb_id, file_id, content, contextual_prefix, content_hash, embedding, embedding_low,
@@ -131,8 +145,17 @@ func (s *ChunkService) CopyFileIndex(ctx context.Context, srcFileID, dstFileID, 
 			  LEFT JOIN parent_map pm ON pm.old_id = c.parent_chunk_id
 			  LEFT JOIN chunk_map rm ON rm.old_id = c.raptor_parent_id
 			 WHERE c.file_id = $1::uuid`, chunkT)
-		if _, err := tx.Exec(ctx, insertChunks, srcFileID, dstKbID, dstFileID, pgConfig); err != nil {
+		ins, err := tx.Exec(ctx, insertChunks, srcFileID, dstKbID, dstFileID, pgConfig)
+		if err != nil {
 			return res, fmt.Errorf("CopyFileIndex: copy chunks in %s: %w", chunkT, err)
+		}
+		// READ COMMITTED: each statement sees a fresh snapshot, so donor
+		// rows deleted by a concurrent re-ingest after chunk_map was built
+		// silently drop out of the insert. Refuse a partial copy (rollback);
+		// the worker cleans the target and ingests instead.
+		if ins.RowsAffected() != mapped {
+			return res, fmt.Errorf("CopyFileIndex: donor changed during copy in %s: mapped %d chunks, copied %d",
+				chunkT, mapped, ins.RowsAffected())
 		}
 
 		if !hypeExists[d] {
