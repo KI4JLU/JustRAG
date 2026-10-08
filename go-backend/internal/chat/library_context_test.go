@@ -251,6 +251,30 @@ func TestBuildLibraryContext_TooLargeExactPathBelowBound(t *testing.T) {
 	}
 }
 
+// With the full-text budget above the long-context one there is no
+// map_reduce tier, and the pre-check must not reject what full text accepts.
+func TestBuildLibraryContext_FulltextBudgetAboveLongContext(t *testing.T) {
+	files := []LibraryFile{{UserFileID: "uf-1", Name: "big.txt", Parsed: &parser.ParseResult{Text: bigText(4000)}}}
+	if b := libraryTokenLowerBound(files); b <= 10000 {
+		t.Fatalf("fixture bound %d must exceed the long-context budget", b)
+	}
+	cc, err := buildLibraryContextWith(context.Background(), nil, nil, libCfg("200000", "10000"),
+		LibraryContextParams{Files: files, Query: "q", Language: "en"})
+	if err != nil {
+		t.Fatalf("full text must accept it: %v", err)
+	}
+	if !strings.Contains(cc.SystemPrompt, "lorem ipsum") {
+		t.Fatal("not the full-text tier")
+	}
+	huge := []LibraryFile{{UserFileID: "uf-1", Name: "huge.txt", Parsed: &parser.ParseResult{Text: bigText(70000)}}}
+	_, err = buildLibraryContextWith(context.Background(), nil, nil, libCfg("200000", "10000"),
+		LibraryContextParams{Files: huge, Query: "q", Language: "en"})
+	var tl *ErrLibraryTooLarge
+	if !errors.As(err, &tl) || tl.Max != 200000 {
+		t.Fatalf("err = %v (%+v), want too large against the 200000 limit", err, tl)
+	}
+}
+
 func TestTextTokenLowerBound_NeverExceedsCL100K(t *testing.T) {
 	if !libraryBoundSound() {
 		t.Fatal("cl100k tokenizer unavailable: the pre-check would be disabled")

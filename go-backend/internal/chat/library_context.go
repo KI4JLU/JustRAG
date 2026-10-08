@@ -79,12 +79,15 @@ func BuildLibraryContext(ctx context.Context, resolver *ai.ConfigResolver, cfg S
 // map_reduce path is not expected.
 func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, extract extractFindingsFn, cfg SiteConfigReader, p LibraryContextParams) (*ChatContext, error) {
 	fullMax, lcMax := ChatLibraryFulltextMaxTokens(ctx, cfg), ChatLongContextMaxTokens(ctx, cfg)
+	// The largest selection any tier accepts: the full-text budget may be
+	// configured above the long-context one (then there is no map_reduce tier).
+	limit := max(fullMax, lcMax)
 	// Cheap pre-check before any BPE tokenization or recursive split: up to
 	// 20 files of several million characters each would otherwise be fully
 	// tokenized on every turn just to reach the same 400.
 	if libraryBoundSound() {
-		if bound := libraryTokenLowerBound(p.Files); bound > lcMax {
-			return nil, &ErrLibraryTooLarge{Tokens: bound, Max: lcMax, AtLeast: true}
+		if bound := libraryTokenLowerBound(p.Files); bound > limit {
+			return nil, &ErrLibraryTooLarge{Tokens: bound, Max: limit, AtLeast: true}
 		}
 	}
 	chunks, skipped, total := libraryChunks(p.Files)
@@ -127,7 +130,7 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 			return nil, err
 		}
 	default:
-		return nil, &ErrLibraryTooLarge{Tokens: total, Max: lcMax}
+		return nil, &ErrLibraryTooLarge{Tokens: total, Max: limit}
 	}
 
 	// The owner rides on the chunk (FileID) so it survives any reordering the
@@ -206,7 +209,8 @@ func libraryChunks(files []LibraryFile) (chunks []vector.SearchChunk, skipped []
 // so each maximal letter run and each maximal digit run starts its own
 // piece, and each piece is at least one token. Splitting a page only adds
 // pieces. The bound is therefore safe for the reject decision: a selection
-// above chat_longcontext_max_tokens by this count is above it by the exact
+// above the accepting limit (the larger of chat_library_fulltext_max_tokens
+// and chat_longcontext_max_tokens) by this count is above it by the exact
 // count too, so nothing the exact path would accept is rejected. On German
 // prose it lands at roughly 55-75% of the real count (one per word vs. the
 // 1.3-1.8 tokens a German word costs), so it catches clearly oversized
