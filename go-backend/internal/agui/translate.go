@@ -200,6 +200,11 @@ func (t *Translator) emitCustom(name string, value any) error {
 // customFrom emits the generic CUSTOM events an ADK event carries under
 // CustomMetadata["agui.custom"]: one {"name", "value"} map or a slice of
 // them. Entries without a name are ignored.
+//
+// Trust: whatever sits under this key reaches the client verbatim as a
+// server-issued event. Only server-side Go code (workflow nodes, agent
+// callbacks) may set it; model adapters and remote agents must never copy
+// provider or remote fields into CustomMetadata.
 func (t *Translator) customFrom(md map[string]any) error {
 	raw, ok := md[customKey]
 	if !ok {

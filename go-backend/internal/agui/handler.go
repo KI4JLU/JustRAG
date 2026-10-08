@@ -213,23 +213,24 @@ func (h *handler) failBeforeStream(ctx context.Context, sc adkbridge.Scope, in *
 	if err := h.cfg.Runs.Finish(bg, in.RunID, adkbridge.RunFailed, detail); err != nil {
 		slog.ErrorContext(ctx, "agui: finish run before stream", "app", h.cfg.AppName, "run_id", in.RunID, "error", err)
 	}
-	h.turnFinished(bg, sc, in.ThreadID, TurnOutput{RunID: in.RunID, Status: adkbridge.RunFailed})
+	_, _ = h.turnFinished(bg, sc, in.ThreadID, TurnOutput{RunID: in.RunID, Status: adkbridge.RunFailed})
 }
 
 // turnFinished reports a run's end to the hooks and returns the events they
-// want shown before RUN_FINISHED. A hook error is logged, never surfaced:
-// the run row has already reached its end state.
-func (h *handler) turnFinished(ctx context.Context, sc adkbridge.Scope, threadID string, out TurnOutput) []events.Event {
+// want shown before RUN_FINISHED. A hook error is logged and returned with
+// no events; what the client is told depends on the run's status (see
+// stream). The run row has already reached its end state either way.
+func (h *handler) turnFinished(ctx context.Context, sc adkbridge.Scope, threadID string, out TurnOutput) ([]events.Event, error) {
 	if h.cfg.Hooks == nil {
-		return nil
+		return nil, nil
 	}
 	evs, err := h.cfg.Hooks.TurnFinished(ctx, sc, threadID, out)
 	if err != nil {
 		slog.ErrorContext(ctx, "agui: turn finished", "app", h.cfg.AppName, "run_id", out.RunID,
 			"status", out.Status, "error", err)
-		return nil
+		return nil, err
 	}
-	return evs
+	return evs, nil
 }
 
 // contentText joins the text parts of a user message.
@@ -336,26 +337,37 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 	var tr *Translator
 	// ended reports the run's end state to the hooks exactly once; its
 	// events are shown before RUN_FINISHED on the paths that write one.
-	var hookEvents []events.Event
+	var (
+		hookEvents []events.Event
+		hookErr    error
+		hooked     bool
+	)
 	ended := func(st adkbridge.RunStatus) {
+		hooked = true // before the call: a panicking hook is not retried
 		out := TurnOutput{RunID: in.RunID, Status: st}
 		if tr != nil {
 			out.Text, out.Reasoning, out.Custom = tr.Output()
 		}
-		hookEvents = h.turnFinished(bg, sc, in.ThreadID, out)
+		hookEvents, hookErr = h.turnFinished(bg, sc, in.ThreadID, out)
 	}
+	// settled: the run row has its end state; settledAs is that state.
 	settled := false
+	var settledAs adkbridge.RunStatus
 	finish := func(st adkbridge.RunStatus, detail string) {
-		settled = true
+		settled, settledAs = true, st
 		if err := h.cfg.Runs.Finish(bg, in.RunID, st, detail); err != nil {
 			log.ErrorContext(bg, "agui: finish run", "status", st, "error", err)
 		}
 		ended(st)
 	}
 	defer func() {
-		// A panic (re-raised to net/http after this) must not leave the row running.
-		if !settled {
+		// A panic (re-raised to net/http after this) must not leave the row
+		// running, nor skip the hooks for a row that already ended.
+		switch {
+		case !settled:
 			finish(adkbridge.RunFailed, "handler aborted")
+		case !hooked:
+			ended(settledAs)
 		}
 	}()
 
@@ -410,7 +422,7 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 			finish(adkbridge.RunFailed, "record interrupt: "+err.Error())
 			return
 		}
-		settled = true
+		settled, settledAs = true, adkbridge.RunInterrupted
 		tr.SetInterruptExpiry(expires)
 		// Settled first: the hooks see the final text the client gets, and
 		// their events land after the open step closes.
@@ -419,6 +431,13 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 	} else {
 		_ = tr.settle()
 		finish(adkbridge.RunCompleted, "")
+		if hookErr != nil {
+			// The answer was not persisted and would vanish on reload: the
+			// client is told the run failed. The interrupt path keeps its
+			// RUN_FINISHED — that interrupt is real and open in the DB.
+			_ = tr.Fail(errors.New("run failed"))
+			return
+		}
 	}
 	for _, ev := range hookEvents {
 		_ = emit(ev)

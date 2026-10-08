@@ -678,6 +678,8 @@ type fakeHooks struct {
 	calls []hookCall
 	// startErr, when set, is returned by TurnStarted.
 	startErr error
+	// finishErr, when set, is returned by TurnFinished (with its events).
+	finishErr error
 }
 
 func (h *fakeHooks) add(c hookCall) {
@@ -711,7 +713,16 @@ func (h *fakeHooks) TurnStarted(_ context.Context, sc adkbridge.Scope, threadID,
 func (h *fakeHooks) TurnFinished(ctx context.Context, sc adkbridge.Scope, threadID string, out TurnOutput) ([]events.Event, error) {
 	h.add(hookCall{name: "finished", threadID: threadID, runID: out.RunID, text: out.Text, chatID: sc.ChatID,
 		status: out.Status, ctxErr: ctx.Err()})
-	return []events.Event{events.NewCustomEvent("justrag.message.v1", events.WithValue(map[string]any{"id": "msg-1"}))}, nil
+	return []events.Event{events.NewCustomEvent("justrag.message.v1", events.WithValue(map[string]any{"id": "msg-1"}))}, h.finishErr
+}
+
+func hasType(evs []map[string]any, typ string) bool {
+	for _, e := range evs {
+		if e["type"] == typ {
+			return true
+		}
+	}
+	return false
 }
 
 func countRuns(t *testing.T, f *fixture) int {
@@ -914,5 +925,38 @@ func TestScopeChatIDIsResolvedThread(t *testing.T) {
 	}
 	if args["chat_id"] != "t-new" {
 		t.Fatalf("chat_id = %v", args["chat_id"])
+	}
+}
+
+// A completed answer the hooks failed to persist would vanish on reload, so
+// the client is told the run failed; the run row stays completed.
+func TestTurnFinishedErrorOnCompletedRunIsRunError(t *testing.T) {
+	h := &fakeHooks{finishErr: errors.New("insert message: secret-db-detail")}
+	f := newFixtureHooks(t, 24*time.Hour, h, textTurn("Antwort"))
+	code, evs := post(t, f, f.userA, userMsg("", "Frage"))
+	if code != 200 || last(evs)["type"] != "RUN_ERROR" || last(evs)["message"] != "run failed" {
+		t.Fatalf("code=%d last=%v", code, last(evs))
+	}
+	if hasType(evs, "RUN_FINISHED") || hasType(evs, "CUSTOM") || strings.Contains(lastBody, "secret-db-detail") {
+		t.Fatalf("body = %s", lastBody)
+	}
+	if status(t, f, "t-new") != "completed" {
+		t.Fatal("run row must stay completed")
+	}
+}
+
+// The interrupt is real and open in the DB: a hook error does not hide it.
+func TestTurnFinishedErrorOnInterruptKeepsInterrupt(t *testing.T) {
+	h := &fakeHooks{finishErr: errors.New("db down")}
+	f := newFixtureHooks(t, 24*time.Hour, h, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`))
+	code, evs := post(t, f, f.userA, userMsg("", "Importiere HRZ"))
+	if code != 200 || last(evs)["type"] != "RUN_FINISHED" || len(interrupts(last(evs))) != 1 {
+		t.Fatalf("code=%d last=%v", code, last(evs))
+	}
+	if hasType(evs, "CUSTOM") || hasType(evs, "RUN_ERROR") {
+		t.Fatalf("body = %s", lastBody)
+	}
+	if status(t, f, "t-new") != "interrupted" {
+		t.Fatal("run row must stay interrupted")
 	}
 }
