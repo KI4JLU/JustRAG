@@ -10,6 +10,26 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## v0.11.2 — 2026-10-08
+
+### ⚠ Upgrade notes
+
+No migration (still 0074), no changed `site_config` default, no re-ingest.
+The repository moved to `github.com/KI4JLU/JustRAG`, and images are now
+published as **`ghcr.io/ki4jlu/justrag`** (`:vX.Y.Z`, `:vX.Y`, `:stable`).
+The old `ghcr.io/lutzi92/justrag` receives no new builds and has no
+redirect: a deployment still pulling `ghcr.io/lutzi92/justrag:stable` keeps
+running v0.11.1 without any error. Point every compose host (update its
+checkout or set the image explicitly), the k8s worker manifests and the
+separately managed `go-server` Deployment at the new path; if the package is
+private, the cluster's `imagePullSecret` needs read access to the KI4JLU
+package. Images up to v0.11.1 exist only at the old path. The compose files
+also pull minio from the `pgsty/minio` community fork now, because
+`minio/minio` was removed from Docker Hub.
+
+### Fixes
+- Pull minio from the pgsty community fork (cad0e58)
+
 ## v0.11.1 — 2026-10-06
 
 ### ⚠ Upgrade notes
