@@ -4,6 +4,7 @@ package adkbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -59,8 +61,19 @@ func isolatedPool(t *testing.T, migrations ...string) *pgxpool.Pool {
 			t.Fatalf("read %s: %v", m, err)
 		}
 		up := strings.SplitN(string(raw), "-- +goose Down", 2)[0]
-		if _, err := pool.Exec(ctx, up); err != nil {
-			t.Fatalf("apply %s: %v", m, err)
+		// Test binaries of other packages add FKs to and delete from
+		// public.users concurrently; a deadlock there is retried.
+		for attempt := 1; ; attempt++ {
+			_, err := pool.Exec(ctx, up)
+			var pgErr *pgconn.PgError
+			if err != nil && attempt < 5 && errors.As(err, &pgErr) && pgErr.Code == "40P01" {
+				time.Sleep(time.Duration(attempt) * 50 * time.Millisecond)
+				continue
+			}
+			if err != nil {
+				t.Fatalf("apply %s: %v", m, err)
+			}
+			break
 		}
 	}
 	return pool
