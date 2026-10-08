@@ -22,6 +22,7 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 ### ⚠ Upgrade notes
 
+- **Release process:** every release now goes through a release candidate (`vX.Y.Z-rc.N`) tested on staging and is then *promoted* without a rebuild (Actions → Promote Release Candidate); a plain `vX.Y.Z` tag no longer builds an image. The k8s worker manifests now pull `:stable` with `imagePullPolicy: Always` instead of a literal version pin, so promoting IS the prod deploy: run the migrations with the RC image first, then promote, then `kubectl rollout restart`. The out-of-repo `go-server` Deployment must also use `:stable` with an explicit `imagePullPolicy: Always`. Going back is Actions → Roll Back Stable. `GET /version` in prod reports the promoted RC (e.g. `v0.12.0-rc.2`). Procedure: `docs/runbooks/release.md`.
 - Migration **0075** adds `files.uploaded_by` (no backfill — existing files show no uploader).
 - Ingest no longer drops a chunk because another file in the KB already holds the same text. Re-ingested and new files may store duplicate chunks across files; no re-ingest is required, and existing KBs are unaffected until files are re-ingested. **However**, the old cross-file drop was already active on 4096-dim prod since v0.11.0: files ingested under v0.11.x may be missing chunks that another file of the same KB already held, and lost them permanently if that other file was later deleted. Re-ingest affected KBs (at minimum those with file deletions since upgrading to v0.11.0) to restore them.
 - User uploads / text / URL sources / academic imports added to a **public** KB are now prompt-injection screened (flag only, nothing filtered). Publishing a KB screens its existing user files in a background `kb-screening` task.
@@ -35,6 +36,26 @@ one-step rollback** (`cmd/migrate` is up-only).
 - New metrics: `rag_user_file_add_total{mode=copy|ingest|ingest_cached_parse}` and `rag_kg_extraction_cache_total{outcome=hit|miss}`.
 - Parse-cache objects now live in object storage (or local disk) under `users/<uid>/parses/<user_file_id>/<hash>.json`, one JSON per (library file, parse config). Plan S3 capacity accordingly; they are deleted with the library file. Degraded (Docling-fallback) parses, spreadsheets, images and audio are never cached.
 - Developer note: bump `parseCacheVersion` (`internal/processor/parsecache.go`) when parser or page-rebuild output changes, `fingerprintVersion` (`internal/processor/fingerprint.go`) on any index-shaping code change, and `prompts.KGPromptVersion` on KG prompt changes.
+
+## v0.11.2 — 2026-10-08
+
+### ⚠ Upgrade notes
+
+No migration (still 0074), no changed `site_config` default, no re-ingest.
+The repository moved to `github.com/KI4JLU/JustRAG`, and images are now
+published as **`ghcr.io/ki4jlu/justrag`** (`:vX.Y.Z`, `:vX.Y`, `:stable`).
+The old `ghcr.io/lutzi92/justrag` receives no new builds and has no
+redirect: a deployment still pulling `ghcr.io/lutzi92/justrag:stable` keeps
+running v0.11.1 without any error. Point every compose host (update its
+checkout or set the image explicitly), the k8s worker manifests and the
+separately managed `go-server` Deployment at the new path; if the package is
+private, the cluster's `imagePullSecret` needs read access to the KI4JLU
+package. Images up to v0.11.1 exist only at the old path. The compose files
+also pull minio from the `pgsty/minio` community fork now, because
+`minio/minio` was removed from Docker Hub.
+
+### Fixes
+- Pull minio from the pgsty community fork (cad0e58)
 
 ## v0.11.1 — 2026-10-06
 
