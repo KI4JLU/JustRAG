@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -19,6 +21,24 @@ import (
 	"google.golang.org/adk/v2/workflow"
 	"google.golang.org/genai"
 )
+
+// SourcesEvent is the CUSTOM event carrying retrieved chunks of one tool
+// call: {"toolCallId": "...", "chunks": [...]} — chunks are mcp.ResultChunk
+// JSON. Documented in docs/api-contracts/agent-chat.md (Phase 2).
+const SourcesEvent = "justrag.sources.v1"
+
+// ErrResumeNeedsThread: a resume must name the thread it continues.
+var ErrResumeNeedsThread = errors.New("agui: resume requires threadId")
+
+var instanceSuffix = regexp.MustCompile(`@\d+`)
+
+// StepName turns an ADK node path ("flow@1/retrieve@2") into the stable
+// step name used in STEP_STARTED/FINISHED ("flow/retrieve") — the workflow
+// canvas highlights nodes by this name.
+func StepName(path string) string { return instanceSuffix.ReplaceAllString(path, "") }
+
+// Interrupts returns the interrupts collected so far in this run.
+func (t *Translator) Interrupts() []types.Interrupt { return slices.Clone(t.interrupts) }
 
 // Emit sends one AG-UI event to the client.
 type Emit func(events.Event) error
@@ -121,13 +141,17 @@ func (t *Translator) Fail(err error) error {
 }
 
 func (t *Translator) stepFor(ev *session.Event) error {
-	if ev.NodeInfo == nil || ev.NodeInfo.Path == "" || ev.NodeInfo.Path == t.step {
+	if ev.NodeInfo == nil || ev.NodeInfo.Path == "" {
+		return nil
+	}
+	name := StepName(ev.NodeInfo.Path)
+	if name == t.step {
 		return nil
 	}
 	if err := t.endStep(); err != nil {
 		return err
 	}
-	t.step = ev.NodeInfo.Path
+	t.step = name
 	return t.emit(events.NewStepStartedEvent(t.step))
 }
 
@@ -252,7 +276,15 @@ func (t *Translator) result(fr *genai.FunctionResponse) error {
 	if err != nil {
 		return err
 	}
-	return t.emit(events.NewToolCallResultEvent(uuid.NewString(), fr.ID, string(body)))
+	if err := t.emit(events.NewToolCallResultEvent(uuid.NewString(), fr.ID, string(body))); err != nil {
+		return err
+	}
+	if chunks, ok := fr.Response["chunks"]; ok {
+		return t.emit(events.NewCustomEvent(SourcesEvent, events.WithValue(map[string]any{
+			"toolCallId": fr.ID, "chunks": chunks,
+		})))
+	}
+	return nil
 }
 
 func inputInterrupt(r *session.RequestInput) types.Interrupt {
@@ -280,6 +312,12 @@ type InterruptKind func(ctx context.Context, interruptID string) (functionName s
 // assistant or tool messages into the model's context.
 func Input(ctx context.Context, in *types.RunAgentInput, kind InterruptKind) (*genai.Content, error) {
 	if len(in.Resume) > 0 {
+		if in.ThreadID == "" {
+			return nil, ErrResumeNeedsThread
+		}
+		if kind == nil {
+			return nil, errors.New("agui: resume without an interrupt lookup")
+		}
 		parts := make([]*genai.Part, 0, len(in.Resume))
 		for _, r := range in.Resume {
 			name, err := kind(ctx, r.InterruptID)
@@ -299,9 +337,10 @@ func Input(ctx context.Context, in *types.RunAgentInput, kind InterruptKind) (*g
 				resp = map[string]any{"confirmed": approved}
 			case workflow.WorkflowInputFunctionCallName:
 				if !resolved {
-					return nil, fmt.Errorf("agui: cancelling input interrupt %q not supported yet", r.InterruptID)
+					resp = map[string]any{"payload": map[string]any{"cancelled": true}}
+				} else {
+					resp = map[string]any{"payload": r.Payload}
 				}
-				resp = map[string]any{"payload": r.Payload}
 			default:
 				return nil, fmt.Errorf("agui: interrupt %q is not open", r.InterruptID)
 			}

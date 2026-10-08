@@ -3,6 +3,7 @@ package agui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"iter"
 	"strings"
 	"testing"
@@ -95,7 +96,7 @@ func TestResumeMapsOnlyOpenInterrupts(t *testing.T) {
 		{LLMResponse: model.LLMResponse{Content: &genai.Content{Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{ID: "old", Name: toolconfirmation.FunctionCallName}}}}}},
 	}
 	kind := OpenInterrupts(sess)
-	c, err := Input(context.Background(), &types.RunAgentInput{Resume: []types.ResumeEntry{
+	c, err := Input(context.Background(), &types.RunAgentInput{ThreadID: "th", Resume: []types.ResumeEntry{
 		{InterruptID: "c1", Status: types.ResumeStatusResolved, Payload: map[string]any{"approved": false}},
 		{InterruptID: "w1", Status: types.ResumeStatusResolved, Payload: map[string]any{"actionId": "web"}},
 	}}, kind)
@@ -108,7 +109,7 @@ func TestResumeMapsOnlyOpenInterrupts(t *testing.T) {
 	if c.Parts[1].FunctionResponse.Name != workflow.WorkflowInputFunctionCallName {
 		t.Fatalf("w1 mapped to %q", c.Parts[1].FunctionResponse.Name)
 	}
-	if _, err := Input(context.Background(), &types.RunAgentInput{Resume: []types.ResumeEntry{
+	if _, err := Input(context.Background(), &types.RunAgentInput{ThreadID: "th", Resume: []types.ResumeEntry{
 		{InterruptID: "old", Status: types.ResumeStatusResolved}}}, kind); err == nil {
 		t.Fatal("an already answered interrupt must be rejected")
 	}
@@ -137,3 +138,70 @@ func (e evs) All() iter.Seq[*session.Event] {
 }
 func (e evs) Len() int                { return len(e) }
 func (e evs) At(i int) *session.Event { return e[i] }
+
+func TestStepNameStripsInstanceSuffixes(t *testing.T) {
+	if got := StepName("suggest_flow@1/retrieve@12"); got != "suggest_flow/retrieve" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestToolChunksBecomeSourcesEvent(t *testing.T) {
+	tr, got := record(t)
+	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{Content: &genai.Content{Parts: []*genai.Part{{
+		FunctionResponse: &genai.FunctionResponse{ID: "c1", Name: "kb_search", Response: map[string]any{
+			"result": "x", "chunks": []any{map[string]any{"id": "ch1", "fileName": "a.pdf", "content": "…"}}}}}}}}})
+	var custom events.Event
+	for _, e := range *got {
+		if e.Type() == events.EventTypeCustom {
+			custom = e
+		}
+	}
+	b, _ := json.Marshal(custom)
+	if !strings.Contains(string(b), `"name":"justrag.sources.v1"`) || !strings.Contains(string(b), `"toolCallId":"c1"`) {
+		t.Fatalf("custom = %s", b)
+	}
+}
+
+func TestCancelledResumeEntries(t *testing.T) {
+	kind := func(_ context.Context, id string) (string, error) {
+		if id == "a" {
+			return toolconfirmation.FunctionCallName, nil
+		}
+		return workflow.WorkflowInputFunctionCallName, nil
+	}
+	c, err := Input(context.Background(), &types.RunAgentInput{ThreadID: "th", Resume: []types.ResumeEntry{
+		{InterruptID: "a", Status: types.ResumeStatusCancelled},
+		{InterruptID: "w", Status: types.ResumeStatusCancelled},
+	}}, kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Parts[0].FunctionResponse.Response["confirmed"] != false {
+		t.Fatal("cancelled approval must reject")
+	}
+	if p, _ := c.Parts[1].FunctionResponse.Response["payload"].(map[string]any); p["cancelled"] != true {
+		t.Fatalf("payload = %v", c.Parts[1].FunctionResponse.Response)
+	}
+}
+
+func TestResumeWithoutThreadIsRejected(t *testing.T) {
+	_, err := Input(context.Background(), &types.RunAgentInput{Resume: []types.ResumeEntry{{InterruptID: "x", Status: types.ResumeStatusResolved}}}, nil)
+	if !errors.Is(err, ErrResumeNeedsThread) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResumeWithNilKindErrors(t *testing.T) {
+	_, err := Input(context.Background(), &types.RunAgentInput{ThreadID: "th", Resume: []types.ResumeEntry{{InterruptID: "x", Status: types.ResumeStatusResolved}}}, nil)
+	if err == nil {
+		t.Fatal("expected error, not a panic")
+	}
+}
+
+func TestInterruptsAccessor(t *testing.T) {
+	tr, _ := record(t)
+	_ = tr.Event(&session.Event{RequestedInput: &session.RequestInput{InterruptID: "i1"}})
+	if in := tr.Interrupts(); len(in) != 1 || in[0].ID != "i1" {
+		t.Fatalf("got %+v", in)
+	}
+}
