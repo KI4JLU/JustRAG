@@ -145,7 +145,7 @@ func TestStepNameStripsInstanceSuffixes(t *testing.T) {
 	}
 }
 
-func TestToolChunksBecomeSourcesEvent(t *testing.T) {
+func TestToolChunksBecomeToolChunksEvent(t *testing.T) {
 	tr, got := record(t)
 	_ = tr.Event(&session.Event{LLMResponse: model.LLMResponse{Content: &genai.Content{Parts: []*genai.Part{{
 		FunctionResponse: &genai.FunctionResponse{ID: "c1", Name: "kb_search", Response: map[string]any{
@@ -157,7 +157,7 @@ func TestToolChunksBecomeSourcesEvent(t *testing.T) {
 		}
 	}
 	b, _ := json.Marshal(custom)
-	if !strings.Contains(string(b), `"name":"justrag.sources.v1"`) || !strings.Contains(string(b), `"toolCallId":"c1"`) {
+	if !strings.Contains(string(b), `"name":"justrag.tool_chunks.v1"`) || !strings.Contains(string(b), `"toolCallId":"c1"`) {
 		t.Fatalf("custom = %s", b)
 	}
 }
@@ -299,5 +299,36 @@ func TestOutputIncludesFinalNodeOutputAfterSettle(t *testing.T) {
 	want := "RUN_STARTED,TEXT_MESSAGE_START,TEXT_MESSAGE_CONTENT,TEXT_MESSAGE_END,RUN_FINISHED"
 	if typesOf(*got) != want {
 		t.Fatalf("got %s", typesOf(*got))
+	}
+}
+
+// Model text supersedes an earlier node output (e.g. a retrieve node that
+// outputs the question); a node output after the last model text is still
+// the run's final word.
+func TestModelTextSupersedesEarlierNodeOutput(t *testing.T) {
+	modelText := func(s string, partial bool) *session.Event {
+		return &session.Event{LLMResponse: model.LLMResponse{Partial: partial,
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: s}}}}}
+	}
+
+	tr, _ := record(t)
+	_ = tr.Event(&session.Event{Output: "Wann öffnet die Mensa?"})
+	_ = tr.Event(modelText("Um 11 Uhr.", true))
+	_ = tr.Event(modelText("Um 11 Uhr.", false))
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := tr.Output(); text != "Um 11 Uhr." {
+		t.Fatalf("found path text = %q", text)
+	}
+
+	tr, _ = record(t)
+	_ = tr.Event(modelText("Zwischenstand.", false))
+	_ = tr.Event(&session.Event{Output: "Endergebnis"})
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _ := tr.Output(); text != "Zwischenstand.\n\nEndergebnis" {
+		t.Fatalf("trailing node output text = %q", text)
 	}
 }

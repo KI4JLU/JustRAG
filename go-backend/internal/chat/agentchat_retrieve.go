@@ -68,9 +68,10 @@ func (r *AgentRetriever) Dispatch(ctx context.Context, kbID, name string, args j
 		r.prompt = cc.SystemPrompt
 	}
 	if cc.Abstain || len(cc.FinalChunks) == 0 {
-		// No evidence: no chunks (the flow routes no_evidence) and nothing
-		// to cite.
-		return mcp.ToolResult{Text: cc.Context}, nil
+		// No evidence: no chunks (the flow routes no_evidence), nothing to
+		// cite, and no rendered context — its [n] markers would address
+		// the turn's existing sources.
+		return mcp.ToolResult{Text: agentNoEvidenceText}, nil
 	}
 	return mcp.ToolResult{Text: r.number(cc), Chunks: resultChunks(cc.FinalChunks)}, nil
 }

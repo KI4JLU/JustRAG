@@ -13,7 +13,10 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+
 	"github.com/justrag/go-backend/internal/adkbridge"
+	"github.com/justrag/go-backend/internal/agui"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/vector"
@@ -209,9 +212,8 @@ func TestFoundRoutesToAnswerWithSources(t *testing.T) {
 
 	evs := mustRunAgentFlow(t, deps, viewScope, "Wann öffnet die Mensa?")
 
-	outs := outputsOf(evs)
-	if len(outs) == 0 || outs[len(outs)-1] != "Um 11 Uhr [1]." {
-		t.Fatalf("final output = %q", outs)
+	if text, _ := translate(t, evs); text != "Um 11 Uhr [1]." {
+		t.Fatalf("answer text = %q", text)
 	}
 	src := sourcesEvent(t, evs)
 	if len(src) != 2 || src[0].Index != 1 || src[1].Index != 2 || src[0].FileName != "mensa.pdf" {
@@ -353,5 +355,86 @@ func TestChatAgentChatEnabledDefaultOff(t *testing.T) {
 	on := "true"
 	if !ChatAgentChatEnabled(context.Background(), &fakeSiteConfigReader{values: map[string]*string{"chat_agent_chat_enabled": &on}}) {
 		t.Fatal("explicit true not read")
+	}
+}
+
+// translate runs the flow's events through the AG-UI Translator, as the
+// handler does, and returns the client-visible text and the TEXT_MESSAGE
+// contents in order.
+func translate(t *testing.T, evs []*session.Event) (string, []string) {
+	t.Helper()
+	var contents []string
+	tr, err := agui.NewTranslator("th", "run", func(e events.Event) error {
+		if c, ok := e.(*events.TextMessageContentEvent); ok {
+			contents = append(contents, c.Delta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if err := tr.Event(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	text, _, _ := tr.Output()
+	return text, contents
+}
+
+func TestFoundPathReachesClientOnceThroughTranslator(t *testing.T) {
+	var calls []ChatContextParams
+	fc := &agentFakeClient{turns: [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1].")}}
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: newTestRetriever(&calls, mensaChunks)}
+
+	text, contents := translate(t, mustRunAgentFlow(t, deps, viewScope, "Wann öffnet die Mensa?"))
+
+	if text != "Um 11 Uhr [1]." {
+		t.Fatalf("client text = %q", text)
+	}
+	if strings.Join(contents, "") != "Um 11 Uhr [1]." {
+		t.Fatalf("TEXT_MESSAGE contents = %q", contents)
+	}
+}
+
+func TestDeadEndPathShowsPlaceholderThroughTranslator(t *testing.T) {
+	var calls []ChatContextParams
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(&agentFakeClient{}, "gemma"), Retriever: newTestRetriever(&calls)}
+
+	text, contents := translate(t, mustRunAgentFlow(t, deps, viewScope, "Budget 2027?"))
+
+	if text != deadEndPlaceholderText || strings.Join(contents, "") != deadEndPlaceholderText {
+		t.Fatalf("client text = %q, contents = %q", text, contents)
+	}
+}
+
+func TestRetrieverFollowUpAbstainHasNoMarkers(t *testing.T) {
+	var calls []ChatContextParams
+	r := &AgentRetriever{}
+	floor := fakePrepare(&calls, mensaChunks)
+	r.prepare = func(ctx context.Context, p ChatContextParams) (*ChatContext, error) {
+		cc, err := floor(ctx, p)
+		if len(calls) > 1 {
+			// Abstaining follow-up: chunks are rendered but not evidence.
+			sources, text := buildChatSourcesAndContext(mensaChunks)
+			cc = &ChatContext{SystemPrompt: "ABSTAIN", Sources: sources, Context: text, FinalChunks: mensaChunks, Abstain: true}
+		}
+		return cc, err
+	}
+	if _, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"Mensa"}`)); err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"Budget"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Chunks) != 0 || strings.Contains(res.Text, "[1]") || strings.Contains(res.Text, "[2]") || res.Text != agentNoEvidenceText {
+		t.Fatalf("abstain result = %+v", res)
+	}
+	if got := r.Sources(); len(got) != 2 {
+		t.Fatalf("sources changed on abstain: %+v", got)
 	}
 }

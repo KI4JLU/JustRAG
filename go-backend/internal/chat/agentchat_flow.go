@@ -26,6 +26,10 @@ const (
 	AgentChatStateReason   = "agentchat.reason"
 )
 
+// agentNoEvidenceText is kb_search's result when retrieval abstains: the
+// model must not see rendered chunks whose [n] markers Sources() lacks.
+const agentNoEvidenceText = "Keine relevanten Treffer in der Wissensbasis."
+
 // deadEndPlaceholderText answers a dead end until suggest/act land (Task 6).
 const deadEndPlaceholderText = "Dazu habe ich in der Wissensbasis nichts gefunden."
 
@@ -162,16 +166,14 @@ func agentRetrieveRoute(ctx context.Context, r *AgentRetriever, files FileCounte
 }
 
 // agentSourcesNode emits the turn's final numbered sources ([]ChatSource
-// JSON) as the justrag.sources.v1 CUSTOM event and
-// passes the answer text through, so it stays the run's final output.
+// JSON) as the justrag.sources.v1 CUSTOM event. It has no output: the
+// answer already reached the client as model text, and a string output
+// would be shown a second time as the run's final word.
 func agentSourcesNode(r *AgentRetriever) workflow.Node {
 	return workflow.NewEmittingFunctionNode("sources",
-		func(ctx agent.Context, answer string, emit func(*session.Event) error) (string, error) {
+		func(ctx agent.Context, _ string, emit func(*session.Event) error) (any, error) {
 			ev := session.NewEvent(ctx, ctx.InvocationID())
 			ev.CustomMetadata = agui.CustomMetadata(agui.SourcesEvent, r.Sources())
-			if err := emit(ev); err != nil {
-				return "", err
-			}
-			return answer, nil
+			return nil, emit(ev)
 		}, workflow.NodeConfig{})
 }

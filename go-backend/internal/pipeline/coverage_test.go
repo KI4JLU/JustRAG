@@ -202,7 +202,6 @@ var ignoredKeys = map[string]string{
 	"agents_allow_privileged_tools": "security gate, system-admin only",
 	"langfuse_base_url":             "observability config",
 	"chat_turn_budget_seconds":      "operational budget",
-	"chat_agent_chat_enabled":       "AG-UI endpoint gate, not a pipeline stage",
 
 	// Observability / sampling — no user-visible pipeline stage.
 	"ragas_sampling_enabled":       "background eval sampling",
@@ -306,6 +305,10 @@ var ignoredKeys = map[string]string{
 	// Utility endpoint unrelated to the answering pipeline, sibling of the
 	// already-ignored describe_image_model.
 	"describe_image_enabled": "utility endpoint (POST /api/describe-image), not part of the answering pipeline",
+
+	// Per-KB endpoint gate: enables a separate answering endpoint (the
+	// AG-UI agent chat) rather than switching a stage of this pipeline.
+	"chat_agent_chat_enabled": "AG-UI endpoint gate, not a pipeline stage",
 
 	// Sheet profiler (spreadsheet rework Phase 1): ingest-time knobs. The
 	// profiler runs inside the spreadsheet ingest branch (ingestion-side),

@@ -24,9 +24,14 @@ import (
 	"google.golang.org/genai"
 )
 
-// SourcesEvent is the CUSTOM event carrying retrieved chunks of one tool
+// ToolChunksEvent is the CUSTOM event carrying retrieved chunks of one tool
 // call: {"toolCallId": "...", "chunks": [...]} — chunks are mcp.ResultChunk
 // JSON. Documented in docs/api-contracts/agent-chat.md (Phase 2).
+const ToolChunksEvent = "justrag.tool_chunks.v1"
+
+// SourcesEvent is the CUSTOM event carrying a turn's final numbered sources
+// (the agent-chat flow's []chat.ChatSource JSON). The Translator never
+// emits it itself; a workflow node does, via CustomMetadata.
 const SourcesEvent = "justrag.sources.v1"
 
 // customKey is the ADK event CustomMetadata key a node or callback sets to
@@ -134,6 +139,9 @@ func (t *Translator) Event(ev *session.Event) error {
 				err = t.reasoning(p.Text)
 			}
 		case p.Text != "":
+			// Model text supersedes any earlier node output: a node's text
+			// output is shown only when it is the run's final word.
+			t.lastOutput = ""
 			err = t.text(p.Text, ev.Partial)
 		case p.FunctionCall != nil && !ev.Partial:
 			err = t.call(p.FunctionCall)
@@ -386,7 +394,7 @@ func (t *Translator) result(fr *genai.FunctionResponse) error {
 		return err
 	}
 	if chunks, ok := fr.Response["chunks"]; ok {
-		return t.emitCustom(SourcesEvent, map[string]any{"toolCallId": fr.ID, "chunks": chunks})
+		return t.emitCustom(ToolChunksEvent, map[string]any{"toolCallId": fr.ID, "chunks": chunks})
 	}
 	return nil
 }
