@@ -115,3 +115,43 @@ func TestAdoptLegacyUploadEndToEnd(t *testing.T) {
 		t.Fatalf("library listing = %s", rec.Body)
 	}
 }
+
+func TestAdoptBusyAndGuardedUpdateIntegration(t *testing.T) {
+	pool := openMainPool(t)
+	ctx := context.Background()
+	uid := seedUser(t, pool)
+	kbID := seedKBNamed(t, pool, "adopt-busy", "private")
+	stor, err := storage.New(storage.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := "legacyuser/" + kbID + "/busy.txt"
+	if err := stor.StoreFile(ctx, oldPath, []byte("busy bytes"), "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	var fileID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, uploaded_by)
+		VALUES ($1::uuid, 'busy.txt', 'text/plain', 10, 'processing', 'upload', $2, $3::uuid)
+		RETURNING id::text`, kbID, oldPath, uid).Scan(&fileID); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM files WHERE id = $1::uuid`, fileID)              //nolint:errcheck
+		pool.Exec(ctx, `DELETE FROM user_files WHERE owner_user_id = $1::uuid`, uid) //nolint:errcheck
+	})
+	as := userfiles.NewAdoptStore(pool)
+	ad := userfiles.NewAdopter(as, userfiles.NewStore(pool), stor, adoptQuota(0))
+	res, err := ad.Adopt(ctx, kbID, uid, []string{fileID})
+	if err != nil || len(res.Skipped) != 1 || res.Skipped[0].Reason != userfiles.AdoptSkipBusy {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	// The guarded UPDATE alone must also refuse a busy row.
+	ok, err := as.LinkFile(ctx, fileID, "00000000-0000-0000-0000-000000000001", "x", uid)
+	if err != nil || ok {
+		t.Fatalf("LinkFile on busy row: ok=%v err=%v", ok, err)
+	}
+	if ex, _ := stor.FileExists(ctx, oldPath); !ex {
+		t.Error("legacy blob must be untouched")
+	}
+}
