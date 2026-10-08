@@ -49,10 +49,16 @@ import (
 	"github.com/justrag/go-backend/internal/storage"
 	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/tabular/ingest"
+	"github.com/justrag/go-backend/internal/userfiles"
 	"github.com/justrag/go-backend/internal/vector"
 	"github.com/justrag/go-backend/internal/widcert"
 	"github.com/justrag/go-backend/internal/worker"
 )
+
+// The worker reaches CurrentStoragePath through an optional interface; pin the
+// production store to it so dropping the method is a build error, not a
+// silent return to stale payload paths.
+var _ worker.CurrentPathLookup = (*files.PGStore)(nil)
 
 // sttTranscriber adapts ai.ConfigResolver to the parser.Transcriber interface
 // so the audio parser can transcribe files via the configured STT model
@@ -334,6 +340,12 @@ func RunWorker(cfg *config.Config) error {
 		}
 		slog.Info("re-embedding file", "fileId", payload.FileID, "kbId", payload.KbID)
 
+		// A missing blob must never destroy a working index: verify it exists
+		// (at its CURRENT path) before anything is flipped or deleted.
+		if err := worker.PreflightReembed(ctx, filesStore, stor, payload); err != nil {
+			return err
+		}
+
 		// Flip to 'processing' BEFORE deleting the old index: the transition
 		// clears index_fingerprint, so no NEW copy picks this file as a donor
 		// while its chunks disappear, and bumps progress_updated_at, the
@@ -558,12 +570,13 @@ func RunWorker(cfg *config.Config) error {
 		bm25Refresher := vector.NewBM25StatsRefresher(db.Vector, db.Main)
 		bm25Refresher.ModeEnabled = bm25ScoringModeEnabledAnywhere(db.Main)
 		stopMaintenance = worker.StartMaintenance(ctx, worker.MaintenanceConfig{
-			MainDB:               db.Main,
-			VectorDB:             db.Vector,
-			StuckFileTimeout:     cfg.StuckFileTimeout,
-			TabularOrphanSweeper: tabular.NewOrphanSweeper(db.Main),
-			BM25StatsRefresher:   bm25Refresher,
-			RagasStore:           ragasStore,
+			MainDB:                db.Main,
+			VectorDB:              db.Vector,
+			StuckFileTimeout:      cfg.StuckFileTimeout,
+			TabularOrphanSweeper:  tabular.NewOrphanSweeper(db.Main),
+			UserFileOrphanSweeper: userfiles.NewOrphanSweeper(userfiles.NewOrphanStore(db.Main), stor),
+			BM25StatsRefresher:    bm25Refresher,
+			RagasStore:            ragasStore,
 			// Read per pass, not once here: retention is a knob an operator
 			// may want to lower after noticing the table's size, and a
 			// worker restart should not be the price of that.

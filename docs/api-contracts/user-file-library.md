@@ -1,4 +1,4 @@
-# User file library API contract (phases 1–3)
+# User file library API contract (phases 1–4)
 
 Backend: `go-backend/internal/userfiles`, `internal/files/from_library.go`, `internal/cascade`.
 The frontend builds against this document. Everything here matches the merged code.
@@ -148,6 +148,43 @@ Errors: 400 `{"error":"userFileIds must contain 1-100 ids"}`, 401, 403 (no `edit
 
 The 200 response of a deduplicated `POST /api/library/files` (bytes already in the library) lists the KBs the existing file is already in under `kbs`.
 
+### Adopting legacy uploads
+
+`POST /api/kb/{id}/files/adopt` moves uploads made before the library existed (`origin = "upload"`, no `userFileId`) into their uploader's library. The KB copy keeps its `files.id`, its chunks, graph and tabular data: the **index is untouched**; only the file's blob moves to `users/<uid>/<userFileId>` and the row gains `userFileId`.
+
+Authorization (stricter than the route's KB-admin gate):
+
+- Private KB: the KB `owner` (a superadmin resolves to owner).
+- Public KB: a system `admin` or `superadmin`.
+- Anyone else, including a plain KB `admin`: `403 {"error":"Insufficient permissions"}`. Unknown KB: 404, no token: 401.
+
+Body: `{"fileIds": ["<files.id>", ...]}`, 1..100 ids, otherwise `400 {"error":"fileIds must contain 1-100 ids"}` (a malformed body is the same 400).
+
+Response `200`:
+
+```json
+{
+  "adopted": [{"fileId": "<files.id>", "userFileId": "<UserFile.id>"}],
+  "skipped": [{"fileId": "<files.id>", "reason": "already_library"}]
+}
+```
+
+Both arrays are always present (possibly empty). Per-file problems never fail the request; `reason` is one of:
+
+| `reason` | Meaning |
+|---|---|
+| `not_found` | no such file in this KB (also: malformed id, file of another KB) |
+| `not_upload` | `origin` is not `upload` (RSS, Confluence, repository, crawl, text, URL, academic) |
+| `already_library` | already library-backed, or a concurrent adoption / an existing copy of the same library file in this KB won |
+| `quota_exceeded` | the target user would exceed their quota (nothing is written) |
+| `blob_missing` | the stored object is gone, or the row has no storage path |
+| `busy` | the file's `status` is `pending` or `processing` (an ingestion/re-embed task may still read the old path); retry once it is `completed`/`error` |
+| `duplicate_in_kb` | the KB already holds another copy of the same library file (identical bytes uploaded twice); this row stays a legacy upload |
+
+Target user per file: `uploadedBy` when that user still exists, otherwise the caller. The file then appears in that user's library (`GET /api/library/files`) with this KB under `kbs` (`GET /api/library/files/{id}/usage`). If the target already owns the same bytes (same SHA-256), the KB copy is linked to that existing library file: no copy, no quota change. `uploadedBy` is set to the caller when it was empty. The old blob is deleted only when no other file row still references it. An unexpected infrastructure error answers `500 {"error":"Internal Server Error"}`; files handled before it stay adopted but are not reported, so retrying the same ids is safe (they come back as `already_library`).
+
+Ownership: after adoption the target user (normally the uploader) owns the library file and can delete it everywhere, including this KB's copy and its index, even if they are no longer a member of the KB (the same semantics as phase-1 uploads).
+
 ## Quota semantics
 
 - Effective quota = per-user override (`users.file_quota_bytes`) if set, else the global site_config key `user_file_quota_bytes`; `0` = unlimited. The default is unlimited, so nothing changes until an operator sets one.
@@ -215,7 +252,9 @@ Audio files are **not supported**: library chat parses with the built-in parsers
 
 Parsing happens on demand the first time a file is used in a chat and is cached afterwards. A parse that finishes after the client disconnected is still cached, so retrying a turn on a large scanned PDF gets faster.
 
-Response. Non-streaming: the KB chat JSON body (`answer`, `reasoning`, `sources`, `enhancedQuery`, `chatId`, `userMessageId`, `aiMessageId`, `followUpQuestions`, `verification`, ...). Streaming (`?stream=true`): first `{"stage":"library_prepare"}`, then the same SSE frames in the same order as KB chat (opening `sources` / ids frames, trajectory events, `content` / `reasoning` deltas, `aiMessageId`, `followUpQuestions`, `verification`, `[DONE]`), including the degenerate-run guard. Read `chatId` from the opening frame (the first frame carrying `chatId`, i.e. the second frame) to continue the conversation.
+**Parse progress frames (stream mode only).** After `{"stage":"library_prepare"}` and before each selected file's text is resolved (cache hit or server-side parse), the server sends and flushes `{"stage":"library_parse","file":"<file name>","index":<0-based position>,"total":<number of selected files>}`. They keep the connection alive during long parses and let the UI show "reading file i of n". They arrive in selection order, one per file, before the opening `chatId` frame; a request that fails at file k has already emitted frames 0..k. Non-streaming requests never emit them. Clients that do not know the stage should ignore it, like any other trajectory frame.
+
+Response. Non-streaming: the KB chat JSON body (`answer`, `reasoning`, `sources`, `enhancedQuery`, `chatId`, `userMessageId`, `aiMessageId`, `followUpQuestions`, `verification`, ...). Streaming (`?stream=true`): first `{"stage":"library_prepare"}`, then one `{"stage":"library_parse",...}` per file, then the same SSE frames in the same order as KB chat (opening `sources` / ids frames, trajectory events, `content` / `reasoning` deltas, `aiMessageId`, `followUpQuestions`, `verification`, `[DONE]`), including the degenerate-run guard. Read `chatId` from the opening frame (the first frame carrying `chatId`; it follows the prepare and parse frames, so do not rely on its position) to continue the conversation.
 
 ### Sources: `userFileId`
 

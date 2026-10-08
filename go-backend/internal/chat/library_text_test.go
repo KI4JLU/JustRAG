@@ -266,3 +266,61 @@ func TestChatTextKey(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// deadlineStore records the ctx deadline each StoreFile call runs under.
+type deadlineStore struct {
+	storage.Storage
+	mu        sync.Mutex
+	key       string
+	remaining time.Duration
+	hasDL     bool
+	ctxErr    error
+}
+
+func (d *deadlineStore) StoreFile(ctx context.Context, key string, data []byte, ct string) error {
+	if key == libpaths.ChatTextKey("u1", "uf0") {
+		d.mu.Lock()
+		d.key = key
+		dl, ok := ctx.Deadline()
+		d.hasDL = ok
+		d.remaining = time.Until(dl)
+		d.ctxErr = ctx.Err()
+		d.mu.Unlock()
+	}
+	return d.Storage.StoreFile(ctx, key, data, ct)
+}
+
+// The cache write has its own detached 10 s budget: a parse that used nearly
+// all of its timeout still gets its result cached.
+func TestLibraryTextSource_CacheWriteHasOwnBudget(t *testing.T) {
+	bp := slowParser{d: 150 * time.Millisecond}
+	s, stor, ufs := blockFixture(t, &blockParser{}, 1)
+	ds := &deadlineStore{Storage: stor}
+	s.stor = ds
+	s.factory = parser.DefaultFactoryWith(nil, bp)
+	s.parseTimeout = 200 * time.Millisecond
+	ufs[0].Name = "s.slow"
+	if _, err := s.Text(context.Background(), ufs[0]); err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	if !ds.hasDL || ds.ctxErr != nil {
+		t.Fatalf("cache write ctx: deadline=%v err=%v", ds.hasDL, ds.ctxErr)
+	}
+	if ds.remaining < 5*time.Second {
+		t.Fatalf("cache write budget = %v, want about 10s (not the leftover parse budget)", ds.remaining)
+	}
+	if ok, _ := stor.FileExists(context.Background(), libpaths.ChatTextKey("u1", "uf0")); !ok {
+		t.Fatal("result not cached")
+	}
+}
+
+type slowParser struct{ d time.Duration }
+
+func (slowParser) Name() string              { return "slow" }
+func (slowParser) CanParse(_, f string) bool { return f == "s.slow" }
+func (p slowParser) Parse(context.Context, parser.ParseContext) (*parser.ParseResult, error) {
+	time.Sleep(p.d)
+	return &parser.ParseResult{Text: "slow text"}, nil
+}

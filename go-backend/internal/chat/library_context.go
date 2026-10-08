@@ -10,6 +10,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/logctx"
+	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/splitter"
@@ -87,6 +88,7 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 	// tokenized on every turn just to reach the same 400.
 	if libraryBoundSound() {
 		if bound := libraryTokenLowerBound(p.Files); bound > limit {
+			observability.RecordLibraryChatTurn("too_large")
 			return nil, &ErrLibraryTooLarge{Tokens: bound, Max: limit, AtLeast: true}
 		}
 	}
@@ -106,6 +108,7 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 	var err error
 	switch {
 	case total <= fullMax:
+		observability.RecordLibraryChatTurn("fulltext")
 		sources, text := buildChatSourcesAndContext(chunks)
 		cc = &ChatContext{
 			// Notice first, like the map_reduce path (KbSystemPrompt leads there).
@@ -129,7 +132,9 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 		if err != nil {
 			return nil, err
 		}
+		observability.RecordLibraryChatTurn("map_reduce")
 	default:
+		observability.RecordLibraryChatTurn("too_large")
 		return nil, &ErrLibraryTooLarge{Tokens: total, Max: limit}
 	}
 

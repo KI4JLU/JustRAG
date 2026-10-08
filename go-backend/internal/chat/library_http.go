@@ -318,11 +318,14 @@ func (lr libraryReply) fail(ctx context.Context, status int, msg string) {
 // the next file once the request is gone.
 func (h *Handler) loadLibraryTexts(ctx context.Context, reply libraryReply, files []*userfiles.UserFile) ([]LibraryFile, bool) {
 	out := make([]LibraryFile, 0, len(files))
-	for _, uf := range files {
+	for i, uf := range files {
 		if err := ctx.Err(); err != nil {
 			logctx.From(ctx).Info("chat.library: request ended while reading files", "error", err)
 			reply.fail(ctx, http.StatusInternalServerError, "failed to read library file")
 			return nil, false
+		}
+		if reply.streaming {
+			writeSSE(ctx, reply.w, map[string]any{"stage": "library_parse", "file": uf.Name, "index": i, "total": len(files)})
 		}
 		parsed, err := h.libraryText.Text(ctx, uf)
 		switch {

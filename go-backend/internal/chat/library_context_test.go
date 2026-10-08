@@ -8,7 +8,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/splitter"
 )
@@ -291,5 +294,36 @@ func TestTextTokenLowerBound_NeverExceedsCL100K(t *testing.T) {
 		if b, n := textTokenLowerBound(c), splitter.CountTokens(c); b > n {
 			t.Errorf("bound %d > cl100k %d for %q", b, n, c)
 		}
+	}
+}
+
+func TestBuildLibraryContext_TurnMetricPerMode(t *testing.T) {
+	c := observability.LibraryChatTurnTotalForTest()
+	delta := func(mode string, f func()) float64 {
+		before := testutil.ToFloat64(c.WithLabelValues(mode))
+		f()
+		return testutil.ToFloat64(c.WithLabelValues(mode)) - before
+	}
+	big := []LibraryFile{{UserFileID: "uf-1", Name: "big.txt", Parsed: &parser.ParseResult{Text: bigText(1500)}}}
+	extract := func(_ context.Context, _ *ai.ConfigResolver, _, _, _, _, _ string) ([]ai.LongContextFinding, error) {
+		return []ai.LongContextFinding{{SourceIdx: 1, Claim: "c", Quote: "lorem"}}, nil
+	}
+	if d := delta("fulltext", func() {
+		_, _ = buildLibraryContextWith(context.Background(), nil, nil, libCfg("", ""),
+			LibraryContextParams{Files: twoFiles(), Query: "q", Language: "en"})
+	}); d != 1 {
+		t.Errorf("fulltext delta = %v", d)
+	}
+	if d := delta("map_reduce", func() {
+		_, _ = buildLibraryContextWith(context.Background(), nil, extract, libCfg("4000", "100000"),
+			LibraryContextParams{Files: big, Query: "q", Language: "en"})
+	}); d != 1 {
+		t.Errorf("map_reduce delta = %v", d)
+	}
+	if d := delta("too_large", func() {
+		_, _ = buildLibraryContextWith(context.Background(), nil, nil, libCfg("4000", "10000"),
+			LibraryContextParams{Files: []LibraryFile{{UserFileID: "uf-1", Name: "b.txt", Parsed: &parser.ParseResult{Text: bigText(4000)}}}, Query: "q", Language: "en"})
+	}); d != 1 {
+		t.Errorf("too_large delta = %v", d)
 	}
 }

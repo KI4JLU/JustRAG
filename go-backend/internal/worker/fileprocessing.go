@@ -105,6 +105,50 @@ type LibraryLinkLookup interface {
 	LibraryLink(ctx context.Context, fileID string) (userFileID, ownerUserID string, err error)
 }
 
+// CurrentPathLookup reads files.storage_path. Optionally implemented by the
+// Links value (*files.PGStore does).
+type CurrentPathLookup interface {
+	CurrentStoragePath(ctx context.Context, fileID string) (string, error)
+}
+
+// ResolveCurrentPath returns the path a task should read: the files row's
+// current storage_path when it is non-empty (adoption may have moved the blob
+// since enqueue), else payload.FilePath. A lookup error keeps payload.FilePath.
+func ResolveCurrentPath(ctx context.Context, lookup any, payload jobs.FileProcessingPayload) string {
+	cp, ok := lookup.(CurrentPathLookup)
+	if !ok || payload.FileID == "" {
+		return payload.FilePath
+	}
+	cur, err := cp.CurrentStoragePath(ctx, payload.FileID)
+	if err != nil {
+		slog.Warn("current storage path lookup failed; using payload path", "fileId", payload.FileID, "error", err)
+		return payload.FilePath
+	}
+	if cur != "" && cur != payload.FilePath {
+		slog.Info("storage path changed since enqueue; using current path",
+			"fileId", payload.FileID, "payloadPath", payload.FilePath, "currentPath", cur)
+		return cur
+	}
+	return payload.FilePath
+}
+
+// PreflightReembed fails when the blob a re-embed would read is gone, so the
+// caller can abort BEFORE deleting the working index.
+func PreflightReembed(ctx context.Context, lookup any, stor storage.Storage, payload jobs.FileProcessingPayload) error {
+	path := ResolveCurrentPath(ctx, lookup, payload)
+	if path == "" {
+		return fmt.Errorf("re-embedding: file %s has no storage path", payload.FileID)
+	}
+	ok, err := stor.FileExists(ctx, path)
+	if err != nil {
+		return fmt.Errorf("re-embedding: check blob for file %s: %w", payload.FileID, err)
+	}
+	if !ok {
+		return fmt.Errorf("re-embedding: blob %q of file %s is missing; index left untouched", path, payload.FileID)
+	}
+	return nil
+}
+
 // resolveLibraryLink sets payload.UserFileID and returns the owner. With
 // links, both come from the files row, not the payload: re-embeds and the
 // per-file retry endpoint enqueue payloads without UserFileID, and a library
@@ -162,6 +206,9 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 		}
 
 		ownerID := resolveLibraryLink(ctx, deps.Links, owners, &payload)
+		if deps.Links != nil {
+			payload.FilePath = ResolveCurrentPath(ctx, deps.Links, payload)
+		}
 		reembed := task.Type() == jobs.TypeReEmbedding
 
 		// Copy mode (P2-R6): a library file whose index another KB copy
