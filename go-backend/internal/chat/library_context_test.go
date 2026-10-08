@@ -144,6 +144,60 @@ func TestBuildLibraryContext_Empty(t *testing.T) {
 	}
 }
 
+func TestBuildLibraryContext_OwnerSurvivesMapEmptyReorder(t *testing.T) {
+	files := []LibraryFile{
+		{UserFileID: "uf-A", Name: "a.txt", Parsed: &parser.ParseResult{Text: bigText(800)}},
+		{UserFileID: "uf-B", Name: "b.txt", Parsed: &parser.ParseResult{Text: bigText(800)}},
+		{UserFileID: "uf-C", Name: "c.txt", Parsed: &parser.ParseResult{Text: bigText(800)}},
+	}
+	owner := map[string]string{"a.txt": "uf-A", "b.txt": "uf-B", "c.txt": "uf-C"}
+	empty := func(context.Context, *ai.ConfigResolver, string, string, string, string, string) ([]ai.LongContextFinding, error) {
+		return nil, nil
+	}
+	check := func(name string, cc *ChatContext, err error) {
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(cc.Sources) < 3 {
+			t.Fatalf("%s: sources = %d", name, len(cc.Sources))
+		}
+		for _, s := range cc.Sources {
+			if s.UserFileID != owner[s.FileName] || s.FileID != "" {
+				t.Errorf("%s: source %+v mismatched owner", name, s)
+			}
+		}
+	}
+	cc, err := buildLibraryContextWith(context.Background(), nil, empty, libCfg("4000", "100000"),
+		LibraryContextParams{Files: files, Query: "q", Language: "en"})
+	check("map_empty", cc, err)
+	cc, err = buildLibraryContextWith(context.Background(), nil, nil, libCfg("100000", ""),
+		LibraryContextParams{Files: files, Query: "q", Language: "en"})
+	check("fulltext", cc, err)
+	ext := func(context.Context, *ai.ConfigResolver, string, string, string, string, string) ([]ai.LongContextFinding, error) {
+		return []ai.LongContextFinding{{SourceIdx: 1, Claim: "c", Quote: "q"}}, nil
+	}
+	cc, err = buildLibraryContextWith(context.Background(), nil, ext, libCfg("4000", "100000"),
+		LibraryContextParams{Files: files, Query: "q", Language: "en"})
+	check("map_reduce", cc, err)
+}
+
+func TestBuildLibraryContext_NoTextSentinelAndSkippedEvent(t *testing.T) {
+	_, err := buildLibraryContextWith(context.Background(), nil, nil, libCfg("", ""),
+		LibraryContextParams{Files: []LibraryFile{{UserFileID: "x", Name: "e", Parsed: &parser.ParseResult{}}}})
+	if !errors.Is(err, ErrLibraryNoText) {
+		t.Fatalf("err = %v", err)
+	}
+	var got []map[string]any
+	files := append(twoFiles(), LibraryFile{UserFileID: "uf-3", Name: "empty.txt", Parsed: &parser.ParseResult{}})
+	if _, err := buildLibraryContextWith(context.Background(), nil, nil, libCfg("", ""),
+		LibraryContextParams{Files: files, Language: "en", Emit: func(m map[string]any) { got = append(got, m) }}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0]["stage"] != "library_files_skipped" {
+		t.Errorf("events = %v", got)
+	}
+}
+
 func TestChatLibraryFulltextMaxTokens(t *testing.T) {
 	ctx := context.Background()
 	cases := map[string]int{"": 60000, "abc": 60000, "3999": 60000, "4000": 4000, " 200000 ": 200000, "200001": 60000}

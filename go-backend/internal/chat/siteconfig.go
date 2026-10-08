@@ -690,7 +690,8 @@ func ChatLongContextMaxTokens(ctx context.Context, reader SiteConfigReader) int 
 
 // ChatLibraryFulltextMaxTokens is the total-token ceiling under which a
 // KB-less library chat injects the selected files' full text. Above it (and
-// up to ChatLongContextMaxTokens) the map_reduce consumer is used. Global-only
+// up to ChatLongContextMaxTokens) the map_reduce consumer is used. The value must leave room for the chat
+// history and the answer below the answer model's context window. Global-only
 // ("chat_library_fulltext_max_tokens"), default 60000, range [4000, 200000].
 func ChatLibraryFulltextMaxTokens(ctx context.Context, reader SiteConfigReader) int {
 	return readInt(ctx, reader, "chat_library_fulltext_max_tokens", 60_000, 4_000, 200_000)

@@ -2,10 +2,12 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/splitter"
@@ -33,6 +35,9 @@ type LibraryContextParams struct {
 	Emit            func(map[string]any) // trajectory events, may be nil
 }
 
+// ErrLibraryNoText means none of the selected files yielded any text.
+var ErrLibraryNoText = errors.New("library: the selected files contain no text")
+
 // ErrLibraryTooLarge reports that the selected files exceed even the
 // long-context budget. Nothing is silently truncated.
 type ErrLibraryTooLarge struct{ Tokens, Max int }
@@ -52,9 +57,15 @@ func BuildLibraryContext(ctx context.Context, resolver *ai.ConfigResolver, cfg S
 // buildLibraryContextWith is the testable core; extract may be nil when the
 // map_reduce path is not expected.
 func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, extract extractFindingsFn, cfg SiteConfigReader, p LibraryContextParams) (*ChatContext, error) {
-	chunks, owners, total := libraryChunks(p.Files)
+	chunks, skipped, total := libraryChunks(p.Files)
 	if len(chunks) == 0 {
-		return nil, fmt.Errorf("library: the selected files contain no text")
+		return nil, ErrLibraryNoText
+	}
+	if len(skipped) > 0 {
+		logctx.From(ctx).Warn("library.files_without_text", "files", skipped)
+		if p.Emit != nil {
+			p.Emit(map[string]any{"stage": "library_files_skipped", "files": skipped})
+		}
 	}
 
 	notice := prompts.LibraryNotice(p.Language)
@@ -64,8 +75,9 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 	case total <= fullMax:
 		sources, text := buildChatSourcesAndContext(chunks)
 		cc = &ChatContext{
-			SystemPrompt: prompts.ChatSystemPromptWithDate(p.Language, p.CurrentDateLine) +
-				"\n\n" + notice + "\n\nCONTEXT:\n" + text,
+			// Notice first, like the map_reduce path (KbSystemPrompt leads there).
+			SystemPrompt: notice + "\n\n" + prompts.ChatSystemPromptWithDate(p.Language, p.CurrentDateLine) +
+				"\n\nCONTEXT:\n" + text,
 			Sources:     sources,
 			Context:     text,
 			FinalChunks: chunks,
@@ -88,12 +100,10 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 		return nil, &ErrLibraryTooLarge{Tokens: total, Max: lcMax}
 	}
 
-	// Sources number the chunks in input order (nothing is truncated), so
-	// source i maps back to owners[i].
+	// The owner rides on the chunk (FileID) so it survives any reordering the
+	// consumer applies (e.g. the map_empty sandwich degrade).
 	for i := range cc.Sources {
-		if i < len(owners) {
-			cc.Sources[i].UserFileID = owners[i]
-		}
+		cc.Sources[i].UserFileID = cc.Sources[i].FileID
 		cc.Sources[i].FileID = ""
 	}
 	for i := range cc.FinalChunks {
@@ -104,47 +114,51 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 
 // libraryChunks renders the files as synthetic page chunks in selection
 // order (descending score keeps that order), splitting pages above
-// libraryChunkTokens. owners[i] is chunk i's UserFileID; total is the summed
-// token count of the chunk bodies.
-func libraryChunks(files []LibraryFile) (chunks []vector.SearchChunk, owners []string, total int) {
+// libraryChunkTokens. Each chunk carries its UserFileID in FileID (the caller
+// moves it to ChatSource.UserFileID); skipped names files that contributed no
+// text; total is the summed token count of the chunk bodies.
+func libraryChunks(files []LibraryFile) (chunks []vector.SearchChunk, skipped []string, total int) {
 	cfg := splitter.DefaultConfig()
 	cfg.ChunkSize = libraryChunkTokens
 	cfg.ChunkOverlap = 0
 
-	add := func(f LibraryFile, page int, text string) {
+	add := func(f LibraryFile, page int, text string) bool {
 		text = strings.TrimSpace(text)
 		if text == "" {
-			return
+			return false
 		}
 		parts := []string{text}
 		if splitter.CountTokens(text) > libraryChunkTokens {
 			parts = splitter.Split(text, cfg)
 		}
 		for _, part := range parts {
-			c := vector.SearchChunk{Content: part, FileName: f.Name}
+			c := vector.SearchChunk{Content: part, FileName: f.Name, FileID: f.UserFileID}
 			if page > 0 {
 				c.Metadata = map[string]any{"pages": []int{page}}
 			}
 			chunks = append(chunks, c)
-			owners = append(owners, f.UserFileID)
 			total += splitter.CountTokens(part)
 		}
+		return true
 	}
 	for _, f := range files {
-		if f.Parsed == nil {
-			continue
-		}
-		if len(f.Parsed.Pages) > 0 {
-			for _, pg := range f.Parsed.Pages {
-				add(f, pg.PageNumber, pg.Text)
+		got := false
+		if f.Parsed != nil {
+			if len(f.Parsed.Pages) > 0 {
+				for _, pg := range f.Parsed.Pages {
+					got = add(f, pg.PageNumber, pg.Text) || got
+				}
+			} else {
+				got = add(f, 0, f.Parsed.Text)
 			}
-		} else {
-			add(f, 0, f.Parsed.Text)
+		}
+		if !got {
+			skipped = append(skipped, f.Name)
 		}
 	}
 	n := float64(len(chunks))
 	for i := range chunks {
 		chunks[i].Score = 1 - float64(i)/(n+1)
 	}
-	return chunks, owners, total
+	return chunks, skipped, total
 }
