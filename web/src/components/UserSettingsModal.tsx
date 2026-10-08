@@ -1,4 +1,4 @@
-import { Settings, User } from 'lucide-react';
+import { MessageSquare, Settings, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
@@ -13,9 +13,9 @@ import ApiKeyManager from './ApiKeys/ApiKeyManager';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
-import { useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
+import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 
-export type SettingsTab = 'general' | 'profile';
+export type SettingsTab = 'general' | 'chat' | 'profile';
 
 interface UserSettingsModalProps {
     open: boolean;
@@ -45,7 +45,8 @@ function Choice<T extends string>({ id, value, onChange, options }: {
 
 /**
  * The user's settings window (user menu → „Einstellungen"), on the DS
- * `SettingsDialog`. General: colour scheme, Style, language. Profile: the
+ * `SettingsDialog`. General: colour scheme, Style, language. Chat: starter
+ * suggestions, follow-ups, autoscroll. Profile: the
  * account as the directory (LDAP) knows it — read-only — plus the API-key and
  * Confluence-token managers where they apply, as on the profile page.
  */
@@ -54,6 +55,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
     const { shape, setShape } = useUiShape();
     const [suggestionsEnabled, setSuggestionsEnabled] = usePromptSuggestionsEnabled();
     const [followUpsEnabled, setFollowUpsEnabled] = useFollowUpsEnabled();
+    const [autoScrollEnabled, setAutoScrollEnabled] = useAutoScrollEnabled();
     const { contrast, setContrast } = useContrast();
     const { accent, setAccent } = useAccent();
     const { user, siteConfigs } = useAuth();
@@ -76,7 +78,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'general',
                     label: t('settingsGeneral'),
                     icon: <Settings aria-hidden="true" />,
-                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('uiShape'), t('promptSuggestions'), t('followUpsLabel'), t('languageLabel')],
+                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('uiShape'), t('languageLabel')],
                     content: (
                         <>
                             <SettingsRow
@@ -135,18 +137,6 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                 )}
                             />
                             <SettingsRow
-                                label={t('promptSuggestions')}
-                                labelId="settings-prompt-suggestions"
-                                description={t('promptSuggestionsHint')}
-                                control={<Switch id="settings-prompt-suggestions" checked={suggestionsEnabled} onCheckedChange={setSuggestionsEnabled} />}
-                            />
-                            <SettingsRow
-                                label={t('followUpsLabel')}
-                                labelId="settings-follow-ups"
-                                description={t('followUpsHint')}
-                                control={<Switch id="settings-follow-ups" checked={followUpsEnabled} onCheckedChange={setFollowUpsEnabled} />}
-                            />
-                            <SettingsRow
                                 label={t('languageLabel')}
                                 labelId="settings-language"
                                 control={(
@@ -157,6 +147,34 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                         options={[['de', 'Deutsch'], ['en', 'English']]}
                                     />
                                 )}
+                            />
+                        </>
+                    ),
+                },
+                {
+                    value: 'chat',
+                    label: t('settingsChat'),
+                    icon: <MessageSquare aria-hidden="true" />,
+                    keywords: [t('promptSuggestions'), t('followUpsLabel'), t('autoScrollLabel')],
+                    content: (
+                        <>
+                            <SettingsRow
+                                label={t('promptSuggestions')}
+                                labelId="settings-prompt-suggestions"
+                                description={t('promptSuggestionsHint')}
+                                control={<Switch aria-labelledby="settings-prompt-suggestions" checked={suggestionsEnabled} onCheckedChange={setSuggestionsEnabled} />}
+                            />
+                            <SettingsRow
+                                label={t('followUpsLabel')}
+                                labelId="settings-follow-ups"
+                                description={t('followUpsHint')}
+                                control={<Switch aria-labelledby="settings-follow-ups" checked={followUpsEnabled} onCheckedChange={setFollowUpsEnabled} />}
+                            />
+                            <SettingsRow
+                                label={t('autoScrollLabel')}
+                                labelId="settings-auto-scroll"
+                                description={t('autoScrollHint')}
+                                control={<Switch aria-labelledby="settings-auto-scroll" checked={autoScrollEnabled} onCheckedChange={setAutoScrollEnabled} />}
                             />
                         </>
                     ),

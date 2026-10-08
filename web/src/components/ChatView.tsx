@@ -15,7 +15,7 @@ import { useKbData } from '../contexts/KbDataContext';
 import { SystemPromptPanel } from './SystemPromptPanel';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
-import { useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
+import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { useMessageSections } from '../hooks/useMessageSections';
@@ -182,9 +182,10 @@ const ChatViewComp = () => {
   // Starter prompts under the composer of an empty chat: the global KB's own,
   // then the site's, then the built-in pair.
   // Generated from the KB's documents, only while an empty chat can use them.
-  // User settings (Einstellungen → Allgemein): suggestions and follow-ups on/off.
+  // User settings (Einstellungen → Chat): suggestions, follow-ups and autoscroll on/off.
   const [suggestionsEnabled] = usePromptSuggestionsEnabled();
   const [followUpsEnabled] = useFollowUpsEnabled();
+  const [autoScrollEnabled] = useAutoScrollEnabled();
   const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && chat.messages.length === 0 && hasFiles);
   const examplePrompts = useMemo(() => {
     const raw = currentKb?.isGlobal && currentKb?.examplePrompts
@@ -566,7 +567,7 @@ const ChatViewComp = () => {
                     // Remounts when another chat's messages are loaded (transcriptKey),
                     // so it opens at that chat's last user turn. A new chat getting
                     // its id mid-stream does not change the key.
-                    <MessageScrollerProvider key={chat.transcriptKey} autoScroll defaultScrollPosition="last-anchor">
+                    <MessageScrollerProvider key={chat.transcriptKey} autoScroll={autoScrollEnabled} defaultScrollPosition="last-anchor">
                       <MessageScroller>
                         <MessageScrollerViewport
                           className="messages-container"
