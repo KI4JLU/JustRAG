@@ -12,6 +12,7 @@ import (
 	"google.golang.org/adk/v2/tool/toolutils"
 	"google.golang.org/genai"
 
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -96,9 +97,14 @@ func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) 
 		}
 	}
 	m, _ := args.(map[string]any)
+	return t.result(ctx, m), nil
+}
+
+// result dispatches and shapes the tool result the model sees.
+func (t *dispatchTool) result(ctx context.Context, m map[string]any) map[string]any {
 	res, err := t.dispatchChecked(ctx, m)
 	if err != nil {
-		return map[string]any{"error": err.Error()}, nil
+		return map[string]any{"error": modelVisibleError(ctx, t.spec.Name, err)}
 	}
 	out := map[string]any{"result": res.Text}
 	if len(res.Chunks) > 0 {
@@ -107,7 +113,20 @@ func (t *dispatchTool) Run(ctx agent.Context, args any) (map[string]any, error) 
 	if len(res.Structured) > 0 {
 		out["structured"] = res.Structured
 	}
-	return out, nil
+	return out
+}
+
+// modelVisibleError returns the error text the model (and, through the
+// AG-UI stream, the client) may see. Policy refusals and unknown tools let
+// the model explain or recover; any other dispatch error can carry DB,
+// provider or network detail, so it is logged and replaced by "tool failed".
+// mcp schema-validation failures have no sentinel and are opaque too.
+func modelVisibleError(ctx context.Context, name string, err error) string {
+	if errors.Is(err, ErrForbiddenTool) || errors.Is(err, ErrNoScope) || errors.Is(err, mcp.ErrUnknownTool) {
+		return err.Error()
+	}
+	logctx.From(ctx).Error("adkbridge: tool dispatch failed", "tool", name, "error", err)
+	return "tool failed"
 }
 
 // dispatchChecked enforces scope, role and privilege, overwrites the

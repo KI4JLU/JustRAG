@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -112,6 +113,7 @@ func seedUser(t *testing.T, pool *pgxpool.Pool) string {
 type fakeTurn struct {
 	chunks []ai.StreamChunk
 	delay  time.Duration // sleep before each chunk; honours ctx cancellation
+	err    error         // returned by StreamChatCompletion instead of a stream
 }
 
 type fakeClient struct {
@@ -147,6 +149,9 @@ func (f *fakeClient) ChatCompletion(_ context.Context, _ *ai.ChatRequest) (*ai.C
 
 func (f *fakeClient) StreamChatCompletion(ctx context.Context, _ ai.ChatRequest) (<-chan ai.StreamChunk, error) {
 	turn := f.next()
+	if turn.err != nil {
+		return nil, turn.err
+	}
 	ch := make(chan ai.StreamChunk)
 	go func() {
 		defer close(ch)
@@ -286,7 +291,8 @@ func postCtx(ctx context.Context, t *testing.T, f *fixture, user string, body ma
 	}
 	defer resp.Body.Close()
 	var evs []map[string]any
-	sc := bufio.NewScanner(resp.Body)
+	var respBuf bytes.Buffer
+	sc := bufio.NewScanner(io.TeeReader(resp.Body, &respBuf))
 	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
 	for sc.Scan() {
 		line := sc.Text()
@@ -302,8 +308,12 @@ func postCtx(ctx context.Context, t *testing.T, f *fixture, user string, body ma
 	if err := sc.Err(); err != nil && ctx.Err() == nil {
 		t.Fatalf("read SSE: %v", err)
 	}
+	lastBody = respBuf.String()
 	return resp.StatusCode, evs
 }
+
+// lastBody is the raw body of the most recent post (tests are not parallel).
+var lastBody string
 
 func userMsg(thread, text string) map[string]any {
 	return map[string]any{"threadId": thread, "runId": uuid.NewString(),
@@ -501,5 +511,60 @@ func TestResumeNeverClaimsAnotherUsersPause(t *testing.T) {
 	}
 	if st != "interrupted" || f.imports.Load() != 0 {
 		t.Fatalf("A's pause: status=%s imports=%d", st, f.imports.Load())
+	}
+}
+
+// A model-provider failure ends the run as RUN_ERROR "run failed" with the
+// row failed; the provider's error text never reaches the client.
+func TestProviderErrorIsSanitisedRunError(t *testing.T) {
+	f := newFixture(t, fakeTurn{err: errors.New("upstream 500: secret-db-detail")})
+	runID := uuid.NewString()
+	code, evs := post(t, f, f.userA, map[string]any{"threadId": "t1", "runId": runID,
+		"messages": []map[string]any{{"id": "m1", "role": "user", "content": "Frage"}}})
+	if code != 200 || last(evs)["type"] != "RUN_ERROR" || last(evs)["message"] != "run failed" {
+		t.Fatalf("code=%d events=%v", code, evs)
+	}
+	if strings.Contains(lastBody, "secret-db-detail") {
+		t.Fatalf("provider detail leaked: %s", lastBody)
+	}
+	if st := runStatus(t, f, runID); st != "failed" {
+		t.Fatalf("run status = %q", st)
+	}
+}
+
+// uuid.Parse accepts forms Postgres rejects; the id is canonicalised before
+// any row is written, so the approval is not lost.
+func TestResumeWithURNRunIDRunsAction(t *testing.T) {
+	f := newFixture(t, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`), textTurn("Import läuft"))
+	_, evs := post(t, f, f.userA, userMsg("t1", "Importiere HRZ"))
+	id := interrupts(last(evs))[0]["id"].(string)
+	body := resume("t1", id, "resolved")
+	runID := uuid.NewString()
+	body["runId"] = "urn:uuid:" + runID
+	code, evs := post(t, f, f.userA, body)
+	if code != 200 || f.imports.Load() != 1 || last(evs)["type"] != "RUN_FINISHED" {
+		t.Fatalf("code=%d imports=%d last=%v", code, f.imports.Load(), last(evs))
+	}
+	if st := runStatus(t, f, runID); st != "completed" {
+		t.Fatalf("resumed run status = %q", st)
+	}
+}
+
+// The new run row is written before the claim; a refused claim leaves it
+// failed and the expired pause abandoned.
+func TestRefusedResumeLeavesNewRunFailed(t *testing.T) {
+	f := newFixtureTTL(t, -time.Minute, toolTurn("c1", "confluence_import", `{"spaceKey":"HRZ"}`))
+	pause := userMsg("t1", "Importiere HRZ")
+	_, evs := post(t, f, f.userA, pause)
+	id := interrupts(last(evs))[0]["id"].(string)
+	body := resume("t1", id, "resolved")
+	if code, _ := post(t, f, f.userA, body); code != 409 {
+		t.Fatalf("code = %d", code)
+	}
+	if st := runStatus(t, f, body["runId"].(string)); st != "failed" {
+		t.Fatalf("new run status = %q", st)
+	}
+	if st := runStatus(t, f, pause["runId"].(string)); st != "abandoned" {
+		t.Fatalf("paused run status = %q", st)
 	}
 }

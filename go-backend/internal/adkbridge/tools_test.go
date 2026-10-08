@@ -3,6 +3,8 @@ package adkbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -160,5 +162,41 @@ func TestBuiltinPoliciesCoverKnownTools(t *testing.T) {
 		if !known[n] && !plannedKBWriteTools[n] {
 			t.Errorf("builtinPolicies key %q names no built-in tool", n)
 		}
+	}
+}
+
+func failingDispatch(err error) DispatchFunc {
+	return func(context.Context, string, string, json.RawMessage) (mcp.ToolResult, error) {
+		return mcp.ToolResult{}, err
+	}
+}
+
+// Dispatch failures carry internal detail (DB, provider, network); the
+// result goes to the model and is streamed to the client, so it is opaque.
+func TestDispatchErrorIsOpaque(t *testing.T) {
+	tl := NewTool(ToolSpec{Name: "kb_search"}, failingDispatch(errors.New("pq: password authentication failed for user secret"))).(*dispatchTool)
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"})
+	if got := tl.result(ctx, map[string]any{"query": "q"}); got["error"] != "tool failed" || len(got) != 1 {
+		t.Fatalf("result = %v", got)
+	}
+}
+
+func TestPolicyRefusalStaysModelVisible(t *testing.T) {
+	imp := NewTool(ToolSpec{Name: "confluence_import"}, (&recorder{}).dispatch).(*dispatchTool)
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"})
+	got, _ := imp.result(ctx, map[string]any{"spaceKey": "X"})["error"].(string)
+	if !strings.Contains(got, "requires role edit") {
+		t.Fatalf("error = %q", got)
+	}
+	if got, _ := imp.result(context.Background(), map[string]any{})["error"].(string); got != ErrNoScope.Error() {
+		t.Fatalf("no-scope error = %q", got)
+	}
+}
+
+func TestUnknownToolStaysModelVisible(t *testing.T) {
+	tl := NewTool(ToolSpec{Name: "kb_search"}, failingDispatch(fmt.Errorf("%w: %q (kb=kb)", mcp.ErrUnknownTool, "kb_search"))).(*dispatchTool)
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"})
+	if got, _ := tl.result(ctx, map[string]any{})["error"].(string); !strings.Contains(got, "unknown tool") {
+		t.Fatalf("error = %q", got)
 	}
 }

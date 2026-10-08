@@ -86,10 +86,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := adkbridge.WithScope(r.Context(), sc)
 
+	resuming := len(in.Resume) > 0
 	var msg *genai.Content
-	if len(in.Resume) > 0 {
+	if resuming {
 		var ref *refusal
-		if msg, ref = h.claimResume(ctx, sc.UserID, &in); ref != nil {
+		if msg, ref = h.resumeInput(ctx, sc.UserID, &in); ref != nil {
 			httpError(w, ref.code, ref.msg)
 			return
 		}
@@ -114,16 +115,29 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if in.ThreadID == "" {
 		in.ThreadID = uuid.NewString()
 	}
-	if _, err := uuid.Parse(in.RunID); err != nil {
+	// Canonical form only: uuid.Parse accepts spellings ("urn:uuid:…",
+	// braces) that Postgres rejects.
+	if u, err := uuid.Parse(in.RunID); err != nil {
 		in.RunID = uuid.NewString()
+	} else {
+		in.RunID = u.String()
 	}
+	// The new run row is written BEFORE a resume claims the paused run, so
+	// no failure after the claim can lose the user's approval.
 	if err := h.start(ctx, &in, sc); err != nil {
-		// On a resume the claim is already spent; the paused run cannot be
-		// retried. Logged loudly so an operator can see it.
 		slog.ErrorContext(ctx, "agui: start run", "app", h.cfg.AppName, "thread_id", in.ThreadID,
-			"resume", len(in.Resume) > 0, "error", err)
+			"resume", resuming, "error", err)
 		httpError(w, http.StatusInternalServerError, "internal_error")
 		return
+	}
+	if resuming {
+		if ref := h.claim(ctx, sc.UserID, &in); ref != nil {
+			if err := h.cfg.Runs.Finish(context.WithoutCancel(ctx), in.RunID, adkbridge.RunFailed, "resume refused"); err != nil {
+				slog.ErrorContext(ctx, "agui: finish refused resume", "app", h.cfg.AppName, "run_id", in.RunID, "error", err)
+			}
+			httpError(w, ref.code, ref.msg)
+			return
+		}
 	}
 	h.stream(ctx, w, &in, sc.UserID, msg)
 }
@@ -136,9 +150,10 @@ type refusal struct {
 
 var errInternal = &refusal{http.StatusInternalServerError, "internal_error"}
 
-// claimResume turns the resume into the ADK message and only then claims
-// the paused run, so a malformed resume cannot consume a real interrupt.
-func (h *handler) claimResume(ctx context.Context, userID string, in *types.RunAgentInput) (*genai.Content, *refusal) {
+// resumeInput turns the resume into the ADK message from the user's own
+// session. It runs before any row is written or claimed, so a malformed
+// resume cannot consume a real interrupt.
+func (h *handler) resumeInput(ctx context.Context, userID string, in *types.RunAgentInput) (*genai.Content, *refusal) {
 	if in.ThreadID == "" {
 		return nil, &refusal{http.StatusBadRequest, "resume_requires_thread"}
 	}
@@ -169,24 +184,29 @@ func (h *handler) claimResume(ctx context.Context, userID string, in *types.RunA
 		}
 		return nil, &refusal{http.StatusNotFound, "no_open_interrupt"}
 	}
+	return msg, nil
+}
+
+// claim takes the thread's paused run for userID, exactly once.
+func (h *handler) claim(ctx context.Context, userID string, in *types.RunAgentInput) *refusal {
 	ids := make([]string, 0, len(in.Resume))
 	for _, e := range in.Resume {
 		ids = append(ids, e.InterruptID)
 	}
-	if _, err := h.cfg.Runs.ClaimResume(ctx, h.cfg.AppName, userID, in.ThreadID, ids); err != nil {
-		switch {
-		case errors.Is(err, adkbridge.ErrNoOpenInterrupt):
-			return nil, &refusal{http.StatusNotFound, "no_open_interrupt"}
-		case errors.Is(err, adkbridge.ErrInterruptExpired):
-			return nil, &refusal{http.StatusConflict, "interrupt_expired"}
-		case errors.Is(err, adkbridge.ErrInterruptMismatch):
-			return nil, &refusal{http.StatusConflict, "interrupt_mismatch"}
-		default:
-			slog.ErrorContext(ctx, "agui: claim resume", "app", h.cfg.AppName, "error", err)
-			return nil, errInternal
-		}
+	_, err := h.cfg.Runs.ClaimResume(ctx, h.cfg.AppName, userID, in.ThreadID, ids)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, adkbridge.ErrNoOpenInterrupt):
+		return &refusal{http.StatusNotFound, "no_open_interrupt"}
+	case errors.Is(err, adkbridge.ErrInterruptExpired):
+		return &refusal{http.StatusConflict, "interrupt_expired"}
+	case errors.Is(err, adkbridge.ErrInterruptMismatch):
+		return &refusal{http.StatusConflict, "interrupt_mismatch"}
+	default:
+		slog.ErrorContext(ctx, "agui: claim resume", "app", h.cfg.AppName, "error", err)
+		return errInternal
 	}
-	return msg, nil
 }
 
 // start records the new run. A client-chosen run id that already exists
