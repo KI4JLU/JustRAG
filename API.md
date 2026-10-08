@@ -129,6 +129,21 @@ minute. Redeeming never lowers an existing role and never touches the owner.
 | POST | `/kb/{id}/chat` |
 | POST | `/kb/{id}/chats/{chatId}/messages/{messageId}/feedback` |
 
+`POST /kb/{id}/chat` takes an optional boolean `webSearch` (per-turn web search):
+
+- absent — unchanged behaviour (the answer LLM gets the tools `chat_answer_tools_enabled` gives it);
+- `true` — the answer LLM gets the `web_search` tool for this turn; requires `?stream=true`;
+- `false` — `web_search` is kept out of this turn, even when `chat_answer_tools_enabled` is on.
+
+A request with `webSearch: true` is refused with **422 Unprocessable Entity** — before a chat is created
+or usage is recorded — when web search is not available on the server (admin gate
+`chat_web_search_enabled`, `web_search_enabled` or the Google credentials), when the request is not
+streaming, or when it also selects an agent or team (`teamId`/`agentId`). The error message is generic;
+the reason is in the server log. When the admin's per-route tool allowlist removes `web_search` for the
+turn's route, the turn is answered without it and the stream carries the trajectory event
+`{"agentTrajectory":{"stage":"web_search","decision":"skipped","reason":"web search is not available for this turn"}}`;
+the specific cause is only in the server log.
+
 ### Generated content
 
 | Method | Path | Status |

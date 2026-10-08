@@ -154,6 +154,9 @@ func (h *Handler) resolveRegenerate(ctx context.Context, w http.ResponseWriter, 
 	// The stored question wins over whatever the client sent, and the query
 	// enhancer stays out: the user did not retype anything, so rewriting their
 	// question here would answer something they never asked.
+	// teamTurnRequested (web_search_turn.go) anticipates this Enhance reset
+	// before it happens; TestTeamTurnRequested_MatchesResolveRegenerate
+	// keeps the two in sync.
 	body.Message = regen.Question
 	body.Enhance = ""
 	return regen, true
