@@ -145,6 +145,7 @@ type Handler struct {
 	fileDeleter  FileDeleter
 	uploadLimits UploadLimits
 	library      Library
+	adopter      FileAdopter
 }
 
 // Library is the userfiles surface the files handler needs.

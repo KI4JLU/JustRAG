@@ -199,6 +199,12 @@ func TestLibraryLink(t *testing.T) {
 	if _, _, err := store.LibraryLink(ctx, uuid.NewString()); err == nil {
 		t.Fatal("missing row: want an error")
 	}
+	if p, err := store.CurrentStoragePath(ctx, plain.ID); err != nil || p != "kb/b.txt" {
+		t.Fatalf("CurrentStoragePath = %q, %v; want kb/b.txt", p, err)
+	}
+	if _, err := store.CurrentStoragePath(ctx, uuid.NewString()); err == nil {
+		t.Fatal("CurrentStoragePath on a missing row: want an error")
+	}
 }
 
 func TestMarkCopied(t *testing.T) {

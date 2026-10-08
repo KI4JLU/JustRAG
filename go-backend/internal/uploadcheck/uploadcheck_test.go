@@ -48,6 +48,7 @@ func TestParse(t *testing.T) {
 		{
 			name: "body over cap",
 			req: func(t *testing.T) *http.Request {
+				t.Helper()
 				return multipartReq(t, "file", "a.txt", bytes.Repeat([]byte("x"), 4096))
 			},
 			shrink: 1024, status: 413, message: "File too large: the upload limit is 1 KB",
@@ -55,6 +56,7 @@ func TestParse(t *testing.T) {
 		{
 			name: "not multipart",
 			req: func(t *testing.T) *http.Request {
+				t.Helper()
 				r := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("hello"))
 				r.Header.Set("Content-Type", "text/plain")
 				return r
@@ -63,27 +65,28 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name:   "missing field",
-			req:    func(t *testing.T) *http.Request { return multipartReq(t, "other", "a.pdf", []byte("x")) },
+			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "other", "a.pdf", []byte("x")) },
 			status: 400, message: "File field is required",
 		},
 		{
 			name:   "empty file",
-			req:    func(t *testing.T) *http.Request { return multipartReq(t, "file", "a.pdf", nil) },
+			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "file", "a.pdf", nil) },
 			status: 400, message: "File must not be empty",
 		},
 		{
 			name:   "dangerous extension",
-			req:    func(t *testing.T) *http.Request { return multipartReq(t, "file", "a.exe", []byte("x")) },
+			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "file", "a.exe", []byte("x")) },
 			status: 400, message: "File type not allowed",
 		},
 		{
 			name:   "unsupported extension",
-			req:    func(t *testing.T) *http.Request { return multipartReq(t, "file", "a.doc", []byte("x")) },
+			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "file", "a.doc", []byte("x")) },
 			status: 400, message: "File type not supported (.doc)",
 		},
 		{
 			name: "long filename",
 			req: func(t *testing.T) *http.Request {
+				t.Helper()
 				return multipartReq(t, "file", strings.Repeat("a", 252)+".pdf", []byte("x"))
 			},
 			status: 400, message: "Filename must not exceed 255 bytes",
@@ -91,6 +94,7 @@ func TestParse(t *testing.T) {
 		{
 			name: "spreadsheet over cap",
 			req: func(t *testing.T) *http.Request {
+				t.Helper()
 				return multipartReq(t, "file", "a.csv", bytes.Repeat([]byte("x"), 2048))
 			},
 			limits: fixedLimits(1024), status: 413,

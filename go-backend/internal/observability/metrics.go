@@ -2692,6 +2692,94 @@ func RecordUserFileAdd(mode string) {
 	userFileAddTotal.WithLabelValues(mode).Inc()
 }
 
+var userFileAdoptTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_user_file_adopt_total",
+		Help: "Legacy KB uploads adopted into a user's library, by outcome: " +
+			"adopted, not_found, not_upload, already_library, quota_exceeded, " +
+			"blob_missing, busy or duplicate_in_kb. Any other value normalises to not_found.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"outcome"},
+)
+
+// RecordUserFileAdopt increments the adoption outcome counter.
+func RecordUserFileAdopt(outcome string) {
+	switch outcome {
+	case "adopted", "not_found", "not_upload", "already_library", "quota_exceeded", "blob_missing", "busy", "duplicate_in_kb":
+	default:
+		outcome = "not_found"
+	}
+	userFileAdoptTotal.WithLabelValues(outcome).Inc()
+}
+
+// UserFileAdoptTotalForTest exposes the adoption counter to test packages.
+func UserFileAdoptTotalForTest() *prometheus.CounterVec {
+	return userFileAdoptTotal
+}
+
+var userFileOrphansDeletedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_user_file_orphans_deleted_total",
+		Help:        "Orphaned library objects deleted by the userfiles orphan sweep, by kind (blob or cache).",
+		ConstLabels: commonLabels,
+	},
+	[]string{"kind"},
+)
+
+// RecordUserFileOrphanDeleted counts one swept object; any kind other than
+// cache normalises to blob.
+func RecordUserFileOrphanDeleted(kind string) {
+	if kind != "cache" {
+		kind = "blob"
+	}
+	userFileOrphansDeletedTotal.WithLabelValues(kind).Inc()
+}
+
+var (
+	userFilesTotalGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name:        "rag_user_files_total",
+		Help:        "Number of user_files rows (library files), deployment-wide. Every maintenance worker reports it: aggregate with max() across workers, never sum().",
+		ConstLabels: commonLabels,
+	})
+	userFilesBytesGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name:        "rag_user_files_bytes",
+		Help:        "Sum of user_files.size in bytes, deployment-wide. Every maintenance worker reports it: aggregate with max() across workers, never sum().",
+		ConstLabels: commonLabels,
+	})
+)
+
+// SetUserFileTotals publishes the library size gauges.
+func SetUserFileTotals(files, bytes float64) {
+	userFilesTotalGauge.Set(files)
+	userFilesBytesGauge.Set(bytes)
+}
+
+var libraryChatTurnTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_library_chat_turn_total",
+		Help: "Library chat context decisions by mode: fulltext, map_reduce " +
+			"or too_large. Any other mode normalises to fulltext.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"mode"},
+)
+
+// RecordLibraryChatTurn increments the library-chat mode counter.
+func RecordLibraryChatTurn(mode string) {
+	switch mode {
+	case "fulltext", "map_reduce", "too_large":
+	default:
+		mode = "fulltext"
+	}
+	libraryChatTurnTotal.WithLabelValues(mode).Inc()
+}
+
+// LibraryChatTurnTotalForTest exposes the library-chat turn counter.
+func LibraryChatTurnTotalForTest() *prometheus.CounterVec {
+	return libraryChatTurnTotal
+}
+
 // UserFileAddTotalForTest exposes the add-mode counter to test packages.
 func UserFileAddTotalForTest() *prometheus.CounterVec {
 	return userFileAddTotal

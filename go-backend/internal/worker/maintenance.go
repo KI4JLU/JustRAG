@@ -14,6 +14,7 @@ import (
 	"github.com/justrag/go-backend/internal/ragassamples"
 	"github.com/justrag/go-backend/internal/safego"
 	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/userfiles"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -52,6 +53,10 @@ type MaintenanceConfig struct {
 	// Nil disables the sweep loop entirely (e.g. in tests that don't wire
 	// one).
 	TabularOrphanSweeper *tabular.OrphanSweeper
+
+	// UserFileOrphanSweeper deletes orphaned library blobs and parse caches
+	// under users/ (P4-R3). Nil disables the loop.
+	UserFileOrphanSweeper *userfiles.OrphanSweeper
 
 	// TabularOrphanInterval is how often the tabular orphan-table sweep
 	// runs. Default: 6 hours.
@@ -241,6 +246,7 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 
 	// Metrics collection (every 5 min by default).
 	launch("metrics_snapshot", func() {
+		libraryTotals := userfiles.NewOrphanStore(cfg.MainDB)
 		// Initial delay to let the system stabilize.
 		startupDelay := time.NewTimer(1 * time.Minute)
 		defer startupDelay.Stop()
@@ -248,7 +254,7 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 		case <-ctx.Done():
 			return
 		case <-startupDelay.C:
-			recordMetricsSnapshot(ctx, cfg.MainDB)
+			recordMetricsSnapshot(ctx, cfg.MainDB, libraryTotals)
 		}
 
 		ticker := time.NewTicker(cfg.MetricsInterval)
@@ -258,7 +264,7 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				recordMetricsSnapshot(ctx, cfg.MainDB)
+				recordMetricsSnapshot(ctx, cfg.MainDB, libraryTotals)
 			}
 		}
 	})
@@ -338,6 +344,14 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 					expireAgentRuns(ctx, cfg.AgentRunExpirer)
 				}
 			}
+		})
+	}
+
+	// Library orphan sweep (P4-R3): first run 10 min after start, then every
+	// 6h; the sweeper's Run owns the schedule.
+	if cfg.UserFileOrphanSweeper != nil {
+		launch("userfiles_orphan_sweep", func() {
+			cfg.UserFileOrphanSweeper.Run(ctx)
 		})
 	}
 
@@ -503,7 +517,7 @@ func refreshBM25Stats(ctx context.Context, r *vector.BM25StatsRefresher) {
 
 // recordMetricsSnapshot captures live system metrics and stores them in the
 // system_metrics table for the historical dashboard.
-func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool) {
+func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool, libraryTotals userfiles.TotalsSource) {
 	if mainDB == nil {
 		return
 	}
@@ -536,6 +550,10 @@ func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool) {
 	}
 
 	refreshSourceSyncAge(ctx, mainDB)
+
+	if err := userfiles.RefreshLibraryGauges(ctx, libraryTotals, observability.SetUserFileTotals); err != nil {
+		slog.Error("metrics snapshot: library totals failed", "error", err)
+	}
 
 	slog.Debug("metrics snapshot recorded")
 }

@@ -22,6 +22,21 @@ var globalValidators = map[string]func(string) error{
 	"chat_orchestrator_policy":   chatpolicy.ValidateOrchestratorPolicyJSON,
 	"chat_answer_tools_by_route": chatpolicy.ValidateAnswerToolsByRouteJSON,
 	"user_file_quota_bytes":      validateUserFileQuotaBytes,
+
+	"chat_library_fulltext_max_tokens": validateLibraryFulltextMaxTokens,
+}
+
+// Mirrors chat.ChatLibraryFulltextMaxTokens' clamp; out-of-range values would
+// otherwise silently read as the default.
+func validateLibraryFulltextMaxTokens(v string) error {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return fmt.Errorf("must be an integer number of tokens")
+	}
+	if n < 4000 || n > 200000 {
+		return fmt.Errorf("must be between 4000 and 200000 tokens")
+	}
+	return nil
 }
 
 // userFileQuotaMaxBytes mirrors chat.UserFileQuotaMax (1 TiB); siteconfig

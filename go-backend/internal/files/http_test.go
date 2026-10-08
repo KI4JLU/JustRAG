@@ -145,11 +145,12 @@ func (m *mockStorage) ReadFile(_ context.Context, _ string) ([]byte, error) { re
 func (m *mockStorage) ReadFileStream(_ context.Context, _ string) (io.ReadCloser, error) {
 	return m.stream, m.streamErr
 }
-func (m *mockStorage) DeleteFile(_ context.Context, _ string) error         { return m.deleteErr }
-func (m *mockStorage) DeleteFiles(_ context.Context, _ []string) error      { return m.deleteErr }
-func (m *mockStorage) DeleteDirectory(_ context.Context, _ string) error    { return nil }
-func (m *mockStorage) FileExists(_ context.Context, _ string) (bool, error) { return true, nil }
-func (m *mockStorage) IsS3() bool                                           { return false }
+func (m *mockStorage) DeleteFile(_ context.Context, _ string) error               { return m.deleteErr }
+func (m *mockStorage) DeleteFiles(_ context.Context, _ []string) error            { return m.deleteErr }
+func (m *mockStorage) DeleteDirectory(_ context.Context, _ string) error          { return nil }
+func (m *mockStorage) FileExists(_ context.Context, _ string) (bool, error)       { return true, nil }
+func (m *mockStorage) IsS3() bool                                                 { return false }
+func (m *mockStorage) List(context.Context, string) ([]storage.ObjectInfo, error) { return nil, nil }
 
 // ---------------------------------------------------------------------------
 // Mock ChunkDeleter

@@ -71,6 +71,7 @@ import (
 	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/misc"
 	"github.com/justrag/go-backend/internal/openaicompat"
+	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/pipeline"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/proxy"
@@ -764,6 +765,7 @@ func registerLibraryRoutes(rc *routeCtx) {
 	h.SetDeleter(rc.cascadeDeleter)
 	// KB uploads and add-from-library go through the same library.
 	rc.filesHandler.SetLibrary(libraryAdapter{Ingester: ingester, store: store})
+	rc.filesHandler.SetAdopter(userfiles.NewAdopter(userfiles.NewAdoptStore(rc.infra.db.Main), store, rc.infra.stor, quota))
 	wrap := func(f http.HandlerFunc) http.Handler { return rc.authMw.Authenticate(f) }
 	rc.mux.Handle("GET /api/library/files", wrap(h.List))
 	rc.mux.Handle("POST /api/library/files", wrap(h.Upload))
@@ -1210,6 +1212,16 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		// created_at/published_at lookup per turn, stamped onto the
 		// sources before they are streamed and persisted.
 		chat.WithFileDates(&fileDatesAdapter{store: rc.filesStore}),
+		// KB-less library chat (user file library, phase 3): the chat store
+		// holds the library chats + file refs, the userfiles store resolves
+		// files owner-scoped, and the text source parses with the same
+		// built-in factory the comparison-attachment upload falls back to
+		// (KbID "" → global provider; no transcriber on the server).
+		chat.WithLibraryChat(
+			rc.chatStore,
+			userfiles.NewStore(rc.infra.db.Main),
+			chat.NewLibraryTextSource(rc.infra.stor, parser.DefaultFactoryWith(nil)),
+		),
 	}
 	if rc.agentDecisionStore != nil {
 		chatOpts = append(chatOpts, chat.WithDecisionRecorder(&decisionRecorderAdapter{store: rc.agentDecisionStore}))
@@ -1274,6 +1286,14 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 	// the upload triggers synchronous parsing + a Redis write, so it must be metered.
 	rc.mux.Handle("POST /api/kb/{id}/chat/attachment", chatRL.Middleware(rc.kbViewChain(chatHandler.UploadAttachment)))
 
+	// KB-less library chat (owner-only; ownership checked in the handler).
+	// The send route shares the KB chat rate limiter, wrapped outside auth.
+	// Messages and deletion reuse GET /api/chats/{id}/messages and
+	// DELETE /api/chats/{id} above.
+	rc.mux.Handle("POST /api/library/chat", chatRL.Middleware(rc.authMw.Authenticate(http.HandlerFunc(chatHandler.SendLibraryMessage))))
+	rc.mux.Handle("GET /api/library/chats", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.ListLibraryChats)))
+	rc.mux.Handle("GET /api/library/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetLibraryChat)))
+
 	// Chat — feedback
 	rc.mux.Handle("POST /api/kb/{id}/chats/{chatId}/messages/{messageId}/feedback", rc.kbViewChain(chatHandler.SubmitFeedback))
 }
@@ -1316,6 +1336,8 @@ func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/kb/{id}/files", rc.kbEditChain(rc.filesHandler.Upload))
 	rc.mux.Handle("POST /api/kb/{id}/files/from-library", rc.kbEditChain(rc.filesHandler.AddFromLibrary))
 	rc.mux.Handle("POST /api/kb/{id}/files/retry-failed", rc.kbEditChain(rc.filesHandler.RetryFailed))
+	// Owner/system-admin check is stricter than the chain; done in the handler.
+	rc.mux.Handle("POST /api/kb/{id}/files/adopt", rc.kbAdminChain(rc.filesHandler.AdoptLegacy))
 
 	// Generated content — CRUD + download + stream (auth required)
 	genContentHandler := gencontent.NewHandler(rc.genContentStore)

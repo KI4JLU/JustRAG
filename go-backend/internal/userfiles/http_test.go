@@ -18,6 +18,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/cascade"
+	"github.com/justrag/go-backend/internal/storage"
 )
 
 // ---- delete ---------------------------------------------------------------
@@ -218,7 +219,10 @@ func (f *fakeStorage) ReadFileStream(ctx context.Context, p string) (io.ReadClos
 	}
 	return io.NopCloser(bytes.NewReader(b)), nil
 }
-func (f *fakeStorage) DeleteFile(_ context.Context, p string) error {
+func (f *fakeStorage) DeleteFile(ctx context.Context, p string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.blobs, p)
@@ -238,7 +242,8 @@ func (f *fakeStorage) FileExists(_ context.Context, p string) (bool, error) {
 	_, ok := f.blobs[p]
 	return ok, nil
 }
-func (f *fakeStorage) IsS3() bool { return false }
+func (f *fakeStorage) IsS3() bool                                                 { return false }
+func (f *fakeStorage) List(context.Context, string) ([]storage.ObjectInfo, error) { return nil, nil }
 
 type fakeQuota int64
 
