@@ -53,8 +53,9 @@ func TestLibraryChat_EndToEnd(t *testing.T) {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
 	frames := sseFrames(t, w.Body.String())
-	chatID, _ := frames[0]["chatId"].(string)
-	if chatID == "" || frames[len(frames)-1] != nil {
+	// frames[0] is {"stage":"library_prepare"}; the opening frame follows.
+	chatID, _ := frames[1]["chatId"].(string)
+	if frames[0]["stage"] != "library_prepare" || chatID == "" || frames[len(frames)-1] != nil {
 		t.Fatalf("frames = %v", frames)
 	}
 
