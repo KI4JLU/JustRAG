@@ -357,7 +357,6 @@ export function useChat({
   // Orchestrating send: clears input, resets UI state, delegates to stream hook
   const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null) => {
     e.preventDefault();
-    setIsAtBottom(true);
     if (!currentKb || loading || chatSwitchingRef.current) return;
 
     // A comparison send (attachment + ≥1 mode) is allowed with an empty input —
