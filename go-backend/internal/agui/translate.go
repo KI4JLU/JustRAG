@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
@@ -57,6 +58,14 @@ type Translator struct {
 	// lastOutput is the latest workflow node output; like ADK's console, only
 	// the run's final output is shown, and only when the run did not pause.
 	lastOutput string
+	// expiresAt, when set, is stamped on every interrupt in RUN_FINISHED.
+	expiresAt string
+}
+
+// SetInterruptExpiry records when this run's interrupts stop being
+// resumable; Finish reports it on each interrupt (RFC 3339, UTC).
+func (t *Translator) SetInterruptExpiry(at time.Time) {
+	t.expiresAt = at.UTC().Format(time.RFC3339)
 }
 
 // NewTranslator starts a run: it emits RUN_STARTED.
@@ -125,7 +134,13 @@ func (t *Translator) Finish() error {
 	}
 	opt := events.WithSuccessOutcome()
 	if len(t.interrupts) > 0 {
-		opt = events.WithInterruptOutcome(t.interrupts)
+		out := slices.Clone(t.interrupts)
+		if t.expiresAt != "" {
+			for i := range out {
+				out[i].ExpiresAt = t.expiresAt
+			}
+		}
+		opt = events.WithInterruptOutcome(out)
 	} else if t.lastOutput != "" {
 		if err := t.wholeText(t.lastOutput); err != nil {
 			return err

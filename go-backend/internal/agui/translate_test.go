@@ -205,3 +205,19 @@ func TestInterruptsAccessor(t *testing.T) {
 		t.Fatalf("got %+v", in)
 	}
 }
+
+// Every interrupt in RUN_FINISHED carries the expiry the handler recorded.
+func TestFinishStampsInterruptExpiry(t *testing.T) {
+	tr, got := record(t)
+	_ = tr.Event(&session.Event{RequestedInput: &session.RequestInput{InterruptID: "i1", Message: "?"}})
+	_ = tr.Event(&session.Event{RequestedInput: &session.RequestInput{InterruptID: "i2", Message: "?"}})
+	at := time.Date(2026, 10, 9, 15, 4, 5, 0, time.FixedZone("CEST", 2*3600))
+	tr.SetInterruptExpiry(at)
+	if err := tr.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal((*got)[len(*got)-1])
+	if strings.Count(string(b), `"expiresAt":"2026-10-09T13:04:05Z"`) != 2 {
+		t.Fatalf("finish = %s", b)
+	}
+}

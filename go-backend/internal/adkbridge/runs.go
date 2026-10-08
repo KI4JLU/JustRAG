@@ -61,6 +61,9 @@ func NewRunStore(pool *pgxpool.Pool, ttl time.Duration) *RunStore {
 	return &RunStore{pool: pool, ttl: ttl}
 }
 
+// TTL is how long an interrupt stays resumable after the run pauses.
+func (s *RunStore) TTL() time.Duration { return s.ttl }
+
 func nullable(s string) any {
 	if s == "" {
 		return nil

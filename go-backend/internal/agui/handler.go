@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
@@ -283,6 +284,9 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 		for _, i := range pending {
 			open = append(open, adkbridge.OpenInterrupt{ID: i.ID, Reason: i.Reason, ToolCallID: i.ToolCallID})
 		}
+		// Taken before the row is written, so the advertised expiry is never
+		// later than the stored one.
+		expires := time.Now().Add(h.cfg.Runs.TTL())
 		if err := h.cfg.Runs.Interrupt(bg, in.RunID, open); err != nil {
 			// Typically ErrThreadHasOpenInterrupt (a concurrent run paused the
 			// thread first). Announcing an interrupt nobody can resume would
@@ -293,6 +297,7 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 			return
 		}
 		settled = true
+		tr.SetInterruptExpiry(expires)
 	} else {
 		finish(adkbridge.RunCompleted, "")
 	}

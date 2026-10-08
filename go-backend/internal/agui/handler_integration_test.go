@@ -402,6 +402,11 @@ func TestApprovalInterruptAndResume(t *testing.T) {
 	if status(t, f, "t1") != "interrupted" {
 		t.Fatal("paused run row not interrupted")
 	}
+	// The advertised expiry is the store's TTL from the pause (24h here).
+	exp, err := time.Parse(time.RFC3339, fmt.Sprint(in[0]["expiresAt"]))
+	if err != nil || exp.Location() != time.UTC || time.Until(exp) < 23*time.Hour || time.Until(exp) > 25*time.Hour {
+		t.Fatalf("expiresAt = %v (%v)", in[0]["expiresAt"], err)
+	}
 	code, evs := post(t, f, f.userA, resume("t1", in[0]["id"].(string), "resolved"))
 	if code != 200 || f.imports.Load() != 1 || last(evs)["type"] != "RUN_FINISHED" {
 		t.Fatalf("code=%d imports=%d last=%v", code, f.imports.Load(), last(evs))
