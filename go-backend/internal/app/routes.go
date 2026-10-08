@@ -53,6 +53,7 @@ import (
 	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/kbcategories"
 	"github.com/justrag/go-backend/internal/kbconfig"
+	"github.com/justrag/go-backend/internal/kbfilters"
 	"github.com/justrag/go-backend/internal/kbinvites"
 	"github.com/justrag/go-backend/internal/kbmembers"
 	"github.com/justrag/go-backend/internal/kbsubs"
@@ -827,6 +828,37 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("PUT /api/kb/{id}/subscription", rc.kbViewChain(kbSubsHandler.Subscribe))
 	rc.mux.Handle("DELETE /api/kb/{id}/subscription", rc.kbViewChain(kbSubsHandler.Unsubscribe))
 	rc.mux.Handle("GET /api/kb/catalog", rc.authMw.Authenticate(http.HandlerFunc(kbSubsHandler.Catalog)))
+
+	// Per-user topic filters — the shell's chip row ("Alle" / "Favoriten" /
+	// the caller's own categories). Display state only: a favorite or a tag
+	// grants nothing, and nothing in the access ladder reads either table.
+	// A favorite is not a subscription: subscribing (above) decides whether a
+	// global topic is in the overview, the star pins any topic to the chip.
+	//
+	// The {id} routes sit on kbViewChain rather than auth-only: starring is
+	// not a privilege, but it should only be possible on a topic the caller
+	// can open, and RequireKBRole(view) already decides that — 404 for a KB
+	// that does not exist, 403 for one the caller may not see, the same as
+	// every other {id} route. The category routes carry no KB at all and
+	// touch only rows the caller owns, so authentication is the whole gate
+	// (same pattern as GET /api/kb and GET /api/kb/catalog above).
+	//
+	// Cross-user assignment is refused by the composite FK
+	// (category_id, user_id) -> kb_user_categories (id, user_id) in migration
+	// 0077, not by a handler guard; kbfilters maps that rejection to 404.
+	kbFiltersHandler := kbfilters.NewHandler(kbfilters.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("PUT /api/kb/{id}/favorite", rc.kbViewChain(kbFiltersHandler.AddFavorite))
+	rc.mux.Handle("DELETE /api/kb/{id}/favorite", rc.kbViewChain(kbFiltersHandler.RemoveFavorite))
+	rc.mux.Handle("GET /api/kb-user-categories",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.ListCategories)))
+	rc.mux.Handle("POST /api/kb-user-categories",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.CreateCategory)))
+	rc.mux.Handle("PATCH /api/kb-user-categories/{catId}",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.UpdateCategory)))
+	rc.mux.Handle("DELETE /api/kb-user-categories/{catId}",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.DeleteCategory)))
+	rc.mux.Handle("PUT /api/kb/{id}/user-categories/{catId}", rc.kbViewChain(kbFiltersHandler.AssignCategory))
+	rc.mux.Handle("DELETE /api/kb/{id}/user-categories/{catId}", rc.kbViewChain(kbFiltersHandler.UnassignCategory))
 
 	// Catalog categories — a flat, system-admin curated taxonomy (adminChain
 	// on the CRUD routes: the list is shared across the whole deployment).

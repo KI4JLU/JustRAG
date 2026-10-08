@@ -504,7 +504,10 @@ had ever *succeeded* (only when it last ran) and nothing carried a document's ow
   regression. The admin Last-sync cell renders the **worst** kind (never-succeeded > failing >
   ok) with a badge, lists every kind in its tooltip, and sorts by urgency first and timestamp
   second, so the KB with a dead git source outranks one that merely synced a while ago.
-- `GET /api/kb` and `GET /api/kb/global` gain `oldestFileAt`.
+- `GET /api/kb` and `GET /api/kb/global` gain `oldestFileAt`, and later `lastIngestedAt`
+  (`MAX(COALESCE(progress_updated_at, created_at))` over `completed`/`partial` files — when content
+  was last ingested, not the newest document date; omitted while nothing has been ingested), which
+  backs the KB card's „Aktualisiert" line.
 - Chat and public-API sources gain `createdAt` and `publishedAt` (RFC3339, both `omitempty`), also
   inside the persisted `messages.sources` JSONB.
 - **OpenAI-compat** (`POST /openai/v1/chat/completions`): the Azure-shaped

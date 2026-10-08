@@ -330,12 +330,14 @@ func (d *Deleter) deleteKBTransaction(ctx context.Context, kbID string) error {
 		{`DELETE FROM kb_invite_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_favorites WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_user_category_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_bases WHERE id = $1`, []any{kbID}},
 	})
 }
 
 func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbIDs []string) error {
-	steps := make([]txStep, 0, 10)
+	steps := make([]txStep, 0, 19)
 	if len(kbIDs) > 0 {
 		steps = append(steps,
 			txStep{`DELETE FROM files WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -347,6 +349,8 @@ func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbID
 			txStep{`DELETE FROM kb_invite_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_subscriptions WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_category_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
+			txStep{`DELETE FROM kb_favorites WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
+			txStep{`DELETE FROM kb_user_category_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM knowledge_bases WHERE user_id = $1`, []any{userID}},
 		)
 	}
@@ -356,6 +360,11 @@ func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbID
 		txStep{`DELETE FROM knowledge_base_shares WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_members WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_subscriptions WHERE user_id = $1`, []any{userID}},
+		// Per-user topic filters (migration 0077). Links before categories,
+		// so no step leans on the composite FK's ON DELETE CASCADE.
+		txStep{`DELETE FROM kb_favorites WHERE user_id = $1`, []any{userID}},
+		txStep{`DELETE FROM kb_user_category_links WHERE user_id = $1`, []any{userID}},
+		txStep{`DELETE FROM kb_user_categories WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM users WHERE id = $1`, []any{userID}},
 	)
 	return d.runSteps(ctx, "deleteUserTransaction", steps)
@@ -369,6 +378,8 @@ func (d *Deleter) deleteGlobalKBTransaction(ctx context.Context, kbID string) er
 		{`DELETE FROM kb_invite_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_favorites WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_user_category_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM files WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
