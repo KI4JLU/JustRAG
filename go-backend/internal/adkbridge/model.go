@@ -75,6 +75,9 @@ func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stre
 }
 
 func (m *Model) stream(ctx context.Context, chatReq ai.ChatRequest, yield func(*model.LLMResponse, error) bool) {
+	// Stopping early (yield false) must release the producer goroutine.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ch, err := m.client.StreamChatCompletion(ctx, chatReq)
 	if err != nil {
 		yield(nil, err)

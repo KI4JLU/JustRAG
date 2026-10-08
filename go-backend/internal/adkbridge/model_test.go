@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
@@ -290,5 +291,49 @@ func TestApprovalPausesAndResumes(t *testing.T) {
 	}
 	if got := finalText(evs); !strings.Contains(got, "Import gestartet") {
 		t.Fatalf("final text = %q", got)
+	}
+}
+
+// blockingStreamClient emits chunks until its ctx is cancelled and closes
+// done when the producer goroutine exits (as ai.StreamChatCompletion's would).
+type blockingStreamClient struct {
+	fakeClient
+	done chan struct{}
+}
+
+func (b *blockingStreamClient) StreamChatCompletion(ctx context.Context, _ ai.ChatRequest) (<-chan ai.StreamChunk, error) {
+	ch := make(chan ai.StreamChunk)
+	go func() {
+		defer close(b.done)
+		defer close(ch)
+		for {
+			select {
+			case ch <- ai.StreamChunk{Content: "x"}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}
+
+// TestStreamEarlyStopReleasesProducer: a consumer that stops iterating must
+// cancel the stream so the producer goroutine (and its HTTP body) is freed.
+func TestStreamEarlyStopReleasesProducer(t *testing.T) {
+	bc := &blockingStreamClient{done: make(chan struct{})}
+	m := NewModel(bc, "gemma")
+	req := &model.LLMRequest{Contents: []*genai.Content{genai.NewContentFromText("hi", genai.RoleUser)}}
+	for resp, err := range m.GenerateContent(context.Background(), req, true) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Partial {
+			break
+		}
+	}
+	select {
+	case <-bc.done:
+	case <-time.After(time.Second):
+		t.Fatal("producer goroutine still running after consumer stopped early")
 	}
 }

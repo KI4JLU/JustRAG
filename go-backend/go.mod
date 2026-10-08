@@ -2,6 +2,15 @@ module github.com/justrag/go-backend
 
 go 1.26.6
 
+// The go directive is 1.26.6 because google.golang.org/adk/v2 requires it.
+// That floor also carries the crypto/x509, crypto/tls, net/http, net/url,
+// html/template, net/textproto, encoding/xml, and encoding/asn1 security
+// fixes (govulncheck GO-2026-4865 … GO-2026-5039, GO-2026-5856, and
+// GO-2026-5026/5972/6088/6089/6090/6091/6218 — the seven that 1.26.6
+// closes). Bump it as new stdlib advisories land — CI runs
+// `govulncheck ./...` and will fail if it falls behind. Every entry above
+// was *called* code, not a latent import.
+
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/PuerkitoBio/goquery v1.8.0
