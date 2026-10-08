@@ -9,6 +9,13 @@ func ParseCacheDir(ownerID, userFileID string) string {
 	return "users/" + ownerID + "/parses/" + userFileID + "/"
 }
 
+// ChatTextKey returns users/<ownerID>/parses/<userFileID>/chat-text.json, the
+// parsed text cached for KB-less library chat. It lives under ParseCacheDir, so
+// deleting the library file's parse directory removes it too.
+func ChatTextKey(ownerID, userFileID string) string {
+	return ParseCacheDir(ownerID, userFileID) + "chat-text.json"
+}
+
 // ParseCacheKey returns users/<ownerID>/parses/<userFileID>/<configHash>.json.
 func ParseCacheKey(ownerID, userFileID, configHash string) string {
 	return ParseCacheDir(ownerID, userFileID) + configHash + ".json"

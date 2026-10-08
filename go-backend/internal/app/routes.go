@@ -70,6 +70,7 @@ import (
 	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/misc"
 	"github.com/justrag/go-backend/internal/openaicompat"
+	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/pipeline"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/proxy"
@@ -1209,6 +1210,16 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		// created_at/published_at lookup per turn, stamped onto the
 		// sources before they are streamed and persisted.
 		chat.WithFileDates(&fileDatesAdapter{store: rc.filesStore}),
+		// KB-less library chat (user file library, phase 3): the chat store
+		// holds the library chats + file refs, the userfiles store resolves
+		// files owner-scoped, and the text source parses with the same
+		// built-in factory the comparison-attachment upload falls back to
+		// (KbID "" → global provider; no transcriber on the server).
+		chat.WithLibraryChat(
+			rc.chatStore,
+			userfiles.NewStore(rc.infra.db.Main),
+			chat.NewLibraryTextSource(rc.infra.stor, parser.DefaultFactoryWith(nil)),
+		),
 	}
 	if rc.agentDecisionStore != nil {
 		chatOpts = append(chatOpts, chat.WithDecisionRecorder(&decisionRecorderAdapter{store: rc.agentDecisionStore}))
@@ -1253,6 +1264,14 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 	// Same auth + KB-view ACL chain and "chat" rate limiter as the chat send route —
 	// the upload triggers synchronous parsing + a Redis write, so it must be metered.
 	rc.mux.Handle("POST /api/kb/{id}/chat/attachment", chatRL.Middleware(rc.kbViewChain(chatHandler.UploadAttachment)))
+
+	// KB-less library chat (owner-only; ownership checked in the handler).
+	// The send route shares the KB chat rate limiter, wrapped outside auth.
+	// Messages and deletion reuse GET /api/chats/{id}/messages and
+	// DELETE /api/chats/{id} above.
+	rc.mux.Handle("POST /api/library/chat", chatRL.Middleware(rc.authMw.Authenticate(http.HandlerFunc(chatHandler.SendLibraryMessage))))
+	rc.mux.Handle("GET /api/library/chats", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.ListLibraryChats)))
+	rc.mux.Handle("GET /api/library/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetLibraryChat)))
 
 	// Chat — feedback
 	rc.mux.Handle("POST /api/kb/{id}/chats/{chatId}/messages/{messageId}/feedback", rc.kbViewChain(chatHandler.SubmitFeedback))

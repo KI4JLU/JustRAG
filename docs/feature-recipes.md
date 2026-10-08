@@ -33,6 +33,8 @@ chat_answer_tools_max_rounds     = 5           # valid range [1,10]
 
 Migration **0043**. Composable with `chat_plan_execute_tool_aware`. KB chat model MUST support native `tools` + `tool_calls` (verified on gemma-4-26b-A4B-it). **Known limit:** models emitting `<think>` inline (vs `reasoning_content`) leak reasoning into the answer.
 
+**Security note — `sql_query` is not user-scoped (pre-existing).** When `JUSTRAG_DB_URL_READONLY` is set, the `sql_query` tool is in the answer-time catalog and its default allowlist covers `messages` and `chats` with no per-user or per-KB filter: any chat user's model can run an ad-hoc `SELECT … FROM messages` and read other users' answers and `messages.sources`. Since user-file-library phase 3 those sources include **library chats' private file text** (each source's `content`, capped to 600 runes). On a multi-user deployment that uses library chat, either leave `sql_query` unavailable (no read-only DSN, or exclude it per route with `chat_answer_tools_by_route`) or `REVOKE SELECT ON messages, chats` from the read-only role. Library chat turns themselves never get answer tools.
+
 ## Per-user long-term memory + Self-RAG
 
 ```
