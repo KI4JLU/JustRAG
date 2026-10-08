@@ -950,44 +950,10 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		}
 		result = toParseResult(res)
 	} else {
-		par := p.factory.GetParser(mimeType, fileName)
-		if par == nil {
-			_ = p.store.MarkFileError(ctx, fileID, "unsupported_type", "Unsupported file type: "+mimeType)
-			return fmt.Errorf("processor: no parser for mimeType=%s fileName=%s", mimeType, fileName)
-		}
-
-		// For audio files this calls the STT transcriber and can take
-		// minutes; progress stays at 5% during this phase so the frontend
-		// still shows activity.
 		var parseErr error
-		cacheKey := p.libraryParseCacheKey(ctx, in.OwnerUserID, in.UserFileID, mimeType, fileName)
-		if cacheKey != "" {
-			if cached, ok, gerr := p.parseCache.Get(ctx, cacheKey); gerr != nil {
-				logctx.From(ctx).Warn("processor: parse cache read failed; parsing normally", "fileId", fileID, "error", gerr)
-			} else if ok {
-				result = cached
-				outcome.ParseCacheHit = true
-			}
-		}
-		if !outcome.ParseCacheHit {
-			result, parseErr = par.Parse(ctx, parser.ParseContext{
-				FilePath:  filePath,
-				FileName:  fileName,
-				MimeType:  mimeType,
-				KbID:      kbID,
-				ChunkSize: chunkSize,
-			})
-			if parseErr != nil {
-				_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
-				return fmt.Errorf("processor: parse file: %w", parseErr)
-			}
-			// A degraded (fallback) parse is used for this ingest but never
-			// cached under the preferred parser's configuration.
-			if cacheKey != "" && result != nil && !result.Degraded {
-				if perr := p.parseCache.Put(ctx, cacheKey, result); perr != nil {
-					logctx.From(ctx).Warn("processor: parse cache write failed", "fileId", fileID, "error", perr)
-				}
-			}
+		result, parseErr = p.parseDocument(ctx, in, outcome)
+		if parseErr != nil {
+			return parseErr
 		}
 	}
 
@@ -1468,19 +1434,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 	// over parent-child children would feed structural rows back as
 	// "leaves").
 	if raptorOn {
-		if chat.ParentChildEnabled(ctx, p.siteConfigReader) {
-			observability.RecordRaptorBuild("skipped_parent_child")
-			logctx.From(ctx).Info("raptor.build.skipped",
-				"fileId", fileID, "reason", "parent_child_enabled")
-		} else if lastDimensions > 0 {
-			p.setStage(ctx, fileID, plan, stageRaptor)
-			if !p.runRaptorBuildStage(ctx, fileID, kbID, fileName, lastDimensions, pgConfig) {
-				markIngestDegraded(ctx)
-			}
-		} else {
-			// RAPTOR enabled but nothing was embedded: no tree exists.
-			markIngestDegraded(ctx)
-		}
+		p.runRaptorTail(ctx, fileID, kbID, fileName, plan, lastDimensions, pgConfig)
 	}
 
 	// Everything the fingerprint claims is now in place (KG excepted: a KG
@@ -1500,6 +1454,73 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 	}
 
 	return nil
+}
+
+// parseDocument is processFile's non-spreadsheet parse step: parser lookup,
+// then the library parse cache (hit → cached result, outcome.ParseCacheHit),
+// else the parser and a cache write for a non-degraded result. On an
+// unsupported type or a parse failure it marks the file errored and returns
+// the error processFile returns verbatim.
+func (p *Processor) parseDocument(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) (*parser.ParseResult, error) {
+	fileID, fileName, mimeType := in.FileID, in.FileName, in.MimeType
+	par := p.factory.GetParser(mimeType, fileName)
+	if par == nil {
+		_ = p.store.MarkFileError(ctx, fileID, "unsupported_type", "Unsupported file type: "+mimeType)
+		return nil, fmt.Errorf("processor: no parser for mimeType=%s fileName=%s", mimeType, fileName)
+	}
+
+	// For audio files this calls the STT transcriber and can take
+	// minutes; progress stays at 5% during this phase so the frontend
+	// still shows activity.
+	cacheKey := p.libraryParseCacheKey(ctx, in.OwnerUserID, in.UserFileID, mimeType, fileName)
+	if cacheKey != "" {
+		if cached, ok, gerr := p.parseCache.Get(ctx, cacheKey); gerr != nil {
+			logctx.From(ctx).Warn("processor: parse cache read failed; parsing normally", "fileId", fileID, "error", gerr)
+		} else if ok {
+			outcome.ParseCacheHit = true
+			return cached, nil
+		}
+	}
+	result, parseErr := par.Parse(ctx, parser.ParseContext{
+		FilePath:  in.FilePath,
+		FileName:  fileName,
+		MimeType:  mimeType,
+		KbID:      in.KBID,
+		ChunkSize: in.ChunkSize,
+	})
+	if parseErr != nil {
+		_ = p.store.MarkFileError(ctx, fileID, "parse", "The file could not be parsed")
+		return nil, fmt.Errorf("processor: parse file: %w", parseErr)
+	}
+	// A degraded (fallback) parse is used for this ingest but never
+	// cached under the preferred parser's configuration.
+	if cacheKey != "" && result != nil && !result.Degraded {
+		if perr := p.parseCache.Put(ctx, cacheKey, result); perr != nil {
+			logctx.From(ctx).Warn("processor: parse cache write failed", "fileId", fileID, "error", perr)
+		}
+	}
+	return result, nil
+}
+
+// runRaptorTail is processFile's RAPTOR step on the flat path (raptorOn
+// already checked): skipped under parent-child, built when something was
+// embedded, and the run marked degraded when the build fails or there was
+// nothing to build a tree from.
+func (p *Processor) runRaptorTail(ctx context.Context, fileID, kbID, fileName string, plan stagePlan, lastDimensions int, pgConfig string) {
+	switch {
+	case chat.ParentChildEnabled(ctx, p.siteConfigReader):
+		observability.RecordRaptorBuild("skipped_parent_child")
+		logctx.From(ctx).Info("raptor.build.skipped",
+			"fileId", fileID, "reason", "parent_child_enabled")
+	case lastDimensions > 0:
+		p.setStage(ctx, fileID, plan, stageRaptor)
+		if !p.runRaptorBuildStage(ctx, fileID, kbID, fileName, lastDimensions, pgConfig) {
+			markIngestDegraded(ctx)
+		}
+	default:
+		// RAPTOR enabled but nothing was embedded: no tree exists.
+		markIngestDegraded(ctx)
+	}
 }
 
 // runRaptorBuildStage is a thin wrapper around the raptor builder.
