@@ -345,7 +345,7 @@ func (h *Handler) AddPapers(w http.ResponseWriter, r *http.Request) {
 			id = stableID(paper.PdfURL)
 		}
 
-		if err := h.downloadAndStorePaper(r.Context(), httpClient, user.Username, body.KbID, paper); err != nil {
+		if err := h.downloadAndStorePaper(r.Context(), httpClient, user.Username, user.ID, body.KbID, paper); err != nil {
 			result.Failed = append(result.Failed, id)
 			continue
 		}
@@ -383,7 +383,7 @@ func validateURL(ctx context.Context, rawURL string) error {
 func (h *Handler) downloadAndStorePaper(
 	ctx context.Context,
 	client *http.Client,
-	username, kbID string,
+	username, userID, kbID string,
 	paper AcademicPaper,
 ) error {
 	// If the URL points to a JustFind catalogue page rather than a direct
@@ -439,6 +439,7 @@ func (h *Handler) downloadAndStorePaper(
 
 	fileRecord, err := h.store.CreateFile(ctx, files.CreateFileData{
 		KbID:        kbID,
+		UploadedBy:  userID,
 		Name:        filename,
 		Type:        "application/pdf",
 		Size:        len(pdfBytes),

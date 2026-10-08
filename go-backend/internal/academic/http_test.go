@@ -25,6 +25,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type stubStore struct {
+	created    []files.CreateFileData
 	siteConfig map[string]string
 	createErr  error
 	fileErr    error
@@ -70,6 +71,7 @@ func (s *stubStore) CreateResearchSession(_ context.Context, kbID, userID, goal,
 }
 
 func (s *stubStore) CreateFile(_ context.Context, data files.CreateFileData) (*files.FileRecord, error) {
+	s.created = append(s.created, data)
 	if s.fileErr != nil {
 		return nil, s.fileErr
 	}

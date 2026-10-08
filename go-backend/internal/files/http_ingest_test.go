@@ -448,3 +448,25 @@ func TestAddTextSource_EnqueueFailureDeletesFile(t *testing.T) {
 		t.Errorf("expected deleted ID %q, got %q", "created-file-id", store.deletedIDs[0])
 	}
 }
+
+func TestAddTextSource_RecordsUploader(t *testing.T) {
+	kb := defaultKB()
+	store := &mockStore{kb: kb}
+	h := defaultIngestHandler(store)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/kb/kb-1/text",
+		strings.NewReader(`{"title":"My Text","content":"Hello, world!"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "kb-1")
+	req = withKBAccess(withUser(req, ingestUser()), kb)
+
+	rr := httptest.NewRecorder()
+	h.AddTextSource(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(store.created) != 1 || store.created[0].UploadedBy != ingestUser().ID {
+		t.Fatalf("CreateFile got %+v, want UploadedBy=%q", store.created, ingestUser().ID)
+	}
+}

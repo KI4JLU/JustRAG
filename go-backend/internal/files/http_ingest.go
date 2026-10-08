@@ -283,6 +283,7 @@ func (h *Handler) AddTextSource(w http.ResponseWriter, r *http.Request) {
 	// 5. Create file record (status: pending, origin: text).
 	fileRecord, err := h.store.CreateFile(r.Context(), CreateFileData{
 		KbID:        kbID,
+		UploadedBy:  user.ID,
 		Name:        req.Title,
 		Type:        "text/plain",
 		Size:        len(content),
@@ -521,6 +522,7 @@ func (h *Handler) FetchURL(w http.ResponseWriter, r *http.Request) {
 
 	fileRecord, err := h.store.CreateFile(r.Context(), CreateFileData{
 		KbID:        kbID,
+		UploadedBy:  user.ID,
 		Name:        filename,
 		Type:        fetched.MimeType,
 		Size:        len(fetched.Body),
@@ -663,6 +665,7 @@ func (h *Handler) AddSources(w http.ResponseWriter, r *http.Request) {
 		// Create DB record.
 		fileRecord, err := h.store.CreateFile(r.Context(), CreateFileData{
 			KbID:        kbID,
+			UploadedBy:  user.ID,
 			Name:        filename,
 			Type:        "text/markdown",
 			Size:        len(content),

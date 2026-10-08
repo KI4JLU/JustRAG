@@ -699,6 +699,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	fileSize := int(header.Size)
 	fileRecord, err := h.store.CreateFile(r.Context(), CreateFileData{
 		KbID:        kbID,
+		UploadedBy:  user.ID,
 		Name:        header.Filename,
 		Type:        mimeType,
 		Size:        fileSize,
