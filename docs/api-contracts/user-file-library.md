@@ -157,4 +157,8 @@ The 200 response of a deduplicated `POST /api/library/files` (bytes already in t
 
 ## Not in phase 1
 
-Text, URL, crawl and academic imports remain KB-scoped files (no `userFileId`, not in the library). Files uploaded before phase 1 are not library files. `parseStatus` / `parseError` do not exist yet (the parse cache is phase 2). KB-less chat is phase 3.
+Text, URL, crawl and academic imports remain KB-scoped files (no `userFileId`, not in the library). Files uploaded before phase 1 are not library files. `parseStatus` / `parseError` do not exist (the phase-2 parse cache is internal and not exposed). KB-less chat is phase 3.
+
+## Phase 2 note: faster completion
+
+Phase 2 adds no API change. However, `POST …/from-library` copies (and uploads rerouted through the library) may now be completed by a server-side index copy: the KB file's status can reach `completed` quickly without passing through the usual stage progression (`stage_detail` steps). The frontend must not assume intermediate stages are ever observed.
