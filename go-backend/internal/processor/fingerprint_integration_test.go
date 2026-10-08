@@ -124,6 +124,10 @@ func fpDoc(t *testing.T) string {
 	return path
 }
 
+// errRealRaptor selects the production raptor.Builder (real adapters over the
+// vector DB, summariser/embedder talking to the fake HTTP server).
+var errRealRaptor = errors.New("use the real raptor builder")
+
 type fpRun struct {
 	store *mockStore
 	raptr *fpRaptor
@@ -152,13 +156,19 @@ func runFP(t *testing.T, cfg map[string]string, mode *fpMode, withBuilder error)
 	}
 	p.SetSiteConfigReader(&fakeSiteConfigReader{values: vals})
 	rb := &fpRaptor{store: store, err: withBuilder}
-	p.raptorBuilder = rb
+	if !errors.Is(withBuilder, errRealRaptor) {
+		p.raptorBuilder = rb
+	}
 
 	kbID := uuid.NewString()
 	t.Cleanup(func() { _ = chunkSvc.DeleteChunksByKbID(context.Background(), kbID, fpEmbedDim) })
+	chunkSz := 0
+	if errors.Is(withBuilder, errRealRaptor) {
+		chunkSz = 128 // enough leaves to clear raptor_min_chunks
+	}
 	err = p.ProcessFile(context.Background(), ProcessFileInput{
 		FileID: uuid.NewString(), FilePath: fpDoc(t), FileName: "doc.txt", MimeType: "text/plain",
-		KBID: kbID, UserFileID: "uf-1", OwnerUserID: "o1",
+		KBID: kbID, UserFileID: "uf-1", OwnerUserID: "o1", ChunkSize: chunkSz,
 	})
 	return fpRun{store: store, raptr: rb, err: err, p: p}
 }
@@ -247,4 +257,31 @@ func TestFingerprintE2E_ParentChildAndLateChunkingWrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The production RAPTOR builder swallows per-cluster LLM failures and still
+// returns nil; the fingerprint must nevertheless not be published.
+func TestFingerprintE2E_RealRaptorBuilder(t *testing.T) {
+	t.Run("summariser down: no fingerprint", func(t *testing.T) {
+		m := &fpMode{}
+		m.failChat.Store(true)
+		r := runFP(t, map[string]string{"raptor_enabled": "true", "raptor_min_chunks": "5"}, m, errRealRaptor)
+		if r.lastStatus() != "completed" || r.store.fpCalls != 0 {
+			t.Errorf("status=%q fingerprints=%d", r.lastStatus(), r.store.fpCalls)
+		}
+	})
+	t.Run("healthy build: fingerprint written", func(t *testing.T) {
+		r := runFP(t, map[string]string{"raptor_enabled": "true", "raptor_min_chunks": "5"}, &fpMode{}, errRealRaptor)
+		if r.lastStatus() != "completed" || r.store.fpCalls != 1 {
+			t.Errorf("status=%q fingerprints=%d", r.lastStatus(), r.store.fpCalls)
+		}
+	})
+	t.Run("below min chunks: no tree by design, still a donor", func(t *testing.T) {
+		m := &fpMode{}
+		m.failChat.Store(true)
+		r := runFP(t, map[string]string{"raptor_enabled": "true", "raptor_min_chunks": "200"}, m, errRealRaptor)
+		if r.lastStatus() != "completed" || r.store.fpCalls != 1 {
+			t.Errorf("status=%q fingerprints=%d", r.lastStatus(), r.store.fpCalls)
+		}
+	})
 }

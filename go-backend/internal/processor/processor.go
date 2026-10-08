@@ -1509,16 +1509,24 @@ func (p *Processor) runRaptorBuildStage(ctx context.Context, fileID, kbID, fileN
 			cfg,
 		)
 	}
-	if _, err := b.Build(ctx, raptor.BuildParams{
+	stats, err := b.Build(ctx, raptor.BuildParams{
 		KbID:       kbID,
 		FileID:     fileID,
 		FileName:   fileName,
 		Dimensions: dimensions,
 		PgConfig:   pgConfig,
-	}); err != nil {
+	})
+	if err != nil {
 		logctx.From(ctx).Warn("processor: raptor build failed",
 			"fileId", fileID, "error", err)
 		observability.RecordRaptorBuild("failed")
+		return false
+	}
+	if stats.FailedClusters > 0 {
+		// Build swallows per-cluster LLM/embed/insert failures; surface them
+		// so the caller can refuse to publish a donor fingerprint.
+		logctx.From(ctx).Warn("processor: raptor tree incomplete",
+			"fileId", fileID, "failedClusters", stats.FailedClusters)
 		return false
 	}
 	return true
@@ -1651,9 +1659,11 @@ func (p *Processor) runHyPEGenerationStage(ctx context.Context, fileID, kbID, fi
 	}
 	var chunks []vector.FileChunkRow
 	var chunkDim int
+	readFailed := false
 	for _, d := range dims {
 		rows, err := p.chunkSvc.GetChunksByFileID(ctx, kbID, fileID, d)
 		if err != nil {
+			readFailed = true
 			continue
 		}
 		if len(rows) > 0 {
@@ -1663,6 +1673,12 @@ func (p *Processor) runHyPEGenerationStage(ctx context.Context, fileID, kbID, fi
 		}
 	}
 	if len(chunks) == 0 {
+		if readFailed {
+			// Could not read the stored chunks back: that is a failure, not
+			// "nothing to do".
+			markIngestDegraded(ctx)
+			return fmt.Errorf("hype: reading stored chunks failed")
+		}
 		return nil
 	}
 	model := resolveHyPEModel(ctx, p.siteConfigReader)
@@ -2062,6 +2078,7 @@ func (p *Processor) runLateChunkedIngest(
 				// worker.
 				defer func() {
 					if r := recover(); r != nil {
+						markIngestDegraded(ctx)
 						logctx.From(ctx).Warn("processor: chunk enrichment panicked (late-chunking path)",
 							"fileId", fileID,
 							"chunkIndex", idx,
