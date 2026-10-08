@@ -702,11 +702,16 @@ func (p *Processor) ProcessFileWithResult(ctx context.Context, in ProcessFileInp
 }
 
 func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) error {
+	ctx = withIngestDegradedFlag(ctx)
 	// Resolve ingestion config through the file's KB so per-KB overrides
 	// (raptor/parent-child/enrichment/kg_extraction) take effect. Reassigning
 	// the receiver routes every downstream p.siteConfigReader read and every
 	// p.<method> call through the overlay-bearing clone.
 	p = p.withKBConfig(ctx, in.KBID)
+	// Index fingerprint snapshot (library files only): taken before parsing so
+	// a mid-ingest config change cannot make the stamp claim more than the
+	// index was built with. Recorded only at the end of a fully completed run.
+	fpSnap := p.snapshotIndexFingerprint(ctx, in)
 	fileID := in.FileID
 	filePath := in.FilePath
 	fileName := in.FileName
@@ -1014,7 +1019,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 
 	if len(ichunks) == 0 {
 		_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
-		p.recordIndexFingerprint(ctx, in)
+		p.recordIndexFingerprint(ctx, in, fpSnap)
 		logctx.From(ctx).Info("processor: no chunks produced", "fileId", fileID)
 		return nil
 	}
@@ -1091,7 +1096,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		groups := splitter.ParentChildSplit(sourceText, parentCfg, childCfg)
 		if len(groups) == 0 {
 			_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
-			p.recordIndexFingerprint(ctx, in)
+			p.recordIndexFingerprint(ctx, in, fpSnap)
 			logctx.From(ctx).Info("processor: parent-child split produced 0 groups", "fileId", fileID)
 			return nil
 		}
@@ -1105,7 +1110,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 			return err
 		}
 		_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
-		p.recordIndexFingerprint(ctx, in)
+		p.recordIndexFingerprint(ctx, in, fpSnap)
 		_ = p.store.UpdateFileProgress(ctx, fileID, 100)
 		return nil
 	}
@@ -1135,7 +1140,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 			return err
 		}
 		_ = p.store.UpdateFileStatus(ctx, fileID, "completed")
-		p.recordIndexFingerprint(ctx, in)
+		p.recordIndexFingerprint(ctx, in, fpSnap)
 		return nil
 	}
 
@@ -1274,6 +1279,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 					prefix := ""
 					contextStr, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, document, chunkText, kbID, enrichmentModel)
 					if err != nil {
+						markIngestDegraded(ctx)
 						logctx.From(ctx).Warn("processor: chunk enrichment failed, indexing original text only",
 							"fileId", fileID,
 							"chunkIndex", idx,
@@ -1400,10 +1406,6 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 	} else if err := p.store.UpdateFileStatus(ctx, fileID, finalStatus); err != nil {
 		return fmt.Errorf("processor: update final status: %w", err)
 	}
-	if finalStatus == "completed" {
-		p.recordIndexFingerprint(ctx, in)
-	}
-
 	logctx.From(ctx).Info("processor: finished",
 		"fileId", fileID,
 		"status", finalStatus,
@@ -1440,6 +1442,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		if hErr := p.runHyPEGenerationStage(ctx, fileID, kbID, fileName, result.Text, rawLang); hErr != nil {
 			logctx.From(ctx).Warn("processor: hype generation stage failed",
 				"fileId", fileID, "error", hErr)
+			markIngestDegraded(ctx)
 		}
 	}
 
@@ -1455,8 +1458,20 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 				"fileId", fileID, "reason", "parent_child_enabled")
 		} else if lastDimensions > 0 {
 			p.setStage(ctx, fileID, plan, stageRaptor)
-			p.runRaptorBuildStage(ctx, fileID, kbID, fileName, lastDimensions, pgConfig)
+			if !p.runRaptorBuildStage(ctx, fileID, kbID, fileName, lastDimensions, pgConfig) {
+				markIngestDegraded(ctx)
+			}
+		} else {
+			// RAPTOR enabled but nothing was embedded: no tree exists.
+			markIngestDegraded(ctx)
 		}
+	}
+
+	// Everything the fingerprint claims is now in place (KG excepted: a KG
+	// failure does not block, because an index copy rebuilds the KG itself
+	// through the extraction cache). Stamp the donor fingerprint last.
+	if finalStatus == "completed" {
+		p.recordIndexFingerprint(ctx, in, fpSnap)
 	}
 
 	// Mindmap live update: the graph data for this KB just changed (KG
@@ -1476,7 +1491,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 // Errors are logged + counted but never propagated — RAPTOR is a
 // recall-boost side-channel; an LLM outage during summary generation
 // must not flip a successfully-ingested file into an error state.
-func (p *Processor) runRaptorBuildStage(ctx context.Context, fileID, kbID, fileName string, dimensions int, pgConfig string) {
+func (p *Processor) runRaptorBuildStage(ctx context.Context, fileID, kbID, fileName string, dimensions int, pgConfig string) bool {
 	cfg := raptor.Config{
 		MinChunks:           chat.RaptorMinChunks(ctx, p.siteConfigReader),
 		MaxLevels:           chat.RaptorMaxLevels(ctx, p.siteConfigReader),
@@ -1504,7 +1519,9 @@ func (p *Processor) runRaptorBuildStage(ctx context.Context, fileID, kbID, fileN
 		logctx.From(ctx).Warn("processor: raptor build failed",
 			"fileId", fileID, "error", err)
 		observability.RecordRaptorBuild("failed")
+		return false
 	}
+	return true
 }
 
 // runKGExtractionStage is the AP-C1 post-ingestion pass: read the
@@ -1658,6 +1675,7 @@ func (p *Processor) runHyPEGenerationStage(ctx context.Context, fileID, kbID, fi
 		}
 		questions, err := ai.GenerateHypotheticalQuestions(ctx, p.aiResolver, fileName, document, c.Content, kbID, maxQ, lang, model)
 		if err != nil {
+			markIngestDegraded(ctx)
 			logctx.From(ctx).Warn("hype: question generation failed; skipping chunk",
 				"fileId", fileID, "chunkId", c.ID, "error", err)
 			continue
@@ -1667,11 +1685,13 @@ func (p *Processor) runHyPEGenerationStage(ctx context.Context, fileID, kbID, fi
 		}
 		embs, err := ai.GenerateEmbeddings(ctx, p.aiResolver, questions, kbID, p.embeddingCache)
 		if err != nil || len(embs) != len(questions) {
+			markIngestDegraded(ctx)
 			logctx.From(ctx).Warn("hype: question embedding failed; skipping chunk",
 				"fileId", fileID, "chunkId", c.ID, "error", err)
 			continue
 		}
 		if err := p.hype.Insert(ctx, kbID, fileID, c.ID, questions, embs, chunkDim); err != nil {
+			markIngestDegraded(ctx)
 			logctx.From(ctx).Warn("hype: insert failed; skipping chunk",
 				"fileId", fileID, "chunkId", c.ID, "error", err)
 			continue
@@ -1755,6 +1775,7 @@ func (p *Processor) runParentChildIngest(
 			}
 			prefix, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, document, g.ParentText, kbID, enrichmentModel)
 			if err != nil {
+				markIngestDegraded(ctx)
 				logctx.From(ctx).Warn("processor: parent enrichment failed, leaving prefix empty",
 					"fileId", fileID, "parentIndex", i, "error", err)
 				continue
@@ -2049,6 +2070,7 @@ func (p *Processor) runLateChunkedIngest(
 				}()
 				ctxStr, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, document, chunkText, kbID, enrichmentModel)
 				if err != nil {
+					markIngestDegraded(ctx)
 					logctx.From(ctx).Warn("processor: chunk enrichment failed (late-chunking path)",
 						"fileId", fileID,
 						"chunkIndex", idx,

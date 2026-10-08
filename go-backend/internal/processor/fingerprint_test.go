@@ -15,6 +15,7 @@ type fpConfigStore struct {
 	providerID string
 	model      string
 	dims       int
+	chatModel  string
 }
 
 func (s fpConfigStore) GetActiveAIProvider(context.Context) (*ai.AIProviderInfo, error) {
@@ -26,10 +27,19 @@ func (s fpConfigStore) GetAIProviderByID(context.Context, string) (*ai.AIProvide
 }
 
 func (s fpConfigStore) GetAIModelsByProvider(context.Context, string) ([]ai.AIModelInfo, error) {
-	return []ai.AIModelInfo{
-		{Name: "chat-m"},
-		{Name: s.model, IsEmbedding: true, Dimensions: s.dims},
-	}, nil
+	// First chat model = the resolved KB ChatModel; the named extras are
+	// models the provider offers (so an explicit model key can resolve).
+	first := "chat-m"
+	if s.chatModel != "" {
+		first = s.chatModel
+	}
+	out := []ai.AIModelInfo{{Name: first}}
+	for _, n := range []string{"chat-m", "e1", "e2", "h1", "h2", "k1", "k2"} {
+		if n != first {
+			out = append(out, ai.AIModelInfo{Name: n})
+		}
+	}
+	return append(out, ai.AIModelInfo{Name: s.model, IsEmbedding: true, Dimensions: s.dims}), nil
 }
 
 func (s fpConfigStore) GetKBModelOverrides(context.Context, string) (*ai.KBModelOverrides, error) {
@@ -80,9 +90,9 @@ func TestIndexFingerprint_Sensitivity(t *testing.T) {
 		cfg      map[string]string
 		size, ov int
 	}{
-		{"embedding model", fpConfigStore{"prov-1", "emb-b", 1024}, on, 512, 100},
-		{"dims", fpConfigStore{"prov-1", "emb-a", 2048}, on, 512, 100},
-		{"provider", fpConfigStore{"prov-2", "emb-a", 1024}, on, 512, 100},
+		{"embedding model", fpConfigStore{providerID: "prov-1", model: "emb-b", dims: 1024}, on, 512, 100},
+		{"dims", fpConfigStore{providerID: "prov-1", model: "emb-a", dims: 2048}, on, 512, 100},
+		{"provider", fpConfigStore{providerID: "prov-2", model: "emb-a", dims: 1024}, on, 512, 100},
 		{"chunk size", base, on, 256, 100},
 		{"chunk overlap", base, on, 512, 50},
 		{"parent_child on", base, with(map[string]string{"parent_child_enabled": "true"}), 512, 100},
@@ -181,30 +191,82 @@ func fpInput(userFileID string) ProcessFileInput {
 }
 
 func TestRecordIndexFingerprint(t *testing.T) {
-	ctx := context.Background()
-	t.Run("library file writes", func(t *testing.T) {
+	ctx := withIngestDegradedFlag(context.Background())
+	t.Run("library file writes the snapshot", func(t *testing.T) {
 		st := &mockStore{}
 		p := fpProcessor(fpBase(), nil, st)
-		p.recordIndexFingerprint(ctx, fpInput("uf-1"))
-		if st.fingerprints["f1"] == "" {
-			t.Fatal("fingerprint not written")
+		snap := p.snapshotIndexFingerprint(ctx, fpInput("uf-1"))
+		if snap == "" {
+			t.Fatal("empty snapshot")
+		}
+		p.recordIndexFingerprint(ctx, fpInput("uf-1"), snap)
+		if st.fingerprints["f1"] != snap {
+			t.Fatal("snapshot not written")
 		}
 	})
 	t.Run("non-library skips", func(t *testing.T) {
 		st := &mockStore{}
-		fpProcessor(fpBase(), nil, st).recordIndexFingerprint(ctx, fpInput(""))
+		p := fpProcessor(fpBase(), nil, st)
+		if p.snapshotIndexFingerprint(ctx, fpInput("")) != "" {
+			t.Fatal("snapshot for non-library file")
+		}
+		p.recordIndexFingerprint(ctx, fpInput(""), "x")
 		if len(st.fingerprints) != 0 {
 			t.Fatal("fingerprint written for non-library file")
 		}
 	})
-	t.Run("resolver failure is best-effort", func(t *testing.T) {
+	t.Run("snapshot failure means no record", func(t *testing.T) {
 		st := &mockStore{}
 		p := NewProcessor(parser.DefaultFactoryWith(nil), ai.NewConfigResolver(noProviderConfigStore{}), nil, st)
-		p.recordIndexFingerprint(ctx, fpInput("uf-1")) // must not panic
+		snap := p.snapshotIndexFingerprint(ctx, fpInput("uf-1"))
+		if snap != "" {
+			t.Fatal("snapshot despite resolver failure")
+		}
+		p.recordIndexFingerprint(ctx, fpInput("uf-1"), snap)
 		if len(st.fingerprints) != 0 {
-			t.Fatal("fingerprint written despite error")
+			t.Fatal("fingerprint written without snapshot")
 		}
 	})
+	t.Run("degraded run writes none", func(t *testing.T) {
+		st := &mockStore{}
+		p := fpProcessor(fpBase(), nil, st)
+		dctx := withIngestDegradedFlag(context.Background())
+		markIngestDegraded(dctx)
+		p.recordIndexFingerprint(dctx, fpInput("uf-1"), "snap")
+		if len(st.fingerprints) != 0 {
+			t.Fatal("fingerprint written for a degraded run")
+		}
+	})
+}
+
+// The effective LLM model (fast-tier chain empty -> the KB's chat model) is
+// part of the fingerprint for every enabled LLM stage.
+func TestIndexFingerprint_EffectiveModel(t *testing.T) {
+	a := fpConfigStore{providerID: "prov-1", model: "emb-a", dims: 1024, chatModel: "chat-1"}
+	b := a
+	b.chatModel = "chat-2"
+	for name, tc := range map[string]struct {
+		cfg     map[string]string
+		changes bool
+	}{
+		"enrichment on, no model keys": {map[string]string{"contextual_enrichment": "true"}, true},
+		"hype on, no model keys":       {map[string]string{"contextual_enrichment": "false", "hype_enabled": "true"}, true},
+		"raptor on, no model keys":     {map[string]string{"contextual_enrichment": "false", "raptor_enabled": "true"}, true},
+		"kg on, no model keys":         {map[string]string{"contextual_enrichment": "false", "kg_extraction_enabled": "true"}, true},
+		"all LLM stages off":           {map[string]string{"contextual_enrichment": "false"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			same := fingerprintOf(t, a, tc.cfg, 512, 100) == fingerprintOf(t, b, tc.cfg, 512, 100)
+			if same == tc.changes {
+				t.Errorf("KB chat model change: fingerprint equal = %v, want %v", same, !tc.changes)
+			}
+		})
+	}
+	// An explicit model that the provider offers wins over the KB chat model.
+	cfg := map[string]string{"contextual_enrichment": "true", "contextual_enrichment_model": "chat-m"}
+	if fingerprintOf(t, a, cfg, 512, 100) != fingerprintOf(t, b, cfg, 512, 100) {
+		t.Error("explicit available model should be independent of the KB chat model")
+	}
 }
 
 // End to end through ProcessFile: only a completed run writes it.
@@ -232,15 +294,4 @@ func TestProcessFile_FingerprintOnlyOnCompleted(t *testing.T) {
 			}
 		})
 	}
-	t.Run("error run writes none", func(t *testing.T) {
-		st := &mockStore{}
-		p := NewProcessor(parser.DefaultFactoryWith(nil), ai.NewConfigResolver(noProviderConfigStore{}), nil, st)
-		p.SetSiteConfigReader(&fakeSiteConfigReader{values: map[string]*string{}})
-		in := fpInput("uf-1")
-		in.FilePath = writeTempText(t, "some real text content")
-		_ = p.ProcessFile(context.Background(), in)
-		if len(st.fingerprints) != 0 {
-			t.Errorf("fingerprint written for a non-completed run (statuses %v)", st.statuses)
-		}
-	})
 }

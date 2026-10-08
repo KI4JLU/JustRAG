@@ -55,6 +55,7 @@ type mockStore struct {
 	injectionClean []cleanScreenCall
 	// fingerprints records SetIndexFingerprint calls per file id.
 	fingerprints map[string]string
+	fpCalls      int
 }
 
 func (m *mockStore) SetIndexFingerprint(_ context.Context, fileID, fp string) error {
@@ -62,6 +63,7 @@ func (m *mockStore) SetIndexFingerprint(_ context.Context, fileID, fp string) er
 		m.fingerprints = make(map[string]string)
 	}
 	m.fingerprints[fileID] = fp
+	m.fpCalls++
 	return nil
 }
 
