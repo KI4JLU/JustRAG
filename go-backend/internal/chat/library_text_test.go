@@ -75,11 +75,56 @@ func TestLibraryTextSource_Unparseable(t *testing.T) {
 	}
 }
 
-func TestLibraryTextSource_MissingBlobIsUnparseable(t *testing.T) {
+func TestLibraryTextSource_MissingBlobIsOrdinaryError(t *testing.T) {
 	s, stor, uf := libFixture(t, "a.txt", "x")
 	_ = stor.DeleteFile(context.Background(), uf.StoragePath)
-	if _, err := s.Text(context.Background(), uf); !errors.Is(err, ErrUnparseable) {
-		t.Fatalf("want ErrUnparseable, got %v", err)
+	_, err := s.Text(context.Background(), uf)
+	if err == nil || errors.Is(err, ErrUnparseable) {
+		t.Fatalf("want ordinary error, got %v", err)
+	}
+}
+
+type failParser struct{}
+
+func (failParser) Name() string              { return "fail" }
+func (failParser) CanParse(_, f string) bool { return f == "f.fail" }
+func (failParser) Parse(context.Context, parser.ParseContext) (*parser.ParseResult, error) {
+	return nil, errors.New("secret internal detail")
+}
+
+func TestLibraryTextSource_ParserFailureIsBareSentinel(t *testing.T) {
+	stor, _ := storage.New(storage.Config{DataDir: t.TempDir()})
+	uf := &userfiles.UserFile{ID: "uf1", OwnerUserID: "u1", Name: "f.fail", Mime: "x/y", StoragePath: "b"}
+	_ = stor.StoreFile(context.Background(), "b", []byte("x"), "x/y")
+	s := NewLibraryTextSource(stor, parser.DefaultFactoryWith(nil, failParser{}))
+	_, err := s.Text(context.Background(), uf)
+	if err != ErrUnparseable {
+		t.Fatalf("want bare ErrUnparseable, got %v", err)
+	}
+}
+
+func TestLibraryTextSource_CanceledContextIsOrdinaryError(t *testing.T) {
+	s, _, uf := libFixture(t, "a.txt", "x")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := s.Text(ctx, uf)
+	if err == nil || errors.Is(err, ErrUnparseable) {
+		t.Fatalf("want ordinary error, got %v", err)
+	}
+}
+
+func TestLibraryTextSource_CorruptCacheReparsesAndOverwrites(t *testing.T) {
+	ctx := context.Background()
+	s, stor, uf := libFixture(t, "a.txt", "fresh")
+	key := libpaths.ChatTextKey("u1", "uf1")
+	_ = stor.StoreFile(ctx, key, []byte("{garbage"), "application/json")
+	res, err := s.Text(ctx, uf)
+	if err != nil || res.Text != "fresh" {
+		t.Fatalf("got %v %+v", err, res)
+	}
+	raw, _ := stor.ReadFile(ctx, key)
+	if string(raw) == "{garbage" {
+		t.Fatal("corrupt cache not overwritten")
 	}
 }
 

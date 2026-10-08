@@ -16,7 +16,10 @@ import (
 	"github.com/justrag/go-backend/internal/userfiles"
 )
 
-// ErrUnparseable means no parser handles the library file or parsing failed.
+// ErrUnparseable means no parser handles the library file or the parser failed
+// on its content. Storage, IO and context errors are never mapped to it.
+// Callers must test with errors.Is and show a fixed user message; the cause is
+// logged here, never carried in the error text.
 var ErrUnparseable = errors.New("library file cannot be parsed")
 
 // LibraryTextSource resolves a library file to parsed text for library chat.
@@ -34,9 +37,13 @@ func NewLibraryTextSource(stor storage.Storage, factory *parser.Factory) *Librar
 // cached chat-text object if present, else the blob is parsed now (KbID ""
 // selects the global AI provider), cached unless Degraded, and returned.
 // Two concurrent misses may both parse and both write identical content.
+// uf must already have been fetched owner-scoped by the caller.
 func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*parser.ParseResult, error) {
 	if s == nil || s.stor == nil || s.factory == nil || uf == nil {
 		return nil, ErrUnparseable
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("library text %s: %w", uf.ID, err)
 	}
 	key := libpaths.ChatTextKey(uf.OwnerUserID, uf.ID)
 	if ok, err := s.stor.FileExists(ctx, key); err == nil && ok {
@@ -54,8 +61,15 @@ func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*
 	}
 	res, err := s.parseBlob(ctx, p, uf)
 	if err != nil {
-		logctx.From(ctx).Warn("library text: parse failed", "user_file_id", uf.ID, "error", err)
-		return nil, fmt.Errorf("%w: %v", ErrUnparseable, err)
+		var pe *parseFailure
+		if errors.As(err, &pe) && ctx.Err() == nil {
+			logctx.From(ctx).Warn("library text: parse failed", "user_file_id", uf.ID, "error", pe.err)
+			return nil, ErrUnparseable
+		}
+		if pe != nil {
+			err = pe.err
+		}
+		return nil, fmt.Errorf("library text %s: %w", uf.ID, err)
 	}
 	if res == nil {
 		return nil, ErrUnparseable
@@ -69,6 +83,11 @@ func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*
 	}
 	return res, nil
 }
+
+// parseFailure marks an error that came from the parser itself.
+type parseFailure struct{ err error }
+
+func (e *parseFailure) Error() string { return e.err.Error() }
 
 func (s *LibraryTextSource) parseBlob(ctx context.Context, p parser.Parser, uf *userfiles.UserFile) (*parser.ParseResult, error) {
 	rc, err := s.stor.ReadFileStream(ctx, uf.StoragePath)
@@ -88,10 +107,14 @@ func (s *LibraryTextSource) parseBlob(ctx context.Context, p parser.Parser, uf *
 	if err != nil {
 		return nil, err
 	}
-	return p.Parse(ctx, parser.ParseContext{
+	res, err := p.Parse(ctx, parser.ParseContext{
 		FilePath: tmp.Name(),
 		FileName: uf.Name,
 		MimeType: uf.Mime,
 		FileSize: n,
 	})
+	if err != nil {
+		return nil, &parseFailure{err: err}
+	}
+	return res, nil
 }
