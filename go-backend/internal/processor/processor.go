@@ -29,11 +29,6 @@ import (
 	"github.com/justrag/go-backend/internal/vector"
 )
 
-// HashLookup is the minimum interface dedupBatch needs from a chunk store.
-type HashLookup interface {
-	GetExistingChunkHashes(ctx context.Context, kbID string, dimensions int, hashes []string) (map[string]struct{}, error)
-}
-
 // reingestCleaner removes a file's existing chunks before (re-)ingestion so
 // that an Asynq retry of a partially-failed ProcessFile attempt replaces
 // rather than duplicates rows. *vector.ChunkService satisfies it.
@@ -45,124 +40,41 @@ type reingestCleaner interface {
 // dedupResult holds the indices of survivor chunks in the original batch
 // (those that should be embedded + stored), the parallel hashes, and a count
 // of how many were dropped.
-//
-// allHashes is set ONLY on the cross-file lookup error path, and contains
-// the texts-aligned hash slice (one entry per input text, in input order)
-// so callers that want to fall back to "embed everything" can do so without
-// recomputing SHA-256 over every chunk again.
 type dedupResult struct {
 	survivorIdx  []int
 	hashes       []string
-	allHashes    []string
 	droppedCount int
 }
 
-// dedupBatch performs in-batch + cross-file deduplication for one embedding
-// batch. Returns the indices of chunks that should actually be embedded.
+// dedupBatch collapses repeated chunks WITHIN one embedding batch of one
+// file, keeping the first occurrence per non-empty content hash.
 //
-// chunkSvc may be nil — the function then performs only in-batch dedup.
-// dimensions is passed to chunkSvc.GetExistingChunkHashes and must be the
-// KB's real embedding dimension (see dedupDimensions): every dim-keyed chunk
-// table carries content_hash via the schema.go backfill, so the lookup must
-// target the table the KB's embeddings actually land in.
-//
-// On a cross-file lookup error, the returned dedupResult still contains the
-// in-batch-dedup survivors and their hashes alongside the error. Callers
-// that want to fall back to "embed everything" on lookup failure can use
-// the parallel `texts`-aligned hash slice via dedupAllHashes, but if the
-// in-batch-dedup result is acceptable (it always is — it's a strict subset
-// of "embed everything") they can use the partial result and avoid a
-// duplicate SHA-256 pass.
-func dedupBatch(ctx context.Context, chunkSvc HashLookup, kbID string, dimensions int, texts []string) (dedupResult, error) {
+// It deliberately does not look at chunks other files already stored. That
+// cross-file drop (removed in user-file-library phase 0) tied a file's
+// content to another file's lifecycle - deleting file B silently removed a
+// chunk file A had been relying on - and contradicted vector.Deduplicate,
+// which treats cross-file chunks as independent evidence. Duplicate text
+// without a contextual prefix is an embedding-cache hit, so keeping it costs
+// storage, not provider calls.
+func dedupBatch(texts []string) dedupResult {
 	res := dedupResult{}
 	if len(texts) == 0 {
-		return res, nil
+		return res
 	}
-
-	hashes := make([]string, len(texts))
+	seen := make(map[string]struct{}, len(texts))
 	for i, t := range texts {
-		hashes[i] = vector.HashContent(t)
-	}
-
-	// In-batch dedup: keep first occurrence per non-empty hash.
-	seenInBatch := make(map[string]struct{})
-	survivors := make([]int, 0, len(texts))
-	for i, h := range hashes {
-		if h == "" {
-			survivors = append(survivors, i)
-			continue
-		}
-		if _, dup := seenInBatch[h]; dup {
-			res.droppedCount++
-			continue
-		}
-		seenInBatch[h] = struct{}{}
-		survivors = append(survivors, i)
-	}
-
-	// Cross-file dedup: query DB for hashes already present.
-	if chunkSvc != nil {
-		lookup := make([]string, 0, len(survivors))
-		for _, idx := range survivors {
-			if hashes[idx] != "" {
-				lookup = append(lookup, hashes[idx])
+		h := vector.HashContent(t)
+		if h != "" {
+			if _, dup := seen[h]; dup {
+				res.droppedCount++
+				continue
 			}
+			seen[h] = struct{}{}
 		}
-		existing, err := chunkSvc.GetExistingChunkHashes(ctx, kbID, dimensions, lookup)
-		if err != nil {
-			// Surface the partial in-batch-dedup result so the caller can
-			// fall back without recomputing every hash. We hand back the
-			// raw (texts-aligned) hash slice via a separate field so the
-			// caller can reconstruct an "embed everything" result without
-			// looping vector.HashContent again.
-			res.survivorIdx = survivors
-			res.hashes = make([]string, len(survivors))
-			for i, idx := range survivors {
-				res.hashes[i] = hashes[idx]
-			}
-			res.allHashes = hashes
-			return res, fmt.Errorf("dedup lookup: %w", err)
-		}
-		filtered := survivors[:0]
-		for _, idx := range survivors {
-			if h := hashes[idx]; h != "" {
-				if _, dup := existing[h]; dup {
-					res.droppedCount++
-					continue
-				}
-			}
-			filtered = append(filtered, idx)
-		}
-		survivors = filtered
+		res.survivorIdx = append(res.survivorIdx, i)
+		res.hashes = append(res.hashes, h)
 	}
-
-	res.survivorIdx = survivors
-	res.hashes = make([]string, len(survivors))
-	for i, idx := range survivors {
-		res.hashes[i] = hashes[idx]
-	}
-	return res, nil
-}
-
-// legacyDedupDim is the dimension the cross-file hash lookup used before the
-// KB's real embedding dimension was resolved. Kept only as the fallback for
-// models that declare no output size (ai.Config.EmbeddingDimensions == 0).
-const legacyDedupDim = 1536
-
-// dedupDimensions returns the dim-keyed chunk table the cross-file dedup
-// lookup must query for kbID. Every dim-keyed table carries content_hash +
-// kb_content_hash_idx via the schema.go backfill, so the lookup must target
-// the table the KB's embeddings actually land in — the model's declared
-// dimension. Falls back to legacyDedupDim when the model declares none.
-func (p *Processor) dedupDimensions(ctx context.Context, kbID string) int {
-	if p.aiResolver == nil {
-		return legacyDedupDim
-	}
-	cfg, err := p.aiResolver.Resolve(ctx, kbID)
-	if err != nil || cfg == nil || cfg.EmbeddingDimensions <= 0 {
-		return legacyDedupDim
-	}
-	return cfg.EmbeddingDimensions
+	return res
 }
 
 // ProcessorStore defines the persistence operations required by Processor.
@@ -1911,41 +1823,12 @@ func (p *Processor) embedAndStore(
 	fileID, kbID string,
 	pgConfig string,
 ) (dimensions int, failed bool) {
-	// Pre-embed deduplication. Hash on `originals` (the stored content), not on
-	// the prefix-augmented embedding input (which varies per ingestion run
-	// because the LLM-generated prefix is non-deterministic).
-	dedupDim := p.dedupDimensions(ctx, kbID)
-	var hashLookup HashLookup
-	if p.chunkSvc != nil {
-		hashLookup = p.chunkSvc
-	}
-	dedup, dedupErr := dedupBatch(ctx, hashLookup, kbID, dedupDim, originals)
-	if dedupErr != nil {
-		logctx.From(ctx).Warn("processor: dedup query failed; embedding entire batch",
-			"fileId", fileID,
-			"batchStart", startIdx,
-			"error", dedupErr,
-		)
-		// Fall through with no dedup — embed everything as before. The
-		// hashes are already computed inside dedupBatch and surfaced via
-		// dedup.allHashes on the error path, so we reuse them rather than
-		// looping vector.HashContent again per chunk.
-		survivors := make([]int, len(originals))
-		for i := range originals {
-			survivors[i] = i
-		}
-		survivorHashes := dedup.allHashes
-		if survivorHashes == nil {
-			// Defensive: dedupBatch should always populate allHashes on the
-			// error path, but if a future caller route lands here without
-			// it, recompute rather than panic on a nil-indexed insert.
-			survivorHashes = make([]string, len(originals))
-			for i, t := range originals {
-				survivorHashes[i] = vector.HashContent(t)
-			}
-		}
-		dedup = dedupResult{survivorIdx: survivors, hashes: survivorHashes}
-	} else if dedup.droppedCount > 0 {
+	// Pre-embed deduplication, within this batch only (see dedupBatch). Hash
+	// on `originals` (the stored content), not on the prefix-augmented
+	// embedding input, which varies per run because the LLM prefix is
+	// non-deterministic.
+	dedup := dedupBatch(originals)
+	if dedup.droppedCount > 0 {
 		logctx.From(ctx).Info("processor.dedup",
 			"fileId", fileID,
 			"kept", len(dedup.survivorIdx),
@@ -1955,7 +1838,7 @@ func (p *Processor) embedAndStore(
 	}
 
 	if len(dedup.survivorIdx) == 0 {
-		// Every chunk in this batch was already known. Nothing to embed or store.
+		// Nothing to embed or store.
 		return 0, false
 	}
 
@@ -2124,35 +2007,11 @@ func (p *Processor) runLateChunkedIngest(
 	}
 	_ = p.store.UpdateFileProgress(ctx, fileID, 50)
 
-	// Stage 2: dedup against existing chunks (cross-file). Survivors keep
-	// the original document order; non-survivors are still embedded so the
-	// late-chunking window sees a contiguous document, but their rows are
-	// discarded before insert.
-	dedupDim := p.dedupDimensions(ctx, kbID)
-	var hashLookup HashLookup
-	if p.chunkSvc != nil {
-		hashLookup = p.chunkSvc
-	}
-	dedup, dedupErr := dedupBatch(ctx, hashLookup, kbID, dedupDim, chunks)
-	if dedupErr != nil {
-		logctx.From(ctx).Warn("processor: dedup query failed; embedding entire document",
-			"fileId", fileID,
-			"error", dedupErr,
-		)
-		// Fall through with no dedup — all chunks are survivors.
-		allSurvivors := make([]int, totalChunks)
-		for i := range allSurvivors {
-			allSurvivors[i] = i
-		}
-		allHashes := dedup.allHashes
-		if allHashes == nil {
-			allHashes = make([]string, totalChunks)
-			for i, t := range chunks {
-				allHashes[i] = vector.HashContent(t)
-			}
-		}
-		dedup = dedupResult{survivorIdx: allSurvivors, hashes: allHashes}
-	}
+	// Stage 2: in-batch dedup (see dedupBatch). Survivors keep the original
+	// document order; non-survivors are still embedded so the late-chunking
+	// window sees a contiguous document, but their rows are discarded before
+	// insert.
+	dedup := dedupBatch(chunks)
 	if dedup.droppedCount > 0 {
 		logctx.From(ctx).Info("processor.dedup",
 			"fileId", fileID,
