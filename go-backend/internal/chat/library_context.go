@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"unicode"
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/logctx"
@@ -39,12 +41,31 @@ type LibraryContextParams struct {
 var ErrLibraryNoText = errors.New("library: the selected files contain no text")
 
 // ErrLibraryTooLarge reports that the selected files exceed even the
-// long-context budget. Nothing is silently truncated.
-type ErrLibraryTooLarge struct{ Tokens, Max int }
+// long-context budget. Nothing is silently truncated. AtLeast marks a
+// rejection by the cheap pre-check, whose Tokens is a lower bound rather than
+// the exact count.
+type ErrLibraryTooLarge struct {
+	Tokens, Max int
+	AtLeast     bool
+}
 
 func (e *ErrLibraryTooLarge) Error() string {
+	if e.AtLeast {
+		return fmt.Sprintf("selected files are too large for one chat turn (at least %d tokens, maximum %d)", e.Tokens, e.Max)
+	}
 	return fmt.Sprintf("selected files are too large for one chat turn (%d tokens, maximum %d)", e.Tokens, e.Max)
 }
+
+// Seams over the splitter so a test can prove the over-budget pre-check
+// rejects without tokenizing or splitting anything.
+var (
+	libraryCountTokens = splitter.CountTokens
+	librarySplit       = splitter.Split
+	// libraryBoundSound reports whether the cl100k tokenizer is loaded: the
+	// lower bound below only holds against real BPE counts, not against
+	// CountTokens' runes/4 fallback, so the pre-check is skipped without it.
+	libraryBoundSound = sync.OnceValue(func() bool { return splitter.EncodeBPE("a") != nil })
+)
 
 // BuildLibraryContext turns the selected files' parsed text into a
 // *ChatContext for a KB-less chat turn: full text when it fits
@@ -57,6 +78,15 @@ func BuildLibraryContext(ctx context.Context, resolver *ai.ConfigResolver, cfg S
 // buildLibraryContextWith is the testable core; extract may be nil when the
 // map_reduce path is not expected.
 func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, extract extractFindingsFn, cfg SiteConfigReader, p LibraryContextParams) (*ChatContext, error) {
+	fullMax, lcMax := ChatLibraryFulltextMaxTokens(ctx, cfg), ChatLongContextMaxTokens(ctx, cfg)
+	// Cheap pre-check before any BPE tokenization or recursive split: up to
+	// 20 files of several million characters each would otherwise be fully
+	// tokenized on every turn just to reach the same 400.
+	if libraryBoundSound() {
+		if bound := libraryTokenLowerBound(p.Files); bound > lcMax {
+			return nil, &ErrLibraryTooLarge{Tokens: bound, Max: lcMax, AtLeast: true}
+		}
+	}
 	chunks, skipped, total := libraryChunks(p.Files)
 	if len(chunks) == 0 {
 		return nil, ErrLibraryNoText
@@ -71,7 +101,7 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 	notice := prompts.LibraryNotice(p.Language)
 	var cc *ChatContext
 	var err error
-	switch fullMax, lcMax := ChatLibraryFulltextMaxTokens(ctx, cfg), ChatLongContextMaxTokens(ctx, cfg); {
+	switch {
 	case total <= fullMax:
 		sources, text := buildChatSourcesAndContext(chunks)
 		cc = &ChatContext{
@@ -128,8 +158,8 @@ func libraryChunks(files []LibraryFile) (chunks []vector.SearchChunk, skipped []
 			return false
 		}
 		parts := []string{text}
-		if splitter.CountTokens(text) > libraryChunkTokens {
-			parts = splitter.Split(text, cfg)
+		if libraryCountTokens(text) > libraryChunkTokens {
+			parts = librarySplit(text, cfg)
 		}
 		for _, part := range parts {
 			c := vector.SearchChunk{Content: part, FileName: f.Name, FileID: f.UserFileID}
@@ -137,7 +167,7 @@ func libraryChunks(files []LibraryFile) (chunks []vector.SearchChunk, skipped []
 				c.Metadata = map[string]any{"pages": []int{page}}
 			}
 			chunks = append(chunks, c)
-			total += splitter.CountTokens(part)
+			total += libraryCountTokens(part)
 		}
 		return true
 	}
@@ -161,4 +191,59 @@ func libraryChunks(files []LibraryFile) (chunks []vector.SearchChunk, skipped []
 		chunks[i].Score = 1 - float64(i)/(n+1)
 	}
 	return chunks, skipped, total
+}
+
+// libraryTokenLowerBound is a lower bound on the cl100k token count
+// libraryChunks would report for files, computed in one rune scan with no
+// tokenizer. It reads the same text libraryChunks reads (pages when present,
+// else the whole text).
+//
+// Why it never over-estimates: cl100k's pre-tokenizer splits text into
+// pieces before BPE, and BPE never merges across pieces. Every piece pattern
+// holds at most one maximal run of letters (\p{L}+, optionally behind one
+// non-letter, non-digit prefix rune, or a contraction like 's) or one run of
+// at most three digits (\p{N}{1,3}), never a letter and a digit together —
+// so each maximal letter run and each maximal digit run starts its own
+// piece, and each piece is at least one token. Splitting a page only adds
+// pieces. The bound is therefore safe for the reject decision: a selection
+// above chat_longcontext_max_tokens by this count is above it by the exact
+// count too, so nothing the exact path would accept is rejected. On German
+// prose it lands at roughly 55-75% of the real count (one per word vs. the
+// 1.3-1.8 tokens a German word costs), so it catches clearly oversized
+// selections; borderline ones still fall through to the exact count.
+func libraryTokenLowerBound(files []LibraryFile) int {
+	n := 0
+	for _, f := range files {
+		if f.Parsed == nil {
+			continue
+		}
+		if len(f.Parsed.Pages) > 0 {
+			for _, pg := range f.Parsed.Pages {
+				n += textTokenLowerBound(pg.Text)
+			}
+			continue
+		}
+		n += textTokenLowerBound(f.Parsed.Text)
+	}
+	return n
+}
+
+// textTokenLowerBound counts maximal letter runs plus maximal digit runs.
+func textTokenLowerBound(s string) int {
+	const none, letter, digit = 0, 1, 2
+	n, prev := 0, none
+	for _, r := range s {
+		kind := none
+		switch {
+		case unicode.IsLetter(r):
+			kind = letter
+		case unicode.IsNumber(r):
+			kind = digit
+		}
+		if kind != none && kind != prev {
+			n++
+		}
+		prev = kind
+	}
+	return n
 }

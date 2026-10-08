@@ -10,6 +10,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/parser"
+	"github.com/justrag/go-backend/internal/splitter"
 )
 
 func libCfg(fulltext, longctx string) *fakeSiteConfigReader {
@@ -209,5 +210,62 @@ func TestChatLibraryFulltextMaxTokens(t *testing.T) {
 	}
 	if got := ChatLibraryFulltextMaxTokens(ctx, nil); got != 60000 {
 		t.Errorf("nil = %d", got)
+	}
+}
+
+func TestBuildLibraryContext_TooLargePreCheckSkipsTokenizer(t *testing.T) {
+	oldCount, oldSplit := libraryCountTokens, librarySplit
+	t.Cleanup(func() { libraryCountTokens, librarySplit = oldCount, oldSplit })
+	var calls atomic.Int32
+	libraryCountTokens = func(s string) int { calls.Add(1); return oldCount(s) }
+	librarySplit = func(s string, c splitter.Config) []string { calls.Add(1); return oldSplit(s, c) }
+
+	files := []LibraryFile{{UserFileID: "uf-1", Name: "big.txt", Parsed: &parser.ParseResult{Text: bigText(4000)}}}
+	_, err := buildLibraryContextWith(context.Background(), nil, nil, libCfg("4000", "10000"),
+		LibraryContextParams{Files: files, Query: "q", Language: "en"})
+	var tl *ErrLibraryTooLarge
+	if !errors.As(err, &tl) || !tl.AtLeast || tl.Tokens != 12000 {
+		t.Fatalf("err = %v (%+v)", err, tl)
+	}
+	if !strings.Contains(tl.Error(), "(at least 12000 tokens, maximum 10000)") {
+		t.Errorf("msg = %q", tl.Error())
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("pre-check rejection tokenized/split %d times, want 0", n)
+	}
+}
+
+func TestBuildLibraryContext_TooLargeExactPathBelowBound(t *testing.T) {
+	// Long compound words: one letter run each (bound 3000 <= 10000) but many
+	// BPE tokens each, so only the exact count rejects.
+	text := strings.Repeat("Donaudampfschifffahrtsgesellschaftskapitaensmuetze ", 3000)
+	if b := textTokenLowerBound(text); b != 3000 {
+		t.Fatalf("bound = %d", b)
+	}
+	files := []LibraryFile{{UserFileID: "uf-1", Name: "w.txt", Parsed: &parser.ParseResult{Text: text}}}
+	_, err := buildLibraryContextWith(context.Background(), nil, nil, libCfg("4000", "10000"),
+		LibraryContextParams{Files: files, Query: "q", Language: "en"})
+	var tl *ErrLibraryTooLarge
+	if !errors.As(err, &tl) || tl.AtLeast || tl.Tokens <= 10000 {
+		t.Fatalf("err = %v (%+v)", err, tl)
+	}
+}
+
+func TestTextTokenLowerBound_NeverExceedsCL100K(t *testing.T) {
+	if !libraryBoundSound() {
+		t.Fatal("cl100k tokenizer unavailable: the pre-check would be disabled")
+	}
+	cases := []string{
+		"", "   ", "a", "Hallo Welt!", "it's we're they'll I'd", "abc123def4567",
+		"1234567890 12 3", "Straße Größe Übermaß", "été café",
+		"日本語のテキスト、漢字かな交じり。", "x=1;y=22;z=333", "----====>>>> ....",
+		"\n\n\t  word\r\nword  \n", "ÄÖÜäöüß 1.000,50 € (Stand: 2026-10-08)",
+		"https://example.org/path?q=1&r=two#frag", "<|endoftext|> special",
+		strings.Repeat("lorem ipsum dolor ", 50), "Ⅻ ½ ²³ ٣٤٥", "a1b2c3 _x_ y'z",
+	}
+	for _, c := range cases {
+		if b, n := textTokenLowerBound(c), splitter.CountTokens(c); b > n {
+			t.Errorf("bound %d > cl100k %d for %q", b, n, c)
+		}
 	}
 }
