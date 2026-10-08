@@ -140,7 +140,7 @@ release, `v0.1.0-12-gabc1234` on a main build.
    `:stable` (needs `docker login ghcr.io`, see Prerequisites):
 
    ```bash
-   docker buildx imagetools inspect ghcr.io/lutzi92/justrag:vX.Y.Z
+   docker buildx imagetools inspect ghcr.io/ki4jlu/justrag:vX.Y.Z
    ```
 
 ## Deploying a release
@@ -182,18 +182,18 @@ the same way the worker manifests do.
 
 ```bash
 kubectl -n justrag run migrate-vX-Y-Z \
-  --image=ghcr.io/lutzi92/justrag:vX.Y.Z \
+  --image=ghcr.io/ki4jlu/justrag:vX.Y.Z \
   --restart=Never --attach --rm \
-  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/lutzi92/justrag:vX.Y.Z","command":["/app/migrate"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
+  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/ki4jlu/justrag:vX.Y.Z","command":["/app/migrate"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
 ```
 
 Then confirm the schema is where the release expects it:
 
 ```bash
 kubectl -n justrag run migrate-status-vX-Y-Z \
-  --image=ghcr.io/lutzi92/justrag:vX.Y.Z \
+  --image=ghcr.io/ki4jlu/justrag:vX.Y.Z \
   --restart=Never --attach --rm \
-  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/lutzi92/justrag:vX.Y.Z","command":["/app/migrate","--status"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
+  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/ki4jlu/justrag:vX.Y.Z","command":["/app/migrate","--status"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
 ```
 
 `--status` prints one `migration status db=main version=NNNN` line per database
