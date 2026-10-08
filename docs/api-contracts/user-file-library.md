@@ -1,4 +1,4 @@
-# User file library API contract (phase 1)
+# User file library API contract (phases 1–3)
 
 Backend: `go-backend/internal/userfiles`, `internal/files/from_library.go`, `internal/cascade`.
 The frontend builds against this document. Everything here matches the merged code.
@@ -157,8 +157,98 @@ The 200 response of a deduplicated `POST /api/library/files` (bytes already in t
 
 ## Not in phase 1
 
-Text, URL, crawl and academic imports remain KB-scoped files (no `userFileId`, not in the library). Files uploaded before phase 1 are not library files. `parseStatus` / `parseError` do not exist (the phase-2 parse cache is internal and not exposed). KB-less chat is phase 3.
+Text, URL, crawl and academic imports remain KB-scoped files (no `userFileId`, not in the library). Files uploaded before phase 1 are not library files. `parseStatus` / `parseError` do not exist (the phase-2 parse cache is internal and not exposed). KB-less chat is phase 3 (see below).
 
 ## Phase 2 note: faster completion
 
 Phase 2 adds no API change. However, `POST …/from-library` copies (and uploads rerouted through the library) may now be completed by a server-side index copy: the KB file's status can reach `completed` quickly without passing through the usual stage progression (`stage_detail` steps). The frontend must not assume intermediate stages are ever observed.
+
+## Phase 3: Library chat (KB-less chat with your files)
+
+Backend: `go-backend/internal/chat/library_{http,context,text}.go`, migration 0081. No KB, no retrieval index, no orchestrator: the selected files' parsed text is the context. Owner-only; the frontend builds against this section.
+
+### Conventions
+
+- All endpoints require authentication (`401`) and are owner-only. A malformed, missing, foreign or non-library chat id (any KB chat included) answers `404 {"error":"chat not found"}`; a malformed, missing or foreign file id answers `404 {"error":"file not found"}` (never 403/500, no file named). Error bodies are `{"error": "<string>"}`.
+- If the library chat service is not wired: `503 {"error":"library chat is not available"}`.
+- A library chat is an ordinary `chats` row with `type = "library"` and no KB. `GET /api/chats` and every KB chat list never contain it; use `GET /api/library/chats`.
+
+### POST /api/library/chat[?stream=true]
+
+Same rate limiter as the KB chat send route. Body (JSON):
+
+| Field | Notes |
+|---|---|
+| `message` | required, at most 32,000 characters, same content validation as KB chat |
+| `fileIds` | array of library file ids (`UserFile.id`), 1..20 for a new chat. Optional on an existing chat |
+| `chatId` | omit to start a new chat |
+| `parentMessageId` | message to branch from; ignored for a new chat. An id that is malformed, nonexistent or from another chat is ignored (stored as no parent) and the turn uses the chat's linear history |
+| `language` | `de` or `en`, anything else falls back to the default |
+| `reasoningEnabled`, `reasoningLevel` | as in KB chat |
+
+File selection rules:
+
+- New chat: `fileIds` required. It becomes the chat's stored selection.
+- Existing chat with `fileIds`: the body list **replaces** the stored selection (the chat's files are then exactly those ids).
+- Existing chat without `fileIds`: the stored selection is used. Files deleted from the library since drop out of it silently; if none are left the turn is `400 "no library files selected"`.
+- Duplicate ids collapse (first occurrence wins).
+- All rejections happen before a chat is created, a selection replaced or a usage event recorded. A new chat is also removed again if saving its selection fails.
+
+Errors:
+
+| Status | `error` |
+|---|---|
+| 400 | `invalid request body`, `message is required`, `message exceeds maximum length of 32,000 characters`, `message contains disallowed content` |
+| 400 | `regenerate is not supported for library chats` (`regenerateOfMessageId` is rejected) |
+| 400 | `at most 20 library files can be selected` |
+| 400 | `no library files selected` (new chat without `fileIds`, or all stored files deleted) |
+| 400 | `the file "<name>" cannot be read as text` (no parser, or the parser failed; the cause is never echoed) |
+| 400 | `the selected files contain no text` |
+| 400 | `selected files are too large for one chat turn (<tokens> tokens, maximum <max>)` |
+| 404 | `chat not found`, `file not found` (also when a file is deleted in the instant between validation and saving the selection) |
+| 500 | `failed to create chat`, `failed to save library files`, `failed to load library files`, `failed to read library file`, `failed to prepare context`, `failed to save user message` |
+
+Audio files are **not supported**: library chat parses with the built-in parsers only (no Docling, no transcriber), so an audio file is `400 the file "<name>" cannot be read as text`.
+
+Response. Non-streaming: the KB chat JSON body (`answer`, `reasoning`, `sources`, `enhancedQuery`, `chatId`, `userMessageId`, `aiMessageId`, `followUpQuestions`, `verification`, ...). Streaming (`?stream=true`): the same SSE frames in the same order as KB chat (opening `sources` / ids frames, trajectory events, `content` / `reasoning` deltas, `aiMessageId`, `followUpQuestions`, `verification`, `[DONE]`), including the degenerate-run guard. Read `chatId` from the opening frame to continue the conversation.
+
+### Sources: `userFileId`
+
+Each `ChatSource` of a library turn carries `userFileId` (the library file's id) and **no `fileId`** (it is an empty string, not a KB file). Render citations and links from `userFileId` (for example `GET /api/library/files/{id}/download`); never from `fileId`. `pages` is set for paged formats. `createdAt` / `publishedAt` are absent. The same shape is persisted in the message and returned on reload. KB chats never carry `userFileId`.
+
+### Budget semantics
+
+Total size of the selected files' text is measured in tokens:
+
+1. At most `chat_library_fulltext_max_tokens` (default 60,000, range 4,000..200,000, global-only): the **full text** goes to the answer model, one source per page (large pages are pre-split to 1,500 tokens).
+2. Above that, up to `chat_longcontext_max_tokens`: a map_reduce pass extracts findings per chunk group first and answers from them. The source list is then the findings' sources. Findings are capped to fit the model context: if there are too many, the tail findings are dropped (logged, trajectory event), so on very large selections some material can be missing from the answer.
+3. Above `chat_longcontext_max_tokens`: `400 selected files are too large for one chat turn (...)`. Nothing is truncated silently; ask the user to select fewer files.
+
+A selected file that yields no text (for example a scanned PDF without OCR text) is skipped and named in a trajectory event `{"stage":"library_files_skipped","files":["a.pdf"]}`; those files are not used for the answer, so the UI should tell the user. All files empty is the `400 the selected files contain no text` above.
+
+### GET /api/library/chats
+
+200 `{"items": LibraryChat[]}`, only the caller's library chats, newest activity first. `items` is `[]` when empty. `Cache-Control: no-cache`.
+
+```
+LibraryChat = {
+  id: string, title: string,       // title = first 50 characters of the first message
+  createdAt: string, updatedAt: string,   // RFC 3339
+  fileIds: string[]                // the stored selection, [] if none
+}
+```
+
+`fileIds` is the stored selection and may still contain ids of files deleted since (the reference rows cascade away; re-fetch after a delete). Cross-check against `GET /api/library/files` if you display names.
+
+### GET /api/library/chats/{id}
+
+200 `LibraryChat`; 404 `chat not found`.
+
+### Reused endpoints
+
+- `GET /api/chats/{id}/messages` returns the chat's messages (owner-scoped, same shape as KB chats; assistant messages carry `sources` with `userFileId`).
+- `DELETE /api/chats/{id}` deletes the chat (204); its stored selection is removed with it. Library files are untouched.
+
+### What library mode does not do
+
+Compared with a KB chat a library turn skips: long-term and session memory, answer-time tools, the tabular router/log, conflict surfacing, factuality verifier / refine / RAGAS, span-verified citations, source-date enrichment, `message_chunks` and `agent_decisions` rows. It keeps conversation history, the degenerate-run guard, citation validation and follow-up questions. It never reports low confidence (a full-text context legitimately has few sources). Usage is recorded in the ledger as a web turn with no KB.
