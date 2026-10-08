@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -690,9 +691,10 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 		// reported as a clean completion and downstream callers would
 		// persist the partial answer as a complete AI message.
 		if err := scanner.Err(); err != nil {
-			if ctx.Err() != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
 				// The caller stopped the stream on purpose (client gone,
-				// agent cancelled); the truncation is expected.
+				// agent cancelled); the truncation is expected. A deadline
+				// (turn budget) is not on purpose and keeps its WARN.
 				slog.Debug("stream ended by caller cancellation", "error", err)
 			} else {
 				slog.Warn("stream scan error — content truncated", "error", err)
