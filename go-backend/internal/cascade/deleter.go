@@ -516,6 +516,17 @@ func (d *Deleter) deleteStorageForFiles(ctx context.Context, files []fileRecord)
 // Internal helpers — DB transactions
 // ---------------------------------------------------------------------------
 
+// The agent chat's ADK state lives under app name 'agentchat' (chat's
+// agentChatApp) with session id / run thread_id = the chat id, without an
+// FK to chats; these delete it for the chats a transaction is about to
+// delete. The chat store and kbmembers.LeaveKB carry their own variants.
+const (
+	adkSessionsOfKBChats  = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
+	agentRunsOfKBChats    = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
+	adkSessionsOfKBsChats = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
+	agentRunsOfKBsChats   = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
+)
+
 // txStep is one parameterised statement run inside a cascade transaction.
 type txStep struct {
 	sql  string
@@ -536,8 +547,19 @@ func (d *Deleter) runSteps(ctx context.Context, label string, steps []txStep) er
 }
 
 func (d *Deleter) deleteKBTransaction(ctx context.Context, kbID string) error {
-	return d.runSteps(ctx, "deleteKBTransaction", []txStep{
+	return d.runSteps(ctx, "deleteKBTransaction", kbDeleteSteps(kbID))
+}
+
+// kbDeleteSteps lists the statements of the private-KB delete transaction,
+// in execution order.
+func kbDeleteSteps(kbID string) []txStep {
+	return []txStep{
 		{`DELETE FROM files WHERE kb_id = $1`, []any{kbID}},
+		// Agent chat (app 'agentchat'): its ADK session id and its runs'
+		// thread_id are the chat id; adk_events cascade from adk_sessions.
+		// Neither has a chats FK, so they go before the chats.
+		{adkSessionsOfKBChats, []any{kbID}},
+		{agentRunsOfKBChats, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_base_shares WHERE kb_id = $1`, []any{kbID}},
@@ -547,7 +569,7 @@ func (d *Deleter) deleteKBTransaction(ctx context.Context, kbID string) error {
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_bases WHERE id = $1`, []any{kbID}},
-	})
+	}
 }
 
 func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbIDs []string) error {
@@ -561,6 +583,8 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 	if len(kbIDs) > 0 {
 		steps = append(steps,
 			txStep{`DELETE FROM files WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
+			txStep{adkSessionsOfKBsChats, []any{kbIDs}},
+			txStep{agentRunsOfKBsChats, []any{kbIDs}},
 			txStep{`DELETE FROM chats WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM generated_content WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM knowledge_base_shares WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -589,7 +613,13 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 }
 
 func (d *Deleter) deleteGlobalKBTransaction(ctx context.Context, kbID string) error {
-	return d.runSteps(ctx, "deleteGlobalKBTransaction", []txStep{
+	return d.runSteps(ctx, "deleteGlobalKBTransaction", globalKBDeleteSteps(kbID))
+}
+
+// globalKBDeleteSteps lists the statements of the public-KB delete
+// transaction, in execution order.
+func globalKBDeleteSteps(kbID string) []txStep {
+	return []txStep{
 		{`DELETE FROM global_kb_editors WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_base_shares WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_members WHERE kb_id = $1`, []any{kbID}},
@@ -597,8 +627,13 @@ func (d *Deleter) deleteGlobalKBTransaction(ctx context.Context, kbID string) er
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM files WHERE kb_id = $1`, []any{kbID}},
+		// Agent chat (app 'agentchat'): its ADK session id and its runs'
+		// thread_id are the chat id; adk_events cascade from adk_sessions.
+		// Neither has a chats FK, so they go before the chats.
+		{adkSessionsOfKBChats, []any{kbID}},
+		{agentRunsOfKBChats, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_bases WHERE id = $1 AND visibility = 'public'`, []any{kbID}},
-	})
+	}
 }

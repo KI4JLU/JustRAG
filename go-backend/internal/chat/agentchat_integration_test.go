@@ -606,3 +606,75 @@ func TestAnswerModelCannotCallWebSearch(t *testing.T) {
 		}
 	}
 }
+
+// Final review item 1, end to end: a follow-up's floor retrieval searches
+// the condensed query, condensed against the history BEFORE this turn's
+// question (anchored at the previous answer), on the persisted thread.
+func TestFollowUpFloorQueryIsCondensed(t *testing.T) {
+	type call struct{ chatID, parent, q string }
+	var calls []call
+	var queries []string
+	f := newAgentChatFixture(t, true, func(d *AgentChatDeps) {
+		d.condense = func(_ context.Context, chatID string, parent *string, q, _, _ string) (string, error) {
+			calls = append(calls, call{chatID, *parent, q})
+			return "Wie lange hat die Mensa geöffnet?", nil
+		}
+		inner := d.prepare
+		d.prepare = func(ctx context.Context, p ChatContextParams) (*ChatContext, error) {
+			queries = append(queries, p.SearchQuery)
+			return inner(ctx, p)
+		}
+	})
+	f.chunks = agentChunk
+	f.client.turns = [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1]."), agentTextTurn("Bis 14 Uhr [1].")}
+	_, evs := f.post(t, f.userA, agentUserMsg("", "Wann öffnet die Mensa?"))
+	thread, _ := eventOf(evs, "RUN_STARTED")["threadId"].(string)
+	if code, _ := f.post(t, f.userA, agentUserMsg(thread, "Und wie lange?")); code != http.StatusOK {
+		t.Fatalf("follow-up status = %d", code)
+	}
+	msgs := f.messages(t, thread)
+	if len(calls) != 1 || calls[0].chatID != thread || calls[0].parent != msgs[1].id || calls[0].q != "Und wie lange?" {
+		t.Fatalf("condense calls = %+v (previous answer %s)", calls, msgs[1].id)
+	}
+	if len(queries) != 2 || queries[0] != "Wann öffnet die Mensa?" || queries[1] != "Wie lange hat die Mensa geöffnet?" {
+		t.Fatalf("floor queries = %q", queries)
+	}
+}
+
+// Final review item 4: deleting a chat deletes its ADK session (and its
+// events and runs) — the agent chat's history must not outlive the chat.
+func TestDeleteChatRemovesADKSession(t *testing.T) {
+	f := newAgentChatFixture(t, true)
+	f.chunks = agentChunk
+	f.client.turns = [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1].")}
+	_, evs := f.post(t, f.userA, agentUserMsg("", "Wann öffnet die Mensa?"))
+	thread, _ := eventOf(evs, "RUN_STARTED")["threadId"].(string)
+	sessions := `SELECT count(*) FROM adk_sessions WHERE app_name='agentchat' AND id=$1`
+	if n := f.count(t, sessions, thread); n != 1 {
+		t.Fatalf("adk_sessions before delete = %d, want 1", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM adk_events WHERE session_id=$1`, thread); n == 0 {
+		t.Fatal("no adk_events before delete")
+	}
+	// An unrelated session survives.
+	if _, err := f.pool.Exec(context.Background(),
+		`INSERT INTO adk_sessions (app_name, user_id, id, update_time) VALUES ('agentchat', $1, 'other', now())`, f.userA); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.store.DeleteChat(context.Background(), thread); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, sessions, thread); n != 0 {
+		t.Fatalf("adk_sessions after delete = %d", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM adk_events WHERE session_id=$1`, thread); n != 0 {
+		t.Fatalf("adk_events after delete = %d", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM agent_runs WHERE thread_id=$1`, thread); n != 0 {
+		t.Fatalf("agent_runs after delete = %d", n)
+	}
+	if n := f.count(t, sessions, "other"); n != 1 {
+		t.Fatalf("unrelated session deleted")
+	}
+}

@@ -382,9 +382,23 @@ func (s *PGStore) ReplaceChatFileRefs(ctx context.Context, chatID string, userFi
 	})
 }
 
-// DeleteChat deletes the chat with the given ID (cascade deletes messages via FK).
+// DeleteChat deletes the chat with the given ID (cascade deletes messages via
+// FK) and, in the same transaction, the agent chat's ADK session (events
+// cascade) and runs of that thread: they are keyed by the chat id without an
+// FK, so nothing else removes them.
 func (s *PGStore) DeleteChat(ctx context.Context, chatID string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM adk_sessions WHERE app_name = $1 AND id = $2`, agentChatApp, chatID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM agent_runs WHERE app_name = $1 AND thread_id = $2`, agentChatApp, chatID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM chats WHERE id = $1`, chatID)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("DeleteChat: %w", err)
 	}

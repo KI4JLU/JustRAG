@@ -1,6 +1,9 @@
 package cascade
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUserDeleteSteps_ADKSessionsBeforeUser(t *testing.T) {
 	for _, kbs := range [][]string{nil, {"kb1"}} {
@@ -25,6 +28,35 @@ func TestUserDeleteSteps_ADKSessionsBeforeUser(t *testing.T) {
 			if s.sql == `DELETE FROM adk_app_states` {
 				t.Fatal("adk_app_states must be untouched")
 			}
+		}
+	}
+}
+
+// Final review item 4: every transaction that deletes chats first deletes
+// the agent chat's ADK sessions (id = chat id) and runs of those chats.
+func TestChatDeletingStepsRemoveADKSessionsFirst(t *testing.T) {
+	cases := map[string][]txStep{
+		"kb":        kbDeleteSteps("kb1"),
+		"global kb": globalKBDeleteSteps("kb1"),
+		"user":      userDeleteSteps("u1", []string{"kb1"}),
+	}
+	for name, steps := range cases {
+		chats, sess, runs := -1, -1, -1
+		for i, s := range steps {
+			switch {
+			case strings.HasPrefix(s.sql, "DELETE FROM chats"):
+				chats = i
+			case strings.HasPrefix(s.sql, "DELETE FROM adk_sessions") && strings.Contains(s.sql, "FROM chats"):
+				sess = i
+			case strings.HasPrefix(s.sql, "DELETE FROM agent_runs"):
+				runs = i
+			}
+		}
+		if chats < 0 || sess < 0 || runs < 0 || sess > chats || runs > chats {
+			t.Errorf("%s: chats=%d adk_sessions=%d agent_runs=%d (sessions and runs must precede chats)", name, chats, sess, runs)
+		}
+		if sess >= 0 && !strings.Contains(steps[sess].sql, "app_name = 'agentchat'") {
+			t.Errorf("%s: session delete not scoped to the agent chat app: %s", name, steps[sess].sql)
 		}
 	}
 }
