@@ -114,8 +114,8 @@ func TestCopyMode_EndToEnd(t *testing.T) {
 		t.Helper()
 		rec := &ingestRecorder{}
 		h := worker.NewFileProcessingHandlerWithDeps(worker.FileProcessingDeps{
-			Proc:   rec,
-			Owners: store,
+			Proc:  rec,
+			Links: store,
 			Copy: &worker.CopyDeps{
 				Proc:   stubFPProcessor{Processor: proc, fp: fp},
 				Store:  store,

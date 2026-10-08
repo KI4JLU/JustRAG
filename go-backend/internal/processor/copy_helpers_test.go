@@ -42,18 +42,47 @@ func TestCachedParseText_HitMissAndGates(t *testing.T) {
 	}
 }
 
-// KGExtractionEnabled resolves through the KB overlay, like RebuildKGForFile.
-func TestKGExtractionEnabled_UsesKBOverlay(t *testing.T) {
+// IngestRunsKG resolves through the KB overlay, like RebuildKGForFile, and is
+// false wherever the ingest skips the post-embed tail.
+func TestIngestRunsKG_UsesKBOverlayAndFlatPathOnly(t *testing.T) {
 	p := &Processor{siteConfigReader: fakeReader{vals: map[string]string{"kg_extraction_enabled": "false"}}}
 	p.SetKBOverrideLister(fakeLister{overrides: map[string]map[string]*string{
 		"kb-on": {"kg_extraction_enabled": ptr("true")},
+		"kb-pc": {"kg_extraction_enabled": ptr("true"), "parent_child_enabled": ptr("true")},
 	}})
 	ctx := context.Background()
-	if !p.KGExtractionEnabled(ctx, "kb-on") {
+	if !p.IngestRunsKG(ctx, "kb-on") {
 		t.Error("kb-on: per-KB override must win")
 	}
-	if p.KGExtractionEnabled(ctx, "kb-off") {
-		t.Error("kb-off: global false must apply")
+	for _, kb := range []string{"kb-off", "kb-pc"} {
+		if p.IngestRunsKG(ctx, kb) {
+			t.Errorf("%s: want false", kb)
+		}
+	}
+	// late_chunking_enabled is a global key (no per-KB overlay).
+	late := &Processor{siteConfigReader: fakeReader{vals: map[string]string{
+		"kg_extraction_enabled": "true", "late_chunking_enabled": "true",
+	}}}
+	if late.IngestRunsKG(ctx, "kb-1") {
+		t.Error("late chunking: want false")
+	}
+}
+
+// CopyEligible excludes exactly the parse cache's exclusion set.
+func TestCopyEligible(t *testing.T) {
+	for _, tc := range []struct {
+		mime, name string
+		want       bool
+	}{
+		{"application/pdf", "doc.pdf", true},
+		{"text/plain", "doc.txt", true},
+		{"text/csv", "doc.csv", false},
+		{"image/png", "pic.png", false},
+		{"audio/mpeg", "talk.mp3", false},
+	} {
+		if got := CopyEligible(tc.mime, tc.name); got != tc.want {
+			t.Errorf("CopyEligible(%s, %s) = %v, want %v", tc.mime, tc.name, got, tc.want)
+		}
 	}
 }
 

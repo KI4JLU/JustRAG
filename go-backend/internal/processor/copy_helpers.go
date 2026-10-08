@@ -39,11 +39,22 @@ func (p *Processor) CachedParseText(ctx context.Context, kbID, ownerUserID, user
 	return r.Text, true
 }
 
-// KGExtractionEnabled reports kg_extraction_enabled for kbID (overlay-
-// resolved) — the same gate RebuildKGForFile applies.
-func (p *Processor) KGExtractionEnabled(ctx context.Context, kbID string) bool {
+// IngestRunsKG reports whether an ingest of a (non-spreadsheet) file in kbID
+// runs KG extraction (overlay-resolved): kg_extraction_enabled, and neither
+// parent-child nor late chunking, whose paths skip the post-embed tail. Copy
+// mode rebuilds the KG only when this holds, so it never builds a graph the
+// donor's ingest did not.
+func (p *Processor) IngestRunsKG(ctx context.Context, kbID string) bool {
 	p = p.withKBConfig(ctx, kbID)
-	return resolveKGExtractionEnabled(ctx, p.siteConfigReader)
+	return ingestRunsKG(ctx, p.siteConfigReader)
+}
+
+// CopyEligible reports whether a library file may be served by copy mode at
+// all: not a spreadsheet (its parse is the tabular ingest) and not an image
+// or audio file, whose index depends on the KB's vision / STT provider, which
+// the index fingerprint does not cover — the parse cache's exclusion set.
+func CopyEligible(mimeType, fileName string) bool {
+	return parseCacheable(mimeType, fileName)
 }
 
 // TextSearchConfig returns the Postgres text-search config for kbID's

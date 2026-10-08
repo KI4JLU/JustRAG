@@ -103,6 +103,64 @@ func TestFindCopyDonor(t *testing.T) {
 	}
 }
 
+func TestDonorStillValid(t *testing.T) {
+	pool := openMainPool(t)
+	ctx := context.Background()
+	store := files.NewStore(pool)
+	userID, ufID, kbs := seedLibraryKBs(t, pool, 2)
+	donor := seedCopy(t, store, kbs[0], userID, ufID)
+	other := seedCopy(t, store, kbs[1], userID, ufID)
+	set := func(id, status, fp string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`UPDATE files SET status = $2, index_fingerprint = NULLIF($3, '') WHERE id = $1::uuid`, id, status, fp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set(donor, "completed", "F")
+	set(other, "completed", "F") // a second (e.g. newer) donor is irrelevant
+	check := func(name, donorID, uf, fp string, want bool) {
+		t.Helper()
+		got, err := store.DonorStillValid(ctx, donorID, uf, fp)
+		if err != nil || got != want {
+			t.Errorf("%s: DonorStillValid = %v, %v; want %v", name, got, err, want)
+		}
+	}
+	check("valid", donor, ufID, "F", true)
+	check("other fingerprint", donor, ufID, "G", false)
+	check("other user file", donor, uuid.NewString(), "F", false)
+	set(donor, "processing", "")
+	check("re-ingesting", donor, ufID, "F", false)
+	set(donor, "completed", "G")
+	check("re-stamped differently", donor, ufID, "F", false)
+}
+
+func TestLibraryLink(t *testing.T) {
+	pool := openMainPool(t)
+	ctx := context.Background()
+	store := files.NewStore(pool)
+	userID, ufID, kbs := seedLibraryKBs(t, pool, 1)
+	lib := seedCopy(t, store, kbs[0], userID, ufID)
+	uf, owner, err := store.LibraryLink(ctx, lib)
+	if err != nil || uf != ufID || owner != userID {
+		t.Fatalf("library copy: LibraryLink = %q, %q, %v; want %q, %q", uf, owner, err, ufID, userID)
+	}
+	plain, err := store.CreateFile(ctx, files.CreateFileData{
+		KbID: kbs[0], Name: "b.txt", Type: "text/plain", Size: 1, Origin: "upload",
+		StoragePath: "kb/b.txt", UploadedBy: userID,
+	})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM files WHERE id = $1::uuid`, plain.ID) }) //nolint:errcheck
+	if uf, owner, err := store.LibraryLink(ctx, plain.ID); err != nil || uf != "" || owner != "" {
+		t.Fatalf("non-library file: LibraryLink = %q, %q, %v; want empty", uf, owner, err)
+	}
+	if _, _, err := store.LibraryLink(ctx, uuid.NewString()); err == nil {
+		t.Fatal("missing row: want an error")
+	}
+}
+
 func TestMarkCopied(t *testing.T) {
 	pool := openMainPool(t)
 	ctx := context.Background()

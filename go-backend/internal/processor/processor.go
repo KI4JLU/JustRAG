@@ -572,6 +572,21 @@ func spreadsheetStageFlags(isSpreadsheet, enrich, kg, hype, raptor bool) (enrich
 	return enrich, kg, hype, raptor
 }
 
+// ingestFlatTail reports whether an ingest takes the default flat path: the
+// parent-child and late-chunking paths return before the post-embed tail
+// (KG/HyPE/RAPTOR), so none of those stages run under either.
+func ingestFlatTail(ctx context.Context, reader SiteConfigReader) bool {
+	return !chat.ParentChildEnabled(ctx, reader) && !resolveLateChunkingEnabled(ctx, reader)
+}
+
+// ingestRunsKG reports whether an ingest of a (non-spreadsheet) file runs KG
+// extraction: kg_extraction_enabled on the flat path only. processFile's
+// stage plan and copy mode's KG rebuild (IngestRunsKG) both read it, so a
+// copy never builds a graph the ingest would not have built.
+func ingestRunsKG(ctx context.Context, reader SiteConfigReader) bool {
+	return ingestFlatTail(ctx, reader) && resolveKGExtractionEnabled(ctx, reader)
+}
+
 // resolveLateChunkingEnabled gates Jina-style late chunking at ingest:
 // the whole document's chunks are embedded in one call with
 // `late_chunking: true` so each chunk vector carries cross-chunk
@@ -779,9 +794,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 	// n/x never reaches x/x; spreadsheets exclude them unconditionally.
 	// Cleared on every exit path via the defer below so a file is never
 	// pinned to a stage (and the mindmap spinner clears).
-	parentChild := chat.ParentChildEnabled(ctx, p.siteConfigReader)
-	lateChunking := resolveLateChunkingEnabled(ctx, p.siteConfigReader)
-	flatTail := !parentChild && !lateChunking
+	flatTail := ingestFlatTail(ctx, p.siteConfigReader)
 	// enrichOn/kgOn/hypeOn/raptorOn are computed once here and reused
 	// verbatim at every later real-run gate (enrichmentEnabled below, and
 	// the KG/HyPE/RAPTOR checks post-embed) — spreadsheetStageFlags is the
@@ -790,7 +803,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 	// disagree.
 	enrichOn, kgOn, hypeOn, raptorOn := spreadsheetStageFlags(isSpreadsheet,
 		resolveEnrichmentEnabled(ctx, p.siteConfigReader),
-		flatTail && resolveKGExtractionEnabled(ctx, p.siteConfigReader),
+		ingestRunsKG(ctx, p.siteConfigReader),
 		flatTail && resolveHyPEEnabled(ctx, p.siteConfigReader),
 		flatTail && chat.RaptorEnabled(ctx, p.siteConfigReader),
 	)
@@ -1498,6 +1511,12 @@ func (p *Processor) parseDocument(ctx context.Context, in ProcessFileInput, outc
 		if perr := p.parseCache.Put(ctx, cacheKey, result); perr != nil {
 			logctx.From(ctx).Warn("processor: parse cache write failed", "fileId", fileID, "error", perr)
 		}
+	}
+	// A degraded parse (the built-in parser answered after the preferred one
+	// failed) also must not be stamped with a fingerprint claiming the
+	// preferred parser — copy mode would propagate the weaker index.
+	if result != nil && result.Degraded {
+		markIngestDegraded(ctx)
 	}
 	return result, nil
 }

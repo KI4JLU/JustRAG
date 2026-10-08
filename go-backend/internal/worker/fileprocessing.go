@@ -11,7 +11,6 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/observability"
-	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/processor"
 	"github.com/justrag/go-backend/internal/storage"
 )
@@ -92,8 +91,48 @@ type FileProcessingDeps struct {
 	KBStore    KBChunkConfigStore
 	QueryCache QueryCacheInvalidator
 	Owners     OwnerLookup
-	Storage    storage.Storage
-	Copy       *CopyDeps
+	// Links, when set, resolves the library link (user file + owner) from
+	// the files row and supersedes the payload's UserFileID and Owners.
+	Links   LibraryLinkLookup
+	Storage storage.Storage
+	Copy    *CopyDeps
+}
+
+// LibraryLinkLookup reads a KB file's library link from its files row: the
+// user_file_id and the library file's owner, both "" for a non-library file.
+// *files.PGStore satisfies it.
+type LibraryLinkLookup interface {
+	LibraryLink(ctx context.Context, fileID string) (userFileID, ownerUserID string, err error)
+}
+
+// resolveLibraryLink sets payload.UserFileID and returns the owner. With
+// links, both come from the files row, not the payload: re-embeds and the
+// per-file retry endpoint enqueue payloads without UserFileID, and a library
+// copy must still re-stamp its fingerprint and use the parse/KG caches. A
+// failed lookup proceeds as a non-library file. Without links the payload's
+// UserFileID is used and only the owner is read (owners may be nil); a failed
+// owner lookup only costs the parse cache.
+func resolveLibraryLink(ctx context.Context, links LibraryLinkLookup, owners OwnerLookup, payload *jobs.FileProcessingPayload) string {
+	if links != nil {
+		uf, owner, err := links.LibraryLink(ctx, payload.FileID)
+		if err != nil {
+			slog.Warn("library link lookup failed; processing as a non-library file",
+				"fileId", payload.FileID, "error", err)
+			uf, owner = "", ""
+		}
+		payload.UserFileID = uf
+		return owner
+	}
+	if payload.UserFileID == "" || owners == nil {
+		return ""
+	}
+	o, err := owners.UserFileOwner(ctx, payload.UserFileID)
+	if err != nil {
+		slog.Warn("parse cache disabled: owner lookup failed",
+			"fileId", payload.FileID, "userFileId", payload.UserFileID, "error", err)
+		return ""
+	}
+	return o
 }
 
 // NewFileProcessingHandlerWithDeps is the full constructor: on top of the
@@ -122,26 +161,17 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			}
 		}
 
-		// Library-backed payloads carry UserFileID; the owner is read from the
-		// database rather than trusted from the payload. A failed lookup only
-		// costs the parse cache.
-		ownerID := ""
-		if payload.UserFileID != "" && owners != nil {
-			o, oerr := owners.UserFileOwner(ctx, payload.UserFileID)
-			if oerr != nil {
-				slog.Warn("parse cache disabled: owner lookup failed",
-					"fileId", payload.FileID, "userFileId", payload.UserFileID, "error", oerr)
-			} else {
-				ownerID = o
-			}
-		}
+		ownerID := resolveLibraryLink(ctx, deps.Links, owners, &payload)
+		reembed := task.Type() == jobs.TypeReEmbedding
 
 		// Copy mode (P2-R6): a library file whose index another KB copy
 		// already built under the same fingerprint is copied server-side
 		// instead of re-ingested. Decided here, at task time, before the
 		// blob is downloaded. Any miss or failure falls through to ingest.
-		if deps.Copy != nil && payload.UserFileID != "" && payload.KbID != "" &&
-			!(&parser.SpreadsheetParser{}).CanParse(payload.MimeType, payload.OriginalName) {
+		// Re-embeds always ingest; spreadsheets, images and audio are never
+		// copied (processor.CopyEligible).
+		if deps.Copy != nil && !reembed && payload.UserFileID != "" && payload.KbID != "" &&
+			processor.CopyEligible(payload.MimeType, payload.OriginalName) {
 			copied, cerr := deps.Copy.tryCopy(ctx, payload, chunkSize, chunkOverlap, ownerID)
 			if cerr != nil {
 				slog.Error("file processing failed", "fileId", payload.FileID, "mode", "copy", "error", cerr)
@@ -197,7 +227,8 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			return err
 		}
 
-		if payload.UserFileID != "" {
+		// A re-embed is not an add: only add tasks feed the add-mode metric.
+		if payload.UserFileID != "" && !reembed {
 			if outcome.ParseCacheHit {
 				observability.RecordUserFileAdd("ingest_cached_parse")
 			} else {

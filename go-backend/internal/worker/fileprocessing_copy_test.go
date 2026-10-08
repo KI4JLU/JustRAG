@@ -39,7 +39,7 @@ func (f *fakeCopyProc) CachedParseText(_ context.Context, kbID, owner, ufID, mim
 	f.cacheArgs = [5]string{kbID, owner, ufID, mime, name}
 	return f.cached, f.cachedOK
 }
-func (f *fakeCopyProc) KGExtractionEnabled(context.Context, string) bool { return f.kgOn }
+func (f *fakeCopyProc) IngestRunsKG(context.Context, string) bool { return f.kgOn }
 func (f *fakeCopyProc) RebuildKGForFile(_ context.Context, kbID, fileID, fileName, ufID, body string) error {
 	f.kgCalls++
 	f.kgBody = body
@@ -51,18 +51,22 @@ type findCall struct{ userFileID, fp, exclude string }
 
 type fakeCopyStore struct {
 	// donors is consumed one per FindCopyDonor call; the last entry repeats.
-	donors    []string
-	donorErr  error
-	finds     []findCall
-	statuses  []string
-	markedFP  string
-	marks     int
-	markErr   error
-	origin    string
-	vis       string
-	cleans    int
-	flags     int
-	callOrder []string
+	donors   []string
+	donorErr error
+	finds    []findCall
+	// validChecks records DonorStillValid calls (exclude = the donor id).
+	validChecks  []findCall
+	donorInvalid bool
+	validErr     error
+	statuses     []string
+	markedFP     string
+	marks        int
+	markErr      error
+	origin       string
+	vis          string
+	cleans       int
+	flags        int
+	callOrder    []string
 }
 
 func (f *fakeCopyStore) FindCopyDonor(_ context.Context, userFileID, fp, exclude string) (string, error) {
@@ -79,6 +83,11 @@ func (f *fakeCopyStore) FindCopyDonor(_ context.Context, userFileID, fp, exclude
 		f.donors = f.donors[1:]
 	}
 	return d, nil
+}
+func (f *fakeCopyStore) DonorStillValid(_ context.Context, donor, userFileID, fp string) (bool, error) {
+	f.validChecks = append(f.validChecks, findCall{userFileID, fp, donor})
+	f.callOrder = append(f.callOrder, "valid")
+	return !f.donorInvalid, f.validErr
 }
 func (f *fakeCopyStore) MarkCopied(_ context.Context, _, fp string) error {
 	f.marks++
@@ -269,6 +278,52 @@ func TestCopyMode_KGOffSkipsRebuildAndBodyReads(t *testing.T) {
 	}
 }
 
+// realKGGate answers IngestRunsKG through a real *processor.Processor, so the
+// copy gate is tested against the same predicate the ingest path uses.
+type realKGGate struct {
+	*fakeCopyProc
+	p *processor.Processor
+}
+
+func (g realKGGate) IngestRunsKG(ctx context.Context, kbID string) bool {
+	return g.p.IngestRunsKG(ctx, kbID)
+}
+
+// Parent-child and late-chunking ingests build no KG, so their copies must
+// not either — even with kg_extraction_enabled on.
+func TestCopyMode_NoKGRebuildWhereIngestBuildsNone(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  mapReader
+		want int
+	}{
+		{"flat", mapReader{"kg_extraction_enabled": "true"}, 1},
+		{"parent-child", mapReader{"kg_extraction_enabled": "true", "parent_child_enabled": "true"}, 0},
+		{"late chunking", mapReader{"kg_extraction_enabled": "true", "late_chunking_enabled": "true"}, 0},
+	} {
+		r := newCopyRig()
+		p := &processor.Processor{}
+		p.SetSiteConfigReader(tc.cfg)
+		raw, _ := json.Marshal(libPayload())
+		h := NewFileProcessingHandlerWithDeps(FileProcessingDeps{
+			Proc:   r.ing,
+			Owners: &fakeOwners{owner: "owner-9"},
+			Copy: &CopyDeps{
+				Proc: realKGGate{fakeCopyProc: r.proc, p: p}, Store: r.store, Index: r.idx, Reader: nilReader{},
+			},
+		})
+		if err := h(context.Background(), asynq.NewTask(jobs.TypeFileProcessing, raw)); err != nil {
+			t.Fatal(err)
+		}
+		if r.store.marks != 1 {
+			t.Fatalf("%s: marks=%d, want the copy made", tc.name, r.store.marks)
+		}
+		if r.proc.kgCalls != tc.want {
+			t.Errorf("%s: RebuildKGForFile calls = %d, want %d", tc.name, r.proc.kgCalls, tc.want)
+		}
+	}
+}
+
 func TestCopyMode_KGErrorIsBestEffort(t *testing.T) {
 	r := newCopyRig()
 	r.proc.kgErr = errors.New("llm down")
@@ -289,7 +344,7 @@ func TestCopyMode_MarkCopiedBeforeKG(t *testing.T) {
 	// "any file still ingesting?" recompute counts this file as active.
 	got := r.store.callOrder
 	if len(got) < 3 || got[len(got)-1] != "mark" {
-		t.Errorf("call order = %v, want ... copy, find (recheck), mark", got)
+		t.Errorf("call order = %v, want ... copy, valid (recheck), mark", got)
 	}
 }
 
@@ -369,15 +424,55 @@ func TestCopyMode_CopyErrorCleansTargetThenIngests(t *testing.T) {
 }
 
 func TestCopyMode_DonorInvalidatedDuringCopyCleansThenIngests(t *testing.T) {
+	for name, tweak := range map[string]func(*fakeCopyStore){
+		// The donor started re-ingesting while the copy ran.
+		"donor invalidated": func(s *fakeCopyStore) { s.donorInvalid = true },
+		"recheck failed":    func(s *fakeCopyStore) { s.validErr = errors.New("db down") },
+	} {
+		r := newCopyRig()
+		tweak(r.store)
+		if err := r.run(t, libPayload()); err != nil {
+			t.Fatal(err)
+		}
+		if r.idx.copies != 1 || len(r.idx.cleanup) != 3 || !r.ingested || r.store.marks != 0 {
+			t.Errorf("%s: copies=%d cleanup=%v ingested=%v marks=%d", name, r.idx.copies, r.idx.cleanup, r.ingested, r.store.marks)
+		}
+	}
+}
+
+// The post-copy recheck targets the donor actually copied from: a newer
+// donor appearing meanwhile (FindCopyDonor would now return it) must not
+// discard a valid copy.
+func TestCopyMode_RecheckTargetsTheCopiedDonor(t *testing.T) {
 	r := newCopyRig()
-	// First lookup finds the donor, the post-copy recheck no longer does
-	// (the donor started re-ingesting while the copy ran).
-	r.store.donors = []string{"donor-1", ""}
+	r.store.donors = []string{"donor-1", "donor-newer"}
 	if err := r.run(t, libPayload()); err != nil {
 		t.Fatal(err)
 	}
-	if r.idx.copies != 1 || len(r.idx.cleanup) != 3 || !r.ingested || r.store.marks != 0 {
-		t.Errorf("copies=%d cleanup=%v ingested=%v marks=%d", r.idx.copies, r.idx.cleanup, r.ingested, r.store.marks)
+	if r.ingested || r.store.marks != 1 || len(r.idx.cleanup) != 0 {
+		t.Fatalf("ingested=%v marks=%d cleanup=%v; want the copy kept", r.ingested, r.store.marks, r.idx.cleanup)
+	}
+	if len(r.store.validChecks) != 1 || r.store.validChecks[0] != (findCall{"uf-1", "FP", "donor-1"}) {
+		t.Errorf("DonorStillValid calls = %+v, want one for donor-1", r.store.validChecks)
+	}
+	if len(r.store.finds) != 1 {
+		t.Errorf("FindCopyDonor calls = %d, want 1 (no re-lookup)", len(r.store.finds))
+	}
+}
+
+// Images and audio are never copied: their index depends on the vision / STT
+// provider, which the fingerprint does not cover (P2-R2's exclusion set).
+func TestCopyMode_ImageAndAudioNeverLookForDonor(t *testing.T) {
+	for _, f := range [][2]string{{"pic.png", "image/png"}, {"talk.mp3", "audio/mpeg"}} {
+		r := newCopyRig()
+		pl := libPayload()
+		pl.OriginalName, pl.MimeType = f[0], f[1]
+		if err := r.run(t, pl); err != nil {
+			t.Fatal(err)
+		}
+		if r.proc.fpCalls != 0 || len(r.store.finds) != 0 || r.idx.copies != 0 || !r.ingested {
+			t.Errorf("%s: fpCalls=%d finds=%d copies=%d ingested=%v", f[0], r.proc.fpCalls, len(r.store.finds), r.idx.copies, r.ingested)
+		}
 	}
 }
 

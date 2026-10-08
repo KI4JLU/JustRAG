@@ -72,3 +72,33 @@ func TestProcessFile_DegradedParseNotCached(t *testing.T) {
 		})
 	}
 }
+
+// A degraded parse completes the ingest but must not stamp an index
+// fingerprint: the fingerprint claims the preferred parser, and copy mode
+// would otherwise propagate the fallback's weaker index to later KB copies.
+func TestProcessFile_DegradedParseWritesNoFingerprint(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		primary *stubFront
+		want    bool
+	}{
+		{"primary fails", &stubFront{err: errors.New("sidecar timeout")}, false},
+		{"primary ok", &stubFront{txt: "   "}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &mockStore{}
+			fb := &docling.FallbackParser{Primary: tc.primary, Fallback: &parser.TextParser{}}
+			p := NewProcessor(parser.DefaultFactoryWith(nil, fb), ai.NewConfigResolver(fpBase()), nil, st)
+			p.SetSiteConfigReader(&fakeSiteConfigReader{values: map[string]*string{}})
+			in := fpInput("uf-1")
+			// Whitespace only: completes with no chunks, no embedder needed.
+			in.FilePath = writeTempText(t, "   ")
+			if err := p.ProcessFile(context.Background(), in); err != nil {
+				t.Fatalf("ProcessFile: %v", err)
+			}
+			if got := st.fingerprints["f1"] != ""; got != tc.want {
+				t.Errorf("fingerprint written = %v, want %v (statuses %v)", got, tc.want, st.statuses)
+			}
+		})
+	}
+}

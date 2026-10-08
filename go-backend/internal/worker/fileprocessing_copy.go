@@ -16,7 +16,7 @@ type copyProcessor interface {
 	IndexFingerprint(ctx context.Context, kbID string, chunkSize, chunkOverlap int) (string, error)
 	TextSearchConfig(ctx context.Context, kbID string) string
 	CachedParseText(ctx context.Context, kbID, ownerUserID, userFileID, mimeType, fileName string) (string, bool)
-	KGExtractionEnabled(ctx context.Context, kbID string) bool
+	IngestRunsKG(ctx context.Context, kbID string) bool
 	RebuildKGForFile(ctx context.Context, kbID, fileID, fileName, userFileID, documentBody string) error
 }
 
@@ -24,6 +24,7 @@ type copyProcessor interface {
 // it.
 type copyStore interface {
 	FindCopyDonor(ctx context.Context, userFileID, fp, excludeFileID string) (string, error)
+	DonorStillValid(ctx context.Context, donorID, userFileID, fp string) (bool, error)
 	MarkCopied(ctx context.Context, fileID, fp string) error
 	UpdateFileStatus(ctx context.Context, fileID, status string) error
 	GetFileScreeningInfo(ctx context.Context, fileID string) (origin, kbVisibility string, err error)
@@ -89,11 +90,12 @@ func (c *CopyDeps) tryCopy(ctx context.Context, pl jobs.FileProcessingPayload, c
 
 	// The donor must still be a donor now that the copy committed: had it
 	// started re-ingesting (status flipped, fingerprint cleared) while the
-	// copy ran, the copy may hold a half-deleted index. Recheck and discard.
-	again, err := c.Store.FindCopyDonor(ctx, ufID, fp, fileID)
-	if err != nil || again != donor {
+	// copy ran, the copy may hold a half-deleted index. Recheck that SAME
+	// donor (a newer donor appearing meanwhile is harmless) and discard.
+	valid, err := c.Store.DonorStillValid(ctx, donor, ufID, fp)
+	if err != nil || !valid {
 		log.Warn("copy mode discarded: donor changed during the copy; falling back to ingest",
-			"recheckDonor", again, "error", err)
+			"error", err)
 		c.cleanTarget(ctx, fileID)
 		return false, nil
 	}
@@ -139,8 +141,10 @@ func (c *CopyDeps) tryCopy(ctx context.Context, pl jobs.FileProcessingPayload, c
 	// KG is replayed through the extraction cache, after the status is
 	// terminal — like the ingest path, a KG failure never reverts it, and
 	// RebuildKGForFile's "is anything still ingesting?" mindmap recompute
-	// must not count this file. Best-effort.
-	if c.Proc.KGExtractionEnabled(ctx, kbID) {
+	// must not count this file. Best-effort. Gated on IngestRunsKG, not the
+	// bare kg flag: parent-child / late-chunking ingests build no KG, so
+	// neither does their copy.
+	if c.Proc.IngestRunsKG(ctx, kbID) {
 		body, ok := c.Proc.CachedParseText(ctx, kbID, ownerID, ufID, pl.MimeType, pl.OriginalName)
 		if !ok {
 			t, lerr := leafText()

@@ -251,12 +251,13 @@ func RunWorker(cfg *config.Config) error {
 	// Copy mode (user file library phase 2): a library file whose index
 	// another KB copy already built under the same fingerprint is copied
 	// server-side instead of re-ingested. Only TypeFileProcessing gets it;
-	// re-embeds always run the full ingest.
+	// re-embeds always run the full ingest. Both read the library link from
+	// the files row (Links), not the payload.
 	fileHandler := worker.NewFileProcessingHandlerWithDeps(worker.FileProcessingDeps{
 		Proc:       proc,
 		KBStore:    kbStore,
 		QueryCache: searchService,
-		Owners:     filesStore,
+		Links:      filesStore,
 		Storage:    stor,
 		Copy: &worker.CopyDeps{
 			Proc:   proc,
@@ -315,6 +316,13 @@ func RunWorker(cfg *config.Config) error {
 		Redis:   rdb.Client,
 	})))
 
+	reembedFileHandler := worker.NewFileProcessingHandlerWithDeps(worker.FileProcessingDeps{
+		Proc:       proc,
+		KBStore:    kbStore,
+		QueryCache: searchService,
+		Links:      filesStore,
+		Storage:    stor,
+	})
 	// Re-embedding: delete old chunks first, then re-process the file.
 	// Wrapped in MarkErrorOnExhaustion like file-processing so a failed
 	// retry surfaces as status='error' with a reason instead of sitting in
@@ -357,7 +365,11 @@ func RunWorker(cfg *config.Config) error {
 		// The "file_added" reason on success is shared with new ingestion;
 		// the explicit chunk-deletion above also justifies an immediate
 		// invalidation, but this is captured by the post-ProcessFile hook.
-		return worker.NewFileProcessingHandler(proc, kbStore, searchService, stor)(ctx, task)
+		// Re-embed and retry payloads carry no UserFileID: Links resolves a
+		// library copy's link from the files row, so the ingest re-stamps
+		// its fingerprint and uses the parse/KG caches. No copy mode here
+		// (P2-R6: a re-embed always ingests).
+		return reembedFileHandler(ctx, task)
 	})
 	mux.HandleFunc(jobs.TypeReEmbedding, worker.Instrument(worker.MarkErrorOnExhaustion(reembedHandler, filesStore)))
 	mux.HandleFunc(jobs.TypeKBScreening, worker.Instrument(worker.NewKBScreeningHandler(worker.KBScreeningDeps{

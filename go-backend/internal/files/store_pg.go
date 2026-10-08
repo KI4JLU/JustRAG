@@ -377,6 +377,45 @@ func (s *PGStore) FindCopyDonor(ctx context.Context, userFileID, fp, excludeFile
 	return id, nil
 }
 
+// DonorStillValid reports whether donorID is still a valid copy donor for
+// (userFileID, fp): 'completed' with that fingerprint. Copy mode re-checks the
+// SPECIFIC donor it copied from after the copy committed — a newer donor
+// appearing meanwhile does not invalidate the copy.
+func (s *PGStore) DonorStillValid(ctx context.Context, donorID, userFileID, fp string) (bool, error) {
+	const sql = `
+		SELECT EXISTS (
+			SELECT 1 FROM files
+			 WHERE id = $1::uuid
+			   AND user_file_id = $2::uuid
+			   AND status = 'completed'
+			   AND index_fingerprint = $3)`
+	if donorID == "" || userFileID == "" || fp == "" {
+		return false, nil
+	}
+	var ok bool
+	if err := s.pool.QueryRow(ctx, sql, donorID, userFileID, fp).Scan(&ok); err != nil {
+		return false, fmt.Errorf("DonorStillValid: %w", err)
+	}
+	return ok, nil
+}
+
+// LibraryLink returns the library link of a KB file: its user_file_id and the
+// library file's owner, both "" for a non-library file. The worker reads it
+// from the row instead of trusting the task payload, so re-embeds and retries
+// (whose payloads carry no UserFileID) keep the fingerprint and caches. A
+// missing files row is an error.
+func (s *PGStore) LibraryLink(ctx context.Context, fileID string) (userFileID, ownerUserID string, err error) {
+	const sql = `
+		SELECT COALESCE(f.user_file_id::text, ''), COALESCE(uf.owner_user_id::text, '')
+		  FROM files f
+		  LEFT JOIN user_files uf ON uf.id = f.user_file_id
+		 WHERE f.id = $1::uuid`
+	if err := s.pool.QueryRow(ctx, sql, fileID).Scan(&userFileID, &ownerUserID); err != nil {
+		return "", "", fmt.Errorf("LibraryLink: %w", err)
+	}
+	return userFileID, ownerUserID, nil
+}
+
 // MarkCopied sets status='completed', progress=100, index_fingerprint=fp,
 // clears error/stage columns — the terminal write of a successful copy.
 func (s *PGStore) MarkCopied(ctx context.Context, fileID, fp string) error {
