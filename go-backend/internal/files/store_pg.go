@@ -157,16 +157,16 @@ func (s *PGStore) CreateFile(ctx context.Context, data CreateFileData) (*FileRec
 	// created_at) falls back to the ingest timestamp at every read site.
 	if data.RSSFeedID != "" {
 		sqlStr = `
-			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, rss_feed_id, published_at)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)
+			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, rss_feed_id, published_at, uploaded_by)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, NULLIF($9, '')::uuid)
 			RETURNING id, kb_id, name, type, size, status, progress, origin, storage_path, created_at`
-		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.RSSFeedID, data.PublishedAt}
+		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.RSSFeedID, data.PublishedAt, data.UploadedBy}
 	} else {
 		sqlStr = `
-			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, published_at)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, published_at, uploaded_by)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, NULLIF($8, '')::uuid)
 			RETURNING id, kb_id, name, type, size, status, progress, origin, storage_path, created_at`
-		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.PublishedAt}
+		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.PublishedAt, data.UploadedBy}
 	}
 
 	rows, err := pgxutil.QueryRows[createFileDBRow](ctx, s.pool, sqlStr, args...)

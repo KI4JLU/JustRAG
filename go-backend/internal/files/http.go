@@ -53,6 +53,11 @@ type CreateFileData struct {
 	// it — the RSS poller, from the feed item's PublishedParsed (W3-R9);
 	// everything else leaves it nil and the column stays NULL.
 	PublishedAt *time.Time
+	// UploadedBy is the users.id of the person who added the file (user file
+	// library, phase 0, migration 0075). Set by every user-initiated ingest
+	// path; empty for source-owned origins (rss, confluence, git, research),
+	// which the store writes as NULL.
+	UploadedBy string
 }
 
 // FileRecord is the full file row returned after creation.
