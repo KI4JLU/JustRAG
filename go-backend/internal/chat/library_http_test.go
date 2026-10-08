@@ -270,6 +270,17 @@ func (fx *libChatFixture) send(t *testing.T, body string, stream bool) *httptest
 
 // sseFrames splits an SSE body into decoded frames; "[DONE]" is kept as a
 // nil map so its position can be asserted.
+// openingFrame is the first frame carrying a chatId (after the prepare and
+// per-file parse progress frames).
+func openingFrame(frames []map[string]any) map[string]any {
+	for _, f := range frames {
+		if _, ok := f["chatId"]; ok {
+			return f
+		}
+	}
+	return map[string]any{}
+}
+
 func sseFrames(t *testing.T, body string) []map[string]any {
 	t.Helper()
 	var out []map[string]any
@@ -314,7 +325,7 @@ func TestSendLibraryMessage_NewChatStreamsKBFramesAndPersistsRefs(t *testing.T) 
 	if len(frames[0]) != 1 || frames[0]["stage"] != "library_prepare" {
 		t.Fatalf("first frame = %v, want {stage: library_prepare}", frames[0])
 	}
-	open := frames[1]
+	open := openingFrame(frames)
 	if open["chatId"] != libNewChatID || open["userMessageId"] != "user-msg-id" {
 		t.Fatalf("opening frame = %v", open)
 	}
@@ -401,8 +412,8 @@ func TestSendLibraryMessage_ExistingChatUsesStoredRefs(t *testing.T) {
 	if _, ok := fx.store.replaced[libChatID]; ok {
 		t.Error("stored refs must not be replaced when the body carries no fileIds")
 	}
-	if frames := sseFrames(t, w.Body.String()); frames[1]["chatId"] != libChatID {
-		t.Errorf("chatId = %v", frames[1]["chatId"])
+	if frames := sseFrames(t, w.Body.String()); openingFrame(frames)["chatId"] != libChatID {
+		t.Errorf("chatId = %v", openingFrame(frames)["chatId"])
 	}
 }
 
@@ -586,7 +597,9 @@ func TestSendLibraryMessage_PrepareFrameBeforeParse(t *testing.T) {
 		ctAtParse = w.Header().Get("Content-Type")
 	}
 	fx.h.SendLibraryMessage(w, r)
-	if bodyAtParse != "data: {\"stage\":\"library_prepare\"}\n\n" {
+	want := "data: {\"stage\":\"library_prepare\"}\n\n" +
+		"data: {\"file\":\"alpha.txt\",\"index\":0,\"stage\":\"library_parse\",\"total\":1}\n\n"
+	if bodyAtParse != want {
 		t.Fatalf("body when parsing started = %q", bodyAtParse)
 	}
 	if ctAtParse != "text/event-stream" {
@@ -630,9 +643,10 @@ func TestSendLibraryMessage_StreamErrorsAfterPrepareFrame(t *testing.T) {
 				t.Fatalf("status %d (stream already open): %s", w.Code, w.Body.String())
 			}
 			frames := sseFrames(t, w.Body.String())
-			if len(frames) != 3 || frames[0]["stage"] != "library_prepare" ||
-				frames[1]["error"] != tc.want || frames[2] != nil {
-				t.Fatalf("frames = %v, want [prepare, {error: %q}, DONE]", frames, tc.want)
+			if len(frames) != 4 || frames[0]["stage"] != "library_prepare" ||
+				frames[1]["stage"] != "library_parse" ||
+				frames[2]["error"] != tc.want || frames[3] != nil {
+				t.Fatalf("frames = %v, want [prepare, parse, {error: %q}, DONE]", frames, tc.want)
 			}
 			if len(fx.store.chats) != 0 || len(fx.usage.snapshot()) != 0 {
 				t.Errorf("chat or usage left on a rejected turn: %v", fx.store.chats)
@@ -928,7 +942,7 @@ func TestSendLibraryMessage_SourcesSnippetCappedValidationFull(t *testing.T) {
 
 			var wire []any
 			if stream {
-				wire, _ = sseFrames(t, w.Body.String())[1]["sources"].([]any)
+				wire, _ = openingFrame(sseFrames(t, w.Body.String()))["sources"].([]any)
 			} else {
 				var resp map[string]any
 				_ = json.Unmarshal(w.Body.Bytes(), &resp)
@@ -1066,5 +1080,39 @@ func TestChatResponseParams_LowConfidenceNeverForLibrary(t *testing.T) {
 	}
 	if (chatResponseParams{library: true}).lowConfidence(1) {
 		t.Error("a library turn must never count as low confidence")
+	}
+}
+
+// Stream mode: library_prepare, then one flushed library_parse per file in
+// selection order, then the opening frame.
+func TestSendLibraryMessage_StreamParseProgressFrames(t *testing.T) {
+	fx := newLibChatFixture(t, nil)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`","`+libFileB+`"]}`, true)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	frames := sseFrames(t, w.Body.String())
+	if len(frames) < 4 || frames[0]["stage"] != "library_prepare" {
+		t.Fatalf("frames = %v", frames)
+	}
+	for i, name := range []string{"alpha.txt", "beta.txt"} {
+		f := frames[1+i]
+		if f["stage"] != "library_parse" || f["file"] != name || f["index"] != float64(i) || f["total"] != float64(2) {
+			t.Errorf("frame %d = %v", 1+i, f)
+		}
+	}
+	if frames[3]["chatId"] != libNewChatID {
+		t.Errorf("frame 3 = %v, want the opening frame", frames[3])
+	}
+}
+
+func TestSendLibraryMessage_NonStreamHasNoProgressFrames(t *testing.T) {
+	fx := newLibChatFixture(t, nil)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, false)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "library_parse") || strings.Contains(w.Body.String(), "library_prepare") {
+		t.Fatalf("progress frame in non-stream body: %s", w.Body.String())
 	}
 }

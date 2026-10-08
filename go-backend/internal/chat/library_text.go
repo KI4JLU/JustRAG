@@ -35,6 +35,9 @@ const (
 	// process (one LibraryTextSource is wired per process): OCR on a web pod
 	// is CPU-heavy, and cache hits never take a slot.
 	libraryParseConcurrency = 3
+	// libraryCacheWriteTimeout bounds the chat-text cache write on its own,
+	// detached budget so a parse that used its whole timeout still caches.
+	libraryCacheWriteTimeout = 10 * time.Second
 )
 
 // LibraryTextSource resolves a library file to parsed text for library chat.
@@ -119,7 +122,11 @@ func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*
 	}
 	if !res.Degraded {
 		if raw, merr := json.Marshal(res); merr == nil {
-			if perr := s.stor.StoreFile(pctx, key, raw, "application/json"); perr != nil {
+			// Own budget: the parse may have used nearly all of pctx.
+			wctx, wcancel := context.WithTimeout(context.WithoutCancel(ctx), libraryCacheWriteTimeout)
+			perr := s.stor.StoreFile(wctx, key, raw, "application/json")
+			wcancel()
+			if perr != nil {
 				logctx.From(ctx).Warn("library text: cache write failed", "user_file_id", uf.ID, "error", perr)
 			}
 		}

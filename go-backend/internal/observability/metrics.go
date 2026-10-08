@@ -2755,6 +2755,31 @@ func SetUserFileTotals(files, bytes float64) {
 	userFilesBytesGauge.Set(bytes)
 }
 
+var libraryChatTurnTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "rag_library_chat_turn_total",
+		Help: "Library chat context decisions by mode: fulltext, map_reduce " +
+			"or too_large. Any other mode normalises to fulltext.",
+		ConstLabels: commonLabels,
+	},
+	[]string{"mode"},
+)
+
+// RecordLibraryChatTurn increments the library-chat mode counter.
+func RecordLibraryChatTurn(mode string) {
+	switch mode {
+	case "fulltext", "map_reduce", "too_large":
+	default:
+		mode = "fulltext"
+	}
+	libraryChatTurnTotal.WithLabelValues(mode).Inc()
+}
+
+// LibraryChatTurnTotalForTest exposes the library-chat turn counter.
+func LibraryChatTurnTotalForTest() *prometheus.CounterVec {
+	return libraryChatTurnTotal
+}
+
 // UserFileAddTotalForTest exposes the add-mode counter to test packages.
 func UserFileAddTotalForTest() *prometheus.CounterVec {
 	return userFileAddTotal
