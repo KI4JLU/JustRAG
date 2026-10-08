@@ -106,3 +106,23 @@ func TestDecodeChoice(t *testing.T) {
 		t.Fatal("missing actionId decoded")
 	}
 }
+
+func TestServerArgsOverrideWhitelistedClientArgs(t *testing.T) {
+	var got map[string]any
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
+	acts := []Action{{ID: "conf", Tool: "confluence_import", Args: map[string]any{"spaceKey": "SERVER"}}}
+	_, err := ExecuteAction(ctx, acts, ActionChoice{ActionID: "conf", Args: map[string]any{"spaceKey": "CLIENT", "rootPageId": "7"}},
+		map[string]DispatchFunc{"confluence_import": capture(&got)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["spaceKey"] != "SERVER" || got["rootPageId"] != "7" {
+		t.Fatalf("args = %v", got)
+	}
+}
+
+func TestDecodeChoiceRejectsNonMapArgs(t *testing.T) {
+	if _, ok := DecodeChoice(map[string]any{"actionId": "web", "args": "x"}); ok {
+		t.Fatal("non-map args decoded")
+	}
+}

@@ -41,7 +41,13 @@ func DecodeChoice(payload any) (ActionChoice, bool) {
 	if id == "" {
 		return ActionChoice{}, false
 	}
-	args, _ := m["args"].(map[string]any)
+	var args map[string]any
+	if raw, present := m["args"]; present {
+		var ok bool
+		if args, ok = raw.(map[string]any); !ok {
+			return ActionChoice{}, false
+		}
+	}
 	return ActionChoice{ActionID: id, Args: args}, true
 }
 
@@ -78,12 +84,7 @@ func ExecuteAction(ctx context.Context, offered []Action, choice ActionChoice, d
 	for k, v := range act.Args {
 		args[k] = v
 	}
-	args["kb_id"] = sc.KBID
-	if sc.ChatID != "" {
-		args["chat_id"] = sc.ChatID
-	} else {
-		delete(args, "chat_id")
-	}
+	injectScopeIDs(args, sc)
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return mcp.ToolResult{}, errors.New("tool failed")

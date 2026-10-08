@@ -168,15 +168,21 @@ func (t *dispatchTool) dispatchChecked(ctx context.Context, args map[string]any)
 	}
 	// Never trust ids from the model: a prompt-injected document could
 	// otherwise point a tool at another KB or chat.
+	injectScopeIDs(args, sc)
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return mcp.ToolResult{}, fmt.Errorf("adkbridge: marshal args for %q: %w", t.spec.Name, err)
+	}
+	return t.dispatch(ctx, sc.KBID, t.spec.Name, raw)
+}
+
+// injectScopeIDs overwrites kb_id and chat_id with the scope's values; ids
+// from the model or client are never trusted.
+func injectScopeIDs(args map[string]any, sc Scope) {
 	args["kb_id"] = sc.KBID
 	if sc.ChatID != "" {
 		args["chat_id"] = sc.ChatID
 	} else {
 		delete(args, "chat_id")
 	}
-	raw, err := json.Marshal(args)
-	if err != nil {
-		return mcp.ToolResult{}, fmt.Errorf("adkbridge: marshal args for %q: %w", t.spec.Name, err)
-	}
-	return t.dispatch(ctx, sc.KBID, t.spec.Name, raw)
 }
