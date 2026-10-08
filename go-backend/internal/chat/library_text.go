@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/justrag/go-backend/internal/libpaths"
 	"github.com/justrag/go-backend/internal/logctx"
@@ -22,15 +23,36 @@ import (
 // logged here, never carried in the error text.
 var ErrUnparseable = errors.New("library file cannot be parsed")
 
+// ErrLibraryParseTimeout means a server-side parse ran past
+// libraryParseTimeout. Like ErrUnparseable it is a user-facing verdict.
+var ErrLibraryParseTimeout = errors.New("library file parse timed out")
+
+const (
+	// libraryParseTimeout bounds one server-side parse (pdftotext, OCR
+	// fallback, …) of one library file on the request path.
+	libraryParseTimeout = 120 * time.Second
+	// libraryParseConcurrency caps concurrent server-side library parses per
+	// process (one LibraryTextSource is wired per process): OCR on a web pod
+	// is CPU-heavy, and cache hits never take a slot.
+	libraryParseConcurrency = 3
+)
+
 // LibraryTextSource resolves a library file to parsed text for library chat.
 type LibraryTextSource struct {
-	stor    storage.Storage
-	factory *parser.Factory
+	stor         storage.Storage
+	factory      *parser.Factory
+	sem          chan struct{}
+	parseTimeout time.Duration
 }
 
 // NewLibraryTextSource builds a source over the blob store and parser factory.
 func NewLibraryTextSource(stor storage.Storage, factory *parser.Factory) *LibraryTextSource {
-	return &LibraryTextSource{stor: stor, factory: factory}
+	return &LibraryTextSource{
+		stor:         stor,
+		factory:      factory,
+		sem:          make(chan struct{}, libraryParseConcurrency),
+		parseTimeout: libraryParseTimeout,
+	}
 }
 
 // Text returns the parsed text of uf (owner-scoping is the caller's job): the
@@ -38,6 +60,12 @@ func NewLibraryTextSource(stor storage.Storage, factory *parser.Factory) *Librar
 // selects the global AI provider), cached unless Degraded, and returned.
 // Two concurrent misses may both parse and both write identical content.
 // uf must already have been fetched owner-scoped by the caller.
+//
+// A parse waits for one of libraryParseConcurrency slots (the wait honours
+// ctx), then runs DETACHED from ctx under libraryParseTimeout: a client that
+// disconnects mid-parse no longer throws the work away, so a large scanned
+// PDF becomes usable from the cache on the next turn. A parse past the
+// timeout is ErrLibraryParseTimeout.
 func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*parser.ParseResult, error) {
 	if s == nil || s.stor == nil || s.factory == nil || uf == nil {
 		return nil, ErrUnparseable
@@ -59,15 +87,30 @@ func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*
 	if p == nil {
 		return nil, ErrUnparseable
 	}
-	res, err := s.parseBlob(ctx, p, uf)
+	if s.sem != nil {
+		select {
+		case s.sem <- struct{}{}:
+			defer func() { <-s.sem }()
+		case <-ctx.Done():
+			return nil, fmt.Errorf("library text %s: %w", uf.ID, ctx.Err())
+		}
+	}
+	timeout := s.parseTimeout
+	if timeout <= 0 {
+		timeout = libraryParseTimeout
+	}
+	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	res, err := s.parseBlob(pctx, p, uf)
 	if err != nil {
+		if errors.Is(pctx.Err(), context.DeadlineExceeded) {
+			logctx.From(ctx).Warn("library text: parse timed out", "user_file_id", uf.ID, "timeout", timeout)
+			return nil, ErrLibraryParseTimeout
+		}
 		var pe *parseFailure
-		if errors.As(err, &pe) && ctx.Err() == nil {
+		if errors.As(err, &pe) {
 			logctx.From(ctx).Warn("library text: parse failed", "user_file_id", uf.ID, "error", pe.err)
 			return nil, ErrUnparseable
-		}
-		if pe != nil {
-			err = pe.err
 		}
 		return nil, fmt.Errorf("library text %s: %w", uf.ID, err)
 	}
@@ -76,7 +119,7 @@ func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*
 	}
 	if !res.Degraded {
 		if raw, merr := json.Marshal(res); merr == nil {
-			if perr := s.stor.StoreFile(ctx, key, raw, "application/json"); perr != nil {
+			if perr := s.stor.StoreFile(pctx, key, raw, "application/json"); perr != nil {
 				logctx.From(ctx).Warn("library text: cache write failed", "user_file_id", uf.ID, "error", perr)
 			}
 		}

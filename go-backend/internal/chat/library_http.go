@@ -74,6 +74,12 @@ func (h *Handler) libraryChatWired() bool {
 // given (replacing its stored selection), else the stored selection. Every
 // rejection (404 / 400) happens before a chat is created, a selection is
 // replaced or a usage event is recorded.
+//
+// In stream mode the SSE stream opens (with a {"stage":"library_prepare"}
+// frame) right after the cheap owner/selection checks and BEFORE the files
+// are parsed, so a slow server-side parse cannot idle-time-out a proxy. Every
+// later rejection is then an SSE {"error": …} frame followed by [DONE] (the
+// KB path's post-SSE error shape) instead of a status code.
 func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := auth.UserFromContext(ctx)
@@ -105,7 +111,11 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	libFiles, ok := h.loadLibraryTexts(ctx, w, files)
+	reply := libraryReply{w: w}
+	if streamMode {
+		reply.openStream(ctx)
+	}
+	libFiles, ok := h.loadLibraryTexts(ctx, reply, files)
 	if !ok {
 		return
 	}
@@ -135,11 +145,11 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 		Emit:            collectEmit,
 	})
 	if err != nil {
-		writeLibraryContextError(ctx, w, err)
+		writeLibraryContextError(ctx, reply, err)
 		return
 	}
 
-	chatID, ok := h.commitLibraryChat(ctx, w, chat, user.ID, body, files)
+	chatID, ok := h.commitLibraryChat(ctx, reply, chat, user.ID, body, files)
 	if !ok {
 		return
 	}
@@ -159,7 +169,7 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 	}, turnAnchor{ParentMessageID: parentMsgID})
 	if err != nil {
 		logctx.From(ctx).Error("chat.library: save user message", "error", err, "chat_id", chatID)
-		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to save user message")
+		reply.fail(ctx, http.StatusInternalServerError, "failed to save user message")
 		return
 	}
 
@@ -274,19 +284,55 @@ func (h *Handler) resolveLibraryFiles(ctx context.Context, w http.ResponseWriter
 	return files, true
 }
 
-// loadLibraryTexts parses every selected file. A parser failure is a 400
-// naming the file (the cause is never echoed); anything else is a 500.
-func (h *Handler) loadLibraryTexts(ctx context.Context, w http.ResponseWriter, files []*userfiles.UserFile) ([]LibraryFile, bool) {
+// libraryReply writes a send-turn rejection: a plain JSON error while the
+// response is still unopened, or — once openStream has committed the SSE
+// stream — the KB path's post-SSE shape, an {"error": …} frame + [DONE].
+type libraryReply struct {
+	w         http.ResponseWriter
+	streaming bool
+}
+
+// openStream commits the SSE response and sends the library_prepare frame,
+// so the client sees a byte before the (possibly slow) server-side parse.
+func (lr *libraryReply) openStream(ctx context.Context) {
+	httputil.EnableSSE(lr.w)
+	lr.streaming = true
+	writeSSE(ctx, lr.w, map[string]any{"stage": "library_prepare"})
+}
+
+func (lr libraryReply) fail(ctx context.Context, status int, msg string) {
+	if lr.streaming {
+		writeSSE(ctx, lr.w, map[string]string{"error": msg})
+		writeSSEDone(ctx, lr.w)
+		return
+	}
+	httputil.WriteErrorCtx(ctx, lr.w, status, msg)
+}
+
+// loadLibraryTexts parses every selected file. A parser failure or parse
+// timeout is a 400 naming the file (the cause is never echoed); anything else
+// is a 500. Parses run detached (see LibraryTextSource.Text), so a file whose
+// parse finished is cached even if the client left; the loop itself stops at
+// the next file once the request is gone.
+func (h *Handler) loadLibraryTexts(ctx context.Context, reply libraryReply, files []*userfiles.UserFile) ([]LibraryFile, bool) {
 	out := make([]LibraryFile, 0, len(files))
 	for _, uf := range files {
-		parsed, err := h.libraryText.Text(ctx, uf)
-		if errors.Is(err, ErrUnparseable) {
-			httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "the file \""+uf.Name+"\" cannot be read as text")
+		if err := ctx.Err(); err != nil {
+			logctx.From(ctx).Info("chat.library: request ended while reading files", "error", err)
+			reply.fail(ctx, http.StatusInternalServerError, "failed to read library file")
 			return nil, false
 		}
-		if err != nil {
+		parsed, err := h.libraryText.Text(ctx, uf)
+		switch {
+		case errors.Is(err, ErrUnparseable):
+			reply.fail(ctx, http.StatusBadRequest, "the file \""+uf.Name+"\" cannot be read as text")
+			return nil, false
+		case errors.Is(err, ErrLibraryParseTimeout):
+			reply.fail(ctx, http.StatusBadRequest, "the file \""+uf.Name+"\" took too long to read")
+			return nil, false
+		case err != nil:
 			logctx.From(ctx).Error("chat.library: read library file", "error", err, "user_file_id", uf.ID)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to read library file")
+			reply.fail(ctx, http.StatusInternalServerError, "failed to read library file")
 			return nil, false
 		}
 		out = append(out, LibraryFile{UserFileID: uf.ID, Name: uf.Name, Parsed: parsed})
@@ -296,23 +342,23 @@ func (h *Handler) loadLibraryTexts(ctx context.Context, w http.ResponseWriter, f
 
 // writeLibraryContextError maps BuildLibraryContext failures: both budget and
 // no-text verdicts are user-facing 400s, everything else a 500.
-func writeLibraryContextError(ctx context.Context, w http.ResponseWriter, err error) {
+func writeLibraryContextError(ctx context.Context, reply libraryReply, err error) {
 	var tooLarge *ErrLibraryTooLarge
 	switch {
 	case errors.As(err, &tooLarge):
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, tooLarge.Error())
+		reply.fail(ctx, http.StatusBadRequest, tooLarge.Error())
 	case errors.Is(err, ErrLibraryNoText):
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "the selected files contain no text")
+		reply.fail(ctx, http.StatusBadRequest, "the selected files contain no text")
 	default:
 		logctx.From(ctx).Error("chat.library: build context", "error", err)
-		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to prepare context")
+		reply.fail(ctx, http.StatusInternalServerError, "failed to prepare context")
 	}
 }
 
 // commitLibraryChat creates the chat for a new turn (titled from the first 50
 // runes of the message) and persists a body file selection as the chat's refs.
 // Every id in files was validated owner-scoped by resolveLibraryFiles.
-func (h *Handler) commitLibraryChat(ctx context.Context, w http.ResponseWriter, chat *ChatRow, userID string, body sendMessageRequest, files []*userfiles.UserFile) (string, bool) {
+func (h *Handler) commitLibraryChat(ctx context.Context, reply libraryReply, chat *ChatRow, userID string, body sendMessageRequest, files []*userfiles.UserFile) (string, bool) {
 	created := chat == nil
 	if created {
 		title := body.Message
@@ -322,7 +368,7 @@ func (h *Handler) commitLibraryChat(ctx context.Context, w http.ResponseWriter, 
 		newChat, err := h.libraryChats.CreateLibraryChat(ctx, userID, title)
 		if err != nil {
 			logctx.From(ctx).Error("chat.library: create chat", "error", err)
-			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to create chat")
+			reply.fail(ctx, http.StatusInternalServerError, "failed to create chat")
 			return "", false
 		}
 		chat = newChat
@@ -346,11 +392,11 @@ func (h *Handler) commitLibraryChat(ctx context.Context, w http.ResponseWriter, 
 	}
 	if errors.Is(err, ErrChatFileRefGone) {
 		// A file was deleted after validation: same answer as a missing id.
-		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "file not found")
+		reply.fail(ctx, http.StatusNotFound, "file not found")
 		return "", false
 	}
 	logctx.From(ctx).Error("chat.library: replace file refs", "error", err, "chat_id", chat.ID)
-	httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to save library files")
+	reply.fail(ctx, http.StatusInternalServerError, "failed to save library files")
 	return "", false
 }
 

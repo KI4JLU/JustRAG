@@ -135,11 +135,16 @@ type fakeLibText struct {
 	texts  map[string]*parser.ParseResult
 	errs   map[string]error
 	called []string
+	// onText, when set, runs at the start of every Text call.
+	onText func()
 }
 
 func (f *fakeLibText) Text(_ context.Context, uf *userfiles.UserFile) (*parser.ParseResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onText != nil {
+		f.onText()
+	}
 	f.called = append(f.called, uf.ID)
 	if err := f.errs[uf.ID]; err != nil {
 		return nil, err
@@ -283,10 +288,14 @@ func TestSendLibraryMessage_NewChatStreamsKBFramesAndPersistsRefs(t *testing.T) 
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
 	frames := sseFrames(t, w.Body.String())
-	if len(frames) < 4 {
+	if len(frames) < 5 {
 		t.Fatalf("frames = %v", frames)
 	}
-	open := frames[0]
+	// The stream opens with library_prepare, before the files are parsed.
+	if len(frames[0]) != 1 || frames[0]["stage"] != "library_prepare" {
+		t.Fatalf("first frame = %v, want {stage: library_prepare}", frames[0])
+	}
+	open := frames[1]
 	if open["chatId"] != libNewChatID || open["userMessageId"] != "user-msg-id" {
 		t.Fatalf("opening frame = %v", open)
 	}
@@ -303,7 +312,7 @@ func TestSendLibraryMessage_NewChatStreamsKBFramesAndPersistsRefs(t *testing.T) 
 			t.Errorf("source %d fileId = %v, want empty", i, fid)
 		}
 	}
-	// Order: opening → content → aiMessageId → … → [DONE] last.
+	// Order: prepare → opening → content → aiMessageId → … → [DONE] last.
 	idxContent, idxAI := -1, -1
 	for i, f := range frames {
 		if f == nil {
@@ -316,7 +325,7 @@ func TestSendLibraryMessage_NewChatStreamsKBFramesAndPersistsRefs(t *testing.T) 
 			idxAI = i
 		}
 	}
-	if idxContent < 1 || idxAI <= idxContent {
+	if idxContent < 2 || idxAI <= idxContent {
 		t.Fatalf("frame order wrong: content at %d, aiMessageId at %d: %v", idxContent, idxAI, frames)
 	}
 	if frames[len(frames)-1] != nil {
@@ -373,8 +382,8 @@ func TestSendLibraryMessage_ExistingChatUsesStoredRefs(t *testing.T) {
 	if _, ok := fx.store.replaced[libChatID]; ok {
 		t.Error("stored refs must not be replaced when the body carries no fileIds")
 	}
-	if frames := sseFrames(t, w.Body.String()); frames[0]["chatId"] != libChatID {
-		t.Errorf("chatId = %v", frames[0]["chatId"])
+	if frames := sseFrames(t, w.Body.String()); frames[1]["chatId"] != libChatID {
+		t.Errorf("chatId = %v", frames[1]["chatId"])
 	}
 }
 
@@ -464,7 +473,7 @@ func TestSendLibraryMessage_TooLarge(t *testing.T) {
 		"chat_longcontext_max_tokens":      strPtr("10000"),
 	})
 	fx.text.texts[libFileA] = &parser.ParseResult{Text: bigText(4000)}
-	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, true)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, false)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -480,7 +489,7 @@ func TestSendLibraryMessage_TooLarge(t *testing.T) {
 func TestSendLibraryMessage_UnparseableNamesFile(t *testing.T) {
 	fx := newLibChatFixture(t, nil)
 	fx.text.errs[libFileB] = ErrUnparseable
-	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`","`+libFileB+`"]}`, true)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`","`+libFileB+`"]}`, false)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -495,7 +504,7 @@ func TestSendLibraryMessage_UnparseableNamesFile(t *testing.T) {
 func TestSendLibraryMessage_TextSourceErrorIs500(t *testing.T) {
 	fx := newLibChatFixture(t, nil)
 	fx.text.errs[libFileA] = errors.New("s3 down: secret-bucket")
-	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, true)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, false)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -541,6 +550,78 @@ func TestSendLibraryMessage_RejectsRegenerate(t *testing.T) {
 	w := fx.send(t, `{"message":"x","chatId":"`+libChatID+`","regenerateOfMessageId":"`+uuid.NewString()+`"}`, true)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// The stream opens (library_prepare) before the first file is parsed.
+func TestSendLibraryMessage_PrepareFrameBeforeParse(t *testing.T) {
+	fx := newLibChatFixture(t, nil)
+	r := httptest.NewRequest(http.MethodPost, "/api/library/chat?stream=true",
+		strings.NewReader(`{"message":"x","fileIds":["`+libFileA+`"]}`))
+	r = injectUser(r, libUser)
+	w := httptest.NewRecorder()
+	var bodyAtParse string
+	var ctAtParse string
+	fx.text.onText = func() {
+		bodyAtParse = w.Body.String()
+		ctAtParse = w.Header().Get("Content-Type")
+	}
+	fx.h.SendLibraryMessage(w, r)
+	if bodyAtParse != "data: {\"stage\":\"library_prepare\"}\n\n" {
+		t.Fatalf("body when parsing started = %q", bodyAtParse)
+	}
+	if ctAtParse != "text/event-stream" {
+		t.Fatalf("content type when parsing started = %q", ctAtParse)
+	}
+}
+
+// After the stream opened, every rejection is an SSE error frame + [DONE]
+// with the same message the JSON mode returns; nothing is created.
+func TestSendLibraryMessage_StreamErrorsAfterPrepareFrame(t *testing.T) {
+	cases := []struct {
+		name    string
+		setup   func(fx *libChatFixture)
+		want    string
+		created bool // the new chat is created and then removed again
+	}{
+		{"too large", func(fx *libChatFixture) {
+			fx.text.texts[libFileA] = &parser.ParseResult{Text: bigText(4000)}
+		}, "selected files are too large for one chat turn (at least 12000 tokens, maximum 10000)", false},
+		{"unparseable", func(fx *libChatFixture) { fx.text.errs[libFileA] = ErrUnparseable },
+			`the file "alpha.txt" cannot be read as text`, false},
+		{"parse timeout", func(fx *libChatFixture) { fx.text.errs[libFileA] = ErrLibraryParseTimeout },
+			`the file "alpha.txt" took too long to read`, false},
+		{"text source error", func(fx *libChatFixture) { fx.text.errs[libFileA] = errors.New("s3: secret") },
+			"failed to read library file", false},
+		{"no text", func(fx *libChatFixture) { fx.text.texts[libFileA] = &parser.ParseResult{Text: "  "} },
+			"the selected files contain no text", false},
+		{"refs race", func(fx *libChatFixture) {
+			fx.store.refsErr = fmt.Errorf("x: %w", ErrChatFileRefGone)
+		}, "file not found", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newLibChatFixture(t, map[string]*string{
+				"chat_library_fulltext_max_tokens": strPtr("4000"),
+				"chat_longcontext_max_tokens":      strPtr("10000"),
+			})
+			tc.setup(fx)
+			w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, true)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d (stream already open): %s", w.Code, w.Body.String())
+			}
+			frames := sseFrames(t, w.Body.String())
+			if len(frames) != 3 || frames[0]["stage"] != "library_prepare" ||
+				frames[1]["error"] != tc.want || frames[2] != nil {
+				t.Fatalf("frames = %v, want [prepare, {error: %q}, DONE]", frames, tc.want)
+			}
+			if len(fx.store.chats) != 0 || len(fx.usage.snapshot()) != 0 {
+				t.Errorf("chat or usage left on a rejected turn: %v", fx.store.chats)
+			}
+			if tc.created != (len(fx.store.deleted) == 1) {
+				t.Errorf("deleted = %v", fx.store.deleted)
+			}
+		})
 	}
 }
 
@@ -847,7 +928,7 @@ func TestParentInChat(t *testing.T) {
 func TestSendLibraryMessage_RefsRaceIs404AndLeavesNoChat(t *testing.T) {
 	fx := newLibChatFixture(t, nil)
 	fx.store.refsErr = fmt.Errorf("ReplaceChatFileRefs insert: %w", ErrChatFileRefGone)
-	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, true)
+	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`"]}`, false)
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "file not found") {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -862,7 +943,7 @@ func TestSendLibraryMessage_RefsRaceIs404AndLeavesNoChat(t *testing.T) {
 	fx2 := newLibChatFixture(t, nil)
 	fx2.seedLibraryChat(libChatID, libUser, libFileB)
 	fx2.store.refsErr = errors.New("db down")
-	w2 := fx2.send(t, `{"message":"x","chatId":"`+libChatID+`","fileIds":["`+libFileA+`"]}`, true)
+	w2 := fx2.send(t, `{"message":"x","chatId":"`+libChatID+`","fileIds":["`+libFileA+`"]}`, false)
 	if w2.Code != http.StatusInternalServerError || len(fx2.store.deleted) != 0 {
 		t.Fatalf("existing chat: %d, deleted %v", w2.Code, fx2.store.deleted)
 	}
