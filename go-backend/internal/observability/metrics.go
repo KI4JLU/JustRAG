@@ -2718,6 +2718,43 @@ func UserFileAdoptTotalForTest() *prometheus.CounterVec {
 	return userFileAdoptTotal
 }
 
+var userFileOrphansDeletedTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name:        "rag_user_file_orphans_deleted_total",
+		Help:        "Orphaned library objects deleted by the userfiles orphan sweep, by kind (blob or cache).",
+		ConstLabels: commonLabels,
+	},
+	[]string{"kind"},
+)
+
+// RecordUserFileOrphanDeleted counts one swept object; any kind other than
+// cache normalises to blob.
+func RecordUserFileOrphanDeleted(kind string) {
+	if kind != "cache" {
+		kind = "blob"
+	}
+	userFileOrphansDeletedTotal.WithLabelValues(kind).Inc()
+}
+
+var (
+	userFilesTotalGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name:        "rag_user_files_total",
+		Help:        "Number of user_files rows (library files), deployment-wide.",
+		ConstLabels: commonLabels,
+	})
+	userFilesBytesGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name:        "rag_user_files_bytes",
+		Help:        "Sum of user_files.size in bytes, deployment-wide.",
+		ConstLabels: commonLabels,
+	})
+)
+
+// SetUserFileTotals publishes the library size gauges.
+func SetUserFileTotals(files, bytes float64) {
+	userFilesTotalGauge.Set(files)
+	userFilesBytesGauge.Set(bytes)
+}
+
 // UserFileAddTotalForTest exposes the add-mode counter to test packages.
 func UserFileAddTotalForTest() *prometheus.CounterVec {
 	return userFileAddTotal

@@ -49,6 +49,7 @@ import (
 	"github.com/justrag/go-backend/internal/storage"
 	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/tabular/ingest"
+	"github.com/justrag/go-backend/internal/userfiles"
 	"github.com/justrag/go-backend/internal/vector"
 	"github.com/justrag/go-backend/internal/widcert"
 	"github.com/justrag/go-backend/internal/worker"
@@ -558,12 +559,13 @@ func RunWorker(cfg *config.Config) error {
 		bm25Refresher := vector.NewBM25StatsRefresher(db.Vector, db.Main)
 		bm25Refresher.ModeEnabled = bm25ScoringModeEnabledAnywhere(db.Main)
 		stopMaintenance = worker.StartMaintenance(ctx, worker.MaintenanceConfig{
-			MainDB:               db.Main,
-			VectorDB:             db.Vector,
-			StuckFileTimeout:     cfg.StuckFileTimeout,
-			TabularOrphanSweeper: tabular.NewOrphanSweeper(db.Main),
-			BM25StatsRefresher:   bm25Refresher,
-			RagasStore:           ragasStore,
+			MainDB:                db.Main,
+			VectorDB:              db.Vector,
+			StuckFileTimeout:      cfg.StuckFileTimeout,
+			TabularOrphanSweeper:  tabular.NewOrphanSweeper(db.Main),
+			UserFileOrphanSweeper: userfiles.NewOrphanSweeper(userfiles.NewOrphanStore(db.Main), stor),
+			BM25StatsRefresher:    bm25Refresher,
+			RagasStore:            ragasStore,
 			// Read per pass, not once here: retention is a knob an operator
 			// may want to lower after noticing the table's size, and a
 			// worker restart should not be the price of that.

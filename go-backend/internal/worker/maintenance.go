@@ -14,6 +14,7 @@ import (
 	"github.com/justrag/go-backend/internal/ragassamples"
 	"github.com/justrag/go-backend/internal/safego"
 	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/userfiles"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -52,6 +53,10 @@ type MaintenanceConfig struct {
 	// Nil disables the sweep loop entirely (e.g. in tests that don't wire
 	// one).
 	TabularOrphanSweeper *tabular.OrphanSweeper
+
+	// UserFileOrphanSweeper deletes orphaned library blobs and parse caches
+	// under users/ (P4-R3). Nil disables the loop.
+	UserFileOrphanSweeper *userfiles.OrphanSweeper
 
 	// TabularOrphanInterval is how often the tabular orphan-table sweep
 	// runs. Default: 6 hours.
@@ -295,6 +300,14 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 		})
 	}
 
+	// Library orphan sweep (P4-R3): first run 10 min after start, then every
+	// 6h; the sweeper's Run owns the schedule.
+	if cfg.UserFileOrphanSweeper != nil {
+		launch("userfiles_orphan_sweep", func() {
+			cfg.UserFileOrphanSweeper.Run(ctx)
+		})
+	}
+
 	// BM25 stats sweep (W2-R5): recomputes per-KB/per-term BM25 statistics
 	// for KBs whose stats are missing or stale. Nil refresher (no VectorDB
 	// wired, or explicitly disabled) skips the loop entirely rather than
@@ -476,6 +489,10 @@ func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool) {
 	}
 
 	refreshSourceSyncAge(ctx, mainDB)
+
+	if err := userfiles.RefreshLibraryGauges(ctx, userfiles.NewOrphanStore(mainDB), observability.SetUserFileTotals); err != nil {
+		slog.Error("metrics snapshot: library totals failed", "error", err)
+	}
 
 	slog.Debug("metrics snapshot recorded")
 }
