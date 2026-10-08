@@ -68,6 +68,149 @@ All routes below are under `/api`.
 | DELETE | `/kb/{id}` |
 | GET | `/kb/{id}/files` |
 
+### Search
+
+| Method | Path | Auth |
+|---|---|---|
+| GET | `/search?q=<text>[&kb_id=<uuid>][&limit=<n>]` | authenticated (no KB role) |
+
+The shell header's global search: one request, one object with four arrays —
+`topics`, `sources`, `chats`, `messages` — always all present. `internal/globalsearch`.
+
+- **Rate limit: 60 requests per minute per user** (fixed one-minute window,
+  category `search`; see Rate Limiting below). Over the budget the answer is:
+
+  ```
+  HTTP/1.1 429 Too Many Requests
+  Retry-After: <seconds until the window resets, 1-60>
+  Content-Type: application/json
+
+  {"error":"Too many requests, please try again later."}
+  ```
+
+  A client should treat this as "too many searches, wait a moment" and retry
+  after `Retry-After` seconds, not as a failed search. The budget is counted
+  **per authenticated user, not per IP**, so users behind one NAT or VPN
+  egress each have their own. Only authenticated requests count: a request
+  without a valid token is answered `401` before it reaches the limiter. If
+  Redis is unavailable the limit is not enforced (fail open); search keeps
+  working.
+
+- Status codes: `200` with the body below; `400` for an invalid `q` or
+  `limit`; `401` without a valid token; `404` for a `kb_id` that is not
+  visible (see below); `429` over the rate limit; `500` on a server error.
+  A request the client cancels before the answer is ready is logged with
+  `499` (client closed request); the client never sees it.
+- `q` is trimmed; fewer than 3 characters (counted in characters, not bytes,
+  so `äöü` is enough) is `400` — never a full listing. More than 200
+  characters is also `400`, and so is `q` that is not valid UTF-8 or
+  contains a NUL character.
+- `limit` applies **per group**: default 5, maximum 20. Any larger positive
+  integer is clamped to 20 (even one too large for a 64-bit integer); a
+  non-integer, `0` or a negative value is `400`.
+- `kb_id` restricts every group to that topic. The caller needs at least
+  `view` on it. If the topic does not exist, is not visible to the caller, or
+  the id is not a UUID, the answer is `404` — never `403`, so the route cannot
+  confirm that a hidden topic exists. (This differs on purpose from the
+  KB-scoped routes `/kb/{id}/…`, which answer `404` for a missing KB and `403`
+  for one the caller cannot access: here the topic is a filter, not the
+  addressed resource.)
+- Matching is **fuzzy**: a hit is either a case-insensitive literal substring
+  (`ILIKE`, with `%`, `_` and `\` escaped) or trigram-similar to `q`
+  (`pg_trgm` word similarity ≥ 0.4, migration 0075), so a typo such as
+  `Statsitik` still finds `Statistik`. Topics match on name (substring or
+  fuzzy) and on description and header text (substring only: fuzzy on long
+  free text is noise). Sources match on the file name (substring or fuzzy).
+- Each hit reports how it matched in `match`: `prefix` (the name starts with
+  `q`), `substring` (the name, or for topics the description or header text,
+  contains `q`) or `fuzzy` (only trigram-similar).
+- Order within each group: `prefix`, then `substring` (for topics, name hits
+  before description/header hits), then `fuzzy` by similarity, most similar
+  first; ties by name, then id. A fuzzy hit never widens visibility: it is
+  drawn from the same visible topics as every other hit.
+- **Chats** match on the title exactly like file names (substring or fuzzy,
+  same `match` tiers and order); ties go to the most recently updated chat.
+- **Messages** match on content with Postgres full-text search
+  (`to_tsvector('simple', …)`, migration 0076): the query is split into words
+  by Postgres' own parser and every word must occur as a **word prefix**
+  (`Statis` finds `Statistik`), case-insensitive, without stemming or
+  typo tolerance. Words shorter than 3 characters are ignored (`abc de`
+  searches only `abc`; `ab cd` finds no messages). Operator characters in `q`
+  (`& | ! ( ) :`) are ignored, not evaluated. At most **one hit per chat** — its best-ranked message
+  (`ts_rank`, ties to the newest) — ordered by rank. Only the first 100 000
+  characters of a message are searchable.
+
+**Visibility.** Every group contains only topics the caller could open, decided
+per row by one SQL predicate that mirrors `kbaccess.EffectiveRole` rule for rule
+(superadmin → owner; a `kb_members` row → that role; public + system admin →
+admin; public + published → view; otherwise invisible). That is a superset of
+`GET /kb/catalog`: published public topics the caller has not subscribed to are
+included. Superadmins and system admins therefore see many results; that is
+intended, not a leak.
+
+**Chats are private.** `chats` and `messages` contain **only the caller's own
+chats**, and only in topics the caller can still open under the rule above — a
+chat in a topic the caller has lost access to is not returned. No role widens
+this, superadmin included: members cannot read each other's chats anywhere in
+the app, and search is no exception.
+
+```json
+{
+  "query": "prüfung",
+  "kbId": null,
+  "topics": [
+    {
+      "id": "uuid",
+      "name": "Prüfungsordnungen",
+      "description": "First 160 characters of the description …",
+      "visibility": "public",
+      "role": "view",
+      "match": "prefix"
+    }
+  ],
+  "sources": [
+    {
+      "id": "uuid", "name": "PO-2024.pdf", "type": "pdf", "kbId": "uuid",
+      "kbName": "Prüfungsordnungen", "match": "fuzzy"
+    }
+  ],
+  "chats": [
+    {
+      "id": "uuid", "title": "Prüfungsfragen", "type": "chat", "kbId": "uuid",
+      "kbName": "Prüfungsordnungen", "updatedAt": "RFC 3339", "match": "prefix"
+    }
+  ],
+  "messages": [
+    {
+      "id": "uuid", "chatId": "uuid", "chatTitle": "Prüfungsfragen", "chatType": "chat",
+      "kbId": "uuid", "kbName": "Prüfungsordnungen", "role": "ai",
+      "snippet": "Laut der \ue000Prüfungsordnung\ue001 von 2024 …",
+      "createdAt": "RFC 3339"
+    }
+  ]
+}
+```
+
+- `kbId` echoes the (canonicalised) scope, or `null` for a global search.
+- `topics[].description` is the description, falling back to the header text,
+  whitespace-collapsed and cut at 160 characters (ending in `…` when cut);
+  `null` when both are empty. `role` is the caller's effective KB role.
+- `match` on topics, sources and chats is one of `prefix`, `substring`,
+  `fuzzy` (see above). Message hits carry no `match`: they are always
+  full-text hits.
+- `chats[].type` and `messages[].chatType` are `chats.type` as stored:
+  `chat`, `research` or `academic-research` (hyphen). `messages[].role` is
+  `messages.role` as stored: `user` or `ai` (not `assistant`).
+- `messages[].snippet` is **plain text**, never HTML: one fragment of about
+  8–20 words around the best match, whitespace-collapsed. Each matched word is
+  wrapped in **U+E000** (start) and **U+E001** (end), two Unicode private-use
+  characters that are stripped from the content before the snippet is cut, so
+  every occurrence is a highlight marker. A client splits on them and renders
+  every part as a text node (the marked parts highlighted). HTML/XML tags in
+  the content are dropped by `ts_headline`; any other `<` or `&` stays
+  literal, so the snippet must never be inserted as HTML.
+- All four arrays are always present (`[]` when nothing matched).
+
 ### KB members and ownership
 
 Four roles, strictly ordered `view < edit < admin < owner` (migration 0064,
@@ -364,3 +507,7 @@ The Go server applies per-category Redis-backed rate limits:
 | research | 5 / min | `POST /api/kb/{id}/research`, `POST /api/kb/{id}/web-research` |
 | generate | 10 / min | `POST /api/kb/{id}/generate/*` |
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
+| search | 60 / min **per user** | `GET /api/search` |
+
+Limits are counted per client IP, except `search`, which runs after
+authentication and is counted per user.
