@@ -760,6 +760,8 @@ func registerLibraryRoutes(rc *routeCtx) {
 	quota := userFileQuota{reader: rc.chatStore}
 	ingester := userfiles.NewIngester(store, rc.infra.stor, quota)
 	h := userfiles.NewHandler(store, ingester, rc.infra.stor, tabularUploadLimits{reader: rc.chatStore}, quota)
+	// KB uploads and add-from-library go through the same library.
+	rc.filesHandler.SetLibrary(libraryAdapter{Ingester: ingester, store: store})
 	wrap := func(f http.HandlerFunc) http.Handler { return rc.authMw.Authenticate(f) }
 	rc.mux.Handle("GET /api/library/files", wrap(h.List))
 	rc.mux.Handle("POST /api/library/files", wrap(h.Upload))
@@ -768,6 +770,17 @@ func registerLibraryRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/library/files/{id}/download", wrap(h.Download))
 	rc.mux.Handle("GET /api/library/files/{id}/usage", wrap(h.Usage))
 	rc.mux.Handle("GET /api/library/quota", wrap(h.Quota))
+}
+
+// libraryAdapter combines the userfiles ingester and store into the
+// files.Library surface the KB file handlers need.
+type libraryAdapter struct {
+	*userfiles.Ingester
+	store userfiles.Store
+}
+
+func (a libraryAdapter) Get(ctx context.Context, ownerID, id string) (*userfiles.UserFile, error) {
+	return a.store.Get(ctx, ownerID, id)
 }
 
 func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
@@ -1279,6 +1292,7 @@ func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("DELETE /api/files/{id}", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Delete)))
 	rc.mux.Handle("POST /api/files/{id}/retry", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Retry)))
 	rc.mux.Handle("POST /api/kb/{id}/files", rc.kbEditChain(rc.filesHandler.Upload))
+	rc.mux.Handle("POST /api/kb/{id}/files/from-library", rc.kbEditChain(rc.filesHandler.AddFromLibrary))
 	rc.mux.Handle("POST /api/kb/{id}/files/retry-failed", rc.kbEditChain(rc.filesHandler.RetryFailed))
 
 	// Generated content — CRUD + download + stream (auth required)

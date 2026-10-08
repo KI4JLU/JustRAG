@@ -23,6 +23,7 @@ import (
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/storage"
 	"github.com/justrag/go-backend/internal/uploadcheck"
+	"github.com/justrag/go-backend/internal/userfiles"
 )
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,11 @@ type CreateFileData struct {
 	// source-owned origins (rss, confluence, git), which the store writes
 	// as NULL.
 	UploadedBy string
+	// UserFileID links the row to the uploader's library file
+	// (files.user_file_id, migration 0076); empty writes NULL. A linked row
+	// shares the library's blob, so its storage_path is never deleted by a
+	// files-row cleanup.
+	UserFileID string
 }
 
 // FileRecord is the full file row returned after creation.
@@ -71,6 +77,7 @@ type FileRecord struct {
 	Progress    int       `json:"progress"`
 	Origin      string    `json:"origin"`
 	StoragePath *string   `json:"-"` // not exposed to clients
+	UserFileID  string    `json:"userFileId,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
@@ -92,6 +99,9 @@ type Store interface {
 	GetKBRole(ctx context.Context, kbID, userID string) (string, error)
 	CreateFile(ctx context.Context, data CreateFileData) (*FileRecord, error)
 	GetKBFileLimits(ctx context.Context, kbID string) (*KBFileLimits, error)
+	// GetKBCopy returns the id of kbID's files row backed by library file
+	// userFileID, or "" when there is none.
+	GetKBCopy(ctx context.Context, kbID, userFileID string) (string, error)
 	// Retry support (see http_retry.go).
 	ResetFileForRetry(ctx context.Context, fileID string) (bool, error)
 	ListErrorFiles(ctx context.Context, kbID string) ([]*FileInfo, error)
@@ -134,7 +144,19 @@ type Handler struct {
 	tableDropper TableDropper
 	fileDeleter  FileDeleter
 	uploadLimits UploadLimits
+	library      Library
 }
+
+// Library is the userfiles surface the files handler needs.
+type Library interface {
+	Ingest(ctx context.Context, ownerID string, up *uploadcheck.Upload) (*userfiles.UserFile, bool, error)
+	Get(ctx context.Context, ownerID, id string) (*userfiles.UserFile, error)
+}
+
+// SetLibrary routes KB uploads through the user's file library and enables
+// AddFromLibrary. When nil, Upload keeps its pre-library behaviour (blob
+// stored per KB).
+func (h *Handler) SetLibrary(lib Library) { h.library = lib }
 
 // UploadLimits resolves ingest/upload sizing knobs for the upload handler.
 // Narrow by design: internal/files must not import internal/chat (the
@@ -571,6 +593,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	if limits.TotalSize+int64(header.Size) > maxTotalSizePerKB {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Knowledge base has reached the 500 MB storage limit")
+		return
+	}
+
+	if h.library != nil {
+		h.uploadViaLibrary(w, r, user, kbID, up)
 		return
 	}
 

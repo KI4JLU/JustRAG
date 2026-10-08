@@ -241,7 +241,8 @@ func (f *fakeFileStore) CreateFile(context.Context, files.CreateFileData) (*file
 func (f *fakeFileStore) GetKBFileLimits(context.Context, string) (*files.KBFileLimits, error) {
 	return nil, nil
 }
-func (f *fakeFileStore) ResetFileForRetry(context.Context, string) (bool, error) { return false, nil }
+func (f *fakeFileStore) GetKBCopy(context.Context, string, string) (string, error) { return "", nil }
+func (f *fakeFileStore) ResetFileForRetry(context.Context, string) (bool, error)   { return false, nil }
 func (f *fakeFileStore) ListErrorFiles(context.Context, string) ([]*files.FileInfo, error) {
 	return nil, nil
 }

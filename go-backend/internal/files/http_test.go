@@ -51,6 +51,12 @@ type mockStore struct {
 	errorFiles      []*files.FileInfo
 	markedStage     string
 	markedMsg       string
+	copies          map[string]string // userFileID -> existing files row id (GetKBCopy)
+	copyErr         error
+}
+
+func (m *mockStore) GetKBCopy(_ context.Context, _, userFileID string) (string, error) {
+	return m.copies[userFileID], m.copyErr
 }
 
 func (m *mockStore) ResetFileForRetry(_ context.Context, _ string) (bool, error) {
@@ -116,6 +122,7 @@ func (m *mockStore) CreateFile(_ context.Context, data files.CreateFileData) (*f
 		Progress:    0,
 		Origin:      data.Origin,
 		StoragePath: &sp,
+		UserFileID:  data.UserFileID,
 		CreatedAt:   time.Now(),
 	}, nil
 }

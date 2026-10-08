@@ -1,6 +1,7 @@
 package userfiles
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -44,6 +45,16 @@ func userID(w http.ResponseWriter, r *http.Request) (string, bool) {
 		return "", false
 	}
 	return u.ID, true
+}
+
+// WriteQuotaExceeded writes the 413 quota body shared by every endpoint that
+// can grow a user's library (library upload, KB upload).
+func WriteQuotaExceeded(ctx context.Context, w http.ResponseWriter, qe *QuotaError) {
+	httputil.WriteJSONCtx(ctx, w, http.StatusRequestEntityTooLarge, map[string]any{
+		"error":      "quota_exceeded",
+		"usedBytes":  qe.UsedBytes,
+		"quotaBytes": qe.QuotaBytes,
+	})
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
@@ -107,11 +118,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var qe *QuotaError
 		if errors.As(err, &qe) {
-			httputil.WriteJSONCtx(r.Context(), w, http.StatusRequestEntityTooLarge, map[string]any{
-				"error":      "quota_exceeded",
-				"usedBytes":  qe.UsedBytes,
-				"quotaBytes": qe.QuotaBytes,
-			})
+			WriteQuotaExceeded(r.Context(), w, qe)
 			return
 		}
 		h.fail(w, r, err)

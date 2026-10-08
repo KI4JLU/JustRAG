@@ -146,6 +146,21 @@ type createFileDBRow struct {
 	CreatedAt   time.Time `db:"created_at"`
 }
 
+// GetKBCopy returns the id of the files row in kbID backed by library file
+// userFileID, or "" when the KB holds no copy.
+func (s *PGStore) GetKBCopy(ctx context.Context, kbID, userFileID string) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id::text FROM files WHERE kb_id = $1 AND user_file_id = $2::uuid`, kbID, userFileID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("GetKBCopy: %w", err)
+	}
+	return id, nil
+}
+
 // CreateFile inserts a new file record with status 'pending' and returns the created row.
 func (s *PGStore) CreateFile(ctx context.Context, data CreateFileData) (*FileRecord, error) {
 	var sqlStr string
@@ -157,16 +172,16 @@ func (s *PGStore) CreateFile(ctx context.Context, data CreateFileData) (*FileRec
 	// created_at) falls back to the ingest timestamp at every read site.
 	if data.RSSFeedID != "" {
 		sqlStr = `
-			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, rss_feed_id, published_at, uploaded_by)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, NULLIF($9, '')::uuid)
+			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, rss_feed_id, published_at, uploaded_by, user_file_id)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, NULLIF($9, '')::uuid, NULLIF($10, '')::uuid)
 			RETURNING id, kb_id, name, type, size, status, progress, origin, storage_path, created_at`
-		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.RSSFeedID, data.PublishedAt, data.UploadedBy}
+		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.RSSFeedID, data.PublishedAt, data.UploadedBy, data.UserFileID}
 	} else {
 		sqlStr = `
-			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, published_at, uploaded_by)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, NULLIF($8, '')::uuid)
+			INSERT INTO files (kb_id, name, type, size, status, origin, storage_path, published_at, uploaded_by, user_file_id)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, NULLIF($8, '')::uuid, NULLIF($9, '')::uuid)
 			RETURNING id, kb_id, name, type, size, status, progress, origin, storage_path, created_at`
-		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.PublishedAt, data.UploadedBy}
+		args = []any{data.KbID, data.Name, data.Type, data.Size, data.Origin, data.StoragePath, data.PublishedAt, data.UploadedBy, data.UserFileID}
 	}
 
 	rows, err := pgxutil.QueryRows[createFileDBRow](ctx, s.pool, sqlStr, args...)
@@ -187,6 +202,7 @@ func (s *PGStore) CreateFile(ctx context.Context, data CreateFileData) (*FileRec
 		Progress:    r.Progress,
 		Origin:      r.Origin,
 		StoragePath: r.StoragePath,
+		UserFileID:  data.UserFileID,
 		CreatedAt:   r.CreatedAt,
 	}, nil
 }
