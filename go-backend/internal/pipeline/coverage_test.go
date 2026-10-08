@@ -202,6 +202,7 @@ var ignoredKeys = map[string]string{
 	"agents_allow_privileged_tools": "security gate, system-admin only",
 	"langfuse_base_url":             "observability config",
 	"chat_turn_budget_seconds":      "operational budget",
+	"chat_agent_chat_enabled":       "AG-UI endpoint gate, not a pipeline stage",
 
 	// Observability / sampling — no user-visible pipeline stage.
 	"ragas_sampling_enabled":       "background eval sampling",

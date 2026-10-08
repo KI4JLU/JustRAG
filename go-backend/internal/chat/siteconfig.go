@@ -776,6 +776,12 @@ func ChatDriftEnabled(ctx context.Context, reader SiteConfigReader) bool {
 	return readBool(ctx, reader, "chat_drift_enabled", false)
 }
 
+// ChatAgentChatEnabled gates the agentic chat endpoint
+// (POST /api/kb/{id}/agui/chat) for a KB. Default off.
+func ChatAgentChatEnabled(ctx context.Context, r SiteConfigReader) bool {
+	return readBool(ctx, r, "chat_agent_chat_enabled", false)
+}
+
 // ChatDriftMaxFollowups caps how many follow-up sub-questions DRIFT
 // generates and searches per turn. Default 4, clamp [1,8].
 func ChatDriftMaxFollowups(ctx context.Context, reader SiteConfigReader) int {

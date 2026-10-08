@@ -1,0 +1,357 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
+
+	"github.com/justrag/go-backend/internal/adkbridge"
+	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/mcp"
+	"github.com/justrag/go-backend/internal/vector"
+)
+
+// agentFakeClient replays scripted answer turns and records every request.
+// A copy of adkbridge's package-private fakeClient.
+type agentFakeClient struct {
+	mu    sync.Mutex
+	turns [][]ai.StreamChunk
+	reqs  []ai.ChatRequest
+	err   error
+}
+
+func (f *agentFakeClient) next(req ai.ChatRequest) []ai.StreamChunk {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, req)
+	if len(f.turns) == 0 {
+		return []ai.StreamChunk{{Content: "(no more turns)", FinishReason: "stop", Done: true}}
+	}
+	t := f.turns[0]
+	f.turns = f.turns[1:]
+	return t
+}
+
+func (f *agentFakeClient) ChatCompletion(_ context.Context, req *ai.ChatRequest) (*ai.ChatResponse, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var ch ai.ChatChoice
+	for _, c := range f.next(*req) {
+		ch.Message.Content += c.Content
+		if c.FinishReason != "" {
+			ch.FinishReason = c.FinishReason
+		}
+	}
+	return &ai.ChatResponse{Choices: []ai.ChatChoice{ch}}, nil
+}
+
+func (f *agentFakeClient) StreamChatCompletion(_ context.Context, req ai.ChatRequest) (<-chan ai.StreamChunk, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	chunks := f.next(req)
+	ch := make(chan ai.StreamChunk, len(chunks))
+	for _, c := range chunks {
+		ch <- c
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (f *agentFakeClient) requests() []ai.ChatRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ai.ChatRequest(nil), f.reqs...)
+}
+
+func agentTextTurn(s string) []ai.StreamChunk {
+	return []ai.StreamChunk{{Content: s}, {FinishReason: "stop", Done: true}}
+}
+
+// fakePrepare stands in for PrepareChatContext: each call returns the next
+// scripted chunk set, rendered the way the production path renders it.
+func fakePrepare(calls *[]ChatContextParams, sets ...[]vector.SearchChunk) func(context.Context, ChatContextParams) (*ChatContext, error) {
+	return func(_ context.Context, p ChatContextParams) (*ChatContext, error) {
+		*calls = append(*calls, p)
+		var chunks []vector.SearchChunk
+		if i := len(*calls) - 1; i < len(sets) {
+			chunks = sets[i]
+		}
+		sources, text := buildChatSourcesAndContext(chunks)
+		return &ChatContext{
+			SystemPrompt: "SYSTEM FLOOR\n\nCONTEXT:\n" + text,
+			Sources:      sources,
+			Context:      text,
+			FinalChunks:  chunks,
+		}, nil
+	}
+}
+
+var mensaChunks = []vector.SearchChunk{
+	{ID: "c1", FileID: "f1", FileName: "mensa.pdf", Content: "Die Mensa öffnet um 11 Uhr.", Score: 0.9},
+	{ID: "c2", FileID: "f2", FileName: "cafete.pdf", Content: "Die Cafeteria öffnet um 8 Uhr.", Score: 0.7},
+}
+
+func runAgentFlow(t *testing.T, deps AgentFlowDeps, sc adkbridge.Scope, q string) ([]*session.Event, error) {
+	t.Helper()
+	a, err := NewAgentFlow(deps)
+	if err != nil {
+		t.Fatalf("NewAgentFlow: %v", err)
+	}
+	r, err := runner.New(runner.Config{AppName: "agentchat", Agent: a, SessionService: session.InMemoryService(), AutoCreateSession: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evs []*session.Event
+	for ev, err := range r.Run(adkbridge.WithScope(context.Background(), sc), "u1", "s1",
+		genai.NewContentFromText(q, genai.RoleUser), agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+		if err != nil {
+			return evs, err
+		}
+		evs = append(evs, ev)
+	}
+	return evs, nil
+}
+
+func mustRunAgentFlow(t *testing.T, deps AgentFlowDeps, sc adkbridge.Scope, q string) []*session.Event {
+	t.Helper()
+	evs, err := runAgentFlow(t, deps, sc, q)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return evs
+}
+
+var viewScope = adkbridge.Scope{UserID: "u1", KBID: "kb1", Role: "view"}
+
+func sourcesEvent(t *testing.T, evs []*session.Event) []ChatSource {
+	t.Helper()
+	for _, ev := range evs {
+		c, ok := ev.CustomMetadata["agui.custom"].(map[string]any)
+		if !ok || c["name"] != "justrag.sources.v1" {
+			continue
+		}
+		raw, err := json.Marshal(c["value"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []ChatSource
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatalf("sources payload is not []ChatSource: %v (%s)", err, raw)
+		}
+		return out
+	}
+	return nil
+}
+
+func outputsOf(evs []*session.Event) []string {
+	var out []string
+	for _, ev := range evs {
+		if s, ok := ev.Output.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func newTestRetriever(calls *[]ChatContextParams, sets ...[]vector.SearchChunk) *AgentRetriever {
+	r := &AgentRetriever{Lang: "de"}
+	r.prepare = fakePrepare(calls, sets...)
+	return r
+}
+
+// The de-risk test: the answer agent's instruction must be evaluated after
+// the retrieve node ran, so it carries the floor prompt; and the node input
+// (the question) must arrive as user content.
+func TestInstructionProviderSeesFloorPrompt(t *testing.T) {
+	var calls []ChatContextParams
+	fc := &agentFakeClient{turns: [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1].")}}
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: newTestRetriever(&calls, mensaChunks)}
+
+	mustRunAgentFlow(t, deps, viewScope, "Wann öffnet die Mensa?")
+
+	reqs := fc.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("model requests = %d, want 1", len(reqs))
+	}
+	msgs := reqs[0].Messages
+	if msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, "SYSTEM FLOOR") ||
+		!strings.Contains(msgs[0].Content, "Die Mensa öffnet um 11 Uhr.") {
+		t.Fatalf("system instruction lacks the floor prompt: %+v", msgs[0])
+	}
+	var users []string
+	for _, m := range msgs {
+		if m.Role == "user" {
+			users = append(users, m.Content)
+		}
+	}
+	if len(users) == 0 || users[len(users)-1] != "Wann öffnet die Mensa?" {
+		t.Fatalf("question did not arrive as user content: %q", users)
+	}
+	if len(calls) != 1 || calls[0].KbID != "kb1" || calls[0].SearchQuery != "Wann öffnet die Mensa?" || calls[0].Language != "de" {
+		t.Fatalf("floor retrieval params = %+v", calls)
+	}
+}
+
+func TestFoundRoutesToAnswerWithSources(t *testing.T) {
+	var calls []ChatContextParams
+	fc := &agentFakeClient{turns: [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1].")}}
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: newTestRetriever(&calls, mensaChunks)}
+
+	evs := mustRunAgentFlow(t, deps, viewScope, "Wann öffnet die Mensa?")
+
+	outs := outputsOf(evs)
+	if len(outs) == 0 || outs[len(outs)-1] != "Um 11 Uhr [1]." {
+		t.Fatalf("final output = %q", outs)
+	}
+	src := sourcesEvent(t, evs)
+	if len(src) != 2 || src[0].Index != 1 || src[1].Index != 2 || src[0].FileName != "mensa.pdf" {
+		t.Fatalf("sources event = %+v", src)
+	}
+	var state map[string]any
+	for _, ev := range evs {
+		if ev.Actions.StateDelta["agentchat.question"] != nil {
+			state = ev.Actions.StateDelta
+		}
+	}
+	if state["agentchat.question"] != "Wann öffnet die Mensa?" || state["agentchat.reason"] != adkbridge.RouteFound {
+		t.Fatalf("state delta = %v", state)
+	}
+}
+
+func TestNoEvidenceRoutesToPlaceholderWithoutModelCall(t *testing.T) {
+	var calls []ChatContextParams
+	fc := &agentFakeClient{}
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: newTestRetriever(&calls)}
+
+	evs := mustRunAgentFlow(t, deps, viewScope, "Budget 2027?")
+
+	if n := len(fc.requests()); n != 0 {
+		t.Fatalf("answer model called %d times on a dead end", n)
+	}
+	outs := outputsOf(evs)
+	if len(outs) == 0 || outs[len(outs)-1] != deadEndPlaceholderText {
+		t.Fatalf("outputs = %q", outs)
+	}
+	reason := ""
+	for _, ev := range evs {
+		if r, ok := ev.Actions.StateDelta["agentchat.reason"].(string); ok {
+			reason = r
+		}
+	}
+	if reason != adkbridge.RouteNoEvidence {
+		t.Fatalf("reason = %q", reason)
+	}
+}
+
+func TestEmptyKBRoutesNoFilesBeforeRetrieval(t *testing.T) {
+	var calls []ChatContextParams
+	deps := AgentFlowDeps{
+		Model:       adkbridge.NewModel(&agentFakeClient{}, "gemma"),
+		Retriever:   newTestRetriever(&calls, mensaChunks),
+		FileCounter: func(context.Context, string) (int, error) { return 0, nil },
+	}
+	evs := mustRunAgentFlow(t, deps, viewScope, "Mensa?")
+	if len(calls) != 0 {
+		t.Fatal("retrieval ran on a KB without files")
+	}
+	reason := ""
+	for _, ev := range evs {
+		if r, ok := ev.Actions.StateDelta["agentchat.reason"].(string); ok {
+			reason = r
+		}
+	}
+	if reason != adkbridge.RouteNoFiles {
+		t.Fatalf("reason = %q", reason)
+	}
+}
+
+func TestRetrieveEnforcesViewRole(t *testing.T) {
+	var calls []ChatContextParams
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(&agentFakeClient{}, "gemma"), Retriever: newTestRetriever(&calls, mensaChunks)}
+	_, err := runAgentFlow(t, deps, adkbridge.Scope{UserID: "u1", KBID: "kb1"}, "Mensa?")
+	if !errors.Is(err, adkbridge.ErrForbiddenTool) {
+		t.Fatalf("err = %v, want ErrForbiddenTool", err)
+	}
+	if len(calls) != 0 {
+		t.Fatal("retrieval ran without a KB role")
+	}
+}
+
+// A model failure surfaces as a runner error (the handler then persists the
+// user message only — covered end to end in Task 7).
+func TestAnswerFailurePersistsUserMessageOnly(t *testing.T) {
+	var calls []ChatContextParams
+	fc := &agentFakeClient{err: errors.New("provider down")}
+	deps := AgentFlowDeps{Model: adkbridge.NewModel(fc, "gemma"), Retriever: newTestRetriever(&calls, mensaChunks)}
+	evs, err := runAgentFlow(t, deps, viewScope, "Mensa?")
+	if err == nil || !strings.Contains(err.Error(), "provider down") {
+		t.Fatalf("err = %v, want the model error", err)
+	}
+	if sourcesEvent(t, evs) != nil {
+		t.Fatal("sources emitted for a failed answer")
+	}
+}
+
+func TestRetrieverNumbersSourcesAcrossCalls(t *testing.T) {
+	var calls []ChatContextParams
+	second := []vector.SearchChunk{
+		{ID: "c2", FileID: "f2", FileName: "cafete.pdf", Content: "Die Cafeteria öffnet um 8 Uhr.", Score: 0.8},
+		{ID: "c3", FileID: "f3", FileName: "bib.pdf", Content: "Die Bibliothek öffnet um 9 Uhr.", Score: 0.6},
+	}
+	r := newTestRetriever(&calls, mensaChunks, second)
+
+	first, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"Mensa"}`))
+	if err != nil || len(first.Chunks) != 2 || !strings.Contains(first.Text, "[1]") {
+		t.Fatalf("first = %+v, %v", first, err)
+	}
+	res, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"Bibliothek"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// c2 was already source [2]; c3 is new and continues the numbering.
+	if !strings.Contains(res.Text, "[2]") || !strings.Contains(res.Text, "[3]") || strings.Contains(res.Text, "[1]") {
+		t.Fatalf("follow-up context not renumbered:\n%s", res.Text)
+	}
+	got := r.Sources()
+	if len(got) != 3 || got[2].Index != 3 || got[2].ChunkID != "c3" {
+		t.Fatalf("sources = %+v", got)
+	}
+	if !strings.Contains(r.SystemPrompt(), "Die Mensa öffnet") || strings.Contains(r.SystemPrompt(), "Bibliothek") {
+		t.Fatalf("system prompt must stay the floor prompt: %q", r.SystemPrompt())
+	}
+	if _, err := r.Dispatch(context.Background(), "kb1", "web_search", json.RawMessage(`{"query":"x"}`)); !errors.Is(err, mcp.ErrUnknownTool) {
+		t.Fatalf("non-kb_search dispatch err = %v", err)
+	}
+}
+
+func TestRetrieverAbstainYieldsNoChunks(t *testing.T) {
+	r := &AgentRetriever{}
+	r.prepare = func(context.Context, ChatContextParams) (*ChatContext, error) {
+		sources, text := buildChatSourcesAndContext(mensaChunks)
+		return &ChatContext{SystemPrompt: "ABSTAIN", Sources: sources, Context: text, FinalChunks: mensaChunks, Abstain: true}, nil
+	}
+	res, err := r.Dispatch(context.Background(), "kb1", "kb_search", json.RawMessage(`{"query":"x"}`))
+	if err != nil || len(res.Chunks) != 0 || len(r.Sources()) != 0 {
+		t.Fatalf("abstain: chunks=%d sources=%d err=%v", len(res.Chunks), len(r.Sources()), err)
+	}
+}
+
+func TestChatAgentChatEnabledDefaultOff(t *testing.T) {
+	if ChatAgentChatEnabled(context.Background(), &fakeSiteConfigReader{values: map[string]*string{}}) {
+		t.Fatal("missing key must default to false")
+	}
+	on := "true"
+	if !ChatAgentChatEnabled(context.Background(), &fakeSiteConfigReader{values: map[string]*string{"chat_agent_chat_enabled": &on}}) {
+		t.Fatal("explicit true not read")
+	}
+}
