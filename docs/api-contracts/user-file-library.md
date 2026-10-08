@@ -178,8 +178,12 @@ Both arrays are always present (possibly empty). Per-file problems never fail th
 | `already_library` | already library-backed, or a concurrent adoption / an existing copy of the same library file in this KB won |
 | `quota_exceeded` | the target user would exceed their quota (nothing is written) |
 | `blob_missing` | the stored object is gone, or the row has no storage path |
+| `busy` | the file's `status` is `pending` or `processing` (an ingestion/re-embed task may still read the old path); retry once it is `completed`/`error` |
+| `duplicate_in_kb` | the KB already holds another copy of the same library file (identical bytes uploaded twice); this row stays a legacy upload |
 
 Target user per file: `uploadedBy` when that user still exists, otherwise the caller. The file then appears in that user's library (`GET /api/library/files`) with this KB under `kbs` (`GET /api/library/files/{id}/usage`). If the target already owns the same bytes (same SHA-256), the KB copy is linked to that existing library file: no copy, no quota change. `uploadedBy` is set to the caller when it was empty. The old blob is deleted only when no other file row still references it. An unexpected infrastructure error answers `500 {"error":"Internal Server Error"}`; files handled before it stay adopted but are not reported, so retrying the same ids is safe (they come back as `already_library`).
+
+Ownership: after adoption the target user (normally the uploader) owns the library file and can delete it everywhere, including this KB's copy and its index, even if they are no longer a member of the KB (the same semantics as phase-1 uploads).
 
 ## Quota semantics
 

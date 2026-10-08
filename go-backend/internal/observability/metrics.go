@@ -2696,8 +2696,8 @@ var userFileAdoptTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "rag_user_file_adopt_total",
 		Help: "Legacy KB uploads adopted into a user's library, by outcome: " +
-			"adopted, not_found, not_upload, already_library, quota_exceeded " +
-			"or blob_missing. Any other value normalises to not_found.",
+			"adopted, not_found, not_upload, already_library, quota_exceeded, " +
+			"blob_missing, busy or duplicate_in_kb. Any other value normalises to not_found.",
 		ConstLabels: commonLabels,
 	},
 	[]string{"outcome"},
@@ -2706,7 +2706,7 @@ var userFileAdoptTotal = promauto.NewCounterVec(
 // RecordUserFileAdopt increments the adoption outcome counter.
 func RecordUserFileAdopt(outcome string) {
 	switch outcome {
-	case "adopted", "not_found", "not_upload", "already_library", "quota_exceeded", "blob_missing":
+	case "adopted", "not_found", "not_upload", "already_library", "quota_exceeded", "blob_missing", "busy", "duplicate_in_kb":
 	default:
 		outcome = "not_found"
 	}
@@ -2739,12 +2739,12 @@ func RecordUserFileOrphanDeleted(kind string) {
 var (
 	userFilesTotalGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name:        "rag_user_files_total",
-		Help:        "Number of user_files rows (library files), deployment-wide.",
+		Help:        "Number of user_files rows (library files), deployment-wide. Every maintenance worker reports it: aggregate with max() across workers, never sum().",
 		ConstLabels: commonLabels,
 	})
 	userFilesBytesGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name:        "rag_user_files_bytes",
-		Help:        "Sum of user_files.size in bytes, deployment-wide.",
+		Help:        "Sum of user_files.size in bytes, deployment-wide. Every maintenance worker reports it: aggregate with max() across workers, never sum().",
 		ConstLabels: commonLabels,
 	})
 )

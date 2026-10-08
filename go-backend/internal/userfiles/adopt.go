@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,7 +25,22 @@ const (
 	AdoptSkipAlreadyLibrary = "already_library"
 	AdoptSkipQuotaExceeded  = "quota_exceeded"
 	AdoptSkipBlobMissing    = "blob_missing"
+	// AdoptSkipBusy: the file is pending/processing; a queued or running
+	// ingestion task carries the OLD storage path and would read a deleted blob.
+	AdoptSkipBusy = "busy"
+	// AdoptSkipDuplicateInKB: the KB already holds another copy of the same
+	// library file (identical bytes uploaded twice); this row stays legacy.
+	AdoptSkipDuplicateInKB = "duplicate_in_kb"
+
+	// adoptCleanupTimeout bounds rollback and old-blob cleanup, which run on a
+	// context detached from the request so a client disconnect cannot leave a
+	// phantom user_files row or leak the legacy blob.
+	adoptCleanupTimeout = 30 * time.Second
 )
+
+// isBusyStatus reports whether a files.status has (or may soon have) a worker
+// reading the stored path.
+func isBusyStatus(status string) bool { return status == "pending" || status == "processing" }
 
 // LegacyFile is the slice of a files row adoption needs.
 type LegacyFile struct {
@@ -34,6 +50,7 @@ type LegacyFile struct {
 	Type        string
 	Size        int64
 	Origin      string
+	Status      string
 	StoragePath string
 	UserFileID  string // "" when NULL
 	UploadedBy  string // "" when NULL
@@ -48,8 +65,8 @@ type AdoptStore interface {
 	// FindBySHA returns the owner's library row with that hash, or (nil, nil).
 	FindBySHA(ctx context.Context, ownerID, sha string) (*UserFile, error)
 	// LinkFile is the guarded UPDATE: it sets user_file_id/storage_path (and
-	// uploaded_by when NULL) only while user_file_id IS NULL and reports
-	// whether a row changed. A KB that already holds a copy of the same
+	// uploaded_by when NULL) only while user_file_id IS NULL and the status is
+	// not pending/processing, and reports whether a row changed. A KB that already holds a copy of the same
 	// library file (unique index) also reports false.
 	LinkFile(ctx context.Context, fileID, userFileID, storagePath, uploaderID string) (bool, error)
 	// CountByStoragePath counts files rows referencing storagePath.
@@ -146,6 +163,8 @@ func (a *Adopter) adoptOne(ctx context.Context, kbID, callerID, fileID string) (
 		return "", AdoptSkipNotUpload, nil
 	case lf.UserFileID != "":
 		return "", AdoptSkipAlreadyLibrary, nil
+	case isBusyStatus(lf.Status):
+		return "", AdoptSkipBusy, nil
 	}
 
 	target := callerID
@@ -198,20 +217,41 @@ func (a *Adopter) adoptOne(ctx context.Context, kbID, callerID, fileID string) (
 		}
 	}
 
+	// Cleanup must survive a cancelled request context.
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), adoptCleanupTimeout)
+	defer cancel()
+
 	linked, err := a.files.LinkFile(ctx, lf.ID, uf.ID, uf.StoragePath, callerID)
 	if err != nil {
-		a.rollbackCreated(ctx, uf, newBlob)
+		a.rollbackCreated(cctx, uf, newBlob)
 		return "", "", fmt.Errorf("adopt: link %s: %w", fileID, err)
 	}
 	if !linked {
-		// A concurrent adoption (or an existing KB copy) won: drop what this
-		// call created so nothing is orphaned.
-		a.rollbackCreated(ctx, uf, newBlob)
-		return "", AdoptSkipAlreadyLibrary, nil
+		// The guarded UPDATE matched nothing: drop what this call created so
+		// nothing is orphaned, then classify why from the current row.
+		a.rollbackCreated(cctx, uf, newBlob)
+		return "", a.classifyLinkLoss(cctx, fileID, kbID), nil
 	}
 
-	a.deleteOldBlob(ctx, lf.StoragePath, uf.StoragePath)
+	a.deleteOldBlob(cctx, lf.StoragePath, uf.StoragePath)
 	return uf.ID, "", nil
+}
+
+// classifyLinkLoss explains a 0-row guarded UPDATE: the row went busy
+// (busy), was linked meanwhile (already_library), vanished (not_found), or is
+// still unlinked and idle, i.e. the (kb_id, user_file_id) unique index
+// refused because the KB already holds that library file (duplicate_in_kb).
+func (a *Adopter) classifyLinkLoss(ctx context.Context, fileID, kbID string) string {
+	cur, err := a.files.GetLegacy(ctx, fileID, kbID)
+	switch {
+	case err != nil || cur == nil:
+		return AdoptSkipNotFound
+	case cur.UserFileID != "":
+		return AdoptSkipAlreadyLibrary
+	case isBusyStatus(cur.Status):
+		return AdoptSkipBusy
+	}
+	return AdoptSkipDuplicateInKB
 }
 
 func (a *Adopter) overQuota(ctx context.Context, owner string, add int64) (bool, error) {
@@ -253,8 +293,12 @@ func (a *Adopter) copyIntoLibrary(ctx context.Context, lf *LegacyFile, owner, su
 	// filepath.Base: a library name is a bare file name, but the legacy
 	// files.name column was never constrained, so strip any directory part
 	// that a pre-library upload path may have left in it.
+	name := filepath.Base(lf.Name)
+	if name == "." || name == "/" || name == "" {
+		name = "file" // an empty or separator-only legacy name
+	}
 	row, created, err := a.lib.Insert(ctx, NewUserFile{
-		ID: id, OwnerUserID: owner, Name: filepath.Base(lf.Name), Mime: lf.Type,
+		ID: id, OwnerUserID: owner, Name: name, Mime: lf.Type,
 		Size: size, SHA256: sum, StoragePath: path,
 	})
 	if err != nil {

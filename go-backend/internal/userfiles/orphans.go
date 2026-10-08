@@ -85,7 +85,8 @@ func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 			if deleted >= OrphanMaxPerRun {
 				break
 			}
-			if !o.ModTime.Before(cutoff) {
+			if o.ModTime.IsZero() || !o.ModTime.Before(cutoff) {
+				// Zero = the backend gave no timestamp: fail closed.
 				continue
 			}
 			kind, ufid := classifyKey(prefix, o.Key)

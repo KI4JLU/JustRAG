@@ -231,3 +231,12 @@ func TestSweepRowAppearingAfterListIsKept(t *testing.T) {
 		t.Fatalf("n=%d err=%v deleted=%v", n, err, sg.deleted)
 	}
 }
+
+func TestSweepZeroModTimeIsTooYoung(t *testing.T) {
+	st := &fakeOrphanStore{owners: []string{tUID}}
+	sg := &fakeOrphanStorage{objs: []storage.ObjectInfo{{Key: "users/" + tUID + "/" + uOld}}}
+	n, err := NewOrphanSweeper(st, sg).RunOnce(context.Background())
+	if err != nil || n != 0 || len(sg.deleted) != 0 {
+		t.Fatalf("n=%d deleted=%v err=%v", n, sg.deleted, err)
+	}
+}

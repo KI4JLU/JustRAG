@@ -24,10 +24,10 @@ func (s *PGAdoptStore) GetLegacy(ctx context.Context, fileID, kbID string) (*Leg
 	var f LegacyFile
 	err := s.pool.QueryRow(ctx, `
 		SELECT id::text, kb_id::text, name, COALESCE(type,''), COALESCE(size,0)::bigint,
-		       COALESCE(origin,''), COALESCE(storage_path,''),
+		       COALESCE(origin,''), COALESCE(status,''), COALESCE(storage_path,''),
 		       COALESCE(user_file_id::text,''), COALESCE(uploaded_by::text,'')
 		  FROM files WHERE id = $1::uuid AND kb_id = $2::uuid`, fileID, kbID).
-		Scan(&f.ID, &f.KBID, &f.Name, &f.Type, &f.Size, &f.Origin, &f.StoragePath, &f.UserFileID, &f.UploadedBy)
+		Scan(&f.ID, &f.KBID, &f.Name, &f.Type, &f.Size, &f.Origin, &f.Status, &f.StoragePath, &f.UserFileID, &f.UploadedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -59,7 +59,8 @@ func (s *PGAdoptStore) LinkFile(ctx context.Context, fileID, userFileID, storage
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE files SET user_file_id = $2::uuid, storage_path = $3,
 		                 uploaded_by = COALESCE(uploaded_by, $4::uuid)
-		 WHERE id = $1::uuid AND user_file_id IS NULL`, fileID, userFileID, storagePath, uploaderID)
+		 WHERE id = $1::uuid AND user_file_id IS NULL
+		   AND COALESCE(status,'') NOT IN ('pending','processing')`, fileID, userFileID, storagePath, uploaderID)
 	if err != nil {
 		if pgxutil.IsUniqueViolation(err) {
 			return false, nil // this KB already holds a copy of that library file

@@ -19,7 +19,9 @@ type fakeAdoptStore struct {
 	files     map[string]*LegacyFile
 	users     map[string]bool
 	beforeLnk func(fileID string) // simulates a concurrent adopter
+	afterLnk  func()              // runs after a successful link
 	linkErr   error
+	dupUF     string // a link to this library file reports "no row" (unique index)
 }
 
 func newFakeAdoptStore(lib *fakeStore) *fakeAdoptStore {
@@ -50,9 +52,12 @@ func (s *fakeAdoptStore) FindBySHA(_ context.Context, owner, sha string) (*UserF
 	}
 	return nil, nil
 }
-func (s *fakeAdoptStore) LinkFile(_ context.Context, id, ufID, path, up string) (bool, error) {
+func (s *fakeAdoptStore) LinkFile(ctx context.Context, id, ufID, path, up string) (bool, error) {
 	if s.beforeLnk != nil {
 		s.beforeLnk(id)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -60,8 +65,11 @@ func (s *fakeAdoptStore) LinkFile(_ context.Context, id, ufID, path, up string) 
 		return false, s.linkErr
 	}
 	f := s.files[id]
-	if f.UserFileID != "" {
+	if f.UserFileID != "" || isBusyStatus(f.Status) || (s.dupUF != "" && ufID == s.dupUF) {
 		return false, nil
+	}
+	if s.afterLnk != nil {
+		defer s.afterLnk()
 	}
 	f.UserFileID, f.StoragePath = ufID, path
 	if f.UploadedBy == "" {
@@ -69,7 +77,10 @@ func (s *fakeAdoptStore) LinkFile(_ context.Context, id, ufID, path, up string) 
 	}
 	return true, nil
 }
-func (s *fakeAdoptStore) CountByStoragePath(_ context.Context, p string) (int, error) {
+func (s *fakeAdoptStore) CountByStoragePath(ctx context.Context, p string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := 0
@@ -80,7 +91,10 @@ func (s *fakeAdoptStore) CountByStoragePath(_ context.Context, p string) (int, e
 	}
 	return n, nil
 }
-func (s *fakeAdoptStore) DeleteUnreferenced(_ context.Context, ufID string) (bool, error) {
+func (s *fakeAdoptStore) DeleteUnreferenced(ctx context.Context, ufID string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	s.mu.Lock()
 	for _, f := range s.files {
 		if f.UserFileID == ufID {
@@ -338,5 +352,106 @@ func TestAdoptEmptyStoragePathIsBlobMissingSkip(t *testing.T) {
 	}
 	if len(res.Adopted) != 1 || res.Adopted[0].FileID != "ok" {
 		t.Fatalf("adopted = %+v", res.Adopted)
+	}
+}
+
+func TestAdoptBusyFilesAreSkipped(t *testing.T) {
+	e := newAdoptEnv(0)
+	for _, st := range []string{"pending", "processing"} {
+		e.addLegacy(st, "u/kb/"+st, "data-"+st).Status = st
+	}
+	res := e.adopt(t, "caller", "pending", "processing")
+	if len(res.Adopted) != 0 || len(res.Skipped) != 2 {
+		t.Fatalf("res = %+v", res)
+	}
+	for _, s := range res.Skipped {
+		if s.Reason != AdoptSkipBusy {
+			t.Errorf("%s: %q", s.FileID, s.Reason)
+		}
+	}
+	if len(e.lib.rows) != 0 || len(e.stor.blobs) != 2 || len(e.stor.deleted) != 0 {
+		t.Errorf("must write and delete nothing: rows=%d blobs=%d deleted=%v", len(e.lib.rows), len(e.stor.blobs), e.stor.deleted)
+	}
+}
+
+func TestAdoptStatusFlipBetweenCheckAndLinkRollsBack(t *testing.T) {
+	e := newAdoptEnv(0)
+	e.addLegacy("f", "u/kb/f", "hello")
+	e.as.beforeLnk = func(id string) {
+		e.as.mu.Lock()
+		e.as.files[id].Status = "processing"
+		e.as.mu.Unlock()
+	}
+	res := e.adopt(t, "caller", "f")
+	if len(res.Skipped) != 1 || res.Skipped[0].Reason != AdoptSkipBusy {
+		t.Fatalf("res = %+v", res)
+	}
+	if len(e.lib.rows) != 0 {
+		t.Errorf("library row not rolled back: %v", e.lib.rows)
+	}
+	if len(e.stor.blobs) != 1 || string(e.stor.blobs["u/kb/f"]) != "hello" {
+		t.Errorf("only the legacy blob may remain: %v", e.stor.blobs)
+	}
+}
+
+func TestAdoptDuplicateInKBIsDistinctReason(t *testing.T) {
+	e := newAdoptEnv(0)
+	e.addLegacy("a", "u/kb/a", "same")
+	e.addLegacy("b", "u/kb/b", "same")
+	// dupUF emulates the (kb_id, user_file_id) unique index.
+	res := e.adopt(t, "caller", "a")
+	if len(res.Adopted) != 1 {
+		t.Fatalf("res = %+v", res)
+	}
+	e.as.dupUF = res.Adopted[0].UserFileID
+	res = e.adopt(t, "caller", "b")
+	if len(res.Skipped) != 1 || res.Skipped[0].Reason != AdoptSkipDuplicateInKB {
+		t.Fatalf("res = %+v", res)
+	}
+	if got := e.as.files["b"]; got.UserFileID != "" || e.stor.blobs["u/kb/b"] == nil {
+		t.Errorf("b must stay legacy with its blob: %+v", got)
+	}
+}
+
+func TestAdoptCancelledContextStillRollsBack(t *testing.T) {
+	e := newAdoptEnv(0)
+	e.addLegacy("f", "u/kb/f", "hello")
+	ctx, cancel := context.WithCancel(context.Background())
+	e.as.beforeLnk = func(string) { cancel() } // client disconnects after Insert
+	_, err := e.a.Adopt(ctx, kb1, "caller", []string{"f"})
+	if err == nil {
+		t.Fatal("expected link error")
+	}
+	if len(e.lib.rows) != 0 {
+		t.Errorf("phantom user_files row: %v", e.lib.rows)
+	}
+	if len(e.stor.blobs) != 1 {
+		t.Errorf("created blob not removed: %v", e.stor.blobs)
+	}
+}
+
+func TestAdoptCancelledContextStillDeletesOldBlob(t *testing.T) {
+	e := newAdoptEnv(0)
+	e.addLegacy("f", "u/kb/f", "hello")
+	ctx, cancel := context.WithCancel(context.Background())
+	e.as.afterLnk = cancel // disconnect right after the link commits
+	res, err := e.a.Adopt(ctx, kb1, "caller", []string{"f"})
+	if err != nil || len(res.Adopted) != 1 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if _, ok := e.stor.blobs["u/kb/f"]; ok {
+		t.Error("legacy blob leaked")
+	}
+}
+
+func TestAdoptEmptyNameFallsBackToFile(t *testing.T) {
+	e := newAdoptEnv(0)
+	e.addLegacy("f", "u/kb/f", "hello").Name = ""
+	res := e.adopt(t, "caller", "f")
+	if len(res.Adopted) != 1 {
+		t.Fatalf("res = %+v", res)
+	}
+	if got := e.lib.rows[res.Adopted[0].UserFileID].Name; got != "file" {
+		t.Errorf("name = %q", got)
 	}
 }
