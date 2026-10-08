@@ -44,7 +44,8 @@ var builtinPolicies = map[string]ToolPolicy{
 	"count_mentions":   readOnly,
 	"recent_documents": readOnly,
 	"memory_read":      readOnly,
-	// memory_write only touches the running user's own long-term memory.
+	// memory_write only touches the session memory (sessionmem, keyed by the
+	// scope-injected chat_id) of the running chat, not long-term user memory.
 	"memory_write":      readOnly,
 	"sql_query":         readOnly, // privileged; gated separately
 	"code_exec":         readOnly, // privileged; gated separately
