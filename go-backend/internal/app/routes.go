@@ -49,6 +49,7 @@ import (
 	"github.com/justrag/go-backend/internal/files"
 	"github.com/justrag/go-backend/internal/gencontent"
 	"github.com/justrag/go-backend/internal/gitrepo"
+	"github.com/justrag/go-backend/internal/globalsearch"
 	"github.com/justrag/go-backend/internal/health"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/jobs"
@@ -392,11 +393,13 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	inviteRL := middleware.NewRedisRateLimiter(infra.rdb.Client, middleware.RedisRateLimitConfig{
 		Max: 30, Window: time.Minute, Category: "invite",
 	})
+	searchRL := newSearchRateLimiter(infra.rdb.Client)
 
 	registerHealthRoutes(rc, buildVersion)
 	loginLimiter := registerAuthRoutes(ctx, rc, loginRL)
 	registerAdminRoutes(rc)
 	registerKBRoutes(rc, inviteRL)
+	registerSearchRoutes(rc, searchRL, globalsearch.NewStore(infra.db.Main))
 	registerChatRoutes(ctx, rc, chatRL, starterRL)
 	registerAgentTeamRoutes(rc)
 	registerFileRoutes(rc)
