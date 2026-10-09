@@ -568,6 +568,8 @@ func kbDeleteSteps(kbID string) []txStep {
 		{`DELETE FROM kb_invite_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_favorites WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_user_category_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_bases WHERE id = $1`, []any{kbID}},
 	}
 }
@@ -579,7 +581,7 @@ func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbID
 // userDeleteSteps lists the statements of the user-delete transaction, in
 // execution order.
 func userDeleteSteps(userID string, kbIDs []string) []txStep {
-	steps := make([]txStep, 0, 10)
+	steps := make([]txStep, 0, 23)
 	if len(kbIDs) > 0 {
 		steps = append(steps,
 			txStep{`DELETE FROM files WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -593,6 +595,8 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 			txStep{`DELETE FROM kb_invite_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_subscriptions WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_category_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
+			txStep{`DELETE FROM kb_favorites WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
+			txStep{`DELETE FROM kb_user_category_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM knowledge_bases WHERE user_id = $1`, []any{userID}},
 		)
 	}
@@ -602,6 +606,11 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 		txStep{`DELETE FROM knowledge_base_shares WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_members WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_subscriptions WHERE user_id = $1`, []any{userID}},
+		// Per-user topic filters (migration 0086). Links before categories,
+		// so no step leans on the composite FK's ON DELETE CASCADE.
+		txStep{`DELETE FROM kb_favorites WHERE user_id = $1`, []any{userID}},
+		txStep{`DELETE FROM kb_user_category_links WHERE user_id = $1`, []any{userID}},
+		txStep{`DELETE FROM kb_user_categories WHERE user_id = $1`, []any{userID}},
 		// ADK sessions (user_id is TEXT, migration 0082): adk_events cascade
 		// from adk_sessions via FK, agent_runs cascade via their users FK.
 		// adk_app_states is app-wide and untouched.
@@ -626,6 +635,8 @@ func globalKBDeleteSteps(kbID string) []txStep {
 		{`DELETE FROM kb_invite_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_favorites WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_user_category_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM files WHERE kb_id = $1`, []any{kbID}},
 		// Agent chat (app 'agentchat'): its ADK session id and its runs'
 		// thread_id are the chat id; adk_events cascade from adk_sessions.

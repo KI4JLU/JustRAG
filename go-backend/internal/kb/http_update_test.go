@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,10 +28,29 @@ type mockUpdateStore struct {
 	files []kb.FileRow
 	total int
 	err   error
+
+	// reread, when set, is what GetKnowledgeBase returns instead of kb, so a
+	// test can tell the re-read row apart from the update's RETURNING row.
+	reread                         *kb.KBRow
+	rereadErr                      error
+	rereadCalls                    int
+	gotRereadKBID, gotRereadUserID string
 }
 
 func (m *mockUpdateStore) UpdateKnowledgeBase(_ context.Context, _ string, _ kb.KBUpdate) (*kb.KBRow, error) {
 	return m.kb, m.err
+}
+
+func (m *mockUpdateStore) GetKnowledgeBase(_ context.Context, kbID, userID string) (*kb.KBRow, error) {
+	m.rereadCalls++
+	m.gotRereadKBID, m.gotRereadUserID = kbID, userID
+	if m.rereadErr != nil {
+		return nil, m.rereadErr
+	}
+	if m.reread != nil {
+		return m.reread, nil
+	}
+	return m.kb, nil
 }
 
 func (m *mockUpdateStore) ListFiles(_ context.Context, _ string, _, _ int) ([]kb.FileRow, int, error) {
@@ -149,6 +169,74 @@ func TestUpdateKB_NotFound(t *testing.T) {
 	if w.Result().StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Result().StatusCode)
 	}
+}
+
+// TestUpdateKB_ReturnsTheCallerAwareRow pins the PATCH response shape: the UI
+// replaces its card with it, so it must be the caller-aware GET row (stats,
+// favorite, categories), not the update's RETURNING row. The fake returns
+// two visibly different rows from the two calls; the oracle is which one the
+// test put where, and the user id the request was authenticated as.
+func TestUpdateKB_ReturnsTheCallerAwareRow(t *testing.T) {
+	returning := makeKBRow("kb-1", "Renamed")
+	reread := makeKBRow("kb-1", "Renamed")
+	reread.FileCount = 7
+	reread.UserFilters = &kb.UserFilters{IsFavorite: true, UserCategoryIDs: []string{"cat-1"}}
+	st := &mockUpdateStore{kb: returning, reread: reread}
+	h := kb.NewUpdateHandler(st, nil)
+
+	r := httptest.NewRequest(http.MethodPatch, "/api/kb/kb-1", strings.NewReader(`{"description":"d"}`))
+	r = injectKBAccess(r, "kb-1")
+	w := httptest.NewRecorder()
+	h.UpdateKB(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body)
+	}
+	if st.rereadCalls != 1 || st.gotRereadKBID != "kb-1" || st.gotRereadUserID != "user-1" {
+		t.Fatalf("re-read calls=%d kb=%q user=%q, want one call for (kb-1, user-1)",
+			st.rereadCalls, st.gotRereadKBID, st.gotRereadUserID)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["fileCount"] != float64(7) {
+		t.Errorf("fileCount = %v, want 7 from the re-read row", got["fileCount"])
+	}
+	if got["isFavorite"] != true {
+		t.Errorf("isFavorite = %v, want true from the re-read row", got["isFavorite"])
+	}
+	if ids, ok := got["userCategoryIds"].([]any); !ok || len(ids) != 1 || ids[0] != "cat-1" {
+		t.Errorf("userCategoryIds = %v, want [cat-1]", got["userCategoryIds"])
+	}
+}
+
+// A KB deleted between the write and the re-read is a 404, and a failed
+// re-read is a 500 — never a silent fallback to the incomplete RETURNING row.
+func TestUpdateKB_RereadFailures(t *testing.T) {
+	h := kb.NewUpdateHandler(&goneAfterUpdateStore{&mockUpdateStore{kb: makeKBRow("kb-1", "x")}}, nil)
+	r := injectKBAccess(httptest.NewRequest(http.MethodPatch, "/api/kb/kb-1", strings.NewReader(`{}`)), "kb-1")
+	w := httptest.NewRecorder()
+	h.UpdateKB(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("deleted before re-read: status = %d, want 404", w.Code)
+	}
+
+	broken := &mockUpdateStore{kb: makeKBRow("kb-1", "x"), rereadErr: errors.New("db down")}
+	h = kb.NewUpdateHandler(broken, nil)
+	r = injectKBAccess(httptest.NewRequest(http.MethodPatch, "/api/kb/kb-1", strings.NewReader(`{}`)), "kb-1")
+	w = httptest.NewRecorder()
+	h.UpdateKB(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("failed re-read: status = %d, want 500", w.Code)
+	}
+}
+
+// goneAfterUpdateStore succeeds the update and then finds no row on re-read.
+type goneAfterUpdateStore struct{ *mockUpdateStore }
+
+func (g *goneAfterUpdateStore) GetKnowledgeBase(_ context.Context, _, _ string) (*kb.KBRow, error) {
+	return nil, nil
 }
 
 // TestUpdateKB_InvalidBody checks that a malformed body yields 400.

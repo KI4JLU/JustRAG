@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -132,6 +133,12 @@ type UpdateStore interface {
 	// by id. Returns nil, nil if the KB does not exist.
 	UpdateKnowledgeBase(ctx context.Context, id string, data KBUpdate) (*KBRow, error)
 
+	// GetKnowledgeBase re-reads the KB for the caller after an update — the
+	// same caller-aware row GET /api/kb/{id} returns (stats, membership,
+	// favorite and categories), which the update's RETURNING clause cannot
+	// produce. Returns (nil, nil) when the KB does not exist.
+	GetKnowledgeBase(ctx context.Context, kbID, userID string) (*KBRow, error)
+
 	// ListFiles returns a page of files belonging to kbID together with the
 	// total count across all pages.
 	ListFiles(ctx context.Context, kbID string, limit, offset int) ([]FileRow, int, error)
@@ -174,10 +181,19 @@ func kbIDFromContext(r *http.Request) string {
 
 // UpdateKB handles PATCH /api/kb/{id}.
 // It accepts a partial JSON body matching KBUpdate, applies only the supplied
-// fields, and returns the full updated KB record.
+// fields, and returns the updated KB in the same caller-aware shape as
+// GET /api/kb/{id}: card stats, the caller's membership, favorite and
+// categories. The UI replaces its card with this response, so a bare
+// RETURNING row would drop the star and the counts.
 func (h *UpdateHandler) UpdateKB(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := kbIDFromContext(r)
+
+	user := auth.UserFromContext(ctx)
+	if user == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	var body KBUpdate
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -189,11 +205,7 @@ func (h *UpdateHandler) UpdateKB(w http.ResponseWriter, r *http.Request) {
 	// private KB, or a system admin on a public (ownerless) KB, may change the
 	// name (kbaccess.CanRename). Every other PATCH field stays at KB role admin.
 	if body.Name != nil {
-		sysRole := ""
-		if claims := auth.UserFromContext(ctx); claims != nil {
-			sysRole = claims.Role
-		}
-		if !kbaccess.CanRename(kbaccess.AccessFromContext(ctx), sysRole) {
+		if !kbaccess.CanRename(kbaccess.AccessFromContext(ctx), user.Role) {
 			httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, "only the owner may rename a knowledge base")
 			return
 		}
@@ -250,8 +262,7 @@ func (h *UpdateHandler) UpdateKB(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	kb, err := h.store.UpdateKnowledgeBase(ctx, id, body)
-	if err != nil {
+	if _, err := h.store.UpdateKnowledgeBase(ctx, id, body); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "knowledge base not found")
 			return
@@ -268,6 +279,20 @@ func (h *UpdateHandler) UpdateKB(w http.ResponseWriter, r *http.Request) {
 		h.onKBConfigChange(id)
 	}
 
+	// The write has committed by now; a failed re-read is reported as a 500
+	// rather than papered over with the RETURNING row, which is exactly the
+	// incomplete shape this re-read exists to replace. PATCH is idempotent,
+	// so the client may simply retry.
+	kb, err := h.store.GetKnowledgeBase(ctx, id, user.ID)
+	if err != nil {
+		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("re-read knowledge base after update: %w", err))
+		return
+	}
+	if kb == nil {
+		// Deleted between the update and the re-read.
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "knowledge base not found")
+		return
+	}
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kb)
 }
 

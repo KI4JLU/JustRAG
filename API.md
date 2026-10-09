@@ -64,9 +64,80 @@ All routes below are under `/api`.
 | GET | `/kb` |
 | GET | `/kb/global` |
 | POST | `/kb` |
+| GET | `/kb/{id}` |
 | PATCH | `/kb/{id}` |
 | DELETE | `/kb/{id}` |
 | GET | `/kb/{id}/files` |
+
+`GET /kb` is paged with `?limit=` (default 50, maximum 100 — larger values are
+clamped to 100, non-positive or non-numeric ones fall back to 50) and
+`?offset=` (default 0). It lists the caller's private KBs; global KBs come from
+`GET /kb/global`.
+
+Card fields on the KB rows of `GET /kb`, `GET /kb/global` and `GET /kb/{id}`:
+
+- `oldestFileAt` — the earliest effective file date
+  (`MIN(COALESCE(published_at, created_at))`); omitted for a KB without files.
+- `lastIngestedAt` — when content was last successfully ingested: the latest
+  ingest time of a `completed` or `partial` file. This is ingest time, not the
+  document's own date, and failed, pending or still-processing files do not
+  count. A retry or re-embed of an existing file moves it; omitted while no
+  file has been ingested.
+
+`PATCH /kb/{id}` returns the KB in the same caller-aware shape as
+`GET /kb/{id}` (card fields, `myRole`, and the per-user filter fields below),
+so a client can replace its copy with the response.
+
+### Per-user topic filters
+
+The shell's chip row: a favorite (star) on any KB the caller can see, and the
+caller's own categories with their KB assignments. Both are personal display
+state and grant no access. A favorite is not a subscription: subscribing
+decides whether a global KB is in the caller's overview at all, while the star
+pins any KB — private or global — to the "Favoriten" chip.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| PUT | `/kb/{id}/favorite` | KB role view | 204 |
+| DELETE | `/kb/{id}/favorite` | KB role view | 204 |
+| GET | `/kb-user-categories` | authenticated | 200, `[{id, name, sortOrder}]` (`[]` when none) |
+| POST | `/kb-user-categories` | authenticated | 201, the created category |
+| PATCH | `/kb-user-categories/{catId}` | authenticated | 200, the updated category |
+| DELETE | `/kb-user-categories/{catId}` | authenticated | 204 |
+| PUT | `/kb/{id}/user-categories/{catId}` | KB role view | 204 |
+| DELETE | `/kb/{id}/user-categories/{catId}` | KB role view | 204 |
+
+- PUT and DELETE on the favorite and on an assignment are idempotent: they set
+  a state, so repeating them, or deleting something absent, is still 204.
+- The `{id}` routes answer like every other KB route: 404 when the KB does not
+  exist, 403 when the caller may not view it.
+- `POST`/`PATCH` body: `{"name": string, "sortOrder": integer}`. `name` is
+  trimmed and must be 1–100 characters (counted in Unicode code points), must
+  contain no control characters, and must contain at least one visible
+  character (whitespace and invisible format characters alone are refused);
+  `sortOrder` defaults to 0 and must fit a signed 32-bit integer. Violations
+  are 400. `PATCH` replaces both fields.
+- 409 when the caller already has a category with the same name
+  (case-insensitive), or already owns 50 categories (create only).
+- 404 for a `catId` that is not a UUID; and on `PATCH`/`DELETE` of a category
+  and `PUT` of an assignment, also for one that does not exist or belongs to
+  another user — indistinguishable on purpose. (`DELETE` of an assignment is
+  idempotent and stays 204.)
+- Deleting a category removes its assignments. Leaving a KB or being removed
+  from it removes the user's favorite and assignments on that KB when they can
+  no longer view it afterwards (a private or unpublished KB); on a published
+  global KB, which they can still view, both stay. Their categories always
+  stay.
+
+The KB rows of `GET /kb`, `GET /kb/global`, `GET /kb/{id}`, `PATCH /kb/{id}`,
+`POST /kb` and the entries of `GET /kb/catalog` carry the caller's own state:
+
+- `isFavorite` (boolean) — the caller starred this KB.
+- `userCategoryIds` (string array, `[]` when none) — ids of the caller's own
+  categories assigned to this KB.
+
+Both fields are per caller and never appear on the API-key surfaces
+(`GET /api/v1/kb`, `GET /openai/v1/models`).
 
 ### Search
 
