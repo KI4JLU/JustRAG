@@ -98,6 +98,12 @@ type Handler struct {
 	// insert; the router's decision is still visible via TabularTrace on
 	// the eval harness and via trajectory events.
 	tabularQueryLog TabularQueryLogger
+	// libraryChats / libraryFiles / libraryText back the KB-less library
+	// chat endpoints (library_http.go, WithLibraryChat). Optional — when any
+	// is nil those endpoints answer 503; the KB paths never touch them.
+	libraryChats LibraryChatStore
+	libraryFiles LibraryFileGetter
+	libraryText  LibraryTextProvider
 }
 
 // TabularQueryLogger is the persistence surface the chat handler uses to
