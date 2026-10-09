@@ -374,6 +374,13 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	generateRL := middleware.NewRedisRateLimiter(infra.rdb.Client, middleware.RedisRateLimitConfig{
 		Max: 10, Window: time.Minute, Category: "generate",
 	})
+	// Starter questions get their own budget instead of sharing generate's:
+	// the UI fetches them on every chat open (cache hits count too, since the
+	// limiter runs before the handler), so behind one campus NAT address they
+	// would drain the 10/min generate budget and block real content generation.
+	starterRL := middleware.NewRedisRateLimiter(infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 30, Window: time.Minute, Category: "starter_questions",
+	})
 	apiRL := middleware.NewRedisRateLimiter(infra.rdb.Client, middleware.RedisRateLimitConfig{
 		Max: 100, Window: time.Minute, Category: "api",
 	})
@@ -390,7 +397,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	loginLimiter := registerAuthRoutes(ctx, rc, loginRL)
 	registerAdminRoutes(rc)
 	registerKBRoutes(rc, inviteRL)
-	registerChatRoutes(ctx, rc, chatRL)
+	registerChatRoutes(ctx, rc, chatRL, starterRL)
 	registerAgentTeamRoutes(rc)
 	registerFileRoutes(rc)
 	registerLibraryRoutes(rc)
@@ -402,7 +409,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 
 	// Only the in-memory loginLimiter (returned from registerAuthRoutes) owns
 	// a background goroutine and needs an explicit Shutdown. The Redis-backed
-	// limiters above (chatRL, researchRL, generateRL, apiRL, loginRL) keep no
+	// limiters above (chatRL, researchRL, generateRL, starterRL, apiRL, loginRL) keep no
 	// long-lived state — they call INCR/EXPIRE per request — so there is
 	// nothing to stop. The standalone in-memory apiLimiter created in
 	// RunServer is shut down via its own defer there.
@@ -1002,7 +1009,7 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/crawl/status/{jobId}", rc.kbViewChain(crawlerHandler.GetCrawlStatus))
 }
 
-func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.RedisRateLimiter) {
+func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *middleware.RedisRateLimiter) {
 	// Phase 2 §2.1: build the MCP registry and register the in-process
 	// built-in tools (kb_search, web_search). Per-KB remote MCP servers
 	// (if any) are added via Registry.Configure on demand from the chat
@@ -1185,6 +1192,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 		// via GetChunksByFileID — used by RunCorpusTableChat to assemble
 		// full per-file text for comparison queries.
 		chat.WithCorpusChunks(rc.chunkService),
+		chat.WithFileExcerpts(rc.chunkService),
 		// In-chat document comparison: Redis-backed store for parsed
 		// uploaded attachments (compared against a KB, never ingested).
 		// Reuses the shared Redis client. TTL is read once at startup from
@@ -1272,10 +1280,16 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL *middleware.Re
 
 	// Chat — listing
 	rc.mux.Handle("GET /api/kb/{id}/chats", rc.kbViewChain(chatHandler.ListChats))
+	// Starter questions for an empty chat, generated from the KB's documents
+	// by an LLM call — behind their own "starter_questions" limiter (see
+	// starterRL), wrapped outside the auth chain like the generate routes.
+	rc.mux.Handle("GET /api/kb/{id}/starter-questions", starterRL.Middleware(rc.kbViewChain(chatHandler.StarterQuestions)))
 
 	// Chat — messages and deletion (auth only, ownership checked in handler)
+	rc.mux.Handle("GET /api/chat/rag-system-prompt", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RAGSystemPrompt)))
 	rc.mux.Handle("GET /api/chats/{id}/messages", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetMessages)))
 	rc.mux.Handle("DELETE /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.DeleteChat)))
+	rc.mux.Handle("PATCH /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RenameChat)))
 
 	// Chat — send message (KB view permission). The rate limiter wraps the
 	// auth chain from the outside so unauthenticated requests don't consume
