@@ -352,6 +352,28 @@ func TestRenameChat_TitleLengthCountsRunes(t *testing.T) {
 	}
 }
 
+// Oracle: a chat title is one line — whitespace runs (incl. line breaks)
+// collapse to one space; any other control character is refused.
+func TestRenameChat_TitleIsOneLine(t *testing.T) {
+	for _, tc := range []struct {
+		title     string
+		wantCode  int
+		wantStore string
+	}{
+		{"Budget\n\t2027\u2028plan", http.StatusNoContent, "Budget 2027 plan"},
+		{"Budget\x00 2027", http.StatusBadRequest, ""},
+		{"Budget\u200b\x07", http.StatusBadRequest, ""},
+	} {
+		store := &mockStore{}
+		h := chat.NewHandler(store, nil, nil)
+		rr := httptest.NewRecorder()
+		h.RenameChat(rr, renameRequest(renameChatID, tc.title, testUser()))
+		if rr.Code != tc.wantCode || store.renamedTo != tc.wantStore {
+			t.Fatalf("title %q: got %d / store %q, want %d / %q", tc.title, rr.Code, store.renamedTo, tc.wantCode, tc.wantStore)
+		}
+	}
+}
+
 // Oracle: the store contract — store.ErrNotFound (not the owner, or no such
 // chat) is a 404; any other error a 500.
 func TestRenameChat_StoreErrors(t *testing.T) {

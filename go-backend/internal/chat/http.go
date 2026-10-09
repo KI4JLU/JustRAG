@@ -555,11 +555,18 @@ func (h *Handler) RenameChat(w http.ResponseWriter, r *http.Request) {
 	chatID := parsed.String()
 
 	var body renameChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// The title is at most maxChatTitleLen runes; 4 KiB leaves ample room.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	title := strings.TrimSpace(body.Title)
+	// A title is one line: collapse every whitespace run (incl. line breaks)
+	// to a single space, then refuse any other control character.
+	title := strings.Join(strings.Fields(body.Title), " ")
+	if strings.IndexFunc(title, isLineBreakOrControl) >= 0 {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "title must not contain control characters")
+		return
+	}
 	if title == "" {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "title is required")
 		return
