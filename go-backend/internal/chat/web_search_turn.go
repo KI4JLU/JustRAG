@@ -152,6 +152,9 @@ type answerToolsInput struct {
 	// teamAuthored: a team/agent wrote this turn's prompt content (see
 	// teamAuthoredTurn) — answer tools stay off.
 	teamAuthored bool
+	// library: a library-chat turn (no KB). It never gets answer-time tools
+	// (P3-R5) — every catalog tool is KB-scoped and kbID is "".
+	library bool
 }
 
 // answerToolSet is the answer LLM's tool configuration for one turn. The
@@ -241,6 +244,12 @@ func (h *Handler) baseAnswerTools(ctx context.Context, in answerToolsInput) (set
 	if h.toolDispatcher == nil {
 		if requested {
 			return answerToolSet{}, false, "no tool dispatcher is wired on this server"
+		}
+		return answerToolSet{}, false, ""
+	}
+	if in.library {
+		if requested {
+			return answerToolSet{}, false, "answer tools are off on a library chat turn"
 		}
 		return answerToolSet{}, false, ""
 	}

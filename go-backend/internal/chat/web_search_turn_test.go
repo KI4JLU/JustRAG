@@ -139,6 +139,7 @@ func TestAnswerToolsForTurn_FlagMatrix(t *testing.T) {
 		answerTools bool
 		webSearch   *bool
 		team        bool
+		library     bool
 		byRoute     string
 		queryType   string
 
@@ -181,6 +182,12 @@ func TestAnswerToolsForTurn_FlagMatrix(t *testing.T) {
 		{name: "team/off/true — reported", chatGate: true, webSearch: boolPtr(true), team: true, queryType: lookup,
 			wantOK: false, wantEvents: []string{skipped}},
 
+		// --- library-chat turn (P3-R5): no answer tools, a request is reported
+		{name: "library/on/absent — no tools, nothing to report", chatGate: true, answerTools: true, library: true, queryType: lookup,
+			wantOK: false, wantNoEvents: true},
+		{name: "library/on/true — reported", chatGate: true, answerTools: true, webSearch: boolPtr(true), library: true, queryType: lookup,
+			wantOK: false, wantEvents: []string{skipped}},
+
 		// --- route allowlist (chat_answer_tools_by_route) ---------------------
 		{name: "route kb only/on/true — admin allowlist wins, reported", chatGate: true, answerTools: true, webSearch: boolPtr(true), byRoute: lookupKBOnly, queryType: lookup,
 			wantOK: true, wantCatalog: []string{"kb_search"}, wantReach: []string{"kb_search"}, wantEvents: []string{routeLookup, skipped}},
@@ -208,6 +215,7 @@ func TestAnswerToolsForTurn_FlagMatrix(t *testing.T) {
 				queryType:    tc.queryType,
 				webSearch:    tc.webSearch,
 				teamAuthored: tc.team,
+				library:      tc.library,
 			}, func(pl map[string]any) { frames = append(frames, pl) })
 
 			if ok != tc.wantOK {
