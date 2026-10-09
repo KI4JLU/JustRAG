@@ -167,11 +167,15 @@ describe('AdminAgentTab — control census', () => {
         // 92 number, 18 text (17 rows + the filter field), 5 <select>,
         // 3 <textarea> — the Wave 3–7 settings, minus the removed
         // bm25_tiered_boost / tabular_semantic_* rows.
+        //
+        // RE-CENSUSED at the merge of upstream 6dfe80f7 (v0.11.1), same grep:
+        // 61 checkbox — docling_formula_enrichment_enabled is new — and
+        // otherwise unchanged (92 number, 18 text, 5 <select>, 3 <textarea>).
         const { container } = renderTab();
 
         // Radix Checkbox renders role="checkbox" on a <button>, plus a hidden
         // bubble <input> for native form submission — count the ARIA role.
-        expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(60);
+        expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(61);
 
         // Radix Select's trigger is role="combobox".
         expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(5);

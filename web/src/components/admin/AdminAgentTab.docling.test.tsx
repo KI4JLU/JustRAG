@@ -81,10 +81,21 @@ describe('AdminAgentTab — Docling captioning and OCR fields', () => {
         expect(threshold.value).toBe('0.05');
     });
 
+    it('exposes formula enrichment, off by default', () => {
+        let latest: Record<string, string> = {};
+        render(<Host initial={{ docling_enabled: 'true', docling_base_url: 'http://docling:5001' }} onChange={c => { latest = c; }} />);
+        openIngestion();
+        const formulas = screen.getByRole('checkbox', { name: tMock('doclingFormulaEnrichmentEnabled') });
+        expect(formulas).not.toBeChecked();
+        fireEvent.click(formulas);
+        expect(latest.docling_formula_enrichment_enabled).toBe('true');
+    });
+
     it('disables the Docling fields while Docling itself is off', () => {
         render(<Host initial={{}} onChange={() => {}} />);
         openIngestion();
         expect(screen.getByRole('checkbox', { name: tMock('doclingPictureDescriptionEnabled') })).toBeDisabled();
         expect((screen.getByLabelText(tMock('doclingOcrLanguages')) as HTMLInputElement).disabled).toBe(true);
+        expect(screen.getByRole('checkbox', { name: tMock('doclingFormulaEnrichmentEnabled') })).toBeDisabled();
     });
 });

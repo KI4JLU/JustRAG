@@ -22,9 +22,38 @@
 # built-in parsers. The Go worker probes for exactly this at startup and logs an
 # error.
 #
+# Optional formula transcription to LaTeX — admin Agent panel:
+#   docling_formula_enrichment_enabled = true
+# It needs the docling-project/CodeFormulaV2 model (~611 MB), which the image
+# does NOT ship: without it docling fails every document that asks for it. The
+# one-shot `docling-models` service below downloads it into its own volume
+# once; it never blocks docling from starting (offline → warning, and the
+# worker's startup probe logs an error if the flag is on without the model).
+#
 # The first cold start downloads ~3 GB of models — be patient.
 
 services:
+  # Fills the CodeFormulaV2 volume for formula enrichment. The volume is
+  # mounted at exactly that model's directory, so the models baked into the
+  # image (layout, tables, OCR) stay visible next to it. Skips when the
+  # weights are already there; exits 0 even when the download fails.
+  docling-models:
+    image: quay.io/docling-project/docling-serve:v1.32.0
+    # A fresh named volume is root-owned; docling (uid 1001) only reads it.
+    user: "0"
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        D=/opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2;
+        [ -f "$$D/model.safetensors" ] && exit 0;
+        docling-tools models download-hf-repo -q docling-project/CodeFormulaV2
+        || echo "WARNING: CodeFormulaV2 download failed; docling_formula_enrichment_enabled will not work";
+        exit 0
+    volumes:
+      - docling-formula-model:/opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2
+    restart: "no"
+
   docling:
     # Pinned. `latest` is a moving target: the picture_description_api field this
     # integration sends is deprecated upstream (since 1.21) and may be removed in
@@ -52,8 +81,12 @@ services:
       # per-request by the Go backend from the admin AI provider config — it is
       # NOT set on this sidecar, so the model-API credential never lives here.
       # Docling must still be able to reach that model URL from this container.
+    depends_on:
+      docling-models:
+        condition: service_completed_successfully
     volumes:
       - docling-cache:/.cache
+      - docling-formula-model:/opt/app-root/src/.cache/docling/models/docling-project--CodeFormulaV2:ro
     deploy:
       resources:
         limits:
@@ -69,3 +102,4 @@ services:
 
 volumes:
   docling-cache:
+  docling-formula-model:

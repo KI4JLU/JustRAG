@@ -148,3 +148,16 @@ func TestBuildDoclingClient_UsesTheAsyncEndpoints(t *testing.T) {
 		t.Fatal("worker client must use the async convert endpoints")
 	}
 }
+
+func TestReadDoclingOptions_FormulaEnrichmentDefaultsOffAndIsRead(t *testing.T) {
+	o := readDoclingOptions(context.Background(), fakeDoclingSCR{vals: map[string]string{}}, nil)
+	if o.FormulaEnrichment {
+		t.Error("formula enrichment must default off: the stock sidecar image lacks the model")
+	}
+	o = readDoclingOptions(context.Background(), fakeDoclingSCR{vals: map[string]string{
+		"docling_formula_enrichment_enabled": "true",
+	}}, nil)
+	if !o.FormulaEnrichment {
+		t.Error("docling_formula_enrichment_enabled=true not read")
+	}
+}

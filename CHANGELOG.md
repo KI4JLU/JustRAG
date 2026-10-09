@@ -10,18 +10,76 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
-## Unreleased
-
-<!-- Not a git-cliff section (every other heading below is a released, tagged
-     version). This one exists because the night-sync-scheduling work landed
-     its hand-written upgrade notes before a release was cut. When cutting the
-     next release, `git cliff --unreleased --tag vX.Y.Z --prepend` will insert
-     the generated "## vX.Y.Z — <date>" section ABOVE this one — fold this
-     block's content into that new section's "### ⚠ Upgrade notes" and delete
-     this heading rather than leaving both. -->
+## v0.11.1 — 2026-10-06
 
 ### ⚠ Upgrade notes
 
+No upgrade actions required. Security patch on top of v0.11.0: no migration
+(still 0074), no changed `site_config` default, no re-ingest. It fixes a
+worker crash / memory exhaustion from a crafted spreadsheet upload (excelize
+GO-2026-6452, GO-2026-6453) and an endpoint-URL leak into info logs when OTel
+tracing is on (GO-2026-6505). Recommended for every v0.11.0 deployment.
+
+### deps
+- Bump excelize to v2.11.0 and OpenTelemetry to v1.45.0 (GO-2026-6452/6453/6505) (ed99553)
+
+## v0.11.0 — 2026-10-06
+
+### ⚠ Upgrade notes
+
+- **Seven migrations, 0068 – 0074; the highest is 0074.** v0.10.0 ended at
+  0067. Compose applies them through the `migrate` one-shot service;
+  **Kubernetes does not** — run `/app/migrate` out of the `v0.11.0` image before
+  `kubectl apply` (`docs/runbooks/release.md`, "Deploying a release"). A release
+  carrying a migration has **no one-step rollback**. Per-migration notes follow.
+- **Migration 0069 required** (spreadsheet ingest rework). Adds the
+  `tabular_catalog` v2 columns, `tabular_column_values`, `tabular_query_log`
+  and `files.parse_report` / `stage_detail`. Spreadsheets ingested before it
+  keep their old materialisation until **Rematerialise** is run per KB
+  (`POST /api/kb/{id}/tabular/rematerialize`, KB admin) or the files are
+  re-ingested. The read-only role behind `JUSTRAG_DB_URL_READONLY` needs one
+  more grant — `GRANT SELECT ON tabular_column_values TO <readonly_role>;` —
+  see the "Structured spreadsheet Q&A" recipe for the full list. The tabular
+  router (`chat_tabular_router_enabled`) ships **ON** but acts only on a KB
+  that has spreadsheet tables **and** `chat_tabular_query_enabled` on, so it
+  changes nothing elsewhere. The three `tabular_semantic_*` /
+  `chat_tabular_semantic_columns_enabled` keys are **removed**. Spreadsheet
+  uploads over `tabular_max_file_bytes` (500 MiB) now answer 413, and
+  `k8s/worker-heavy.yml` raises the heavy worker's memory to 2 Gi to match the
+  ingest defaults (`docs/runbooks/spreadsheet-ingest-ops.md`).
+- **Migration 0070 required** (scheduled in-app eval). Adds
+  `eval_golden_sets.schedule` / `next_run_at` and `eval_runs.scheduled`.
+  Additive: every golden set starts `manual`, so nothing runs until an admin
+  schedules one. Scheduled runs publish `rag_eval_scheduled_metric` and
+  `rag_eval_scheduled_regression`; alert on the latter.
+- **Docling sidecar: apply the updated manifests** (`docker-compose.docling.yml`,
+  `k8s/docling.yml`) if you run it. `DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true`
+  is **required** for image captioning — without it docling refused the
+  captioning pipeline and *every* PDF/DOCX/PPTX silently fell back to the
+  built-in parsers; the worker now probes for this at startup and logs an
+  error. The image is pinned to `docling-serve:v1.32.0`, and the worker
+  converts through the async task endpoints (a sidecar that answers 404 there
+  falls back to the sync endpoint). Request defaults changed —
+  `table_mode=accurate`, OCR languages `de,en`, heading hierarchy, a 600 s
+  document timeout — and the page rebuild now keeps figure captions, the text
+  inside figures, table captions and footnotes, and heading levels. All of it
+  is baked into chunk text at ingest: **re-ingest** Docling-parsed KBs to get it.
+- **Formulas in Docling-parsed PDFs were being dropped — re-ingest affected
+  KBs.** Without formula enrichment docling returns every formula with an
+  empty text, and the page rebuild skipped it, so equations never reached the
+  corpus. They are now kept as their raw PDF text. New opt-in
+  `docling_formula_enrichment_enabled` (default **off**) transcribes them to
+  LaTeX instead, but needs the `docling-project/CodeFormulaV2` model (~611 MB),
+  which the docling image does not ship: the compose overlay gains a one-shot
+  `docling-models` service, `k8s/docling.yml` a `formula-model` init container
+  (behind the egress proxy, uncomment its `HTTP(S)_PROXY` env; with the default
+  emptyDir it re-downloads on every pod start). Switched on without the model,
+  each conversion is retried without enrichment (a warn line per file) and the
+  startup probe logs an error — Docling is never lost to it.
+- **Chat answers render math (KaTeX).** `$…$` and `$$…$$` — and the
+  `\(…\)` / `\[…\]` forms — now render as formulas. One visible side
+  effect: an answer with two dollar amounts on one line (`$5 and $10`) can
+  render the text between them as math. No configuration.
 - **Migration 0068 required.** Adds `sync_schedule` + `next_sync_at` to
   `rss_feeds`, `confluence_sources` and `git_repo_sources`.
 - **Automatic syncs move to a night window.** Every RSS feed that polled on an
@@ -76,7 +134,7 @@ one-step rollback** (`cmd/migrate` is up-only).
   `chat_longcontext_mode` (+ `_map_group_size`, `_map_concurrency`,
   `_map_model`), and the global-only integer `kb_stale_days` (default 180).
 - **RAG Wave 4 adds no migration.** Nothing in it changes the schema; 0071
-  (Wave 3, above) is still the highest migration in this Unreleased block.
+  (Wave 3, above) is still the highest migration so far in this release.
 - **`published_at` now also comes from Confluence and git.** Confluence
   **pages** are stamped with the page's current version timestamp
   (attachments stay NULL — the REST shape carries no attachment date), and
@@ -149,7 +207,7 @@ one-step rollback** (`cmd/migrate` is up-only).
   repeats).
 
 - **Migration 0072 required** (RAG Wave 5, trust surfaces) — now the highest
-  migration in this Unreleased block. One file, idempotent, **no backfill**:
+  migration so far in this release. One file, idempotent, **no backfill**:
   adds the `ragas_samples` table (plus a `(kb_id, sampled_at DESC)` index on
   the table it creates empty, so the README's `CONCURRENTLY` rule for
   already-large tables does not apply), `messages.conflicts jsonb`,
@@ -381,7 +439,7 @@ one-step rollback** (`cmd/migrate` is up-only).
   The step enumerates packages explicitly rather than globbing, and the
   new `policy_rule` integration test needed adding.
 - **Migration 0074 required** (RAG Wave 7) — now the highest migration in
-  this Unreleased block; **`bm25_tiered_boost_enabled` is removed.** The
+  this release; **`bm25_tiered_boost_enabled` is removed.** The
   key, its per-KB registry row, the keyword-arm CASE it rendered, the
   `--bm25-tiered-boost` eval override and the admin checkbox are all gone.
   0074 deletes any stored row from `site_configs` and `kb_site_configs`; its
@@ -416,6 +474,128 @@ one-step rollback** (`cmd/migrate` is up-only).
   it stays in `docs/retrieval.md` §"Keyword arm scoring: ts_rank vs BM25
   (2026-09)" (the Wave-2 grid, cells B and D).
 
+### Documentation
+- Drop the last tiered-boost mentions; 0074 is the highest Unreleased migration (47f7dc3)
+- Point the tiered-boost history note at the Wave-2 A/B that retired it; comment grammar (c2803c5)
+- Per-wave conflict-surfacing wording; plan_execute-2 routed count (435ccca)
+- Final-review corrections — tool-set SQL, policy record citations and numbers, comparability caveat, CHANGELOG (ba6b9b0)
+- Wave 6 follow-up — fallthrough event wording; unclassified turns and answer_tools_path for per-route tool sets (7153b55)
+- Wave 6 — orchestrator policy, per-route tool sets, team score column, judge retry, JSONL golden sets, conflict re-measurement (7d9872e)
+- Wave 5 — RAGAS persistence, conflict surfacing, ingest screening, degenerate guard, Confluence parse unification, extended synthesis set; chat_longcontext_mode default decision with numbers (e6dcf21)
+- Chat_longcontext_mode re-measured on the extended set under the pooled rule (W5-R1); decision (ede3c5c)
+- Conflict surfacing measured on the CERT supersession pairs + PPM false-positive check; --conflict-surfacing override (b30c561)
+- Wave 4 — honest judges, pairwise + coverage instruments, DRIFT in the eval ladder, freshness carry-overs; default decisions with numbers (ef0e369)
+- Wave-4 flat vs map_reduce re-measurement with coverage + pairwise judges; chat_longcontext_mode decision (46c8992)
+- BM25 ts_rank vs bm25 with orchestrator dispatch on, 3 repeats per cell; bm25_scoring_mode decision (f3a9549)
+- Expected_points corrected (G01/G08/G12) and broadened for the "alle" questions (7ebf72f)
+- Expected_points authored for the global-synthesis set (coverage judge curation record) (24bd17d)
+- Wave 3 — span-verified citations, long-context orchestrator + map-reduce, freshness surface, BM25 follow-ups; default decisions with numbers (1f29a29)
+- State the Wave-2 comparison honestly (dispatch on vs off), recall not universal, parallel-plan caveat; fixture script minors (d663a58)
+- BM25 retune grid under bm25, 100k-chunk cost check, tiered-boost deprecation note (895f7d7)
+- Global-synthesis golden set (gitignored) + long-context flat vs map_reduce judge A/B acceptance record (93d9b21)
+- Cite the overall-MRR noise band for the tiered-boost side finding (dfd0468)
+- Wave 2 — BM25 mode + stats, multi-turn fixture, CERT fixture; default decisions with numbers (279b8e1)
+- CERT fixture — scratch output paths, kb-id validation, dispatch-off acceptance table (715b1bd)
+- BM25 vs ts_rank A/B on production-ppm-2026-08 (grid, noise band, decision) (6e1e274)
+- Multi-turn README provenance wording; recompute acceptance deltas from raw floats (f008e21)
+- Multi-turn-de golden set (gitignored) — README schema, acceptance record with keep-raw on/off/noise (07106ae)
+- Scheduled eval + regression gate, --baseline, rerank depth knob, raw-query lane, dedup dimension note (831b208)
+- Acceptance Run 3 — fire rate 1.000, SQL error rate 0.000, correctness 0.960: PASS (b7b5cf7)
+- Acceptance Run 2 — router fix confirmed (SQL error rate 0.040), fire rate 0.767 pending Supervisor eval-adapter wiring (a25cee8)
+- Phase 4 — spreadsheet ingest ops runbook, recipe rewrite, knob reference, CLAUDE.md index (474e6ca)
+- Night-window sync scheduling (b8c065d)
+
+
+### Features
+- Render math in chat answers with KaTeX (5f0cc74)
+- Opt-in formula transcription to LaTeX (docling_formula_enrichment_enabled) (9538403)
+- Chat_longcontext_mode default → map_reduce (W5-R1 passed on the 24-question set); safe fallback for unknown values (598d7ff)
+- --pairwise-pool; global-synthesis set extended to ≥ 24 questions (curation record) (15c383a)
+- Degenerate-run guard on the answer path (chat_answer_degenerate_run_limit, default 400): abort, strip, notice, trajectory + metric (a9552ba)
+- Prompt-injection screening flag on external-source files (files.injection_flag/detail), admin badges, ingest_screening_enabled kill switch (7324e68)
+- --conflict-surfacing override and per-question conflicts in the report (32ccf54)
+- Conflicting-sources badge + popover on messages (d5d2918)
+- Conflict/supersession surfacing — one fast-tier call over the assembled set, addendum + persisted conflicts + SSE frame (chat_conflict_surfacing_enabled, default off) (10b4c27)
+- RAGAS 24h sample stats per KB in the overview (d31e7a9)
+- Persist sampler results (migration 0072 ragas_samples), nightly per-KB gauges, retention (dd8bb78)
+- Published_at for Confluence (page version) and git (HEAD commit); source dates on the OpenAI-compat and MCP projections (2072a74)
+- Per-kind sync status in the KB overview (syncByKind; aggregate success requires every kind) (90c661e)
+- Coverage judge over optional expected_points golden field (mean_coverage + coverage_n) (7c61d58)
+- --pairwise A.json B.json — position-debiased pairwise preference judge over two judged reports (win rate + Wilson interval, per route) (32fb362)
+- Mirror the DRIFT orchestrator arm in the eval ladder (position above long-context), cache its ChatContext (4f8ff88)
+- --print-keyword-sql renders both keyword-arm builders; bm25 scale fixture; tiered-boost deprecation help (e81e763)
+- Source dates on citations and source cards; admin KB overview staleness/last-sync columns; shared date utils (bd95a14)
+- Source dates on ChatSource, COALESCE effective date, admin overview staleness + last sync, rag_source_sync_age_seconds (55d700a)
+- Migration 0071 — files.published_at (RSS) + last_success_at per source table (ed77540)
+- --longcontext on|off and --golden-query-type run overrides for cmd/eval (5b1b59a)
+- Long-context orchestrator (OrchLongContext) with flat | map_reduce consumer (chat_longcontext_mode), findings extraction, trajectory events, eval ladder mirror (99917f3)
+- Highlight span-verified citation quotes in the source popover; admin keys for chat_citation_spans_* (d90a51e)
+- Span-verified citations — verbatim quote extraction, exact rune-offset match, CitationStatus.span (chat_citation_spans_enabled, default off) (f9a0941)
+- Synthetic dated CERT fixture (40 advisories, seed + backdate script, 25 questions), recency lister wired into eval adapters, acceptance record (f549213)
+- Bm25_scoring_mode (ts_rank | bm25) - pure keyword SQL builder, BM25 scoring from per-KB ts_stat tables, per-query fallback, keys + admin UI (f8c7c65)
+- BM25 statistics tables (kb + term, per dim), ts_stat refresher, stale-KB maintenance sweep, eval --refresh-bm25-stats (1c7e641)
+- Multi-turn replay adapter (condense from fixture history, answer_ref via prior sources), per-turn-kind aggregates, --keep-raw (1cd19c8)
+- Multi-turn golden format (turns[], history, turn kinds) and per-turn expansion (d721d34)
+- Rerank_candidate_depth (+ per-route) knob and a real chat_longcontext_top_k key (850702d)
+- Search the raw last-turn utterance alongside the condensed rewrite (chat_condense_keep_raw_enabled, default off) (debb163)
+- Schedule dropdown per golden set + regression-threshold keys in the admin panel (5750d2c)
+- Scheduled runs diff against the previous scheduled run and publish rag_eval_scheduled_* gauges (74018db)
+- Night-window scheduled eval runs via the sync sweeper (TypeEvalScheduled -> TypeEvalRun) (5edb43d)
+- Golden-set schedule + next_run_at, eval_runs.scheduled, sweeper store contract (mig 0070) (5df9283)
+- --baseline compare with per-route delta table and regression exit code 3 (9148bbd)
+- Tabular_expected golden field scopes the router fire-rate denominator (R75) (cbb6292)
+- Thread the tabular router into trajectory runs under --production-context (d354a90)
+- Chat_tabular_guidance_max_tokens; tabular_router_sql on every SQL-producing outcome; router in trajectory runs (beb63fe)
+- Tabellen detail modal per spreadsheet + live stage_detail line under the ingest indicator (2b7fb7b)
+- Large-spreadsheet semaphore — bounded concurrent reads per worker; waiting files report the slot wait (9f7e33c)
+- GET /api/kb/{id}/files/{fileId}/tabular — per-file parse report + table DTO (c233baa)
+- Size/concurrency keys; oversize uploads answer 413 with the limit (0dc5062)
+- Spreadsheet ingest rows/duration/outcome metrics; router outcome normalisation test (f46fc76)
+- Periodic sweep of orphaned tabular tables (R65) (90b2c92)
+- Convert through the task endpoints; chart values as a table; live-verified captioning (b17067f)
+- Use the sidecar's full capability set and make captioning actually work (06b6d4b)
+- Per-KB tabular guidance with catalog summary replaces the chart-only snippet; profiler grid as JSON (45380c8)
+- SQL log written post-response with the AI message id; router metrics; eval tabular trace and rates (1e40f84)
+- Table_query validates on the SQL AST, runs time-boxed read-only, describes shadows and id columns, attributes sources (5111513)
+- Chat_tabular_router_* keys — registry, snapshot, pipeline projection, admin tab (bb867a3)
+- Run the tabular router on the standard and Supervisor paths; quoted id phrases + forced simple BM25 arm; six router readers; dispatch + CLI wiring (af6a1c4)
+- Deterministic tabular router — cues, value lookup, validated SQL, repair loop, KV injection (ac68a75)
+- SQL-generation prompts, structured router call, answer-prompt guidance and addendum; promptsafety leaf package (R37) (8c8c052)
+- Pure-Go SQL AST validator (cockroachdb-parser) and read-only time-boxed executor (6a9a216)
+- Tabular cue classifier and identifier-literal phrase promotion (7675bea)
+- Value lookup, token-budgeted schema summary, query log writer (7468992)
+- Per-KB rematerialize endpoint re-ingests spreadsheet files (156bd15)
+- Max-rows/embed/values config keys; numeric-aware charts and describe; drop dead semantic-column keys (b5270ea)
+- Route spreadsheets through the tabular ingester (skip enrich/KG/HyPE/RAPTOR), persist parse report + live stage detail; wire worker; drop Phase-1 compat stubs (7e1a591)
+- SpreadsheetParser over the tabular ingester replaces the csv/xlsx/xls/ods parsers; render owns its Page type; drop extrame/xls (2519568)
+- Ingest orchestrator — profile, LLM assist, materialise, hybrid render, parse report; AIProfiler adapter (534c45c)
+- Streaming materialiser — staged COPY, server-side typing, value index; drop the buffered reader (ceda361)
+- Column statistics accumulator with role-based final typing and filtered value sets (29e11b1)
+- Catalog v2 schema (migration 0069), transliterating identifiers, column values store (a9c7b96)
+- Key:value renderer with profile cards, forms, prose and embed cap (04ed4b6)
+- LLM column descriptions with gated overrides; tabular_profile_* config keys (2da51a8)
+- Derived-row detection, sheet kind classification, ProfileSheet (d81f749)
+- Number/date/ID parsing, decimal-comma vote, column roles (6fa8463)
+- Title rows, header scoring and block, index row, spacer columns (cfa5c03)
+- Region detection with continuation merge (35b10fc)
+- Hardened CSV reader (BOM, charset, delimiter) and Open dispatch (2717035)
+- Streaming ODS reader with typed values, covered cells, spans (159686e)
+- Fork extrame/xls with formula cached results, number formats, merges (c0f78da)
+- Resolve list validations (inline, range, defined name, cross-sheet) (58a9dfe)
+- Streaming xlsx sheet reader with typed cells, merges, validations (1ebf0c1)
+- Xlsx workbook parts, shared strings, style classification (2d44950)
+- Core cell/sheet types, A1 helpers, sample collector (90a166b)
+- Night sync window configuration (a8daab7)
+- Sync schedule selection for RSS, Confluence and git sources (0e41418)
+- Add SyncScheduleSelect and schedule types (5db550a)
+- Add the night-window sync sweeper (cbfdb50)
+- Add sync_schedule and the sweeper contract (b8368b4)
+- Replace sync_interval with sync_schedule + sweeper contract (82f341c)
+- Replace poll_interval with sync_schedule + sweeper contract (541f983)
+- Migration 0068 — sync_schedule + next_sync_at columns (f6cd70a)
+- Read night window from site config, embed tzdata (3ab7bd4)
+- Add syncwindow slot math for night-window scheduling (7c03bdb)
+
 ### Fixes
 
 - **Confluence `isPageUpdated` routes through `VersionWhen()`; dead fallback
@@ -442,6 +622,132 @@ one-step rollback** (`cmd/migrate` is up-only).
   currently loaded page, which is what the previous client-side sort and
   its "sort applies to the current page only" tooltip were mitigating. No
   migration; the tooltip translation key is removed as unused.
+- --policy usage guard, code_exec rejected for answer routes, stale comments (final review) (c395d34)
+- Cmd/eval main split for gocyclo; RAGAS handler answer-relevance parse regression (23c4da5)
+- Final review wave — conflict detector rejects same-file pairs and mirrored duplicates; forced guard on tripped API streams; pre-run prefix forwarded; trajectory labels; minors (9f3c885)
+- IsPageUpdated parses Version.When through VersionWhen() (dead fallback removed) (00c9950)
+- Screened-clean state written as screened_at (conditional update); rune-offset test; header count excludes uploads; indentation (25d712d)
+- Open the conflicts panel from the main chat view (conflictsOpen wired in ChatView); ChatView-level test (e66e6ea)
+- Conflicts persisted as the bare array (one wire shape); OFF-path short-circuit; skip on abstain; gate + frame-order tests (69ee7d0)
+- Integration cleanup by id (no float-equality predicate); overflow mean help text (9278d01)
+- Final review wave — judge parsers survive fenced and duplicate objects, report truncation and reject null scores, pairwise schema documents 1/2, coverage guard, clamp alias, per-file date copy, README nit (72d8d26)
+- Last-sync column sorts by the worst sync kind, then its timestamp (d7fd3f6)
+- Tolerant judge score/boolean parsing with warnings; per-metric judged counts in the aggregate and printer (b39bbba)
+- Final review wave — verifier gate uses pre-span statuses, bounded map-reduce findings, published_at clamp, rollout symptom notes, FE minors (6e17996)
+- Substitute keyword-SQL placeholders in one pass so an argument containing $N survives (b018db0)
+- Index-friendly uuid lookups on the chat hot path, sync-age gauge resets stale series, help text, pointer copy (1538a29)
+- Long-context route — consistent considered metric, graph/HyPE options threaded, whole-map-stage deadline, prompt fence, SOURCES rendering (f46ea9c)
+- Reject malformed citation spans, fall back to plain snippet (fcfae69)
+- NFC-aware quote matching that survives rune-count changes (4331b7b)
+- Final-review fixes — gated + timeout-relaxed BM25 stats sweep, attempt-counted budget, cmd/eval-only multi-turn sets, doc corrections (8c46c9d)
+- Slim the BM25 candidate CTE, gate both stats arms atomically, ensure stats tables in --refresh-bm25-stats (9056bf4)
+- Final-review fixes — uncapped legacy rerank depth, eval integration tests in CI, detached regression ctx, empty-baseline guard, lint (c5f564d)
+- Cross-file dedup looks up the KB's real embedding dimension, not the 1536 default table (6d34b39)
+- Upload 413 gate and processor share one spreadsheet predicate; test-only upload cap mutator moved to export_test; n/a fire-rate line; docs wording; seed script keeps the password off argv (8538746)
+- Production-context Supervisor runs get the tabular router + per-KB config; trace error propagated; column labels rendered as documentation, not identifiers (f70ad3c)
+- Cap validator rejection text before it reaches the repair prompt and the router event (addc23c)
+- Router writes and accepts "tabular"."sheet_…" — schema/prompt render the exact form, proposals are normalised before validation, rejection names the fix; German compound aggregation cue; capitalised-noun value lookups (c6ebc3a)
+- Supervisor trajectory runs honour the per-KB tabular router config like production (98a1630)
+- Walk picture items so figure captions and vision descriptions reach the page (de8fdbf)
+- Hedge the capped-result sentence (row cap is an over-approximation) (f1906be)
+- Final review wave — capped flag when rows hit the cap; newline-safe KV addendum; lint; read-only-pool docs; metric doc drift; fail-closed reg* depth guard; no disabled-skip noise; filtered column labels (165175e)
+- Reg* arrays rejected through the cast target; U&'…' scanned without backslash escapes; digit-leading dollar tags are not openers (e5f00bc)
+- Stale xlsx dimension guarded (R58); source-delete routes drop materialised tables (R60); real nil-dropper guard test (aa03b9c)
+- Tabular query log skips disabled/no-table turns (R59) (fc6729d)
+- Drop materialised tables on Confluence/git/RSS file deletes; open-ended regions size from the xlsx dimension (efdef55)
+- Top-level literal tokenizer for the read-only gate (R54); qualified/unknown cast targets rejected (R55); locking clauses rejected (R56) (51ede71)
+- Table_query regex gate exempts CTE aliases (R53); empty catalog answers 'no tables' on the execution path (3eadf60)
+- Per-KB router config through the overlaid reader (R49); no phrase promotion under Enhance (R50); CLI router on the dispatch adapter only (R51); table_query wired on sqlexec (R52) (0c96a0e)
+- Tabular router kill switch renders as default-on; registry help states the default (155e1bf)
+- USING/NATURAL join cases; dollar-quoted strings rejected (R46); reg* casts, catalog names, AS OF and index flags rejected; qualified column names checked (R48); numeric always canonical string (R47) (0951d63)
+- Tabular router reports cancelled, not fired, when the context is done before the SQL call (617f7aa)
+- Tabular router — guarded phrase promotion, filtered file/sheet labels (R42), cancelled outcome (R43), Fired after schema (R44), exact-match rule for number hits (R45), outcome tests (c86600e)
+- Fail-closed AST walker with eleven more descent paths (R38); top-level LIMIT only; canonical table names; quote-aware read-only gate (R39); sqlexec normalises numeric/interval/uuid and clamps the timeout (a081198)
+- Double backslashes before escaping pipes in markdown cells (c921ea2)
+- Fence-safe data blocks (R40), markdown-table cell escaping, sql:'' normalised to nil (cba7abf)
+- CompactSchema keeps at least one table over budget (R36); isolate the value-hit ranking term; assert a substring match (1d5aa5b)
+- Tabular_embed_max_rows minimum is 1 — 0 silently meant the 50k default, not cards-only (16ded3b)
+- Final review wave — drop tables on single-file delete; cap value-index entries; one row classifier for markers and _rowid; range-marker tool description; §6.6 filter on list values and value index; per-block headings; embed cap 100k; heartbeats; stale help texts; lint (2070653)
+- Single source of truth for spreadsheet stage skips (+ table test); ingest always drops stale tables (R17); drop dead ingest.Options fields; retry reset clears parse report (1f66ccd)
+- Let the renderer supply row counts for unmaterialised regions; fail-soft per-sheet errors (R13); WithLLM + nil-resolver tests (f7118da)
+- Round-1 review fixes — R9 shadow gate, per-column coercion counts, MaxRows-before-Add ordering, R12 early stop, cascade test off Materialize (9bf3b17)
+- Cap only re-streaming validations; sharpen the streaming memory guard (a95b892)
+- Bound xls range registration; cap validation re-reads; streaming memory guard (a40cede)
+- Snapshot the tabular_profile_* keys for eval overrides (49ed860)
+- Register tabular_profile_* keys with the coverage test (639ce3d)
+- Make the aggregate-formula derived-row rule reachable (e9708a9)
+- Harden every reader against a malformed spreadsheet (4d476a8)
+- One number-format classifier; fix the trailing-'[' panic (855ee3f)
+- Gutter-column merge, relative continuation, form-gate and fill rulings, fold above-table regions (0aa74d5)
+- Record kind disagreements ungated; validate header-row overrides; test BuildLLMRequest (5646da7)
+- Category threshold max(3,20%), text-only ID-pattern gating, fixed-width n>=3 (a2cae18)
+- Record only the index row adjacent to the header block (cbe4f03)
+- Track previous-row-block regions explicitly for continuation merges (4b0f2f6)
+- Snapshot the previous row block before merging continuations (b172a5a)
+- Trim region tops; merge continuations against the overlapping previous-block region (0de6bed)
+- Keep empty TSV fields; deliver CSV blank lines as gap rows (9ec4cd4)
+- Count the stopping row in ODS RowCount on ErrStop (7c946a6)
+- Sign-extend and scale integer RK values; test formula result decoding (1f9c8cb)
+- Resolve defined-name list validations; bound A1 column refs (a1ffba4)
+- Surface corrupt xlsx parts instead of treating them as absent (9416143)
+- Default new RSS feeds to daily; make sync schedule editable after creation (e308b43)
+- Keep errored sources scheduled; clear stale next_sync_at on resume; gate the sweeper on git_repo_enabled (9d777d8)
+- Join the sweeper goroutine before runAsLeader returns (de738a8)
+- RSS backfill respects paused feeds; test the real backfill SQL (d39963c)
+
+### Refactoring
+- Export CondenseFromHistory and RawQueryForRetrieval for the eval replay (d2deb6d)
+- Drop unused GetFileParseReport (kb store owns the query) (a2d1ae3)
+- Replace per-source ticker schedulers with the sweeper (be4c540)
+
+
+### admin
+- Save hint, null handling, prefer-with-flag-off preview, sort test/tooltip (final review) (8a274af)
+- Type-check every when.* field in the policy editor validator (Task 8 fix 1) (d0a2973)
+- JSON editors with validation and a rule preview for chat_orchestrator_policy and chat_answer_tools_by_route (5e4d3e2)
+
+
+### chat
+- Deterministic non-streaming decision-row test (Task 2 fix 2) (7dd1242)
+- Handler-level test for the non-streaming agent_decisions row (Task 2 fix 1) (4c120d5)
+- Record an agent_decisions row for non-streaming turns (shared with the streaming standard path) (b7f2651)
+- Extract finishDeepChatAnswer from tryDeepChat (funlen) (f9b7044)
+- Reformat follow-ups get no tools when any route is restricted (Task 7 fix 2) (a403ae7)
+- Mutation-sensitive intersection test at the dispatch boundary (Task 7 fix 1) (0668b6f)
+- Per-route answer-tool allowlists (chat_answer_tools_by_route) enforced at the catalog and the dispatch boundary (W6-R8) (6e4fe6d)
+- Policy hook ahead of the complex gate; forced-standard records its rule; mirror DAG parity; frozen-ladder identity test; fallthrough event (Task 6 fix 1) (910d9ad)
+- Per-query orchestrator policy hook in the ladder and the eval mirror; trajectory event; agent_decisions.policy_rule (mig 0073); cmd/eval --policy (W6-R6/R10/R16) (aca3f28)
+- Thread FileDates into ChatContextParams on the public API, OpenAI-compat and KB-as-MCP surfaces (W6-R2) (02cb59d)
+
+
+### chatpolicy
+- Orchestrator policy + answer-tools-by-route documents (parse/validate/match); global save-time validation; readers (W6-R13/R14/R15) (99102a6)
+
+
+### deps
+- Bump golang.org/x/crypto to v0.56.0 (GO-2026-6354/6355, ssh DoS via go-git clone) (c61d90a)
+
+
+### docling
+- Keep undecoded formulas instead of dropping them (70baf07)
+
+
+### eval
+- Server-side sort (recall / mrr / created_at) for the eval-run lists; FE uses it instead of sorting one page (696442a)
+- Orchestrator policy measurement on the PPM fixture (query_type × orchestrator → recall/MRR/cost); recommendation is documentation only (8cc5a18)
+- LLM-call counter on the provider client, llm_calls per question, mean latency / calls per aggregate (W6-R7) (6cdacae)
+- Wave-6 retry record — matching denominators for the baseline comparison (f5950a9)
+- Retry measured on the 24-question synthesis set (900c880)
+- Conflict surfacing re-measured at max_chunks=30; record corrections (Wave 6 fix round 2) (1f5a369)
+- Retry warning on every retry, success or not (N7) (08adb5d)
+- Team and score columns on the run table, last team score next to the selector (W6-R9, no migration) (2d45072)
+- Invocation-counting fake, metric asserted from the judge path, localised retry prompt (Task 4 fix 1) (7e88cd0)
+- JSON-hygiene prompt line, one bounded retry on a decoder failure, rag_judge_retry_total (W6-R4) (afb3581)
+- Keep array-path error precedence per row; JSONL dup-id test (Task 3 fix 1) (778f532)
+- Repeatable --chat-overlay key=value chat-layer override (W6-R18) (253e1dc)
+- ParseGoldenSetContent accepts JSONL (comments skipped) as well as a JSON array (W6-R3) (3190a22)
+- Fix round 1 — correct MMR mis-attribution to the BM25-floor tie block, fix Q071/README contradictions, add the omitted detector supersession result (434878a)
+- Pair questions name the advisory and ask for the NEU→UPDATE delta; conflict surfacing re-measured (W6-R1) (2518713)
 
 ## v0.10.0 — 2026-08-19
 

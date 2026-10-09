@@ -528,3 +528,57 @@ describe('MessageContent citation popover source date', () => {
         expect(dialog).not.toHaveTextContent('01/05/2026');
     });
 });
+
+describe('MessageContent — math', () => {
+    beforeEach(() => {
+        vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'de' } as ReturnType<typeof ThemeContext.useTheme>);
+    });
+
+    it('renders display math with KaTeX', () => {
+        const { container } = render(<MessageContent content={'Die Lösung:\n\n$$\nx = \\frac{-b}{2a}\n$$\n'} />);
+        expect(container.querySelector('.katex-display')).not.toBeNull();
+        expect(container.textContent).not.toContain('$$');
+        // KaTeX lays formulas out with inline styles and ships MathML for
+        // screen readers; run before rehype-sanitize, both would be stripped.
+        expect(container.querySelector('.katex-display math')).not.toBeNull();
+        expect(container.querySelector('.katex-html [style]')).not.toBeNull();
+    });
+
+    it('renders inline math, including the \\( … \\) form LLMs emit', () => {
+        const { container } = render(<MessageContent content={'Mit $a^2$ und \\(b^2\\) gilt es.'} />);
+        expect(container.querySelectorAll('.katex').length).toBe(2);
+    });
+
+    it('does not turn an index inside math into a citation pill', () => {
+        const sources = [{ fileName: 'a.pdf', content: 'x' }] as never;
+        const { container } = render(<MessageContent content={'Der Vektor $v[1]$ laut [1].'} sources={sources} />);
+        expect(container.querySelectorAll('sup[data-source-index]').length).toBe(1);
+        // KaTeX keeps the TeX source in the MathML annotation; pill HTML
+        // injected into the formula would show up there.
+        expect(container.querySelector('.katex annotation')?.textContent).toBe('v[1]');
+    });
+
+    it('keeps escaped citations working', () => {
+        const sources = [{ fileName: 'a.pdf', content: 'x' }] as never;
+        const { container } = render(<MessageContent content={'Laut \\[1\\].'} sources={sources} />);
+        expect(container.querySelectorAll('sup[data-source-index]').length).toBe(1);
+        expect(container.querySelector('.katex')).toBeNull();
+    });
+
+    it('leaves dollar signs in code alone', () => {
+        const { container } = render(<MessageContent content={'Shell: `echo $HOME $PATH`'} />);
+        expect(container.querySelector('.katex')).toBeNull();
+        expect(container.textContent).toContain('echo $HOME $PATH');
+    });
+
+    it('restores code spans verbatim, including $$ and $& (String.replace patterns)', () => {
+        const { container } = render(<MessageContent content={'PID: `echo $$` und `s/x/$&/`'} />);
+        expect(container.textContent).toContain('echo $$');
+        expect(container.textContent).toContain('s/x/$&/');
+    });
+
+    it('shows invalid LaTeX instead of breaking the message', () => {
+        const { container } = render(<MessageContent content={'Kaputt: $\\frac{a$ und weiter Text.'} />);
+        expect(container.textContent).toContain('weiter Text');
+    });
+});

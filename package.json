@@ -1,6 +1,6 @@
 {
     "name": "JustRAG",
-    "version": "0.10.0",
+    "version": "0.11.1",
     "description": "A high-performance, self-hosted Retrieval-Augmented Generation (RAG) platform for managing knowledge bases, researching documents, and generating context-aware insights.",
     "workspaces": [
         "web"
@@ -34,5 +34,8 @@
     "bugs": {
         "url": "https://github.com/Lutzi92/JustRAG/issues"
     },
-    "homepage": "https://github.com/Lutzi92/JustRAG#readme"
+    "homepage": "https://github.com/Lutzi92/JustRAG#readme",
+    "overrides": {
+        "katex": "^0.19.0"
+    }
 }
