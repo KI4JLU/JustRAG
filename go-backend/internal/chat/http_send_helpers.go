@@ -541,6 +541,7 @@ type chatResponseParams struct {
 	lang               string
 	userMessage        string
 	reasoningLevel     string
+	webSearch          *bool
 	userMsgID          string
 	chatCtx            *ChatContext
 	bufferedTrajectory []map[string]any
@@ -638,6 +639,7 @@ func (h *Handler) handleTransformFollowUp(
 		lang:               lang,
 		userMessage:        body.Message,
 		reasoningLevel:     resolveReasoningLevel(body),
+		webSearch:          body.WebSearch,
 		userMsgID:          userMsg.ID,
 		chatCtx:            chatCtx,
 		bufferedTrajectory: bufferedTrajectory,
@@ -752,37 +754,20 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
 	// A library turn never gets answer-time tools (P3-R5): every catalog tool
-	// is KB-scoped, and kbID is "" there.
-	useAnswerTools := !p.library && ChatAnswerToolsEnabled(ctx, h.siteConfigReader) && h.toolDispatcher != nil
-	// answerToolsDispatcher/catalog default to the unrestricted pair; a
-	// per-route allowlist (W6-R8) narrows both together below so the catalog
+	// is KB-scoped, and kbID is "" there; answerToolsForTurn enforces it.
+	// answerToolsForTurn resolves the base catalog (admin flag and/or the
+	// user's per-turn webSearch switch) and then the per-route allowlist
+	// (W6-R8), narrowing dispatcher and catalog together so the catalog
 	// projection and the dispatch boundary can never drift apart.
-	var answerToolsDispatcher ToolDispatcher = h.toolDispatcher
-	var catalog []ai.ChatTool
-	if useAnswerTools {
-		mcpDisp, _ := h.toolDispatcher.(*MCPDispatcher)
-		if mcpDisp != nil {
-			catalog = mcpDisp.AnswerToolCatalog(p.kbID)
-		}
-		byRoute := ChatAnswerToolsByRoute(ctx, h.siteConfigReader)
-		if allow, ok, decision, reason := resolveAnswerToolsRoute(byRoute, p.queryType, p.isGlobalSynthesis); ok {
-			answerToolsDispatcher, catalog = restrictToolsForRoute(h.toolDispatcher, catalog, allow, true)
-			routeEvt := TrajectoryEvent{
-				Stage:    "answer_tools_route",
-				Decision: decision,
-				Reason:   reason,
-				Findings: len(catalog),
-			}
-			if routeEvt.Reason == "" && len(catalog) == 0 {
-				// Findings is omitempty, so a bare {stage, decision} frame
-				// cannot be told apart from "no findings key" — this is the
-				// one case an operator debugging a route restriction most
-				// wants to see (the loop is about to be skipped entirely).
-				routeEvt.Reason = "catalog empty; tool loop skipped"
-			}
-			emitTrajectory(func(pl map[string]any) { writeSSE(ctx, w, pl) }, routeEvt, nil)
-		}
-	}
+	answerTools, useAnswerTools := h.answerToolsForTurn(ctx, answerToolsInput{
+		kbID:              p.kbID,
+		lang:              p.lang,
+		queryType:         p.queryType,
+		isGlobalSynthesis: p.isGlobalSynthesis,
+		webSearch:         p.webSearch,
+		library:           p.library,
+	}, func(pl map[string]any) { writeSSE(ctx, w, pl) })
+	catalog := answerTools.catalog
 	// A route restriction can filter the catalog down to empty; running the
 	// tool loop with zero tools would be pointless scaffolding, so that case
 	// falls through to the plain streaming answer below instead.
@@ -803,11 +788,11 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			AIResolver:      h.aiResolver,
 			KbID:            p.kbID,
 			ChatID:          p.chatID,
-			SystemPrompt:    systemPrompt,
+			SystemPrompt:    answerTools.systemPrompt(systemPrompt),
 			UserPrompt:      p.userMessage,
 			History:         p.history,
 			Tools:           catalog,
-			Dispatcher:      answerToolsDispatcher,
+			Dispatcher:      answerTools.dispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
 			ReasoningEffort: p.reasoningLevel,
 			Temperature:     ChatAnswerTemperature(ctx, h.siteConfigReader),
@@ -888,6 +873,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		// restriction (or fix-round-2's unknown-query-type case) can
 		// leave useAnswerTools true while this is false.
 		"answer_tools_path", runAnswerTools,
+		"web_search_requested", webSearchLogValue(p.webSearch),
 		"tool_calls", toolCallsThisTurn,
 	)
 	p.span.SetAttributes(

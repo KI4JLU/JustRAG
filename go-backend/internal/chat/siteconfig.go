@@ -1307,6 +1307,20 @@ func ChatAnswerToolsMaxRounds(ctx context.Context, reader SiteConfigReader) int 
 	return readInt(ctx, reader, "chat_answer_tools_max_rounds", 5, 1, 10)
 }
 
+// ChatWebSearchEnabled is the admin gate for the per-turn web-search opt-in
+// (the chat request's webSearch field). GLOBAL-ONLY: it has no
+// kbConfigRegistry row, so a per-KB or per-agent overlay can never switch it
+// on. Default off. web_search is a privileged tool (mcp.PrivilegedTools) and
+// injected KB content in the answer prompt is the threat model, so a user's
+// request alone never enables it: this flag is what the web-search-only
+// dispatcher's allowPrivileged comes from (baseAnswerTools), and a turn
+// asking for web search while it is off is refused with a 422 before any
+// side effect (refuseWebSearchTurn). It also needs web_search_enabled and
+// the Google credentials (websearch.Resolve).
+func ChatWebSearchEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_web_search_enabled", false)
+}
+
 // ChatAnswerTemperature is the sampling temperature for user-facing answer
 // generation (streaming chat + answer-tools paths). Default 0.3 — a moderate
 // value that keeps answers grounded while avoiding the long-context coherence

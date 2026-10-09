@@ -202,6 +202,9 @@ var ignoredKeys = map[string]string{
 	"agents_allow_privileged_tools": "security gate, system-admin only",
 	"langfuse_base_url":             "observability config",
 	"chat_turn_budget_seconds":      "operational budget",
+	// Admin gate for the per-turn web-search opt-in (privileged web_search
+	// tool): a security gate on the answer node's tool catalog, global-only.
+	"chat_web_search_enabled": "security gate for the per-turn web_search opt-in, global-only",
 
 	// Observability / sampling — no user-visible pipeline stage.
 	"ragas_sampling_enabled":       "background eval sampling",
