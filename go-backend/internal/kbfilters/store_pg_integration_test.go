@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration tests for migration 0077 and the kbfilters store.
+// Integration tests for migration 0086 and the kbfilters store.
 //
 // Oracle: PostgreSQL's own constraint machinery. Every assertion in the
 // "constraints" half below is made against a RAW statement executed straight

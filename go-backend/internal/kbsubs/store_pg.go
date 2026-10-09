@@ -28,7 +28,7 @@ type CatalogEntry struct {
 	Subscribed  bool     `json:"subscribed"  db:"subscribed"`
 	CategoryIDs []string `json:"categoryIds" db:"category_ids"`
 
-	// The caller's own topic filters (migration 0077, internal/kbfilters).
+	// The caller's own topic filters (migration 0086, internal/kbfilters).
 	// IsFavorite is orthogonal to Subscribed above: Subscribed answers "is
 	// this tile in my overview", IsFavorite "did I star it for the Favoriten
 	// chip". UserCategoryIDs are the caller's private categories, unrelated

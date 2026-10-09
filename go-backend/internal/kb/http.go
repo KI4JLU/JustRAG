@@ -89,7 +89,7 @@ type KBRow struct {
 	MemberCount int     `json:"memberCount"`
 
 	// UserFilters carries the caller's own topic filters for the shell's chip
-	// row (migration 0077, owned by internal/kbfilters). Embedded as a
+	// row (migration 0086, owned by internal/kbfilters). Embedded as a
 	// pointer so encoding/json flattens isFavorite/userCategoryIds into the
 	// row when it is set and omits both keys when it is nil.
 	//

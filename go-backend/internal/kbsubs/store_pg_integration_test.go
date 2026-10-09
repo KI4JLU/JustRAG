@@ -405,7 +405,7 @@ func TestCatalog_HeaderTextIsSearchedAndDisplayed(t *testing.T) {
 }
 
 // TestCatalog_UserFilterColumnsArePerCaller pins the two per-user topic
-// filter columns (migration 0077) the catalog query now joins in.
+// filter columns (migration 0086) the catalog query now joins in.
 //
 // Oracle: the fixture rows this test writes by hand before the query runs —
 // it knows who starred and tagged the KB because it inserted those rows. The

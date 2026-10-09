@@ -441,7 +441,7 @@ func TestDeleteKB_RemovesInviteLinks(t *testing.T) {
 }
 
 // TestDeleteKBAndUser_RemoveTopicFilters: the per-user topic filters
-// (migration 0077) leave with the KB they point at and with the user who
+// (migration 0086) leave with the KB they point at and with the user who
 // owns them. Like TestDeleteKB_RemovesInviteLinks above, this pins the end
 // state and cannot tell the explicit DELETE steps from the FKs' ON DELETE
 // CASCADE — the explicit lines follow this file's enumeration convention.
