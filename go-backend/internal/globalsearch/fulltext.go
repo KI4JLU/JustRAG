@@ -33,7 +33,7 @@ const maxIndexedChars = 100000
 
 // messageTSVector renders the tsvector expression for a message content
 // column. It MUST stay textually identical to the index expression of
-// migration 0076 (messages_content_fts_idx), or the planner cannot use the
+// migration 0085 (messages_content_fts_idx), or the planner cannot use the
 // index — TestMessageSearchUsesFullTextIndex pins that.
 func messageTSVector(col string) string {
 	return `to_tsvector('` + ftsConfig + `', left(` + col + `, ` + strconv.Itoa(maxIndexedChars) + `))`

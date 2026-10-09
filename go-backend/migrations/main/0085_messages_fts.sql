@@ -25,7 +25,7 @@
 -- the whole build. If the build fails it leaves an INVALID index that
 -- IF NOT EXISTS then skips — drop it (DROP INDEX CONCURRENTLY
 -- messages_content_fts_idx) and re-run. cmd/migrate connects with
--- statement_timeout=0, so the build is not cancelled half way. As for 0075,
+-- statement_timeout=0, so the build is not cancelled half way. As for 0084,
 -- run a single cmd/migrate instance: a concurrent one waiting for the
 -- migration advisory lock holds a snapshot this build waits for, and is
 -- aborted as a deadlock.

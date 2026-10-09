@@ -89,7 +89,7 @@ var topicsSQL = `WITH ` + visibleKBsCTE + `
 //
 // Rank: 0 prefix, 1 substring, 2 fuzzy (by similarity desc); ties by
 // case-folded name, then id. Both arms of the WHERE are served by
-// files_name_trgm_idx (migration 0075) — see TestSearchQueriesUseTrigramIndexes.
+// files_name_trgm_idx (migration 0084) — see TestSearchQueriesUseTrigramIndexes.
 var sourcesSQL = `WITH ` + visibleKBsCTE + `
 	SELECT f.id::text AS id, f.name, f.type, v.id::text AS kb_id, v.name AS kb_name,
 	       CASE r.rank WHEN 0 THEN '` + MatchPrefix + `' WHEN 1 THEN '` + MatchSubstring + `'
@@ -152,7 +152,7 @@ var chatsSQL = `WITH ` + visibleKBsCTE + `
 //
 // query_ts is MATERIALIZED so the tsquery is built once; referenced through
 // scalar subqueries it becomes an InitPlan parameter, which the planner can
-// use as the Index Cond of messages_content_fts_idx (migration 0076).
+// use as the Index Cond of messages_content_fts_idx (migration 0085).
 // ts_headline — the expensive part — runs only on the final, limited rows,
 // and structurally so: ORDER BY + LIMIT sit in a subquery over best (a
 // subquery with LIMIT is never flattened into its parent), and ts_headline is

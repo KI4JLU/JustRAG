@@ -34,7 +34,7 @@ const (
 	// MinQueryLen is counted in runes after trimming, so "äöü" is a valid
 	// three-character query even though it is six bytes. Three, not two: a
 	// two-character ILIKE pattern contains no complete trigram, so the
-	// pg_trgm indexes of migration 0075 cannot narrow it (measured on
+	// pg_trgm indexes of migration 0084 cannot narrow it (measured on
 	// Postgres 18.6, 50 000 rows: '%ab%' is planned as a sequential scan,
 	// '%abc%' as a bitmap index scan), and the message full-text search
 	// drops lexemes shorter than three characters anyway (minLexemeLen).

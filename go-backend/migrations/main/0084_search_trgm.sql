@@ -21,7 +21,7 @@
 --     statement_timeout=0 (internal/migrate.openSQL), so a long build is not
 --     cancelled half way.
 --
--- Run a SINGLE cmd/migrate instance for this migration (and 0076). cmd/migrate
+-- Run a SINGLE cmd/migrate instance for this migration (and 0085). cmd/migrate
 -- serialises runs with a session advisory lock, and the lock's holder runs
 -- this file — but a CONCURRENTLY build waits for every transaction in the
 -- database that holds an older snapshot, and that includes a second

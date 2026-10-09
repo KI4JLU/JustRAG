@@ -16,7 +16,7 @@
 // before the query ran: one hit per chat (the best-ranked), a snippet that is
 // safe plain text with our delimiters only, a tsquery that cannot be steered
 // by operator syntax in the input, prefix matching, fuzzy chat titles, and
-// EXPLAIN evidence that messages_content_fts_idx (migration 0076) is used.
+// EXPLAIN evidence that messages_content_fts_idx (migration 0085) is used.
 //
 // Fixtures write the values production writes: AI messages have
 // role = 'ai' (internal/chat), academic research chats
@@ -507,7 +507,7 @@ func TestMessageSearchUsesFullTextIndex(t *testing.T) {
 	}
 }
 
-// An oversize message must still be writable with migration 0076's index in
+// An oversize message must still be writable with migration 0085's index in
 // place. Without the left(content, 100000) guard, to_tsvector on this
 // content raises "string is too long for tsvector" (measured on Postgres
 // 18.6: 30 000 distinct 32-character tokens already exceed the 1 MB cap) and
@@ -681,5 +681,47 @@ func TestSnippetIsComputedAboveTheLimit(t *testing.T) {
 		if strings.Contains(plan[i], "ts_headline") {
 			t.Errorf("ts_headline evaluated at or below the Limit: %q", strings.TrimSpace(plan[i]))
 		}
+	}
+}
+
+// TestLibraryChatsNeverMatch pins that a library chat (type 'library',
+// kb_id NULL — user file library phase 3, migration 0081) never appears,
+// not even for its own owner and not even for a superadmin: its messages
+// answer from private library files, and both groups reach chats only
+// through the visible-KB join, which a NULL kb_id never satisfies. A KB
+// chat with the same title and message text is the positive control.
+func TestLibraryChatsNeverMatch(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := globalsearch.NewStore(pool)
+	m := marker(t)
+	caller := superCaller(t, pool, m)
+	kbID := insertKB(t, pool, kbSpec{name: hexOnlyDigits(m) + "-library", visibility: "private"})
+
+	const text = "Zwiebelkuchenrezept Bibliotheksnotiz"
+	control := insertChat(t, pool, kbID, caller.UserID, text, "chat")
+	insertMessage(t, pool, control, "user", text)
+
+	var library string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO chats (kb_id, user_id, title, type) VALUES (NULL, $1::uuid, $2, 'library')
+		RETURNING id::text`, caller.UserID, text).Scan(&library); err != nil {
+		t.Fatalf("insert library chat: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM chats WHERE id = $1::uuid`, library)
+	})
+	insertMessage(t, pool, library, "user", text)
+	insertMessage(t, pool, library, "ai", text)
+
+	got, err := store.Search(ctx, caller, globalsearch.Query{Text: "Zwiebelkuchenrezept", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := chatIDs(got.Chats); !contains(ids, control) || contains(ids, library) {
+		t.Errorf("chat hits = %v, want the KB chat %s and never the library chat %s", ids, control, library)
+	}
+	if ids := messageChatIDs(got.Messages); !contains(ids, control) || contains(ids, library) {
+		t.Errorf("message hits = %v, want the KB chat %s and never the library chat %s", ids, control, library)
 	}
 }

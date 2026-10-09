@@ -848,7 +848,7 @@ func TestFuzzyRanksAfterLiteral(t *testing.T) {
 
 // TestSearchQueriesUseTrigramIndexes plans the exact production SQL
 // (exported via export_test.go) with EXPLAIN and asserts that both match arms
-// are answered from the trigram GIN indexes of migration 0075.
+// are answered from the trigram GIN indexes of migration 0084.
 //
 // Heavy (200 000 rows, ANALYZE files): opt-in via JUSTRAG_PLAN_TESTS=1, see
 // the file header.

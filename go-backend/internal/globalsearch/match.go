@@ -15,7 +15,7 @@ import (
 // (escaped ILIKE) OR is fuzzily similar to it (pg_trgm word similarity). Each
 // hit is labelled with the best tier it reached, and the tiers rank the
 // results: prefix > substring > fuzzy, fuzzy by similarity descending.
-// Migration 0075 provides the pg_trgm extension and the GIN trigram indexes
+// Migration 0084 provides the pg_trgm extension and the GIN trigram indexes
 // that let the planner answer both arms from an index.
 
 // FuzzyThreshold is the minimum pg_trgm word_similarity(q, column) for a

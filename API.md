@@ -117,7 +117,7 @@ The shell header's global search: one request, one object with four arrays —
   addressed resource.)
 - Matching is **fuzzy**: a hit is either a case-insensitive literal substring
   (`ILIKE`, with `%`, `_` and `\` escaped) or trigram-similar to `q`
-  (`pg_trgm` word similarity ≥ 0.4, migration 0075), so a typo such as
+  (`pg_trgm` word similarity ≥ 0.4, migration 0084), so a typo such as
   `Statsitik` still finds `Statistik`. Topics match on name (substring or
   fuzzy) and on description and header text (substring only: fuzzy on long
   free text is noise). Sources match on the file name (substring or fuzzy).
@@ -131,7 +131,7 @@ The shell header's global search: one request, one object with four arrays —
 - **Chats** match on the title exactly like file names (substring or fuzzy,
   same `match` tiers and order); ties go to the most recently updated chat.
 - **Messages** match on content with Postgres full-text search
-  (`to_tsvector('simple', …)`, migration 0076): the query is split into words
+  (`to_tsvector('simple', …)`, migration 0085): the query is split into words
   by Postgres' own parser and every word must occur as a **word prefix**
   (`Statis` finds `Statistik`), case-insensitive, without stemming or
   typo tolerance. Words shorter than 3 characters are ignored (`abc de`
