@@ -1,13 +1,15 @@
 module github.com/justrag/go-backend
 
-go 1.26.6
+go 1.26.9
 
-// The go directive is 1.26.6 because google.golang.org/adk/v2 requires it.
-// That floor also carries the crypto/x509, crypto/tls, net/http, net/url,
-// html/template, net/textproto, encoding/xml, and encoding/asn1 security
-// fixes (govulncheck GO-2026-4865 … GO-2026-5039, GO-2026-5856, and
-// GO-2026-5026/5972/6088/6089/6090/6091/6218 — the seven that 1.26.6
-// closes). Bump it as new stdlib advisories land — CI runs
+// The go directive started at 1.26.6 because google.golang.org/adk/v2
+// requires it. That floor also carries the crypto/x509, crypto/tls,
+// net/http, net/url, html/template, net/textproto, encoding/xml, and
+// encoding/asn1 security fixes (govulncheck GO-2026-4865 … GO-2026-5039,
+// GO-2026-5856, and GO-2026-5026/5972/6088/6089/6090/6091/6218 — the seven
+// that 1.26.6 closes); 1.26.9 closes the net/http and net/textproto
+// advisories GO-2026-6607 … GO-2026-6617, together with golang.org/x/net
+// v0.60.0. Bump it as new stdlib advisories land — CI runs
 // `govulncheck ./...` and will fail if it falls behind. Every entry above
 // was *called* code, not a latent import.
 
@@ -35,10 +37,10 @@ require (
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/rs/cors v1.11.1
 	github.com/xuri/excelize/v2 v2.11.0
-	golang.org/x/crypto v0.56.0
-	golang.org/x/net v0.58.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0
-	golang.org/x/text v0.41.0
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.15.0
 )
 
@@ -216,9 +218,9 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
-	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
 	google.golang.org/api v0.298.0 // indirect
 	google.golang.org/genproto v0.0.0-20260904194346-d0f1323225a4 // indirect
