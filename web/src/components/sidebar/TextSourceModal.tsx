@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useId } from 'react';
 import { Download } from 'lucide-react';
 import {
     Button, Dialog, DialogContent, DialogTitle, Input, RichTextEditor, type RichTextEditorLabels,
@@ -94,10 +94,19 @@ const TextSourceModalComp: React.FC<TextSourceModalProps> = ({
 }) => {
     const { t } = useTheme();
     const labels = useEditorLabels();
+    const errorId = useId();
+    // Both are required: `POST /api/kb/{id}/text` answers a blank title or
+    // body with a 400, which would only surface after the dialog closed.
     const { errors, validate, clearError } = useFormValidation({
-        content: (v) => !v.trim() && t('fieldRequired'),
+        title: (v) => !v.trim() && t('textTitleRequired'),
+        content: (v) => !v.trim() && t('textContentRequired'),
     });
-    const submit = () => { if (validate({ content: textSourceContent })) onTextSourceAdd(); };
+    const submit = () => {
+        if (validate({ title: textSourceTitle, content: textSourceContent })) onTextSourceAdd();
+    };
+    // One slot in the 56px header row; each invalid control points at it. The
+    // DS turns the borderless title's and the bare editor's placeholder red.
+    const errorText = [errors.title, errors.content].filter(Boolean).join(' · ');
 
     return (
         <EditorDialog
@@ -113,10 +122,12 @@ const TextSourceModalComp: React.FC<TextSourceModalProps> = ({
                             aria-label={t('textTitle')}
                             placeholder={t('textTitle')}
                             value={textSourceTitle}
-                            onChange={(e) => setTextSourceTitle(e.target.value)}
+                            onChange={(e) => { setTextSourceTitle(e.target.value); clearError('title'); }}
+                            aria-invalid={errors.title ? true : undefined}
+                            aria-describedby={errors.title ? errorId : undefined}
                         />
                     </div>
-                    {errors.content && <span className="field-error" role="alert">{errors.content}</span>}
+                    {errorText && <span id={errorId} className="field-error shrink-0" role="alert">{errorText}</span>}
                     <Button size="sm" onClick={submit}>{t('addTextSource')}</Button>
                 </>
             )}
@@ -129,6 +140,7 @@ const TextSourceModalComp: React.FC<TextSourceModalProps> = ({
                 value={textSourceContent}
                 onChange={(md: string) => { setTextSourceContent(md); clearError('content'); }}
                 aria-invalid={errors.content ? true : undefined}
+                aria-describedby={errors.content ? errorId : undefined}
                 labels={labels}
                 // eslint-disable-next-line jsx-a11y/no-autofocus -- the body is what the dialog is for; focus it on open (WAI-ARIA dialog pattern)
                 autoFocus

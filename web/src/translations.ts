@@ -660,6 +660,8 @@ export const translations = {
     insertText: { de: 'Text einfügen', en: 'Insert Text' },
     textTitle: { de: 'Titel', en: 'Title' },
     textContent: { de: 'Inhalt', en: 'Content' },
+    textTitleRequired: { de: 'Titel ist erforderlich', en: 'Title is required' },
+    textContentRequired: { de: 'Inhalt ist erforderlich', en: 'Content is required' },
     addTextSource: { de: 'Text hinzufügen', en: 'Add Text' },
     backToUpload: { de: 'Zurück zum Hochladen', en: 'Back to Upload' },
 
