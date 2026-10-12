@@ -154,9 +154,12 @@ function AuthenticatedAppInner() {
   const kbSettings = useKbSettings();
   const viewState = useViewState({ setView, setKbView, setShowSettings: kbSettings.setShowSettings });
 
-  // Onboarding Tour
-  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('onboardingCompleted'));
-  const handleCloseOnboarding = useCallback(() => { setShowOnboarding(false); localStorage.setItem('onboardingCompleted', 'true'); }, []);
+  // TEMPORARY (2026-10-12): the onboarding tour opens only from its help
+  // button; the automatic tour on first login is switched off for now. To bring
+  // it back, initialise from `!localStorage.getItem('onboardingCompleted')` and
+  // set that key again on close.
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const handleCloseOnboarding = useCallback(() => setShowOnboarding(false), []);
 
 
   // Sidebar resize

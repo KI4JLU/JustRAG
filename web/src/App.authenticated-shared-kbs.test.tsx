@@ -85,8 +85,6 @@ beforeEach(() => {
   localStorage.setItem('token', 'test-token');
   localStorage.setItem('user', JSON.stringify({ id: 'user-1', username: 'grace', role: 'user' }));
   localStorage.setItem('language', 'de');
-  // The tour would otherwise open over the overview on a first visit.
-  localStorage.setItem('onboardingCompleted', 'true');
 
   // Every GET the authenticated tree fires on mount answers empty. The point
   // is the provider tree and the route, not the data.

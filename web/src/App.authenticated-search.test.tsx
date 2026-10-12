@@ -129,7 +129,6 @@ beforeEach(() => {
   localStorage.setItem('token', 'test-token');
   localStorage.setItem('user', JSON.stringify({ id: 'user-1', username: 'grace', role: 'user' }));
   localStorage.setItem('language', 'de');
-  localStorage.setItem('onboardingCompleted', 'true');
   routeGets();
 });
 

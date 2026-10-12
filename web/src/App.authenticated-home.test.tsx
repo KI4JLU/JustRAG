@@ -111,8 +111,6 @@ beforeEach(() => {
   localStorage.setItem('token', 'test-token');
   seedUser('user');
   localStorage.setItem('language', 'de');
-  // The tour would otherwise open over the overview on a first visit.
-  localStorage.setItem('onboardingCompleted', 'true');
 
   // Every GET the authenticated tree fires on mount answers empty. The point
   // is the provider tree, not the data.
@@ -314,6 +312,20 @@ describe('App — the KB overview on the authenticated home route', () => {
     const dialog = within(await screen.findByRole('dialog', { name: translations.settings.en }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsGeneral.en })).toBeInTheDocument();
     expect(dialog.queryByText(translations.settingsGeneral.de)).toBeNull();
+  });
+
+  // TEMPORARY, with the switch-off in AuthenticatedApp.tsx: remove or invert
+  // this test when the automatic tour comes back.
+  // A first login is storage with a token and a user and nothing else, which is
+  // what beforeEach leaves. ORACLE: translations.ts for both names, WAI-ARIA's
+  // dialog role.
+  it('opens no tour on a first login, and the help button still opens it', async () => {
+    render(<App />);
+    await findOverviewHeading();
+    expect(screen.queryByRole('dialog', { name: translations.onboardingWelcomeTitle.de })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: translations.onboardingReopenTour.de }));
+    expect(await screen.findByRole('dialog', { name: translations.onboardingWelcomeTitle.de })).toBeInTheDocument();
   });
 
   it('renders the onboarding-tour trigger under exactly one stable id', async () => {
