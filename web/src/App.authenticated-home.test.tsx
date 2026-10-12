@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
 import { translations } from './translations';
+import { setSettingsDialogOpen, setSettingsDialogTab } from './hooks/settingsDialog';
 
 /* ---------------------------------------------------------------------------
  * The test that KI-740's lesson demands for KI-770.
@@ -86,6 +87,11 @@ function seedUser(role: 'user' | 'admin') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The settings dialog's open state is a module store (hooks/settingsDialog.ts),
+  // so it outlives a test's unmount: a test that opened it would leave the next
+  // App mounting with the dialog open and the page aria-hidden behind it.
+  setSettingsDialogOpen(false);
+  setSettingsDialogTab('general');
   // The sidebar's user menu is a Radix dropdown: it measures and captures
   // pointers, and jsdom implements neither. Same shim the admin suites use
   // (AdminEvalTab.test.tsx:56) — it enables opening the menu with a click,

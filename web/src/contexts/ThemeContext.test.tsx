@@ -7,40 +7,42 @@
  * while saying nothing about whether THIS APP mounts it. That gap is the
  * KI-740 failure mode verbatim: a provider a test supplies is not a provider
  * production supplies. It is also the exact defect that produced this card —
- * the app chrome renders the DS `ThemeToggle`, and with no DS provider in the
- * tree it throws `useTheme must be used within a ThemeProvider`. (KI-776 hit
- * that because `AppShellLayout` rendered the toggle itself; since 0.26.0 it is
- * `AppChrome`'s sidebar footer that does — KI-788. The dependency is the
- * same either way, which is why this file did not have to move.)
+ * the app chrome rendered the DS `ThemeToggle`, and with no DS provider in the
+ * tree it throws `useTheme must be used within a ThemeProvider`. DS 0.45.0
+ * removed `ThemeToggle`; its successor `AppearanceSettings` (the colour-scheme
+ * row of the settings window) reads the same DS context and throws the same
+ * way, so it takes the toggle's place here.
  *
  * So this file renders the REAL `ThemeProvider` from `contexts/ThemeContext`
- * with the REAL DS `ThemeToggle` inside it, and drives it with real clicks.
+ * with the REAL DS `AppearanceSettings` inside it, and drives its colour-scheme
+ * Select with the keyboard and real clicks.
  * Nothing here is mocked except the browser APIs jsdom does not implement
  * (`localStorage`, `matchMedia`).
  *
  * ORACLES, all independent of this repo's code:
- *  - The three accessible names come from the installed @ki4jlu/design-system's
- *    own `ThemeToggle` defaults ("Helles Design" / "Systemdesign" / "Dunkles
- *    Design"), not from anything here.
- *  - `aria-pressed` is WAI-ARIA's own state for a toggle button.
+ *  - The row name and the three option names come from the installed
+ *    @ki4jlu/design-system's own `AppearanceSettings` defaults ("Farbschema";
+ *    "Hell" / "System" / "Dunkel"), not from anything here.
+ *  - A Select's combobox shows its selected option's text (WAI-ARIA combobox).
  *  - `localStorage['theme']` and `<html data-theme>` are the two observable
  *    outputs a returning visit and a stylesheet respectively depend on.
  *
- * THE ASSERTION THAT MATTERS MOST is `every option is actually pressable`. The
+ * THE ASSERTION THAT MATTERS MOST is `every option is actually selectable`. The
  * rejected alternative on this card — mounting the DS provider in controlled
  * mode over a two-state app model — renders perfectly and passes a smoke test,
- * and fails exactly here: its middle option can never become pressed.
+ * and fails exactly here: its `system` option can never become selected.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ThemeToggle } from '@ki4jlu/design-system';
+import { AppearanceSettings } from '@ki4jlu/design-system';
 import { ThemeProvider, useTheme } from './ThemeContext';
 
-/** DS ThemeToggle's default labels, in its own DOM order. */
-const LIGHT = 'Helles Design';
-const SYSTEM = 'Systemdesign';
-const DARK = 'Dunkles Design';
+/** DS AppearanceSettings' default labels: the row, then its three options. */
+const ROW = 'Farbschema';
+const LIGHT = 'Hell';
+const SYSTEM = 'System';
+const DARK = 'Dunkel';
 
 let store: Record<string, string> = {};
 const storageMock = {
@@ -92,7 +94,7 @@ function appTheme(): string {
 function renderApp() {
   return render(
     <ThemeProvider>
-      <ThemeToggle />
+      <AppearanceSettings />
       <Probe />
     </ThemeProvider>,
   );
@@ -104,13 +106,25 @@ function painted(): string | null {
 
 const CONTRAST_QUERY = '(prefers-contrast: more), (forced-colors: active)';
 
-function pressedOption(): string | undefined {
-  return [LIGHT, SYSTEM, DARK].find(
-    (name) => screen.getByRole('button', { name }).getAttribute('aria-pressed') === 'true',
-  );
+/** The colour-scheme option the DS Select currently shows as selected. */
+function selectedOption(): string | null {
+  return screen.getByRole('combobox', { name: ROW }).textContent;
+}
+
+/** Open the colour-scheme Select with the keyboard (Radix Select's jsdom-safe path) and pick `name`. */
+async function choose(user: ReturnType<typeof userEvent.setup>, name: string) {
+  screen.getByRole('combobox', { name: ROW }).focus();
+  await user.keyboard('{Enter}');
+  await user.click(await screen.findByRole('option', { name }));
+  await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
 }
 
 beforeEach(() => {
+  // Radix Select scrolls its selected option into view and captures the
+  // pointer; jsdom implements neither.
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.releasePointerCapture = vi.fn();
   store = {};
   listeners.clear();
   prefersDark = false;
@@ -132,16 +146,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('ThemeProvider — the design system toggle the app shell renders', () => {
-  it('mounts a DS ThemeProvider, so the DS ThemeToggle renders instead of throwing', () => {
+describe('ThemeProvider — the design system appearance settings the app renders', () => {
+  it('mounts a DS ThemeProvider, so the DS AppearanceSettings render instead of throwing', () => {
     expect(() => renderApp()).not.toThrow();
-    // ORACLE: the DS component's own three default labels.
-    expect(screen.getByRole('button', { name: LIGHT })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: SYSTEM })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: DARK })).toBeInTheDocument();
+    // ORACLE: the DS component's own default row label; nothing stored yet, so `system`.
+    expect(screen.getByRole('combobox', { name: ROW })).toBeInTheDocument();
+    expect(selectedOption()).toBe(SYSTEM);
   });
 
-  it('every option is actually pressable — including the middle one', async () => {
+  it('every option is actually selectable — including system', async () => {
     const user = userEvent.setup();
     prefersDark = true; // so `system` is distinguishable from a pinned light
     renderApp();
@@ -151,11 +164,10 @@ describe('ThemeProvider — the design system toggle the app shell renders', () 
       [DARK, 'dark', 'dark'],
       [SYSTEM, 'system', 'dark'],
     ] as const) {
-      await user.click(screen.getByRole('button', { name }));
+      await choose(user, name);
 
-      // ORACLE: WAI-ARIA aria-pressed. Exactly one option is selected, and it
-      // is the one that was clicked.
-      expect(pressedOption()).toBe(name);
+      // ORACLE: the combobox shows the option that was picked.
+      expect(selectedOption()).toBe(name);
       expect(appTheme()).toBe(`${choice}/${resolved}`);
       expect(painted()).toBe(resolved);
       // ORACLE: the storage key a returning visit reads.
@@ -166,7 +178,8 @@ describe('ThemeProvider — the design system toggle the app shell renders', () 
   it('never paints data-theme="system" — the attribute always carries a resolved value', async () => {
     const user = userEvent.setup();
     renderApp();
-    await user.click(screen.getByRole('button', { name: SYSTEM }));
+    await choose(user, DARK);
+    await choose(user, SYSTEM);
     expect(appTheme()).toBe('system/light');
     expect(painted()).toBe('light');
 
@@ -177,15 +190,15 @@ describe('ThemeProvider — the design system toggle the app shell renders', () 
     expect(appTheme()).toBe('system/dark');
   });
 
-  it('a pin made through the toggle survives a reload', async () => {
+  it('a pin made through the settings survives a reload', async () => {
     const user = userEvent.setup();
     const first = renderApp();
-    await user.click(screen.getByRole('button', { name: DARK }));
+    await choose(user, DARK);
     first.unmount();
 
     // A "reload" is a fresh mount reading the same storage. Nothing else carries over.
     renderApp();
-    expect(pressedOption()).toBe(DARK);
+    expect(selectedOption()).toBe(DARK);
     expect(painted()).toBe('dark');
   });
 
@@ -195,7 +208,7 @@ describe('ThemeProvider — the design system toggle the app shell renders', () 
     // would resolve to light and be visible.
     store.theme = 'dark';
     renderApp();
-    expect(pressedOption()).toBe(DARK);
+    expect(selectedOption()).toBe(DARK);
     expect(appTheme()).toBe('dark/dark');
     expect(painted()).toBe('dark');
   });
