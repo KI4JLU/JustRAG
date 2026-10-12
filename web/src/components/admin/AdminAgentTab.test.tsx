@@ -46,6 +46,19 @@ const STORAGE_KEY = 'admin-agent-sections-open-v1';
  * `openMap` from localStorage), and with real state so a control's write is
  * observable. `latest()` returns the current site_configs record.
  */
+/**
+ * A labelled field, found through its own `<label for>`. ORACLE as with
+ * getByLabelText — the visible label names the control — but without its cost:
+ * getByLabelText scans every label and `aria-labelledby` in this tab's ~180
+ * controls, ~1.9 s per call locally and past the 15 s test timeout on CI.
+ */
+function fieldByLabel(text: string): HTMLElement {
+    const label = screen.getByText(text, { selector: 'label' });
+    const el = document.getElementById(label.getAttribute('for') ?? '');
+    if (!el) throw new Error(`label "${text}" names no element`);
+    return el;
+}
+
 function renderTab(initial: Record<string, string> = {}) {
     const seen: { configs: Record<string, string> } = { configs: initial };
 
@@ -286,17 +299,14 @@ describe('AdminAgentTab — bindings survive the migration', () => {
         // it is just not what this test is about.
         const { latest } = renderTab({ default_top_k: '5' });
 
-        const field = screen.getByLabelText(tMock('defaultTopK'));
+        const field = fieldByLabel(tMock('defaultTopK'));
         expect(field).toHaveValue(5); // jsdom reports number inputs numerically
 
         fireEvent.change(field, { target: { value: '12' } });
 
         expect(latest().default_top_k).toBe('12');
         expect(typeof latest().default_top_k).toBe('string');
-        expect(screen.getByLabelText(tMock('defaultTopK'))).toHaveValue(12);
-        // Two getByLabelText scans over every section expanded (~180 controls
-        // since the upstream Wave 3–7 settings) run past the 5s default when
-        // the full suite loads the machine; alone it takes well under a second.
+        expect(fieldByLabel(tMock('defaultTopK'))).toHaveValue(12);
     }, 15000);
 
     it('keeps the min/max/step validation attributes on the control', () => {
@@ -305,7 +315,7 @@ describe('AdminAgentTab — bindings survive the migration', () => {
         // Slot that dropped unknown props would silently remove the browser's
         // range validation.
         renderTab();
-        const field = screen.getByLabelText(tMock('defaultTopK'));
+        const field = fieldByLabel(tMock('defaultTopK'));
         expect(field).toHaveAttribute('min', '1');
         expect(field).toHaveAttribute('max', '50');
     });
@@ -317,18 +327,11 @@ describe('AdminAgentTab — conditional disabling', () => {
         // crag_min_relevant_chunks row. 39 rows depend on this passing through
         // FormControl's Slot, so it is worth one assertion.
         const { latest } = renderTab({ crag_enabled: 'false' });
-        // The field through its own <label for>: getByLabelText took ~1.9 s per
-        // call on this tab locally (several times that on CI, which timed out).
-        const minChunks = () => {
-            const label = screen.getByText(tMock('cragMinRelevantChunks'), { selector: 'label' });
-            return document.getElementById(label.getAttribute('for')!)!;
-        };
+        const minChunks = () => fieldByLabel(tMock('cragMinRelevantChunks'));
 
         expect(minChunks()).toBeDisabled();
 
-        // getByLabelText, not getByRole: a role query computes every accessible
-        // name in this tab's hundreds of controls.
-        const gate = screen.getByLabelText(tMock('cragEnabled'));
+        const gate = fieldByLabel(tMock('cragEnabled'));
         expect(gate).toHaveAttribute('role', 'checkbox');
         await userEvent.click(gate);
         expect(latest().crag_enabled).toBe('true');
@@ -528,8 +531,8 @@ describe('AdminAgentTab — submit', () => {
             raptor_clustering_algorithm: 'leiden',
         });
 
-        expect(screen.getByLabelText(tMock('chatGraphRoutingPPRDamping'))).toBeEnabled();
-        expect(screen.getByLabelText(tMock('raptorLeidenResolution'))).toBeEnabled();
+        expect(fieldByLabel(tMock('chatGraphRoutingPPRDamping'))).toBeEnabled();
+        expect(fieldByLabel(tMock('raptorLeidenResolution'))).toBeEnabled();
 
         const invalid = Array.from(container.querySelectorAll('input'))
             .filter(i => !i.checkValidity())
