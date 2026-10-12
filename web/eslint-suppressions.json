@@ -189,11 +189,6 @@
       "count": 7
     }
   },
-  "src/components/PreviewModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
   "src/components/ReloadPrompt.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 2
@@ -421,7 +416,7 @@
   },
   "src/components/sidebar/FileUploadModal.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 5
+      "count": 1
     }
   },
   "src/components/sidebar/GitRepoModal.tsx": {
