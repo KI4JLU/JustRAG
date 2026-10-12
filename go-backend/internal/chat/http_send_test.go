@@ -105,8 +105,12 @@ func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *
 	return nil
 }
 
-func (m *mockStore) UpdateChatTitle(_ context.Context, _, _ string) error {
+func (m *mockStore) UpdateChatTitle(_ context.Context, _, _, _ string) error {
 	return nil
+}
+
+func (m *mockStore) StarterContext(_ context.Context, _ string, _ int) (StarterSource, error) {
+	return StarterSource{}, nil
 }
 
 // ---------------------------------------------------------------------------

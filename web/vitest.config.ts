@@ -115,7 +115,11 @@ export default defineConfig({
         environment: 'jsdom',
         css: false,
         setupFiles: ['src/test/setup.ts'],
-        include: ['src/**/*.test.{ts,tsx}']
+        include: ['src/**/*.test.{ts,tsx}'],
+        // The full-page tests (AdminAgentTab, KBOverviewDashboard, HomeView, …)
+        // run 1–2 s locally but past vitest's 5 s default on a loaded CI runner,
+        // where they failed as timeouts, not assertions.
+        testTimeout: 15000
       }
     },
     storybookProject('storybook', '.storybook'),

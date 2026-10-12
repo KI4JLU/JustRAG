@@ -11,13 +11,19 @@ import (
 	"github.com/justrag/go-backend/internal/chat"
 )
 
-func TestRAGSystemPrompt_LanguageAndDedent(t *testing.T) {
+// Oracle: the prompts' fixed opening lines ("Du bist JustRAG" / "You are
+// JustRAG"), and the chat send path's language fallback (an unsupported or
+// missing language is answered in German, defaultLanguage) — the endpoint
+// must show the prompt a turn with the same language input would get. The
+// numbered rules must start their line in what is served (the source literal
+// indents them).
+func TestRAGSystemPrompt_LanguageAndDisplayForm(t *testing.T) {
 	h := chat.NewHandler(&mockStore{}, nil, nil)
 	for _, tc := range []struct{ query, lang, opening string }{
 		{"?lang=de", "de", "Du bist JustRAG"},
 		{"?lang=en", "en", "You are JustRAG"},
-		{"", "en", "You are JustRAG"},
-		{"?lang=fr", "en", "You are JustRAG"},
+		{"", "de", "Du bist JustRAG"},
+		{"?lang=fr", "de", "Du bist JustRAG"},
 	} {
 		rr := httptest.NewRecorder()
 		h.RAGSystemPrompt(rr, httptest.NewRequest(http.MethodGet, "/api/chat/rag-system-prompt"+tc.query, nil))
@@ -31,8 +37,6 @@ func TestRAGSystemPrompt_LanguageAndDedent(t *testing.T) {
 		if body.Language != tc.lang || !strings.HasPrefix(body.Prompt, tc.opening) {
 			t.Fatalf("%q: got lang %q, prompt starts %q", tc.query, body.Language, body.Prompt[:20])
 		}
-		// Oracle: the literal indents its numbered rule lines ("    1.") by four
-		// spaces; after dedent they start the line. Sub-items stay nested.
 		if regexp.MustCompile(`(?m)^ +\d+[a-z]?\. `).MatchString(body.Prompt) {
 			t.Fatalf("%q: a numbered rule keeps its source indentation", tc.query)
 		}

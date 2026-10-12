@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/kbaccess"
+	apperrors "github.com/justrag/go-backend/internal/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,8 +30,9 @@ type mockStore struct {
 	messages []chat.MessageRow
 	err      error
 
-	// title passed to the most recent UpdateChatTitle call
-	renamedTo string
+	// args of the most recent UpdateChatTitle call; renameErr is returned
+	renamedID, renamedBy, renamedTo string
+	renameErr                       error
 
 	// captured args from the most recent UpdateMessageFeedback call
 	lastUserID   string
@@ -90,9 +94,13 @@ func (m *mockStore) GetKBSystemPrompt(_ context.Context, _ string) (*string, err
 	return nil, nil
 }
 
-func (m *mockStore) UpdateChatTitle(_ context.Context, _ string, title string) error {
-	m.renamedTo = title
-	return nil
+func (m *mockStore) UpdateChatTitle(_ context.Context, chatID, userID, title string) error {
+	m.renamedID, m.renamedBy, m.renamedTo = chatID, userID, title
+	return m.renameErr
+}
+
+func (m *mockStore) StarterContext(_ context.Context, _ string, _ int) (chat.StarterSource, error) {
+	return chat.StarterSource{}, m.err
 }
 
 func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
@@ -276,54 +284,113 @@ func TestDeleteChat_OtherUser_404(t *testing.T) {
 // Tests: RenameChat
 // ---------------------------------------------------------------------------
 
+// renameChatID is a valid chat id in a non-canonical spelling (upper case):
+// the handler must pass on uuid.Parse's canonical lower-case form.
+const (
+	renameChatID          = "6F9619FF-8B86-D011-B42D-00C04FC964FF"
+	renameChatIDCanonical = "6f9619ff-8b86-d011-b42d-00c04fc964ff"
+)
+
+func renameRequest(id string, title string, user *auth.Claims) *http.Request {
+	req := withUser(newRequest(http.MethodPatch, "/api/chats/"+id, map[string]string{"title": title}), user)
+	req.SetPathValue("id", id)
+	return req
+}
+
+// Oracle: the request's own inputs — the store must receive the trimmed title,
+// the caller's user id and the canonical form of the path id.
 func TestRenameChat_OK(t *testing.T) {
-	chatRow := makeChat("chat-1", "kb-1", "user-1")
-	store := &mockStore{chat: &chatRow}
+	store := &mockStore{}
 	h := chat.NewHandler(store, nil, nil)
 
-	req := withUser(newRequest(http.MethodPatch, "/api/chats/chat-1", map[string]string{"title": "  Budget 2027 "}), testUser())
 	rr := httptest.NewRecorder()
-	h.RenameChat(rr, req)
+	h.RenameChat(rr, renameRequest(renameChatID, "  Budget 2027 ", testUser()))
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if store.renamedTo != "Budget 2027" {
-		t.Fatalf("expected trimmed title persisted, got %q", store.renamedTo)
+	if store.renamedTo != "Budget 2027" || store.renamedBy != "user-1" || store.renamedID != renameChatIDCanonical {
+		t.Fatalf("store got (%q, %q, %q), want (%q, user-1, Budget 2027)", store.renamedID, store.renamedBy, store.renamedTo, renameChatIDCanonical)
 	}
 }
 
-func TestRenameChat_EmptyTitle_400(t *testing.T) {
-	chatRow := makeChat("chat-1", "kb-1", "user-1")
-	store := &mockStore{chat: &chatRow}
+// Oracle: the maintainer's rule — a malformed path id is a 404 and never
+// reaches the store (the raw value would make Postgres fail with a 500).
+func TestRenameChat_MalformedID_404(t *testing.T) {
+	store := &mockStore{}
 	h := chat.NewHandler(store, nil, nil)
-
-	req := withUser(newRequest(http.MethodPatch, "/api/chats/chat-1", map[string]string{"title": "   "}), testUser())
-	rr := httptest.NewRecorder()
-	h.RenameChat(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rr.Code)
-	}
-	if store.renamedTo != "" {
-		t.Fatalf("store must not be touched, got %q", store.renamedTo)
+	for _, id := range []string{"chat-1", "urn:uuid:", ""} {
+		rr := httptest.NewRecorder()
+		h.RenameChat(rr, renameRequest(id, "x", testUser()))
+		if rr.Code != http.StatusNotFound || store.renamedTo != "" {
+			t.Fatalf("id %q: got %d (store saw %q), want 404 and no store call", id, rr.Code, store.renamedTo)
+		}
 	}
 }
 
-func TestRenameChat_OtherUser_404(t *testing.T) {
-	chatRow := makeChat("chat-1", "kb-1", "user-1")
-	store := &mockStore{chat: &chatRow}
-	h := chat.NewHandler(store, nil, nil)
-
-	req := withUser(newRequest(http.MethodPatch, "/api/chats/chat-1", map[string]string{"title": "x"}), otherUser())
-	rr := httptest.NewRecorder()
-	h.RenameChat(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", rr.Code)
+// Oracle: the length limit counts characters. 200 "ä" are 400 bytes and must
+// pass; 201 characters must not.
+func TestRenameChat_TitleLengthCountsRunes(t *testing.T) {
+	for _, tc := range []struct {
+		title string
+		want  int
+	}{
+		{strings.Repeat("ä", 200), http.StatusNoContent},
+		{strings.Repeat("ä", 201), http.StatusBadRequest},
+		{"   ", http.StatusBadRequest},
+	} {
+		store := &mockStore{}
+		h := chat.NewHandler(store, nil, nil)
+		rr := httptest.NewRecorder()
+		h.RenameChat(rr, renameRequest(renameChatID, tc.title, testUser()))
+		if rr.Code != tc.want {
+			t.Fatalf("title of %d runes: got %d, want %d", len([]rune(tc.title)), rr.Code, tc.want)
+		}
+		if tc.want != http.StatusNoContent && store.renamedTo != "" {
+			t.Fatalf("rejected title reached the store: %q", store.renamedTo)
+		}
 	}
-	if store.renamedTo != "" {
-		t.Fatalf("store must not be touched, got %q", store.renamedTo)
+}
+
+// Oracle: a chat title is one line — whitespace runs (incl. line breaks)
+// collapse to one space; any other control character is refused.
+func TestRenameChat_TitleIsOneLine(t *testing.T) {
+	for _, tc := range []struct {
+		title     string
+		wantCode  int
+		wantStore string
+	}{
+		{"Budget\n\t2027\u2028plan", http.StatusNoContent, "Budget 2027 plan"},
+		{"Budget\x00 2027", http.StatusBadRequest, ""},
+		{"Budget\u200b\x07", http.StatusBadRequest, ""},
+	} {
+		store := &mockStore{}
+		h := chat.NewHandler(store, nil, nil)
+		rr := httptest.NewRecorder()
+		h.RenameChat(rr, renameRequest(renameChatID, tc.title, testUser()))
+		if rr.Code != tc.wantCode || store.renamedTo != tc.wantStore {
+			t.Fatalf("title %q: got %d / store %q, want %d / %q", tc.title, rr.Code, store.renamedTo, tc.wantCode, tc.wantStore)
+		}
+	}
+}
+
+// Oracle: the store contract — store.ErrNotFound (not the owner, or no such
+// chat) is a 404; any other error a 500.
+func TestRenameChat_StoreErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{fmt.Errorf("chat x: %w", apperrors.ErrNotFound), http.StatusNotFound},
+		{errors.New("connection reset"), http.StatusInternalServerError},
+	} {
+		store := &mockStore{renameErr: tc.err}
+		h := chat.NewHandler(store, nil, nil)
+		rr := httptest.NewRecorder()
+		h.RenameChat(rr, renameRequest(renameChatID, "x", otherUser()))
+		if rr.Code != tc.want {
+			t.Fatalf("store error %v: got %d, want %d", tc.err, rr.Code, tc.want)
+		}
 	}
 }
 

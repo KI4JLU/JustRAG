@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration tests for migration 0075 and the kbfilters store.
+// Integration tests for migration 0086 and the kbfilters store.
 //
 // Oracle: PostgreSQL's own constraint machinery. Every assertion in the
 // "constraints" half below is made against a RAW statement executed straight
@@ -213,10 +213,10 @@ func TestDeletingACategoryCascadesItsLinks(t *testing.T) {
 	}
 }
 
-// TestDeletingAKBCascadesFavouritesAndLinks: neither table may keep a
-// dangling reference to a deleted topic — a stale favourite would be a chip
+// TestDeletingAKBCascadesFavoritesAndLinks: neither table may keep a
+// dangling reference to a deleted topic — a stale favorite would be a chip
 // filtering for something that no longer exists.
-func TestDeletingAKBCascadesFavouritesAndLinks(t *testing.T) {
+func TestDeletingAKBCascadesFavoritesAndLinks(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := kbfilters.NewStore(pool)
@@ -228,8 +228,8 @@ func TestDeletingAKBCascadesFavouritesAndLinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCategory: %v", err)
 	}
-	if err := store.AddFavourite(ctx, user, kbID); err != nil {
-		t.Fatalf("AddFavourite: %v", err)
+	if err := store.AddFavorite(ctx, user, kbID); err != nil {
+		t.Fatalf("AddFavorite: %v", err)
 	}
 	if err := store.AssignCategory(ctx, user, cat.ID, kbID); err != nil {
 		t.Fatalf("AssignCategory: %v", err)
@@ -239,8 +239,8 @@ func TestDeletingAKBCascadesFavouritesAndLinks(t *testing.T) {
 		t.Fatalf("delete KB: %v", err)
 	}
 	if n := countRows(t, pool,
-		`SELECT COUNT(*)::int FROM kb_favourites WHERE kb_id = $1::uuid`, kbID); n != 0 {
-		t.Errorf("favourite rows after KB delete = %d, want 0", n)
+		`SELECT COUNT(*)::int FROM kb_favorites WHERE kb_id = $1::uuid`, kbID); n != 0 {
+		t.Errorf("favorite rows after KB delete = %d, want 0", n)
 	}
 	if n := countRows(t, pool,
 		`SELECT COUNT(*)::int FROM kb_user_category_links WHERE kb_id = $1::uuid`, kbID); n != 0 {
@@ -262,8 +262,8 @@ func TestDeletingAUserCascadesTheirFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCategory: %v", err)
 	}
-	if err := store.AddFavourite(ctx, user, kbID); err != nil {
-		t.Fatalf("AddFavourite: %v", err)
+	if err := store.AddFavorite(ctx, user, kbID); err != nil {
+		t.Fatalf("AddFavorite: %v", err)
 	}
 	if err := store.AssignCategory(ctx, user, cat.ID, kbID); err != nil {
 		t.Fatalf("AssignCategory: %v", err)
@@ -276,7 +276,7 @@ func TestDeletingAUserCascadesTheirFilters(t *testing.T) {
 		what string
 		sql  string
 	}{
-		{"kb_favourites", `SELECT COUNT(*)::int FROM kb_favourites WHERE user_id = $1::uuid`},
+		{"kb_favorites", `SELECT COUNT(*)::int FROM kb_favorites WHERE user_id = $1::uuid`},
 		{"kb_user_categories", `SELECT COUNT(*)::int FROM kb_user_categories WHERE user_id = $1::uuid`},
 		{"kb_user_category_links", `SELECT COUNT(*)::int FROM kb_user_category_links WHERE user_id = $1::uuid`},
 	} {
@@ -290,11 +290,11 @@ func TestDeletingAUserCascadesTheirFilters(t *testing.T) {
 // The store's own contract
 // ---------------------------------------------------------------------------
 
-// TestFavouriteIsIdempotentAndPerUser: the row's existence is the flag, so
+// TestFavoriteIsIdempotentAndPerUser: the row's existence is the flag, so
 // PUT twice must not be an error and DELETE of an absent row must not be
 // either — the client is declaring a state, not a transition. And one user's
 // star must be invisible to another.
-func TestFavouriteIsIdempotentAndPerUser(t *testing.T) {
+func TestFavoriteIsIdempotentAndPerUser(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := kbfilters.NewStore(pool)
@@ -303,36 +303,36 @@ func TestFavouriteIsIdempotentAndPerUser(t *testing.T) {
 	userB := insertTestUser(t, pool, "kbfilters-fav-b")
 	kbID := insertTestKB(t, pool, "kbfilters-fav-kb")
 
-	if err := store.AddFavourite(ctx, userA, kbID); err != nil {
-		t.Fatalf("AddFavourite: %v", err)
+	if err := store.AddFavorite(ctx, userA, kbID); err != nil {
+		t.Fatalf("AddFavorite: %v", err)
 	}
-	if err := store.AddFavourite(ctx, userA, kbID); err != nil {
-		t.Fatalf("AddFavourite twice: %v", err)
-	}
-	if n := countRows(t, pool,
-		`SELECT COUNT(*)::int FROM kb_favourites WHERE kb_id = $1::uuid`, kbID); n != 1 {
-		t.Fatalf("favourite rows = %d, want 1 after two PUTs", n)
+	if err := store.AddFavorite(ctx, userA, kbID); err != nil {
+		t.Fatalf("AddFavorite twice: %v", err)
 	}
 	if n := countRows(t, pool,
-		`SELECT COUNT(*)::int FROM kb_favourites WHERE kb_id = $1::uuid AND user_id = $2::uuid`,
+		`SELECT COUNT(*)::int FROM kb_favorites WHERE kb_id = $1::uuid`, kbID); n != 1 {
+		t.Fatalf("favorite rows = %d, want 1 after two PUTs", n)
+	}
+	if n := countRows(t, pool,
+		`SELECT COUNT(*)::int FROM kb_favorites WHERE kb_id = $1::uuid AND user_id = $2::uuid`,
 		kbID, userB); n != 0 {
-		t.Errorf("user B has %d favourite rows for a KB only user A starred, want 0", n)
+		t.Errorf("user B has %d favorite rows for a KB only user A starred, want 0", n)
 	}
 
-	if err := store.RemoveFavourite(ctx, userB, kbID); err != nil {
-		t.Fatalf("RemoveFavourite of an absent row: %v, want nil", err)
+	if err := store.RemoveFavorite(ctx, userB, kbID); err != nil {
+		t.Fatalf("RemoveFavorite of an absent row: %v, want nil", err)
 	}
 	if n := countRows(t, pool,
-		`SELECT COUNT(*)::int FROM kb_favourites WHERE kb_id = $1::uuid`, kbID); n != 1 {
-		t.Fatalf("favourite rows = %d after B's no-op delete, want A's 1 untouched", n)
+		`SELECT COUNT(*)::int FROM kb_favorites WHERE kb_id = $1::uuid`, kbID); n != 1 {
+		t.Fatalf("favorite rows = %d after B's no-op delete, want A's 1 untouched", n)
 	}
 
-	if err := store.RemoveFavourite(ctx, userA, kbID); err != nil {
-		t.Fatalf("RemoveFavourite: %v", err)
+	if err := store.RemoveFavorite(ctx, userA, kbID); err != nil {
+		t.Fatalf("RemoveFavorite: %v", err)
 	}
 	if n := countRows(t, pool,
-		`SELECT COUNT(*)::int FROM kb_favourites WHERE kb_id = $1::uuid`, kbID); n != 0 {
-		t.Fatalf("favourite rows = %d after A's delete, want 0", n)
+		`SELECT COUNT(*)::int FROM kb_favorites WHERE kb_id = $1::uuid`, kbID); n != 0 {
+		t.Fatalf("favorite rows = %d after A's delete, want 0", n)
 	}
 }
 
@@ -390,7 +390,7 @@ func TestAnotherUsersCategoryIsInvisible(t *testing.T) {
 }
 
 // TestAssignCategoryIsIdempotentAndUnassignIsANoOpWhenAbsent mirrors the
-// favourite contract: PUT and DELETE declare a state.
+// favorite contract: PUT and DELETE declare a state.
 func TestAssignCategoryIsIdempotentAndUnassignIsANoOpWhenAbsent(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -440,5 +440,80 @@ func TestAssignToAMissingCategoryIsNotFound(t *testing.T) {
 	err := store.AssignCategory(ctx, user, "00000000-0000-0000-0000-000000000000", kbID)
 	if !errors.Is(err, kbfilters.ErrNotFound) {
 		t.Fatalf("AssignCategory(nonexistent category) = %v, want ErrNotFound", err)
+	}
+}
+
+// TestCategoryLimitIsEnforcedWithTheInsert: the 51st category is refused with
+// ErrCategoryLimit and writes nothing, the limit is per user, and freeing a
+// slot makes room again. Oracle: the number 50 from the feature's spec and
+// raw COUNT(*) queries on the table — not the store's own return values.
+func TestCategoryLimitIsEnforcedWithTheInsert(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kbfilters.NewStore(pool)
+
+	full := insertTestUser(t, pool, "kbfilters-limit-full")
+	other := insertTestUser(t, pool, "kbfilters-limit-other")
+
+	var last *kbfilters.UserCategory
+	for i := 0; i < 50; i++ {
+		c, err := store.CreateCategory(ctx, full, fmt.Sprintf("kbfilters-limit-%02d", i), int32(i))
+		if err != nil {
+			t.Fatalf("CreateCategory #%d: %v, want success up to 50", i+1, err)
+		}
+		last = c
+	}
+
+	if _, err := store.CreateCategory(ctx, full, "kbfilters-limit-51", 0); !errors.Is(err, kbfilters.ErrCategoryLimit) {
+		t.Fatalf("CreateCategory #51 = %v, want ErrCategoryLimit", err)
+	}
+	if n := countRows(t, pool,
+		`SELECT COUNT(*)::int FROM kb_user_categories WHERE user_id = $1::uuid`, full); n != 50 {
+		t.Fatalf("categories after the refused insert = %d, want 50", n)
+	}
+
+	// Another user's count is their own.
+	if _, err := store.CreateCategory(ctx, other, "kbfilters-limit-00", 0); err != nil {
+		t.Fatalf("CreateCategory(other user) = %v, want success — the limit is per user", err)
+	}
+
+	// Deleting one frees exactly one slot.
+	if err := store.DeleteCategory(ctx, full, last.ID); err != nil {
+		t.Fatalf("DeleteCategory: %v", err)
+	}
+	if _, err := store.CreateCategory(ctx, full, "kbfilters-limit-again", 0); err != nil {
+		t.Fatalf("CreateCategory after freeing a slot = %v, want success", err)
+	}
+}
+
+// TestPostgresRefusesWhatTheHandlerGuards grounds the handler's 400s in the
+// database's real behaviour. Each statement is raw SQL against the pool with
+// no kbfilters code in the path; Postgres is the oracle. If one of these ever
+// stopped failing, the matching handler check would be guarding nothing; as
+// long as they fail, the handler check is what keeps them from being a 500.
+func TestPostgresRefusesWhatTheHandlerGuards(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	user := insertTestUser(t, pool, "kbfilters-pg-guards")
+
+	for _, tc := range []struct {
+		name  string
+		sql   string
+		args  []any
+		state string
+	}{
+		{"NUL in a name", `INSERT INTO kb_user_categories (user_id, name) VALUES ($1::uuid, $2)`,
+			[]any{user, "Stu\x00dium"}, "22021"},
+		{"sort_order beyond int4", `INSERT INTO kb_user_categories (user_id, name, sort_order) VALUES ($1::uuid, 'x', $2::bigint)`,
+			[]any{user, int64(2147483648)}, "22003"},
+		{"urn:uuid: id", `SELECT $1::text::uuid`,
+			[]any{"urn:uuid:0f8fad5b-d9cb-469f-a165-70867728950e"}, "22P02"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, tc.sql, tc.args...)
+			if got := sqlState(err); got != tc.state {
+				t.Fatalf("SQLSTATE = %q (%v), want %s", got, err, tc.state)
+			}
+		})
 	}
 }

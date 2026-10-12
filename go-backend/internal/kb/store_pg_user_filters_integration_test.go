@@ -1,7 +1,7 @@
 //go:build integration
 
-// Integration tests for the per-user topic filter columns (migration 0075)
-// that the two KB list queries now join in: isFavourite and userCategoryIds.
+// Integration tests for the per-user topic filter columns (migration 0086)
+// that the session-facing KB reads join in: isFavorite and userCategoryIds.
 //
 // Oracle: the fixture rows, written by hand with raw SQL before the query
 // runs. The test knows which user starred which KB and which category it
@@ -15,6 +15,7 @@ package kb_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,6 +36,39 @@ func insertUserCategory(t *testing.T, pool *pgxpool.Pool, userID, name string) s
 	return id
 }
 
+// starAndTag writes userID's favorite and one category link on kbID by hand.
+func starAndTag(t *testing.T, pool *pgxpool.Pool, userID, catID, kbID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO kb_favorites (user_id, kb_id) VALUES ($1::uuid, $2::uuid)`,
+		userID, kbID); err != nil {
+		t.Fatalf("insert kb_favorites: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO kb_user_category_links (user_id, category_id, kb_id)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid)`, userID, catID, kbID); err != nil {
+		t.Fatalf("insert kb_user_category_links: %v", err)
+	}
+}
+
+// insertPublicKB creates a public KB with the given publish/auto-subscribe
+// flags and no members.
+func insertPublicKB(t *testing.T, pool *pgxpool.Pool, name string, published, autoSubscribe bool) string {
+	t.Helper()
+	ctx := context.Background()
+	var kbID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO knowledge_bases (name, visibility, is_published, auto_subscribe)
+		VALUES ($1, 'public', $2, $3) RETURNING id::text`, name, published, autoSubscribe).Scan(&kbID); err != nil {
+		t.Fatalf("insert public KB: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, kbID) //nolint:errcheck
+	})
+	return kbID
+}
+
 // findRow returns the KB with id from a list result, or nil.
 func findRow(list []kb.KBRow, id string) *kb.KBRow {
 	for i := range list {
@@ -45,11 +79,53 @@ func findRow(list []kb.KBRow, id string) *kb.KBRow {
 	return nil
 }
 
-// TestListKnowledgeBases_UserFilterColumnsArePerCaller pins the join on
+// assertStarred checks that row carries the caller's star and exactly catID.
+func assertStarred(t *testing.T, label string, row *kb.KBRow, catID string) {
+	t.Helper()
+	if row == nil {
+		t.Fatalf("%s: KB missing from the result", label)
+	}
+	if row.UserFilters == nil {
+		t.Fatalf("%s: UserFilters is nil, want the caller's filters", label)
+	}
+	if !row.IsFavorite {
+		t.Errorf("%s: isFavorite = false for the user who starred it, want true", label)
+	}
+	if len(row.UserCategoryIDs) != 1 || row.UserCategoryIDs[0] != catID {
+		t.Errorf("%s: userCategoryIds = %v, want [%s]", label, row.UserCategoryIDs, catID)
+	}
+}
+
+// assertUntouched checks that row carries filters, but none of them set —
+// the view of a user who never starred or tagged the KB.
+func assertUntouched(t *testing.T, label string, row *kb.KBRow) {
+	t.Helper()
+	if row == nil {
+		t.Fatalf("%s: KB missing from the result", label)
+	}
+	if row.UserFilters == nil {
+		t.Fatalf("%s: UserFilters is nil, want the caller's (empty) filters", label)
+	}
+	if row.IsFavorite {
+		t.Errorf("%s: isFavorite = true for a user who never starred it — the query lost its user_id predicate", label)
+	}
+	if len(row.UserCategoryIDs) != 0 {
+		t.Errorf("%s: userCategoryIds = %v, want empty — those are another user's categories", label, row.UserCategoryIDs)
+	}
+	// The SQL's COALESCE(..., ARRAY[]::text[]) is the only thing that makes
+	// this non-nil: pgx scans a NULL array into a nil slice, and no Go code
+	// replaces it. Dropping the COALESCE fails this line, and the JSON would
+	// then read null instead of [].
+	if row.UserCategoryIDs == nil {
+		t.Errorf("%s: userCategoryIds is nil, want an empty slice so the JSON is [] rather than null", label)
+	}
+}
+
+// TestListKnowledgeBasesWithUserFilters_PerCaller pins the join on
 // GET /api/kb. Two members of the same private KB: one starred and tagged it,
 // the other did neither, and the same row must report different values for
 // each of them.
-func TestListKnowledgeBases_UserFilterColumnsArePerCaller(t *testing.T) {
+func TestListKnowledgeBasesWithUserFilters_PerCaller(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := kb.NewStore(pool)
@@ -72,56 +148,30 @@ func TestListKnowledgeBases_UserFilterColumnsArePerCaller(t *testing.T) {
 
 	// Fixture: only the owner stars and tags the KB.
 	catID := insertUserCategory(t, pool, owner, "kbfilters-list-cat")
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO kb_favourites (user_id, kb_id) VALUES ($1::uuid, $2::uuid)`,
-		owner, row.ID); err != nil {
-		t.Fatalf("insert kb_favourites: %v", err)
-	}
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO kb_user_category_links (user_id, category_id, kb_id)
-		 VALUES ($1::uuid, $2::uuid, $3::uuid)`, owner, catID, row.ID); err != nil {
-		t.Fatalf("insert kb_user_category_links: %v", err)
-	}
+	starAndTag(t, pool, owner, catID, row.ID)
 
-	ownerList, err := store.ListKnowledgeBases(ctx, owner, 100, 0)
+	ownerList, err := store.ListKnowledgeBasesWithUserFilters(ctx, owner, 100, 0)
 	if err != nil {
-		t.Fatalf("ListKnowledgeBases(owner): %v", err)
+		t.Fatalf("ListKnowledgeBasesWithUserFilters(owner): %v", err)
 	}
-	got := findRow(ownerList, row.ID)
-	if got == nil {
-		t.Fatalf("the owner's own KB %s is missing from their list", row.ID)
-	}
-	if !got.IsFavourite {
-		t.Error("isFavourite = false for the user who starred it, want true")
-	}
-	if len(got.UserCategoryIDs) != 1 || got.UserCategoryIDs[0] != catID {
-		t.Errorf("userCategoryIds = %v, want [%s]", got.UserCategoryIDs, catID)
-	}
+	assertStarred(t, "owner", findRow(ownerList, row.ID), catID)
 
-	memberList, err := store.ListKnowledgeBases(ctx, member, 100, 0)
+	memberList, err := store.ListKnowledgeBasesWithUserFilters(ctx, member, 100, 0)
 	if err != nil {
-		t.Fatalf("ListKnowledgeBases(member): %v", err)
+		t.Fatalf("ListKnowledgeBasesWithUserFilters(member): %v", err)
 	}
-	other := findRow(memberList, row.ID)
-	if other == nil {
-		t.Fatalf("the shared KB %s is missing from the second member's list", row.ID)
-	}
-	if other.IsFavourite {
-		t.Error("isFavourite = true for a user who never starred it — the query lost its user_id predicate")
-	}
-	if len(other.UserCategoryIDs) != 0 {
-		t.Errorf("userCategoryIds = %v, want empty — those are another user's categories", other.UserCategoryIDs)
-	}
-	// [] and not null: the frontend maps over the field directly.
-	if other.UserCategoryIDs == nil {
-		t.Error("userCategoryIds is nil, want an empty slice so the JSON is [] rather than null")
-	}
+	assertUntouched(t, "member", findRow(memberList, row.ID))
 }
 
-// TestListGlobalKnowledgeBases_UserFilterColumns pins the same join on
-// GET /api/kb/global, which is a different query with a different WHERE
-// clause and its own SELECT list.
-func TestListGlobalKnowledgeBases_UserFilterColumns(t *testing.T) {
+// TestListGlobalKnowledgeBasesWithUserFilters_BothArms pins the same join on
+// GET /api/kb/global, which is a different query from GET /api/kb — and has
+// two arms with their own SELECT lists. The non-admin arm is what the
+// overview calls; the isAdmin=true arm (every public KB, published or not)
+// is exercised per caller too, so a lost user_id predicate in either arm
+// fails here. Each arm is checked on a KB only it returns: a published,
+// auto-subscribed KB for the non-admin arm, and a staged one (unpublished,
+// no members) that only the admin arm lists.
+func TestListGlobalKnowledgeBasesWithUserFilters_BothArms(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	store := kb.NewStore(pool)
@@ -129,55 +179,128 @@ func TestListGlobalKnowledgeBases_UserFilterColumns(t *testing.T) {
 	starrer := insertUser(t, pool, "kbfilters-global-starrer")
 	bystander := insertUser(t, pool, "kbfilters-global-bystander")
 
-	var kbID string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO knowledge_bases (name, visibility, is_published, auto_subscribe)
-		VALUES ('kbfilters-global-kb', 'public', true, true) RETURNING id::text`).Scan(&kbID); err != nil {
-		t.Fatalf("insert public KB: %v", err)
-	}
-	t.Cleanup(func() {
-		pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, kbID) //nolint:errcheck
-	})
+	// Reached by the non-admin arm through auto-subscribe.
+	published := insertPublicKB(t, pool, "kbfilters-global-kb", true, true)
+	// Reached only by the admin arm: staged (unpublished), no members.
+	staged := insertPublicKB(t, pool, "kbfilters-global-staged", false, false)
 
 	catID := insertUserCategory(t, pool, starrer, "kbfilters-global-cat")
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO kb_favourites (user_id, kb_id) VALUES ($1::uuid, $2::uuid)`,
-		starrer, kbID); err != nil {
-		t.Fatalf("insert kb_favourites: %v", err)
+	starAndTag(t, pool, starrer, catID, published)
+	starAndTag(t, pool, starrer, catID, staged)
+
+	for _, arm := range []struct {
+		name    string
+		isAdmin bool
+		kbID    string
+	}{
+		{"non-admin arm", false, published},
+		{"admin arm", true, staged},
+	} {
+		mine, err := store.ListGlobalKnowledgeBasesWithUserFilters(ctx, starrer, arm.isAdmin)
+		if err != nil {
+			t.Fatalf("%s: ListGlobalKnowledgeBasesWithUserFilters(starrer): %v", arm.name, err)
+		}
+		assertStarred(t, arm.name+"/starrer", findRow(mine, arm.kbID), catID)
+
+		theirs, err := store.ListGlobalKnowledgeBasesWithUserFilters(ctx, bystander, arm.isAdmin)
+		if err != nil {
+			t.Fatalf("%s: ListGlobalKnowledgeBasesWithUserFilters(bystander): %v", arm.name, err)
+		}
+		assertUntouched(t, arm.name+"/bystander", findRow(theirs, arm.kbID))
 	}
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO kb_user_category_links (user_id, category_id, kb_id)
-		 VALUES ($1::uuid, $2::uuid, $3::uuid)`, starrer, catID, kbID); err != nil {
-		t.Fatalf("insert kb_user_category_links: %v", err)
+}
+
+// TestGetKnowledgeBase_UserFiltersArePerCaller pins the single-row read
+// behind GET /api/kb/{id} and the PATCH re-read: the same KB, two callers,
+// two answers.
+func TestGetKnowledgeBase_UserFiltersArePerCaller(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kb.NewStore(pool)
+
+	starrer := insertUser(t, pool, "kbfilters-get-starrer")
+	bystander := insertUser(t, pool, "kbfilters-get-bystander")
+	kbID := insertPublicKB(t, pool, "kbfilters-get-kb", true, false)
+
+	catID := insertUserCategory(t, pool, starrer, "kbfilters-get-cat")
+	starAndTag(t, pool, starrer, catID, kbID)
+
+	mine, err := store.GetKnowledgeBase(ctx, kbID, starrer)
+	if err != nil {
+		t.Fatalf("GetKnowledgeBase(starrer): %v", err)
+	}
+	assertStarred(t, "starrer", mine, catID)
+
+	theirs, err := store.GetKnowledgeBase(ctx, kbID, bystander)
+	if err != nil {
+		t.Fatalf("GetKnowledgeBase(bystander): %v", err)
+	}
+	assertUntouched(t, "bystander", theirs)
+}
+
+// TestAPIKeyListingsCarryNoUserFilters pins that the plain list methods — the
+// ones GET /api/v1/kb, /openai/v1/models and the KB router call — return no
+// per-user state, even for a caller who starred and tagged every KB in the
+// result. The JSON check is the contract an integration sees: neither key may
+// appear, not even as false or null.
+func TestAPIKeyListingsCarryNoUserFilters(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kb.NewStore(pool)
+
+	user := insertUser(t, pool, "kbfilters-apikey-user")
+	private, err := store.CreateKnowledgeBase(ctx, "kbfilters-apikey-private", nil, user, nil)
+	if err != nil {
+		t.Fatalf("CreateKnowledgeBase: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, private.ID) //nolint:errcheck
+	})
+	public := insertPublicKB(t, pool, "kbfilters-apikey-public", true, true)
+
+	catID := insertUserCategory(t, pool, user, "kbfilters-apikey-cat")
+	starAndTag(t, pool, user, catID, private.ID)
+	starAndTag(t, pool, user, catID, public)
+
+	check := func(label string, rows []kb.KBRow, kbID string) {
+		t.Helper()
+		row := findRow(rows, kbID)
+		if row == nil {
+			t.Fatalf("%s: KB %s missing from the result", label, kbID)
+		}
+		if row.UserFilters != nil {
+			t.Errorf("%s: UserFilters = %+v, want nil on an API-key listing", label, *row.UserFilters)
+		}
+		b, err := json.Marshal(row)
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", label, err)
+		}
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatalf("%s: unmarshal: %v", label, err)
+		}
+		for _, k := range []string{"isFavorite", "userCategoryIds"} {
+			if v, ok := m[k]; ok {
+				t.Errorf("%s: JSON carries %q = %s, want the key absent", label, k, v)
+			}
+		}
 	}
 
-	mine, err := store.ListGlobalKnowledgeBases(ctx, starrer, false)
+	personal, err := store.ListKnowledgeBases(ctx, user, 100, 0)
 	if err != nil {
-		t.Fatalf("ListGlobalKnowledgeBases(starrer): %v", err)
+		t.Fatalf("ListKnowledgeBases: %v", err)
 	}
-	got := findRow(mine, kbID)
-	if got == nil {
-		t.Fatalf("auto-subscribed public KB %s is missing from the overview", kbID)
-	}
-	if !got.IsFavourite {
-		t.Error("isFavourite = false for the user who starred it, want true")
-	}
-	if len(got.UserCategoryIDs) != 1 || got.UserCategoryIDs[0] != catID {
-		t.Errorf("userCategoryIds = %v, want [%s]", got.UserCategoryIDs, catID)
-	}
+	check("ListKnowledgeBases", personal, private.ID)
 
-	theirs, err := store.ListGlobalKnowledgeBases(ctx, bystander, false)
-	if err != nil {
-		t.Fatalf("ListGlobalKnowledgeBases(bystander): %v", err)
-	}
-	other := findRow(theirs, kbID)
-	if other == nil {
-		t.Fatalf("auto-subscribed public KB %s is missing from the bystander's overview", kbID)
-	}
-	if other.IsFavourite {
-		t.Error("isFavourite = true for a user who never starred it")
-	}
-	if len(other.UserCategoryIDs) != 0 {
-		t.Errorf("userCategoryIds = %v, want empty", other.UserCategoryIDs)
+	for _, isAdmin := range []bool{false, true} {
+		globals, err := store.ListGlobalKnowledgeBases(ctx, user, isAdmin)
+		if err != nil {
+			t.Fatalf("ListGlobalKnowledgeBases(isAdmin=%v): %v", isAdmin, err)
+		}
+		label := "ListGlobalKnowledgeBases(isAdmin=false)"
+		if isAdmin {
+			label = "ListGlobalKnowledgeBases(isAdmin=true)"
+		}
+		check(label, globals, public)
 	}
 }

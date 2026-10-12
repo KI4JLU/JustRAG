@@ -167,8 +167,12 @@ func (s *wiringStore) UpdateChatAgentSelection(context.Context, string, *string,
 	return nil
 }
 
-func (s *wiringStore) UpdateChatTitle(context.Context, string, string) error {
+func (s *wiringStore) UpdateChatTitle(context.Context, string, string, string) error {
 	return nil
+}
+
+func (s *wiringStore) StarterContext(context.Context, string, int) (StarterSource, error) {
+	return StarterSource{}, nil
 }
 
 var _ Store = (*wiringStore)(nil)

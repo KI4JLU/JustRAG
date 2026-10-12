@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -22,16 +24,17 @@ const maxCategoryNameLen = 100
 
 // Handler serves the per-user filter endpoints.
 //
-// Two access shapes, both authentication-only as far as a KB ROLE is
-// concerned:
+// Two access shapes:
 //
 //   - The /api/kb-user-categories routes carry no KB in the path at all. They
 //     touch only rows the caller owns, so the authenticate middleware is the
 //     whole gate (same pattern as GET /api/kb and GET /api/kb/catalog).
 //   - The /api/kb/{id}/... routes sit on kbViewChain. Starring or tagging is
-//     not a privilege — but it must not become a way to confirm that a KB
-//     exists that the caller cannot see, so the existing view chain is reused
-//     rather than a second visibility rule invented here.
+//     not a privilege, but it should only be possible on a topic the caller
+//     can open, and kbaccess.RequireKBRole(view) is the rule that already
+//     decides that: 404 for a KB that does not exist, 403 for one the caller
+//     may not see. Those are the same answers every other {id} route gives,
+//     so these routes reveal nothing the rest of the API does not.
 type Handler struct {
 	store Store
 }
@@ -41,26 +44,29 @@ func NewHandler(store Store) *Handler {
 	return &Handler{store: store}
 }
 
+// categoryRequest is the create/update body. SortOrder is decoded as int64 so
+// an out-of-range value reaches the explicit int32 check below as a 400,
+// rather than as a decode error or SQLSTATE 22003 on the int column.
 type categoryRequest struct {
 	Name      string `json:"name"`
-	SortOrder int    `json:"sortOrder"`
+	SortOrder int64  `json:"sortOrder"`
 }
 
 // ---------------------------------------------------------------------------
-// Favourites
+// Favorites
 // ---------------------------------------------------------------------------
 
-// AddFavourite handles PUT /api/kb/{id}/favourite.
-func (h *Handler) AddFavourite(w http.ResponseWriter, r *http.Request) {
-	h.setFavourite(w, r, true)
+// AddFavorite handles PUT /api/kb/{id}/favorite.
+func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
+	h.setFavorite(w, r, true)
 }
 
-// RemoveFavourite handles DELETE /api/kb/{id}/favourite.
-func (h *Handler) RemoveFavourite(w http.ResponseWriter, r *http.Request) {
-	h.setFavourite(w, r, false)
+// RemoveFavorite handles DELETE /api/kb/{id}/favorite.
+func (h *Handler) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
+	h.setFavorite(w, r, false)
 }
 
-func (h *Handler) setFavourite(w http.ResponseWriter, r *http.Request, on bool) {
+func (h *Handler) setFavorite(w http.ResponseWriter, r *http.Request, on bool) {
 	ctx := r.Context()
 
 	user := auth.UserFromContext(ctx)
@@ -79,12 +85,12 @@ func (h *Handler) setFavourite(w http.ResponseWriter, r *http.Request, on bool) 
 
 	var err error
 	if on {
-		err = h.store.AddFavourite(ctx, user.ID, access.KB.ID)
+		err = h.store.AddFavorite(ctx, user.ID, access.KB.ID)
 	} else {
-		err = h.store.RemoveFavourite(ctx, user.ID, access.KB.ID)
+		err = h.store.RemoveFavorite(ctx, user.ID, access.KB.ID)
 	}
 	if err != nil {
-		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to update favourite: %w", err))
+		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to update favorite: %w", err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -130,10 +136,13 @@ func (h *Handler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := h.store.CreateCategory(ctx, user.ID, body.Name, body.SortOrder)
+	cat, err := h.store.CreateCategory(ctx, user.ID, body.Name, int32(body.SortOrder))
 	switch {
 	case errors.Is(err, ErrDuplicateName):
 		httputil.WriteErrorCtx(ctx, w, http.StatusConflict, "a category with that name already exists")
+	case errors.Is(err, ErrCategoryLimit):
+		httputil.WriteErrorCtx(ctx, w, http.StatusConflict,
+			fmt.Sprintf("category limit reached (%d per user)", MaxCategoriesPerUser))
 	case err != nil:
 		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to create category: %w", err))
 	default:
@@ -161,7 +170,7 @@ func (h *Handler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := h.store.UpdateCategory(ctx, user.ID, catID, body.Name, body.SortOrder)
+	cat, err := h.store.UpdateCategory(ctx, user.ID, catID, body.Name, int32(body.SortOrder))
 	switch {
 	case errors.Is(err, ErrNotFound):
 		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "category not found")
@@ -263,27 +272,66 @@ func decodeCategoryRequest(w http.ResponseWriter, r *http.Request) (categoryRequ
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid request body")
 		return body, false
 	}
-	body.Name = strings.TrimSpace(body.Name)
-	if body.Name == "" {
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "name is required")
+	name, msg := normalizeCategoryName(body.Name)
+	if msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
 		return body, false
 	}
-	if utf8.RuneCountInString(body.Name) > maxCategoryNameLen {
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "name is too long")
+	body.Name = name
+	// kb_user_categories.sort_order is a Postgres int (int4). A wider value
+	// would fail the write with SQLSTATE 22003 and surface as a 500.
+	if body.SortOrder < math.MinInt32 || body.SortOrder > math.MaxInt32 {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "sortOrder must be a 32-bit integer")
 		return body, false
 	}
 	return body, true
 }
 
-// pathUUID reads a path parameter and rejects anything that is not a UUID.
-// Without this the malformed value would reach `$1::uuid` and surface as a
-// 500; a bad id in the path is a client error, and for these routes it is
-// indistinguishable from an id that does not exist.
+// normalizeCategoryName trims a chip label and returns it, or a non-empty
+// 400 message saying why it is unusable. The checks, in order:
+//
+//   - any control character (Unicode Cc, which includes NUL) is refused.
+//     Postgres rejects NUL in text with SQLSTATE 22021, which would be a
+//     500; newlines and tabs have no meaning in a one-line chip either.
+//   - a name with no visible character is refused as empty. Whitespace and
+//     format characters (Unicode Cf — zero-width space, joiners, direction
+//     marks) render as nothing, and strings.TrimSpace keeps the Cf ones, so a
+//     label of U+200B alone would otherwise be stored as an invisible chip.
+//   - the length is counted in runes against the varchar(100) column, so a
+//     non-ASCII label is not cut short by its byte length and an over-long
+//     one is a 400 rather than SQLSTATE 22001.
+func normalizeCategoryName(raw string) (string, string) {
+	name := strings.TrimSpace(raw)
+	visible := false
+	for _, c := range name {
+		if unicode.IsControl(c) {
+			return "", "name must not contain control characters"
+		}
+		if !unicode.IsSpace(c) && !unicode.Is(unicode.Cf, c) {
+			visible = true
+		}
+	}
+	if !visible {
+		return "", "name is required"
+	}
+	if utf8.RuneCountInString(name) > maxCategoryNameLen {
+		return "", "name is too long"
+	}
+	return name, ""
+}
+
+// pathUUID reads a path parameter, rejects anything that is not a UUID, and
+// returns the canonical form. uuid.Parse also accepts "urn:uuid:…", braced
+// and hyphen-less spellings that Postgres's ::uuid cast does not all accept,
+// so handing on the raw value could still end in a 500; parsed.String() is
+// the lower-case hyphenated form Postgres always takes. A bad id in the path
+// is a client error, and for these routes it is indistinguishable from an id
+// that does not exist, hence 404.
 func pathUUID(w http.ResponseWriter, r *http.Request, name string) (string, bool) {
-	raw := r.PathValue(name)
-	if _, err := uuid.Parse(raw); err != nil {
+	parsed, err := uuid.Parse(r.PathValue(name))
+	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "category not found")
 		return "", false
 	}
-	return raw, true
+	return parsed.String(), true
 }

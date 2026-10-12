@@ -405,7 +405,7 @@ func TestCatalog_HeaderTextIsSearchedAndDisplayed(t *testing.T) {
 }
 
 // TestCatalog_UserFilterColumnsArePerCaller pins the two per-user topic
-// filter columns (migration 0075) the catalog query now joins in.
+// filter columns (migration 0086) the catalog query now joins in.
 //
 // Oracle: the fixture rows this test writes by hand before the query runs —
 // it knows who starred and tagged the KB because it inserted those rows. The
@@ -426,7 +426,7 @@ func TestCatalog_UserFilterColumnsArePerCaller(t *testing.T) {
 		RETURNING id::text`, starrer).Scan(&catID); err != nil {
 		t.Fatalf("insert kb_user_categories: %v", err)
 	}
-	mustExec(t, pool, `INSERT INTO kb_favourites (user_id, kb_id) VALUES ($1::uuid, $2::uuid)`,
+	mustExec(t, pool, `INSERT INTO kb_favorites (user_id, kb_id) VALUES ($1::uuid, $2::uuid)`,
 		starrer, kbID)
 	mustExec(t, pool, `INSERT INTO kb_user_category_links (user_id, category_id, kb_id)
 	                   VALUES ($1::uuid, $2::uuid, $3::uuid)`, starrer, catID, kbID)
@@ -439,8 +439,8 @@ func TestCatalog_UserFilterColumnsArePerCaller(t *testing.T) {
 	if !ok {
 		t.Fatalf("KB %s missing from the catalog", kbID)
 	}
-	if !entry.IsFavourite {
-		t.Error("isFavourite = false for the user who starred it, want true")
+	if !entry.IsFavorite {
+		t.Error("isFavorite = false for the user who starred it, want true")
 	}
 	if len(entry.UserCategoryIDs) != 1 || entry.UserCategoryIDs[0] != catID {
 		t.Errorf("userCategoryIds = %v, want [%s]", entry.UserCategoryIDs, catID)
@@ -454,13 +454,16 @@ func TestCatalog_UserFilterColumnsArePerCaller(t *testing.T) {
 	if !ok {
 		t.Fatalf("KB %s missing from the bystander's catalog", kbID)
 	}
-	if other.IsFavourite {
-		t.Error("isFavourite = true for a user who never starred it")
+	if other.IsFavorite {
+		t.Error("isFavorite = true for a user who never starred it")
 	}
 	if len(other.UserCategoryIDs) != 0 {
 		t.Errorf("userCategoryIds = %v, want empty — those are another user's categories", other.UserCategoryIDs)
 	}
-	// COALESCE must yield [] and not NULL, or the []string scan fails.
+	// The SQL's COALESCE(..., ARRAY[]::text[]) is what keeps this non-nil:
+	// pgx scans a NULL array into a nil slice without error (it does not fail
+	// the scan), and CatalogEntry is serialised as scanned, so without the
+	// COALESCE the JSON would read null instead of [].
 	if other.UserCategoryIDs == nil {
 		t.Error("userCategoryIds is nil, want an empty slice")
 	}

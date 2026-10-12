@@ -1,12 +1,14 @@
 // Unit tests for the kbfilters HTTP surface.
 //
-// Oracle: the status contract written on board card KI-813 before any of this
-// code existed — PUT/DELETE favourite 204, list 200 with [] never null, create
-// 201, duplicate name 409, blank name 400, unknown-or-someone-else's category
-// 404, delete 204. It is independent of the code under test because the
-// expected codes were fixed in the card, and the store here is a fake whose
-// return values the test chooses: nothing in this file is derived from what
-// the handler happens to do.
+// Oracle: the status contract fixed in the feature's spec before any of this
+// code existed — PUT/DELETE favorite 204, list 200 with [] never null, create
+// 201, duplicate name or category limit 409, unusable name or out-of-range
+// sortOrder 400, unknown-or-someone-else's category 404, delete 204 — plus
+// the external limits the validation guards: Postgres's int4 range for
+// sort_order and its refusal of NUL in text. It is independent of the code
+// under test because the expected codes come from that spec and those limits,
+// and the store here is a fake whose return values the test chooses: nothing
+// in this file is derived from what the handler happens to do.
 //
 // What these tests deliberately do NOT prove: that a cross-user assignment is
 // actually refused. That rule lives in the schema, and asserting it against a
@@ -36,20 +38,20 @@ type fakeStore struct {
 
 	gotUserID, gotKBID, gotCatID string
 	gotName                      string
-	gotSortOrder                 int
+	gotSortOrder                 int32
 
 	categories []kbfilters.UserCategory
 	created    *kbfilters.UserCategory
 	err        error
 }
 
-func (f *fakeStore) AddFavourite(_ context.Context, userID, kbID string) error {
+func (f *fakeStore) AddFavorite(_ context.Context, userID, kbID string) error {
 	f.calls++
 	f.gotUserID, f.gotKBID = userID, kbID
 	return f.err
 }
 
-func (f *fakeStore) RemoveFavourite(_ context.Context, userID, kbID string) error {
+func (f *fakeStore) RemoveFavorite(_ context.Context, userID, kbID string) error {
 	f.calls++
 	f.gotUserID, f.gotKBID = userID, kbID
 	return f.err
@@ -61,13 +63,13 @@ func (f *fakeStore) ListCategories(_ context.Context, userID string) ([]kbfilter
 	return f.categories, f.err
 }
 
-func (f *fakeStore) CreateCategory(_ context.Context, userID, name string, sortOrder int) (*kbfilters.UserCategory, error) {
+func (f *fakeStore) CreateCategory(_ context.Context, userID, name string, sortOrder int32) (*kbfilters.UserCategory, error) {
 	f.calls++
 	f.gotUserID, f.gotName, f.gotSortOrder = userID, name, sortOrder
 	return f.created, f.err
 }
 
-func (f *fakeStore) UpdateCategory(_ context.Context, userID, catID, name string, sortOrder int) (*kbfilters.UserCategory, error) {
+func (f *fakeStore) UpdateCategory(_ context.Context, userID, catID, name string, sortOrder int32) (*kbfilters.UserCategory, error) {
 	f.calls++
 	f.gotUserID, f.gotCatID, f.gotName, f.gotSortOrder = userID, catID, name, sortOrder
 	return f.created, f.err
@@ -123,15 +125,15 @@ func withAccess(req *http.Request) *http.Request {
 }
 
 // ---------------------------------------------------------------------------
-// Favourites
+// Favorites
 // ---------------------------------------------------------------------------
 
-func TestAddFavouriteWritesTheAccessResultsKBID(t *testing.T) {
+func TestAddFavoriteWritesTheAccessResultsKBID(t *testing.T) {
 	store := &fakeStore{}
 	h := kbfilters.NewHandler(store)
 
 	rec := httptest.NewRecorder()
-	h.AddFavourite(rec, withAccess(authed(http.MethodPut, "/api/kb/"+testKBID+"/favourite", "")))
+	h.AddFavorite(rec, withAccess(authed(http.MethodPut, "/api/kb/"+testKBID+"/favorite", "")))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body)
@@ -142,12 +144,12 @@ func TestAddFavouriteWritesTheAccessResultsKBID(t *testing.T) {
 	}
 }
 
-func TestRemoveFavouriteReturns204(t *testing.T) {
+func TestRemoveFavoriteReturns204(t *testing.T) {
 	store := &fakeStore{}
 	h := kbfilters.NewHandler(store)
 
 	rec := httptest.NewRecorder()
-	h.RemoveFavourite(rec, withAccess(authed(http.MethodDelete, "/api/kb/"+testKBID+"/favourite", "")))
+	h.RemoveFavorite(rec, withAccess(authed(http.MethodDelete, "/api/kb/"+testKBID+"/favorite", "")))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body)
@@ -160,12 +162,12 @@ func TestRemoveFavouriteReturns204(t *testing.T) {
 // Reaching the handler without a KBAccessResult means the route was wired
 // without kbViewChain. That is a wiring bug, not a client error, so it must
 // not be answered with a success code.
-func TestFavouriteWithoutAccessResultIs500(t *testing.T) {
+func TestFavoriteWithoutAccessResultIs500(t *testing.T) {
 	store := &fakeStore{}
 	h := kbfilters.NewHandler(store)
 
 	rec := httptest.NewRecorder()
-	h.AddFavourite(rec, authed(http.MethodPut, "/api/kb/"+testKBID+"/favourite", ""))
+	h.AddFavorite(rec, authed(http.MethodPut, "/api/kb/"+testKBID+"/favorite", ""))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
@@ -175,13 +177,13 @@ func TestFavouriteWithoutAccessResultIs500(t *testing.T) {
 	}
 }
 
-func TestFavouriteUnauthenticatedIs401(t *testing.T) {
+func TestFavoriteUnauthenticatedIs401(t *testing.T) {
 	store := &fakeStore{}
 	h := kbfilters.NewHandler(store)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/kb/"+testKBID+"/favourite", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/kb/"+testKBID+"/favorite", nil)
 	rec := httptest.NewRecorder()
-	h.AddFavourite(rec, req)
+	h.AddFavorite(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
@@ -289,6 +291,124 @@ func TestCreateCategoryRejectsUnusableNames(t *testing.T) {
 	}
 }
 
+// Names that pass a plain TrimSpace but are still unusable. NUL is the one
+// that matters most: Postgres refuses it in text with SQLSTATE 22021, so it
+// would otherwise be a 500. The format-only cases (zero-width space, word
+// joiner, a bidi mark) render as nothing, and strings.TrimSpace keeps them —
+// the expectation that they are refused comes from the Unicode category (Cf),
+// not from what the handler happens to strip.
+func TestCreateCategoryRejectsControlAndInvisibleNames(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"NUL", `{"name":"Stu\u0000dium"}`},
+		{"newline", `{"name":"Stu\ndium"}`},
+		{"tab inside", `{"name":"Stu\tdium"}`},
+		{"C1 control", `{"name":"Stu\u0085dium"}`},
+		{"DEL", `{"name":"Stu\u007fdium"}`},
+		{"zero-width space only", `{"name":"\u200b"}`},
+		{"format chars and spaces only", `{"name":" \u200b\u2060\u200e "}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{}
+			h := kbfilters.NewHandler(store)
+
+			rec := httptest.NewRecorder()
+			h.CreateCategory(rec, authed(http.MethodPost, "/api/kb-user-categories", tc.body))
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body)
+			}
+			if store.calls != 0 {
+				t.Fatalf("store called %d times, want 0", store.calls)
+			}
+		})
+	}
+}
+
+// A visible name may still carry a format character (a ZWJ inside an emoji
+// sequence, say); only a name made of nothing else is refused.
+func TestCreateCategoryKeepsAVisibleNameWithAFormatCharacter(t *testing.T) {
+	store := &fakeStore{created: &kbfilters.UserCategory{ID: "cat-1"}}
+	h := kbfilters.NewHandler(store)
+
+	rec := httptest.NewRecorder()
+	h.CreateCategory(rec, authed(http.MethodPost, "/api/kb-user-categories",
+		`{"name":"Lern\u200bgruppe"}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (body: %s)", rec.Code, rec.Body)
+	}
+	if store.gotName != "Lern\u200bgruppe" {
+		t.Fatalf("name = %q, want it stored unchanged", store.gotName)
+	}
+}
+
+// sort_order is a Postgres int (int4). The boundaries are int4's, written out
+// here rather than taken from the math package the handler uses.
+func TestCategorySortOrderMustFitInt32(t *testing.T) {
+	for _, tc := range []struct {
+		sortOrder string
+		want      int
+	}{
+		{"2147483647", http.StatusCreated},
+		{"-2147483648", http.StatusCreated},
+		{"2147483648", http.StatusBadRequest},
+		{"-2147483649", http.StatusBadRequest},
+		{"9223372036854775808", http.StatusBadRequest}, // overflows int64: decode error
+		{"1.5", http.StatusBadRequest},
+	} {
+		t.Run(tc.sortOrder, func(t *testing.T) {
+			store := &fakeStore{created: &kbfilters.UserCategory{ID: "cat-1"}}
+			h := kbfilters.NewHandler(store)
+
+			rec := httptest.NewRecorder()
+			h.CreateCategory(rec, authed(http.MethodPost, "/api/kb-user-categories",
+				`{"name":"Studium","sortOrder":`+tc.sortOrder+`}`))
+
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (body: %s)", rec.Code, tc.want, rec.Body)
+			}
+			if tc.want == http.StatusBadRequest && store.calls != 0 {
+				t.Fatalf("store called %d times for a rejected sortOrder, want 0", store.calls)
+			}
+		})
+	}
+}
+
+// The update route shares the body validation; one out-of-range value pins
+// that it is wired there too.
+func TestUpdateCategoryRejectsOutOfRangeSortOrder(t *testing.T) {
+	catID := uuid.NewString()
+	store := &fakeStore{}
+	h := kbfilters.NewHandler(store)
+
+	req := authed(http.MethodPatch, "/api/kb-user-categories/"+catID, `{"name":"Studium","sortOrder":2147483648}`)
+	req.SetPathValue("catId", catID)
+	rec := httptest.NewRecorder()
+	h.UpdateCategory(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body: %s)", rec.Code, rec.Body)
+	}
+	if store.calls != 0 {
+		t.Fatalf("store called %d times, want 0", store.calls)
+	}
+}
+
+func TestCreateCategoryLimitIs409(t *testing.T) {
+	store := &fakeStore{err: kbfilters.ErrCategoryLimit}
+	h := kbfilters.NewHandler(store)
+
+	rec := httptest.NewRecorder()
+	h.CreateCategory(rec, authed(http.MethodPost, "/api/kb-user-categories", `{"name":"Studium"}`))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body: %s)", rec.Code, rec.Body)
+	}
+}
+
 // Exactly 100 runes is the column width, not one over it.
 func TestCreateCategoryAcceptsExactlyTheColumnWidth(t *testing.T) {
 	name := strings.Repeat("ä", 100)
@@ -393,6 +513,36 @@ func TestNonUUIDCategoryIDIs404(t *testing.T) {
 	}
 	if store.calls != 0 {
 		t.Fatalf("store called %d times, want 0", store.calls)
+	}
+}
+
+// uuid.Parse accepts spellings Postgres's ::uuid cast does not — a
+// "urn:uuid:" prefix among them — so the handler must hand the store the
+// canonical form, never the raw path value. The expected string is the
+// RFC 4122 text form of the same id, written by hand.
+func TestCategoryPathIDIsPassedOnCanonically(t *testing.T) {
+	const canonical = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	for _, raw := range []string{
+		"urn:uuid:" + canonical,
+		"{" + canonical + "}",
+		"0F8FAD5BD9CB469FA16570867728950E",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			store := &fakeStore{}
+			h := kbfilters.NewHandler(store)
+
+			req := authed(http.MethodDelete, "/api/kb-user-categories/x", "")
+			req.SetPathValue("catId", raw)
+			rec := httptest.NewRecorder()
+			h.DeleteCategory(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body)
+			}
+			if store.gotCatID != canonical {
+				t.Fatalf("store got catID %q, want the canonical %q", store.gotCatID, canonical)
+			}
+		})
 	}
 }
 
