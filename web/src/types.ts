@@ -313,27 +313,30 @@ export interface KnowledgeBase {
     processingFileCount?: number;
     turnCount?: number;
     lastActivityAt?: string | null;
-    // Oldest file's effective date (Wave-3 Task 5/6), omitted when the KB has
-    // no files. No card surface reads it since KI-848 (the freshness chip is
-    // gone); kept because the list endpoints still send it.
+    // Oldest file's effective date, MIN(COALESCE(published_at, created_at)),
+    // omitted when the KB has no files. No card surface reads it since the
+    // freshness chip was replaced by the „Aktualisiert" line; kept because the
+    // list endpoints still send it.
     oldestFileAt?: string;
-    // Newest file's effective date, MAX(COALESCE(published_at, created_at))
-    // (KI-848), omitted when the KB has no files. Backs the card's
-    // „Aktualisiert" line.
-    newestFileAt?: string;
+    // When content was last successfully ingested (API.md): the latest ingest
+    // time of a `completed` or `partial` file — ingest time, not the
+    // document's own date. Omitted while no file has been ingested. Backs the
+    // card's „Aktualisiert" line.
+    lastIngestedAt?: string;
     // Caller's own role + total member count — returned by the same list
     // endpoints (Task 8). myRole is undefined for an implicit viewer with no
     // kb_members row (e.g. a published global KB nobody explicitly joined).
     myRole?: KbRole;
     memberCount?: number;
     // The caller's own topic filters, joined into GET /api/kb,
-    // GET /api/kb/global and GET /api/kb/{id} (migration 0068). They are on
+    // GET /api/kb/global and GET /api/kb/{id} (migration 0077). They are on
     // the payload rather than behind a per-card request because the chip row
     // filters client-side off one response. userCategoryIds are the CALLER's
     // private categories (GET /api/kb-user-categories) — unrelated to the
     // admin-curated catalog taxonomy in KbCategory. Both are optional here
-    // only because CreateKnowledgeBase's response cannot carry them.
-    isFavourite?: boolean;
+    // because the API-key surfaces never carry them (API.md); every
+    // session-facing KB row, PATCH and POST /api/kb included, does.
+    isFavorite?: boolean;
     userCategoryIds?: string[];
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
@@ -468,7 +471,11 @@ export interface ChatEntry {
     kbId: string;
     userId: string;
     title: string;
-    type?: 'chat' | 'research' | 'academic_research';
+    // The backend stores and returns 'academic-research' (hyphen, API.md);
+    // 'academic_research' is what history and useChat compare against, which
+    // never matches a stored chat. Both are listed so the type admits the
+    // value the server actually sends.
+    type?: 'chat' | 'research' | 'academic_research' | 'academic-research';
     createdAt: string;
     updatedAt: string;
     teamId?: string | null;
@@ -735,10 +742,10 @@ export interface KbCatalogEntry {
     description?: string | null;
     subscribed: boolean;
     categoryIds: string[];
-    // The caller's own topic filters (migration 0068). isFavourite is
+    // The caller's own topic filters (migration 0077). isFavorite is
     // orthogonal to subscribed above: subscribed answers "is this tile in my
-    // overview", isFavourite "did I star it for the Favoriten chip".
-    isFavourite: boolean;
+    // overview", isFavorite "did I star it for the Favoriten chip".
+    isFavorite: boolean;
     userCategoryIds: string[];
 }
 
@@ -995,8 +1002,8 @@ export interface WorkflowPresetApplyResult {
 /** How a topic, source or chat hit matched `q`. Message hits carry none. */
 export type SearchMatch = 'prefix' | 'substring' | 'fuzzy';
 
-/** `chats.type`, as `chats[].type` and `messages[].chatType` report it. */
-export type SearchChatType = 'chat' | 'research' | 'academic_research';
+/** `chats.type` as stored (hyphen, API.md), as `chats[].type` and `messages[].chatType` report it. */
+export type SearchChatType = 'chat' | 'research' | 'academic-research';
 
 export interface SearchTopicHit {
   id: string;
@@ -1036,7 +1043,8 @@ export interface SearchMessageHit {
   chatType: SearchChatType;
   kbId: string;
   kbName: string;
-  role: 'user' | 'assistant';
+  /** `messages.role` as stored: `ai`, not `assistant` (API.md). */
+  role: 'user' | 'ai';
   /**
    * PLAIN TEXT, never HTML. Each matched word is wrapped in U+E000 (start)
    * and U+E001 (end); split on them and render text nodes.

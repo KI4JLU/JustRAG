@@ -78,7 +78,7 @@ const SEARCH = {
   }],
   messages: [{
     id: 'm2', chatId: 'chat-7', chatTitle: 'Prüfungsfragen', chatType: 'chat', kbId: 'kb-1',
-    kbName: 'Prüfungsordnungen', role: 'assistant',
+    kbName: 'Prüfungsordnungen', role: 'ai',
     snippet: 'Die mündliche Prüfung dauert <30> Minuten',
     createdAt: '2026-09-20T10:00:00Z',
   }],

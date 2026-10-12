@@ -43,6 +43,14 @@ import "net/http"
 // html-to-image library rasterizes the graph by loading an SVG as a data: URL
 // image and drawing it to a canvas. Without this, img-src inherits
 // default-src 'self' and browsers block that image load, failing the export.
+//
+// Math in chat answers (rehype-katex) needs nothing extra, and relies on two
+// things staying as they are: KaTeX's HTML output positions glyphs with
+// inline style attributes, which style-src 'unsafe-inline' allows; and its
+// fonts are bundled by Vite as same-origin /assets files (woff2/woff/ttf, no
+// data: URIs — web/vite.config.ts never inlines .woff2), so the absent
+// font-src falls back to default-src 'self'. Checked against a production
+// build: 60 KaTeX font files emitted, zero data: URLs in the CSS.
 const DefaultCSP = "default-src 'self'; script-src 'self' 'sha256-ghIKC6K2dzQnJQeXKhXi7iyrCfVnmWtdxiPWmgOzUW0=' 'sha256-ieoeWczDHkReVBsRBqaal5AFMlBtNjMzgwKvLqi/tSU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' blob:"
 
 // SecurityHeaders sets the standard security response headers. emitHSTS

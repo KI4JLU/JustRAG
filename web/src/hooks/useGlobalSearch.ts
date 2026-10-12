@@ -26,7 +26,7 @@ import type { SearchResponse } from '../types';
  *    but is NOT what correctness rests on: a response can already be resolved
  *    and queued when the abort lands.
  *
- * 429 IS A STATE, NOT AN ERROR (API.md: 60/min per client IP, `Retry-After`
+ * 429 IS A STATE, NOT AN ERROR (API.md: 60/min per user, `Retry-After`
  * 1–60 s). The hook remembers until when the budget is spent; keystrokes
  * during that window only move the pending request to the window's end, and
  * the newest query is sent automatically once it has passed. The caller shows
@@ -35,7 +35,7 @@ import type { SearchResponse } from '../types';
 
 export const SEARCH_DEBOUNCE_MS = 250;
 /** The server answers 400 below this many characters (trimmed). */
-export const SEARCH_MIN_QUERY_CHARS = 2;
+export const SEARCH_MIN_QUERY_CHARS = 3;
 /** …and above this many. */
 export const SEARCH_MAX_QUERY_CHARS = 200;
 /** Used when a 429 carries no parseable `Retry-After`. */
@@ -52,8 +52,8 @@ export type GlobalSearchState =
 
 /**
  * Whether `text` is a query the server accepts. Counted in characters (code
- * points), not UTF-16 units, because that is how API.md counts them: „ßü" is
- * two characters and a valid query.
+ * points), not UTF-16 units, because that is how API.md counts them: „äöü" is
+ * three characters and a valid query.
  */
 export function isSearchableQuery(text: string): boolean {
   const n = Array.from(text.trim()).length;

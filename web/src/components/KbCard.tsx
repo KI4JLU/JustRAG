@@ -120,10 +120,10 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
 // up to two scent chips (files · messages) plus the processing chip while
 // files are being ingested. Lucide icons (#2), status tokens (#1).
 //
-// NO FRESHNESS CHIP ANY MORE (card KI-848, developer mockup). Its information
-// moved: in the card it is the „Aktualisiert" meta line (`newestFileAt`, the
-// NEWEST file's date — the chip showed the OLDEST); in the list row it is
-// dropped, see the row below for why.
+// NO FRESHNESS CHIP ANY MORE (developer mockup). Its information moved: in
+// the card it is the „Aktualisiert" meta line (`lastIngestedAt`, when content
+// was last successfully ingested — the chip showed the OLDEST file's date); in
+// the list row it is dropped, see the row below for why.
 /**
  * TWO LAYOUTS, one per caller, and neither carries a legacy class.
  * `.home-view__chip-row`'s `margin-top: var(--space-2)` is stacked-card
@@ -293,7 +293,7 @@ export interface PrivateKbCardProps {
   language: Language;
   onSelectKB: (kb: KnowledgeBase) => void;
   onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** One compact line instead of a card — the list view. */
   compact?: boolean;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
@@ -309,17 +309,17 @@ export interface PrivateKbCardProps {
  * `React.MouseEvent`.
  */
 function kbCardActions({
-  kb, systemRole, removingKb, t, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  kb, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
 }: Pick<PrivateKbCardProps,
-  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavourite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
+  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
 ): ActionMenuItem[] {
   const asMouse = (e: Event) => e as unknown as React.MouseEvent;
-  // The favourite is ungated — the caller's own flag, not a permission. Its
+  // The favorite is ungated — the caller's own flag, not a permission. Its
   // label names what selecting it DOES, so it flips with the state.
   const items: ActionMenuItem[] = [{
-    label: kb.isFavourite ? t('removeFavourite') : t('addFavourite'),
-    icon: <Star size={16} aria-hidden="true" fill={kb.isFavourite ? 'currentColor' : 'none'} />,
-    onSelect: e => onToggleFavourite(kb, asMouse(e)),
+    label: kb.isFavorite ? t('removeFavorite') : t('addFavorite'),
+    icon: <Star size={16} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />,
+    onSelect: e => onToggleFavorite(kb, asMouse(e)),
   }];
   if (canManageMembers(kb)) {
     items.push({ label: t('share'), icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
@@ -356,19 +356,19 @@ const isControlClick = (e: React.MouseEvent) =>
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
+  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
-      actions={kbCardActions({ kb, systemRole, removingKb, t, onOpenShare, onToggleFavourite, onOpenKbSettings, onRenameKB, onDeleteKB })}
+      actions={kbCardActions({ kb, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
       label={`${t('kbActions')}: ${kb.name}`}
       triggerClassName="size-6 rounded-[var(--ui-radius-control)]"
     />
   );
 
-  // A favourite shows a filled star ahead of its title; toggling it is a menu
+  // A favorite shows a filled star ahead of its title; toggling it is a menu
   // action. Decorative: the state is in the menu item's label.
-  const favStar = kb.isFavourite ? (
+  const favStar = kb.isFavorite ? (
     <Star size={16} fill="currentColor" aria-hidden="true" className="home-view__fav-star" />
   ) : null;
 
@@ -441,8 +441,8 @@ export function PrivateKbCard({
       role="presentation"
       onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
     >
-      {/* Title first, top left (after the star of a favourite); every action,
-          the favourite toggle included, sits in the ⋮ menu top right. */}
+      {/* Title first, top left (after the star of a favorite); every action,
+          the favorite toggle included, sits in the ⋮ menu top right. */}
       <div className="home-view__card-top">
         {favStar}
         <div className="source-title home-view__kb-name">{nameButton}</div>
@@ -450,8 +450,8 @@ export function PrivateKbCard({
       </div>
 
       {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
-          „Aktualisiert" (the newest file's effective date — omitted without
-          files) and, for a topic somebody else owns, who shared it. Values
+          „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
+          omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
           are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
           Stunden" (the unit rule is written down in utils/dates.ts). */}
       <div className="mt-stack-sm flex min-w-0 flex-col gap-1">
@@ -461,12 +461,12 @@ export function PrivateKbCard({
           label={t('kbCardUsed')}
           value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
         />
-        {kb.newestFileAt && (
+        {kb.lastIngestedAt && (
           <MetaLine
             testId="kb-meta-updated"
             icon={<RefreshCw size={16} aria-hidden="true" />}
             label={t('kbCardUpdated')}
-            value={formatRelativeCoarse(kb.newestFileAt, language)}
+            value={formatRelativeCoarse(kb.lastIngestedAt, language)}
           />
         )}
         {kb.userId !== currentUserId && (() => {

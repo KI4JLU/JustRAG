@@ -48,7 +48,7 @@ const files = [{ id: 'f1', selected: true }] as FileEntry[];
 
 /** Minimal stand-in for the tree-state slice `useMessageTree` normally owns,
  * so `result.current.messageTree` reflects what `handleSendMessage` wrote. */
-function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string } } = {}) {
+function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string }; webSearchEnabled?: boolean | undefined } = {}) {
   const [messageTree, setMessageTree] = useState<Map<string, Message>>(new Map());
   const messageTreeRef = useRef(messageTree);
   useEffect(() => { messageTreeRef.current = messageTree; }, [messageTree]);
@@ -60,7 +60,7 @@ function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: s
     files,
     enhance: null,
     reasoningEnabled: false,
-    webSearchEnabled: false,
+    webSearchEnabled: 'webSearchEnabled' in overrides ? overrides.webSearchEnabled : false,
     reasoningLevel: 'low',
     // The "stale" selection: what a plain state closure would still hold if
     // a caller only called setAgentSelection() (which lands on the NEXT
@@ -405,5 +405,36 @@ describe('useChatStream — conflicts frame', () => {
     });
 
     expect(result.current.messageTree.get('ai-noconf')?.conflicts).toBeUndefined();
+  });
+});
+
+/* `webSearch` in the chat request. ORACLE: API.md on `POST /kb/{id}/chat` —
+ * the field is optional and its ABSENCE is a third state (answer tools as
+ * chat_answer_tools_enabled configures them), distinct from `false`. So the
+ * body is checked for the key itself, not just its truthiness. */
+describe('useChatStream.handleSendMessage — webSearch field', () => {
+  async function sentBody(webSearchEnabled: boolean | undefined) {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
+    const { result } = renderHook(() => useHarness({ webSearchEnabled }));
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Frage', null);
+    });
+    const [, init] = authFetchMock.mock.calls[0] as [string, RequestInit];
+    return JSON.parse(init.body as string) as Record<string, unknown>;
+  }
+
+  it('omits webSearch entirely when the gate is closed (undefined)', async () => {
+    const body = await sentBody(undefined);
+    expect(Object.prototype.hasOwnProperty.call(body, 'webSearch')).toBe(false);
+  });
+
+  it('sends webSearch: true when the gate is open and the toggle is on', async () => {
+    expect((await sentBody(true)).webSearch).toBe(true);
+  });
+
+  it('sends webSearch: false when the gate is open and the toggle is off', async () => {
+    const body = await sentBody(false);
+    expect(Object.prototype.hasOwnProperty.call(body, 'webSearch')).toBe(true);
+    expect(body.webSearch).toBe(false);
   });
 });

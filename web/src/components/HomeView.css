@@ -139,7 +139,7 @@
   flex: 1;
 }
 
-/* Filled star of a favourite, on the title's first line. */
+/* Filled star of a favorite, on the title's first line. */
 .home-view__fav-star {
   flex-shrink: 0;
   margin-top: 0.3em;

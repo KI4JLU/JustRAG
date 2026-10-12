@@ -13,7 +13,9 @@ interface UseChatStreamParams {
   files: FileEntry[];
   enhance: 'rewrite' | 'expand' | 'spell' | null;
   reasoningEnabled: boolean;
-  webSearchEnabled: boolean;
+  /** `webSearch` for the request body; `undefined` omits the field (see
+   *  utils/chatWebSearch.ts `chatWebSearchRequestField`). */
+  webSearchEnabled: boolean | undefined;
   reasoningLevel: 'low' | 'medium' | 'high';
   agentSelection: AgentSelection;
   language: string;
@@ -147,7 +149,9 @@ export function useChatStream({
           reasoningLevel: reasoningLevel,
           // Per-turn capability from the composer's + menu: hands the answer
           // LLM the web_search tool for this turn (chat/web_search_turn.go).
-          webSearch: webSearchEnabled,
+          // Omitted entirely while the admin gate is closed, so the answer
+          // tools behave as upstream (API.md: absent ≠ false).
+          ...(webSearchEnabled === undefined ? {} : { webSearch: webSearchEnabled }),
           language,
           selectedFileIds: selectedFiles.map(f => f.id),
           // Sticky agent/team selection for this chat session (Standard omits

@@ -168,14 +168,19 @@ describe('AdminAgentTab — control census', () => {
         // 3 <textarea> — the Wave 3–7 settings, minus the removed
         // bm25_tiered_boost / tabular_semantic_* rows.
         //
-        // RE-CENSUSED at the merge of upstream 6dfe80f7 (v0.11.1), same grep:
-        // 61 checkbox — docling_formula_enrichment_enabled is new — and
-        // otherwise unchanged (92 number, 18 text, 5 <select>, 3 <textarea>).
+        // RE-CENSUSED again with the same grep over upstream's raw file after
+        // its docling formula-enrichment commit (9538403d): 61 checkbox (+1,
+        // docling_formula_enrichment_enabled), every other count unchanged.
+        //
+        // PLUS ONE OF OUR OWN, not in upstream's file: the
+        // chat_web_search_enabled checkbox (the admin gate for the composer's
+        // web-search toggle; upstream ships the backend key without a UI row).
+        // So 62 = upstream's 61 + 1; every other count is still upstream's.
         const { container } = renderTab();
 
         // Radix Checkbox renders role="checkbox" on a <button>, plus a hidden
         // bubble <input> for native form submission — count the ARIA role.
-        expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(61);
+        expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(62);
 
         // Radix Select's trigger is role="combobox".
         expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(5);
@@ -223,6 +228,37 @@ describe('AdminAgentTab — bindings survive the migration', () => {
 
         await userEvent.click(screen.getByRole('checkbox', { name: tMock('cragEnabled') }));
         expect(latest().crag_enabled).toBe('false');
+    });
+
+    it('reads and writes chat_web_search_enabled, off by default', async () => {
+        // ORACLE: API.md — `chat_web_search_enabled` is the admin gate for
+        // per-turn web search, off by default; the backend reads it from
+        // site_configs, which this form POSTs verbatim. Absent must read as
+        // off, and a toggle must store the strings 'true'/'false'.
+        const { latest } = renderTab({});
+
+        const checkbox = screen.getByRole('checkbox', { name: tMock('chatWebSearchEnabled') });
+        expect(checkbox).toHaveAttribute('aria-checked', 'false');
+
+        await userEvent.click(checkbox);
+        expect(latest().chat_web_search_enabled).toBe('true');
+
+        await userEvent.click(screen.getByRole('checkbox', { name: tMock('chatWebSearchEnabled') }));
+        expect(latest().chat_web_search_enabled).toBe('false');
+    });
+
+    it('shows chat_web_search_enabled ticked exactly when the composer offers web search', () => {
+        // ORACLE: the composer's rule (card acceptance item 4): the toggle is
+        // shown only for the string 'true'. The admin box must agree, or an
+        // admin sees "on" while users see nothing — so '1' reads as off here,
+        // unlike the legacy '1' of the older booleans below.
+        renderTab({ chat_web_search_enabled: 'true' });
+        expect(screen.getByRole('checkbox', { name: tMock('chatWebSearchEnabled') })).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('does not show chat_web_search_enabled ticked for "1"', () => {
+        renderTab({ chat_web_search_enabled: '1' });
+        expect(screen.getByRole('checkbox', { name: tMock('chatWebSearchEnabled') })).toHaveAttribute('aria-checked', 'false');
     });
 
     it('accepts the legacy "1" as checked without rewriting it until toggled', async () => {

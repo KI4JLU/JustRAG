@@ -62,12 +62,12 @@ function kb(over: Partial<KnowledgeBase> & { id: string; name: string }): Knowle
 const SCREENSHOT_KB = kb({
   id: 'kb-1', name: 'Mikrobiologie Notizen', fileCount: 36, turnCount: 1284,
   lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
-  newestFileAt: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+  lastIngestedAt: new Date(Date.now() - 7 * 86_400_000).toISOString(),
 });
 /** A wider badge („Geteilt (12)") and a processing chip on top: the worst case. */
 const WORST_KB = kb({
   id: 'kb-2', name: 'Prüfungsordnungen des Fachbereichs', fileCount: 1204, turnCount: 98765,
-  processingFileCount: 3, newestFileAt: '2019-03-01T00:00:00Z', memberCount: 12,
+  processingFileCount: 3, lastIngestedAt: '2019-03-01T00:00:00Z', memberCount: 12,
 });
 
 function Card({ item, compact = false }: { item: KnowledgeBase; compact?: boolean }) {
@@ -83,7 +83,7 @@ function Card({ item, compact = false }: { item: KnowledgeBase; compact?: boolea
       compact={compact}
       onSelectKB={fn()}
       onOpenShare={fn()}
-      onToggleFavourite={fn()}
+      onToggleFavorite={fn()}
       onOpenKbSettings={fn()}
       onRenameKB={fn()}
       onDeleteKB={fn()}
@@ -147,13 +147,13 @@ const now = Date.now();
 const MOCKUP_KB = kb({
   id: 'kb-m1', name: 'FAQ Test', fileCount: 36, turnCount: 53,
   lastActivityAt: new Date(now - 86_400_000).toISOString(),
-  newestFileAt: new Date(now - 7 * 86_400_000).toISOString(),
+  lastIngestedAt: new Date(now - 7 * 86_400_000).toISOString(),
 });
 const SHARED_KB = kb({
   id: 'kb-m2', name: 'Fakultätsprotokolle', userId: 'user-9', myRole: 'edit', memberCount: 3,
   ownerFirstName: 'Ada', ownerLastName: 'Lovelace', fileCount: 8, turnCount: 2,
   lastActivityAt: new Date(now - 3 * 3_600_000).toISOString(),
-  newestFileAt: new Date(now - 40 * 86_400_000).toISOString(),
+  lastIngestedAt: new Date(now - 40 * 86_400_000).toISOString(),
 });
 const NO_FILES_KB = kb({ id: 'kb-m3', name: 'Neues leeres Thema' });
 

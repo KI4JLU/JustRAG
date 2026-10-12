@@ -79,7 +79,7 @@ export interface SharedTopicsViewProps {
   removingKb: boolean;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
 
 export function SharedTopicsView({
@@ -89,7 +89,7 @@ export function SharedTopicsView({
   removingKb,
   onOpenKbSettings,
   onRenameKB,
-  onToggleFavourite,
+  onToggleFavorite,
 }: SharedTopicsViewProps) {
   const { language, t } = useTheme();
   const { user } = useAuth();
@@ -134,7 +134,7 @@ export function SharedTopicsView({
             language={language}
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
-            onToggleFavourite={onToggleFavourite}
+            onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}
             onRenameKB={onRenameKB}

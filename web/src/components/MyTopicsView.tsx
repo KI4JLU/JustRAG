@@ -52,7 +52,7 @@ export interface MyTopicsViewProps {
   removingKb: boolean;
   onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onToggleFavourite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onUpdateKBSettings: (data: Record<string, unknown>) => void;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
@@ -68,7 +68,7 @@ export function MyTopicsView({
   removingKb,
   onOpenKbSettings,
   onRenameKB,
-  onToggleFavourite,
+  onToggleFavorite,
   onUpdateKBSettings,
   showSettings,
   setShowSettings,
@@ -118,7 +118,7 @@ export function MyTopicsView({
             language={language}
             onSelectKB={onSelectKB}
             onOpenShare={sharing.handleOpenShare}
-            onToggleFavourite={onToggleFavourite}
+            onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}
             onRenameKB={onRenameKB}

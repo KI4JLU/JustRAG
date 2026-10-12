@@ -44,7 +44,7 @@ function renderCard(item: KnowledgeBase, lang: Language = 'de') {
       language={lang}
       onSelectKB={vi.fn()}
       onOpenShare={vi.fn()}
-      onToggleFavourite={vi.fn()}
+      onToggleFavorite={vi.fn()}
       onOpenKbSettings={vi.fn()}
       onRenameKB={vi.fn()}
       onDeleteKB={vi.fn()}
@@ -53,7 +53,7 @@ function renderCard(item: KnowledgeBase, lang: Language = 'de') {
 }
 
 /** The mockup card: 36 files, 53 messages, used yesterday, updated 7 days ago, „Privat". */
-const MOCKUP = kb({ fileCount: 36, turnCount: 53, lastActivityAt: ago(DAY), newestFileAt: ago(7 * DAY), oldestFileAt: ago(400 * DAY) });
+const MOCKUP = kb({ fileCount: 36, turnCount: 53, lastActivityAt: ago(DAY), lastIngestedAt: ago(7 * DAY), oldestFileAt: ago(400 * DAY) });
 
 beforeEach(() => { vi.useFakeTimers({ now: NOW }); });
 afterEach(() => { vi.useRealTimers(); });

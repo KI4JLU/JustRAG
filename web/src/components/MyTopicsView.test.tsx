@@ -228,7 +228,7 @@ const noopProps = {
   onOpenGlobalKbSettings: vi.fn(),
   onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
-  onToggleFavourite: vi.fn(),
+  onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
   showSettings: false,
   setShowSettings: vi.fn(),
@@ -653,10 +653,10 @@ function inCards() {
 }
 
 /* ---------------------------------------------------------------------------
- * Favourites lead the list, whatever the filter.
+ * Favorites lead the list, whatever the filter.
  *
  * ORACLE: the fixture's own order, inverted. The two topics are given in
- * NON-favourite-first order (`plain` before `starred`), so a view that simply
+ * NON-favorite-first order (`plain` before `starred`), so a view that simply
  * rendered `kbs` as it received them would fail — which is what makes this a
  * statement about the ordering rather than about the fixture.
  *
@@ -796,15 +796,15 @@ describe('MyTopicsView filter chips', () => {
 });
 
 describe('MyTopicsView ordering', () => {
-  const plain: KnowledgeBase = { ...baseKb, id: 'kb-plain', name: 'Zuletzt', myRole: 'owner', isFavourite: false };
-  const starred: KnowledgeBase = { ...baseKb, id: 'kb-star', name: 'Zuerst', myRole: 'owner', isFavourite: true };
+  const plain: KnowledgeBase = { ...baseKb, id: 'kb-plain', name: 'Zuletzt', myRole: 'owner', isFavorite: false };
+  const starred: KnowledgeBase = { ...baseKb, id: 'kb-star', name: 'Zuerst', myRole: 'owner', isFavorite: true };
 
   function renderedOrder(): string[] {
     return Array.from(document.querySelectorAll('.home-view__kb-name-btn'))
       .map(el => el.textContent ?? '');
   }
 
-  it('puts a favourite ahead of a topic given before it', async () => {
+  it('puts a favorite ahead of a topic given before it', async () => {
     renderView(<MyTopicsView kbs={[plain, starred]} {...noopProps} />);
     await screen.findByText('Zuletzt');
 
@@ -812,7 +812,7 @@ describe('MyTopicsView ordering', () => {
   });
 
   it('leaves the order alone when nothing is starred', async () => {
-    renderView(<MyTopicsView kbs={[plain, { ...starred, isFavourite: false }]} {...noopProps} />);
+    renderView(<MyTopicsView kbs={[plain, { ...starred, isFavorite: false }]} {...noopProps} />);
     await screen.findByText('Zuletzt');
 
     // The server's order is the only ordering promise the API makes, so an
@@ -860,13 +860,14 @@ describe('KB card turn chip and meta lines', () => {
     expect(used).toHaveTextContent(new RegExp(`^${translations.kbCardUsed.en}.*hour`, 'i'));
   });
 
-  // KI-848: the freshness chip is gone. „Updated" is a meta line, keyed on
-  // newestFileAt, and absent for a KB without files.
-  it('renders the „Updated" line from newestFileAt, and no freshness chip', async () => {
+  // The freshness chip is gone. „Updated" is a meta line, keyed on
+  // lastIngestedAt (API.md: omitted while nothing has been ingested), and
+  // absent for a KB without it.
+  it('renders the „Updated" line from lastIngestedAt, and no freshness chip', async () => {
     renderMyTopicsView({
       kbs: [{
         ...baseKb, id: 'kb-2', name: 'Alte KB', memberCount: 1, myRole: 'owner', fileCount: 4,
-        oldestFileAt: '2025-01-01T00:00:00Z', newestFileAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        oldestFileAt: '2025-01-01T00:00:00Z', lastIngestedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       }],
     });
     await screen.findByText('Alte KB');

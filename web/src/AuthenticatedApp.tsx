@@ -1,9 +1,7 @@
 import { useState, lazy, Suspense, useCallback, useEffect } from 'react';
-import axios from 'axios';
 import { motion } from 'framer-motion';
 import { Loader2, HelpCircle, ArrowLeft } from 'lucide-react';
 import type { KnowledgeBase, GeneratedContent } from './types';
-import { API_BASE_URL } from './api';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
@@ -50,6 +48,7 @@ const KbSettingsPanel = lazy(() => import('./components/kb-settings/KbSettingsPa
 import { OnboardingTour } from './components/OnboardingTour';
 import { LegalPage } from './components/LegalPage';
 import { viewportHeight } from './utils/viewport';
+import { chatWebSearchRequestField } from './utils/chatWebSearch';
 
 // Lazy Loaded Components
 const AdminUI = lazy(() => import('./AdminUI'));
@@ -141,7 +140,7 @@ function AuthenticatedAppInner() {
   // to carry the resolved value or the container would silently stop matching
   // `[data-theme="dark"]` for every OS-following user.
   const { resolvedTheme, t } = useTheme();
-  const { user, token, updateUser: onUpdateUser } = useAuth();
+  const { user, token, updateUser: onUpdateUser, siteConfigs } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
   const reducedMotion = useReducedMotion();
@@ -169,7 +168,12 @@ function AuthenticatedAppInner() {
 
   const chat = useChat({
     currentKb, files: fileMgmt.files, enhance: kbSettings.enhance,
-    reasoningEnabled: kbSettings.reasoningEnabled, webSearchEnabled: kbSettings.webSearchEnabled,
+    reasoningEnabled: kbSettings.reasoningEnabled,
+    // Gate open: the toggle's value. Gate closed: undefined, so `webSearch` is
+    // left out of the request — never `true` (a 422) and never `false` (which
+    // would override chat_answer_tools_enabled). Same predicate the composer
+    // hides the toggle by.
+    webSearchEnabled: chatWebSearchRequestField(siteConfigs, kbSettings.webSearchEnabled),
     reasoningLevel: kbSettings.reasoningLevel,
     agentSelection: kbSettings.agentSelection, setAgentSelection: kbSettings.setAgentSelection,
   });
@@ -289,9 +293,7 @@ function AuthenticatedAppInner() {
     }
 
     try {
-      const res = await axios.patch(`${API_BASE_URL}/api/kb/${currentKb.id}`, data);
-      setCurrentKb(res.data);
-      kbMgmt.setKbs(prev => prev.map(kb => kb.id === res.data.id ? res.data : kb));
+      await kbMgmt.saveKbSettings(currentKb.id, data);
       if (typeof data.isPro === 'boolean') kbSettings.setIsPro(data.isPro);
     } catch (err: unknown) {
       console.error('Failed to update KB settings:', err);
@@ -487,7 +489,7 @@ function AuthenticatedAppInner() {
           removingKb={kbMgmt.removingKb}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
-          onToggleFavourite={kbMgmt.handleToggleFavourite}
+          onToggleFavorite={kbMgmt.handleToggleFavorite}
         />
       </motion.div>
       </KbSearchProvider>
@@ -522,7 +524,7 @@ function AuthenticatedAppInner() {
           removingKb={kbMgmt.removingKb}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
-          onToggleFavourite={kbMgmt.handleToggleFavourite}
+          onToggleFavorite={kbMgmt.handleToggleFavorite}
           onUpdateKBSettings={handleUpdateKBSettings}
           showSettings={kbSettings.showSettings}
           setShowSettings={kbSettings.setShowSettings}

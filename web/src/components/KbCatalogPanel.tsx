@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbSearch } from '../contexts/KbSearchContext';
-import { FILTER_ALL, FILTER_FAVOURITES } from '../hooks/useTopicFilters';
+import { FILTER_ALL, FILTER_FAVORITES } from '../hooks/useTopicFilters';
 import type { KbCatalogEntry, KbCategory } from '../types';
 
 interface KbCatalogPanelProps {
@@ -17,13 +17,13 @@ interface KbCatalogPanelProps {
     onOpenKb: (id: string) => void;
     /**
      * The active chip from the page's `TopicFilterBar` — `FILTER_ALL`,
-     * `FILTER_FAVOURITES`, or one of the caller's category ids.
+     * `FILTER_FAVORITES`, or one of the caller's category ids.
      *
      * It arrives as a prop rather than being read from a context here because
      * this panel owns its own list: the catalog is a REQUEST, not the `kbs`
      * array the other views filter, so applying the chip is its job and not the
-     * page's. Every catalog row already carries `isFavourite` and
-     * `userCategoryIds` (migration 0068), so it stays a client-side filter over
+     * page's. Every catalog row already carries `isFavorite` and
+     * `userCategoryIds` (migration 0077), so it stays a client-side filter over
      * the response and adds no request.
      */
     topicFilter?: string;
@@ -138,12 +138,12 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
      *
      * BEFORE the fold, deliberately: folding first and filtering after would
      * make „show N more" a count of rows the filter had already removed, and a
-     * favourite sitting at position 9 would be unreachable behind a button that
+     * favorite sitting at position 9 would be unreachable behind a button that
      * claimed to reveal it. */
     const filtered = topicFilter === undefined || topicFilter === FILTER_ALL
         ? entries
-        : topicFilter === FILTER_FAVOURITES
-            ? entries.filter(e => e.isFavourite)
+        : topicFilter === FILTER_FAVORITES
+            ? entries.filter(e => e.isFavorite)
             : entries.filter(e => e.userCategoryIds.includes(topicFilter));
 
     // The catalog can hold every public KB in the deployment; showing all of

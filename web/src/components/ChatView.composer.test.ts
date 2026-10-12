@@ -84,3 +84,38 @@ describe('Zurück-Knopf in der KB-Kopfleiste', () => {
     expect(sourcesPanel).toContain('const SourcesPanelComp');
   });
 });
+
+// Per-turn web search is offered only when the public site config
+// `chat_web_search_enabled` is 'true' (API.md: the admin gate, off by
+// default; a `webSearch: true` turn is refused with 422 while it is off).
+// Text guard, not a render test, for the reason given above: ChatView has no
+// render harness. The predicate itself is unit-tested in
+// utils/chatWebSearch.test.ts; this pins that the composer actually uses it,
+// for both the menu item and the "on" badge.
+const authenticatedApp = readFileSync(path.join(here, '..', 'AuthenticatedApp.tsx'), 'utf8');
+
+describe('Websuche im Composer', () => {
+  it('hängt Menüpunkt und Badge an das Admin-Gate', () => {
+    expect(src).toContain('const webSearchAvailable = isChatWebSearchAvailable(siteConfigs);');
+    expect(src).toContain('const webSearchOn = webSearchAvailable && webSearch;');
+    // The menu item sits inside the gated block…
+    const gate = src.indexOf('{webSearchAvailable && (');
+    const item = src.indexOf('id="chat-composer-web-search-toggle"');
+    expect(gate).toBeGreaterThan(-1);
+    expect(item).toBeGreaterThan(gate);
+    // …and the badge keys on the gated value, not the raw toggle state.
+    expect(src).toContain('{webSearchOn && (');
+    expect(src).not.toContain('{webSearch && (');
+  });
+
+  it('leitet das Request-Feld über das Gate ab', () => {
+    // What the field then is — true/false/omitted — is tested on the helper
+    // (utils/chatWebSearch.test.ts) and on the request body
+    // (hooks/useChatStream.test.ts).
+    expect(authenticatedApp).toContain(
+      'webSearchEnabled: chatWebSearchRequestField(siteConfigs, kbSettings.webSearchEnabled),',
+    );
+    // Vakuum-Schutz für DIESE Datei: sie wird wirklich gelesen.
+    expect(authenticatedApp).toContain('const chat = useChat({');
+  });
+});

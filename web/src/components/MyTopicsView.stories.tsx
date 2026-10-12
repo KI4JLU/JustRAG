@@ -302,7 +302,7 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
               removingKb={args.removingKb}
               onOpenKbSettings={idle()}
               onRenameKB={idle()}
-          onToggleFavourite={idle()}
+          onToggleFavorite={idle()}
               onUpdateKBSettings={idle()}
               showSettings={showSettings}
               setShowSettings={setShowSettings}
@@ -565,7 +565,7 @@ type Story = StoryObj<typeof meta>;
  * ======================================================================== */
 
 /**
- * A brand-new account: no favourites, nothing shared, no KB of one's own. It
+ * A brand-new account: no favorites, nothing shared, no KB of one's own. It
  * carries the frame assertions for the whole file, because it is the state in
  * which nothing but the frame is on the screen.
  */
@@ -767,7 +767,7 @@ export const OwnedOnly: Story = {
 };
 
 /* ===========================================================================
- * State 3 — favourites populated
+ * State 3 — favorites populated
  * ======================================================================== */
 
 
@@ -1093,11 +1093,11 @@ export const AppShellGeometryWithSearchOpen: Story = {
   parameters: {
     api: {
       search: {
-        query: 'Pr', kbId: null,
+        query: 'Prü', kbId: null,
         topics: [{ id: 'kb-1', name: 'Prüfungsordnungen', description: 'Alle Ordnungen des Fachbereichs', visibility: 'public', role: 'view', match: 'prefix' }],
         sources: [{ id: 'f-1', name: 'PO-2024.pdf', type: 'pdf', kbId: 'kb-1', kbName: 'Prüfungsordnungen', match: 'substring' }],
         chats: [{ id: 'c-1', title: 'Prüfungsfragen', type: 'chat', kbId: 'kb-1', kbName: 'Prüfungsordnungen', updatedAt: '2026-09-20T10:00:00Z', match: 'prefix' }],
-        messages: [{ id: 'm-1', chatId: 'c-2', chatTitle: 'Modulwahl', chatType: 'chat', kbId: 'kb-1', kbName: 'Prüfungsordnungen', role: 'assistant', snippet: 'laut \uE000Prüfung\uE001sordnung 2024', createdAt: '2026-09-20T10:00:00Z' }],
+        messages: [{ id: 'm-1', chatId: 'c-2', chatTitle: 'Modulwahl', chatType: 'chat', kbId: 'kb-1', kbName: 'Prüfungsordnungen', role: 'ai', snippet: 'laut \uE000Prüfung\uE001sordnung 2024', createdAt: '2026-09-20T10:00:00Z' }],
       },
     },
   },
@@ -1108,7 +1108,7 @@ export const AppShellGeometryWithSearchOpen: Story = {
     await expect(bar.getBoundingClientRect().height).toBe(64);
 
     const input = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
-    await userEvent.type(input, 'Pr');
+    await userEvent.type(input, 'Prü');
     const listbox = await body.findByRole('listbox', { name: 'Suchergebnisse' });
     const options = await within(listbox).findAllByRole('option');
     await expect(input).toHaveAttribute('aria-expanded', 'true');

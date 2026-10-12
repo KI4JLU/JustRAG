@@ -23,15 +23,15 @@ import { visibilityState } from '../utils/kbVisibility';
  * developer wants it sticky, the state moves up to `AuthenticatedApp` beside
  * the other cross-view values.
  *
- * FILTERING IS CLIENT-SIDE, off one payload. `isFavourite` and
- * `userCategoryIds` ride along on every row (migration 0068), so a chip is an
+ * FILTERING IS CLIENT-SIDE, off one payload. `isFavorite` and
+ * `userCategoryIds` ride along on every row (migration 0077), so a chip is an
  * array filter and never a request — which is also why switching chips is
  * instant and cannot fail.
  * ------------------------------------------------------------------------- */
 
 /** The two chips that are not categories. Ids cannot collide with a UUID. */
 export const FILTER_ALL = 'all';
-export const FILTER_FAVOURITES = 'favourites';
+export const FILTER_FAVORITES = 'favorites';
 
 /**
  * „Mein Wissen" only: the topics you own, split by whether anyone else is on
@@ -54,7 +54,7 @@ export const VIEW_MODE_KEY = `${STORAGE_NAMESPACE}topics.listView`;
 
 export type TopicViewMode = 'card' | 'list';
 
-/* FAVOURITES FIRST, whatever the filter (developer ruling). The create tile
+/* FAVORITES FIRST, whatever the filter (developer ruling). The create tile
    is rendered by the page and always precedes the list, so „first" here means
    first among the topics — directly after that button.
  
@@ -63,10 +63,10 @@ export type TopicViewMode = 'card' | 'list';
    invite a second sort key later and quietly reorder the rest. Splitting the
    list in two and rejoining it keeps the server's order inside each half,
    which is the only ordering promise the API makes. */
-function favouritesFirst(kbs: KnowledgeBase[]): KnowledgeBase[] {
-  const favourites = kbs.filter(kb => kb.isFavourite === true);
-  if (favourites.length === 0 || favourites.length === kbs.length) return kbs;
-  return [...favourites, ...kbs.filter(kb => kb.isFavourite !== true)];
+function favoritesFirst(kbs: KnowledgeBase[]): KnowledgeBase[] {
+  const favorites = kbs.filter(kb => kb.isFavorite === true);
+  if (favorites.length === 0 || favorites.length === kbs.length) return kbs;
+  return [...favorites, ...kbs.filter(kb => kb.isFavorite !== true)];
 }
 
 export interface TopicFilterState {
@@ -140,15 +140,15 @@ export function useTopicFilters(): TopicFilterState {
   }, []);
 
   const apply = useCallback((kbs: KnowledgeBase[]): KnowledgeBase[] => {
-    if (active === FILTER_ALL) return favouritesFirst(kbs);
+    if (active === FILTER_ALL) return favoritesFirst(kbs);
     // The „Favoriten" chip needs no reordering — every row in it is one.
-    if (active === FILTER_FAVOURITES) return kbs.filter(kb => kb.isFavourite === true);
-    if (active === FILTER_PERSONAL) return favouritesFirst(kbs.filter(kb => visibilityState(kb) === 'personal'));
-    if (active === FILTER_SHARED) return favouritesFirst(kbs.filter(kb => visibilityState(kb) === 'shared'));
+    if (active === FILTER_FAVORITES) return kbs.filter(kb => kb.isFavorite === true);
+    if (active === FILTER_PERSONAL) return favoritesFirst(kbs.filter(kb => visibilityState(kb) === 'personal'));
+    if (active === FILTER_SHARED) return favoritesFirst(kbs.filter(kb => visibilityState(kb) === 'shared'));
     /* A category id that matches nothing yields an empty list rather than
        falling back to everything — a filter that silently stopped filtering
        would look like the category had every topic in it. */
-    return favouritesFirst(kbs.filter(kb => kb.userCategoryIds?.includes(active) === true));
+    return favoritesFirst(kbs.filter(kb => kb.userCategoryIds?.includes(active) === true));
   }, [active]);
 
   const viewMode: TopicViewMode = listView ? 'list' : 'card';

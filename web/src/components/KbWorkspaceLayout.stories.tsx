@@ -266,10 +266,10 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
   parameters: {
     api: {
       search: {
-        query: 'Mo', kbId: 'kb-1', topics: [],
+        query: 'Mod', kbId: 'kb-1', topics: [],
         sources: [{ id: 'f-1', name: 'Modulhandbuch.pdf', type: 'pdf', kbId: 'kb-1', kbName: LONG_TOPIC, match: 'prefix' }],
         chats: [{ id: 'c-1', title: 'Modulwahl', type: 'chat', kbId: 'kb-1', kbName: LONG_TOPIC, updatedAt: '2026-09-20T10:00:00Z', match: 'prefix' }],
-        messages: [{ id: 'm-1', chatId: 'c-2', chatTitle: 'Pflichtmodule', chatType: 'chat', kbId: 'kb-1', kbName: LONG_TOPIC, role: 'assistant', snippet: 'die \uE000Module\uE001 A und B', createdAt: '2026-09-20T10:00:00Z' }],
+        messages: [{ id: 'm-1', chatId: 'c-2', chatTitle: 'Pflichtmodule', chatType: 'chat', kbId: 'kb-1', kbName: LONG_TOPIC, role: 'ai', snippet: 'die \uE000Module\uE001 A und B', createdAt: '2026-09-20T10:00:00Z' }],
       },
     },
   },
@@ -308,14 +308,14 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
 
     // The scope is in the accessible name.
     const input = canvas.getByRole('combobox', { name: `In „${LONG_TOPIC}“ suchen…` });
-    await userEvent.type(input, 'Mo');
+    await userEvent.type(input, 'Mod');
     const listbox = await body.findByRole('listbox', { name: 'Suchergebnisse' });
     const options = await within(listbox).findAllByRole('option');
 
     // ORACLE: the request log — the scoped request carried kb_id.
     const history = apiMockHistory();
     await expect(history?.get.map((r) => r.url).filter((u) => u?.includes('/api/search'))).toEqual([
-      expect.stringMatching(/\/api\/search\?q=Mo&kb_id=kb-1$/),
+      expect.stringMatching(/\/api\/search\?q=Mod&kb_id=kb-1$/),
     ]);
 
     // Open: still 64px; the list is outside the bar, BELOW the field, centred

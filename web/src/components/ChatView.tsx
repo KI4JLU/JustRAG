@@ -32,6 +32,7 @@ import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { hasKbAdminRole } from '../utils/kbAccess';
+import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
 import { MessageSkeleton } from './Skeleton';
@@ -73,6 +74,11 @@ const ChatViewComp = () => {
     agentSelection, setAgentSelection,
   } = useKbChat();
   const { fileMgmt, webTools } = useKbData();
+  // Per-turn web search is offered only when the admin gate is on; a state
+  // left over from when it was on shows nothing (and is not sent, see
+  // AuthenticatedApp).
+  const webSearchAvailable = isChatWebSearchAvailable(siteConfigs);
+  const webSearchOn = webSearchAvailable && webSearch;
   const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
@@ -358,22 +364,28 @@ const ChatViewComp = () => {
                           />
                           <PromptInputActionMenuContent id="chat-composer-attach-menu" align="start">
                             <PromptInputActionAddAttachments id="chat-composer-attach-files" label={t('attachFiles')} />
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>{t('capabilities')}</DropdownMenuLabel>
-                            <PromptInputActionMenuItem
-                              id="chat-composer-web-search-toggle"
-                              role="menuitemcheckbox"
-                              aria-checked={webSearch}
-                              selected={webSearch}
-                              onSelect={() => setWebSearch(!webSearch)}
-                            >
-                              <Globe className="mr-2 size-4" aria-hidden="true" />
-                              <span className="flex-1">{t('webSearchTool')}</span>
-                              {webSearch && <Check size={14} aria-hidden="true" />}
-                            </PromptInputActionMenuItem>
+                            {/* Web search is the only capability so far, so the whole
+                                group (separator + label + item) goes when it is off. */}
+                            {webSearchAvailable && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>{t('capabilities')}</DropdownMenuLabel>
+                                <PromptInputActionMenuItem
+                                  id="chat-composer-web-search-toggle"
+                                  role="menuitemcheckbox"
+                                  aria-checked={webSearchOn}
+                                  selected={webSearchOn}
+                                  onSelect={() => setWebSearch(!webSearchOn)}
+                                >
+                                  <Globe className="mr-2 size-4" aria-hidden="true" />
+                                  <span className="flex-1">{t('webSearchTool')}</span>
+                                  {webSearchOn && <Check size={14} aria-hidden="true" />}
+                                </PromptInputActionMenuItem>
+                              </>
+                            )}
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
-                        {webSearch && (
+                        {webSearchOn && (
                           /* Web search is on: a compact, pressed icon control next to the +.
                              The globe swaps to an X on hover/focus — one click switches it off. */
                           <Tooltip>

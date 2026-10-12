@@ -61,7 +61,8 @@ interface UseChatParams {
   files: FileEntry[];
   enhance: 'rewrite' | 'expand' | 'spell' | null;
   reasoningEnabled: boolean;
-  webSearchEnabled: boolean;
+  /** `undefined` omits `webSearch` from the chat request (gate closed). */
+  webSearchEnabled: boolean | undefined;
   reasoningLevel: 'low' | 'medium' | 'high';
   agentSelection: AgentSelection;
   setAgentSelection: (val: AgentSelection) => void;

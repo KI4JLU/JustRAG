@@ -116,13 +116,13 @@ export const translations = {
      * from here that ends with a new topic in front of them. */
     addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
 
-    /* The filter chip row above every view's list (migration 0068).
+    /* The filter chip row above every view's list (migration 0077).
      *
      * „Alle" here and `catalogAllCategories` below are NOT the same string to
      * reuse: that one labels the catalog's admin-curated taxonomy tab, this one
      * the caller's own filter. They read alike today and are free to diverge. */
     filterAll: { de: 'Alle', en: 'All' },
-    filterFavourites: { de: 'Favoriten', en: 'Favourites' },
+    filterFavorites: { de: 'Favoriten', en: 'Favorites' },
     /* „Mein Wissen" only. The words match the card badge's own two states
        (`visibilityPersonal` / `visibilityShared`) deliberately — the chip and
        the badge describe the same fact, so they say the same word. */
@@ -155,11 +155,11 @@ export const translations = {
     /* The star on a topic card. Two labels, because the control's accessible
      * name has to say what pressing it DOES — a single „Favorit" would leave a
      * screen-reader user guessing which way it goes. */
-    addFavourite: { de: 'Zu Favoriten hinzufügen', en: 'Add to favourites' },
-    removeFavourite: { de: 'Aus Favoriten entfernen', en: 'Remove from favourites' },
-    favouriteError: {
+    addFavorite: { de: 'Zu Favoriten hinzufügen', en: 'Add to favorites' },
+    removeFavorite: { de: 'Aus Favoriten entfernen', en: 'Remove from favorites' },
+    favoriteError: {
       de: 'Favorit konnte nicht gespeichert werden.',
-      en: 'Could not save the favourite.',
+      en: 'Could not save the favorite.',
     },
 
     /* The section heading for the global half. „Global sichtbar" and not
@@ -1770,6 +1770,11 @@ export const translations = {
     chatAnswerToolsEnabledHelp: {
         de: 'Wenn aktiviert, bekommt der Antwort-generierende LLM die volle MCP-Tool-Liste (außer code_exec) über native OpenAI-Function-Calling und kann mid-turn rechnen, SQL abfragen, erneut kb_search aufrufen usw. Wirkt auf den Lookup/Enumeration-Pfad UND den Deep-Chat/Agentic-Pfad. Plan-Execute und Supervisor sind nicht betroffen (haben ihren eigenen Plan-Zeit-Tool-Mechanismus). Voraussetzung: der Chat-Model-Endpoint MUSS tools+tool_calls nativ können (verifiziert mit gemma-4-26b-A4B-it via vLLM/LiteLLM). Standard: aus.',
         en: 'When on, the answer-generating LLM receives the full MCP tool list (except code_exec) via native OpenAI function calling and can run arithmetic, query SQL, re-call kb_search, etc. mid-turn. Covers BOTH the lookup/enumeration path and the deep-chat/agentic path. Plan-execute and supervisor orchestrators are unaffected (they have their own plan-time tool mechanism). PREREQUISITE: the chat model endpoint MUST support tools+tool_calls natively (verified on gemma-4-26b-A4B-it via vLLM/LiteLLM). Default: off.',
+    },
+    chatWebSearchEnabled: { de: 'Websuche im Chat anbieten', en: 'Offer web search in chat' },
+    chatWebSearchEnabledHelp: {
+        de: 'Zeigt im Chat-Eingabefeld den Schalter „Websuche"; schaltet ihn jemand ein, bekommt die Antwort-LLM für diese Nachricht das Tool web_search. Voraussetzung: die Web-Suche ist im Tab „Suchanbieter" aktiviert und mit Google-Zugangsdaten eingerichtet – sonst lehnt der Server solche Nachrichten ab. Gilt global. Standard: aus.',
+        en: 'Shows the "Web search" toggle in the chat composer; when a user turns it on, the answer LLM gets the web_search tool for that message. Requires web search to be enabled and configured with Google credentials on the Search Providers tab — otherwise the server refuses such messages. Global setting. Default: off.',
     },
     chatAnswerToolsMaxRounds: { de: 'Antwort-Tools: max. Runden', en: 'Answer tools: max rounds' },
     chatAnswerToolsMaxRoundsHelp: {

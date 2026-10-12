@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useState } from 'react';
 import { CategoryManagerModal } from './CategoryManagerModal';
 import {
-  FILTER_ALL, FILTER_FAVOURITES, FILTER_PERSONAL, FILTER_SHARED,
+  FILTER_ALL, FILTER_FAVORITES, FILTER_PERSONAL, FILTER_SHARED,
   type TopicFilterState,
 } from '../hooks/useTopicFilters';
 
@@ -75,8 +75,8 @@ export function TopicFilterBar({ filters, label, showOwnership = false }: TopicF
       options={[
         { value: FILTER_ALL, label: t('filterAll') },
         {
-          value: FILTER_FAVOURITES,
-          label: t('filterFavourites'),
+          value: FILTER_FAVORITES,
+          label: t('filterFavorites'),
           icon: <Star className="h-4 w-4" aria-hidden="true" />,
         },
         ...(showOwnership

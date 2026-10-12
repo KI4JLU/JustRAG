@@ -210,7 +210,7 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
                 removingKb={args.removingKb}
                 onOpenKbSettings={idle()}
                 onRenameKB={idle()}
-                onToggleFavourite={idle()}
+                onToggleFavorite={idle()}
               />
             </StoryKbSearchProvider>
           </AppNavProvider>
@@ -582,7 +582,7 @@ export const ChromeSearchOpensDropdownInPlace: Story = {
   parameters: {
     api: {
       search: {
-        query: 'Re', kbId: null,
+        query: 'Rec', kbId: null,
         topics: [{ id: 'kb-r', name: 'Rechtsgrundlagen', description: null, visibility: 'public', role: 'view', match: 'prefix' }],
         sources: [], chats: [], messages: [],
       },
@@ -592,7 +592,7 @@ export const ChromeSearchOpensDropdownInPlace: Story = {
     const body = within(canvasElement.ownerDocument.body);
     const field = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
 
-    await userEvent.type(field, 'Re');
+    await userEvent.type(field, 'Rec');
     await body.findByRole('option', { name: /Rechtsgrundlagen/ });
     // No jump on typing, and the caret is still in the field.
     await expect(args.onViewDiscover).not.toHaveBeenCalled();

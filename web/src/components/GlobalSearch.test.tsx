@@ -41,7 +41,7 @@ function response(over: Partial<SearchResponse> = {}): { data: SearchResponse } 
 const TOPIC = { id: 'kb-1', name: 'Prüfungsordnungen', description: 'Alle Ordnungen', visibility: 'public', role: 'view', match: 'prefix' as const };
 const SOURCE = { id: 'f-1', name: 'PO-2024.pdf', type: 'pdf', kbId: 'kb-1', kbName: 'Prüfungsordnungen', match: 'fuzzy' as const };
 const CHAT = { id: 'c-1', title: 'Prüfungsfragen', type: 'research' as const, kbId: 'kb-1', kbName: 'Prüfungsordnungen', updatedAt: '2026-09-20T10:00:00Z', match: 'substring' as const };
-const MESSAGE = { id: 'm-1', chatId: 'c-2', chatTitle: 'Modulwahl', chatType: 'chat' as const, kbId: 'kb-1', kbName: 'Prüfungsordnungen', role: 'assistant' as const, snippet: 'laut Prüfungsordnung', createdAt: '2026-09-20T10:00:00Z' };
+const MESSAGE = { id: 'm-1', chatId: 'c-2', chatTitle: 'Modulwahl', chatType: 'chat' as const, kbId: 'kb-1', kbName: 'Prüfungsordnungen', role: 'ai' as const, snippet: 'laut Prüfungsordnung', createdAt: '2026-09-20T10:00:00Z' };
 
 /** A promise the test resolves by hand, to order competing responses. */
 function deferred<T>() {
@@ -79,9 +79,10 @@ beforeEach(() => {
 });
 
 describe('GlobalSearch', () => {
-  it('stays closed and sends nothing below two characters', async () => {
+  // ORACLE: API.md — `q` under 3 characters is a 400, so the client must not send it.
+  it('stays closed and sends nothing below three characters', async () => {
     render(<Harness />);
-    await userEvent.type(field(), 'P');
+    await userEvent.type(field(), 'Pr');
     // Past the debounce, deliberately: „nothing yet" is not „nothing".
     await new Promise((r) => setTimeout(r, 400));
     expect(searchCalls()).toHaveLength(0);
@@ -119,7 +120,7 @@ describe('GlobalSearch', () => {
   it('omits empty groups', async () => {
     mockedGet.mockResolvedValueOnce(response({ sources: [SOURCE] }));
     render(<Harness />);
-    await userEvent.type(field(), 'PO');
+    await userEvent.type(field(), 'PO-');
     const listbox = await screen.findByRole('listbox');
     expect(within(listbox).getAllByRole('group')).toHaveLength(1);
     expect(within(listbox).getByRole('group', { name: de('globalSearchGroupSources') })).toBeInTheDocument();
@@ -131,18 +132,18 @@ describe('GlobalSearch', () => {
     mockedGet.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
     render(<Harness />);
 
-    await userEvent.type(field(), 'Pr');
-    await waitFor(() => expect(searchCalls()).toHaveLength(1)); // „Pr" is in flight
-    await userEvent.type(field(), 'üf');
+    await userEvent.type(field(), 'Prü');
+    await waitFor(() => expect(searchCalls()).toHaveLength(1)); // „Prü" is in flight
+    await userEvent.type(field(), 'f');
     await waitFor(() => expect(searchCalls()).toHaveLength(2)); // „Prüf" too
 
     newer.resolve(response({ topics: [{ ...TOPIC, name: 'Antwort auf Prüf' }] }));
     await screen.findByRole('option', { name: /Antwort auf Prüf/ });
     // The older request resolves LAST, with a result only it carries.
-    older.resolve(response({ topics: [{ ...TOPIC, id: 'kb-old', name: 'Antwort auf Pr' }] }));
+    older.resolve(response({ topics: [{ ...TOPIC, id: 'kb-old', name: 'Antwort auf Prü' }] }));
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(screen.queryByRole('option', { name: /Antwort auf Pr$/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Antwort auf Prü$/ })).toBeNull();
     expect(screen.getByRole('option', { name: /Antwort auf Prüf/ })).toBeInTheDocument();
   });
 
