@@ -8,7 +8,7 @@ const MembersModal = lazy(() => import('./MembersModal').then(module => ({ defau
 const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
 const ChartModal = lazy(() => import('./ChartModal').then(module => ({ default: module.ChartModal })));
 const AbstractGenerationModal = lazy(() => import('./AbstractGenerationModal').then(module => ({ default: module.AbstractGenerationModal })));
-const PreviewModal = lazy(() => import('./PreviewModal').then(module => ({ default: module.PreviewModal })));
+const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(module => ({ default: module.TextSourceViewer })));
 const PdfPreviewModal = lazy(() => import('./PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
 const TabularDetailModal = lazy(() => import('./TabularDetailModal').then(module => ({ default: module.TabularDetailModal })));
 const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ default: module.WebWorkspace })));
@@ -76,10 +76,14 @@ export function KbWorkspaceModals() {
       </Suspense>
 
       <Suspense fallback={null}>
-        {webTools.showPreviewModal && <PreviewModal
+        {/* A .md/.txt source opens read-only in the text editor's window, the
+            PDF preview's twin (TextSourceModal.tsx). */}
+        {webTools.showPreviewModal && webTools.previewPage && <TextSourceViewer
           show={webTools.showPreviewModal}
           onClose={() => webTools.setShowPreviewModal(false)}
-          previewPage={webTools.previewPage}
+          fileName={webTools.previewPage.title}
+          content={webTools.previewPage.content}
+          format={webTools.previewPage.format ?? 'markdown'}
         />}
       </Suspense>
 

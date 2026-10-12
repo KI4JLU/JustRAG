@@ -7,6 +7,7 @@ import { useModalContext } from '../contexts/ModalContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { getApiErrorMessage } from '../utils/apiError';
+import { markdownSourceTitle } from '../utils/textSourceTitle';
 
 interface UseFileManagementParams {
   currentKb: KnowledgeBase | null;
@@ -243,7 +244,8 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
 
     try {
       await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/text`, {
-        title: textSourceTitle.trim() || undefined,
+        // `.md` suffix: marks the source as markdown for the preview.
+        title: markdownSourceTitle(textSourceTitle),
         content: textSourceContent
       });
       await fetchFiles(currentKb.id);

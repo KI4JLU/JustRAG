@@ -13,6 +13,7 @@ import type { SourceType } from '../sidebar/SourcesGrid';
 import { CrawlModal } from '../sidebar/CrawlModal';
 import { RssModal } from '../sidebar/RssModal';
 import { FileUploadModal } from '../sidebar/FileUploadModal';
+import { TextSourceModal } from '../sidebar/TextSourceModal';
 import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
 import { ACCEPTED_FILE_TYPES } from '../../constants';
@@ -222,16 +223,20 @@ const SourcesPanelComp: React.FC = () => {
                 show={showUploadModal}
                 onClose={() => setShowUploadModal(false)}
                 fileInputRef={fileInputRef}
-                onTextSourceAdd={handleTextSourceAdd}
-                textSourceTitle={textSourceTitle}
-                setTextSourceTitle={setTextSourceTitle}
-                textSourceContent={textSourceContent}
-                setTextSourceContent={setTextSourceContent}
                 onDragOver={handleDragOver}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
                 isDragging={isDragging}
+            />
+            <TextSourceModal
+                show={activeSourceModal === 'text'}
+                onClose={closeSourceModal}
+                onTextSourceAdd={() => { closeSourceModal(); void handleTextSourceAdd(); }}
+                textSourceTitle={textSourceTitle}
+                setTextSourceTitle={setTextSourceTitle}
+                textSourceContent={textSourceContent}
+                setTextSourceContent={setTextSourceContent}
             />
         </>
     );

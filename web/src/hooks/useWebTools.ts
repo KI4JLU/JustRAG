@@ -22,7 +22,7 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
   const [crawlResults, setCrawlResults] = useState<{ title: string; content: string; url: string; isEdited?: boolean }[]>([]);
   const [searchResults, setSearchResults] = useState<{ title: string; snippet: string; url: string; content?: string; isEdited?: boolean }[]>([]);
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string } | null>(null);
+  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text' } | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number } | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
@@ -311,12 +311,12 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     setShowTabularModal(true);
   }, []);
 
-  const fetchFileContent = useCallback(async (fileId: string, fileName: string) => {
+  const fetchFileContent = useCallback(async (fileId: string, fileName: string, format: 'markdown' | 'text' = 'markdown') => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, {
         responseType: 'text'
       });
-      setPreviewPage({ title: fileName, content: res.data, url: '' });
+      setPreviewPage({ title: fileName, content: res.data, url: '', format });
       setShowPreviewModal(true);
     } catch (err: unknown) {
       console.error('Failed to fetch file content:', err);
@@ -336,7 +336,10 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     if (isPdf) {
       handlePdfSourceOpen(id, name, 1);
     } else if (isTextOrMd) {
-      fetchFileContent(id, name);
+      // Markdown by name or type only: „Text einfügen" saves with a `.md`
+      // suffix (useFileManagement), so older plain-text sources stay literal.
+      const isMarkdown = /\.(md|markdown)$/.test(lowerName) || type === 'text/markdown';
+      fetchFileContent(id, name, isMarkdown ? 'markdown' : 'text');
     } else {
       toast.info(t('previewNotSupported'));
     }

@@ -9,6 +9,7 @@ vi.mock('../sidebar/RssModal', () => ({ RssModal: () => null }));
 vi.mock('../sidebar/ConfluenceModal', () => ({ ConfluenceModal: () => null }));
 vi.mock('../sidebar/GitRepoModal', () => ({ GitRepoModal: () => null }));
 vi.mock('../sidebar/FileUploadModal', () => ({ FileUploadModal: () => null }));
+vi.mock('../sidebar/TextSourceModal', () => ({ TextSourceModal: () => null }));
 vi.mock('../../contexts/MobileContext', () => ({ useIsMobileContext: () => false }));
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ siteConfigs: {} }) }));

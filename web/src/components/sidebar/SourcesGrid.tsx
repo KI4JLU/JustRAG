@@ -1,10 +1,10 @@
 import React, { memo, useMemo, useState, useCallback } from 'react';
-import { Search, Globe, Rss, Upload, GraduationCap, BookOpen, Loader2, X, ArrowRight, GitBranch } from 'lucide-react';
+import { Search, Globe, Rss, Upload, Type, GraduationCap, BookOpen, Loader2, X, ArrowRight, GitBranch } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import './SourcesGrid.css';
 
-export type SourceType = 'websearch' | 'crawl' | 'research' | 'rss' | 'upload' | 'academic' | 'confluence' | 'gitrepo';
+export type SourceType = 'websearch' | 'crawl' | 'research' | 'rss' | 'upload' | 'text' | 'academic' | 'confluence' | 'gitrepo';
 
 interface WebSearchProps {
     toolInput: string;
@@ -31,6 +31,7 @@ const gridItems: { type: SourceType; icon: typeof Search; labelKey: string }[] =
     { type: 'crawl', icon: Globe, labelKey: 'crawl' },
     { type: 'rss', icon: Rss, labelKey: 'rss' },
     { type: 'upload', icon: Upload, labelKey: 'uploadFile' },
+    { type: 'text', icon: Type, labelKey: 'insertText' },
     { type: 'confluence', icon: BookOpen, labelKey: 'confluence' },
     { type: 'gitrepo', icon: GitBranch, labelKey: 'gitRepo' },
     { type: 'academic', icon: GraduationCap, labelKey: 'justFind' },
