@@ -317,12 +317,22 @@ describe('AdminAgentTab — conditional disabling', () => {
         // crag_min_relevant_chunks row. 39 rows depend on this passing through
         // FormControl's Slot, so it is worth one assertion.
         const { latest } = renderTab({ crag_enabled: 'false' });
+        // The field through its own <label for>: getByLabelText took ~1.9 s per
+        // call on this tab locally (several times that on CI, which timed out).
+        const minChunks = () => {
+            const label = screen.getByText(tMock('cragMinRelevantChunks'), { selector: 'label' });
+            return document.getElementById(label.getAttribute('for')!)!;
+        };
 
-        expect(screen.getByLabelText(tMock('cragMinRelevantChunks'))).toBeDisabled();
+        expect(minChunks()).toBeDisabled();
 
-        await userEvent.click(screen.getByRole('checkbox', { name: tMock('cragEnabled') }));
+        // getByLabelText, not getByRole: a role query computes every accessible
+        // name in this tab's hundreds of controls.
+        const gate = screen.getByLabelText(tMock('cragEnabled'));
+        expect(gate).toHaveAttribute('role', 'checkbox');
+        await userEvent.click(gate);
         expect(latest().crag_enabled).toBe('true');
-        expect(screen.getByLabelText(tMock('cragMinRelevantChunks'))).toBeEnabled();
+        expect(minChunks()).toBeEnabled();
     });
 
     it('dims a disabled checkbox row and marks the control disabled', () => {

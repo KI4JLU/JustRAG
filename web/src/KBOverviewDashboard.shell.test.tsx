@@ -243,7 +243,9 @@ describe('KBOverviewDashboard — Stage 5 territory is untouched', () => {
         // `<tbody>` (lines 440-548 at the claim base). Card KI-694 migrates it
         // to `Table`/`TableLayout`; a premature swap changes these counts.
         const { container } = render(<KBOverviewDashboard />);
-        await screen.findByRole('heading', { level: 2 });
+        // The heading renders before the rows arrive; wait for a row, or a slow
+        // runner counts the loading state (CI saw 0 tables).
+        await screen.findByText('Alpha KB');
 
         expect(container.querySelectorAll('table')).toHaveLength(1);
         expect(container.querySelectorAll('thead')).toHaveLength(1);
