@@ -446,3 +446,32 @@ describe('single invite', () => {
       expect.stringContaining('/members/bulk'), { usernames: ['newbie'], role: 'edit' }));
   });
 });
+
+describe('opening', () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it('starts in the username field', async () => {
+    renderModal('owner');
+    await waitFor(() => expect(screen.getByLabelText('invitePerson')).toHaveFocus());
+  });
+});
+
+describe('member lists per tab', () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it('shows members on the single and bulk tabs, not on the invite links tab', async () => {
+    vi.spyOn(axios, 'get').mockImplementation(async (url: string) => (
+      url.endsWith('/invite-links') ? { data: { links: [] } } : { data: { members, pending: pendingInvites } }));
+    render(<MembersModal show onClose={vi.fn()} sharingKb={kb} myRole="owner" {...noopProps} />);
+
+    await screen.findByTestId('member-row-u1');
+    expect(screen.getByTestId('pending-row-bob')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: /inviteLinks/ }));
+    expect(screen.queryByTestId('member-row-u1')).toBeNull();
+    expect(screen.queryByTestId('pending-row-bob')).toBeNull();
+
+    await userEvent.click(screen.getByRole('tab', { name: /bulkInvite/ }));
+    expect(screen.getByTestId('member-row-u1')).toBeInTheDocument();
+  });
+});

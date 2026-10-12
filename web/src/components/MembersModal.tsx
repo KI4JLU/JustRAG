@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useId } from 'react';
+import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { User, Eye, Edit3, Loader2, Trash2, Clock, Users, Crown, Shield, Link2, Copy, Search } from 'lucide-react';
 import {
     ActionMenu, Avatar, Badge, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Kbd, Label,
@@ -347,10 +347,16 @@ export const MembersModal: React.FC<MembersModalProps> = ({
     };
 
     const usernameId = useId();
+    const usernameRef = useRef<HTMLInputElement>(null);
     const usernameErrorId = useId();
     const membersHeadingId = useId();
 
     if (!show) return null;
+
+    // The member and pending lists belong to inviting people; the links tab
+    // manages links, and the lists below it only crowded it (developer,
+    // 2026-10-12).
+    const showMemberLists = mode !== 'link';
 
     const memberActions = (m: KbMember): ActionMenuItem[] => {
         const canTransfer = myRole === 'owner' && m.role === 'admin';
@@ -372,7 +378,14 @@ export const MembersModal: React.FC<MembersModalProps> = ({
 
     return (
         <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent closeLabel={t('close')} className="max-w-xl" aria-describedby={undefined}>
+            <DialogContent
+                closeLabel={t('close')}
+                className="max-w-xl"
+                aria-describedby={undefined}
+                // Start in the username field — inviting is what the dialog
+                // is opened for — not on the first tab.
+                onOpenAutoFocus={(e) => { e.preventDefault(); usernameRef.current?.focus(); }}
+            >
                 <DialogHeader>
                     <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
                     <DialogTitle>{t('members')}</DialogTitle>
@@ -399,6 +412,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({
                             <Label htmlFor={usernameId}>{t('invitePerson')}</Label>
                             <div className="flex items-center gap-stack-sm">
                                 <Input
+                                    ref={usernameRef}
                                     id={usernameId}
                                     leadingIcon={<Search />}
                                     value={shareUserId}
@@ -540,7 +554,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({
                     </TabsContent>
                 </Tabs>
 
-                {members.length > 0 && (
+                {showMemberLists && members.length > 0 && (
                     <section aria-labelledby={membersHeadingId} className="flex flex-col gap-stack-sm">
                         <div className="flex items-center gap-2">
                             <h3 id={membersHeadingId} className="m-0 text-base font-semibold text-on-surface">{t('members')}</h3>
@@ -581,7 +595,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({
                     </section>
                 )}
 
-                {pendingInvites.length > 0 && (
+                {showMemberLists && pendingInvites.length > 0 && (
                     <section className="flex flex-col gap-stack-sm">
                         <h3 className="m-0 text-base font-semibold text-on-surface">{t('pendingInvites')}</h3>
                         <p className="m-0 text-sm text-on-surface-variant">{t('pendingInviteHint')}</p>
