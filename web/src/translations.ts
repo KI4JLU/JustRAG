@@ -632,7 +632,7 @@ export const translations = {
     inviteLinkUnnamed: { de: 'Ohne Bezeichnung', en: 'Unnamed' },
     noInviteLinks: { de: 'Noch keine Einladungslinks', en: 'No invite links yet' },
     selectPermission: { de: 'Berechtigung auswählen', en: 'Select permission' },
-    viewPermission: { de: 'Ansehen', en: 'View' },
+    viewPermission: { de: 'Lesen', en: 'View' },
     editPermission: { de: 'Bearbeiten', en: 'Edit' },
     viewPermissionDesc: { de: 'Kann Inhalte ansehen und mit der Knowledge Base chatten', en: 'Can view content and chat with the knowledge base' },
     editPermissionDesc: { de: 'Kann Dateien hochladen, löschen und die Knowledge Base bearbeiten', en: 'Can upload, delete files and edit the knowledge base' },
@@ -649,9 +649,15 @@ export const translations = {
     // transfer. kbRoleView/Edit/Admin/Owner above name the roles themselves;
     // these name the dialog's actions.
     members: { de: 'Mitglieder', en: 'Members' },
+    invitePerson: { de: 'Person einladen', en: 'Invite a person' },
+    inviteAction: { de: 'Einladen', en: 'Invite' },
+    alreadyMember: { de: 'Bereits Mitglied', en: 'Already a member' },
+    memberActions: { de: 'Aktionen für {username}', en: 'Actions for {username}' },
+    removeShare: { de: 'Aus Thema entfernen', en: 'Remove from topic' },
+    confirmRemoveShare: { de: '"{username}" aus diesem Thema entfernen?', en: 'Remove "{username}" from this topic?' },
     selectRole: { de: 'Rolle auswählen', en: 'Select role' },
-    makeOwner: { de: 'Zum Owner machen', en: 'Make owner' },
-    confirmMakeOwner: { de: '"{username}" zum neuen Owner machen? Du wirst dabei zum Admin herabgestuft.', en: 'Make "{username}" the new owner? You will be demoted to admin.' },
+    makeOwner: { de: 'Zum Besitzer machen', en: 'Make owner' },
+    confirmMakeOwner: { de: '"{username}" zum neuen Besitzer machen? Du wirst dabei zum Admin herabgestuft.', en: 'Make "{username}" the new owner? You will be demoted to admin.' },
     ownerLabel: { de: 'Owner – Rolle kann nicht geändert werden', en: 'Owner — role cannot be changed' },
 
     // Upload Modal

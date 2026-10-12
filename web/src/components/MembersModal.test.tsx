@@ -83,6 +83,28 @@ const renderModalWithPending = (myRole: string) => {
   return render(<MembersModal show onClose={vi.fn()} sharingKb={kb} myRole={myRole} {...noopProps} />);
 };
 
+// Radix Select and DropdownMenu (behind the DS Select / ActionMenu) measure,
+// scroll and capture the pointer; jsdom implements none of it.
+beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+});
+
+/** Open a row's role Select with the keyboard (Radix Select's jsdom-safe path). */
+async function openRoleSelect(row: HTMLElement) {
+  within(row).getByRole('combobox').focus();
+  await userEvent.keyboard('{Enter}');
+  return screen.findByRole('listbox');
+}
+
+/** Open a member row's ⋮ menu. */
+async function openMemberMenu(row: HTMLElement) {
+  await userEvent.click(within(row).getByRole('button', { name: 'memberActions' }));
+  return screen.findByRole('menu');
+}
+
 describe('MembersModal', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -91,24 +113,27 @@ describe('MembersModal', () => {
     toastMock.success.mockReset();
   });
 
-  it('renders the owner row without role select or remove button', async () => {
+  it('renders the owner row with a badge, without role select or actions menu', async () => {
     renderModal('owner');
     const row = await screen.findByTestId('member-row-u1');
+    expect(within(row).getByText('kbRoleOwner')).toBeInTheDocument();
     expect(within(row).queryByRole('combobox')).toBeNull();
-    expect(within(row).queryByRole('button', { name: /remove|entfernen/i })).toBeNull();
+    expect(within(row).queryByRole('button', { name: 'memberActions' })).toBeNull();
   });
 
+  // ORACLE: kbaccess.Assignable — view, edit, admin; never owner.
   it('offers exactly view, edit and admin in the role select', async () => {
     renderModal('owner');
-    const row = await screen.findByTestId('member-row-u3');
-    const options = within(row).getAllByRole('option').map(o => o.getAttribute('value'));
-    expect(options).toEqual(['view', 'edit', 'admin']);
+    const listbox = await openRoleSelect(await screen.findByTestId('member-row-u3'));
+    expect(within(listbox).getAllByRole('option').map(o => o.textContent))
+      .toEqual(['viewPermission', 'editPermission', 'adminPermission']);
   });
 
   it('hides the ownership transfer for a non-owner', async () => {
     renderModal('admin');
-    await screen.findByTestId('member-row-u2');
-    expect(screen.queryByRole('button', { name: /make owner|zum owner/i })).toBeNull();
+    const menu = await openMemberMenu(await screen.findByTestId('member-row-u2'));
+    expect(within(menu).queryByRole('menuitem', { name: /make owner/i })).toBeNull();
+    expect(within(menu).getByRole('menuitem', { name: 'removeShare' })).toBeInTheDocument();
   });
 
   it('posts the transfer for the owner', async () => {
@@ -116,21 +141,35 @@ describe('MembersModal', () => {
     showConfirm.mockResolvedValue(true);
     renderModal('owner');
 
-    await userEvent.click(await screen.findByRole('button', { name: /make owner|zum owner/i }));
-    expect(post).toHaveBeenCalledWith(
-      expect.stringContaining('/transfer-owner'), { userId: 'u2' });
+    const menu = await openMemberMenu(await screen.findByTestId('member-row-u2'));
+    await userEvent.click(within(menu).getByRole('menuitem', { name: /make owner/i }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      expect.stringContaining('/transfer-owner'), { userId: 'u2' }));
+  });
+
+  it('removes a member after confirming with their name', async () => {
+    const del = vi.spyOn(axios, 'delete').mockResolvedValue({ status: 204 });
+    showConfirm.mockResolvedValue(true);
+    renderModal('owner');
+
+    const menu = await openMemberMenu(await screen.findByTestId('member-row-u3'));
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'removeShare' }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith(expect.stringContaining('/members/u3')));
+    expect(showConfirm).toHaveBeenCalledWith('confirmRemoveShare');
+    await waitFor(() => expect(screen.queryByTestId('member-row-u3')).toBeNull());
   });
 
   it('rolls the role select back when the request fails', async () => {
-    vi.spyOn(axios, 'put').mockRejectedValue(new Error('boom'));
+    const put = vi.spyOn(axios, 'put').mockRejectedValue(new Error('boom'));
     renderModal('owner');
 
     const row = await screen.findByTestId('member-row-u3');
-    const select = within(row).getByRole('combobox');
-    await userEvent.selectOptions(select, 'edit');
+    const listbox = await openRoleSelect(row);
+    await userEvent.click(within(listbox).getByRole('option', { name: 'editPermission' }));
 
-    // Optimistisch auf 'edit', nach dem Fehlschlag zurueck auf 'view'.
-    await waitFor(() => expect(select).toHaveValue('view'));
+    expect(put).toHaveBeenCalledWith(expect.stringContaining('/members/u3'), { role: 'edit' });
+    // Optimistically 'edit', back to 'view' after the failure.
+    await waitFor(() => expect(within(row).getByRole('combobox')).toHaveTextContent('viewPermission'));
   });
 
   it('revokes a pending invite', async () => {
@@ -336,5 +375,74 @@ describe('invite links tab', () => {
     await waitFor(() => expect(copyToClipboard).toHaveBeenCalled());
     expect(toastMock.error).toHaveBeenCalledWith('clipboardCopyFailed');
     expect(toastMock.success).not.toHaveBeenCalled();
+  });
+});
+
+// The single invite is a two-step exact lookup: Enter resolves the username,
+// the person shows under the field, and Enter again invites them.
+describe('single invite', () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  const ada = { id: 'u9', username: 'ada9', firstName: 'Ada', lastName: 'Byron' };
+
+  function renderInvite(overrides: Partial<React.ComponentProps<typeof MembersModal>>) {
+    vi.spyOn(axios, 'get').mockResolvedValue({ data: { members, pending: [] } });
+    return render(<MembersModal show onClose={vi.fn()} sharingKb={kb} myRole="owner" {...noopProps} {...overrides} />);
+  }
+
+  it('looks the username up first, without inviting', async () => {
+    const onLookupUser = vi.fn();
+    const onConfirmShare = vi.fn();
+    renderInvite({ shareUserId: 'ada9', onLookupUser, onConfirmShare });
+
+    await userEvent.type(screen.getByLabelText('invitePerson'), '{Enter}');
+    expect(onLookupUser).toHaveBeenCalledTimes(1);
+    expect(onConfirmShare).not.toHaveBeenCalled();
+  });
+
+  it('shows the resolved person and invites on the second Enter', async () => {
+    const onLookupUser = vi.fn();
+    const onConfirmShare = vi.fn();
+    renderInvite({ shareUserId: 'ada9', shareTargetUser: ada, onLookupUser, onConfirmShare });
+
+    const candidate = await screen.findByTestId('invite-candidate');
+    expect(candidate).toHaveTextContent('Ada Byron');
+    expect(candidate).toHaveTextContent('@ada9');
+
+    await userEvent.type(screen.getByLabelText('invitePerson'), '{Enter}');
+    expect(onConfirmShare).toHaveBeenCalledTimes(1);
+    expect(onLookupUser).not.toHaveBeenCalled();
+  });
+
+  it('looks up again when the field no longer matches the resolved person', async () => {
+    const onLookupUser = vi.fn();
+    const onConfirmShare = vi.fn();
+    renderInvite({ shareUserId: 'alan', shareTargetUser: ada, onLookupUser, onConfirmShare });
+
+    expect(screen.queryByTestId('invite-candidate')).toBeNull();
+    await userEvent.type(screen.getByLabelText('invitePerson'), '{Enter}');
+    expect(onLookupUser).toHaveBeenCalledTimes(1);
+    expect(onConfirmShare).not.toHaveBeenCalled();
+  });
+
+  it('marks an existing member and does not invite them again', async () => {
+    const onConfirmShare = vi.fn();
+    const grace = { id: 'u2', username: 'grace', firstName: 'Grace', lastName: 'H' };
+    renderInvite({ shareUserId: 'grace', shareTargetUser: grace, onConfirmShare });
+
+    const candidate = await screen.findByTestId('invite-candidate');
+    await waitFor(() => expect(candidate).toHaveTextContent('alreadyMember'));
+    expect(screen.getByRole('button', { name: 'inviteAction' })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText('invitePerson'), '{Enter}');
+    expect(onConfirmShare).not.toHaveBeenCalled();
+  });
+
+  it('offers a pending invite for an unknown username', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: {} });
+    renderInvite({ shareUserId: 'newbie', notFoundUsername: 'newbie', sharePermission: 'edit' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'inviteAnyway' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(
+      expect.stringContaining('/members/bulk'), { usernames: ['newbie'], role: 'edit' }));
   });
 });
