@@ -183,7 +183,6 @@ export default function ApiKeyManager() {
                     }}>
                         <code style={{
                             flex: 1,
-                            fontFamily: 'monospace',
                             fontSize: '0.85rem',
                             color: 'var(--text-primary)',
                             wordBreak: 'break-all',
@@ -308,7 +307,6 @@ export default function ApiKeyManager() {
                                     </td>
                                     <td style={{ padding: '0.6rem 0.75rem' }}>
                                         <code style={{
-                                            fontFamily: 'monospace',
                                             fontSize: '0.85rem',
                                             color: 'var(--text-secondary)',
                                             background: 'var(--bg-primary)',

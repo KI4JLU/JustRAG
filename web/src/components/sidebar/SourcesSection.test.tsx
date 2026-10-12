@@ -1,9 +1,29 @@
+import type React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SourcesSection } from './SourcesSection';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource } from '../../types';
 
+// The hover preview (HoverCard + FilePreview) is DS 0.42.0; the pinned package
+// under vitest may be older, and the preview is not what this file tests.
+// Everything else stays the shipped design-system export (`importOriginal`).
+vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  HoverCard: ({ children }: { children: React.ReactNode }) => children,
+  HoverCardTrigger: ({ children }: { children: React.ReactNode }) => children,
+  HoverCardContent: () => null,
+  FilePreview: () => null,
+  preloadPdfjs: () => undefined,
+  renderPdfFirstPage: () => Promise.resolve(''),
+}));
+// No preview fetches in a unit test: the cache would hit the network.
+vi.mock('../../hooks/sourcePreviews', () => ({
+  useSourcePreviews: () => undefined,
+  useSourcePreview: () => ({ image: undefined, pending: false }),
+  preloadSourcePreview: () => Promise.resolve(null),
+  canPreviewSource: () => false,
+}));
 vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (key: string) => key }),
 }));
@@ -64,7 +84,6 @@ const baseProps = {
   onDeleteGitRepoSource: vi.fn(),
   onSyncGitRepoNow: vi.fn(),
   onRetryFile: vi.fn(),
-  onRetryAllFailed: vi.fn(),
   onOpenTabular: vi.fn(),
 };
 
@@ -92,24 +111,62 @@ describe('SourcesSection error display + retry', () => {
     expect(screen.getByText('fileErrorUnknown')).toBeInTheDocument();
   });
 
-  it('hides retry controls when nothing failed', () => {
+  it('shows no status line for a finished upload, only for queued files', () => {
+    render(<SourcesSection {...baseProps} files={[makeFile({}), makeFile({ id: 'f-9', name: 'q.pdf', status: 'pending' })]} />);
+    expect(screen.queryByText(/completed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/upload/)).not.toBeInTheDocument();
+    expect(screen.getByText('fileStatusPending')).toBeInTheDocument();
+  });
+
+  it('keeps download and delete behind the per-file actions menu', async () => {
+    const onDownloadFile = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onDownloadFile={onDownloadFile} />);
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(screen.getByRole('menuitem', { name: /delete/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('menuitem', { name: /download/ }));
+    expect(onDownloadFile).toHaveBeenCalledWith('f-1');
+  });
+
+  it('puts the selection checkbox on the card and toggles through the bulk handler', async () => {
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onToggleFilesSelection={onToggleFilesSelection} />);
+    const box = screen.getByRole('checkbox', { name: 'selectSource doc.pdf' });
+    expect(box).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(box);
+    expect(onToggleFilesSelection).toHaveBeenCalledWith(['f-1'], false);
+  });
+
+  it('previews on a click anywhere on the card, but not on its controls', async () => {
+    const onPreviewSource = vi.fn();
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onPreviewSource={onPreviewSource} onToggleFilesSelection={onToggleFilesSelection} />);
+    await userEvent.click(screen.getByRole('listitem'));
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /download/ }));
+    expect(onToggleFilesSelection).toHaveBeenCalledTimes(1);
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the per-file retry control when nothing failed', () => {
     render(<SourcesSection {...baseProps} files={[makeFile({})]} />);
-    expect(screen.queryByText(/retryAllFailed/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retrySource/ })).not.toBeInTheDocument();
   });
 
-  it('shows the bulk retry button with the failed count and fires the callback', async () => {
-    const onRetryAllFailed = vi.fn();
-    const files = [
-      makeFile({ id: 'f-1', status: 'error' }),
-      makeFile({ id: 'f-2', name: 'b.pdf', status: 'error' }),
-      makeFile({ id: 'f-3', name: 'c.pdf' }),
-    ];
-    render(<SourcesSection {...baseProps} files={files} onRetryAllFailed={onRetryAllFailed} />);
-
-    const btn = screen.getByRole('button', { name: /retryAllFailed \(2\)/ });
-    await userEvent.click(btn);
-    expect(onRetryAllFailed).toHaveBeenCalledTimes(1);
+  it('no longer carries the section heading or the bulk retry button', () => {
+    // Both moved into the right column's h-16 header row, which the shell
+    // renders and `KbWorkspaceLayout` fills — see SourcesHeader.test.tsx.
+    // Asserted here rather than only there because a SECOND copy left behind
+    // in the scrolling list is exactly what this move must not produce, and
+    // nothing in SourcesHeader's own test can see it.
+    const files = [makeFile({ id: 'f-1', status: 'error' }), makeFile({ id: 'f-2', name: 'b.pdf', status: 'error' })];
+    render(<SourcesSection {...baseProps} files={files} />);
+    expect(screen.queryByRole('heading', { name: 'sources' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/retryAllFailed/)).not.toBeInTheDocument();
   });
 });
 
@@ -292,9 +349,9 @@ describe('SourcesSection injection screening badge', () => {
     expect(badge).toBeInTheDocument();
     // The snippet also rides along as the hover tooltip.
     expect(badge).toHaveAttribute('title', 'fileInjectionFlagged: Ignore all previous instructions');
-    // Additive: the file itself is still fully usable.
-    expect(screen.getByRole('button', { name: 'doc.pdf' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^download/ })).toBeInTheDocument();
+    // Additive: the file itself is still fully usable — name and actions menu stay.
+    expect(screen.getByText('doc.pdf')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'sourceActions doc.pdf' })).toBeInTheDocument();
   });
 
   it('falls back to the plain label when the detail carries no snippet', () => {
@@ -308,47 +365,17 @@ describe('SourcesSection injection screening badge', () => {
     expect(screen.queryByLabelText(/fileInjectionFlagged/)).not.toBeInTheDocument();
   });
 
-  // rss/confluence/git files are folded into their feed/source rows and are
-  // absent from the per-file list, so without this header count the badge
-  // would be invisible for three of the four screened origins.
-  it('counts flagged rss files in the header even though they have no own row', () => {
-    const feed = makeRssFeed({ id: 'feed-1' });
-    const files = [
-      makeFile({ id: 'r1', origin: 'rss', rssFeedId: 'feed-1', injectionFlag: true }),
-      makeFile({ id: 'r2', origin: 'rss', rssFeedId: 'feed-1', injectionFlag: true }),
-      makeFile({ id: 'r3', origin: 'rss', rssFeedId: 'feed-1' }),
-    ];
-    render(<SourcesSection {...baseProps} files={files} rssFeeds={[feed]} />);
-
-    // No per-file rows for rss origins…
-    expect(screen.queryByLabelText(/^fileInjectionFlagged:/)).not.toBeInTheDocument();
-    // …but the header summary reports both flagged ones.
-    expect(screen.getByLabelText('fileInjectionFlagged (2)')).toBeInTheDocument();
-  });
-
-  it('renders no header summary when nothing is flagged', () => {
-    render(<SourcesSection {...baseProps} files={[makeFile({})]} />);
-    expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
-  });
-
-  // A flagged upload can only be a leftover from before an origin change
-  // (the screen never runs on uploads). It keeps its own row and its own
-  // badge; counting it in the header too would double-report it.
-  it('excludes upload-origin files from the header summary but keeps their own badge', () => {
+  // The header count of flagged external-origin files lives in SourcesHeader
+  // (above the list) — see SourcesHeader.test.tsx. A flagged upload keeps its
+  // own row and badge here.
+  it('keeps the per-file badge on a flagged upload', () => {
     const files = [
       makeFile({ id: 'u1', origin: 'upload', injectionFlag: true }),
       makeFile({ id: 'c1', name: 'page.html', origin: 'crawl', injectionFlag: true }),
     ];
     render(<SourcesSection {...baseProps} files={files} />);
-
-    // Both files still carry their own per-file badge…
     expect(screen.getAllByLabelText('fileInjectionFlagged')).toHaveLength(2);
-    // …but the header counts the crawl one only.
-    expect(screen.getByLabelText('fileInjectionFlagged (1)')).toBeInTheDocument();
-  });
-
-  it('renders no header summary when only an upload is flagged', () => {
-    render(<SourcesSection {...baseProps} files={[makeFile({ origin: 'upload', injectionFlag: true })]} />);
+    // No second copy of the header summary inside the list.
     expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
   });
 });

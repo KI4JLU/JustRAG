@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle2, AlertCircle, RefreshCw, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
+import { Badge } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../../api';
 
 // Mirrors mcp.ServerSpec on the backend.
@@ -59,27 +60,14 @@ function parseServers(raw: string): [ServerSpec[] | null, string | null] {
 }
 
 function ServerStatusBadge({ s }: { s: ServerStatus }) {
-    if (s.reachable) {
-        return (
-            <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                padding: '0.2rem 0.5rem', borderRadius: '4px',
-                background: 'rgba(40,160,90,0.15)', color: 'var(--success-color, #28a05a)',
-                fontSize: '0.8rem',
-            }}>
-                <CheckCircle2 size={14} /> reachable
-            </span>
-        );
-    }
-    return (
-        <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-            padding: '0.2rem 0.5rem', borderRadius: '4px',
-            background: 'rgba(220,80,60,0.15)', color: 'var(--error-color, #c33)',
-            fontSize: '0.8rem',
-        }}>
-            <AlertCircle size={14} /> unreachable
-        </span>
+    return s.reachable ? (
+        <Badge tone="success">
+            <CheckCircle2 size={14} aria-hidden="true" /> reachable
+        </Badge>
+    ) : (
+        <Badge tone="error">
+            <AlertCircle size={14} aria-hidden="true" /> unreachable
+        </Badge>
     );
 }
 
@@ -90,7 +78,7 @@ function ToolList({ tools }: { tools: ToolSummary[] }) {
             {tools.map(t => (
                 <li key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', fontSize: '0.85rem' }}>
                     <Wrench size={12} aria-hidden="true" />
-                    <code style={{ fontFamily: 'var(--font-mono, ui-monospace)', fontWeight: 600 }}>{t.name}</code>
+                    <code style={{ fontWeight: 600 }}>{t.name}</code>
                     {t.description && (
                         <span style={{ opacity: 0.75 }}>— {t.description}</span>
                     )}
@@ -232,8 +220,7 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
                         width: '100%', padding: '0.75rem',
                         background: 'var(--bg-primary)', color: 'var(--text-primary)',
                         border: `1px solid ${editorErr ? 'var(--error-color, #c33)' : 'var(--border-color)'}`,
-                        borderRadius: '6px',
-                        fontFamily: 'var(--font-mono, ui-monospace)', fontSize: '0.85rem',
+                        borderRadius: '6px', fontSize: '0.85rem',
                     }}
                     placeholder={`[\n  {"name": "fetch", "url": "https://my-mcp-server.example.com/mcp", "headers": {"Authorization": "Bearer …"}}\n]`}
                 />

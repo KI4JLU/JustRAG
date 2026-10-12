@@ -1,7 +1,43 @@
-/* Toast Container - fixed bottom-right */
+/* Toast Container - fixed top-right, below the app-shell chrome.
+ *
+ * WHY NOT BOTTOM-RIGHT (card KI-781). This container and the onboarding-tour
+ * trigger (#onboarding-tour-trigger, AuthenticatedApp.tsx) were pinned to the
+ * IDENTICAL bottom:24/right:24. Toasts carry z-index 4000 and pointer-events
+ * auto, the button z-index 100 — so every toast covered the 44x44 button and
+ * swallowed its clicks for the 4000-6000ms it lives, on the one view that
+ * renders it. The developer chose to free that corner permanently.
+ *
+ * WHY 76px AND NOT 24px. AppShellLayout renders a 64px chrome bar above the
+ * page content (`h-16` in the DS template). A toast at top:24 would land on it
+ * - the same defect in a new corner. 76px = 64px bar + a 12px gap.
+ *
+ * RE-MEASURED ON design-system 0.26.0 (card KI-788), because that release
+ * reworked this exact bar: it replaced the hardcoded ThemeToggle at the bar's
+ * right end with an optional `headerActions` slot, which AppChrome left unset.
+ * The bar was therefore EMPTY apart from the page label - but its height was
+ * unchanged, `flex h-16` in the installed bundle
+ * (node_modules/@ki4jlu/design-system/dist/index.js) and 64px measured in
+ * Chromium by HomeView.stories.tsx's `AppShellGeometry` play function, which
+ * exists so a future bundle that changes it turns a test red instead of
+ * silently sliding toasts over the chrome. So 76px stood, unchanged.
+ *
+ * RE-MEASURED AGAIN ON design-system 0.29.0 (card KI-787), which is the bigger
+ * change of the two: `pageLabel` became OPTIONAL and renders no element at all
+ * when omitted, and this app now omits it - so the bar holds only the catalog
+ * search in `headerActions`. A bar that collapsed or shrank when it lost its
+ * label would put every toast on every shell view over the chrome. It does
+ * not: 64px, measured in Chromium against the installed 0.29.0 by the same
+ * `AppShellGeometry` play function (which also reports the bar 943px wide and
+ * the search field 448px, centred with a 0px offset). 76px = 64 + 12 stands.
+ *
+ * `flex-direction` is deliberately NOT changed: with the box anchored at the
+ * top it makes the newest toast appear at the anchored edge and push older
+ * ones down, which is the conventional top-anchored behaviour (and what the
+ * design system's own toast viewport does). Stack order is out of scope here.
+ */
 .toast-container {
   position: fixed;
-  bottom: 24px;
+  top: 76px;
   right: 24px;
   z-index: 4000;
   display: flex;
@@ -70,10 +106,21 @@
   background: var(--bg-hover);
 }
 
-/* Mobile: full-width bottom-center */
+/* Mobile: full-width, and deliberately still BOTTOM-anchored.
+ *
+ * Below `lg` the top edge carries the DS's sticky mobile top bar AND the 64px
+ * page-label bar on the shell views, while the KB workspace has neither and
+ * shows ChatView's own header instead - so no single top offset clears the
+ * chrome on every view. The bottom already does: 72px clears both the 60px
+ * MobileTabBar and the tour trigger, whose top edge sits at 68px. The corner
+ * this card set out to free is therefore free here without moving anything.
+ */
 @media (max-width: 1023px) {
   .toast-container {
-    bottom: 72px; /* above MobileTabBar */
+    /* Cancel the desktop top anchor. With `top` AND `bottom` both set and no
+     * height, the container would stretch the full viewport height. */
+    top: auto;
+    bottom: 72px; /* above MobileTabBar; also clears the tour trigger (68px) */
     right: 12px;
     left: 12px;
     max-width: none;

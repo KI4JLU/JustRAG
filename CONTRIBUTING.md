@@ -103,6 +103,63 @@ Other useful commands:
 | `npm run test:env:down` | stop dedicated test services |
 | `npm run test:setup` | start test infra and run root migrations |
 
+### Frontend lint and the design-system suppressions catalogue
+
+```bash
+npm run lint --prefix web          # the gate; CI runs exactly this, blocking
+npm run lint:prune --prefix web    # repair the catalogue after fixing hits
+```
+
+`web/eslint.config.js` runs `@ki4jlu/design-system/eslint-plugin` with all three
+rules at `error`: `no-raw-ui-elements`, `no-hardcoded-colors`,
+`layout-only-classname`. Controls come from `@ki4jlu/design-system`; colours go
+through semantic tokens (`bg-scrim/50`, `bg-primary`, …), never a Tailwind
+palette class or a hex.
+
+`no-raw-ui-elements` has 544 pre-existing hits across 100 files (it started at
+690 across 101; `AdminAgentTab.tsx` and its 146 hits were the first file
+migrated). They are not downgraded to a warning — every one is counted, per
+file, in the committed `web/eslint-suppressions.json`. That file is the
+project's only exception mechanism; do **not** scatter `eslint-disable`
+comments instead. Three consequences worth knowing before you hit them:
+
+- Adding a **new** raw `<button>`/`<input>` fails lint, including in a file that
+  already has suppressed hits.
+- Suppression is counted per file and rule, and it is all-or-nothing: exceed the
+  recorded count by one and ESLint reports *every* hit in that file. One new
+  button in `AdminEvalTab.tsx` (29 hits, currently the largest entry) produces
+  30 errors, not 1. The new one is the last in the list — that is the one to
+  remove.
+- **Fixing** a hit without updating the catalogue also fails, with `There are
+  suppressions left that do not occur anymore` (exit 2). Plain `eslint .` is the
+  whole gate; run `npm run lint:prune --prefix web` and commit the shrunken
+  catalogue in the same change. Never add `--prune-suppressions` to the `lint`
+  script or to CI — it repairs in place and exits 0, which is exactly the
+  failure the gate exists for. `--pass-on-unpruned-suppressions` is set nowhere.
+
+The count in `web/eslint-suppressions.json` is a one-way burn-down counter: it
+may shrink, never grow.
+
+### Migrating a file off the catalogue
+
+A settings/admin screen's rows do **not** get a prop-for-prop swap of
+`<input>` → `<Input>`. They are rebuilt on the design system's `Form*`
+composition, which lives in `web/src/components/form/FieldRow.tsx` —
+`FieldRow`, `CheckboxFieldRow`, `SelectFieldRow`. Import those; do not
+re-derive the composition per screen, and do not pass an `id` (the types
+forbid it: `FormControl` injects the id, which is what makes the
+label/control pairing correct by construction). `AdminAgentTab.tsx` is the
+worked example.
+
+Two rules that come out of that migration:
+
+- **A staged boolean is a `Checkbox`, never a `Switch`.** The deciding question
+  is when the change takes effect: these forms have a Save button, so the value
+  is staged until submit. A `Switch` reads as "this applies now".
+- **`className` on a design-system control is layout only**, enforced by
+  `design-system/layout-only-classname`. If a control does not fit or does not
+  look right, the fix belongs in the design system, not at the call site.
+
 ## Database and Migration Workflow
 
 ### Primary runtime migrations

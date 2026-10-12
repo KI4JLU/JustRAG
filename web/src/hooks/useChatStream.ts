@@ -13,6 +13,9 @@ interface UseChatStreamParams {
   files: FileEntry[];
   enhance: 'rewrite' | 'expand' | 'spell' | null;
   reasoningEnabled: boolean;
+  /** `webSearch` for the request body; `undefined` omits the field (see
+   *  utils/chatWebSearch.ts `chatWebSearchRequestField`). */
+  webSearchEnabled: boolean | undefined;
   reasoningLevel: 'low' | 'medium' | 'high';
   agentSelection: AgentSelection;
   language: string;
@@ -39,7 +42,7 @@ interface UseChatStreamParams {
  */
 export function useChatStream({
   currentKb, files, enhance,
-  reasoningEnabled, reasoningLevel, agentSelection, language,
+  reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language,
   setMessageTree, messageTreeRef, setActiveLeafId,
   activeChatIdRef, setActiveChatId, setChats,
   fetchChats, fetchChatsTimerRef,
@@ -144,6 +147,11 @@ export function useChatStream({
             : { parentMessageId: parentId }),
           reasoningEnabled: reasoningEnabled,
           reasoningLevel: reasoningLevel,
+          // Per-turn capability from the composer's + menu: hands the answer
+          // LLM the web_search tool for this turn (chat/web_search_turn.go).
+          // Omitted entirely while the admin gate is closed, so the answer
+          // tools behave as upstream (API.md: absent ≠ false).
+          ...(webSearchEnabled === undefined ? {} : { webSearch: webSearchEnabled }),
           language,
           selectedFileIds: selectedFiles.map(f => f.id),
           // Sticky agent/team selection for this chat session (Standard omits
@@ -382,7 +390,7 @@ export function useChatStream({
         setLoading(false);
       }
     }
-  }, [currentKb, loading, files, enhance, reasoningEnabled, reasoningLevel, agentSelection, language, fetchChats, t, activeChatIdRef, fetchChatsTimerRef, messageTreeRef, setActiveChatId, setActiveLeafId, setChats, setMessageTree]);
+  }, [currentKb, loading, files, enhance, reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language, fetchChats, t, activeChatIdRef, fetchChatsTimerRef, messageTreeRef, setActiveChatId, setActiveLeafId, setChats, setMessageTree]);
 
   const cancelStream = useCallback(() => {
     chatAbortRef.current?.abort();

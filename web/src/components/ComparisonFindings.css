@@ -38,33 +38,6 @@
     border-left-color: var(--success-text);
 }
 
-.comparison-finding .sev-badge {
-    display: inline-block;
-    padding: 1px 8px;
-    border-radius: var(--shape-full);
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-}
-
-/* Dark-mode-safe status pairs (improvement #1): soft tinted bg + matching
-   foreground, mirroring the answer verification badge instead of white-on-saturated. */
-.comparison-finding.sev-high .sev-badge {
-    background: var(--error-bg);
-    color: var(--error-text);
-}
-
-.comparison-finding.sev-medium .sev-badge {
-    background: var(--suspect-bg);
-    color: var(--suspect-text);
-}
-
-.comparison-finding.sev-low .sev-badge {
-    background: var(--badge-success-bg);
-    color: var(--badge-success-foreground);
-}
-
 .comparison-finding .issue {
     margin: 6px 0 0;
     color: var(--text-primary);

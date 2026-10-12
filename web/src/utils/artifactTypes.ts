@@ -14,6 +14,17 @@ export const MARKDOWN_ARTIFACT_TYPES = new Set<GeneratedContent['type']>([
     'timeline',
 ]);
 
+// The markdown types a user can CREATE from a free-text focus: exactly the
+// backend registry go-backend/internal/contentgen/registry.go `TextArtifacts`,
+// each served by the generic POST /api/kb/{id}/generate/{type} handler that
+// useGeneratedContent.handleGenerate calls. The other three markdown types are
+// produced by different flows and are not creatable through this call:
+// `analysis` (StudioWorkspace's agent/preset dialog, /generate/analysis),
+// `abstract` (a file picker, /generate/abstract) and `research` (ResearchMode).
+// Kept in step with the Go registry by hand — there is no generated link.
+export const PROMPT_TEXT_ARTIFACT_TYPES = ['briefing_doc', 'faq', 'study_guide', 'timeline'] as const;
+export type PromptTextArtifactType = typeof PROMPT_TEXT_ARTIFACT_TYPES[number];
+
 // isMarkdownArtifact reports whether a generated-content type is rendered and
 // edited as markdown text (vs. a structured type like flashcards/presentation
 // that has its own renderer).
@@ -25,7 +36,9 @@ export function isMarkdownArtifact(type: GeneratedContent['type']): boolean {
 // content lists. Types without an entry fall back to their raw string.
 const ARTIFACT_TYPE_LABEL_KEYS: Partial<Record<GeneratedContent['type'], string>> = {
     analysis: 'analysis',
-    research: 'research',
+    // Not 'research': that key is the Studio's action label ("Bericht
+    // erstellen"), which reads wrong as the type of an existing result.
+    research: 'artifactTypeResearch',
     abstract: 'abstract',
     flashcards: 'flashcards',
     presentation: 'slides',

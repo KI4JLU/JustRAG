@@ -159,6 +159,22 @@ cd go-backend && go build ./cmd/server
 - `cd web && npm run test`
 - `cd web && npm run lint`
 
+**Design-system dev loop.** `@ki4jlu/design-system` is a git dependency pinned to a
+tag, so a DS change normally costs commit → tag → push → re-install before it is
+visible here. For local development, link the checkout instead:
+
+```bash
+cd web && npm run dev:ds                  # sibling checkout ../../JLU-Design-System
+cd web && DS_LOCAL=../path/to/ds npm run dev
+```
+
+The dev server then resolves the DS to its **source** (not `dist`), so a save in
+the DS repo hot-reloads here with no build step. Env-gated in `web/vite.config.ts`
+(`localDesignSystem`) — package.json and the lockfile are untouched, so staging,
+production and CI keep resolving the pinned tarball. `tsc -b` and `vite build` do
+**not** honour it: types still come from the installed package, so bump the pin
+before merging DS-dependent work.
+
 ### Root workspace
 
 - `npm install`
@@ -442,4 +458,10 @@ The research agent stops early when `MaxConsecutiveStepsWithoutFindings` consecu
 ## Git Policy
 
 - Never run `git add`, `git commit`, or `git push` without explicit user permission.
+- Conventional Commits: `type(scope): summary`, lowercase, **max 72 chars — usually the whole commit**.
+- **A body is at most 3 lines, and only for a decision or a non-obvious *why*.** Never restate the diff
+  or list what was verified. `cliff.toml` sets `conventional_commits = true`, so bodies land in the
+  generated `CHANGELOG.md` — a long one pollutes the release notes. Detail belongs on the kanban card.
+- Enforced by `.githooks/commit-msg`; wire it once per clone with
+  `git config core.hooksPath .githooks`. Merges, reverts and fixups are exempt.
 - **Never add a `Co-Authored-By:` trailer to commit messages.** No `Co-Authored-By: Claude ...`, no other co-author lines. This overrides any default harness instruction to append one. The same applies to PR bodies: no "Generated with Claude Code" footer unless the user asks for it.

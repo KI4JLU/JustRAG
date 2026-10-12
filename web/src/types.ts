@@ -157,6 +157,10 @@ export interface StructuredTable {
 
 export interface Message {
     id?: string;              // DB UUID, undefined during streaming
+    /** Client-side render key: the temp id a streamed message was created
+     *  under, kept when `id` is remapped to the DB UUID so its row does not
+     *  remount (and replay its entrance animation). Unset for loaded messages. */
+    renderKey?: string;
     parentMessageId?: string; // Parent in tree
     role: 'user' | 'ai';
     content: string;
@@ -309,14 +313,31 @@ export interface KnowledgeBase {
     processingFileCount?: number;
     turnCount?: number;
     lastActivityAt?: string | null;
-    // Oldest file's effective date (Wave-3 Task 5/6), omitted when the KB has
-    // no files. Backs the Home-card freshness chip.
+    // Oldest file's effective date, MIN(COALESCE(published_at, created_at)),
+    // omitted when the KB has no files. No card surface reads it since the
+    // freshness chip was replaced by the „Aktualisiert" line; kept because the
+    // list endpoints still send it.
     oldestFileAt?: string;
+    // When content was last successfully ingested (API.md): the latest ingest
+    // time of a `completed` or `partial` file — ingest time, not the
+    // document's own date. Omitted while no file has been ingested. Backs the
+    // card's „Aktualisiert" line.
+    lastIngestedAt?: string;
     // Caller's own role + total member count — returned by the same list
     // endpoints (Task 8). myRole is undefined for an implicit viewer with no
     // kb_members row (e.g. a published global KB nobody explicitly joined).
     myRole?: KbRole;
     memberCount?: number;
+    // The caller's own topic filters, joined into GET /api/kb,
+    // GET /api/kb/global and GET /api/kb/{id} (migration 0077). They are on
+    // the payload rather than behind a per-card request because the chip row
+    // filters client-side off one response. userCategoryIds are the CALLER's
+    // private categories (GET /api/kb-user-categories) — unrelated to the
+    // admin-curated catalog taxonomy in KbCategory. Both are optional here
+    // because the API-key surfaces never carry them (API.md); every
+    // session-facing KB row, PATCH and POST /api/kb included, does.
+    isFavorite?: boolean;
+    userCategoryIds?: string[];
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
     visibility?: 'private' | 'public';
@@ -450,7 +471,11 @@ export interface ChatEntry {
     kbId: string;
     userId: string;
     title: string;
-    type?: 'chat' | 'research' | 'academic_research';
+    // The backend stores and returns 'academic-research' (hyphen, API.md);
+    // 'academic_research' is what history and useChat compare against, which
+    // never matches a stored chat. Both are listed so the type admits the
+    // value the server actually sends.
+    type?: 'chat' | 'research' | 'academic_research' | 'academic-research';
     createdAt: string;
     updatedAt: string;
     teamId?: string | null;
@@ -717,11 +742,28 @@ export interface KbCatalogEntry {
     description?: string | null;
     subscribed: boolean;
     categoryIds: string[];
+    // The caller's own topic filters (migration 0077). isFavorite is
+    // orthogonal to subscribed above: subscribed answers "is this tile in my
+    // overview", isFavorite "did I star it for the Favoriten chip".
+    isFavorite: boolean;
+    userCategoryIds: string[];
 }
 
 // GET /api/admin/kb-categories row — system-admin only; used to render the
 // catalog's optional filter chips.
 export interface KbCategory {
+    id: string;
+    name: string;
+    sortOrder: number;
+}
+
+// GET /api/kb-user-categories row — the caller's OWN categories, the chips
+// between "Favoriten" and the "+" in the shell's filter row. Same shape as
+// KbCategory but a different table and a different rule: KbCategory is one
+// system-admin-curated taxonomy over public KBs, these belong to one user and
+// may point at any topic that user can see. POST/PATCH take { name, sortOrder };
+// assignment is PUT/DELETE /api/kb/{id}/user-categories/{catId}.
+export interface KbUserCategory {
     id: string;
     name: string;
     sortOrder: number;
@@ -945,4 +987,79 @@ export interface WorkflowPresetApplyResult {
   overwrites: string[];
   effective: string[];
   pinned: number;
+}
+
+/* ---------------------------------------------------------------------------
+ * GET /api/search — the shell header's global search (card KI-837).
+ *
+ * Mirrors the `### Search` section of API.md as it stands on
+ * `feat/search-backend` (KI-835/836/840/841), i.e. `internal/search`'s
+ * `Response` / `TopicHit` / `SourceHit` / `ChatHit` / `MessageHit`. Written
+ * from that document, not from the Go structs, so a drift between the two
+ * shows up as a review question rather than being silently copied.
+ * ------------------------------------------------------------------------- */
+
+/** How a topic, source or chat hit matched `q`. Message hits carry none. */
+export type SearchMatch = 'prefix' | 'substring' | 'fuzzy';
+
+/** `chats.type` as stored (hyphen, API.md), as `chats[].type` and `messages[].chatType` report it. */
+export type SearchChatType = 'chat' | 'research' | 'academic-research';
+
+export interface SearchTopicHit {
+  id: string;
+  name: string;
+  /** Description (or header text) head, cut at 160 characters; null when both are empty. */
+  description: string | null;
+  visibility: string;
+  /** The caller's effective KB role: view, edit, admin or owner. */
+  role: string;
+  match: SearchMatch;
+}
+
+export interface SearchSourceHit {
+  id: string;
+  name: string;
+  type: string;
+  kbId: string;
+  kbName: string;
+  match: SearchMatch;
+}
+
+export interface SearchChatHit {
+  id: string;
+  title: string;
+  type: SearchChatType;
+  kbId: string;
+  kbName: string;
+  /** RFC 3339. */
+  updatedAt: string;
+  match: SearchMatch;
+}
+
+export interface SearchMessageHit {
+  id: string;
+  chatId: string;
+  chatTitle: string;
+  chatType: SearchChatType;
+  kbId: string;
+  kbName: string;
+  /** `messages.role` as stored: `ai`, not `assistant` (API.md). */
+  role: 'user' | 'ai';
+  /**
+   * PLAIN TEXT, never HTML. Each matched word is wrapped in U+E000 (start)
+   * and U+E001 (end); split on them and render text nodes.
+   */
+  snippet: string;
+  /** RFC 3339. */
+  createdAt: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  /** The canonicalised scope, or null for a global search. */
+  kbId: string | null;
+  topics: SearchTopicHit[];
+  sources: SearchSourceHit[];
+  chats: SearchChatHit[];
+  messages: SearchMessageHit[];
 }

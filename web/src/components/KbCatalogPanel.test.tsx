@@ -3,6 +3,7 @@ import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import KbCatalogPanel from './KbCatalogPanel';
+import { KbSearchProvider } from '../contexts/KbSearchContext';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -20,8 +21,41 @@ const toastMock = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 
-function renderPanel(onSubscriptionChange = vi.fn(), onOpenKb = vi.fn()) {
-    return render(<KbCatalogPanel onSubscriptionChange={onSubscriptionChange} onOpenKb={onOpenKb} />);
+/**
+ * The query is driven through the CONTEXT, not through an input (card KI-787).
+ *
+ * The panel lost its own search field when the developer moved it into the
+ * shell's top bar, so there is nothing here to type into — and that is the
+ * point: this suite now tests the panel against its real interface, a `query`
+ * that arrives from outside. `rerender` with a new value is exactly what the
+ * chrome's field causes in production, one keystroke at a time.
+ *
+ * `setQuery` is a spy rather than the real `useKbSearchState`: nothing in this
+ * file writes the query. Since KI-837 the panel reads `catalogQuery` — the
+ * query „show all in Discover" hands over — and not the header field's text,
+ * so the field's `query` is set to a DIFFERENT value here: a panel that read
+ * the wrong one would send `q=header-text-not-the-catalog-query`.
+ */
+function providedSearch(query: string) {
+    return {
+        query: 'header-text-not-the-catalog-query',
+        setQuery: vi.fn(),
+        catalogQuery: query,
+        applyCatalogQuery: vi.fn(),
+        focusPending: false,
+        requestFocus: vi.fn(),
+        consumeFocus: vi.fn(),
+    };
+}
+
+function renderPanel(onSubscriptionChange = vi.fn(), onOpenKb = vi.fn(), query = '') {
+    const ui = (q: string) => (
+        <KbSearchProvider value={providedSearch(q)}>
+            <KbCatalogPanel onSubscriptionChange={onSubscriptionChange} onOpenKb={onOpenKb} />
+        </KbSearchProvider>
+    );
+    const result = render(ui(query));
+    return { ...result, setQuery: (next: string) => result.rerender(ui(next)) };
 }
 
 describe('KbCatalogPanel', () => {
@@ -38,6 +72,29 @@ describe('KbCatalogPanel', () => {
                 ],
             });
         });
+    });
+
+    /* The empty shelf, which had no test at all before 18.09.2026.
+     *
+     * ORACLE: the two translation KEYS, which is what this file's `t` renders
+     * — it echoes the key back (see `tMock`), so every assertion here selects
+     * by key or by role rather than by translated text. The German and English
+     * wording is pinned in translations.ts, not here.
+     *
+     * Both keys are asserted because they say different things: the title
+     * states what is (nothing here), the body what will change it (somebody
+     * publishing one). A rewrite that dropped the second would leave a bare
+     * negative on the one page whose content other people supply — which is
+     * how the old single key read, and why it was replaced.
+     */
+    it('says the shelf is empty and will fill, when the catalog returns nothing', async () => {
+        mockedAxios.get.mockImplementation((url: string) =>
+            Promise.resolve({ data: url.includes('/api/kb-categories') ? [{ id: 'c1', name: 'IT', sortOrder: 1 }] : [] }),
+        );
+        renderPanel();
+
+        expect(await screen.findByText('catalogEmptyTitle')).toBeInTheDocument();
+        expect(screen.getByText('catalogEmptyBody')).toBeInTheDocument();
     });
 
     it('lists catalog entries', async () => {
@@ -200,14 +257,49 @@ describe('KbCatalogPanel result fold', () => {
 
     // Ohne das Zuruecksetzen bliebe jede spaetere Ergebnisliste aufgeklappt,
     // weil `expanded` sonst ueber den Filterwechsel hinweg haengen bliebe.
+    //
+    // KI-787 changed WHO changes the query (the chrome's field, through the
+    // context) but not this requirement — and it is the one the move could
+    // have dropped silently, because the reset used to hang off a setter this
+    // component no longer has. ORACLE: the number of rendered cards, read off
+    // the DOM. It is 8 again only if the fold really re-closed; a component
+    // that kept `expanded` would render all 11 and nothing else would notice.
     it('folds the list again when the search changes', async () => {
         mockEntries(11);
-        renderPanel();
+        const panel = renderPanel();
 
         await userEvent.click(await screen.findByRole('button', { name: 'catalogShowMore' }));
         expect(screen.getAllByTestId('catalog-entry')).toHaveLength(11);
 
-        await userEvent.type(screen.getByLabelText('catalogSearchPlaceholder'), 'KB');
+        panel.setQuery('KB');
         await waitFor(() => expect(screen.getAllByTestId('catalog-entry')).toHaveLength(8));
+    });
+
+    // The counterpart: the fold must survive a render that does NOT change the
+    // filter, or „show more" would undo itself on the next unrelated update.
+    // This is the failure mode the derived `expandedFor` could have introduced
+    // and the boolean it replaced could not.
+    it('keeps the list unfolded across a re-render with the same query', async () => {
+        mockEntries(11);
+        const panel = renderPanel();
+
+        await userEvent.click(await screen.findByRole('button', { name: 'catalogShowMore' }));
+        expect(screen.getAllByTestId('catalog-entry')).toHaveLength(11);
+
+        panel.setQuery('');
+        await waitFor(() => expect(screen.getAllByTestId('catalog-entry')).toHaveLength(11));
+    });
+
+    // The panel renders no search field of its own since KI-787 — the whole
+    // point of the card is that there is exactly one in the app, and it is in
+    // the chrome. ORACLE: the accessible name the chrome's field carries; if
+    // the panel still had one, this query would find it.
+    it('renders no search field of its own', async () => {
+        mockEntries(1);
+        renderPanel();
+
+        await screen.findByText('KB 0');
+        expect(screen.queryByLabelText('catalogSearchPlaceholder')).toBeNull();
+        expect(screen.queryByRole('textbox')).toBeNull();
     });
 });

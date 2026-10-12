@@ -1,10 +1,10 @@
 import React, { memo, useMemo, useState, useCallback } from 'react';
-import { Search, Globe, Rss, Upload, GraduationCap, BookOpen, Loader2, X, ArrowRight, GitBranch } from 'lucide-react';
+import { Search, Globe, Rss, Upload, Type, GraduationCap, BookOpen, Loader2, X, ArrowRight, GitBranch } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import './SourcesGrid.css';
 
-export type SourceType = 'websearch' | 'crawl' | 'research' | 'rss' | 'upload' | 'academic' | 'confluence' | 'gitrepo';
+export type SourceType = 'websearch' | 'crawl' | 'research' | 'rss' | 'upload' | 'text' | 'academic' | 'confluence' | 'gitrepo';
 
 interface WebSearchProps {
     toolInput: string;
@@ -31,6 +31,7 @@ const gridItems: { type: SourceType; icon: typeof Search; labelKey: string }[] =
     { type: 'crawl', icon: Globe, labelKey: 'crawl' },
     { type: 'rss', icon: Rss, labelKey: 'rss' },
     { type: 'upload', icon: Upload, labelKey: 'uploadFile' },
+    { type: 'text', icon: Type, labelKey: 'insertText' },
     { type: 'confluence', icon: BookOpen, labelKey: 'confluence' },
     { type: 'gitrepo', icon: GitBranch, labelKey: 'gitRepo' },
     { type: 'academic', icon: GraduationCap, labelKey: 'justFind' },
@@ -43,15 +44,17 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
 
     const items = useMemo(() => {
         const confluenceEnabled = siteConfigs?.confluence_enabled === 'true';
-        const academicEnabled = siteConfigs?.academic_search_enabled === 'true';
         const gitRepoEnabled = siteConfigs?.git_repo_enabled === 'true';
         return gridItems.filter(i => {
             if (i.type === 'confluence' && !confluenceEnabled) return false;
-            if (i.type === 'academic' && !academicEnabled) return false;
+            // 'academic' öffnete die Academic-Research-Ansicht; die ist seit
+            // dem 22.09.2026 nicht erreichbar (KbViewType = 'chat'), also
+            // fehlt die Kachel — unabhängig von academic_search_enabled.
+            if (i.type === 'academic') return false;
             if (i.type === 'gitrepo' && !gitRepoEnabled) return false;
             return true;
         });
-    }, [siteConfigs?.confluence_enabled, siteConfigs?.academic_search_enabled, siteConfigs?.git_repo_enabled]);
+    }, [siteConfigs?.confluence_enabled, siteConfigs?.git_repo_enabled]);
 
     const webSearchEnabled = siteConfigs?.web_search_enabled === 'true';
 
@@ -75,8 +78,6 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
 
     return (
         <div className="sources-grid">
-            <h2 className="sources-grid__title">{t('addSources')}</h2>
-
             {webSearchEnabled && webSearch && (
                 <>
                     <div className="sources-grid__search-box">

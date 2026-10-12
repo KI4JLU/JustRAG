@@ -42,3 +42,36 @@ export function formatRelative(iso: string | undefined, lang: 'de' | 'en'): stri
     if (Math.abs(hr) < 24) return rtf.format(hr, 'hour');
     return rtf.format(day, 'day');
 }
+
+// formatRelativeCoarse is the KB card's „Genutzt" / „Aktualisiert" value
+// (card KI-848): `Intl.RelativeTimeFormat(lang, { numeric: 'auto' })`, which
+// is what yields „gestern" / „yesterday" instead of „vor 1 Tag". Unlike
+// `formatRelative` (unchanged, used by the admin dashboard and the citation
+// surfaces) it climbs to months and years, because a card line reading
+// „vor 412 Tagen" is noise. THE RULE, by the absolute age:
+//   < 1 minute   → „jetzt" / „now"          (second 0)
+//   < 1 hour     → minutes                  („vor 5 Minuten")
+//   < 24 hours   → hours                    („vor 3 Stunden")
+//   < 30 days    → days                     („gestern", „vor 7 Tagen")
+//   < 365 days   → months, rounded, ≥ 1     („vor 2 Monaten")
+//   otherwise    → years, rounded, ≥ 1      („vor 3 Jahren")
+// A timestamp in the future (clock skew between server and browser) reads as
+// „jetzt" rather than „in 2 Minuten": these are past events by definition.
+export function formatRelativeCoarse(iso: string | undefined, lang: 'de' | 'en'): string {
+    if (!iso) return DATE_PLACEHOLDER;
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return DATE_PLACEHOLDER;
+    const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' });
+    const ageMs = Math.max(0, Date.now() - then);
+    // Floored below a day, so 59.9 minutes is „vor 59 Minuten", never „vor 60
+    // Minuten"; rounded from a day up, so 36 hours is „vorgestern" (2 days).
+    const min = Math.floor(ageMs / 60000);
+    const hr = Math.floor(ageMs / 3600000);
+    const day = Math.round(ageMs / 86400000);
+    if (ageMs < 60000) return rtf.format(0, 'second');
+    if (ageMs < 3600000) return rtf.format(-min, 'minute');
+    if (ageMs < 86400000) return rtf.format(-hr, 'hour');
+    if (day < 30) return rtf.format(-day, 'day');
+    if (day < 365) return rtf.format(-Math.max(1, Math.round(day / 30.4375)), 'month');
+    return rtf.format(-Math.max(1, Math.round(day / 365.25)), 'year');
+}

@@ -1,18 +1,18 @@
 import { useState, lazy, Suspense, useCallback, useEffect } from 'react';
-import axios from 'axios';
 import { motion } from 'framer-motion';
 import { Loader2, HelpCircle, ArrowLeft } from 'lucide-react';
 import type { KnowledgeBase, GeneratedContent } from './types';
-import { API_BASE_URL } from './api';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
-import { ToastProvider, useToast } from './contexts/ToastContext';
-import { ToastContainer } from './components/ToastContainer';
+import { useToast } from './contexts/ToastContext';
 import { KbCoreProvider, type KbCoreContextValue } from './contexts/KbCoreContext';
 import { KbChatProvider, type KbChatContextValue } from './contexts/KbChatContext';
 import { KbDataProvider, type KbDataContextValue } from './contexts/KbDataContext';
 import { KbLayoutProvider, type KbLayoutContextValue } from './contexts/KbLayoutContext';
+import { AppNavProvider, type AppNavContextValue } from './contexts/AppNavContext';
+import { SharingProvider } from './contexts/SharingContext';
+import { KbSearchProvider } from './contexts/KbSearchContext';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 
 // Hooks
@@ -24,6 +24,8 @@ import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
 import { useJoinRedeem } from './hooks/useJoinRedeem';
 import { useSharing } from './hooks/useSharing';
+import { useKbSearchState } from './hooks/useKbSearchState';
+import { useSearchNavigation } from './hooks/useSearchNavigation';
 import { useRssFeeds } from './hooks/useRssFeeds';
 import { useConfluenceSources } from './hooks/useConfluenceSources';
 import { useGitRepoSources } from './hooks/useGitRepoSources';
@@ -32,7 +34,10 @@ import { useKbSettings } from './hooks/useKbSettings';
 import { useKbLifecycle } from './hooks/useKbLifecycle';
 
 // Components
-import { HomeView } from './components/HomeView';
+import { MyTopicsView } from './components/MyTopicsView';
+import { SharedTopicsView } from './components/SharedTopicsView';
+import { DiscoverView } from './components/DiscoverView';
+import { ToolsView } from './components/ToolsView';
 import { KbWorkspaceLayout } from './components/KbWorkspaceLayout';
 import { KbWorkspaceModals } from './components/KbWorkspaceModals';
 
@@ -41,9 +46,9 @@ const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then
 const KbSettingsPanel = lazy(() => import('./components/kb-settings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
 import { OnboardingTour } from './components/OnboardingTour';
-import { Footer } from './components/Footer';
 import { LegalPage } from './components/LegalPage';
 import { viewportHeight } from './utils/viewport';
+import { chatWebSearchRequestField } from './utils/chatWebSearch';
 
 // Lazy Loaded Components
 const AdminUI = lazy(() => import('./AdminUI'));
@@ -56,17 +61,31 @@ const LoadingFallback = () => (
   </div>
 );
 
+/** First occurrence wins; order is kept. */
+function uniqueById(kbs: KnowledgeBase[]): KnowledgeBase[] {
+  const seen = new Set<string>();
+  return kbs.filter(kb => (seen.has(kb.id) ? false : (seen.add(kb.id), true)));
+}
+
 function OnboardingHelpButton({ onClick }: { onClick: () => void }) {
   const { t } = useTheme();
   return (
     <button
+      /* Stable app-level anchor (card KI-781). Names the element's ROLE — the
+       * control that opens the onboarding tour — not its look or its corner,
+       * both of which this card just proved are unstable. Must stay unique in
+       * the document; App.authenticated-home.test.tsx asserts that. */
+      id="onboarding-tour-trigger"
       onClick={onClick}
       title={t('onboardingReopenTour')}
       aria-label={t('onboardingReopenTour')}
       style={{
         position: 'fixed',
         bottom: '24px',
-        left: '24px',
+        /* Bottom-RIGHT since KI-781. The toast container used to be pinned to
+         * the identical bottom:24/right:24 and moved to the top (Toast.css);
+         * check that file before putting anything else in this corner. */
+        right: '24px',
         width: '44px',
         height: '44px',
         borderRadius: '50%',
@@ -87,60 +106,79 @@ function OnboardingHelpButton({ onClick }: { onClick: () => void }) {
 }
 
 export default function AuthenticatedApp() {
+  /* `ToastProvider` and `ToastContainer` used to be here, inside
+   * `ModalProvider`. They moved up to App.tsx's root (card KI-740) because
+   * this component is only the AUTHENTICATED half of the tree, and
+   * `LegalPage` — rendered by `Login` on the unauthenticated route — calls
+   * `useToast()`, so the legal pages threw before login. They are NOT
+   * duplicated here: exactly one provider and one container exist in the
+   * tree, and a nested second provider would split the toast store in two.
+   *
+   * `ModalProvider` stays. It has the identical shape — mounted on the
+   * authenticated half only — but no current trigger: the app components
+   * `Login` renders are `Footer`, `FieldRow` and `LegalPage` (everything
+   * else in it comes from @ki4jlu/design-system), and none of those three,
+   * nor `ReloadPrompt`, imports `contexts/ModalContext` at all. Every
+   * `useModalContext()` call site sits inside this authenticated tree —
+   * `grep -rn "useModalContext()" src` is the check, and it is a grep and
+   * not a number here on purpose, so it cannot go stale. Moving the
+   * provider anyway would have been a second, unmotivated change in the
+   * KI-740 diff. If an unauthenticated surface ever does need a confirm
+   * dialog, it has the same latent bug and the same fix applies.
+   */
   return (
     <ModalProvider>
-      <ToastProvider>
-        <AuthenticatedAppInner />
-        <ToastContainer />
-      </ToastProvider>
+      <AuthenticatedAppInner />
     </ModalProvider>
   );
 }
 
 function AuthenticatedAppInner() {
-  const { theme, t } = useTheme();
-  const { user, token, logout: onLogout, updateUser: onUpdateUser } = useAuth();
+  // `resolvedTheme`, not `theme`: since KI-779 `theme` can be `'system'`, and
+  // `data-theme="system"` matches no design-system rule. This attribute is a
+  // NESTED mirror of the one the DS ThemeProvider writes on <html>, so it has
+  // to carry the resolved value or the container would silently stop matching
+  // `[data-theme="dark"]` for every OS-following user.
+  const { resolvedTheme, t } = useTheme();
+  const { user, token, updateUser: onUpdateUser, siteConfigs } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
   const reducedMotion = useReducedMotion();
 
   // Local state kept here to avoid circular deps with useKnowledgeBases
-  const [view, setView] = useState<ViewType>('home');
+  const [view, setView] = useState<ViewType>('my-topics');
   const [kbView, setKbView] = useState<KbViewType>('chat');
   const [currentKb, setCurrentKb] = useState<KnowledgeBase | null>(null);
 
-  // Query-scoped mindmap: which answer's subgraph the mindmap view is scoped to.
-  const [scopedMindmapMessageId, setScopedMindmapMessageId] = useState<string | null>(null);
-
-  const handleViewGraphForMessage = useCallback((messageId: string) => {
-    setScopedMindmapMessageId(messageId);
-    setKbView('mindmap');
-  }, [setKbView]);
-
-  const onCloseMindmap = useCallback(() => { setScopedMindmapMessageId(null); setKbView('chat'); }, [setKbView]);
-  const onShowWholeKb = useCallback(() => { setScopedMindmapMessageId(null); }, []); // stays in mindmap; messageId=null reloads full graph
-
   // New extracted hooks
   const kbSettings = useKbSettings();
-  const viewState = useViewState({ setView, kbView, setKbView, setShowSettings: kbSettings.setShowSettings });
+  const viewState = useViewState({ setView, setKbView, setShowSettings: kbSettings.setShowSettings });
 
-  // Onboarding Tour
-  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('onboardingCompleted'));
-  const handleCloseOnboarding = useCallback(() => { setShowOnboarding(false); localStorage.setItem('onboardingCompleted', 'true'); }, []);
+  // TEMPORARY (2026-10-12): the onboarding tour opens only from its help
+  // button; the automatic tour on first login is switched off for now. To bring
+  // it back, initialise from `!localStorage.getItem('onboardingCompleted')` and
+  // set that key again on close.
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const handleCloseOnboarding = useCallback(() => setShowOnboarding(false), []);
 
 
   // Sidebar resize
   const sidebar = useSidebarResize();
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
 
   // Existing hooks
   const fileMgmt = useFileManagement({ currentKb });
 
   const chat = useChat({
     currentKb, files: fileMgmt.files, enhance: kbSettings.enhance,
-    reasoningEnabled: kbSettings.reasoningEnabled, reasoningLevel: kbSettings.reasoningLevel,
+    reasoningEnabled: kbSettings.reasoningEnabled,
+    // Gate open: the toggle's value. Gate closed: undefined, so `webSearch` is
+    // left out of the request — never `true` (a 422) and never `false` (which
+    // would override chat_answer_tools_enabled). Same predicate the composer
+    // hides the toggle by.
+    webSearchEnabled: chatWebSearchRequestField(siteConfigs, kbSettings.webSearchEnabled),
+    reasoningLevel: kbSettings.reasoningLevel,
     agentSelection: kbSettings.agentSelection, setAgentSelection: kbSettings.setAgentSelection,
-    onResearchLoaded: () => setKbView('research'),
-    onAcademicResearchLoaded: () => setKbView('academic_research'),
   });
 
   const webTools = useWebTools({
@@ -180,6 +218,24 @@ function AuthenticatedAppInner() {
 
   const sharing = useSharing({ username: user?.username });
 
+  /* The header search's state (cards KI-787, KI-837). Held HERE rather than
+     inside a provider component, exactly like `sharing` and `appNav` below:
+     every top-level view is a separate `return` from this component, and the
+     dropdown's „show all in Discover" row lands on „Entdecken" WITH the query
+     and the caret — behaviour that must not depend on how React reconciles
+     sibling branches. See `useKbSearchState`. */
+  const kbSearch = useKbSearchState();
+
+  /* Where a search hit takes you (card KI-837): the topic first, then the
+     source or chat inside it — `useSearchNavigation` says why that order is
+     the only one that works. Published through `appNav` below, because the
+     field is chrome and the chrome takes no props from the page. */
+  const searchNav = useSearchNavigation({
+    openKbById: kbMgmt.handleOpenKbById,
+    previewSource: webTools.handlePreviewSource,
+    selectChat: chat.handleSelectChat,
+  });
+
   // Lifecycle effects
   useKbLifecycle({
     token, currentKb,
@@ -210,7 +266,11 @@ function AuthenticatedAppInner() {
   // this exists for — only reached the overview after a full page reload.
   const { fetchKBs } = kbMgmt;
   useEffect(() => {
-    if (view === 'home') {
+    // Every view that renders `kbs`/`globalKbs`: a topic shared or published
+    // while the user was elsewhere in the session would otherwise be missing
+    // from the very view that exists to show it, until a full page reload.
+    // 'tools' joined with card KI-833 — its topic picker lists the same rows.
+    if (view === 'my-topics' || view === 'shared-topics' || view === 'discover' || view === 'tools') {
       void fetchKBs({ silent: true });
     }
   }, [view, fetchKBs]);
@@ -220,9 +280,10 @@ function AuthenticatedAppInner() {
   // (which are recreated each render and would defeat the memoization).
   const { setSelectedContent } = content;
 
+  // Wählt ein Artefakt nur noch aus — die Workspace-Ansicht, die es zeigte,
+  // ist seit dem 22.09.2026 nicht erreichbar (KbViewType = 'chat').
   const handleSelectContent = useCallback((item: GeneratedContent) => {
     setSelectedContent(item);
-    setKbView('workspace');
   }, [setSelectedContent]);
 
   const handleUpdateKBSettings = async (data: Record<string, unknown>) => {
@@ -235,14 +296,34 @@ function AuthenticatedAppInner() {
     }
 
     try {
-      const res = await axios.patch(`${API_BASE_URL}/api/kb/${currentKb.id}`, data);
-      setCurrentKb(res.data);
-      kbMgmt.setKbs(prev => prev.map(kb => kb.id === res.data.id ? res.data : kb));
+      await kbMgmt.saveKbSettings(currentKb.id, data);
       if (typeof data.isPro === 'boolean') kbSettings.setIsPro(data.isPro);
     } catch (err: unknown) {
       console.error('Failed to update KB settings:', err);
       toast.error(t('settingsUpdateError'));
     }
+  };
+
+  /* The app-level navigation jumps, published to whatever chrome renders the
+   * sidebar. Defined HERE, above the early returns, rather than inside the
+   * 'my-topics' branch where KI-770 put it: there are now FOUR views that
+   * mount `AppChrome`, and a second inline copy of this object would be two
+   * places for one set of destinations to go stale. `logout` is absent on
+   * purpose — `AuthContext` already publishes it.
+   *
+   * A plain object, not `useMemo`: it was recreated on every render of the
+   * home branch before too, so nothing about re-render behaviour changes, and
+   * a memo here would have to sit above every early return for no gain. */
+  const appNav: AppNavContextValue = {
+    onViewMyTopics: () => setView('my-topics'),
+    onViewSharedTopics: () => setView('shared-topics'),
+    onViewDiscover: () => setView('discover'),
+    onViewTools: () => setView('tools'),
+    onViewProfile: () => setView('profile'),
+    onViewAdmin: () => setView('admin'),
+    onOpenTopic: searchNav.openTopic,
+    onOpenSource: (source) => { void searchNav.openSource(source); },
+    onOpenChat: (target) => { void searchNav.openChat(target); },
   };
 
   // Early returns for non-KB views
@@ -277,7 +358,7 @@ function AuthenticatedAppInner() {
   // shown only for myRole admin|owner.
   if (view === 'kb-settings' && currentKb) {
     return (
-      <div className="app-container" data-theme={theme}>
+      <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', flexDirection: 'column', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
           <div style={{ padding: '1rem 1.5rem 0' }}>
             <button
@@ -300,7 +381,7 @@ function AuthenticatedAppInner() {
 
   if (view === 'profile' && user) {
     return (
-      <div className="app-container" data-theme={theme}>
+      <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
           <Suspense fallback={<LoadingFallback />}>
             <Profile user={user} onBack={viewState.handleGoHome} onUpdateUser={onUpdateUser} />
@@ -316,7 +397,7 @@ function AuthenticatedAppInner() {
 
   if (view === 'agents') {
     return (
-      <div className="app-container" data-theme={theme}>
+      <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
           <Suspense fallback={<LoadingFallback />}>
             <AgentsView
@@ -329,59 +410,134 @@ function AuthenticatedAppInner() {
     );
   }
 
-  if (view === 'home') {
+  /* „Geteilte Knowledge Bases" (KI-783) — a top-level view, not a section.
+   *
+   * It is mounted inside THE SAME two providers as the overview, and that is
+   * load-bearing rather than symmetric-looking: `AppChrome` calls
+   * `useSharingContext()` and `useAppNav()`, both of which THROW without a
+   * provider. `App.authenticated-home.test.tsx` is the route-level guard that
+   * exists because exactly this kind of omission once stayed green in both
+   * component suites; `App.authenticated-shared-kbs.test.tsx` is its twin for
+   * this branch.
+   *
+   * No `OnboardingTour` and no help button here: the tour's steps address the
+   * overview's own elements, so running it over this view would point at
+   * nothing. `Footer` stays, so the legal pages remain reachable. */
+  if (view === 'tools') {
+    /* THE SAME THREE PROVIDERS AS EVERY OTHER VIEW, even though the page itself
+       renders no search target (it was a placeholder when this was written).
+ 
+       They are not the VIEW's dependencies, they are `AppChrome`'s: the shell
+       reads `useKbSearch` for the top-bar field and `useSharingContext` for the
+       members dialog it mounts, on every page that wraps itself in it. Shipping
+       this branch with `AppNavProvider` alone threw
+       „useKbSearch must be used within KbSearchProvider" the moment the row was
+       clicked — the placeholder had nothing to do with it. Any future view that
+       renders `AppChrome` needs all three. */
     return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
+        {/* Owned + shared (`kbs`) and subscribed public topics (`globalKbs`):
+            generated content is view-gated, so every one of them is a valid
+            target for the text-documents tool. The two lists are disjoint
+            (GET /api/kb returns private topics only); the id filter is a guard,
+            not a known case. */}
+        <ToolsView topics={uniqueById([...kbMgmt.kbs, ...kbMgmt.globalKbs])} />
+      </KbSearchProvider>
+      </AppNavProvider>
+      </SharingProvider>
+    );
+  }
+
+  if (view === 'discover') {
+    return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
       <motion.div
-        key="home"
+        key="discover"
         {...getMotionProps(reducedMotion)}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.2 }}
       >
-        <HomeView
+        <DiscoverView
+          onSubscriptionChange={() => { kbMgmt.fetchKBs(); }}
+          onOpenKbById={kbMgmt.handleOpenKbById}
+        />
+      </motion.div>
+      </KbSearchProvider>
+      </AppNavProvider>
+      </SharingProvider>
+    );
+  }
+
+  if (view === 'shared-topics') {
+    return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
+      <motion.div
+        key="shared-topics"
+        {...getMotionProps(reducedMotion)}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        <SharedTopicsView
           kbs={kbMgmt.kbs}
-          globalKbs={kbMgmt.globalKbs}
+          onSelectKB={kbMgmt.handleSelectKB}
+          onDeleteKB={kbMgmt.handleDeleteKB}
+          removingKb={kbMgmt.removingKb}
+          onOpenKbSettings={kbMgmt.handleOpenKbSettings}
+          onRenameKB={kbMgmt.handleRenameKB}
+          onToggleFavorite={kbMgmt.handleToggleFavorite}
+        />
+      </motion.div>
+      </KbSearchProvider>
+      </AppNavProvider>
+      </SharingProvider>
+    );
+  }
+
+  if (view === 'my-topics') {
+    // The two overview contexts. `sharing` is the same object the KB
+    // workspace half already receives through KbDataContext.sharing — one
+    // useSharing() call, two mount points, so the dialog cannot get out of
+    // step between the two halves of the app.
+    return (
+      <SharingProvider value={sharing}>
+      <AppNavProvider value={appNav}>
+      <KbSearchProvider value={kbSearch}>
+      <motion.div
+        key="my-topics"
+        {...getMotionProps(reducedMotion)}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        <MyTopicsView
+          kbs={kbMgmt.kbs}
           currentKb={currentKb}
           availableConfigs={kbSettings.availableConfigs}
-          copySuccess={sharing.copySuccess}
-          onCopyUserId={sharing.copyUserId}
-          onLogout={onLogout}
-          onViewProfile={() => setView('profile')}
-          onViewAdmin={() => setView('admin')}
-          onViewAgents={() => setView('agents')}
           onCreateKB={kbMgmt.handleCreateKB}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}
-          onCreateGlobalKB={kbMgmt.handleCreateGlobalKB}
-          onSubscriptionChange={() => { kbMgmt.fetchKBs(); }}
-          onOpenKbById={kbMgmt.handleOpenKbById}
-          onDeleteGlobalKB={kbMgmt.handleDeleteGlobalKB}
-          onOpenGlobalKbSettings={kbMgmt.handleOpenGlobalKbSettings}
           onOpenKbSettings={kbMgmt.handleOpenKbSettings}
           onRenameKB={kbMgmt.handleRenameKB}
-          onOpenShare={sharing.handleOpenShare}
+          onToggleFavorite={kbMgmt.handleToggleFavorite}
           onUpdateKBSettings={handleUpdateKBSettings}
-          showShareModal={sharing.showShareModal}
-          setShowShareModal={sharing.setShowShareModal}
-          sharingKb={sharing.sharingKb}
-          shareUserId={sharing.shareUserId}
-          setShareUserId={sharing.setShareUserId}
-          shareTargetUser={sharing.shareTargetUser}
-          shareLoading={sharing.shareLoading}
-          sharePermission={sharing.sharePermission}
-          setSharePermission={sharing.setSharePermission}
-          onLookupUser={sharing.lookupUser}
-          onConfirmShare={sharing.confirmShare}
-          notFoundUsername={sharing.notFoundUsername}
-          onPendingInvited={sharing.clearNotFound}
           showSettings={kbSettings.showSettings}
           setShowSettings={kbSettings.setShowSettings}
         />
-        <Footer onNavigate={(page) => setView(page)} />
         <OnboardingHelpButton onClick={() => setShowOnboarding(true)} />
         <OnboardingTour show={showOnboarding} onClose={handleCloseOnboarding} />
       </motion.div>
+      </KbSearchProvider>
+      </AppNavProvider>
+      </SharingProvider>
     );
   }
 
@@ -399,10 +555,6 @@ function AuthenticatedAppInner() {
     availableConfigs: kbSettings.availableConfigs,
     kbView,
     setKbView,
-    scopedMindmapMessageId,
-    onViewGraphForMessage: handleViewGraphForMessage,
-    onCloseMindmap,
-    onShowWholeKb,
     kbMgmt,
     handleGoHome: viewState.handleGoHome,
     handleViewHome: viewState.handleViewHome,
@@ -416,6 +568,8 @@ function AuthenticatedAppInner() {
     setEnhance: kbSettings.setEnhance,
     reasoningEnabled: kbSettings.reasoningEnabled,
     setReasoningEnabled: kbSettings.setReasoningEnabled,
+    webSearchEnabled: kbSettings.webSearchEnabled,
+    setWebSearchEnabled: kbSettings.setWebSearchEnabled,
     reasoningLevel: kbSettings.reasoningLevel,
     setReasoningLevel: kbSettings.setReasoningLevel,
     showSettings: kbSettings.showSettings,
@@ -466,9 +620,13 @@ function AuthenticatedAppInner() {
 
   const layoutValue: KbLayoutContextValue = {
     sidebar,
+    systemPromptOpen,
+    setSystemPromptOpen,
   };
 
   return (
+    // Nav for the sidebar's user menu (AppUserMenu: profile, admin), as on every page.
+    <AppNavProvider value={appNav}>
     <KbCoreProvider value={coreValue}>
       <KbChatProvider value={chatValue}>
         <KbDataProvider value={dataValue}>
@@ -487,5 +645,6 @@ function AuthenticatedAppInner() {
         </KbDataProvider>
       </KbChatProvider>
     </KbCoreProvider>
+    </AppNavProvider>
   );
 }

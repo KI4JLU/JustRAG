@@ -6,15 +6,15 @@ import { MobileTabBar } from './MobileTabBar';
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
 describe('MobileTabBar', () => {
-  it('zeigt vier Reiter in der Reihenfolge Verlauf, Chat, Workspace, Quellen', () => {
+  it('zeigt drei Reiter in der Reihenfolge Verlauf, Chat, Quellen — kein Workspace mehr', () => {
     render(<MobileTabBar activeTab="chat" onTabChange={vi.fn()} />);
     expect(screen.getAllByRole('button').map(b => b.textContent))
-      .toEqual(['tabHistory', 'tabChat', 'tabWorkspace', 'tabFiles']);
+      .toEqual(['tabHistory', 'tabChat', 'tabFiles']);
   });
 
   it('markiert den aktiven Reiter', () => {
-    render(<MobileTabBar activeTab="workspace" onTabChange={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'tabWorkspace' })).toHaveAttribute('aria-current', 'page');
+    render(<MobileTabBar activeTab="files" onTabChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'tabFiles' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('meldet einen Reiterwechsel', async () => {

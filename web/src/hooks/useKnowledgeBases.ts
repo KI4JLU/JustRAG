@@ -7,14 +7,50 @@ import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbRemoval } from './useKbRemoval';
 
+/* `GET /api/kb` is paged (API.md: `?limit=` default 50, clamped to 100, and
+ * `?offset=`). The overview needs EVERY row, not the first page: the
+ * „Favoriten" and category chips filter client-side off this one list
+ * (useTopicFilters), so a starred topic on page two would silently be missing
+ * from its chip. Hence: walk the pages at the maximum size until one comes back
+ * short.
+ *
+ * Two guards against a server that does not page the way API.md says: a page
+ * that adds no new id ends the walk (an ignored offset would otherwise repeat
+ * page one forever), and KB_LIST_MAX_PAGES caps it outright. Rows are de-duped
+ * by id, because the list is ordered by created_at alone and a KB created
+ * between two page requests shifts the window by one. */
+export const KB_LIST_PAGE_SIZE = 100;
+const KB_LIST_MAX_PAGES = 100;
+
+export async function fetchAllPrivateKbs(): Promise<KnowledgeBase[]> {
+  const rows: KnowledgeBase[] = [];
+  const seen = new Set<string>();
+  for (let page = 0; page < KB_LIST_MAX_PAGES; page++) {
+    const res = await axios.get(`${API_BASE_URL}/api/kb`, {
+      params: { limit: KB_LIST_PAGE_SIZE, offset: page * KB_LIST_PAGE_SIZE },
+    });
+    const batch: KnowledgeBase[] = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+    let added = 0;
+    for (const kb of batch) {
+      if (seen.has(kb.id)) continue;
+      seen.add(kb.id);
+      rows.push(kb);
+      added++;
+    }
+    if (batch.length < KB_LIST_PAGE_SIZE || added === 0) break;
+  }
+  return rows;
+}
+
 interface UseKnowledgeBasesParams {
   onKBSelected: () => void;
   handleGoHome: () => void;
   // React state setter (functional form needed by handleRenameKB).
   setCurrentKb: Dispatch<SetStateAction<KnowledgeBase | null>>;
   setIsPro: (isPro: boolean) => void;
-  setKbView: (view: 'chat' | 'dashboard' | 'research' | 'workspace' | 'mindmap') => void;
-  setView: (view: 'home' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
+  /** Nur 'chat' — siehe `KbViewType` in useViewState.ts (22.09.2026). */
+  setKbView: (view: 'chat') => void;
+  setView: (view: 'my-topics' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
   setSelectedContent: (content: GeneratedContent | null) => void;
   setGeneratedContent: (content: GeneratedContent[]) => void;
 }
@@ -32,11 +68,12 @@ export function useKnowledgeBases({
 
   const fetchKBs = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      const [kbRes, globalRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/api/kb`),
+      // GET /api/kb/global is not paged (API.md); only the private list is.
+      const [privateKbs, globalRes] = await Promise.all([
+        fetchAllPrivateKbs(),
         axios.get(`${API_BASE_URL}/api/kb/global`),
       ]);
-      setKbs(Array.isArray(kbRes.data) ? kbRes.data : (kbRes.data.items || []));
+      setKbs(privateKbs);
       setGlobalKbs(Array.isArray(globalRes.data) ? globalRes.data : []);
     } catch (err: unknown) {
       console.error('Failed to fetch KBs:', err);
@@ -74,13 +111,19 @@ export function useKnowledgeBases({
   // needs the full row — and an unsubscribed public KB is absent from
   // globalKbs by design, so it cannot be looked up locally either. Hence the
   // round trip to GET /api/kb/{id}, which is view-gated server-side.
-  const handleOpenKbById = useCallback(async (id: string) => {
+  //
+  // Resolves to whether the KB was opened (card KI-837): the global search
+  // opens a source or a chat INSIDE the topic, and must not do so when the
+  // topic could not be opened — the error has already been toasted here.
+  const handleOpenKbById = useCallback(async (id: string): Promise<boolean> => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/kb/${id}`);
       handleSelectKB(res.data);
+      return true;
     } catch (err: unknown) {
       console.error('Failed to open KB:', err);
       toast.error(t('kbFetchError'));
+      return false;
     }
   }, [handleSelectKB, toast, t]);
 
@@ -102,12 +145,10 @@ export function useKnowledgeBases({
   // — canRenameKb decides whether a trigger is shown, the server (kbaccess.
   // CanRename on PATCH /api/kb/{id}) enforces it.
   //
-  // Only the NAME is merged into local state, never the whole response row:
-  // PATCH returns the bare kb.KBRow (kbSelectColsNoAlias), which carries no
-  // myRole/memberCount and no card stats — those exist only on the list
-  // projections. Replacing the row would drop myRole, and HomeView's
-  // owned/shared split keys on exactly that, so the renamed KB would jump into
-  // "Mit mir geteilt" and lose its owner controls until the next reload.
+  // Only the NAME is merged into local state. PATCH now answers with the full
+  // caller-aware row (see saveKbSettings below), so replacing would be safe
+  // too; the name-only merge predates that and is kept because a rename needs
+  // nothing else from the response, and it does not depend on its shape.
   // currentKb is touched only if it IS the renamed KB (functional setter — a
   // rename from the Home card of a KB that is not open must not hijack the
   // open one).
@@ -132,6 +173,24 @@ export function useKnowledgeBases({
       toast.error(t('kbRenameError'));
     }
   }, [showPrompt, t, toast, setCurrentKb]);
+
+  /* The KB settings panel's save. PATCH /api/kb/{id} answers with the KB in
+   * the caller-aware shape of GET /api/kb/{id} (API.md): card fields, myRole,
+   * memberCount and the caller's isFavorite/userCategoryIds — the store
+   * re-reads it with the same column set as the list query. So the response
+   * REPLACES the row: the star, the counts and the owned/shared split all
+   * survive a save. It is replaced wherever the row lives — `kbs` for a
+   * private topic, `globalKbs` for a public one — and in currentKb only if
+   * that is this KB. Rejects on failure; the caller confirms and toasts. */
+  const saveKbSettings = useCallback(async (kbId: string, data: Record<string, unknown>): Promise<KnowledgeBase> => {
+    const res = await axios.patch<KnowledgeBase>(`${API_BASE_URL}/api/kb/${kbId}`, data);
+    const row = res.data;
+    const replace = (list: KnowledgeBase[]) => list.map(k => (k.id === row.id ? row : k));
+    setKbs(replace);
+    setGlobalKbs(replace);
+    setCurrentKb(prev => (prev && prev.id === row.id ? row : prev));
+    return row;
+  }, [setCurrentKb]);
 
   // Thin caller: removeKb (useKbRemoval) owns the delete-vs-leave decision,
   // the confirmation dialog(s), and the request. This only reacts to the
@@ -172,17 +231,43 @@ export function useKnowledgeBases({
     await fetchKBs();
   }, [removeKb, handleGoHome, toast, t, fetchKBs]);
 
-  const handleCreateGlobalKB = async () => {
-    const name = await showPrompt(t('globalKbNamePrompt'));
-    if (!name) return;
+  /* `handleCreateGlobalKB` stood here and is deleted (developer ruling,
+     18.09.2026): a topic is not CREATED global, it is created private and
+     promoted. It POSTed /api/admin/global-kbs, which the „Globale KB erstellen"
+     tile on „Geteiltes Wissen" was the only caller of. Promotion is the admin
+     KB overview's publish action (POST /api/admin/kb/{id}/publish, gated on
+     admin|superadmin in `KBOverviewDashboard`). The backend endpoint is
+     untouched — this removes the app's path to it, not the route. */
+
+  /* The star on a topic card (migration 0077).
+   *
+   * OPTIMISTIC, and it reverts. The row existence IS the flag server-side, so
+   * there is nothing to reconcile beyond a boolean — and a star that waited for
+   * a round trip would feel broken on a list the user is scanning. On failure
+   * the previous value goes back and the toast says so, rather than leaving the
+   * UI claiming something the server refused.
+   *
+   * Both lists are patched: a public topic lives in `globalKbs` and a private
+   * one in `kbs`, and the card does not know which list it came from. */
+  const handleToggleFavorite = useCallback(async (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !kb.isFavorite;
+    const patch = (list: KnowledgeBase[]) =>
+      list.map(row => (row.id === kb.id ? { ...row, isFavorite: next } : row));
+    setKbs(patch);
+    setGlobalKbs(patch);
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/admin/global-kbs`, { name });
-      setGlobalKbs(prev => [res.data, ...prev]);
-    } catch (err: unknown) {
-      console.error('Failed to create global KB:', err);
-      toast.error(t('kbCreateError'));
+      const url = `${API_BASE_URL}/api/kb/${kb.id}/favorite`;
+      if (next) await axios.put(url);
+      else await axios.delete(url);
+    } catch {
+      const revert = (list: KnowledgeBase[]) =>
+        list.map(row => (row.id === kb.id ? { ...row, isFavorite: !next } : row));
+      setKbs(revert);
+      setGlobalKbs(revert);
+      toast.error(t('favoriteError'));
     }
-  };
+  }, [toast, t]);
 
   const handleDeleteGlobalKB = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -215,7 +300,7 @@ export function useKnowledgeBases({
 
   return {
     kbs, setKbs, globalKbs, setGlobalKbs,
-    fetchKBs, handleCreateKB, handleSelectKB, handleOpenKbById, handleRenameKB, handleDeleteKB, removingKb,
-    handleCreateGlobalKB, handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
+    fetchKBs, handleCreateKB, handleSelectKB, handleOpenKbById, handleRenameKB, saveKbSettings, handleDeleteKB, removingKb,
+    handleToggleFavorite, handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
   };
 }

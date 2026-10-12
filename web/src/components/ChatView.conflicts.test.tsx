@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase } from '../types';
 
@@ -15,7 +14,7 @@ import type { Message, KnowledgeBase } from '../types';
 // class of bug, which a `MessageBubble`-only unit test structurally cannot.
 //
 // `ChatView` is context-driven (no props) and pulls in four Kb*Context
-// hooks, `useKbAgents`, and `react-virtuoso`. Everything below is mocked to
+// hooks and `useKbAgents`. Everything below is mocked to
 // the minimum needed to reach the message list without crashing;
 // `useMessageSections` (the real caller-owned open-state store) and
 // `MessageBubble` itself are left REAL, since the whole point is to exercise
@@ -100,9 +99,7 @@ vi.mock('../contexts/KbChatContext', () => ({
       userMessageInput: '',
       setUserMessageInput: vi.fn(),
       loading: false,
-      messagesContainerRef: { current: null },
       textareaRef: { current: null },
-      handleScroll: vi.fn(),
       handleFollowUpClick: vi.fn(),
       handleSwitchBranch: vi.fn(),
       handleStartEdit: vi.fn(),
@@ -156,20 +153,6 @@ vi.mock('../contexts/KbLayoutContext', () => ({
   useKbLayout: () => ({
     sidebar: { setIsRightSidebarOpen: vi.fn(), setIsLeftSidebarOpen: vi.fn() },
   }),
-}));
-
-// Bypasses react-virtuoso's scroll/measurement machinery (which needs real
-// layout jsdom doesn't provide) and just renders `itemContent` for every
-// row — exactly what ChatView's `data`/`itemContent` props drive in
-// production, minus the virtualization.
-vi.mock('react-virtuoso', () => ({
-  Virtuoso: (props: { data: unknown[]; itemContent: (index: number, item: unknown) => ReactNode }) => (
-    <div data-testid="virtuoso-stub">
-      {props.data.map((item, index) => (
-        <div key={index}>{props.itemContent(index, item)}</div>
-      ))}
-    </div>
-  ),
 }));
 
 describe('ChatView — conflicting-sources badge (main chat surface)', () => {

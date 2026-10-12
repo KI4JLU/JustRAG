@@ -563,7 +563,6 @@ function AcademicResearchMode({
         background: #f2f2f2;
         padding: 0.15em 0.3em;
         border-radius: 3px;
-        font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
         font-size: 0.9em;
     }
     pre {
@@ -575,7 +574,8 @@ function AcademicResearchMode({
         margin: 0.8em 0;
         page-break-inside: avoid;
     }
-    pre code { background: transparent; padding: 0; }
+    /* Monospace only inside the code box (pre), never for inline code. */
+    pre code { background: transparent; padding: 0; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); }
     blockquote {
         border-left: 3px solid #cccccc;
         margin: 0.8em 0;

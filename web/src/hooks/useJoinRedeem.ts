@@ -14,7 +14,7 @@ interface RedeemResponse {
 
 interface UseJoinRedeemParams {
     /** Opens a KB known only by id — useKnowledgeBases.handleOpenKbById. */
-    openKbById: (id: string) => Promise<void>;
+    openKbById: (id: string) => Promise<unknown>;
 }
 
 /**

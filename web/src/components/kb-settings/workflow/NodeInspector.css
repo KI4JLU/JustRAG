@@ -53,9 +53,9 @@
 /* The dirty marker: an edit sitting only in `draft` must be visible before
    save, not discoverable only by re-opening the value box. */
 .wf-inspector__key[data-dirty='true'] { border-left-color: var(--accent-primary); }
-.wf-inspector__key-name { font-family: var(--font-mono, monospace); font-size: 0.72rem; word-break: break-all; }
+.wf-inspector__key-name { font-size: 0.72rem; word-break: break-all; }
 .wf-inspector__key-meta { display: flex; gap: 0.4rem; align-items: center; font-size: 0.72rem; flex-wrap: wrap; }
-.wf-inspector__value { font-family: var(--font-mono, monospace); word-break: break-all; min-width: 0; }
+.wf-inspector__value { word-break: break-all; min-width: 0; }
 /* "Standardwert" is prose, not a value — don't set it in the mono value face. */
 .wf-inspector__value--default { font-family: inherit; font-style: italic; color: var(--text-secondary); }
 .wf-inspector__origin { font-size: 0.65rem; padding: 0.05rem 0.35rem; border-radius: 999px; background: var(--bg-secondary); color: var(--text-secondary); }

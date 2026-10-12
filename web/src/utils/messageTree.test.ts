@@ -261,6 +261,16 @@ describe('remapMessageId', () => {
     expect(updated.get('real-a2')!.id).toBe('real-a2');
   });
 
+  // Oracle: the temp id literal passed in. The row key must stay the id the
+  // message was rendered under, or the transcript remounts the row mid-stream.
+  it('keeps the temp ID as renderKey, across repeated remaps', () => {
+    const map = buildMessageMap(linearMessages);
+    const once = remapMessageId(map, 'a2', 'real-a2');
+    expect(once.get('real-a2')!.renderKey).toBe('a2');
+    const twice = remapMessageId(once, 'real-a2', 'final-a2');
+    expect(twice.get('final-a2')!.renderKey).toBe('a2');
+  });
+
   it('updates parent childIds reference', () => {
     const map = buildMessageMap(linearMessages);
     const updated = remapMessageId(map, 'a2', 'real-a2');

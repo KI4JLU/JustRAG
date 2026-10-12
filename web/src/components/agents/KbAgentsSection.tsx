@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Bot, Plus, Users } from 'lucide-react';
+import { Button, SegmentedControl } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
-import AgentEntityRow from './AgentEntityRow';
+import '../panel-section.css';
 import {
   attachAgentToKb, attachTeamToKb, detachAgentFromKb, detachTeamFromKb,
   fetchKbAgents, listAgents, listTeams,
@@ -100,59 +101,65 @@ export default function KbAgentsSection({ kbId, onCreateAgent }: Props) {
   const agentEntries = mergeEntries(myAgents, attached.agents);
   const teamEntries = mergeEntries(myTeams, attached.teams);
 
+  const toggleAttach = async (kind: 'agent' | 'team', e: Entry) => {
+    if (!kbId) return;
+    try {
+      if (kind === 'agent') {
+        if (e.attached) await detachAgentFromKb(kbId, e.id);
+        else await attachAgentToKb(kbId, e.id);
+      } else {
+        if (e.attached) await detachTeamFromKb(kbId, e.id);
+        else await attachTeamToKb(kbId, e.id);
+      }
+      reload();
+    } catch {
+      toast.error(t('settingsUpdateError'));
+    }
+  };
+
+  const makeDefault = async (kind: 'agent' | 'team', e: Entry) => {
+    if (!kbId) return;
+    try {
+      if (kind === 'agent') await attachAgentToKb(kbId, e.id, true);
+      else await attachTeamToKb(kbId, e.id, true);
+      reload();
+    } catch {
+      toast.error(t('settingsUpdateError'));
+    }
+  };
+
   const row = (kind: 'agent' | 'team', e: Entry) => (
-    <AgentEntityRow
-      key={`${kind}-${e.id}`}
-      icon={kind === 'agent' ? <Bot size={15} aria-hidden="true" /> : <Users size={15} aria-hidden="true" />}
-      name={e.name}
-      // Said once, quietly, on the row it applies to. A foreign entry is fully
-      // operable here; what it is not is editable, and the muted secondary line
-      // is where that belongs — not in a badge competing with the actions.
-      secondary={e.owned ? undefined : t('kbAgentsForeign')}
-      actions={!kbId ? null : (
-        <>
+    <div key={`${kind}-${e.id}`} className="panel-row">
+      <div className="panel-row__icon" aria-hidden="true">
+        {kind === 'agent' ? <Bot size={18} /> : <Users size={18} />}
+      </div>
+      <div className="panel-row__main">
+        <span className="panel-row__name">{e.name}</span>
+        {/* Said once, quietly, on the row it applies to. A foreign entry is fully
+            operable here; what it is not is editable. */}
+        {!e.owned && <div className="panel-row__secondary">{t('kbAgentsForeign')}</div>}
+      </div>
+      {kbId && (
+        <div className="panel-row__actions">
           {e.attached && (
-            <label className="form-hint" style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', margin: 0 }}>
+            <label className="panel-row__default">
+              {/* One default across agents AND teams (backend enforces one per KB),
+                  so a native radio group keyed by KB is the honest control. */}
               <input
                 type="radio"
                 name={`kb-default-${kbId}`}
                 checked={e.isDefault}
-                onChange={async () => {
-                  try {
-                    if (kind === 'agent') await attachAgentToKb(kbId, e.id, true);
-                    else await attachTeamToKb(kbId, e.id, true);
-                    reload();
-                  } catch {
-                    toast.error(t('settingsUpdateError'));
-                  }
-                }}
+                onChange={() => makeDefault(kind, e)}
               />
               {t('kbAgentsDefault')}
             </label>
           )}
-          <button
-            type="button"
-            className="btn btn--secondary"
-            onClick={async () => {
-              try {
-                if (kind === 'agent') {
-                  if (e.attached) await detachAgentFromKb(kbId, e.id);
-                  else await attachAgentToKb(kbId, e.id);
-                } else {
-                  if (e.attached) await detachTeamFromKb(kbId, e.id);
-                  else await attachTeamToKb(kbId, e.id);
-                }
-                reload();
-              } catch {
-                toast.error(t('settingsUpdateError'));
-              }
-            }}
-          >
+          <Button variant={e.attached ? 'outline' : 'default'} size="sm" onClick={() => toggleAttach(kind, e)}>
             {e.attached ? t('kbAgentsDetach') : t('kbAgentsAttach')}
-          </button>
-        </>
+          </Button>
+        </div>
       )}
-    />
+    </div>
   );
 
   // Always rendered. This section used to `return null` when the user owned no
@@ -166,50 +173,42 @@ export default function KbAgentsSection({ kbId, onCreateAgent }: Props) {
   const isEmpty = agentEntries.length === 0 && teamEntries.length === 0;
 
   return (
-    <section style={{ marginTop: '1rem' }}>
-      {/* The create link lives in the header so it is present in every state.
-          It used to sit inside the empty state only, which meant it vanished
-          as soon as you owned one agent — precisely when you'd want a second. */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' }}>
-        <h3 style={{ fontSize: '0.9rem', margin: '0 0 0.25rem' }}>{t('kbAgentsSection')}</h3>
-        <button type="button" className="btn btn--tertiary" onClick={onCreateAgent}>
-          <Plus size={14} aria-hidden="true" /> {t('kbAgentsCreateFirst')}
-        </button>
+    <section className="panel-section" aria-labelledby="kb-agents-section-title">
+      {/* The create action lives in the head so it is present in every state —
+          it used to vanish as soon as you owned one agent. */}
+      <div className="panel-section__head">
+        <h3 id="kb-agents-section-title" className="panel-section__title">{t('kbAgentsSection')}</h3>
+        <Button variant="ghost" size="sm" onClick={onCreateAgent}>
+          <Plus size={16} aria-hidden="true" /> {t('kbAgentsCreateFirst')}
+        </Button>
       </div>
-      <p className="form-hint">{t('kbAgentsSectionHelp')}</p>
+      <p className="panel-section__hint">{t('kbAgentsSectionHelp')}</p>
 
       {isEmpty ? null : (
         <>
-          {/* Same segmented control as the My Agents screen: agents and teams
-              are different things and a single flat list read as one pile. */}
-          <nav className="segmented-control" style={{ marginBottom: '0.5rem' }}>
-            <button
-              type="button"
-              className="segmented-control__item"
-              onClick={() => setTab('agents')}
-              aria-pressed={tab === 'agents'}
-            >
-              <Bot size={14} aria-hidden="true" /> {t('agentsTabAgents')}
-            </button>
-            <button
-              type="button"
-              className="segmented-control__item"
-              onClick={() => setTab('teams')}
-              aria-pressed={tab === 'teams'}
-            >
-              <Users size={14} aria-hidden="true" /> {t('agentsTabTeams')}
-            </button>
-          </nav>
+          {/* Agents and teams are different things; a single flat list read as one pile. */}
+          <SegmentedControl
+            aria-label={t('kbAgentsSection')}
+            className="self-start"
+            value={tab}
+            onValueChange={(v) => setTab(v as 'agents' | 'teams')}
+            options={[
+              { value: 'agents', label: t('agentsTabAgents') },
+              { value: 'teams', label: t('agentsTabTeams') },
+            ]}
+          />
 
-          {tab === 'agents' && (agentEntries.length === 0
-            ? <p className="form-hint">{t('noAgentsYet')}</p>
-            : agentEntries.map(e => row('agent', e)))}
+          <div className="panel-rows">
+            {tab === 'agents' && (agentEntries.length === 0
+              ? <p className="panel-section__hint">{t('noAgentsYet')}</p>
+              : agentEntries.map(e => row('agent', e)))}
 
-          {tab === 'teams' && (teamEntries.length === 0
-            ? <p className="form-hint">{t('noTeamsYet')}</p>
-            : teamEntries.map(e => row('team', e)))}
+            {tab === 'teams' && (teamEntries.length === 0
+              ? <p className="panel-section__hint">{t('noTeamsYet')}</p>
+              : teamEntries.map(e => row('team', e)))}
+          </div>
 
-          {!kbId && <p className="form-hint">{t('kbAgentsNoKbNote')}</p>}
+          {!kbId && <p className="panel-section__hint">{t('kbAgentsNoKbNote')}</p>}
         </>
       )}
     </section>

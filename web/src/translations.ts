@@ -6,6 +6,8 @@ export const translations = {
     confirm: { de: 'Bestätigen', en: 'Confirm' },
     delete: { de: 'Löschen', en: 'Delete' },
     download: { de: 'Herunterladen', en: 'Download' },
+    sourceActions: { de: 'Aktionen für', en: 'Actions for' },
+    fileStatusPending: { de: 'Wartet auf Verarbeitung', en: 'Waiting for processing' },
     error: { de: 'Fehler', en: 'Error' },
     ok: { de: 'OK', en: 'OK' },
     save: { de: 'Speichern', en: 'Save' },
@@ -39,6 +41,263 @@ export const translations = {
     newKB: { de: 'Neue Knowledge Base', en: 'New Knowledge Base' },
     profile: { de: 'Mein Profil', en: 'My Profile' },
     logout: { de: 'Abmelden', en: 'Logout' },
+
+    // App shell (AppShellLayout, card KI-776).
+    //
+    // `home` is DELIBERATELY not `myKBs`. The sidebar's Home row, the page
+    // <h1> and the "Meine KBs" section title would otherwise be three
+    // elements with the same accessible name on one screen — a real a11y
+    // problem that also makes `getByRole('button', { name: /^Meine Knowledge
+    // Bases/ })` ambiguous. Decided by the developer on 2026-09-14; it amends
+    // the slot spec on KI-776, which had said `t('myKBs')`.
+    home: { de: 'Mein Wissen', en: 'My Knowledge' },
+    // The „Geteilte Knowledge Bases" view (KI-783). Three separate keys on
+    // purpose, even though two of them read alike today:
+    //   - `sharedKbs` is the SIDEBAR ROW and the page <h1>. It is not
+    //     `homeSharedWithMe` („Mit mir geteilt"), because that string is the
+    //     overview SECTION's title and both can be on screen at once — and
+    //     because the row names a place while the section names a relationship.
+    //   - `sharedKbsDescription` is the page's muted subtitle, the slot
+    //     `kbDescription` fills on the overview.
+    //   - the empty state reuses `homeSharedWithMeEmpty`: it is the same
+    //     sentence about the same absence, and two wordings for it would be a
+    //     translation to keep in sync for nothing.
+    sharedKbs: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
+    sharedKbsDescription: {
+      de: 'Knowledge Bases, die andere mit dir geteilt haben. Deine eigenen findest du unter „Mein Wissen".',
+      en: 'Knowledge bases other people have shared with you. Your own are under "My Knowledge".',
+    },
+
+    /* The four content views of the shell (18.09.2026).
+     *
+     * THE SCREENS KEEP THEIR GERMAN NAMES — „Mein Wissen", „Geteiltes Wissen",
+     * „Werkzeuge" — because those are what the developer called them. What is
+     * new is the ENTITY: a knowledge base is a „Thema" / „topic" on these four
+     * pages. The rename is deliberately scoped to them (developer ruling): the
+     * KB settings panel, the workspace, the admin console and every toast still
+     * say Knowledge Base, so `myKBs` / `newKB` / `createNewKb` above stay and
+     * are still used there. Two vocabularies coexist until the rest follows.
+     *
+     * `home` and `sharedKbs` are kept above rather than renamed: they are the
+     * same strings, still referenced by the tour and the legal footer. */
+    myTopics: { de: 'Mein Wissen', en: 'My Knowledge' },
+    myTopicsDescription: {
+      de: 'Deine privaten Themen und Quellen. Du kannst dein Wissen jederzeit mit anderen teilen.',
+      en: 'Your private topics and sources. You can share your knowledge with others at any time.',
+    },
+    newTopic: { de: 'Neues Thema', en: 'New topic' },
+
+    sharedTopics: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
+    sharedTopicsDescription: {
+      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben.',
+      en: 'Topics other people have shared with you or with your groups.',
+    },
+
+    /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
+     * Two keys rather than one string with a newline: the heading is rendered
+     * as an element of its own, and a `\n` in a translation cannot carry that.
+     * It replaces `homeSharedWithMeEmpty`, which stated the absence („Dir wurde
+     * noch keine Knowledge Base freigegeben.") where this states the way out —
+     * the page now offers an action, so the empty state names it. */
+
+    /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
+     * Two keys rather than one string with a newline: the heading is rendered
+     * as an element of its own, and a `\n` in a translation cannot carry that.
+     *
+     * The body names sharing, which this page deliberately offers no control
+     * for: sharing a topic adds it to somebody ELSE's „Geteiltes Wissen", so a
+     * button here would be an action with no visible result. The sentence
+     * points at „Mein Wissen", where the share control lives on the card. */
+    /* The tile on „Geteiltes Wissen". It NAVIGATES — to „Entdecken" — rather
+     * than creating anything, which is why it is „hinzufügen" and not „neu":
+     * there is nothing this page can create. A „Wissen teilen" tile was tried
+     * in this slot first and removed, because sharing a topic adds it to
+     * somebody else's list; going to the catalog is the one thing a user can do
+     * from here that ends with a new topic in front of them. */
+    addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
+
+    /* The filter chip row above every view's list (migration 0077).
+     *
+     * „Alle" here and `catalogAllCategories` below are NOT the same string to
+     * reuse: that one labels the catalog's admin-curated taxonomy tab, this one
+     * the caller's own filter. They read alike today and are free to diverge. */
+    filterAll: { de: 'Alle', en: 'All' },
+    filterFavorites: { de: 'Favoriten', en: 'Favorites' },
+    /* „Mein Wissen" only. The words match the card badge's own two states
+       (`visibilityPersonal` / `visibilityShared`) deliberately — the chip and
+       the badge describe the same fact, so they say the same word. */
+    filterPersonal: { de: 'Privat', en: 'Private' },
+    filterShared: { de: 'Geteilt', en: 'Shared' },
+    manageCategories: { de: 'Kategorien verwalten', en: 'Manage categories' },
+    manageCategoriesTitle: { de: 'Kategorien verwalten', en: 'Manage categories' },
+    manageCategoriesBody: {
+      de: 'Deine eigenen Kategorien. Sie gelten nur für dich und lassen sich jedem Thema zuordnen, das du sehen kannst.',
+      en: 'Your own categories. They are yours alone and can be attached to any topic you can see.',
+    },
+    noCategoriesYet: { de: 'Noch keine Kategorien angelegt.', en: 'No categories yet.' },
+    renameCategory: { de: 'Kategorie umbenennen', en: 'Rename category' },
+    deleteCategory: { de: 'Kategorie löschen', en: 'Delete category' },
+    confirmDeleteCategory: { de: 'Kategorie wirklich löschen?', en: 'Delete this category?' },
+    categoryActionError: {
+      de: 'Aktion fehlgeschlagen. Gibt es die Kategorie schon?',
+      en: 'Action failed. Does the category already exist?',
+    },
+    newCategoryPrompt: { de: 'Name der neuen Kategorie', en: 'Name of the new category' },
+    newCategoryError: {
+      de: 'Kategorie konnte nicht angelegt werden. Gibt es sie schon?',
+      en: 'Could not create the category. Does it already exist?',
+    },
+    filterTopics: { de: 'Themen filtern', en: 'Filter topics' },
+    viewMode: { de: 'Ansicht', en: 'View' },
+    viewModeCards: { de: 'Karten', en: 'Cards' },
+    viewModeList: { de: 'Liste', en: 'List' },
+
+    /* The star on a topic card. Two labels, because the control's accessible
+     * name has to say what pressing it DOES — a single „Favorit" would leave a
+     * screen-reader user guessing which way it goes. */
+    addFavorite: { de: 'Zu Favoriten hinzufügen', en: 'Add to favorites' },
+    removeFavorite: { de: 'Aus Favoriten entfernen', en: 'Remove from favorites' },
+    favoriteError: {
+      de: 'Favorit konnte nicht gespeichert werden.',
+      en: 'Could not save the favorite.',
+    },
+
+    /* The section heading for the global half. „Global sichtbar" and not
+     * „Öffentlich": a public topic is visible to everyone signed in, not to the
+     * open internet, and „öffentlich" would promise the second. */
+    globallyVisible: { de: 'Global sichtbar', en: 'Globally visible' },
+
+    discoverTopics: { de: 'Entdecken', en: 'Discover' },
+    discoverTopicsDescription: {
+      de: 'Entdecke Themen, die von Mitgliedern der JLU für alle bereitgestellt wurden.',
+      en: 'Discover topics that JLU members have made available to everyone.',
+    },
+
+    tools: { de: 'Werkzeuge', en: 'Tools' },
+    toolsDescription: {
+      de: 'Werkzeuge erzeugen aus einem Thema ein eigenständiges Ergebnis.',
+      en: 'Tools turn a topic into a standalone result.',
+    },
+
+    /* The „Textdokumente" tool (card KI-833) — the first real tool on the page. */
+    textDocumentsTool: { de: 'Textdokumente', en: 'Text documents' },
+    textDocumentsToolDescription: {
+      de: 'Briefings, FAQs, Lernleitfäden, Zeitleisten und weitere Texte zu einem Thema erstellen, öffnen und bearbeiten.',
+      en: 'Create, open and edit briefings, FAQs, study guides, timelines and other texts for a topic.',
+    },
+    openTool: { de: 'Werkzeug öffnen', en: 'Open tool' },
+    backToTools: { de: 'Zurück zu Werkzeuge', en: 'Back to tools' },
+    toolTopicLabel: { de: 'Thema', en: 'Topic' },
+    toolTopicPlaceholder: { de: 'Thema wählen', en: 'Choose a topic' },
+    toolNoTopics: {
+      de: 'Du hast noch kein Thema. Lege zuerst unter „Mein Wissen" ein Thema an.',
+      en: 'You have no topic yet. Create one under "My Knowledge" first.',
+    },
+    textDocumentTypeLabel: { de: 'Dokumenttyp', en: 'Document type' },
+    textDocumentTypePlaceholder: { de: 'Typ wählen', en: 'Choose a type' },
+    createTextDocument: { de: 'Dokument erstellen', en: 'Create document' },
+    textDocumentsCreating: { de: 'Dokument wird erstellt …', en: 'Creating document…' },
+    textDocumentsResults: { de: 'Textdokumente zu diesem Thema', en: 'Text documents for this topic' },
+    textDocumentsColTitle: { de: 'Titel', en: 'Title' },
+    textDocumentsColType: { de: 'Typ', en: 'Type' },
+    textDocumentsColCreated: { de: 'Erstellt', en: 'Created' },
+    textDocumentsPickTopic: {
+      de: 'Wähle ein Thema, um seine Textdokumente zu sehen.',
+      en: 'Choose a topic to see its text documents.',
+    },
+    textDocumentsEmpty: {
+      de: 'Zu diesem Thema gibt es noch keine Textdokumente.',
+      en: 'There are no text documents for this topic yet.',
+    },
+    textDocumentsLoadFailed: {
+      de: 'Die Textdokumente konnten nicht geladen werden.',
+      en: 'The text documents could not be loaded.',
+    },
+    backToDocuments: { de: 'Zurück zur Liste', en: 'Back to the list' },
+    /* The type label of an existing `research` result. The `research` key is
+     * the Studio's action label („Bericht erstellen") and reads wrong there. */
+    artifactTypeResearch: { de: 'Bericht', en: 'Report' },
+    // The three chrome labels AppShellLayout would otherwise render with its
+    // German defaults.
+    mainNavigation: { de: 'Hauptnavigation', en: 'Main navigation' },
+    navigation: { de: 'Navigation', en: 'Navigation' },
+
+    /* The narrow-screen tab bar (design-system 0.30.0).
+     *
+     * `openNavigation` is GONE with the drawer it opened. Below `lg` the shell
+     * no longer overlays a modal copy of the sidebar — it shows one area at a
+     * time and switches between them with a `BottomTabBar`, so the nav column
+     * is reached by selecting its tab, not by opening anything. Two tabs here
+     * because this app has two areas: the nav column and the page. */
+    navigationTab: { de: 'Navigation', en: 'Navigation' },
+    contentTab: { de: 'Inhalt', en: 'Content' },
+    switchArea: { de: 'Bereich wechseln', en: 'Switch area' },
+
+    /* The two labels of the sidebar's minimise toggle (card KI-789).
+     *
+     * `Sidebar` owns that toggle and names it from whichever of the pair
+     * matches the CURRENT state — `collapseNavigation` while the column is
+     * wide (pressing it minimises), `expandNavigation` while it is minimised.
+     * Both are passed because the design system's defaults are German, and a
+     * control whose accessible name stays German in an English session is the
+     * exact gap KI-788 had to fix for `ThemeToggle` after the fact. It is free
+     * to avoid here.
+     *
+     * THE GERMAN STRINGS ARE THE DESIGN SYSTEM'S OWN DEFAULTS, byte for byte
+     * („Navigation einklappen" / „Navigation ausklappen", sidebar.tsx) — same
+     * rule the four `ThemeToggle` keys above follow, so a German session reads
+     * exactly what the component would have rendered on its own. */
+    collapseNavigation: { de: 'Navigation einklappen', en: 'Collapse navigation' },
+    expandNavigation: { de: 'Navigation ausklappen', en: 'Expand navigation' },
+
+    /* The DS `ThemeToggle`'s four labels (card KI-788).
+     *
+     * They exist because design-system 0.26.0 closed gap `nhyfbxcfggpr` by
+     * DELETION, not by forwarding: `AppShellLayout` no longer renders a
+     * `ThemeToggle` of its own, so the consumer constructs the component and
+     * can finally pass its labels. Until then the control was German in an
+     * English session too (since KI-776), which is the bug these four keys
+     * fix.
+     *
+     * THE GERMAN STRINGS ARE THE DESIGN SYSTEM'S OWN DEFAULTS, byte for byte
+     * ("Farbschema" / "Helles Design" / "Systemdesign" / "Dunkles Design").
+     * Deliberate: a German session must render exactly what it rendered
+     * before this card, so any diff a reviewer or a story sees in DE is a
+     * real change rather than a re-wording. The English side is the new half.
+     *
+     * `colorScheme` names the whole `role="group"`; the other three name its
+     * three option buttons, in the group's own DOM order. */
+    colorScheme: { de: 'Farbschema', en: 'Colour scheme' },
+    themeLight: { de: 'Helles Design', en: 'Light theme' },
+    themeSystem: { de: 'Systemdesign', en: 'System theme' },
+    themeDark: { de: 'Dunkles Design', en: 'Dark theme' },
+    settings: { de: 'Einstellungen', en: 'Settings' },
+    settingsSearch: { de: 'Einstellungen suchen', en: 'Search settings' },
+    settingsNoMatch: { de: 'Keine Treffer', en: 'No matches' },
+    settingsGeneral: { de: 'Allgemein', en: 'General' },
+    settingsProfile: { de: 'Profil', en: 'Profile' },
+    settingsChat: { de: 'Chat', en: 'Chat' },
+    appearance: { de: 'Darstellung', en: 'Appearance' },
+    contrast: { de: 'Kontrast', en: 'Contrast' },
+    contrastHint: { de: 'Erhöht: deutliche Fokusrahmen und kräftigere Linien. „System" folgt der Kontrasteinstellung deines Geräts.', en: 'Increased: clear focus rings and stronger lines. “System” follows your device\'s contrast setting.' },
+    contrastNormal: { de: 'Mittel', en: 'Medium' },
+    contrastMore: { de: 'Erhöht', en: 'Increased' },
+    accentColor: { de: 'Akzentfarbe', en: 'Accent colour' },
+    accent_standard: { de: 'Standard', en: 'Default' },
+    accent_teal: { de: 'Türkis', en: 'Teal' },
+    accent_violet: { de: 'Violett', en: 'Violet' },
+    accent_green: { de: 'Grün', en: 'Green' },
+    accent_rose: { de: 'Rosé', en: 'Rose' },
+    accent_amber: { de: 'Bernstein', en: 'Amber' },
+    languageLabel: { de: 'Sprache', en: 'Language' },
+    themeSystemShort: { de: 'System', en: 'System' },
+    themeLightShort: { de: 'Hell', en: 'Light' },
+    themeDarkShort: { de: 'Dunkel', en: 'Dark' },
+    uiShapeHint: { de: 'Abgerundete Ecken oder Pillenform für Eingabe und Seitenleisten.', en: 'Rounded corners or pill shape for the composer and side panels.' },
+    role: { de: 'Rolle', en: 'Role' },
+    uiShape: { de: 'Stil', en: 'Style' },
+    uiShapeRounded: { de: 'Abgerundet eckig', en: 'Rounded square' },
+    uiShapePill: { de: 'Pille', en: 'Pill' },
     switchToDark: { de: 'Wechsle zum Dunkel-Modus', en: 'Switch to Dark Mode' },
     switchToLight: { de: 'Wechsle zum Hell-Modus', en: 'Switch to Light Mode' },
 
@@ -52,12 +311,8 @@ export const translations = {
     emptyAddFirstSourceTitle: { de: 'Füge deine erste Quelle hinzu', en: 'Add your first source' },
     emptyAddFirstSourceSubtitle: { de: 'Lade ein Dokument hoch oder hol dir Inhalte aus dem Web — danach kannst du Fragen stellen.', en: 'Upload a document or pull in content from the web — then you can start asking questions.' },
     dropzoneTitle: { de: 'Dateien hierher ziehen', en: 'Drag files here' },
-    dropzoneBrowse: { de: 'oder durchsuchen', en: 'or browse' },
     dropzoneTypes: { de: 'PDF · DOCX · TXT · MD · PPTX — bis 50 MB', en: 'PDF · DOCX · TXT · MD · PPTX — up to 50 MB' },
-    orFromWeb: { de: 'Oder aus dem Web', en: 'Or from the web' },
-    emptyWebCrawl: { de: 'Webseite crawlen', en: 'Crawl website' },
-    studioAfterwards: { de: 'Danach kannst du erstellen:', en: 'Then you can create:' },
-    chatDisabledNoSources: { de: 'Füge zuerst eine Quelle hinzu, um zu chatten…', en: 'Add a source first to start chatting…' },
+    chatDisabledNoSources: { de: 'Füge zuerst eine Quelle hinzu, um zu chatten.', en: 'Add a source first to start chatting.' },
     addSourceCta: { de: 'Quelle hinzufügen', en: 'Add source' },
 
     // Web Tools
@@ -105,6 +360,9 @@ export const translations = {
     // File ingestion errors + retry
     retrySource: { de: 'Erneut verarbeiten', en: 'Retry' },
     retryAllFailed: { de: 'Fehlgeschlagene erneut verarbeiten', en: 'Retry failed' },
+    // Visible label of the bulk-retry button; the count follows it. The long
+    // form above stays as its tooltip.
+    retryAllFailedShort: { de: 'Erneut versuchen', en: 'Retry all' },
     retryRequestFailed: { de: 'Erneute Verarbeitung konnte nicht gestartet werden', en: 'Could not restart processing' },
     fileErrorUnsupportedType: { de: 'Dateityp wird nicht unterstützt', en: 'Unsupported file type' },
     fileErrorParse: { de: 'Datei konnte nicht gelesen werden', en: 'The file could not be parsed' },
@@ -175,6 +433,11 @@ export const translations = {
     noneDisabled: { de: 'Keines (Deaktiviert)', en: 'None (Disabled)' },
     settingsTitle: { de: 'Pro-Einstellungen', en: 'Pro Settings' },
     closeSettings: { de: 'Einstellungen schließen', en: 'Close Settings' },
+    promptSuggestions: { de: 'Vorschläge', en: 'Suggestions' },
+    promptSuggestionsHint: { de: 'Fragevorschläge unter dem Eingabefeld eines neuen Chats.', en: 'Suggested questions under the input of a new chat.' },
+    followUpsHint: { de: 'Anschlussfragen unter der letzten Antwort.', en: 'Follow-up questions under the latest answer.' },
+    autoScrollLabel: { de: 'Antworttext automatisch scrollen', en: 'Autoscroll' },
+    autoScrollHint: { de: 'Folgt einer entstehenden Antwort bis zum Ende. Aus: Die Frage bleibt oben stehen, die Antwort wächst darunter.', en: 'Follows an answer while it is being written. Off: the question stays at the top and the answer grows below it.' },
     kbHeaderDefault: { de: 'Frage mich alles, was du über deine Quellen wissen möchtest. Ich kann dir helfen, Zusammenfassungen zu erstellen, Informationen zu finden und Ideen zu synthetisieren.', en: 'Ask me anything about your sources. I can help you summarize, find information, and synthesize ideas.' },
     chatPlaceholder: { de: 'Stelle eine Frage zu den Quellen...', en: 'Ask a question about the sources...' },
     chatPlaceholderContextual: { de: 'Stelle eine Frage zu {{name}}...', en: 'Ask about {{name}}...' },
@@ -184,6 +447,12 @@ export const translations = {
     expand: { de: 'Erweitern', en: 'Expand' },
     spell: { de: 'Rechtschreibung', en: 'Spelling' },
     enhanceLabel: { de: 'Verbessern', en: 'Improve' },
+    enhanceTooltip: { de: 'Entwurf mit KI verbessern', en: 'Improve draft with AI' },
+    attachFiles: { de: 'Fotos oder Dateien hinzufügen', en: 'Add photos or files' },
+    capabilities: { de: 'Fähigkeiten', en: 'Capabilities' },
+    webSearchTool: { de: 'Websuche', en: 'Web search' },
+    webSearchToolOff: { de: 'Websuche deaktivieren', en: 'Turn web search off' },
+    webSearchToolActive: { de: 'Websuche aktiv — zum Deaktivieren klicken', en: 'Web search on — click to turn off' },
     enhanceNeedsDraft: { de: 'Tippe zuerst einen Entwurf, um ihn zu verbessern.', en: 'Type a draft first to improve it.' },
     activeSources: { de: 'Aktive Quellen', en: 'Active sources' },
     reasoningMode: { de: 'Gedankengang-Modus', en: 'Reasoning Mode' },
@@ -391,6 +660,8 @@ export const translations = {
     insertText: { de: 'Text einfügen', en: 'Insert Text' },
     textTitle: { de: 'Titel', en: 'Title' },
     textContent: { de: 'Inhalt', en: 'Content' },
+    textTitleRequired: { de: 'Titel ist erforderlich', en: 'Title is required' },
+    textContentRequired: { de: 'Inhalt ist erforderlich', en: 'Content is required' },
     addTextSource: { de: 'Text hinzufügen', en: 'Add Text' },
     backToUpload: { de: 'Zurück zum Hochladen', en: 'Back to Upload' },
 
@@ -401,15 +672,10 @@ export const translations = {
     homeFavorites: { de: 'Favoriten', en: 'Favorites' },
     homeFavoritesEmpty: { de: 'Noch keine Favoriten — unter „KBs entdecken" findest du alle öffentlichen Wissensdatenbanken.', en: 'No favorites yet — "Discover KBs" below lists every public knowledge base.' },
     homeSharedWithMe: { de: 'Mit mir geteilt', en: 'Shared with me' },
-    homeSharedWithMeEmpty: { de: 'Dir wurde noch keine Knowledge Base freigegeben.', en: 'Nobody has shared a knowledge base with you yet.' },
-    expandSection: { de: 'Bereich aufklappen', en: 'Expand section' },
-    collapseSection: { de: 'Bereich zuklappen', en: 'Collapse section' },
 
     // Global Knowledge Bases
     globalKBs: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },
     globalBadge: { de: 'Global', en: 'Global' },
-    createGlobalKB: { de: 'Globale KB erstellen', en: 'Create Global KB' },
-    globalKbNamePrompt: { de: 'Name der globalen Knowledge Base:', en: 'Name for the global Knowledge Base:' },
     confirmDeleteGlobalKb: { de: 'Diese globale Knowledge Base wirklich löschen? Alle Dateien und Chats werden gelöscht.', en: 'Delete this global Knowledge Base? All files and chats will be deleted.' },
     deleteGlobalKb: { de: 'Globale Knowledge Base löschen', en: 'Delete global Knowledge Base' },
     deleteKb: { de: 'Knowledge Base löschen', en: 'Delete knowledge base' },
@@ -429,8 +695,44 @@ export const translations = {
     // KB Catalog Modal
     discoverKbs: { de: 'KBs entdecken', en: 'Discover KBs' },
     catalogTitle: { de: 'Öffentliche Wissensdatenbanken', en: 'Public knowledge bases' },
-    catalogSearchPlaceholder: { de: 'Name oder Beschreibung suchen…', en: 'Search name or description…' },
-    catalogEmpty: { de: 'Keine öffentlichen Wissensdatenbanken gefunden.', en: 'No public knowledge bases found.' },
+    /* The header's global search (card KI-837). The placeholder doubles as the
+     * field's accessible name, as the catalog field's did — one string, so the
+     * two cannot drift. Group headings use the KI-799 vocabulary (Themen,
+     * Quellen, Chats), not „Knowledge Bases". `{query}` is replaced with the
+     * trimmed search text. */
+    globalSearchPlaceholder: { de: 'Themen, Quellen und Chats durchsuchen…', en: 'Search topics, sources and chats…' },
+    kbdCtrl: { de: 'Strg', en: 'Ctrl' },
+    searchDefaultsNavigation: { de: 'Navigation', en: 'Navigation' },
+    searchDefaultsAccount: { de: 'Konto', en: 'Account' },
+    searchDefaultsChat: { de: 'Chat', en: 'Chat' },
+    searchDefaultsRecentChats: { de: 'Letzte Unterhaltungen', en: 'Recent conversations' },
+    globalSearchResults: { de: 'Suchergebnisse', en: 'Search results' },
+    globalSearchGroupTopics: { de: 'Themen', en: 'Topics' },
+    globalSearchGroupSources: { de: 'Quellen', en: 'Sources' },
+    globalSearchGroupChats: { de: 'Chats', en: 'Chats' },
+    globalSearchGroupMessages: { de: 'Nachrichten', en: 'Messages' },
+    globalSearchLoading: { de: 'Suche läuft …', en: 'Searching …' },
+    globalSearchNoResults: { de: 'Keine Treffer für „{query}“', en: 'No results for “{query}”' },
+    globalSearchRateLimited: { de: 'Zu viele Suchanfragen – bitte einen Moment warten.', en: 'Too many searches – please wait a moment.' },
+    globalSearchError: { de: 'Die Suche ist gerade nicht verfügbar.', en: 'Search is unavailable right now.' },
+    /* The workspace's topic-scoped search (card KI-838). `{topic}` is the
+     * topic's name — the placeholder doubles as the accessible name, so the
+     * scope is audible, not only visible. */
+    workspaceSearchPlaceholder: { de: 'In „{topic}“ suchen…', en: 'Search in “{topic}”…' },
+    workspaceSearchAllTopics: { de: 'In allen Themen suchen', en: 'Search all topics' },
+    workspaceSearchNoResults: { de: 'Keine Treffer für „{query}“ in diesem Thema', en: 'No results for “{query}” in this topic' },
+    workspaceSearchTopicUnavailable: { de: 'Dieses Thema ist nicht mehr verfügbar. Du kannst in allen Themen suchen.', en: 'This topic is no longer available. You can search all topics instead.' },
+    globalSearchShowAllInDiscover: { de: 'Alle passenden Themen in „Entdecken“ anzeigen', en: 'Show all matching topics in Discover' },
+    /* The catalog's empty state. Two keys, because it renders as a heading and
+     * a line under it — a `\n` in one string cannot carry that. It replaces the
+     * flat „Keine öffentlichen Wissensdatenbanken gefunden.", which reported a
+     * failed lookup; this says the shelf is empty and will fill, which is the
+     * true statement on a page whose content other people supply. */
+    catalogEmptyTitle: { de: 'Keine weiteren Themen verfügbar', en: 'No further topics available' },
+    catalogEmptyBody: {
+      de: 'Sobald neue Themen für alle Mitglieder der JLU bereitgestellt werden, findest du sie hier.',
+      en: 'As soon as new topics are made available to all JLU members, you will find them here.',
+    },
     catalogAllCategories: { de: 'Alle', en: 'All' },
     catalogCategoryTabs: { de: 'Kategorien filtern', en: 'Filter by category' },
     // Der Katalog zeigt zunaechst nur die erste Seite; {n} ist die Zahl der
@@ -451,6 +753,10 @@ export const translations = {
     examplePromptsDescription: { de: 'Ein Prompt pro Zeile. Diese werden als klickbare Vorschläge im leeren Chat angezeigt.', en: 'One prompt per line. These are shown as clickable suggestions in the empty chat.' },
     examplePromptsPlaceholder: { de: 'Fasse die wichtigsten Punkte zusammen\nWas sind die aktuellen Richtlinien zu...', en: 'Summarize the key points\nWhat are the current policies on...' },
     systemPromptLabel: { de: 'System-Prompt', en: 'System Prompt' },
+    kbBehaviorTitle: { de: 'Verhalten der Wissensdatenbank', en: 'Knowledge base behaviour' },
+    ragSystemPromptLabel: { de: 'RAG-Anweisungen (fest)', en: 'RAG instructions (fixed)' },
+    ragSystemPromptHint: { de: 'Werden bei jeder Antwort nach deinem System-Prompt angehängt und lassen sich nicht bearbeiten.', en: 'Appended after your system prompt on every answer; not editable.' },
+    ragSystemPromptUnavailable: { de: 'Die RAG-Anweisungen konnten nicht geladen werden.', en: 'Could not load the RAG instructions.' },
     systemPromptDescription: { de: 'Gib dem Assistenten eine Persona, definiere den Ton oder lege fachspezifische Regeln fest. Die RAG-Anweisungen werden automatisch angewendet.', en: 'Give the assistant a persona, define its tone, or set domain-specific rules. The RAG retrieval instructions are applied automatically.' },
     systemPromptPlaceholder: { de: 'z.B. Du bist ein freundlicher Experte für Personalrecht. Antworte immer in einfacher Sprache und vermeide Fachjargon.', en: 'e.g. You are a friendly expert in employment law. Always answer in plain language and avoid jargon.' },
     fileManagement: { de: 'Dateiverwaltung', en: 'File Management' },
@@ -517,6 +823,18 @@ export const translations = {
     exportCsv: { de: 'CSV exportieren', en: 'Export CSV' },
     exportPng: { de: 'PNG exportieren', en: 'Export PNG' },
     deleteItem: { de: 'Löschen', en: 'Delete' },
+    chatActions: { de: 'Aktionen für', en: 'Actions for' },
+    kbActions: { de: 'Aktionen', en: 'Actions' },
+    today: { de: 'Heute', en: 'Today' },
+    yesterday: { de: 'Gestern', en: 'Yesterday' },
+    renameChat: { de: 'Chat umbenennen', en: 'Rename chat' },
+    selectChats: { de: 'Auswählen', en: 'Select' },
+    selectChat: { de: 'Auswählen:', en: 'Select:' },
+    selectedCount: { de: '{count} ausgewählt', en: '{count} selected' },
+    deleteSelected: { de: 'Ausgewählte löschen', en: 'Delete selected' },
+    confirmDeleteChats: { de: '{count} Chats wirklich löschen?', en: 'Delete {count} chats?' },
+    renameChatPrompt: { de: 'Neuer Titel für den Chat:', en: 'New title for the chat:' },
+    renameChatError: { de: 'Fehler beim Umbenennen des Chats', en: 'Error renaming chat' },
 
     // Verification badge
     verificationVerified: { de: 'Verifiziert', en: 'Verified' },
@@ -654,7 +972,7 @@ export const translations = {
     // Three displayed visibility states from two stored fields (visibility +
     // memberCount). visibilityShared has no {n} placeholder — t() takes no
     // interpolation args, so the count is appended outside the translation.
-    visibilityPersonal: { de: 'Persönlich', en: 'Personal' },
+    visibilityPersonal: { de: 'Privat', en: 'Private' },
     visibilityShared: { de: 'Geteilt', en: 'Shared' },
     visibilityPublic: { de: 'Öffentlich', en: 'Public' },
     // KB member roles (kb_members.role) — distinct from the "Roles" (system
@@ -665,7 +983,6 @@ export const translations = {
     kbRoleAdmin: { de: 'Admin', en: 'Admin' },
     kbRoleOwner: { de: 'Besitzer', en: 'Owner' },
     copyUsername: { de: 'Benutzername kopieren', en: 'Copy username' },
-    websiteLogo: { de: 'Website-Logo', en: 'Website Logo' },
 
     // Inline Editor
     saveAndSubmit: { de: 'Speichern & Absenden', en: 'Save & Submit' },
@@ -759,13 +1076,18 @@ export const translations = {
     audioLoadError: { de: 'Fehler beim Laden des Audios', en: 'Error loading audio' },
     pageLoadError: { de: 'Seite konnte nicht geladen werden', en: 'Failed to load page' },
     pdfLoadError: { de: 'Fehler beim Laden der PDF-Datei', en: 'Error loading PDF file' },
+    pdfLoading: { de: 'PDF wird geladen…', en: 'Loading PDF…' },
+    zoomIn: { de: 'Vergrößern', en: 'Zoom in' },
+    zoomOut: { de: 'Verkleinern', en: 'Zoom out' },
+    previousPage: { de: 'Vorherige Seite', en: 'Previous page' },
+    nextPage: { de: 'Nächste Seite', en: 'Next page' },
+    fullscreen: { de: 'Vollbild', en: 'Full screen' },
+    exitFullscreen: { de: 'Vollbild beenden', en: 'Exit full screen' },
     contentFetchFallback: { de: 'Vollständiger Inhalt konnte nicht geladen werden. Vorschau wird stattdessen verwendet.', en: 'Could not load full content. Using preview instead.' },
 
     // Admin errors
     settingsSaved: { de: 'Einstellungen erfolgreich gespeichert', en: 'Settings saved successfully' },
     settingsSaveError: { de: 'Fehler beim Speichern der Einstellungen', en: 'Error saving settings' },
-    logoUploaded: { de: 'Logo erfolgreich hochgeladen', en: 'Logo uploaded successfully' },
-    logoUploadError: { de: 'Logo-Upload fehlgeschlagen', en: 'Logo upload failed' },
     userDeleteError: { de: 'Fehler beim Löschen des Benutzers', en: 'Error deleting user' },
     reembedError: { de: 'Fehler beim Starten der Neueinbettung', en: 'Failed to trigger re-embedding' },
     providersFetchError: { de: 'Fehler beim Laden der Provider', en: 'Error loading providers' },
@@ -790,7 +1112,6 @@ export const translations = {
     confirmDeleteConfig: { de: 'Bist du sicher, dass du diese Konfiguration löschen möchtest?', en: 'Are you sure you want to delete this configuration?' },
     confirmDeleteProvider: { de: 'Bist du sicher, dass du diesen Anbieter löschen möchtest?', en: 'Are you sure you want to delete this provider?' },
     confirmReembedAll: { de: 'Alle Dateien in allen Knowledge Bases werden neu verarbeitet. Das kann lange dauern und beeinträchtigt vorübergehend die Suchqualität.\n\nBist du sicher?', en: 'This will re-process all files across ALL knowledge bases. This may take a long time and will temporarily affect search quality.\n\nAre you sure you want to continue?' },
-    globalKbCreateError: { de: 'Fehler beim Erstellen der globalen Knowledge Base', en: 'Error creating global knowledge base' },
     globalKbDeleteError: { de: 'Fehler beim Löschen der globalen Knowledge Base', en: 'Error deleting global knowledge base' },
 
     // Export errors
@@ -1048,7 +1369,9 @@ export const translations = {
     kbMessagesChip: { de: '{n} Nachrichten', en: '{n} messages' },
     kbFailedChip: { de: '{n} fehlgeschlagen', en: '{n} failed' },
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
-    kbFreshnessChip: { de: 'Ältester Inhalt {date}', en: 'Oldest content {date}' },
+    // The card's meta lines (KI-848): label muted, relative value bold.
+    kbCardUsed: { de: 'Genutzt', en: 'Used' },
+    kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },
@@ -1075,7 +1398,6 @@ export const translations = {
     providerNameRequired: { de: 'Anbietername ist erforderlich', en: 'Provider name is required' },
     ldapUrlRequired: { de: 'LDAP URL ist erforderlich', en: 'LDAP URL is required' },
     searchBaseRequired: { de: 'Suchbasis ist erforderlich', en: 'Search base is required' },
-    logoPreview: { de: 'Logo-Vorschau', en: 'Logo preview' },
     // active already defined in RSS Feeds section
     add: { de: 'Hinzufügen', en: 'Add' },
     connectionTesting: { de: 'Verbindung wird getestet...', en: 'Testing connection...' },
@@ -1451,6 +1773,11 @@ export const translations = {
         de: 'Wenn aktiviert, bekommt der Antwort-generierende LLM die volle MCP-Tool-Liste (außer code_exec) über native OpenAI-Function-Calling und kann mid-turn rechnen, SQL abfragen, erneut kb_search aufrufen usw. Wirkt auf den Lookup/Enumeration-Pfad UND den Deep-Chat/Agentic-Pfad. Plan-Execute und Supervisor sind nicht betroffen (haben ihren eigenen Plan-Zeit-Tool-Mechanismus). Voraussetzung: der Chat-Model-Endpoint MUSS tools+tool_calls nativ können (verifiziert mit gemma-4-26b-A4B-it via vLLM/LiteLLM). Standard: aus.',
         en: 'When on, the answer-generating LLM receives the full MCP tool list (except code_exec) via native OpenAI function calling and can run arithmetic, query SQL, re-call kb_search, etc. mid-turn. Covers BOTH the lookup/enumeration path and the deep-chat/agentic path. Plan-execute and supervisor orchestrators are unaffected (they have their own plan-time tool mechanism). PREREQUISITE: the chat model endpoint MUST support tools+tool_calls natively (verified on gemma-4-26b-A4B-it via vLLM/LiteLLM). Default: off.',
     },
+    chatWebSearchEnabled: { de: 'Websuche im Chat anbieten', en: 'Offer web search in chat' },
+    chatWebSearchEnabledHelp: {
+        de: 'Zeigt im Chat-Eingabefeld den Schalter „Websuche"; schaltet ihn jemand ein, bekommt die Antwort-LLM für diese Nachricht das Tool web_search. Voraussetzung: die Web-Suche ist im Tab „Suchanbieter" aktiviert und mit Google-Zugangsdaten eingerichtet – sonst lehnt der Server solche Nachrichten ab. Gilt global. Standard: aus.',
+        en: 'Shows the "Web search" toggle in the chat composer; when a user turns it on, the answer LLM gets the web_search tool for that message. Requires web search to be enabled and configured with Google credentials on the Search Providers tab — otherwise the server refuses such messages. Global setting. Default: off.',
+    },
     chatAnswerToolsMaxRounds: { de: 'Antwort-Tools: max. Runden', en: 'Answer tools: max rounds' },
     chatAnswerToolsMaxRoundsHelp: {
         de: 'Obergrenze für Tool-Call-Runden pro Chat-Turn, bevor ein erzwungener tool_choice="none"-Abschluss ausgelöst wird. Gültiger Bereich [1,10]; out-of-range fällt auf den Default zurück. Höhere Werte = teurere Turns mit potenziell mehreren Tool-Hops; niedriger = strenger gekappt. Standard: 5.',
@@ -1784,8 +2111,6 @@ export const translations = {
 
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
-    siteLogo: { de: 'Website-Logo (SVG oder PNG)', en: 'Site Logo (SVG or PNG)' },
-    siteLogoHelp: { de: 'SVG wird für beste Qualität empfohlen. Wird in der Seitenleiste und auf dem Anmeldebildschirm angezeigt.', en: 'SVG recommended for best quality. Shown in the sidebar and on the login screen.' },
     chatFooterLabel: { de: 'Text f\u00fcr Chat-Fu\u00dfzeile', en: 'Chat Footer Text' },
     // chatFooter already defined in Chat Area section
     chatFooterPlaceholder: { de: 'Text, der unter der Chat-Oberfläche angezeigt wird', en: 'Text displayed below the chat interface' },
@@ -1915,6 +2240,9 @@ export const translations = {
     evalGenerateTitle: { de: 'Aus Korpus generieren', en: 'Generate from corpus' },
     evalGenerateHint: { de: 'Erzeugt einen Entwurf zur manuellen Kuratierung. Danach herunterladen, prüfen und erneut hochladen.', en: 'Produces a draft for manual curation. Download, review, then re-upload.' },
     evalGenName: { de: 'Name des Golden-Sets', en: 'Golden set name' },
+    // Accessible name for the de/en select in "generate from corpus" — that
+    // control had no label at all before the design-system migration (KI-692).
+    evalGenLang: { de: 'Sprache', en: 'Language' },
     evalGenLookup: { de: 'Lookup-Fragen', en: 'Lookup questions' },
     evalGenComplex: { de: 'Komplexe Fragen', en: 'Complex questions' },
     evalGenEnumeration: { de: 'Aufzählungsfragen', en: 'Enumeration questions' },

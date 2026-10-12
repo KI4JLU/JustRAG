@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -49,9 +51,126 @@ function versionedIcons(): Plugin {
   }
 }
 
+
+/**
+ * Local design-system link — development only, opt-in via `DS_LOCAL`.
+ *
+ * The design system ships as a git dependency pinned to a tag
+ * (`github:KI4JLU/JLU-Design-System#vX.Y.Z`), so every DS change normally costs
+ * a commit, a tag, a push and a re-install before it can be seen here. With
+ * `DS_LOCAL` set, the dev server resolves `@ki4jlu/design-system` to the SOURCE
+ * of a local checkout instead, and a save in the DS repo hot-reloads in this
+ * app with no build step at all.
+ *
+ *   npm run dev:ds                     # sibling checkout ../../JLU-Design-System
+ *   DS_LOCAL=/abs/or/rel/path npm run dev
+ *
+ * Deliberately env-gated rather than a package.json/lockfile change (`npm link`,
+ * `file:`): staging, production and CI resolve the pinned tarball exactly as
+ * before, and there is nothing local that can be committed by accident.
+ *
+ * Three things have to move together, which is why this is one plugin and not
+ * three scattered options:
+ *
+ *   1. MODULE resolution — the bare specifier is aliased to <ds>/src/index.ts.
+ *      Exact-match regex, so the `/eslint-plugin` subpath is untouched (ESLint
+ *      does not read this config anyway, it resolves through node_modules).
+ *   2. CSS resolution — Tailwind 4 resolves `@import`/`@source` with its OWN
+ *      resolver, which knows nothing about Vite aliases. So index.css is
+ *      rewritten in a `pre` transform: the tokens import and the `@source`
+ *      scan path are repointed at the checkout. Without the `@source` rewrite
+ *      every DS utility class the local source newly uses would compile to
+ *      nothing — and a wrong @source path throws no error, it silently scans
+ *      nothing (see the comment on that line in index.css).
+ *   3. DUPLICATE runtime copies — resolving DS source from outside this repo
+ *      makes Node resolution walk up into the DS checkout's own node_modules,
+ *      which has its own react (a devDependency there). Two React copies break
+ *      hooks outright. `dedupe` forces these onto this app's copies — which is
+ *      also what the published build does, since the DS build marks them all
+ *      external.
+ *
+ * `tsc -b` and `vite build` do NOT honour this: types still come from the
+ * installed package's .d.ts. Link for the dev loop, bump the pin before merging.
+ */
+function localDesignSystem(): Plugin | null {
+  const requested = process.env.DS_LOCAL
+  if (!requested) return null
+
+  const webRoot = fileURLToPath(new URL('.', import.meta.url))
+  const repoRoot = path.resolve(webRoot, '..')
+  const dsRoot =
+    requested === '1' || requested === 'true'
+      ? path.resolve(webRoot, '../../JLU-Design-System')
+      : path.resolve(webRoot, requested)
+
+  const entry = path.join(dsRoot, 'src/index.ts')
+  if (!existsSync(entry)) {
+    // Fail loudly. A missing checkout that silently fell back to node_modules
+    // would look exactly like "my DS change did not show up".
+    throw new Error(
+      `DS_LOCAL=${requested} does not look like a JLU-Design-System checkout: ` +
+        `${entry} not found.`,
+    )
+  }
+
+  const indexCss = path.join(webRoot, 'src/index.css')
+  const relativeToIndexCss = (target: string): string => {
+    const rel = path.relative(path.dirname(indexCss), target)
+    return rel.startsWith('.') ? rel : `./${rel}`
+  }
+
+  return {
+    name: 'justrag-local-design-system',
+    // Must run before @tailwindcss/vite sees index.css.
+    enforce: 'pre',
+    config: () => ({
+      resolve: {
+        alias: [{ find: /^@ki4jlu\/design-system$/, replacement: entry }],
+        dedupe: [
+          'react',
+          'react-dom',
+          'lucide-react',
+          'class-variance-authority',
+          'clsx',
+          'tailwind-merge',
+        ],
+      },
+      // The alias points outside the project root; without this the dev
+      // server refuses to serve the DS source files.
+      server: { fs: { allow: [repoRoot, dsRoot] } },
+      optimizeDeps: { exclude: ['@ki4jlu/design-system'] },
+    }),
+    configResolved() {
+      console.log(`\n  \u001b[36m\u27a4\u001b[0m  design system linked: ${dsRoot}/src\n`)
+    },
+    transform(code, id) {
+      if (id.split('?')[0] !== indexCss) return
+      const tokens = relativeToIndexCss(path.join(dsRoot, 'src/tokens.css'))
+      const source = relativeToIndexCss(path.join(dsRoot, 'src'))
+      const linked = code
+        .replace(
+          '@import "@ki4jlu/design-system/tokens.css";',
+          `@import "${tokens}";`,
+        )
+        .replace(
+          '@source "../../node_modules/@ki4jlu/design-system";',
+          `@source "${source}";`,
+        )
+      if (linked === code) {
+        throw new Error(
+          'justrag-local-design-system: neither the tokens @import nor the ' +
+            '@source line was found in src/index.css — the rewrite is stale.',
+        )
+      }
+      return linked
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    localDesignSystem(),
     react(),
     versionedIcons(),
     // Compiles the @ki4jlu/design-system `@theme` block in src/index.css into

@@ -6,6 +6,7 @@ import {
     Save, Layout, Check, ArrowLeft
 } from 'lucide-react';
 import { MarkdownEditor } from './Studio/MarkdownEditor';
+import { Badge } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useIsMobileContext } from '../contexts/MobileContext';
 import { openExternal } from '../utils/openExternal';
@@ -181,9 +182,10 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                                         <Pencil size={14} />
                                     </button>
                                     {result.isEdited && (
-                                        <span className="edited-badge" title={t('edited')}>
-                                            <Check size={10} />
-                                        </span>
+                                        <Badge tone="success" title={t('edited')}>
+                                            <Check size={10} aria-hidden="true" />
+                                            <span className="sr-only">{t('edited')}</span>
+                                        </Badge>
                                     )}
                                 </div>
                             </div>
@@ -424,17 +426,6 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                 .action-btn:hover {
                     border-color: var(--accent-primary);
                     color: var(--accent-primary);
-                }
-
-                .edited-badge {
-                    background: var(--success-text);
-                    color: white;
-                    width: 16px;
-                    height: 16px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
                 }
 
                 .sidebar-footer {

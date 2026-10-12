@@ -5,7 +5,7 @@ import { MindMapView } from './MindMapView';
 
 vi.mock('axios', () => ({ default: { get: vi.fn() } }));
 vi.mock('../../contexts/ThemeContext', () => ({
-  useTheme: () => ({ theme: 'light', toggleTheme: () => {}, language: 'en', setLanguage: () => {}, t: (k: string) => k }),
+  useTheme: () => ({ theme: 'light', resolvedTheme: 'light', setTheme: () => {}, language: 'en', setLanguage: () => {}, t: (k: string) => k }),
 }));
 vi.mock('../../hooks/useKBGraphStream', () => ({ useKBGraphStream: () => ({ processing: false }) }));
 

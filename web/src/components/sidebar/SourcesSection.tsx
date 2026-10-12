@@ -1,17 +1,20 @@
-import React, { memo } from 'react';
+import React, { createElement, memo } from 'react';
 import {
-    Link, Globe, Bot, FileText, Download, Trash2,
+    Download, Trash2,
     Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, Table as TableIcon, ShieldAlert
 } from 'lucide-react';
+import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IngestStageIndicator } from './IngestStageIndicator';
 import { SyncScheduleSelect } from './SyncScheduleSelect';
+import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
+import { SourceHoverPreview } from './SourceHoverPreview';
+import { useSourcePreviews } from '../../hooks/sourcePreviews';
 
 interface SourcesSectionProps {
     files: FileEntry[];
     onPreviewSource: (file: FileEntry) => void;
-    onToggleFileSelection: (id: string, e: React.SyntheticEvent) => void;
     onToggleFilesSelection: (fileIds: string[], selected: boolean) => void;
     onDownloadFile: (id: string) => void;
     onDeleteFile: (id: string, e: React.MouseEvent) => void;
@@ -29,7 +32,6 @@ interface SourcesSectionProps {
     onDeleteGitRepoSource: (sourceId: string) => void;
     onSyncGitRepoNow: (sourceId: string) => void;
     onRetryFile: (id: string) => void;
-    onRetryAllFailed: () => void;
     onOpenTabular: (file: FileEntry) => void;
 }
 
@@ -56,33 +58,24 @@ const isSpreadsheetFile = (name: string): boolean => {
 };
 
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
-    files, onPreviewSource, onToggleFileSelection, onToggleFilesSelection,
+    files, onPreviewSource, onToggleFilesSelection,
     onDownloadFile, onDeleteFile,
     rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
-    onRetryFile, onRetryAllFailed, onOpenTabular
+    onRetryFile, onOpenTabular
 }) => {
     const { t } = useTheme();
 
+
     const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
+    // Hover previews are prepared ahead of the hover (see sourcePreviews.ts).
+    useSourcePreviews(nonRssFiles);
     const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
-    const failedCount = files.filter(f => f.status === 'error').length;
-    // The ingest prompt-injection screen only ever runs on external origins
-    // (rss/confluence/git/crawl), and three of those four are NOT in
-    // nonRssFiles below — their files are folded into the feed/source rows.
-    // So the per-file badge alone would be invisible for exactly the sources
-    // that get screened; this header count is what makes them visible.
-    //
-    // Uploads are excluded: they are never screened, so a flagged one can
-    // only be a leftover from before an origin change — and it already has
-    // its own row and its own badge, which is where an operator should see
-    // it. Counting it here would double-report the one case the summary is
-    // NOT for.
-    const injectionFlaggedCount = files.filter(f => f.injectionFlag && f.origin !== 'upload').length;
     // Untrusted, document-derived text: it goes into title/aria-label as a
-    // plain string and is never rendered as markup.
+    // plain string and is never rendered as markup. The per-KB count of
+    // flagged external-origin files is SourcesHeader's, above the list.
     const injectionLabel = (file: FileEntry) => {
         const snippet = file.injectionDetail?.snippet;
         return snippet ? `${t('fileInjectionFlagged')}: ${snippet}` : t('fileInjectionFlagged');
@@ -93,103 +86,22 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     };
 
     return (
-        <div className="sidebar-left__files-section">
-            <div className="sidebar-left__files-header sidebar-ui__section-header">
-                <h2 className="sidebar-left__files-title">{t('sources')}</h2>
-                {failedCount > 0 && (
-                    <button
-                        onClick={onRetryAllFailed}
-                        className="text-button sidebar-left__retry-all-failed"
-                        title={t('retryAllFailed')}
-                    >
-                        <RefreshCw size={12} aria-hidden="true" /> {t('retryAllFailed')} ({failedCount})
-                    </button>
-                )}
-                {injectionFlaggedCount > 0 && (
-                    <span
-                        className="sidebar-left__injection-summary"
-                        title={t('fileInjectionFlaggedHelp')}
-                        aria-label={`${t('fileInjectionFlagged')} (${injectionFlaggedCount})`}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning-text, var(--text-secondary))', fontSize: '0.75rem' }}
-                    >
-                        <ShieldAlert size={12} aria-hidden="true" /> {injectionFlaggedCount}
-                    </span>
-                )}
-            </div>
-
-            <ul className="sidebar-left__files-list sidebar-ui__list">
+        <SidebarCardList className="sidebar-left__files-section">
                 {nonRssFiles.map(file => (
-                    <li key={file.id} className="source-card sidebar-left__file-card">
-                        <div className="sidebar-left__file-row">
-                            <input
-                                type="checkbox"
-                                checked={file.selected !== false}
-                                onChange={(e) => onToggleFileSelection(file.id, e)}
-                                className="sidebar-left__file-checkbox"
-                                aria-label={`${t('selectSource')} ${file.name}`}
-                            />
-                            <div className="sidebar-left__file-origin-icon">
-                                {file.origin === 'websearch' ? <Link size={18} aria-hidden="true" /> : file.origin === 'crawl' ? <Globe size={18} aria-hidden="true" /> : file.origin === 'research' ? <Bot size={18} aria-hidden="true" /> : file.origin === 'rss' ? <Rss size={18} aria-hidden="true" /> : <FileText size={18} aria-hidden="true" />}
-                            </div>
-                            <div className="sidebar-left__file-main sidebar-ui__item-main">
-                                <div className="sidebar-left__file-top-row sidebar-ui__item-row">
-                                    <button
-                                        onClick={() => onPreviewSource(file)}
-                                        className="text-button source-title sidebar-left__file-name sidebar-ui__item-title"
-                                    >
-                                        {file.name}
-                                    </button>
-                                    <div className="sidebar-left__file-actions">
-                                        {file.status === 'error' && (
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); onRetryFile(file.id); }}
-                                                className="settings-toggle sidebar-left__file-action sidebar-ui__item-delete"
-                                                title={t('retrySource')}
-                                                aria-label={`${t('retrySource')} ${file.name}`}
-                                            >
-                                                <RefreshCw size={14} />
-                                            </button>
-                                        )}
-                                        {file.status === 'completed' && isSpreadsheetFile(file.name) && (
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); onOpenTabular(file); }}
-                                                className="settings-toggle sidebar-left__file-action sidebar-ui__item-delete"
-                                                title={t('tabularPanelOpen')}
-                                                aria-label={`${t('tabularPanelOpen')} ${file.name}`}
-                                            >
-                                                <TableIcon size={14} />
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onDownloadFile(file.id); }}
-                                            className="settings-toggle sidebar-left__file-action sidebar-ui__item-delete"
-                                            title={t('download')}
-                                            aria-label={`${t('download')} ${file.name}`}
-                                        >
-                                            <Download size={14} />
-                                        </button>
-                                        <button
-                                            onClick={(e) => onDeleteFile(file.id, e)}
-                                            className="settings-toggle sidebar-left__file-action sidebar-ui__item-delete"
-                                            aria-label={`${t('delete')} ${file.name}`}
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="sidebar-left__file-meta-row">
-                                    <div
-                                        className="source-meta sidebar-left__file-meta sidebar-ui__item-meta"
-                                        style={{ color: file.status === 'error' ? 'var(--error-text)' : 'var(--text-secondary)' }}
-                                    >
-                                        {file.status} • {file.origin}
-                                    </div>
-                                </div>
+                    <SourceHoverPreview key={file.id} file={file}>
+                        <SidebarCard
+                            icon={createElement(sourceIconFor(file), { 'aria-hidden': true })}
+                            iconText={sourceTypeLabel(file) ?? undefined}
+                            title={file.name}
+                            onOpen={() => onPreviewSource(file)}
+                            meta={<>
+                                {/* Status only when it is news: queued or failed. A finished
+                                    upload says nothing — the card being there is the status. */}
+                                {file.status === 'pending' && !file.currentStage && (
+                                    <div className="source-meta sidebar-left__file-meta">{t('fileStatusPending')}</div>
+                                )}
                                 {file.status === 'error' && (
-                                    <div
-                                        className="sidebar-left__rss-feed-error"
-                                        title={file.errorMessage || undefined}
-                                    >
+                                    <div className="sidebar-left__rss-feed-error" title={file.errorMessage || undefined}>
                                         {errorLabel(file)}
                                     </div>
                                 )}
@@ -212,25 +124,48 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         detail={file.stageDetail}
                                     />
                                 )}
-                            </div>
-                        </div>
-                    </li>
+                            </>}
+                            extra={<>
+                                {file.status === 'error' && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={(e) => { e.stopPropagation(); onRetryFile(file.id); }}
+                                        title={t('retrySource')}
+                                        aria-label={`${t('retrySource')} ${file.name}`}
+                                    >
+                                        <RefreshCw size={16} aria-hidden="true" />
+                                    </Button>
+                                )}
+                                {file.status === 'completed' && isSpreadsheetFile(file.name) && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={(e) => { e.stopPropagation(); onOpenTabular(file); }}
+                                        title={t('tabularPanelOpen')}
+                                        aria-label={`${t('tabularPanelOpen')} ${file.name}`}
+                                    >
+                                        <TableIcon size={16} aria-hidden="true" />
+                                    </Button>
+                                )}
+                            </>}
+                            actionsLabel={t('sourceActions')}
+                            actions={[
+                                { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
+                                { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
+                                  onSelect: (e) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                            ]}
+                            selectable
+                            selected={file.selected !== false}
+                            onSelectedChange={(sel) => onToggleFilesSelection([file.id], sel)}
+                            selectLabel={t('selectSource')}
+                        />
+                    </SourceHoverPreview>
                 ))}
 
                 {rssFeeds.map(feed => (
                     <li key={`rss-${feed.id}`} className="source-card sidebar-left__file-card">
                         <div className="sidebar-left__file-row">
-                            <input
-                                type="checkbox"
-                                checked={rssFeedFiles(feed.id).length > 0 && rssFeedFiles(feed.id).every(f => f.selected !== false)}
-                                onChange={() => {
-                                    const feedFileList = rssFeedFiles(feed.id);
-                                    const allSelected = feedFileList.every(f => f.selected !== false);
-                                    onToggleFilesSelection(feedFileList.map(f => f.id), !allSelected);
-                                }}
-                                className="sidebar-left__file-checkbox"
-                                aria-label={`${t('selectSource')} ${feed.title || feed.url}`}
-                            />
                             <div className="sidebar-left__file-origin-icon">
                                 <Rss size={18} aria-hidden="true" />
                             </div>
@@ -277,6 +212,15 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     </button>
                                 </div>
                             </div>
+                            <Checkbox
+                                checked={rssFeedFiles(feed.id).length > 0 && rssFeedFiles(feed.id).every(f => f.selected !== false)}
+                                onCheckedChange={() => {
+                                    const feedFileList = rssFeedFiles(feed.id);
+                                    const allSelected = feedFileList.every(f => f.selected !== false);
+                                    onToggleFilesSelection(feedFileList.map(f => f.id), !allSelected);
+                                }}
+                                aria-label={`${t('selectSource')} ${feed.title || feed.url}`}
+                            />
                         </div>
                     </li>
                 ))}
@@ -407,12 +351,10 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                         </li>
                     );
                 })}
-            </ul>
-
             {nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (
-                <div className="sidebar-left__empty sidebar-ui__empty">{t('noSources')}</div>
+                <li className="sidebar-left__empty sidebar-ui__empty">{t('noSources')}</li>
             )}
-        </div>
+        </SidebarCardList>
     );
 };
 

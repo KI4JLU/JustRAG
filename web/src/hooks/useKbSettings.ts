@@ -22,6 +22,8 @@ export function useKbSettings() {
   const [enhance, setEnhance] = useState<'rewrite' | 'expand' | 'spell' | null>(null);
   const [availableConfigs, setAvailableConfigs] = useState<SafeAIConfig[]>([]);
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
+  // Per-turn web search (composer + menu → badge); sent as `webSearch`.
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [reasoningLevel, setReasoningLevel] = useState<'low' | 'medium' | 'high'>('low');
   const [researchRunning, setResearchRunning] = useState(false);
   const [academicResearchRunning, setAcademicResearchRunning] = useState(false);
@@ -43,6 +45,7 @@ export function useKbSettings() {
     enhance, setEnhance,
     availableConfigs,
     reasoningEnabled, setReasoningEnabled,
+    webSearchEnabled, setWebSearchEnabled,
     reasoningLevel, setReasoningLevel,
     researchRunning, setResearchRunning,
     academicResearchRunning, setAcademicResearchRunning,

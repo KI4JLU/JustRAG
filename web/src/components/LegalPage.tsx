@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import DOMPurify from 'dompurify';
+import { Button, Container, PageHeader, Spinner } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import type { Language } from '../translations';
@@ -49,62 +50,87 @@ export function LegalPage({ page, onBack }: LegalPageProps) {
     return () => { cancelled = true; };
   }, [page, language, t, toast]);
 
+  /* -------------------------------------------------------------------------
+   * Shell: `Container` + `PageHeader` — the design system's PAGE shape (card
+   * KI-750). This replaces `AuthLayout`, which Stage 4a (KI-693) had picked
+   * and which the developer rejected five times running.
+   *
+   * WHY THE TEMPLATE WAS WRONG, measured on the running dev server at a
+   * 1600px viewport (walking getComputedStyle up from the <h1>, full chain on
+   * KI-750): `AuthLayout` produced
+   *
+   *   div  flex flex-col gap-1.5 p-6 text-center                      670px
+   *   div  rounded-xl border … bg-surface-container-lowest            672px
+   *   div  flex flex-col gap-stack-lg w-full max-w-2xl   max-width:   672px
+   *   div  flex min-h-dvh … items-center justify-center              1600px
+   *
+   * i.e. three credential-entry shapes, none of them reachable by changing a
+   * width: the document sat INSIDE a Card, its title was `text-center`, and
+   * the whole thing was vertically centred in the viewport. That is what
+   * "a small mobile-styled container instead of a full page view" described,
+   * and it is why KI-743's correct 448 -> 672px widening did not fix it.
+   * Widening a card cannot make it a page.
+   *
+   * THE WIDTH. `size="content"` is 1000px
+   * (`--max-width-container-content`) — the same 1000px as
+   * `.home-view__grid--main` (HomeView.css:246), which is the width the
+   * developer asked these pages to match. It is a NAMED size, shipped by the
+   * design system in v0.25.0 (card KI-751) precisely so this call site does
+   * not need `className="max-w-[1000px]"`: KI-711 records that
+   * `layout-only-classname` structurally cannot see arbitrary values on
+   * composition components like `Container`, so an override here would have
+   * passed lint silently. The size scale names a ROLE, not a step —
+   * `page` (1440px) / `content` (1000px) / `reading` (672px).
+   *
+   * THE HEADING. `PageHeader` renders a real heading element (level 1 by
+   * default), so the hand-rolled `<h1 className="m-0 text-headline-md …">`
+   * that `AuthLayout`'s `div`-based `CardTitle` forced on every call site is
+   * gone, and so is the `m-0` that neutralised index.css's
+   * `@layer base { h1 { margin: revert } }` — v0.24.0 put that inside the
+   * component. This page therefore owns THE page's only `<h1>`, and the six
+   * documents under public/legal/ start at `<h2>` (card KI-726, done in the
+   * same change: with a real PageHeader the two headings would sit adjacent
+   * and the page would ship visibly broken).
+   *
+   * THE BACK CONTROL sits in `PageHeader`'s `actions` slot — the header row's
+   * right-hand side — as an `outline` Button rather than the previous
+   * `variant="link" className="px-0"`. A link-styled control was right when
+   * it sat inside the card body above the prose; in the header's action area
+   * it would read as a stray piece of body text next to the page title, and
+   * `outline` is the quiet-but-real control the DS offers for a secondary
+   * page action.
+   *
+   * `<main>` stays the landmark and now carries the page ground
+   * (`min-h-dvh bg-surface text-on-surface`) that `AuthLayout`'s root used to
+   * supply; `Container` brings the horizontal page margins
+   * (`px-gutter md:px-margin-page`) and the call site adds the matching
+   * vertical ones — the same combination `DashboardLayout` uses internally,
+   * so the legal routes are laid out like every other page of this app.
+   * ----------------------------------------------------------------------- */
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'var(--bg-primary)',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem 1rem',
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '720px',
-      }}>
-        <button
-          onClick={onBack}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            background: 'none',
-            border: 'none',
-            color: 'var(--accent-primary)',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            padding: '0.5rem 0',
-            marginBottom: '1.5rem',
-          }}
-        >
-          <ArrowLeft size={16} />
-          {t('backToHome')}
-        </button>
-
-        <h1 style={{
-          fontSize: '1.75rem',
-          color: 'var(--text-primary)',
-          marginBottom: '1.5rem',
-        }}>
-          {t(titleKeys[page])}
-        </h1>
+    <main className="min-h-dvh bg-surface text-on-surface">
+      <Container size="content" className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
+        <PageHeader
+          title={t(titleKeys[page])}
+          actions={
+            <Button variant="outline" size="sm" onClick={onBack}>
+              <ArrowLeft size={16} />
+              {t('backToHome')}
+            </Button>
+          }
+        />
 
         {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
-            <Loader2 className="animate-spin" size={24} color="var(--text-secondary)" />
+          <div className="flex justify-center py-stack-lg">
+            <Spinner size="lg" label={t('loading')} />
           </div>
         ) : (
           <div
-            className="content-fade-in"
-            style={{
-              color: 'var(--text-secondary)',
-              fontSize: '0.9375rem',
-              lineHeight: '1.7',
-            }}
+            className="content-fade-in text-body-base text-on-surface-variant"
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
           />
         )}
-      </div>
-    </div>
+      </Container>
+    </main>
   );
 }

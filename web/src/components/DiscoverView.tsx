@@ -1,0 +1,69 @@
+import { Container, PageHeader } from '@ki4jlu/design-system';
+import { useTheme } from '../contexts/ThemeContext';
+import { AppChrome } from './AppChrome';
+import KbCatalogPanel from './KbCatalogPanel';
+import { TopicFilterBar } from './TopicFilterBar';
+import { useTopicFilters } from '../hooks/useTopicFilters';
+
+/* ---------------------------------------------------------------------------
+ * „Entdecken" — the catalog of global topics you do NOT hold yet (developer
+ * ruling, 18.09.2026).
+ *
+ * WHY IT IS A VIEW NOW. It used to be „KBs entdecken", the third of four
+ * collapsible sections on the overview, and it never fitted there: the
+ * overview's other sections listed things the user already had, while this one
+ * lists everything they do not. Removing global topics from „Mein Wissen" took
+ * the section with it, and the developer chose a nav row over folding it into
+ * „Geteiltes Wissen" — which is the page for what you already hold.
+ *
+ * WHAT THE PROMOTION DELETED, and it is worth stating because it removes a
+ * whole mechanism rather than moving it. As a section the panel was UNMOUNTED
+ * while collapsed, which is what made expanding it re-read the catalog, and
+ * what forced the top-bar search field to expand the section before it could
+ * talk to the panel at all (`useKbSearchState.setQuery` did that). On a page
+ * of its own the panel mounts when the page does, so:
+ *   - the catalog is re-read on every visit, for free, with no disclosure
+ *     state to coordinate;
+ *   - `discoverOpen` / `setDiscoverOpen` are gone from `KbSearchContext`
+ *     (the header comment claimed so before the code did; KI-837 made it true);
+ *   - the header search reaches this page through its dropdown's „show all
+ *     matching topics in Discover" row (KI-837), not on every keystroke.
+ *
+ * NO PAGE-LEVEL FILTERING. The query is `KbSearchContext.catalogQuery` and is
+ * read by `KbCatalogPanel`, which owns the 250 ms debounce and the
+ * `GET /api/kb/catalog?q=` request. This file adds a heading and a landmark.
+ * // TODO: whether „Entdecken" should get its own field back instead of the
+ * // dropdown row is the developer's call (KI-837 ASSUMPTION) — not yet confirmed.
+ * ------------------------------------------------------------------------- */
+
+/** Anchors the skip link; must match the `contentId` handed to `AppChrome`. */
+const CONTENT_ID = 'discover-content';
+
+export interface DiscoverViewProps {
+  onSubscriptionChange: () => void;
+  onOpenKbById: (id: string) => void;
+}
+
+export function DiscoverView({ onSubscriptionChange, onOpenKbById }: DiscoverViewProps) {
+  const { t } = useTheme();
+  const filters = useTopicFilters();
+
+  return (
+    <AppChrome active="discover" contentId={CONTENT_ID}>
+      <section id={CONTENT_ID} aria-label={t('discoverTopics')} className="flex flex-col">
+        <Container className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
+          <PageHeader title={t('discoverTopics')} description={t('discoverTopicsDescription')} />
+          {/* The row is the same chrome the other three views carry. The panel
+              owns its own list and request, so the ACTIVE chip is handed down
+              rather than applied here — see `KbCatalogPanel`. */}
+          <TopicFilterBar filters={filters} label={t('filterTopics')} />
+          <KbCatalogPanel
+            onSubscriptionChange={onSubscriptionChange}
+            onOpenKb={onOpenKbById}
+            topicFilter={filters.active}
+          />
+        </Container>
+      </section>
+    </AppChrome>
+  );
+}

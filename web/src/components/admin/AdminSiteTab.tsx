@@ -2,37 +2,27 @@ import { Save } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { API_BASE_URL } from '../../api';
 
 interface AdminSiteTabProps {
     siteConfigs: Record<string, string>;
     setSiteConfigs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
     onSubmit: (e: React.FormEvent) => void;
-    onLogoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    uploading: boolean;
 }
 
-export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, onLogoUpload, uploading }: AdminSiteTabProps) {
+export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit }: AdminSiteTabProps) {
     const reducedMotion = useReducedMotion();
     const { t } = useTheme();
 
     return (
         <motion.div {...getMotionProps(reducedMotion)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="result-card" style={{ padding: '2rem', maxHeight: 'calc(100vh - 350px)', overflowY: 'auto' }}>
             <form onSubmit={onSubmit} className="form-grid" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                <div className="input-group" style={{ maxWidth: '400px' }}>
-                    <label htmlFor="site-logo">{t('siteLogo')}</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        {siteConfigs.logo_path && (
-                            <div style={{ width: '64px', height: '64px', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
-                                <img src={`${API_BASE_URL}${siteConfigs.logo_path}`} alt={t('logoPreview')} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                            </div>
-                        )}
-                        <input id="site-logo" type="file" accept=".svg,.png" onChange={onLogoUpload} disabled={uploading} style={{ flex: 1 }} />
-                        {uploading && <div className="loading-spinner" style={{ width: '20px', height: '20px' }}></div>}
-                    </div>
-                    <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '0.5rem' }}>{t('siteLogoHelp')}</p>
-                </div>
-
+                {/* The site-logo upload group was here. Logo upload is
+                    deprecated (developer ruling, 17.09.2026): the logo is built
+                    from the app name, and the app shell renders the design
+                    system's wordmark unconditionally. Removing the operator
+                    surface is what stops new uploads; the backend key and its
+                    endpoint are untouched, so logos already uploaded still
+                    resolve wherever they are still read. */}
                 <div className="input-group">
                     <label htmlFor="chat-footer">{t('chatFooterLabel')}</label>
                     <textarea

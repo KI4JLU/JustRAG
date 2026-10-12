@@ -1,10 +1,37 @@
 /* ---------------------------------------------------------------------------
  * JLU Design System (@ki4jlu/design-system) — Tier 1 integration (tokens only).
  *
- * Tailwind 4 is imported WITHOUT Preflight on purpose: Preflight is an
- * opinionated reset that would restyle every raw <button>/<h*>/<ul> across the
- * 124 existing components at once. We only need Tailwind's engine to compile
- * the design system's `@theme` block into CSS variables.
+ * Tailwind 4 is imported PIECEWISE (theme / preflight / utilities) instead of
+ * as a bare `@import "tailwindcss"`, so the `@layer` order below stays under
+ * our control in a 2400-line file. That is the only reason for the three
+ * separate imports — it is not a way of leaving parts of Tailwind out.
+ *
+ * PREFLIGHT IS ON (decided 26.08.2026, board card KI-94). It used to be
+ * deliberately omitted, on the grounds quoted here before: that it would
+ * "restyle every raw <button>/<h*>/<ul> across the 124 existing components at
+ * once". Two things overturned that:
+ *
+ *   1. Rendering correctness, which is independent of anyone's preference.
+ *      Preflight's `*, ::before, ::after { border: 0 solid }` is what gives
+ *      Tailwind's border utilities a border STYLE — the utility only sets
+ *      `border-width: 1px`, and a width with no style paints NOTHING. The
+ *      design system uses border utilities in 32 files (Card, Input, Popover,
+ *      DropdownMenu, Select, SidePanel, sidebar chrome), so without Preflight
+ *      every one of those borders is invisible. The same reset supplies
+ *      `font: inherit` for the raw <button>/<input> that eight DS components
+ *      render internally, `svg { display: block }` so lucide icons stop
+ *      shifting the baseline, and `[hidden] { display: none !important }`.
+ *   2. Enforcement. A raw <button> now looks unstyled, which pushes new work
+ *      towards the design system. On its own this is a WEAK lever — a
+ *      hand-built `<button className="px-4 py-2 bg-primary rounded-action">`
+ *      still looks correct and is exactly the mutation we want to prevent. The
+ *      real lever is the DS ESLint plugin (`layout-only-classname`). Preflight
+ *      is the rendering half, not the policy half; do not confuse the two.
+ *
+ * Preflight is an opinionated reset, so switching it on also removed the
+ * user-agent PROSE defaults this app never re-declared. The `@layer base`
+ * counterweight further down puts exactly those back, and nothing else — see
+ * its own comment for the measurements and the reasoning.
  *
  * Namespace note: JustRAG's own ladders are --type-* (font shorthands) and
  * --shape-* (radii), deliberately NOT --text-* / --radius-*. Those two names
@@ -25,16 +52,161 @@
  * ------------------------------------------------------------------------- */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "@ki4jlu/design-system/tokens.css";
-/* Self-hosted Inter / Manrope / JetBrains Mono. Previously <link>ed from
+
+/* Tailwind must compile the utility classes used inside the design-system
+ * components, or every imported DS component renders unstyled. This scans the
+ * installed package for class strings.
+ *
+ * The path is TWO levels up, not one as in CampusAgents: JustRAG is an npm
+ * workspace ("workspaces": ["web"]), so npm hoists dependencies to
+ * <repo>/node_modules rather than web/node_modules. Verified against
+ * package-lock.json, whose entry key is "node_modules/@ki4jlu/design-system".
+ * A wrong @source path throws NO error -- it silently scans nothing, so the
+ * symptom would be unstyled components with a clean build. */
+@source "../../node_modules/@ki4jlu/design-system";
+/* Self-hosted Inter / Manrope. Previously <link>ed from
  * fonts.googleapis.com in index.html — see the header in fonts.css. */
 @import "./assets/fonts/fonts.css";
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* ---------------------------------------------------------------------------
+ * Preflight counterweight — restore the user-agent PROSE defaults, nothing else.
+ *
+ * (The hand-written `*, *::before, *::after { box-sizing: border-box }` block
+ * that used to sit here is gone: Preflight's `*` rule sets it, for a superset
+ * of pseudo-elements.)
+ *
+ * Preflight resets more than this app ever re-declared. Measured against the
+ * installed node_modules/tailwindcss/preflight.css (v4.3.3 — note: the card
+ * said 4.3.2), the gaps that actually regress rendering here are all
+ * typographic:
+ *
+ *   `*{margin:0;padding:0}`
+ *       Every heading/paragraph/list/quote that leaned on UA spacing collapses.
+ *       Worst case is the product's main surface: only
+ *       `.markdown-content p:first-child` / `p:last-child` are declared, and
+ *       both OVERRIDE a default the block never sets — so a multi-paragraph
+ *       chat answer becomes one unbroken slab.
+ *
+ *   `h1..h6{font-size:inherit;font-weight:inherit}`
+ *       55 raw headings in web/src have no font-size from ANY source (inline
+ *       style, `text-*` utility, or a CSS class rule) and would render at body
+ *       size; the global `h1,h2,h3` rule further down sets family, weight and
+ *       colour but no size, so it does not save them. Markdown h1-h3 are among
+ *       the 55; markdown h4-h6 additionally lose their weight.
+ *
+ *   `ol,ul,menu{list-style:none}`
+ *       Every bullet and number disappears from every chat answer while
+ *       `padding-left` keeps the indent (indented lines, no markers), plus five
+ *       hand-written lists outside markdown: MessageBubble.tsx:163,
+ *       admin/AdminEvalTab.tsx:479, sidebar/ConfluenceModal.tsx:362,
+ *       ConfluenceTokenManager.tsx:286, MindMap/EntityCard.tsx:52.
+ *
+ *   `sub,sup{font-size:75%;line-height:0;position:relative;
+ *            vertical-align:baseline}` + `sup{top:-0.5em}`
+ *       The citation pill is a `<sup class="source-ref">` with padding and a
+ *       border. `line-height: 0` makes it contribute nothing to its line box,
+ *       so a bordered pill overflows the line instead of riding on the UA's
+ *       `vertical-align: super`.
+ *
+ * Every declaration below is `revert`, on purpose. `revert` rolls a property
+ * back to the USER-AGENT value — i.e. precisely what rendered before Preflight
+ * was switched on — so this block cannot change today's appearance; it can only
+ * stop Preflight from changing it. It also preserves list-marker nesting
+ * (disc → circle → square, decimal at every <ol> level), which a literal
+ * `list-style: disc` would flatten.
+ *
+ * Placement is load-bearing. It sits in `layer(base)` AFTER the preflight
+ * import, so it wins inside that layer on source order where specificity ties
+ * (`h1..h6` against `h1..h6`), while every Tailwind utility (layer utilities),
+ * every unlayered rule in this file and every inline style still beats it.
+ * Checked against the installed design system rather than assumed: every h1/p
+ * dist/index.js renders carries an explicit `text-*`/`font-*` utility, and it
+ * renders no bare ul/ol/li at all, so DS components are unaffected.
+ *
+ * What is deliberately NOT reverted, because it is the reason Preflight is on:
+ * the `*{border:0 solid}` reset, the button/input/select/textarea reset (raw
+ * controls SHOULD look unstyled), `svg{display:block}`, `[hidden]`, and the
+ * `::placeholder` colour.
+ * ------------------------------------------------------------------------- */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-size: revert;
+    font-weight: revert;
+    margin: revert;
+  }
+
+  p,
+  blockquote,
+  figure,
+  figcaption,
+  dl,
+  dt,
+  dd,
+  pre,
+  address {
+    margin: revert;
+  }
+
+  ol,
+  ul,
+  menu {
+    list-style: revert;
+    margin: revert;
+    padding-inline-start: revert;
+  }
+
+  /* <hr> loses its box to `*{border:0 solid;margin:0}` plus preflight's own
+   * `hr{height:0;color:inherit;border-top-width:1px}`. Markdown `---` and the
+   * three <hr> in web/src go back to the UA rule. */
+  hr {
+    height: revert;
+    margin: revert;
+    border: revert;
+    color: revert;
+  }
+
+  sub,
+  sup {
+    font-size: revert;
+    line-height: revert;
+    position: revert;
+    vertical-align: revert;
+    top: revert;
+    bottom: revert;
+  }
+
+  /* The ONE deliberate departure from "revert everything".
+   *
+   * Preflight's `a { color: inherit; text-decoration: inherit }` makes a link
+   * inside a chat answer indistinguishable from body text — the only item on
+   * the list above with a product consequence rather than a cosmetic one, in a
+   * RAG product whose answers cite sources. `revert` is not the answer here: it
+   * would bring back the UA's #0000EE, which is off-brand and barely readable
+   * in the dark theme. So links get the brand colour instead.
+   *
+   * `--accent-primary` is this file's bridge name for the design system's
+   * `--color-primary`, which the DS tunes explicitly for use AS TEXT in both
+   * themes (its tokens.css notes 10.8:1 on surface in light, blue-200 in dark).
+   * Using the bridge name rather than `--color-primary` directly keeps this
+   * rule consistent with every other component rule in this file, so stage 3
+   * dismantles the whole bridge in one sweep instead of leaving one outlier.
+   *
+   * Still layer(base): the three class-styled <a> in the app (.skip-link twice,
+   * PreviewModal's inline-styled source link) keep overriding it, and so will
+   * any future DS Button-as-link. */
+  a {
+    color: var(--accent-primary);
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -160,8 +332,10 @@
  * status, chat, tags, code, the inverted primary/on-primary pair, the elevation
  * ramp's dark opacities, and color-scheme itself.
  *
- * JustRAG sets data-theme on <html> (hooks/useThemeAndLanguage.ts:22), which is
- * the selector the DS keys on, so this works with no theming plumbing here.
+ * data-theme on <html> is set by the design system's own ThemeProvider, which
+ * contexts/ThemeContext.tsx mounts in uncontrolled mode (KI-779) and which
+ * documents itself as the sole writer of that attribute. It is the selector the
+ * DS keys on, so this works with no theming plumbing here.
  * ------------------------------------------------------------------------- */
 
 /* Themed scrollbars */
@@ -207,74 +381,64 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E");
 }
 
-h1,
-h2,
-h3 {
-  font-family: var(--font-sans);
-  font-weight: 600;
-  color: var(--text-heading);
+/* Heading defaults, in the BASE layer: an element default must lose to a
+ * component's utilities. Unlayered, this rule beat every Tailwind class — the
+ * design system's `SidebarPanel` heading (`text-primary`) came out in the
+ * heading colour on both side columns. No font-size here: the user agent's is
+ * countered in the `@layer base` block at the top of this file. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    color: var(--text-heading);
+  }
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
+/* The keyboard focus indicator for elements that bring none of their own —
+ * in the BASE layer, so a component's own focus treatment wins over it.
+ * Unlayered it beat every design-system utility: the DS menu row marks focus
+ * with its highlight background and sets `outline-none`, and this rule drew a
+ * second, blue double ring around it anyway (user menu, dropdowns, selects —
+ * "sometimes", because browsers match :focus-visible after keyboard input or
+ * when Radix moves focus into an opened menu). */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
 }
 
-.animate-spin {
-  animation: rotation 1s linear infinite;
-}
-
-.h-full {
-  height: 100%;
-}
-
-.flex {
-  display: flex;
-}
-
-.items-center {
-  align-items: center;
-}
-
-.justify-center {
-  justify-content: center;
-}
-
-.fixed {
-  position: fixed;
-}
-
-.inset-0 {
-  inset: 0;
-}
-
-.z-50 {
-  z-index: 50;
-}
-
-.bg-black\/50 {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.text-white {
-  color: #fff;
-}
-
-.flex-shrink-0 {
-  flex-shrink: 0;
-}
-
-.notebook-container {
-  display: flex;
-  height: 100vh;
-  height: 100dvh;
-  width: 100%;
-}
-
-.notebook-container--mobile {
-  flex-direction: column;
-  position: relative;
-}
+/* DELETED 15.09.2026, card KI-780 — and nothing shaped like them may come
+ * back UNLAYERED.
+ *
+ * Eleven hand-written duplicates of Tailwind utilities used to sit here
+ * (.animate-spin .h-full .flex .items-center .justify-center .fixed .inset-0
+ * .z-50 .bg-black/50 .text-white .flex-shrink-0), plus .sr-only further down,
+ * all declared outside every `@layer`.
+ *
+ * THE MECHANISM: an unlayered rule outranks every rule in a named layer. Not
+ * by source order and not by specificity — by cascade LAYER precedence, which
+ * the spec resolves before either of those and which a media query cannot
+ * escape. So this file's `.flex { display: flex }` beat
+ * `@layer utilities`'s `.lg\:hidden { display: none }` at every viewport
+ * width. The design system's AppShell renders its mobile top bar as
+ * `sticky top-0 z-10 flex items-center … lg:hidden` — two collisions in one
+ * className — so the bar stayed visible above 1024px. That is what the
+ * "double header" report was, and it was NEVER dev-only: measured on
+ * c9b7626, the dev transform and `dist/assets/index-*.css` emit the identical
+ * 12 shadows.
+ *
+ * Tailwind generates every one of these itself, inside `@layer utilities`,
+ * where a `lg:`/`hover:`/`md:` variant can win normally. `.bg-black/50` had
+ * zero call sites in the repo and in the design system, so it is simply gone.
+ *
+ * ENFORCEMENT: web/scripts/check-css-cascade.mjs runs as the last step of
+ * `npm run build` (therefore in CI) and fails on any unlayered rule whose
+ * selector is also emitted inside `@layer utilities`. The behavioural half —
+ * that an `lg:` breakpoint now actually applies — is asserted in a real
+ * browser by src/components/ResponsiveCascade.stories.tsx. */
 
 /* Sidebar Styling */
 .sidebar {
@@ -349,7 +513,19 @@ button.source-card {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-secondary);
+  /* Die Spalte sperrt ihren Scroller ein: ohne min-height:0 wächst ein flex:1
+     in `<main>` (selbst ein Scroller) mit dem Inhalt mit, und dann scrollt
+     `<main>`, nicht `.messages-container`. Ersetzt das Zwischen-<div>, das
+     genau diese Regeln als Inline-Style trug. */
+  min-height: 0;
+  overflow: hidden;
+  /* No background of its own (21.09.2026). `AppShell` paints its `<main>`
+     `bg-surface` and the two columns + bar `bg-surface-container-lowest` —
+     the HomeView pattern. This rule used to set `var(--bg-secondary)`, which
+     IS `--color-surface-container-lowest`, so the chat painted the sidebar
+     tone over the main area and the three regions read as one slab with two
+     1px lines through it. Letting the shell's surface show is the fix; the
+     shell is the source of truth for which region has which tone. */
   position: relative;
   /* min-width:0 is the keystone of the action-bar overflow fix: a flex:1 item
      defaults to min-width:auto, so this panel otherwise refuses to shrink below
@@ -361,49 +537,88 @@ button.source-card {
   min-width: 0;
 }
 
-.chat-header {
-  padding: 1rem 2rem;
-  border-bottom: 1px solid var(--border-color);
+/* Chat-Zeile (Nachrichtenspalte + BranchTreeNav) und Nachrichtenspalte. Der
+   Scroller darunter ist die VOLLE Spaltenbreite; die 80%-Lesespalte liegt auf
+   seinen Kindern (`> *`). Vorher trug der Scroller selbst `max-width: 80%;
+   margin: 0 auto` — das Mausrad über den seitlichen Rändern traf dann nur den
+   nicht scrollenden Elternkasten, und die Seite scrollte nur, wenn der Zeiger
+   über der Nachrichtenspalte stand. */
+.chat-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: color-mix(in srgb, var(--accent-primary) 2%, transparent);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.chat-column {
+  --chat-column-max: 56rem;
+  --chat-message-max: 700px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Inside the DS ChatStage (centring and the pinned disclaimer live there):
+   while empty, the empty-state scroller sizes to its content, and the
+   composer's bottom padding shrinks because the disclaimer follows it. */
+[data-slot="chat-stage"][data-empty] .messages-container {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+[data-slot="chat-stage"][data-empty] .messages-container > .empty-state {
+  height: auto;
+}
+
+[data-slot="chat-stage-composer"] > .input-container {
+  padding-bottom: 1rem;
 }
 
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  /* Vertical-only padding. This element is the react-virtuoso scroller, which
-     sizes its virtualized item list to the scroller's clientWidth (padding
-     INCLUDED). Horizontal padding here therefore becomes pure right-side
-     overflow: every message row is shifted right by the left padding and runs
-     past the scroller's right edge, clipping the right-aligned answer-footer
-     action bar. Keep horizontal insets off the scroller — the max-width:80%
-     centering below already provides the side gutters. */
-  padding: 2rem 0;
+  /* The scroller spans the FULL column width (the wheel works everywhere) and
+     carries no horizontal padding; the reading column is one level down
+     (`.transcript`), centred with `margin: 0 auto`. */
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  max-width: 80%;
-  margin: 0 auto;
   width: 100%;
-  /* Complete the min-width:0 chain from .chat-area down to the message column,
-     so no intermediate flex link can let a wide descendant re-expand the row. */
   min-width: 0;
 }
 
-/* The horizontal message gutter lives on the virtuoso item list (the element
-   virtuoso sizes and lays items out within), NOT on the scroller above —
-   padding on the scroller overflows the right edge and clips the action bar.
-   data-testid is emitted by react-virtuoso in production builds, not just tests. */
-.messages-container [data-testid="virtuoso-item-list"] {
+/* The centred reading column: the transcript (MessageScrollerContent) and
+   the empty state, which sits directly in the scroller. */
+.messages-container > .transcript,
+.messages-container > .empty-state {
   box-sizing: border-box;
-  padding-left: 2rem;
-  padding-right: 2rem;
+  width: 100%;
+  max-width: var(--chat-column-max, 56rem);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+/* One row = one flex column so the bubble's `align-self` applies: user on
+   the right, answer on the left. The spacing between messages is row
+   PADDING, not the content's gap: rows carry `content-visibility: auto`,
+   whose paint containment clips at the row's border box, so focus rings on
+   controls at a row edge need the padding to stay visible. */
+.messages-container > .transcript {
+  gap: 0;
+}
+
+.messages-container .transcript-row {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 0;
 }
 
 .message-bubble {
-  max-width: 100%;
+  max-width: min(var(--chat-message-max, 700px), 100%);
   width: fit-content;
   /* min-width:0 breaks the flex overflow chain: flex children default to
      min-width:auto, which lets an unbreakable wide block (code fence, wide
@@ -414,25 +629,37 @@ button.source-card {
 
 .message-user {
   align-self: flex-end;
+  margin-left: auto;
   background-color: var(--accent-primary);
   color: var(--accent-on-primary);
   padding: 0.75rem 1.25rem;
   border-radius: var(--shape-xl) var(--shape-xl) var(--shape-sm) var(--shape-xl);
-  max-width: 85%;
 }
 
 .message-ai {
   align-self: flex-start;
+  margin-right: auto;
   color: var(--text-primary);
   background-color: transparent;
-  border-left: 3px solid var(--accent-primary);
   padding: 0.75rem 1rem 0.75rem 1.25rem;
   border-radius: 0;
-  max-width: 100%;
   width: 100%;
   min-width: 0;
 }
 
+/* Rendered markdown — the product's main surface (six call sites wrap
+ * ReactMarkdown in `.markdown-content`: MessageContent x2, PreviewModal,
+ * ResearchMode, AcademicResearchMode, Studio/StudioWorkspace; the seventh,
+ * Studio/MarkdownEditor's `.markdown-preview`, has its own inline <style>).
+ *
+ * This block is deliberately UNCHANGED by the Preflight switch-on. Everything
+ * it leaves to the browser — list markers, paragraph margins, h1-h3 size,
+ * h4-h6 entirely — is restored by the `@layer base` counterweight at the top of
+ * this file, which reverts to the same UA values rather than inventing new
+ * ones. Two consequences of that choice, both pre-existing and neither
+ * introduced here: markdown h4-h6 take the UA's `bold` rather than the 600 the
+ * h1-h3 rule below uses, and h5/h6 stay SMALLER than body text (UA 0.83em /
+ * 0.67em). Change either on purpose, not as a side effect. */
 .markdown-content {
   font-size: 0.95rem;
   /* Continue the min-width:0 chain into the markdown wrapper so the
@@ -465,7 +692,8 @@ button.source-card {
   background: var(--border-color);
   padding: 0.2rem 0.4rem;
   border-radius: var(--shape-sm);
-  font-family: 'JetBrains Mono', SFMono-Regular, Consolas, monospace;
+  /* Inline code keeps the body font: monospace is for code BOXES only
+     (`.markdown-content pre code` below). */
   font-size: 0.85em;
   color: var(--text-primary);
 }
@@ -495,7 +723,7 @@ button.source-card {
   background: transparent;
   padding: 0;
   color: inherit;
-  font-family: 'JetBrains Mono', SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
 .markdown-content h1,
@@ -580,10 +808,6 @@ button.source-card {
 }
 
 /* Dark mode polish — accent glow on interactive elements */
-[data-theme='dark'] .send-button:not(:disabled) {
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 15%, transparent);
-}
-
 [data-theme='dark'] .message-user {
   border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
@@ -592,34 +816,8 @@ button.source-card {
   border-top: 1px solid color-mix(in srgb, var(--accent-primary) 15%, transparent);
 }
 
-[data-theme='dark'] .sidebar-left__tools-tab--active {
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 15%, transparent);
-}
-
 .markdown-content tr:hover {
   background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
-}
-
-.source-tag {
-  display: inline-block;
-  background: var(--tag-bg);
-  color: var(--accent-primary);
-  padding: 2px 8px;
-  border-radius: var(--shape-full);
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-right: 4px;
-  margin-top: 8px;
-}
-
-.source-tag-link {
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.source-tag-link:hover {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
 }
 
 /* Per-answer "Wissensgraph" affordance: same accent-pill family as
@@ -856,23 +1054,6 @@ button.source-card {
   width: 100%;
 }
 
-.input-wrapper {
-  background: var(--input-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-full);
-  padding: 0.5rem 1.5rem;
-  display: flex;
-  align-items: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.3s, transform 0.3s;
-}
-
-.input-wrapper:focus-within {
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  border-color: var(--accent-primary);
-  transform: translateY(-1px);
-}
-
 .chat-input {
   flex: 1;
   border: none;
@@ -891,27 +1072,6 @@ button.source-card {
 
 .chat-input::placeholder {
   color: var(--placeholder-text);
-}
-
-.send-button {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
-  border: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.send-button:disabled {
-  background: var(--border-color);
-  color: var(--text-secondary);
-  /* glyph was white on #ccc = 1.6:1 */
-  cursor: not-allowed;
 }
 
 /* Empty State */
@@ -951,90 +1111,9 @@ button.source-card {
   margin-bottom: 1rem;
 }
 
-/* Upload Progress Sync */
-.upload-btn {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: var(--shape-md);
-  cursor: pointer;
-  font-weight: 500;
-  margin-top: auto;
-}
-
-@keyframes rotation {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes ai-streaming-pulse {
-
-  0%,
-  100% {
-    box-shadow: none;
-  }
-
-  50% {
-    box-shadow: 0 0 12px 2px color-mix(in srgb, var(--accent-primary) 8%, transparent);
-  }
-}
-
-.message-ai--streaming {
-  animation: ai-streaming-pulse 2s ease-in-out infinite;
-}
-
-.loading-dots {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.loading-dots__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  animation: loading-dot-pulse 1.2s ease-in-out infinite;
-}
-
-.loading-dots__dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.loading-dots__dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes loading-dot-pulse {
-
-  0%,
-  100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes reasoning-pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.4;
-  }
+.chat-status-line {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
 }
 
 @keyframes reasoning-cursor-blink {
@@ -1123,45 +1202,6 @@ button.source-card {
   background-color: var(--tag-bg);
   color: var(--text-primary);
   transform: rotateY(180deg);
-}
-
-/* Upload Modal Styles */
-.upload-modal {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.upload-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.upload-modal-header h3 {
-  margin: 0;
-  font-size: 1.25rem;
-  color: var(--text-primary);
-}
-
-.upload-modal-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-secondary);
-  padding: 4px;
-  min-width: 44px;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--shape-sm);
-  transition: background 0.2s, color 0.2s;
-}
-
-.upload-modal-close:hover {
-  background: var(--tag-bg);
-  color: var(--text-primary);
 }
 
 .secondary-button {
@@ -1403,134 +1443,6 @@ button.source-card {
   font-size: 0.875rem;
 }
 
-.upload-modal-divider {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-}
-
-.upload-modal-divider::before,
-.upload-modal-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-color);
-}
-
-.upload-modal-text-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-}
-
-.upload-modal-text-btn:hover {
-  border-color: var(--accent-primary);
-  background: var(--tag-bg);
-}
-
-/* Text Input Mode */
-.text-input-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.text-input-mode input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.text-input-mode input:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
-.text-input-mode textarea {
-  width: 100%;
-  min-height: 200px;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  resize: vertical;
-  font-family: inherit;
-}
-
-.text-input-mode textarea:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
-.text-input-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.text-input-actions button {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  border-radius: var(--shape-md);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.text-input-back {
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.text-input-back:hover {
-  border-color: var(--accent-primary);
-  background: var(--tag-bg);
-}
-
-.text-input-submit {
-  border: none;
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
-}
-
-.text-input-submit:hover {
-  background: var(--accent-secondary);
-}
-
-.text-input-submit:disabled {
-  background: var(--border-color);
-  cursor: not-allowed;
-}
-
-.resize-handle {
-  transition: background 0.2s;
-}
-
-.resize-handle:hover,
-.resize-handle:active {
-  background: var(--accent-primary) !important;
-}
 
 /* Skip Navigation Link - Accessibility */
 .skip-link {
@@ -1551,18 +1463,10 @@ button.source-card {
   top: 8px;
 }
 
-/* Screen Reader Only - Accessibility Utility */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
-}
+/* `.sr-only` is NOT declared here — see the KI-780 note above. Tailwind emits
+ * it into `@layer utilities` with the modern `clip-path: inset(50%)` instead
+ * of the deprecated `clip: rect(...)`, and an unlayered copy here would also
+ * have outranked Tailwind's `.not-sr-only`. */
 
 /* ========================================
    Research Mode Styles
@@ -1978,28 +1882,6 @@ button.source-card {
   overflow-y: auto;
 }
 
-/* Research Mode Modal Wrapper (when used in modal) */
-.research-mode-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--modal-overlay-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 2rem;
-}
-
-.research-mode-modal .research-mode-container {
-  max-width: min(1400px, 95vw);
-  max-height: 90vh;
-  width: 100%;
-  box-shadow: var(--shadow-xl);
-}
-
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
@@ -2014,14 +1896,6 @@ button.source-card {
 
   .research-mode-header h2 {
     font-size: 1.25rem;
-  }
-
-  .research-mode-modal {
-    padding: 1rem;
-  }
-
-  .research-mode-modal .research-mode-container {
-    max-height: 95vh;
   }
 }
 
@@ -2072,11 +1946,6 @@ button.source-card {
 
   [data-theme='dark'] .follow-up-chip:hover {
     box-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 15%, transparent);
-  }
-
-  .send-button:hover {
-    transform: scale(1.05);
-    background: var(--accent-secondary);
   }
 
   .research-mode-start-btn:hover:not(:disabled) {
@@ -2158,49 +2027,24 @@ button.source-card {
   }
 }
 
-@media (max-width: 900px) {
-  .notebook-container {
-    width: 100%;
-    height: 100vh;
-    height: 100dvh;
-  }
-}
-
-.login-input:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
-}
-
 /* ========================================
    Mobile Layout (< 1024px)
    ======================================== */
 @media (max-width: 1023px) {
-  .messages-container {
-    max-width: 100%;
-    /* Vertical-only — horizontal padding on the virtuoso scroller overflows the
-       right edge and clips the action bar (see the desktop rule above). */
-    padding: 0.75rem 0;
-    gap: 1rem;
-  }
-
-  .messages-container [data-testid="virtuoso-item-list"] {
+  .messages-container > .transcript,
+  .messages-container > .empty-state {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
+  }
+
+  .messages-container .transcript-row {
+    padding: 0.5rem 0;
   }
 
   .input-container {
     max-width: 100%;
     padding: 0.75rem;
     padding-bottom: 0.75rem;
-  }
-
-  .input-wrapper {
-    border-radius: var(--shape-xl);
-    padding: 0.375rem 1rem;
-  }
-
-  .chat-header {
-    padding: 0.75rem;
   }
 
   .message-user {
@@ -2222,17 +2066,6 @@ button.source-card {
     align-items: center;
   }
 
-  .source-tag {
-    min-height: 32px;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .send-button {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
   .empty-state h1 {
     font-size: 1.5rem;
   }
@@ -2247,10 +2080,6 @@ button.source-card {
     width: 100% !important;
     height: calc(100vh - 60px);
     height: calc(100dvh - 60px);
-  }
-
-  .resize-handle {
-    display: none;
   }
 }
 
@@ -2287,11 +2116,23 @@ button.source-card {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-spin {
-    animation: none;
+/* The `.animate-spin` half is LAYERED, the `*` half is not, and the split is
+ * deliberate (KI-780). `.animate-spin` has to beat Tailwind's own
+ * `.animate-spin`; inside one layer the later rule wins at equal specificity,
+ * and this block sits after `@import "tailwindcss/utilities.css"
+ * layer(utilities)`, so it does. Unlayered it would ALSO outrank every variant
+ * of that utility, which is the defect this card removed — and
+ * check-css-cascade.mjs would reject it. The `*` rule collides with no utility
+ * selector and carries `!important`, so it stays where it was. */
+@layer utilities {
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spin {
+      animation: none;
+    }
   }
+}
 
+@media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;

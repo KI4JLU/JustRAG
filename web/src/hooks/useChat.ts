@@ -61,6 +61,8 @@ interface UseChatParams {
   files: FileEntry[];
   enhance: 'rewrite' | 'expand' | 'spell' | null;
   reasoningEnabled: boolean;
+  /** `undefined` omits `webSearch` from the chat request (gate closed). */
+  webSearchEnabled: boolean | undefined;
   reasoningLevel: 'low' | 'medium' | 'high';
   agentSelection: AgentSelection;
   setAgentSelection: (val: AgentSelection) => void;
@@ -70,12 +72,12 @@ interface UseChatParams {
 
 export function useChat({
   currentKb, files, enhance,
-  reasoningEnabled, reasoningLevel, agentSelection, setAgentSelection,
+  reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, setAgentSelection,
   onResearchLoaded, onAcademicResearchLoaded,
 }: UseChatParams) {
   const { language, t } = useTheme();
 
-  const { showConfirm } = useModalContext();
+  const { showConfirm, showPrompt } = useModalContext();
   const toast = useToast();
 
   // Compose: message tree state and navigation
@@ -137,10 +139,12 @@ export function useChat({
   }, [toast, t]);
 
   // Refs
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  // Changes in the same update that installs a loaded chat's messages, so the
+  // transcript scroller remounts onto THOSE messages (its opening position is
+  // applied once, on mount). Keying it on activeChatId instead would remount
+  // it on the previous chat's rows, before the fetch returns.
+  const [transcriptKey, setTranscriptKey] = useState(0);
   const pendingEditRef = useRef<string | null | undefined>(undefined);
   const pendingFollowUpRef = useRef<string | null>(null);
   const fetchChatsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -150,7 +154,7 @@ export function useChat({
   // Compose: SSE streaming
   const stream = useChatStream({
     currentKb, files, enhance,
-    reasoningEnabled, reasoningLevel, agentSelection, language,
+    reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language,
     setMessageTree, messageTreeRef, setActiveLeafId,
     activeChatIdRef, activeChatId, setActiveChatId, setChats,
     fetchChats, fetchChatsTimerRef,
@@ -172,28 +176,10 @@ export function useChat({
     };
   }, [chatAbortRef]);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (isAtBottom) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, isAtBottom]);
-
-  const handleScroll = useCallback(() => {
-    if (messagesContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-      const atBottom = scrollHeight - scrollTop - clientHeight < 100;
-      setIsAtBottom(atBottom);
-    }
-  }, []);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, [userMessageInput]);
+  // Textarea height: sized by the design-system composer itself
+  // (`field-sizing: content` in PromptInputAdaptiveTextarea, 22.09.2026) —
+  // writing an explicit height here fought that and made the one-line /
+  // multi-line switch flicker.
 
   const handleSelectChat = useCallback(async (chat: ChatEntry) => {
     if (chat.type === 'research') {
@@ -282,6 +268,7 @@ export function useChat({
       }));
       const newTree = buildMessageMap(rawMessages);
       setMessageTree(newTree);
+      setTranscriptKey(k => k + 1);
       setActiveLeafId(findDefaultLeaf(newTree));
       setComparisonMode(false);
       setComparisonLeafId(null);
@@ -333,10 +320,44 @@ export function useChat({
     }
   }, [handleNewChat, showConfirm, t, toast]);
 
+  // Batch delete from the history selection mode: one confirmation, optimistic
+  // removal, and only the chats whose DELETE failed come back.
+  const handleDeleteChats = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return false;
+    if (!await showConfirm(t('confirmDeleteChats').replace('{count}', String(ids.length)))) return false;
+    let snapshot: ChatEntry[] = [];
+    setChats(prev => { snapshot = prev; return prev.filter(c => !ids.includes(c.id)); });
+    if (activeChatIdRef.current && ids.includes(activeChatIdRef.current)) handleNewChat();
+    const results = await Promise.allSettled(ids.map(id => axios.delete(`${API_BASE_URL}/api/chats/${id}`)));
+    const failed = new Set(ids.filter((_, i) => results[i].status === 'rejected'));
+    if (failed.size > 0) {
+      setChats(prev => [...prev, ...snapshot.filter(c => failed.has(c.id))]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      toast.error(t('deleteChatError'));
+    }
+    return true;
+  }, [handleNewChat, showConfirm, t, toast]);
+
+  // Rename from the history list: prompt with the current title, optimistic
+  // update, roll back on a failed PATCH.
+  const handleRenameChat = useCallback(async (id: string, currentTitle: string) => {
+    const next = await showPrompt(t('renameChatPrompt'), currentTitle, t('renameChat'));
+    if (next === null) return;
+    const title = next.trim();
+    if (!title || title === currentTitle) return;
+    let snapshot: ChatEntry[] = [];
+    setChats(prev => { snapshot = prev; return prev.map(c => c.id === id ? { ...c, title } : c); });
+    try {
+      await axios.patch(`${API_BASE_URL}/api/chats/${id}`, { title });
+    } catch {
+      setChats(snapshot);
+      toast.error(t('renameChatError'));
+    }
+  }, [showPrompt, t, toast]);
+
   // Orchestrating send: clears input, resets UI state, delegates to stream hook
   const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null) => {
     e.preventDefault();
-    setIsAtBottom(true);
     if (!currentKb || loading || chatSwitchingRef.current) return;
 
     // A comparison send (attachment + ≥1 mode) is allowed with an empty input —
@@ -577,15 +598,14 @@ export function useChat({
     loadedAcademicSession,
     setLoadedAcademicSession,
     // Refs
-    chatEndRef,
     textareaRef,
-    messagesContainerRef,
-    isAtBottom,
+    transcriptKey,
     // Handlers
-    handleScroll,
     handleSelectChat,
     handleNewChat,
     handleDeleteChat,
+    handleRenameChat,
+    handleDeleteChats,
     handleSendMessage,
     handleSwitchBranch,
     handleStartEdit,
@@ -618,11 +638,12 @@ export function useChat({
     activeChatId,
     loadedResearchSession,
     loadedAcademicSession,
-    isAtBottom,
-    handleScroll,
+    transcriptKey,
     handleSelectChat,
     handleNewChat,
     handleDeleteChat,
+    handleRenameChat,
+    handleDeleteChats,
     handleSendMessage,
     handleSwitchBranch,
     handleStartEdit,

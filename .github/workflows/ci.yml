@@ -107,12 +107,46 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci --workspace=web
-      - name: lint (advisory — 126 pre-existing violations, tracked backlog)
-        continue-on-error: true
+      - name: lint
+        # BLOCKING since the design-system ESLint rules were armed (card
+        # KI-595). It was `continue-on-error: true` with a note about 126
+        # pre-existing violations; measured on this branch the tree is at 0
+        # errors / 28 warnings, so the advisory flag protected nothing and made
+        # the three `design-system/*` rules enforceable only on a developer's
+        # own machine.
+        #
+        # Plain `eslint .` is deliberately the whole gate. It fails on a NEW
+        # violation, and it ALSO exits 2 when web/eslint-suppressions.json
+        # still lists a hit that no longer exists ("There are suppressions left
+        # that do not occur anymore") — that is what makes the 690-entry
+        # catalogue a one-way burn-down counter. Do NOT add
+        # `--prune-suppressions` here: it repairs the catalogue in place and
+        # exits 0, i.e. it removes the very failure this step exists for. The
+        # repair belongs to the developer, as `npm run lint:prune --prefix web`,
+        # committed together with the migration that shrank the count.
+        # `--pass-on-unpruned-suppressions` is set nowhere, on purpose.
         run: cd web && npm run lint
       - name: test
         run: cd web && npm run test
+      - name: install chromium for the story suite
+        # Only the browser, and only chromium: vitest.config.ts's `storybook`
+        # project declares exactly one instance. `--with-deps` pulls the shared
+        # libraries the headless browser needs on the runner image.
+        run: cd web && npx playwright install --with-deps chromium
+      - name: test (stories)
+        # ADDED with card KI-780, and the reason is the point of that card.
+        # The story suite is the only place a RESPONSIVE assertion can run:
+        # jsdom implements neither cascade layers nor media queries, so
+        # `npm run test` above cannot tell whether an `lg:` utility actually
+        # applies. It did not run in CI at all until now, which is why a
+        # stylesheet that disabled every `lg:` rule in the app passed every
+        # gate for as long as it did. `ResponsiveCascade.stories.tsx` is the
+        # guard; running it here is what makes it one.
+        run: cd web && npm run test:stories
       - name: build
+        # `npm run build` ends in `node scripts/check-css-cascade.mjs`, which
+        # fails the job if any emitted stylesheet contains an unlayered rule
+        # that shadows a selector from `@layer utilities` (card KI-780).
         run: cd web && npm run build
       - name: CSP inline-script hash drift
         # A stale 'sha256-…' token in middleware.DefaultCSP silently breaks

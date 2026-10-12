@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import axios from 'axios';
+import {
+    Button, Dialog, DialogContent, DialogTitle, PdfViewer,
+} from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
@@ -15,27 +18,27 @@ interface PdfPreviewModalProps {
 
 type PdfPreviewContentProps = Omit<PdfPreviewModalProps, 'show'>;
 
+/**
+ * Source PDF in the app's own viewer (DS `PdfViewer`): the browser's embedded
+ * viewer ignored the app theme and drew its own dark chrome, and its bleed
+ * through the modal's bottom corners is why the radius never closed there.
+ * The file is fetched once through the authenticated client; the same blob
+ * feeds the viewer and the download action.
+ */
 const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, fileName, page }) => {
     const { t } = useTheme();
     const toast = useToast();
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(Boolean(fileId));
 
     useEffect(() => {
         if (!fileId) return;
-
         let revoke: string | null = null;
         let cancelled = false;
-
         axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, { responseType: 'blob' })
             .then(res => {
-                const blob = new Blob([res.data], { type: 'application/pdf' });
-                const url = URL.createObjectURL(blob);
-                if (cancelled) {
-                    URL.revokeObjectURL(url);
-                    return;
-                }
+                const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                if (cancelled) { URL.revokeObjectURL(url); return; }
                 revoke = url;
                 setBlobUrl(url);
             })
@@ -43,60 +46,62 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                 if (cancelled) return;
                 setError(t('pdfLoadError'));
                 toast.error(t('pdfLoadError'));
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
             });
-
         return () => {
             cancelled = true;
             if (revoke) URL.revokeObjectURL(revoke);
         };
     }, [fileId, t, toast]);
 
-    const iframeSrc = blobUrl ? `${blobUrl}#page=${page}` : '';
-
     return (
-        <div className="modal-overlay" role="presentation" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-            <div
-                className="modal-content"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="pdf-preview-title"
-                style={{ maxWidth: '90vw', width: '900px', maxHeight: '90vh', height: '85vh', display: 'flex', flexDirection: 'column', padding: 0 }}
+        <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+            <DialogContent
+                closeLabel={t('close')}
+                className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
+                aria-describedby={undefined}
             >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
-                    <h2 id="pdf-preview-title" style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {fileName}{page > 1 ? ` — Seite ${page}` : ''}
-                    </h2>
-                    <button onClick={onClose} className="icon-button" aria-label={t('close')}><X size={20} /></button>
+                <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
+                    <DialogTitle className="min-w-0 flex-1 truncate text-base font-semibold" title={fileName}>
+                        {fileName}
+                    </DialogTitle>
                 </div>
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                    {loading && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '8px', color: 'var(--text-secondary)' }}>
-                            <Loader2 className="animate-spin" size={20} /> PDF wird geladen...
-                        </div>
-                    )}
-                    {error && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--error-color)', padding: '2rem' }}>
-                            {error}
-                        </div>
-                    )}
-                    {blobUrl && (
-                        <iframe
-                            src={iframeSrc}
-                            title={fileName}
-                            style={{ width: '100%', height: '100%', border: 'none' }}
-                        />
-                    )}
-                </div>
-            </div>
-        </div>
+                {error ? (
+                    <div className="flex flex-1 items-center justify-center p-8 text-error">{error}</div>
+                ) : !blobUrl ? (
+                    <div className="flex flex-1 items-center justify-center gap-2 text-on-surface-variant">
+                        <Loader2 className="animate-spin" size={20} aria-hidden="true" />
+                        {t('pdfLoading')}
+                    </div>
+                ) : (
+                    <PdfViewer
+                        src={blobUrl}
+                        initialPage={page}
+                        className="min-h-0 flex-1"
+                        labels={{
+                            zoomIn: t('zoomIn'),
+                            zoomOut: t('zoomOut'),
+                            previousPage: t('previousPage'),
+                            nextPage: t('nextPage'),
+                            loadError: t('pdfLoadError'),
+                            fullscreen: t('fullscreen'),
+                            exitFullscreen: t('exitFullscreen'),
+                        }}
+                        toolbarEnd={(
+                            <Button variant="ghost" size="icon" asChild>
+                                <a href={blobUrl} download={fileName} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
+                                    <Download size={16} aria-hidden="true" />
+                                </a>
+                            </Button>
+                        )}
+                    />
+                )}
+            </DialogContent>
+        </Dialog>
     );
 };
 
 export const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({ show, ...rest }) => {
     if (!show) return null;
-    // Remount on fileId change so blob/loading/error state resets per document.
+    // Remount on fileId change so blob/error state resets per document.
     return <PdfPreviewContent key={rest.fileId} {...rest} />;
 };

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import AdminAgentTab from './AdminAgentTab';
 import { translations } from '../../translations';
@@ -37,15 +38,24 @@ describe('AdminAgentTab — Docling captioning and OCR fields', () => {
     beforeEach(() => {
         // Open the ingestion section so its inputs render.
         try { localStorage.setItem('admin-agent-sections-open-v1', JSON.stringify({ ingestion: true })); } catch { /* jsdom */ }
+        // Radix Select measures and captures pointers; jsdom implements neither
+        // (same shim as AdminEvalTab.test.tsx).
+        Element.prototype.hasPointerCapture = vi.fn(() => false);
+        Element.prototype.setPointerCapture = vi.fn();
+        Element.prototype.releasePointerCapture = vi.fn();
+        Element.prototype.scrollIntoView = vi.fn();
     });
 
-    it('exposes the captioning, table-mode, prompt and OCR keys once Docling is on', () => {
+    // The controls are the design system's (Radix Checkbox / Select, see
+    // AdminAgentTab.test.tsx), so state is read off aria-checked / the trigger
+    // text and driven through the ARIA roles rather than native .checked/.value.
+    it('exposes the captioning, table-mode, prompt and OCR keys once Docling is on', async () => {
         let latest: Record<string, string> = {};
         render(<Host initial={{ docling_enabled: 'true', docling_base_url: 'http://docling:5001' }} onChange={c => { latest = c; }} />);
         openIngestion();
 
-        const captioning = screen.getByLabelText(tMock('doclingPictureDescriptionEnabled')) as HTMLInputElement;
-        expect(captioning.checked).toBe(false);
+        const captioning = screen.getByRole('checkbox', { name: tMock('doclingPictureDescriptionEnabled') });
+        expect(captioning).toHaveAttribute('aria-checked', 'false');
         fireEvent.click(captioning);
         expect(latest.docling_picture_description_enabled).toBe('true');
 
@@ -53,9 +63,10 @@ describe('AdminAgentTab — Docling captioning and OCR fields', () => {
         fireEvent.change(prompt, { target: { value: 'Beschreibe die Abbildung.' } });
         expect(latest.docling_picture_description_prompt).toBe('Beschreibe die Abbildung.');
 
-        const tableMode = screen.getByLabelText(tMock('doclingTableMode')) as HTMLSelectElement;
-        expect(tableMode.value).toBe('accurate');
-        fireEvent.change(tableMode, { target: { value: 'fast' } });
+        const tableMode = screen.getByRole('combobox', { name: tMock('doclingTableMode') });
+        expect(tableMode).toHaveTextContent(tMock('doclingTableModeAccurate'));
+        await userEvent.click(tableMode);
+        await userEvent.click(screen.getByRole('option', { name: tMock('doclingTableModeFast') }));
         expect(latest.docling_table_mode).toBe('fast');
 
         const langs = screen.getByLabelText(tMock('doclingOcrLanguages')) as HTMLInputElement;
@@ -63,8 +74,7 @@ describe('AdminAgentTab — Docling captioning and OCR fields', () => {
         fireEvent.change(langs, { target: { value: 'de,en,fr' } });
         expect(latest.docling_ocr_languages).toBe('de,en,fr');
 
-        const force = screen.getByLabelText(tMock('doclingForceOcr')) as HTMLInputElement;
-        fireEvent.click(force);
+        fireEvent.click(screen.getByRole('checkbox', { name: tMock('doclingForceOcr') }));
         expect(latest.docling_force_ocr).toBe('true');
 
         const threshold = screen.getByLabelText(tMock('doclingPictureAreaThreshold')) as HTMLInputElement;
@@ -75,8 +85,8 @@ describe('AdminAgentTab — Docling captioning and OCR fields', () => {
         let latest: Record<string, string> = {};
         render(<Host initial={{ docling_enabled: 'true', docling_base_url: 'http://docling:5001' }} onChange={c => { latest = c; }} />);
         openIngestion();
-        const formulas = screen.getByLabelText(tMock('doclingFormulaEnrichmentEnabled')) as HTMLInputElement;
-        expect(formulas.checked).toBe(false);
+        const formulas = screen.getByRole('checkbox', { name: tMock('doclingFormulaEnrichmentEnabled') });
+        expect(formulas).not.toBeChecked();
         fireEvent.click(formulas);
         expect(latest.docling_formula_enrichment_enabled).toBe('true');
     });
@@ -84,8 +94,8 @@ describe('AdminAgentTab — Docling captioning and OCR fields', () => {
     it('disables the Docling fields while Docling itself is off', () => {
         render(<Host initial={{}} onChange={() => {}} />);
         openIngestion();
-        expect((screen.getByLabelText(tMock('doclingPictureDescriptionEnabled')) as HTMLInputElement).disabled).toBe(true);
+        expect(screen.getByRole('checkbox', { name: tMock('doclingPictureDescriptionEnabled') })).toBeDisabled();
         expect((screen.getByLabelText(tMock('doclingOcrLanguages')) as HTMLInputElement).disabled).toBe(true);
-        expect((screen.getByLabelText(tMock('doclingFormulaEnrichmentEnabled')) as HTMLInputElement).disabled).toBe(true);
+        expect(screen.getByRole('checkbox', { name: tMock('doclingFormulaEnrichmentEnabled') })).toBeDisabled();
     });
 });

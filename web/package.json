@@ -5,11 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev:ds": "DS_LOCAL=1 vite",
+    "build": "tsc -b && vite build && node scripts/check-css-cascade.mjs",
     "lint": "eslint .",
+    "lint:prune": "eslint . --prune-suppressions",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --project=unit",
+    "test:watch": "vitest --project=unit",
+    "test:stories": "vitest run --project=storybook",
+    "test:stories:dark-a11y": "vitest run --project=storybook-dark-a11y",
+    "test:all": "vitest run",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "browserslist": [
     "last 2 Chrome versions",
@@ -20,7 +27,7 @@
     "last 2 ChromeAndroid versions"
   ],
   "dependencies": {
-    "@ki4jlu/design-system": "github:KI4JLU/JLU-Design-System#v0.22.0",
+    "@ki4jlu/design-system": "github:KI4JLU/Design-System#v0.46.0",
     "@xyflow/react": "^12.11.1",
     "axios": "^1.18.1",
     "dagre": "^0.8.5",
@@ -34,7 +41,6 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "10.1.0",
-    "react-virtuoso": "^4.18.10",
     "recharts": "3.9.0",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
@@ -44,6 +50,10 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@storybook/addon-a11y": "^10.6.0",
+    "@storybook/addon-docs": "^10.6.0",
+    "@storybook/addon-vitest": "^10.6.0",
+    "@storybook/react-vite": "^10.6.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -54,13 +64,19 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/browser-playwright": "4.1.11",
+    "axios-mock-adapter": "^2.1.0",
     "eslint": "^10.6.0",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
+    "eslint-plugin-storybook": "^10.6.0",
     "globals": "17.7.0",
     "jsdom": "^29.1.1",
+    "playwright": "^1.63.0",
+    "postcss": "^8.5.6",
     "sharp": "^0.35.2",
+    "storybook": "^10.6.0",
     "svgo": "^4.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "6.0.3",
@@ -69,6 +85,6 @@
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-image-optimizer": "^2.0.3",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^4.1.9"
+    "vitest": "4.1.11"
   }
 }

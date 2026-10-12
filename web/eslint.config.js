@@ -4,10 +4,12 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
+import designSystem from '@ki4jlu/design-system/eslint-plugin'
+import storybook from 'eslint-plugin-storybook'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'storybook-static']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -17,6 +19,9 @@ export default defineConfig([
       reactRefresh.configs.vite,
       jsxA11y.flatConfigs.recommended,
     ],
+    plugins: {
+      'design-system': designSystem,
+    },
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
@@ -28,6 +33,24 @@ export default defineConfig([
       // cascading-render bugs — keep it visible as a warning to address
       // incrementally rather than blocking lint or forcing risky rewrites.
       'react-hooks/set-state-in-effect': 'warn',
+
+      // Design-system enforcement (Stufe 0 of the DS adoption, card KI-595).
+      // All three are `error` on purpose — the point is that neither a human
+      // nor an agent can hand-roll a control or a colour and still get a green
+      // lint.
+      //
+      // no-raw-ui-elements carries ~690 pre-existing hits. They are NOT
+      // downgraded to `warn`; every one of them is named in
+      // web/eslint-suppressions.json, which is a committed burn-down list.
+      // A NEW raw <button>/<input> is therefore an error, while the known
+      // backlog stays green. Removing an entry from the catalogue is the
+      // migration unit for Stufe 1 (card KI-94).
+      'design-system/no-raw-ui-elements': 'error',
+      // Zero hits today, and deliberately armed BEFORE the first DS component
+      // lands: it forbids re-skinning a DS control at the call site, so it has
+      // to exist before there is anything to re-skin.
+      'design-system/layout-only-classname': 'error',
+      'design-system/no-hardcoded-colors': 'error',
     },
   },
   {
@@ -35,6 +58,24 @@ export default defineConfig([
     rules: {
       // Context modules intentionally export Provider + hook together; an HMR
       // update of a context invalidates its consumers, which is acceptable.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
+  // Storybook (card KI-725). `flat/recommended` lints the CSF itself — a
+  // missing default export, a play function that forgets to await an
+  // interaction, `expect` imported from vitest instead of `storybook/test`,
+  // an addon listed in main.ts but not installed. It is configured, not
+  // suppressed: every rule below runs at the plugin's own severity.
+  ...storybook.configs['flat/recommended'],
+  {
+    files: ['**/*.stories.{ts,tsx}', '.storybook/**/*.{ts,tsx}'],
+    rules: {
+      // CSF is a module format, not a component module: a story file's default
+      // export is the `meta` object and its named exports are story objects.
+      // react-refresh cannot express that, and the file is never part of the
+      // app bundle, so there is no HMR boundary to protect. Same exemption the
+      // context modules above already carry, for the same kind of reason.
       'react-refresh/only-export-components': 'off',
     },
   },

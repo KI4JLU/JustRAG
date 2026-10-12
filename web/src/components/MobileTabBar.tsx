@@ -1,22 +1,21 @@
-import { FolderOpen, MessageSquare, Sparkles, History } from 'lucide-react';
+import { FolderOpen, MessageSquare, History } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import './MobileTabBar.css';
 
-export type MobileTab = 'history' | 'chat' | 'workspace' | 'files';
+export type MobileTab = 'history' | 'chat' | 'files';
 
 interface MobileTabBarProps {
     activeTab: MobileTab;
     onTabChange: (tab: MobileTab) => void;
 }
 
-type LabelKey = 'tabHistory' | 'tabChat' | 'tabWorkspace' | 'tabFiles';
+type LabelKey = 'tabHistory' | 'tabChat' | 'tabFiles';
 
 // Reihenfolge entspricht der Desktop-Anordnung (Verlauf links, Quellen
 // rechts) und damit auch der Swipe-Richtung in useViewState.
 const TABS: { id: MobileTab; icon: typeof FolderOpen; labelKey: LabelKey }[] = [
     { id: 'history', icon: History, labelKey: 'tabHistory' },
     { id: 'chat', icon: MessageSquare, labelKey: 'tabChat' },
-    { id: 'workspace', icon: Sparkles, labelKey: 'tabWorkspace' },
     { id: 'files', icon: FolderOpen, labelKey: 'tabFiles' },
 ];
 

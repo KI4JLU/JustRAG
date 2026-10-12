@@ -7,6 +7,7 @@ import { useModalContext } from '../contexts/ModalContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { getApiErrorMessage } from '../utils/apiError';
+import { markdownSourceTitle } from '../utils/textSourceTitle';
 
 interface UseFileManagementParams {
   currentKb: KnowledgeBase | null;
@@ -17,6 +18,9 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const { showConfirm } = useModalContext();
   const toast = useToast();
   const [files, setFiles] = useState<FileEntry[]>([]);
+  // The KB whose file list `files` holds — until it matches the open KB, the
+  // list is unknown, not empty (callers must not show the "no sources" state).
+  const [filesKbId, setFilesKbId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -25,6 +29,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasFiles = useMemo(() => files.some(f => f.status === 'completed'), [files]);
+  const filesLoaded = !!currentKb && filesKbId === currentKb.id;
   const selectedFileCount = useMemo(() => files.filter(f => f.selected !== false).length, [files]);
 
   const fetchFiles = useCallback(async (kbId: string, signal?: AbortSignal) => {
@@ -38,8 +43,10 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
         selected: file.selected !== undefined ? file.selected : true
       }));
       setFiles(filesWithSelection);
+      setFilesKbId(kbId);
     } catch (err: unknown) {
       if (axios.isCancel(err)) return;
+      setFilesKbId(kbId);
       console.error('Failed to fetch files:', err);
       toast.error(t('filesFetchError'));
     }
@@ -221,6 +228,14 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     await uploadFilesBatch(droppedFiles);
   }, [currentKb, uploadFilesBatch]);
 
+  // Files dropped on a dropzone that is not a React drag target of this hook
+  // (the sources panel's DS FileDropzone).
+  const uploadFiles = useCallback(async (dropped: File[]) => {
+    if (dropped.length === 0 || !currentKb) return;
+    setShowUploadModal(false);
+    await uploadFilesBatch(dropped);
+  }, [currentKb, uploadFilesBatch]);
+
   const handleTextSourceAdd = useCallback(async () => {
     if (!currentKb || !textSourceContent.trim()) return;
 
@@ -229,7 +244,8 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
 
     try {
       await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/text`, {
-        title: textSourceTitle.trim() || undefined,
+        // `.md` suffix: marks the source as markdown for the preview.
+        title: markdownSourceTitle(textSourceTitle),
         content: textSourceContent
       });
       await fetchFiles(currentKb.id);
@@ -244,17 +260,17 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   }, [currentKb, textSourceTitle, textSourceContent, fetchFiles, t, toast]);
 
   return useMemo(() => ({
-    files, uploading, hasFiles, selectedFileCount, fileInputRef,
-    fetchFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
+    files, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
+    fetchFiles, uploadFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     showUploadModal, setShowUploadModal,
     isDragging, textSourceTitle, setTextSourceTitle,
     textSourceContent, setTextSourceContent,
     handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd,
   }), [
-    files, uploading, hasFiles, selectedFileCount,
+    files, uploading, hasFiles, filesLoaded, selectedFileCount,
     showUploadModal, isDragging, textSourceTitle, textSourceContent,
-    fetchFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
+    fetchFiles, uploadFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd
   ]);
