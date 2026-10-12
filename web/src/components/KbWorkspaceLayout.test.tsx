@@ -134,7 +134,7 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
     expect(shellProps.leftResize).toMatchObject({ minWidth: 150, maxWidth: 600 });
     expect(shellProps.leftResize?.onWidthChange).toBe(setLeftSidebarWidth);
     expect(shellProps.rightPanel?.width).toBe(500);
-    expect(shellProps.rightPanel?.resize).toMatchObject({ minWidth: 300, maxWidth: 800 });
+    expect(shellProps.rightPanel?.resize).toMatchObject({ minWidth: 360, maxWidth: 800 });
     expect(shellProps.rightPanel?.resize?.onWidthChange).toBe(setRightSidebarWidth);
   });
 
