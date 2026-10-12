@@ -86,8 +86,9 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
  * The four behavioural oracles named in advance as MUST-NOT-CHANGE did not: the
  * owned/shared split, the unmount-on-collapse property including the second
  * `/api/kb/catalog` request, `SharingDoesNotAlsoOpenTheKb`, and the
- * single-`<h1>` count. `SharingDoesNotAlsoOpenTheKb` and
- * `ShareDialogLoadingFallback` are untouched byte-for-byte.
+ * single-`<h1>` count. `SharingDoesNotAlsoOpenTheKb` is
+ * untouched; `ShareDialogLoadingFallback` became `ShareDialogOpensWithoutPlaceholder`
+ * when the skeleton flash was removed (2026-10-12).
  *
  * MOCKING IS AT THE NETWORK BOUNDARY, per the pattern KI-728 established
  * (.storybook/mockApi.ts). `MyTopicsView` itself issues no request — its two KB
@@ -821,72 +822,39 @@ export const RemovalInFlight: Story = {
 
 
 /* ===========================================================================
- * State 5 — the loading state
+ * State 5 — opening the members dialog
  * ======================================================================== */
 
 /**
- * `LoadingFallback` (MyTopicsView.tsx:65) — three `KBCardSkeleton`s in a list
- * marked `aria-busy`. It has exactly one trigger: the `Suspense` boundary
- * around the lazily imported members dialog, shown while that chunk is in
- * flight. So the honest way to reach it is to open the dialog, which is what
- * this story does; there is no state flag that produces it.
+ * The members dialog is lazily imported. Until 2026-10-12 its Suspense
+ * boundary showed three `KBCardSkeleton`s marked `aria-busy` while the chunk
+ * loaded, which flashed skeleton cards into the overview the first time the
+ * dialog opened. It now has no fallback: the dialog is an overlay, so nothing
+ * on the page needs to stand in for it.
  *
- * WHY A MutationObserver AND NOT A QUERY. The fallback is transient by
- * definition — it is replaced the moment the dynamic import settles. A
- * `findBy*` would be a race between the assertion's first poll and a module
- * fetch, and it would pass or fail depending on whether another story had
- * already warmed that chunk. The observer is armed BEFORE the click and records
- * every mutation, so it sees the fallback whether it lived for one frame or
- * fifty. What it cannot do is prove how LONG it was shown, and that is not
- * pinned here.
- *
- * KNOWN-DEFECT PIN: `aria-label="Loading..."` is a bare English literal in a
- * view whose every other string goes through `t()`, so a German-language user
- * is announced an English word. Asserted as it stands, and written up on card
- * KI-774 rather than repaired here.
+ * WHY A MutationObserver. A placeholder is transient by definition; the
+ * observer is armed BEFORE the click and records every mutation, so it would
+ * see a placeholder that lived for a single frame.
  */
-export const ShareDialogLoadingFallback: Story = {
+export const ShareDialogOpensWithoutPlaceholder: Story = {
   args: { kbs: [OWNED_ONE] },
   parameters: {
     api: { kbMembers: { members: [], pending: [] }, kbInviteLinks: [] },
   },
   play: async ({ canvas, canvasElement, userEvent }) => {
-    const seen: Array<{ label: string | null; skeletons: number }> = [];
+    let sawBusy = false;
     const observer = new MutationObserver(() => {
-      const busy = canvasElement.querySelector('[aria-busy="true"]');
-      if (busy !== null) {
-        seen.push({
-          label: busy.getAttribute('aria-label'),
-          skeletons: busy.querySelectorAll('.skeleton-kb-card').length,
-        });
-      }
+      if (canvasElement.querySelector('[aria-busy="true"], .skeleton-kb-card')) sawBusy = true;
     });
     observer.observe(canvasElement, { childList: true, subtree: true });
-
-    // Nothing is busy before the dialog is asked for.
-    await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
-
     await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
-
+    // ORACLE: the dialog's accessible name is its DialogTitle (WAI-ARIA dialog).
     await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
+      await expect(screen.getByRole('dialog', { name: 'Mitglieder' })).toBeInTheDocument();
     });
     observer.disconnect();
-
-    /* ORACLE: the DOM mutations the browser reported, captured independently of
-     * anything the component returns. Three skeleton cards and the untranslated
-     * label are the fallback's whole contract. */
-    await expect(seen.length).toBeGreaterThan(0);
-    await expect(seen[0].label).toBe('Loading...');
-    await expect(seen[0].skeletons).toBe(3);
-
-    // And the state it resolves into, so the story also pins that the fallback
-    // is a way-station rather than the end of the interaction.
-    await expect(canvas.getByRole('dialog')).toHaveAttribute(
-      'aria-labelledby',
-      'members-modal-title',
-    );
-    await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
+    // ORACLE: the DOM mutations the browser reported while the chunk loaded.
+    await expect(sawBusy).toBe(false);
   },
 };
 
@@ -947,7 +915,7 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
     // The dialog did open — so the click was delivered and this is a statement
     // about propagation, not about a dead button.
     await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
+      await expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
     await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
 

@@ -17,7 +17,6 @@ import { AppUserMenu } from './AppUserMenu';
 import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
-import { KBCardSkeleton } from './Skeleton';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
@@ -83,21 +82,6 @@ export interface AppChromeProps {
   /** Page content — the content template, plus any page-owned modal. */
   children: ReactNode;
 }
-
-/**
- * The lazy members dialog's fallback.
- *
- * Three KB-card skeletons in an `aria-busy` list. Kept byte-for-byte from
- * `HomeView` because `HomeView.stories.tsx`'s `ShareDialogLoadingFallback`
- * asserts both the label and the skeleton count as the fallback's contract.
- */
-const LoadingFallback = () => (
-  <ul className="home-view__grid" aria-busy="true" aria-label="Loading...">
-    <KBCardSkeleton />
-    <KBCardSkeleton />
-    <KBCardSkeleton />
-  </ul>
-);
 
 export function AppChrome({ active, contentId, children }: AppChromeProps) {
   const { t } = useTheme();
@@ -420,8 +404,11 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
             eleven values reach KbWorkspaceModals through KbDataContext.sharing,
             so the two mount points spell the dialog the same way. It lives in
             the CHROME rather than on a page because every view that renders a
-            KB card renders that card's share button. */}
-        <Suspense fallback={<LoadingFallback />}>
+            KB card renders that card's share button. No fallback while its
+            chunk loads: the dialog is an overlay, and a placeholder here
+            flashed three KB-card skeletons into the page (as KbWorkspaceModals
+            already does, fallback={null}). */}
+        <Suspense fallback={null}>
           {sharing.showShareModal && <MembersModal
             show={sharing.showShareModal}
             onClose={() => sharing.setShowShareModal(false)}
