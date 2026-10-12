@@ -413,16 +413,6 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
             show={sharing.showShareModal}
             onClose={() => sharing.setShowShareModal(false)}
             sharingKb={sharing.sharingKb}
-            shareUserId={sharing.shareUserId}
-            setShareUserId={sharing.setShareUserId}
-            shareTargetUser={sharing.shareTargetUser}
-            shareLoading={sharing.shareLoading}
-            sharePermission={sharing.sharePermission}
-            setSharePermission={sharing.setSharePermission}
-            onLookupUser={sharing.lookupUser}
-            onConfirmShare={sharing.confirmShare}
-            notFoundUsername={sharing.notFoundUsername}
-            onPendingInvited={sharing.clearNotFound}
             myRole={sharing.sharingKb?.myRole ?? 'view'}
           />}
         </Suspense>

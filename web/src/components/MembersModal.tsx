@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
-import { User, Eye, Edit3, Loader2, Trash2, Clock, Users, Crown, Shield, Link2, Copy, Search } from 'lucide-react';
+import { AtSign, ChevronLeft, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
 import {
-    ActionMenu, Avatar, Badge, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Kbd, Label,
+    ActionMenu, Avatar, Badge, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger, Textarea,
     type ActionMenuItem,
 } from '@ki4jlu/design-system';
@@ -12,7 +12,6 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { useFormValidation } from '../hooks/useFormValidation';
 import { splitUsernames } from '../utils/splitUsernames';
 import { copyToClipboard } from '../utils/clipboard';
 
@@ -28,18 +27,6 @@ interface MembersModalProps {
     show: boolean;
     onClose: () => void;
     sharingKb: KnowledgeBase | null;
-    shareUserId: string;
-    setShareUserId: (id: string) => void;
-    shareTargetUser: { id: string; username: string; firstName?: string; lastName?: string } | null;
-    shareLoading: boolean;
-    sharePermission: KbAssignableRole;
-    setSharePermission: (perm: KbAssignableRole) => void;
-    onLookupUser: () => void;
-    onConfirmShare: () => void;
-    /** Username the lookup could not resolve — offer a pending invite for it. */
-    notFoundUsername: string | null;
-    /** Called after a pending invite is created, so the parent can reset its lookup state. */
-    onPendingInvited: () => void;
     /** Caller's own role on this KB — gates the ownership-transfer action. */
     myRole: string;
 }
@@ -65,7 +52,18 @@ const ROLE_ICON: Record<KbAssignableRole, typeof Eye> = {
     admin: Shield,
 };
 
+/** Badge tone per role on the invite links: read neutral, edit primary, admin secondary. */
+const ROLE_TONE: Record<KbAssignableRole, 'neutral' | 'primary' | 'secondary'> = {
+    view: 'neutral',
+    edit: 'primary',
+    admin: 'secondary',
+};
+
 interface RoleSelectProps {
+    /** For a visible <Label htmlFor>. */
+    id?: string;
+    /** Full width of its column instead of the compact row width. */
+    wide?: boolean;
     value: KbAssignableRole;
     onChange: (role: KbAssignableRole) => void;
     /** Accessible name; the trigger shows only the chosen role. */
@@ -79,10 +77,10 @@ interface RoleSelectProps {
  * and every member row: one DS Select over the three assignable roles. The
  * options carry no descriptions (developer, 2026-10-12).
  */
-function RoleSelect({ value, onChange, label, t, disabled }: RoleSelectProps) {
+function RoleSelect({ id, wide, value, onChange, label, t, disabled }: RoleSelectProps) {
     return (
         <Select value={value} onValueChange={(v) => onChange(v as KbAssignableRole)} disabled={disabled}>
-            <SelectTrigger aria-label={label} className="w-36 shrink-0">
+            <SelectTrigger id={id} aria-label={label} className={wide ? 'w-full max-w-xs' : 'w-36 shrink-0'}>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
@@ -104,26 +102,21 @@ function displayName(firstName: string | null | undefined, lastName: string | nu
     return [firstName, lastName].filter(Boolean).join(' ').trim() || username;
 }
 
-export const MembersModal: React.FC<MembersModalProps> = ({
-    show, onClose, sharingKb, shareUserId, setShareUserId, shareTargetUser,
-    shareLoading, sharePermission, setSharePermission, onLookupUser, onConfirmShare,
-    notFoundUsername, onPendingInvited, myRole,
-}) => {
+export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, sharingKb, myRole }) => {
     const { t, language } = useTheme();
     const { token } = useAuth();
     const { showConfirm } = useModalContext();
     const toast = useToast();
-    const { errors, validate, clearError } = useFormValidation({
-        username: (v) => !v.trim() && t('fieldRequired'),
-    });
     const [members, setMembers] = useState<KbMember[]>([]);
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [pendingInvites, setPendingInvites] = useState<PendingMemberInvite[]>([]);
-    const [mode, setMode] = useState<'single' | 'bulk' | 'link'>('single');
+    // Two views in one dialog (mockup, 2026-10-12): the member list, and
+    // "Mitglieder hinzufügen" with its two tabs.
+    const [view, setView] = useState<'members' | 'add'>('members');
+    const [addTab, setAddTab] = useState<'usernames' | 'links'>('usernames');
     const [bulkText, setBulkText] = useState('');
     const [bulkPermission, setBulkPermission] = useState<KbAssignableRole>('view');
     const [bulkLoading, setBulkLoading] = useState(false);
-    const [bulkSummary, setBulkSummary] = useState<{ shared: string[]; pending: string[]; alreadyHadAccess: string[] } | null>(null);
 
     const fetchMembers = useCallback(async () => {
         if (!sharingKb) return;
@@ -181,6 +174,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({
     const handleCreateInviteLink = async () => {
         if (!sharingKb) return;
         setLinkLoading(true);
+        if (!linkLabel.trim()) return;
         try {
             const res = await axios.post(`${API_BASE_URL}/api/kb/${sharingKb.id}/invite-links`, {
                 role: linkPermission,
@@ -218,11 +212,6 @@ export const MembersModal: React.FC<MembersModalProps> = ({
             setInviteLinks(prev);
             toast.error(t('inviteLinkRevokeError'));
         }
-    };
-
-    // Parent closes the modal on successful share, so the member list refreshes on re-open.
-    const handleConfirmShare = async () => {
-        await onConfirmShare();
     };
 
     const handleRemoveMember = async (userId: string, username: string) => {
@@ -294,8 +283,16 @@ export const MembersModal: React.FC<MembersModalProps> = ({
                 usernames,
                 role: bulkPermission,
             });
-            setBulkSummary(res.data);
+            // Unknown usernames are parked as pending invites and granted at the
+            // person's first login (kept, developer 2026-10-12): the summary says
+            // how many of each.
+            const summary = res.data as { shared: string[]; pending: string[]; alreadyHadAccess: string[] };
+            toast.success(t('bulkInviteSummary')
+                .replace('{shared}', String(summary.shared.length))
+                .replace('{pending}', String(summary.pending.length))
+                .replace('{already}', String(summary.alreadyHadAccess.length)));
             setBulkText('');
+            setView('members');
             await fetchMembers(); // refresh members + pending lists
         } catch (err: unknown) {
             console.error('Bulk invite failed:', err);
@@ -305,58 +302,28 @@ export const MembersModal: React.FC<MembersModalProps> = ({
         }
     };
 
-    const [pendingInviteLoading, setPendingInviteLoading] = useState(false);
-
-    // Invite a username with no account yet. Reuses the bulk endpoint, which
-    // already parks unknown usernames in pending_kb_invites; they are promoted
-    // to a real membership on the user's first login.
-    const handleInviteAnyway = async () => {
-        if (!sharingKb || !notFoundUsername) return;
-        setPendingInviteLoading(true);
-        try {
-            await axios.post(`${API_BASE_URL}/api/kb/${sharingKb.id}/members/bulk`, {
-                usernames: [notFoundUsername],
-                role: sharePermission,
-            });
-            await fetchMembers(); // surface the new invite in the pending list below
-            toast.success(t('inviteAnywaySuccess').replace('{username}', notFoundUsername));
-            onPendingInvited();
-        } catch (err: unknown) {
-            console.error('Pending invite failed:', err);
-            toast.error(t('bulkInviteError'));
-        } finally {
-            setPendingInviteLoading(false);
-        }
+    // "CSV hochladen": the file's usernames are appended to the field, so the
+    // owner can still edit the list before adding. Any separator splitUsernames
+    // knows (comma, whitespace, newline); a header cell "username" is dropped.
+    const csvRef = useRef<HTMLInputElement>(null);
+    const handleCsv = async (file: File | undefined) => {
+        if (!file) return;
+        const names = splitUsernames((await file.text()).replace(/;/g, ','))
+            .filter(n => !/^(username|benutzername|user)$/i.test(n));
+        setBulkText(prev => [...splitUsernames(prev), ...names].join('\n'));
+        if (csvRef.current) csvRef.current.value = '';
     };
 
-    // The single invite is a two-step exact lookup (no user directory search,
-    // developer 2026-10-12): Enter or "Einladen" resolves the typed username,
-    // the person appears under the field, and the same key or button then
-    // invites them with the role beside the field.
-    const typed = shareUserId.trim().toLowerCase();
-    const candidate = shareTargetUser && shareTargetUser.username.toLowerCase() === typed ? shareTargetUser : null;
-    const candidateIsMember = candidate ? members.some(m => m.userId === candidate.id) : false;
-
-    const submitSingle = () => {
-        if (!validate({ username: shareUserId })) return;
-        if (candidate) {
-            if (!candidateIsMember) void handleConfirmShare();
-            return;
-        }
-        onLookupUser();
-    };
-
-    const usernameId = useId();
-    const usernameRef = useRef<HTMLInputElement>(null);
-    const usernameErrorId = useId();
+    const bulkCount = splitUsernames(bulkText).length;
+    const usernamesId = useId();
+    const usernamesHintId = useId();
+    const roleId = useId();
+    const linkTitleId = useId();
+    const linkRoleId = useId();
     const membersHeadingId = useId();
+    const linksHeadingId = useId();
 
     if (!show) return null;
-
-    // The member and pending lists belong to inviting people; the links tab
-    // manages links, and the lists below it only crowded it (developer,
-    // 2026-10-12).
-    const showMemberLists = mode !== 'link';
 
     const memberActions = (m: KbMember): ActionMenuItem[] => {
         const canTransfer = myRole === 'owner' && m.role === 'admin';
@@ -376,244 +343,249 @@ export const MembersModal: React.FC<MembersModalProps> = ({
         ];
     };
 
+    const openAdd = () => { setView('add'); if (addTab === 'links') void fetchInviteLinks(); };
+
     return (
         <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent
-                closeLabel={t('close')}
-                className="max-w-xl"
-                aria-describedby={undefined}
-                // Start in the username field — inviting is what the dialog
-                // is opened for — not on the first tab.
-                onOpenAutoFocus={(e) => { e.preventDefault(); usernameRef.current?.focus(); }}
-            >
-                <DialogHeader>
-                    <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
-                    <DialogTitle>{t('members')}</DialogTitle>
-                </DialogHeader>
-
-                <Tabs value={mode} onValueChange={(v) => {
-                    setMode(v as typeof mode);
-                    setBulkSummary(null);
-                    // Only fetched when the tab is opened: most sessions never
-                    // touch invite links, and the modal already fetches on mount.
-                    if (v === 'link') void fetchInviteLinks();
-                }}>
-                    <TabsList aria-label={t('members')}>
-                        <TabsTrigger value="single"><User className="size-4" aria-hidden="true" />{t('singleShare')}</TabsTrigger>
-                        <TabsTrigger value="bulk"><Users className="size-4" aria-hidden="true" />{t('bulkInvite')}</TabsTrigger>
-                        <TabsTrigger value="link"><Link2 className="size-4" aria-hidden="true" />{t('inviteLinks')}</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="single">
-                        <form
-                            className="flex flex-col gap-stack-sm"
-                            onSubmit={(e) => { e.preventDefault(); submitSingle(); }}
-                        >
-                            <Label htmlFor={usernameId}>{t('invitePerson')}</Label>
-                            <div className="flex items-center gap-stack-sm">
-                                <Input
-                                    ref={usernameRef}
-                                    id={usernameId}
-                                    leadingIcon={<Search />}
-                                    value={shareUserId}
-                                    onChange={e => { setShareUserId(e.target.value); clearError('username'); }}
-                                    placeholder={t('username')}
-                                    autoComplete="off"
-                                    aria-invalid={errors.username ? true : undefined}
-                                    aria-describedby={errors.username ? usernameErrorId : undefined}
-                                />
-                                {typed && (
-                                    <RoleSelect value={sharePermission} onChange={setSharePermission} label={t('selectPermission')} t={t} />
-                                )}
-                                <Button type="submit" disabled={!typed || shareLoading || candidateIsMember}>
-                                    {shareLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                                    {t('inviteAction')}
-                                </Button>
-                            </div>
-                            {errors.username && <span id={usernameErrorId} className="field-error" role="alert">{errors.username}</span>}
-
-                            {candidate && (
-                                <div
-                                    data-testid="invite-candidate"
-                                    className="flex items-center gap-3 rounded-lg bg-surface-container-high px-3 py-2"
-                                >
-                                    <Avatar initials={initialsOf(candidate.firstName, candidate.lastName, candidate.username)} size="sm" />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="truncate font-medium text-on-surface">
-                                            {displayName(candidate.firstName, candidate.lastName, candidate.username)}
-                                        </div>
-                                        <div className="truncate text-sm text-on-surface-variant">@{candidate.username}</div>
-                                    </div>
-                                    {candidateIsMember
-                                        ? <span className="text-sm text-on-surface-variant">{t('alreadyMember')}</span>
-                                        : <Kbd aria-hidden="true">Enter ↵</Kbd>}
-                                </div>
-                            )}
-
-                            {notFoundUsername && !candidate && (
-                                <div role="status" className="flex flex-col gap-stack-sm rounded-lg border border-outline-variant p-3">
-                                    <div className="flex items-center gap-2 font-medium text-on-surface">
-                                        <Clock className="size-4 shrink-0" aria-hidden="true" />
-                                        {t('noAccountYet').replace('{username}', notFoundUsername)}
-                                    </div>
-                                    <p className="m-0 text-sm text-on-surface-variant">{t('pendingInviteHint')}</p>
-                                    <div>
-                                        <Button type="button" variant="secondary" size="sm" onClick={handleInviteAnyway} disabled={pendingInviteLoading}>
-                                            {pendingInviteLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                                            {t('inviteAnyway')}
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-                        </form>
-                    </TabsContent>
-
-                    <TabsContent value="bulk">
-                        <div className="flex flex-col gap-stack-sm">
-                            <Label htmlFor="bulk-usernames">{t('bulkInvite')}</Label>
-                            <Textarea
-                                id="bulk-usernames"
-                                value={bulkText}
-                                onChange={e => setBulkText(e.target.value)}
-                                placeholder={t('bulkInvitePaste')}
-                                rows={5}
-                            />
-                            <div className="flex items-center justify-end gap-stack-sm">
-                                <RoleSelect value={bulkPermission} onChange={setBulkPermission} label={t('selectPermission')} t={t} />
-                                <Button onClick={handleBulkInvite} disabled={bulkLoading || splitUsernames(bulkText).length === 0}>
-                                    {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                                    {t('bulkInviteButton')}
-                                </Button>
-                            </div>
-                            {bulkSummary && (
-                                <p className="m-0 text-sm text-on-surface-variant" role="status">
-                                    {t('bulkInviteSummary')
-                                        .replace('{shared}', String(bulkSummary.shared.length))
-                                        .replace('{pending}', String(bulkSummary.pending.length))
-                                        .replace('{already}', String(bulkSummary.alreadyHadAccess.length))}
-                                </p>
-                            )}
+            <DialogContent closeLabel={t('close')} className="max-w-xl" aria-describedby={undefined}>
+                {view === 'members' ? (
+                    <>
+                        <div className="flex items-start gap-stack-sm pr-10">
+                            <DialogHeader className="min-w-0 flex-1">
+                                <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
+                                <DialogTitle>{t('members')}</DialogTitle>
+                            </DialogHeader>
+                            <Button onClick={openAdd}>
+                                <Plus className="size-4" aria-hidden="true" />
+                                {t('add')}
+                            </Button>
                         </div>
-                    </TabsContent>
 
-                    <TabsContent value="link">
-                        <div className="flex flex-col gap-stack-sm">
-                            <Label htmlFor="invite-link-label">{t('inviteLinkLabel')}</Label>
-                            <div className="flex items-center gap-stack-sm">
-                                <Input
-                                    id="invite-link-label"
-                                    value={linkLabel}
-                                    onChange={e => setLinkLabel(e.target.value)}
-                                    maxLength={100}
-                                    placeholder={t('inviteLinkLabelPlaceholder')}
-                                />
-                                <RoleSelect value={linkPermission} onChange={setLinkPermission} label={t('selectPermission')} t={t} />
-                                <Button onClick={handleCreateInviteLink} disabled={linkLoading}>
-                                    {linkLoading
-                                        ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                                        : <Link2 className="size-4" aria-hidden="true" />}
-                                    {t('createInviteLink')}
-                                </Button>
+                        <section aria-labelledby={membersHeadingId} className="flex flex-col gap-stack-sm">
+                            <div className="flex items-center gap-2">
+                                <h3 id={membersHeadingId} className="m-0 text-base font-semibold text-on-surface">{t('allMembers')}</h3>
+                                <Badge>{members.length}</Badge>
+                                {loadingMembers && <Loader2 className="size-4 animate-spin text-on-surface-variant" aria-hidden="true" />}
                             </div>
-
-                            {inviteLinks.length === 0 ? (
-                                <p className="m-0 text-sm text-on-surface-variant">{t('noInviteLinks')}</p>
-                            ) : (
-                                <ul className="m-0 flex list-none flex-col divide-y divide-outline-variant rounded-xl border border-outline-variant p-0">
-                                    {inviteLinks.map(link => {
-                                        const Icon = ROLE_ICON[link.role];
-                                        return (
-                                            <li key={link.id} className="flex items-center gap-stack-sm px-4 py-3">
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center gap-2 text-on-surface">
-                                                        <Icon className="size-4 shrink-0" aria-hidden="true" />
-                                                        <span className="truncate font-medium">{link.label || t('inviteLinkUnnamed')}</span>
-                                                        <span className="shrink-0 text-sm text-on-surface-variant">{t(ROLE_LABEL_KEY[link.role])}</span>
-                                                    </div>
-                                                    <div className="text-sm text-on-surface-variant">
-                                                        {link.redemptionCount === 0
-                                                            ? t('inviteLinkNeverUsed')
-                                                            : `${t('inviteLinkUses')}: ${link.redemptionCount}`}
-                                                        {link.lastUsedAt && (
-                                                            <> · {t('inviteLinkLastUsed')}: {formatInviteLinkLastUsed(link.lastUsedAt)}</>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <Button variant="ghost" size="icon" onClick={() => handleCopyInviteLink(link)} aria-label={t('copyToClipboard')}>
-                                                    <Copy className="size-4" aria-hidden="true" />
-                                                </Button>
-                                                <Button variant="ghost" size="icon" onClick={() => handleRevokeInviteLink(link.id)} aria-label={t('revokeInviteLink')}>
-                                                    <Trash2 className="size-4" aria-hidden="true" />
-                                                </Button>
-                                            </li>
-                                        );
-                                    })}
+                            {members.length > 0 && (
+                                <ul className="m-0 flex max-h-80 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                    {members.map(m => (
+                                        <li key={m.userId} data-testid={`member-row-${m.userId}`} className="flex items-center gap-3 px-4 py-3">
+                                            <Avatar initials={initialsOf(m.firstName, m.lastName, m.username)} />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="truncate font-medium text-on-surface">{displayName(m.firstName, m.lastName, m.username)}</div>
+                                                <div className="truncate text-sm text-on-surface-variant">@{m.username}</div>
+                                            </div>
+                                            {m.role === 'owner' ? (
+                                                <Badge tone="warning" title={t('ownerLabel')}>
+                                                    <Crown className="size-3" aria-hidden="true" />
+                                                    {t('kbRoleOwner')}
+                                                </Badge>
+                                            ) : (
+                                                <>
+                                                    <RoleSelect
+                                                        value={m.role as KbAssignableRole}
+                                                        onChange={(role) => { void handleRoleChange(m.userId, role); }}
+                                                        label={`${t('selectRole')}: @${m.username}`}
+                                                        t={t}
+                                                    />
+                                                    <ActionMenu
+                                                        label={t('memberActions').replace('{username}', m.username)}
+                                                        actions={memberActions(m)}
+                                                        align="end"
+                                                    />
+                                                </>
+                                            )}
+                                        </li>
+                                    ))}
                                 </ul>
                             )}
-                        </div>
-                    </TabsContent>
-                </Tabs>
+                        </section>
 
-                {showMemberLists && members.length > 0 && (
-                    <section aria-labelledby={membersHeadingId} className="flex flex-col gap-stack-sm">
-                        <div className="flex items-center gap-2">
-                            <h3 id={membersHeadingId} className="m-0 text-base font-semibold text-on-surface">{t('members')}</h3>
-                            <Badge>{members.length}</Badge>
-                            {loadingMembers && <Loader2 className="size-4 animate-spin text-on-surface-variant" aria-hidden="true" />}
+                        {pendingInvites.length > 0 && (
+                            <section className="flex flex-col gap-stack-sm">
+                                <h3 className="m-0 text-base font-semibold text-on-surface">{t('pendingInvites')}</h3>
+                                <p className="m-0 text-sm text-on-surface-variant">{t('pendingInviteHint')}</p>
+                                <ul className="m-0 flex max-h-48 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                    {pendingInvites.map(p => (
+                                        <li key={p.username} data-testid={`pending-row-${p.username}`} className="flex items-center gap-3 px-4 py-2">
+                                            <Clock className="size-4 shrink-0 text-on-surface-variant" aria-hidden="true" />
+                                            <span className="min-w-0 flex-1 truncate text-on-surface">@{p.username}</span>
+                                            <span className="shrink-0 text-sm text-on-surface-variant">
+                                                {t(ROLE_LABEL_KEY[p.role as KbAssignableRole] ?? 'viewPermission')}
+                                            </span>
+                                            <Button variant="ghost" size="icon" onClick={() => handleRevokePending(p.username)} aria-label={t('revokeInvite')} title={t('revokeInvite')}>
+                                                <Trash2 className="size-4" aria-hidden="true" />
+                                            </Button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </section>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <div className="flex items-start gap-2 pr-10">
+                            <Button variant="ghost" size="icon" onClick={() => setView('members')} aria-label={t('back')}>
+                                <ChevronLeft className="size-5" aria-hidden="true" />
+                            </Button>
+                            <DialogHeader className="min-w-0 flex-1">
+                                <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
+                                <DialogTitle>{t('addMembers')}</DialogTitle>
+                            </DialogHeader>
                         </div>
-                        <ul className="m-0 flex max-h-72 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
-                            {members.map(m => (
-                                <li key={m.userId} data-testid={`member-row-${m.userId}`} className="flex items-center gap-3 px-4 py-3">
-                                    <Avatar initials={initialsOf(m.firstName, m.lastName, m.username)} />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="truncate font-medium text-on-surface">{displayName(m.firstName, m.lastName, m.username)}</div>
-                                        <div className="truncate text-sm text-on-surface-variant">@{m.username}</div>
+
+                        <Tabs value={addTab} onValueChange={(v) => {
+                            setAddTab(v as typeof addTab);
+                            // Only fetched when the tab is opened: most sessions never
+                            // touch invite links.
+                            if (v === 'links') void fetchInviteLinks();
+                        }}>
+                            <TabsList aria-label={t('addMembers')} className="self-start">
+                                <TabsTrigger value="usernames"><AtSign className="size-4" aria-hidden="true" />{t('byUsername')}</TabsTrigger>
+                                <TabsTrigger value="links"><Link2 className="size-4" aria-hidden="true" />{t('inviteLinks')}</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="usernames">
+                                <form
+                                    className="flex flex-col gap-stack-md"
+                                    onSubmit={(e) => { e.preventDefault(); void handleBulkInvite(); }}
+                                >
+                                    <div className="flex flex-col gap-stack-sm">
+                                        <div className="flex items-center justify-between gap-stack-sm">
+                                            <Label htmlFor={usernamesId}>{t('usernamesLabel')}</Label>
+                                            <Button type="button" variant="link" size="sm" onClick={() => csvRef.current?.click()}>
+                                                {t('uploadCsv')}
+                                            </Button>
+                                            <Input
+                                                ref={csvRef}
+                                                type="file"
+                                                accept=".csv,.txt,text/csv,text/plain"
+                                                hidden
+                                                aria-label={t('uploadCsv')}
+                                                onChange={(e) => { void handleCsv(e.target.files?.[0]); }}
+                                            />
+                                        </div>
+                                        <p id={usernamesHintId} className="m-0 text-sm text-on-surface-variant">{t('usernamesHint')}</p>
+                                        {/* A plain textarea until the design system's Combobox gains a
+                                            chips mode; then each name becomes a chip with its avatar. */}
+                                        <Textarea
+                                            id={usernamesId}
+                                            aria-describedby={usernamesHintId}
+                                            value={bulkText}
+                                            onChange={e => setBulkText(e.target.value)}
+                                            rows={4}
+                                        />
                                     </div>
-                                    {m.role === 'owner' ? (
-                                        <Badge tone="warning" title={t('ownerLabel')}>
-                                            <Crown className="size-3" aria-hidden="true" />
-                                            {t('kbRoleOwner')}
-                                        </Badge>
-                                    ) : (
-                                        <>
-                                            <RoleSelect
-                                                value={m.role as KbAssignableRole}
-                                                onChange={(role) => { void handleRoleChange(m.userId, role); }}
-                                                label={`${t('selectRole')}: @${m.username}`}
-                                                t={t}
-                                            />
-                                            <ActionMenu
-                                                label={t('memberActions').replace('{username}', m.username)}
-                                                actions={memberActions(m)}
-                                                align="end"
-                                            />
-                                        </>
-                                    )}
-                                </li>
-                            ))}
-                        </ul>
-                    </section>
-                )}
+                                    <div className="flex flex-col gap-stack-sm">
+                                        <Label htmlFor={roleId}>{t('roleLabel')}</Label>
+                                        <RoleSelect id={roleId} value={bulkPermission} onChange={setBulkPermission} label={t('roleLabel')} t={t} wide />
+                                    </div>
+                                    <div className="flex items-center justify-end gap-stack-sm border-t border-outline-variant pt-4">
+                                        <Button type="button" variant="ghost" onClick={() => setView('members')}>{t('cancel')}</Button>
+                                        <Button type="submit" disabled={bulkLoading || bulkCount === 0}>
+                                            {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                                            {(bulkCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(bulkCount))}
+                                        </Button>
+                                    </div>
+                                </form>
+                            </TabsContent>
 
-                {showMemberLists && pendingInvites.length > 0 && (
-                    <section className="flex flex-col gap-stack-sm">
-                        <h3 className="m-0 text-base font-semibold text-on-surface">{t('pendingInvites')}</h3>
-                        <p className="m-0 text-sm text-on-surface-variant">{t('pendingInviteHint')}</p>
-                        <ul className="m-0 flex max-h-48 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
-                            {pendingInvites.map(p => (
-                                <li key={p.username} data-testid={`pending-row-${p.username}`} className="flex items-center gap-3 px-4 py-2">
-                                    <Clock className="size-4 shrink-0 text-on-surface-variant" aria-hidden="true" />
-                                    <span className="min-w-0 flex-1 truncate text-on-surface">@{p.username}</span>
-                                    <span className="shrink-0 text-sm text-on-surface-variant">
-                                        {t(ROLE_LABEL_KEY[p.role as KbAssignableRole] ?? 'viewPermission')}
-                                    </span>
-                                    <Button variant="ghost" size="icon" onClick={() => handleRevokePending(p.username)} aria-label={t('revokeInvite')} title={t('revokeInvite')}>
-                                        <Trash2 className="size-4" aria-hidden="true" />
-                                    </Button>
-                                </li>
-                            ))}
-                        </ul>
-                    </section>
+                            <TabsContent value="links">
+                                <div className="flex flex-col gap-stack-md">
+                                    <form
+                                        className="flex flex-col gap-stack-sm"
+                                        onSubmit={(e) => { e.preventDefault(); void handleCreateInviteLink(); }}
+                                    >
+                                        <h3 className="m-0 text-base font-semibold text-on-surface">{t('newInviteLink')}</h3>
+                                        <div className="flex items-end gap-stack-sm">
+                                            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                                                <Label htmlFor={linkTitleId}>{t('inviteLinkTitle')} <span aria-hidden="true" className="text-error">*</span></Label>
+                                                <Input
+                                                    id={linkTitleId}
+                                                    value={linkLabel}
+                                                    onChange={e => setLinkLabel(e.target.value)}
+                                                    maxLength={100}
+                                                    required
+                                                    placeholder={t('inviteLinkLabelPlaceholder')}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <Label htmlFor={linkRoleId}>{t('roleLabel')} <span aria-hidden="true" className="text-error">*</span></Label>
+                                                <RoleSelect id={linkRoleId} value={linkPermission} onChange={setLinkPermission} label={t('roleLabel')} t={t} />
+                                            </div>
+                                            <Button type="submit" disabled={linkLoading || !linkLabel.trim()}>
+                                                {linkLoading
+                                                    ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                                    : <Plus className="size-4" aria-hidden="true" />}
+                                                {t('create')}
+                                            </Button>
+                                        </div>
+                                        <p className="m-0 text-sm text-on-surface-variant">{t('inviteLinkRoleHint')}</p>
+                                    </form>
+
+                                    <section aria-labelledby={linksHeadingId} className="flex flex-col gap-stack-sm">
+                                        <div className="flex items-center gap-2">
+                                            <h3 id={linksHeadingId} className="m-0 text-base font-semibold text-on-surface">{t('activeInviteLinks')}</h3>
+                                            <Badge>{inviteLinks.length}</Badge>
+                                        </div>
+                                        {inviteLinks.length === 0 ? (
+                                            <p className="m-0 text-sm text-on-surface-variant">{t('noInviteLinks')}</p>
+                                        ) : (
+                                            <ul className="m-0 flex max-h-72 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                                {inviteLinks.map(link => {
+                                                    const Icon = ROLE_ICON[link.role];
+                                                    const title = link.label || t('inviteLinkUnnamed');
+                                                    return (
+                                                        <li key={link.id} className="flex items-center gap-3 px-4 py-3">
+                                                            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-container-high text-on-surface-variant">
+                                                                <Link2 className="size-4" aria-hidden="true" />
+                                                            </span>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex min-w-0 items-center gap-2">
+                                                                    <span className="truncate font-medium text-on-surface">{title}</span>
+                                                                    <Badge tone={ROLE_TONE[link.role]}>
+                                                                        <Icon className="size-3" aria-hidden="true" />
+                                                                        {t(ROLE_LABEL_KEY[link.role])}
+                                                                    </Badge>
+                                                                </div>
+                                                                <div
+                                                                    className="text-sm text-on-surface-variant"
+                                                                    title={link.lastUsedAt ? `${t('inviteLinkLastUsed')}: ${formatInviteLinkLastUsed(link.lastUsedAt)}` : undefined}
+                                                                >
+                                                                    {link.redemptionCount === 0
+                                                                        ? t('inviteLinkNeverUsed')
+                                                                        : t('inviteLinkUsedTimes').replace('{count}', String(link.redemptionCount))}
+                                                                </div>
+                                                            </div>
+                                                            <Button variant="outline" size="sm" onClick={() => handleCopyInviteLink(link)} aria-label={`${t('copy')}: ${title}`}>
+                                                                <Copy className="size-4" aria-hidden="true" />
+                                                                {t('copy')}
+                                                            </Button>
+                                                            <ActionMenu
+                                                                label={t('inviteLinkActions').replace('{label}', title)}
+                                                                align="end"
+                                                                actions={[{
+                                                                    label: t('revokeInviteLink'),
+                                                                    icon: <Trash2 className="size-4" aria-hidden="true" />,
+                                                                    destructive: true,
+                                                                    onSelect: () => { void handleRevokeInviteLink(link.id); },
+                                                                }]}
+                                                            />
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
+                                    </section>
+
+                                    <div className="flex justify-end border-t border-outline-variant pt-4">
+                                        <Button variant="outline" onClick={() => setView('members')}>{t('done')}</Button>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+                    </>
                 )}
             </DialogContent>
         </Dialog>
