@@ -727,7 +727,7 @@ export const OwnedOnly: Story = {
     await expect(badges).toHaveLength(3);
     await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(3);
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeInTheDocument();
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toBeInTheDocument();
     await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
@@ -796,7 +796,7 @@ export const RemovalInFlight: Story = {
      * reaches a removal control. */
     // The card actions are menu items now: Radix's `data-disabled` is the state.
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Knowledge Base löschen' })).toHaveAttribute('data-disabled');
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toHaveAttribute('data-disabled');
 
     // Controls that are NOT removals stay live, which is what makes the
     // assertion above about `removingKb` rather than about a disabled page.

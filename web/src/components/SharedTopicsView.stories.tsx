@@ -511,12 +511,12 @@ export const ViewerSeesNoManagementControls: Story = {
   play: async ({ canvas, userEvent }) => {
     const cardMenu = await openKbMenu(canvas, userEvent);
     await expect(cardMenu.queryByRole('menuitem', { name: 'Teilen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base umbenennen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'RAG-Einstellungen und Workflow' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Umbenennen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: /RAG Konfiguration/ })).toBeNull();
     await expect(
       cardMenu.getByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' }),
     ).toBeInTheDocument();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Löschen' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
     /* ORACLE: the fixture's `memberCount: 4` with a private visibility, which
