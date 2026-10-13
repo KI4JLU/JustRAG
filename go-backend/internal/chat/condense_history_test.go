@@ -288,3 +288,34 @@ func TestRawQueryForRetrieval_TableTest(t *testing.T) {
 		})
 	}
 }
+
+func condenseFinishServer(t *testing.T, content, finish string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": content}, "finish_reason": finish},
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestCondenseFromHistory_FallsBackToRawWhenCutOffOrEmpty(t *testing.T) {
+	t.Parallel()
+	history := []ai.ChatHistoryEntry{{Role: "user", Content: "a"}, {Role: "assistant", Content: "b"}}
+	for name, tc := range map[string]struct{ content, finish string }{
+		"truncated": {"Wie hoch ist die Frist fuer die", "length"},
+		"empty":     {"   ", "stop"},
+	} {
+		srv := condenseFinishServer(t, tc.content, tc.finish)
+		got, err := CondenseFromHistory(context.Background(), condenseTestResolver(srv), history, "raw follow up", "kb-1", "de", "")
+		if err != nil || got != "raw follow up" {
+			t.Errorf("%s: got %q / %v, want raw message", name, got, err)
+		}
+	}
+}

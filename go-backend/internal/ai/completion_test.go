@@ -637,3 +637,19 @@ func TestCheckFacts_TruncatedJSONFailsSoft(t *testing.T) {
 		t.Fatalf("CheckFacts must fail soft to unverified, got %+v", res)
 	}
 }
+
+func TestGenerateCompletionCapped_PopulatesFinishReason(t *testing.T) {
+	t.Parallel()
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		resp := chatResponse("cut", "")
+		resp["choices"].([]map[string]any)[0]["finish_reason"] = "length"
+		writeChatJSON(w, resp)
+	})
+	res, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FinishReason != "length" {
+		t.Fatalf("FinishReason = %q, want length", res.FinishReason)
+	}
+}

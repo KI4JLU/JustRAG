@@ -36,8 +36,12 @@ type CompletionResult struct {
 
 	// Token usage as reported by the provider. Zero values indicate the
 	// provider did not include a usage block (some self-hosted setups).
-	PromptTokens       int
-	CompletionTokens   int
+	PromptTokens     int
+	CompletionTokens int
+	// FinishReason is the provider's finish_reason for the first choice
+	// ("stop", "length", ...). Empty when the provider omitted it.
+	FinishReason string
+
 	CachedPromptTokens int // OpenAI prompt_tokens_details.cached_tokens or DeepSeek prompt_cache_hit_tokens
 }
 
@@ -94,7 +98,11 @@ func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, pro
 		slog.Warn("ai: model override not available in resolved config, falling back to ChatModel",
 			"modelOverride", modelOverride, "providerName", config.ProviderName, "fallback", config.ChatModel)
 	}
-	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
+	res, err := generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
+	if err == nil && maxTokens > 0 && res != nil && res.FinishReason == "length" {
+		slog.Warn("ai.helper.truncated", "model", model, "max_tokens", maxTokens)
+	}
+	return res, err
 }
 
 // GenerateCompletionWithModelDeterministic is like GenerateCompletionWithModel
@@ -268,6 +276,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 		choice := resp.Choices[0]
 		result := &CompletionResult{
 			Content:            choice.Message.Content,
+			FinishReason:       choice.FinishReason,
 			PromptTokens:       resp.Usage.PromptTokens,
 			CompletionTokens:   resp.Usage.CompletionTokens,
 			CachedPromptTokens: resp.Usage.CachedTokens(),

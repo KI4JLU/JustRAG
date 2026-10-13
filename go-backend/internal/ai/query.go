@@ -121,6 +121,8 @@ const (
 // CondenseQuestion turns a follow-up question into a standalone query by
 // incorporating context from the conversation history.
 // When history is empty the follow-up is returned unchanged without an API call.
+// A result cut off by the token cap (finish_reason "length") is returned as ""
+// so callers fall back to the raw follow-up exactly as for an empty result.
 func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []ChatHistoryEntry, followUp, kbID, lang, model string) (string, error) {
 	if len(history) == 0 {
 		return followUp, nil
@@ -157,6 +159,10 @@ func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []C
 	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.ConversationCondenseSystem(lang), kbID, model, condenseMaxTokens)
 	if err != nil {
 		return "", err
+	}
+	if result.FinishReason == "length" {
+		// Cut off by condenseMaxTokens: a partial query is worse than none.
+		return "", nil
 	}
 	return strings.TrimSpace(result.Content), nil
 }

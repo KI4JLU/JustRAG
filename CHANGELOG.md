@@ -14,7 +14,7 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 ### ⚠ Upgrade notes
 
-- Chat-path helper calls (condense, complexity classifier, follow-ups, factcheck, enumeration extraction) now resolve through the fast-tier chain (`chat_condense_model`, `chat_classify_model`, `chat_followups_model`, `factcheck_model`, `chat_enumeration_model` → `model_tier_fast` → main model) and carry a `max_tokens` cap. **If `model_tier_fast` is set, these calls move to that model on deploy.** Pin one back with its per-task key = the main model name.
+- Chat-path helper calls (condense, complexity classifier, follow-ups, factcheck, enumeration extraction) now resolve through the fast-tier chain (`chat_condense_model`, `chat_classify_model`, `chat_followups_model`, `factcheck_model`, `chat_enumeration_model` → `model_tier_fast` → main model) and, except enumeration extraction, carry a `max_tokens` cap; a cut-off condense falls back to the raw follow-up. The public API, OpenAI-compat and eval adapters stay on the main model. **If `model_tier_fast` is set, these calls move to that model on deploy.** Pin one back with its per-task key = the main model name.
 
 ## v0.12.0 — 2026-10-12
 

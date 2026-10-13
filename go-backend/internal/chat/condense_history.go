@@ -2,8 +2,10 @@ package chat
 
 import (
 	"context"
+	"strings"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/logctx"
 )
 
 // ---------------------------------------------------------------------------
@@ -35,6 +37,12 @@ func CondenseFromHistory(
 	condensed, err := ai.CondenseQuestion(ctx, aiResolver, historyWindow(history), message, kbID, language, model)
 	if err != nil {
 		// Fail open.
+		return message, nil
+	}
+	if strings.TrimSpace(condensed) == "" {
+		// Empty (model returned nothing) or cut off by the token cap, which
+		// CondenseQuestion reports as "" too; ai.helper.truncated tells them apart.
+		logctx.From(ctx).Info("chat.condense.fallback_raw", "reason", "empty_or_truncated")
 		return message, nil
 	}
 	return condensed, nil
