@@ -567,8 +567,12 @@ describe('MyTopicsView members-dialog trigger', () => {
 // the members button's KB-role-only gate, which is what it wrongly shared
 // before. The share button beside it deliberately keeps that looser gate, and
 // the last case here pins the two apart.
+//
+// On top of that the card offers it to system admins only, badged "Admin"
+// (developer, 2026-10-13): an api-user passes the server gate but gets no entry.
 describe('MyTopicsView KB-settings trigger', () => {
-  const label = translations.kbAdvancedSettings.en;
+  // The DS ActionMenu badge is part of the item's name.
+  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
 
   it('hides the trigger from a plain user who OWNS the KB', async () => {
     authState.role = 'user';
@@ -584,8 +588,15 @@ describe('MyTopicsView KB-settings trigger', () => {
     expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
-  it('shows the trigger for an api-user who owns the KB, and hands the KB to the callback', async () => {
+  it('hides the trigger from an api-user who owns the KB, though the server would let them in', async () => {
     authState.role = 'api-user';
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
+    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
+  });
+
+  it('shows the trigger for a system admin who owns the KB, and hands the KB to the callback', async () => {
+    authState.role = 'admin';
     const onOpenKbSettings = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onOpenKbSettings={onOpenKbSettings} />);
@@ -607,7 +618,7 @@ describe('MyTopicsView KB-settings trigger', () => {
 // canRenameKb here). The pencil must not appear on a shared card whose caller
 // is a mere admin member — that role edits everything else, not the name.
 describe('MyTopicsView rename trigger', () => {
-  const label = translations.renameKb.en;
+  const label = translations.rename.en;
 
   it('shows the pencil to the owner and hands the KB to onRenameKB', async () => {
     authState.role = 'user';

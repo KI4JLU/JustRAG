@@ -710,16 +710,16 @@ export const translations = {
     globalBadge: { de: 'Global', en: 'Global' },
     confirmDeleteGlobalKb: { de: 'Diese globale Knowledge Base wirklich löschen? Alle Dateien und Chats werden gelöscht.', en: 'Delete this global Knowledge Base? All files and chats will be deleted.' },
     deleteGlobalKb: { de: 'Globale Knowledge Base löschen', en: 'Delete global Knowledge Base' },
-    deleteKb: { de: 'Knowledge Base löschen', en: 'Delete knowledge base' },
     removeFromMyView: { de: 'Aus meiner Ansicht entfernen', en: 'Remove from my view' },
     removeFromFavorites: { de: 'Aus Favoriten entfernen', en: 'Remove from favorites' },
     editSettings: { de: 'Einstellungen bearbeiten', en: 'Edit settings' },
     globalKbSettings: { de: 'Globale KB-Einstellungen', en: 'Global KB Settings' },
     openKb: { de: 'Knowledge Base öffnen', en: 'Open Knowledge Base' },
     // Entry point for KbSettingsPanel (RAG-Einstellungen / Evals / Workflow).
-    kbAdvancedSettings: { de: 'RAG-Einstellungen und Workflow', en: 'RAG settings and workflow' },
+    kbAdvancedSettings: { de: 'RAG Konfiguration', en: 'RAG configuration' },
     // KB rename (owner of a private KB / system admin on a public KB).
     renameKb: { de: 'Knowledge Base umbenennen', en: 'Rename Knowledge Base' },
+    rename: { de: 'Umbenennen', en: 'Rename' },
     renameKbPrompt: { de: 'Neuer Name für die Knowledge Base:', en: 'New name for the Knowledge Base:' },
     kbRenameError: { de: 'Fehler beim Umbenennen der Knowledge Base', en: 'Error renaming knowledge base' },
     kbNameTooLong: { de: 'Der Name darf höchstens 255 Zeichen lang sein', en: 'The name must not exceed 255 characters' },
