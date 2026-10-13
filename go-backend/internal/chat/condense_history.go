@@ -48,6 +48,16 @@ func CondenseFromHistory(
 	return condensed, nil
 }
 
+// condenseHistoryFromRows maps stored messages to condense input. Windowing
+// and content caps stay in CondenseFromHistory (historyWindow).
+func condenseHistoryFromRows(rows []MessageRow) []ai.ChatHistoryEntry {
+	history := make([]ai.ChatHistoryEntry, len(rows))
+	for i, m := range rows {
+		history[i] = ai.ChatHistoryEntry{Role: m.Role, Content: m.Content}
+	}
+	return history
+}
+
 // historyWindow returns the last 6 entries of history (oldest of those kept
 // first), with each entry's Content capped at 500 bytes. history shorter
 // than 6 entries is returned unchanged in length, still content-capped.

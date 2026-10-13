@@ -304,8 +304,9 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Recent turns, loaded once: the answer-history block (every answer
-	// path) and the transform-follow-up route both need them. CondenseFollowUp
-	// keeps its own load because its signature is shared with publicapi.
+	// path), the transform-follow-up route and the follow-up condense step all
+	// need them. publicapi and the agent chat still go through CondenseFollowUp,
+	// which loads its own.
 	//
 	// A regenerate carries its own history rather than re-loading it: both
 	// loaders read a nil parent as "no anchor given" and fall back to the
@@ -334,11 +335,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Condensing needs a preceding turn. A regenerate at the start of a chat
-	// has none, and its nil anchor would send CondenseFollowUp back to the
-	// whole-chat fallback — see the convRows note above.
+	// has none (convRows is empty there, so condense would be a no-op anyway).
 	searchQuery := body.Message
 	if anchor.Regenerate == nil || anchor.Regenerate.HistoryParentID != nil {
-		searchQuery, _ = CondenseFollowUp(ctx, h.aiResolver, h.store, chatID, parentMsgID, body.Message, kbID, lang, ChatCondenseModel(ctx, h.siteConfigReader))
+		searchQuery, _ = CondenseFromHistory(ctx, h.aiResolver, condenseHistoryFromRows(convRows), body.Message, kbID, lang, ChatCondenseModel(ctx, h.siteConfigReader))
 	}
 	rawQuery := RawQueryForRetrieval(ChatCondenseKeepRawEnabled(ctx, h.siteConfigReader), body.Message, searchQuery)
 

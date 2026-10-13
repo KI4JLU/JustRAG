@@ -497,3 +497,58 @@ func TestSendMessage_NonOwnedChatIDRecordsNoUsageEvent(t *testing.T) {
 		t.Errorf("usage events on a non-owned chatId: got %d, want 0", got)
 	}
 }
+
+// historyCountingStore counts the history loads of one turn.
+type historyCountingStore struct {
+	*mockStore
+	mu    sync.Mutex
+	loads int
+}
+
+func (s *historyCountingStore) GetChatMessages(ctx context.Context, id string) ([]MessageRow, error) {
+	s.mu.Lock()
+	s.loads++
+	s.mu.Unlock()
+	return s.mockStore.GetChatMessages(ctx, id)
+}
+
+func (s *historyCountingStore) GetMessageAncestors(ctx context.Context, id, chatID string) ([]MessageRow, error) {
+	s.mu.Lock()
+	s.loads++
+	s.mu.Unlock()
+	return s.mockStore.GetMessageAncestors(ctx, id, chatID)
+}
+
+// TestSendMessage_LoadsConversationHistoryOnce pins that the follow-up
+// condense step reuses the rows the turn already loaded instead of reading
+// the history a second time.
+func TestSendMessage_LoadsConversationHistoryOnce(t *testing.T) {
+	inner := newMockStore()
+	inner.chats["chat-1"] = &ChatRow{ID: "chat-1", KbID: "kb1", UserID: "user1"}
+	inner.messages = []MessageRow{
+		{ID: "m1", ChatID: "chat-1", Role: "user", Content: "Was ist Go?"},
+		{ID: "m2", ChatID: "chat-1", Role: "ai", Content: "Eine Programmiersprache."},
+	}
+	store := &historyCountingStore{mockStore: inner}
+	h := &Handler{
+		store:         store,
+		aiResolver:    nil,
+		searchService: erroringSearcher{},
+		usageRecorder: &fakeUsageRecorder{},
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/kb/kb1/chat", strings.NewReader(`{"message": "und wer hat sie gebaut?", "chatId": "chat-1"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r = injectUser(r, "user1")
+	r.SetPathValue("id", "kb1")
+	// With no AI backend the turn dies in the query classifier, well after the
+	// history loads this test counts; the panic is that dead end, not the subject.
+	func() {
+		defer func() { _ = recover() }()
+		h.SendMessage(httptest.NewRecorder(), r)
+	}()
+
+	if store.loads != 1 {
+		t.Fatalf("history loads per turn: got %d, want 1", store.loads)
+	}
+}

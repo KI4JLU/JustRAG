@@ -1362,13 +1362,7 @@ func CondenseFollowUp(
 		return message, nil
 	}
 
-	history := make([]ai.ChatHistoryEntry, len(messages))
-	for i, m := range messages {
-		history[i] = ai.ChatHistoryEntry{
-			Role:    m.Role,
-			Content: m.Content,
-		}
-	}
+	history := condenseHistoryFromRows(messages)
 
 	return CondenseFromHistory(ctx, aiResolver, history, message, kbID, language, model)
 }
