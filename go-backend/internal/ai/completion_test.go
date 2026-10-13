@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -525,4 +526,57 @@ func TestChatUsage_CachedTokens(t *testing.T) {
 			t.Errorf("expected 0 when no cache hit reported, got %d", got)
 		}
 	})
+}
+
+func TestGenerateCompletion_NoRetryOnBadRequest(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		http.Error(w, `{"error":"context length exceeded"}`, http.StatusBadRequest)
+	})
+	_, err := GenerateCompletion(context.Background(), resolverForServer(srv, "m"), "Hi", "", "", false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("attempts = %d, want 1 (a 400 cannot succeed on retry)", got)
+	}
+}
+
+func TestGenerateCompletion_RetriesRateLimit(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			http.Error(w, `{"error":"slow down"}`, http.StatusTooManyRequests)
+			return
+		}
+		writeChatJSON(w, chatResponse("ok", ""))
+	})
+	res, err := GenerateCompletion(context.Background(), resolverForServer(srv, "m"), "Hi", "", "", false)
+	if err != nil || res.Content != "ok" {
+		t.Fatalf("got %v / %v, want ok after a 429 retry", res, err)
+	}
+}
+
+func TestGenerateCompletionStructured_SchemaRejectionDowngradesOnceWithoutBackoff(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
+	})
+	start := time.Now()
+	_, err := GenerateCompletionStructured(context.Background(), resolverForServer(srv, "m"), "Hi", "", "", "",
+		&StructuredSpec{Name: "x", Schema: json.RawMessage(`{"type":"object"}`)})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("attempts = %d, want 2 (strict, then one json_object downgrade)", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("took %v; a deterministic schema rejection must not wait for backoff", d)
+	}
 }

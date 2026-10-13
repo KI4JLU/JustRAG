@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -196,8 +197,9 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 	client := CachedClient(config.BaseURL, config.APIKey)
 
 	var lastErr error
+	skipBackoff := false
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
+		if attempt > 0 && !skipBackoff {
 			// time.NewTimer + t.Stop() instead of time.After: when ctx is
 			// cancelled mid-backoff, the timer goroutine is freed
 			// immediately rather than living for the remainder of the
@@ -213,6 +215,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 			}
 			backoff *= 2
 		}
+		skipBackoff = false
 
 		resp, err := client.ChatCompletion(ctx, req)
 		if err != nil {
@@ -228,6 +231,13 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 				logctx.From(ctx).Info("ai.structured.strict_schema_rejected_falling_back",
 					"error", err, "model", model)
 				req.ResponseFormat = &ResponseFormat{Type: "json_object"}
+				// A rejected schema is deterministic: try the looser
+				// contract straight away instead of after a backoff.
+				skipBackoff = !retryableCompletionError(err)
+				continue
+			}
+			if !retryableCompletionError(err) {
+				return nil, fmt.Errorf("ai: completion failed: %w", err)
 			}
 			continue
 		}
@@ -255,6 +265,17 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 	}
 
 	return nil, fmt.Errorf("ai: all %d attempts failed: %w", maxAttempts, lastErr)
+}
+
+// retryableCompletionError reports whether another attempt can succeed. A
+// 4xx other than 408/429 is deterministic (context too long, bad request,
+// unknown model): retrying it only adds the backoff to the turn.
+func retryableCompletionError(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 408 || apiErr.StatusCode == 429 || apiErr.StatusCode >= 500
+	}
+	return true // transport errors and timeouts
 }
 
 // extractReasoning checks multiple locations for reasoning content in priority
