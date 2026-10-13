@@ -80,6 +80,23 @@ func GenerateCompletionWithModel(ctx context.Context, resolver *ConfigResolver, 
 	return generateCompletionInner(ctx, config, prompt, systemPrompt, model, wantReasoning, 0.2)
 }
 
+// GenerateCompletionCapped is GenerateCompletionWithModel plus an output cap,
+// for the short helper calls on the chat path (condense, classifier,
+// follow-ups, factcheck). maxTokens 0 sends no cap.
+func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, prompt, systemPrompt, kbID, modelOverride string, maxTokens int) (*CompletionResult, error) {
+	config, err := resolver.Resolve(ctx, kbID)
+	if err != nil {
+		return nil, fmt.Errorf("ai: resolve config: %w", err)
+	}
+	model := config.EffectiveChatModel(modelOverride)
+	if modelOverride != "" && model != modelOverride {
+		observability.RecordModelFallback("not_in_chat_models")
+		slog.Warn("ai: model override not available in resolved config, falling back to ChatModel",
+			"modelOverride", modelOverride, "providerName", config.ProviderName, "fallback", config.ChatModel)
+	}
+	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
+}
+
 // GenerateCompletionWithModelDeterministic is like GenerateCompletionWithModel
 // but sets temperature=0 for deterministic judging/evaluation workflows.
 // An empty modelOverride or an override not in config.ChatModels falls back
@@ -134,7 +151,7 @@ func GenerateCompletionStructured(ctx context.Context, resolver *ConfigResolver,
 				"fallback", config.ChatModel)
 		}
 	}
-	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.0, spec)
+	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.0, spec, 0)
 }
 
 // structuredCompletionFn is the Structured-Outputs sibling of completionFn:
@@ -157,10 +174,10 @@ func generateCompletionInner(ctx context.Context, config *ResolvedConfig, prompt
 }
 
 func generateCompletionHistoryInner(ctx context.Context, config *ResolvedConfig, history []ChatHistoryEntry, prompt, systemPrompt, model string, wantReasoning bool, temperature float64) (*CompletionResult, error) {
-	return generateCompletionStructuredInner(ctx, config, history, prompt, systemPrompt, model, wantReasoning, temperature, nil)
+	return generateCompletionStructuredInner(ctx, config, history, prompt, systemPrompt, model, wantReasoning, temperature, nil, 0)
 }
 
-func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConfig, history []ChatHistoryEntry, prompt, systemPrompt, model string, wantReasoning bool, temperature float64, structured *StructuredSpec) (*CompletionResult, error) {
+func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConfig, history []ChatHistoryEntry, prompt, systemPrompt, model string, wantReasoning bool, temperature float64, structured *StructuredSpec, maxTokens int) (*CompletionResult, error) {
 	ctx, span := observability.StartGenerationSpan(ctx, "rag.llm_completion", observability.GenerationAttrs{
 		System: observability.ProviderSystemFromBaseURL(config.BaseURL),
 		Model:  model,
@@ -173,6 +190,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 		Model:       model,
 		Messages:    messages,
 		Temperature: &temperature,
+		MaxTokens:   maxTokens,
 	}
 	if structured != nil {
 		req.ResponseFormat = &ResponseFormat{

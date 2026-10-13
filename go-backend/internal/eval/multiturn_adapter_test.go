@@ -92,7 +92,7 @@ func TestMultiTurnAdapter_CondensesAndKeepsRaw(t *testing.T) {
 	orig := condenseFn
 	defer func() { condenseFn = orig }()
 	const condensedText = "Wer leitet das Stud.IP-Update?"
-	condenseFn = func(_ context.Context, _ *ai.ConfigResolver, _ []ai.ChatHistoryEntry, _, _, _ string) (string, error) {
+	condenseFn = func(_ context.Context, _ *ai.ConfigResolver, _ []ai.ChatHistoryEntry, _, _, _, _ string) (string, error) {
 		return condensedText, nil
 	}
 

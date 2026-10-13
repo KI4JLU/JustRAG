@@ -58,7 +58,7 @@ func TestCondenseFromHistory_ShortHistoryUnchanged(t *testing.T) {
 	resolver := condenseTestResolver(srv)
 
 	history := []ai.ChatHistoryEntry{{Role: "user", Content: "hi"}}
-	got, err := CondenseFromHistory(context.Background(), resolver, history, "follow up", "kb-1", "en")
+	got, err := CondenseFromHistory(context.Background(), resolver, history, "follow up", "kb-1", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCondenseFromHistory_EmptyHistoryUnchanged(t *testing.T) {
 	srv, calls := condenseTestServer(t, "should never be returned")
 	resolver := condenseTestResolver(srv)
 
-	got, err := CondenseFromHistory(context.Background(), resolver, nil, "follow up", "kb-1", "en")
+	got, err := CondenseFromHistory(context.Background(), resolver, nil, "follow up", "kb-1", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestCondenseFromHistory_NilResolverUnchanged(t *testing.T) {
 		{Role: "user", Content: "first"},
 		{Role: "assistant", Content: "second"},
 	}
-	got, err := CondenseFromHistory(context.Background(), nil, history, "follow up", "kb-1", "en")
+	got, err := CondenseFromHistory(context.Background(), nil, history, "follow up", "kb-1", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestCondenseFromHistory_LLMSuccess(t *testing.T) {
 		{Role: "user", Content: "Wer leitet den Workshop?"},
 		{Role: "assistant", Content: "Dr. Müller leitet den Workshop."},
 	}
-	got, err := CondenseFromHistory(context.Background(), resolver, history, "und wann?", "kb-1", "de")
+	got, err := CondenseFromHistory(context.Background(), resolver, history, "und wann?", "kb-1", "de", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestCondenseFromHistory_LLMErrorUnchanged(t *testing.T) {
 		{Role: "user", Content: "Wer leitet den Workshop?"},
 		{Role: "assistant", Content: "Dr. Müller leitet den Workshop."},
 	}
-	got, err := CondenseFromHistory(ctx, resolver, history, "und wann?", "kb-1", "de")
+	got, err := CondenseFromHistory(ctx, resolver, history, "und wann?", "kb-1", "de", "")
 	if err != nil {
 		t.Fatalf("expected fail-open (nil error), got %v", err)
 	}

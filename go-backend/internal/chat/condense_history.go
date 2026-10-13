@@ -26,13 +26,13 @@ func CondenseFromHistory(
 	ctx context.Context,
 	aiResolver *ai.ConfigResolver,
 	history []ai.ChatHistoryEntry,
-	message, kbID, language string,
+	message, kbID, language, model string,
 ) (string, error) {
 	if aiResolver == nil || len(history) < 2 {
 		return message, nil
 	}
 
-	condensed, err := ai.CondenseQuestion(ctx, aiResolver, historyWindow(history), message, kbID, language)
+	condensed, err := ai.CondenseQuestion(ctx, aiResolver, historyWindow(history), message, kbID, language, model)
 	if err != nil {
 		// Fail open.
 		return message, nil

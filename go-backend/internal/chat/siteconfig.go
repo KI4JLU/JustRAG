@@ -2002,3 +2002,25 @@ func ChatAnswerToolsByRoute(ctx context.Context, reader SiteConfigReader) chatpo
 	}
 	return m
 }
+
+// Fast-tier models for the chat-path helper calls. Empty means the KB's main
+// chat model (the pre-2026-10 behaviour when no tier key is set).
+func ChatCondenseModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_condense_model")
+}
+
+func ChatClassifyModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_classify_model")
+}
+
+func ChatFollowUpsModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_followups_model")
+}
+
+func FactcheckModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "factcheck_model")
+}
+
+func ChatEnumerationModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_enumeration_model")
+}

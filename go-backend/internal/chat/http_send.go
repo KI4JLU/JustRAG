@@ -338,7 +338,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// whole-chat fallback — see the convRows note above.
 	searchQuery := body.Message
 	if anchor.Regenerate == nil || anchor.Regenerate.HistoryParentID != nil {
-		searchQuery, _ = CondenseFollowUp(ctx, h.aiResolver, h.store, chatID, parentMsgID, body.Message, kbID, lang)
+		searchQuery, _ = CondenseFollowUp(ctx, h.aiResolver, h.store, chatID, parentMsgID, body.Message, kbID, lang, ChatCondenseModel(ctx, h.siteConfigReader))
 	}
 	rawQuery := RawQueryForRetrieval(ChatCondenseKeepRawEnabled(ctx, h.siteConfigReader), body.Message, searchQuery)
 

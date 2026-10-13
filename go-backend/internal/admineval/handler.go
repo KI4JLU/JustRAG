@@ -214,6 +214,14 @@ var snapshotConfigKeys = []string{
 	"chat_conflict_model",
 	"chat_conflict_max_chunks",
 	"chat_conflict_timeout_ms",
+	// Chat-path helper calls (condense, classifier, follow-ups, factcheck,
+	// enumeration) resolve through the fast-tier chain; snapshot the per-task
+	// keys so an eval re-run after changing one isn't stale.
+	"chat_condense_model",
+	"chat_classify_model",
+	"chat_followups_model",
+	"factcheck_model",
+	"chat_enumeration_model",
 	// Wave-5 Task 7 degenerate-answer guard. Global-only (no registry
 	// entry), but it can truncate an answer, so a snapshotted eval run has
 	// to record the limit that was in force.

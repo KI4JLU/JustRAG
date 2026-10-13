@@ -459,7 +459,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// ------------------------------------------------------------------
 	searchQuery := lastUserMessage
 	if len(history) >= 2 {
-		condensed, err := ai.CondenseQuestion(ctx, h.aiResolver, history, lastUserMessage, kbID, "en")
+		condensed, err := ai.CondenseQuestion(ctx, h.aiResolver, history, lastUserMessage, kbID, "en", "")
 		if err == nil && condensed != "" {
 			searchQuery = condensed
 		}

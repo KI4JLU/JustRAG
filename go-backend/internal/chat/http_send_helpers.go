@@ -218,7 +218,7 @@ func (h *Handler) classifyQuery(ctx context.Context, searchQuery, enhance, kbID,
 			heuristicVerdictName = "unknown"
 		}
 		if hv != ai.ComplexitySimple {
-			isComplex, classifyErr := ai.ClassifyQueryComplexity(ctx, h.aiResolver, searchQuery, kbID, lang)
+			isComplex, classifyErr := ai.ClassifyQueryComplexity(ctx, h.aiResolver, searchQuery, kbID, lang, ChatClassifyModel(ctx, h.siteConfigReader))
 			switch {
 			case classifyErr != nil:
 				llmComplexityVerdict = "error"

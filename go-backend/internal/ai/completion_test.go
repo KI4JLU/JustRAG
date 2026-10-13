@@ -580,3 +580,60 @@ func TestGenerateCompletionStructured_SchemaRejectionDowngradesOnceWithoutBackof
 		t.Fatalf("took %v; a deterministic schema rejection must not wait for backoff", d)
 	}
 }
+
+func TestGenerateCompletionCapped_SendsMaxTokensAndModel(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeChatJSON(w, chatResponse("ok", ""))
+	})
+	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main", "fast"), "q", "s", "", "fast", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["model"] != "fast" || body["max_tokens"] != float64(64) {
+		t.Fatalf("request model=%v max_tokens=%v, want fast/64", body["model"], body["max_tokens"])
+	}
+}
+
+func TestGenerateCompletionCapped_UnknownModelFallsBackToMain(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeChatJSON(w, chatResponse("ok", ""))
+	})
+	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "not-listed", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["model"] != "main" {
+		t.Fatalf("model = %v, want main", body["model"])
+	}
+	if _, ok := body["max_tokens"]; ok {
+		t.Fatal("max_tokens 0 must be omitted")
+	}
+}
+
+func TestClassifyQueryComplexity_TruncatedJSONIsSimple(t *testing.T) {
+	t.Parallel()
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeChatJSON(w, chatResponse(`{"isComple`, ""))
+	})
+	got, err := ClassifyQueryComplexity(context.Background(), resolverForServer(srv, "main"), "q", "", "de", "")
+	if err != nil || got {
+		t.Fatalf("got %v / %v, want false / nil", got, err)
+	}
+}
+
+func TestCheckFacts_TruncatedJSONFailsSoft(t *testing.T) {
+	t.Parallel()
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeChatJSON(w, chatResponse(`{"verified": true, "score": 9`, ""))
+	})
+	res := CheckFacts(context.Background(), resolverForServer(srv, "main"), "q", "a", "ctx", "", "de", "")
+	if res == nil || res.Verified {
+		t.Fatalf("CheckFacts must fail soft to unverified, got %+v", res)
+	}
+}

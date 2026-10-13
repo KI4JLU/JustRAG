@@ -89,7 +89,8 @@ func (m *MultiTurnAdapter) Search(ctx context.Context, q Question, k int) ([]Ret
 
 	condensedQuery := q.Question
 	if len(q.History) > 0 {
-		condensedQuery, _ = condenseFn(ctx, m.aiResolver, toAIHistory(q.History), q.Question, q.KbID, q.Language)
+		// eval keeps the main model until the eval adapter gains a site-config reader
+		condensedQuery, _ = condenseFn(ctx, m.aiResolver, toAIHistory(q.History), q.Question, q.KbID, q.Language, "")
 	}
 	m.recordCondensed(q.ID, condensedQuery)
 

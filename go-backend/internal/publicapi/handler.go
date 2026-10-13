@@ -447,7 +447,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// the message insert. Treating it as absent falls back to full-chat history.
 	parentMsgID := chat.SanitizeParentMessageID(body.ParentMessageID)
 
-	searchQuery, _ := chat.CondenseFollowUp(ctx, h.aiResolver, chatStoreAdapter{h.store}, chatID, parentMsgID, body.Message, kbID, lang)
+	searchQuery, _ := chat.CondenseFollowUp(ctx, h.aiResolver, chatStoreAdapter{h.store}, chatID, parentMsgID, body.Message, kbID, lang, "")
 
 	// ------------------------------------------------------------------
 	// 6. Prepare chat context (RAG pipeline)
@@ -613,7 +613,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 		writeSSE(w, map[string]string{"aiMessageId": aiMsg.ID})
 
-		followUps, _ := ai.GenerateFollowUpQuestions(ctx, h.aiResolver, body.Message, fullResponse, kbID, lang)
+		followUps, _ := ai.GenerateFollowUpQuestions(ctx, h.aiResolver, body.Message, fullResponse, kbID, lang, "")
 		if len(followUps) > 0 {
 			writeSSE(w, map[string]any{"followUpQuestions": followUps})
 		}
@@ -654,7 +654,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	followUps, _ := ai.GenerateFollowUpQuestions(ctx, h.aiResolver, body.Message, result.Content, kbID, lang)
+	followUps, _ := ai.GenerateFollowUpQuestions(ctx, h.aiResolver, body.Message, result.Content, kbID, lang, "")
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{
 		"answer":            result.Content,

@@ -130,14 +130,14 @@ func (h *Handler) runPostResponseTasks(
 	wg.Add(1)
 	safego.GoCtx(ctx, func() {
 		defer wg.Done()
-		fuRes.followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, kbID, lang)
+		fuRes.followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, kbID, lang, ChatFollowUpsModel(ctx, h.siteConfigReader))
 	})
 
 	if FactcheckEnabled(ctx, h.siteConfigReader) {
 		wg.Add(1)
 		safego.GoCtx(ctx, func() {
 			defer wg.Done()
-			fcRes.result = ai.CheckFacts(ctx, h.aiResolver, userMessage, aiResponse, contextText, kbID, lang)
+			fcRes.result = ai.CheckFacts(ctx, h.aiResolver, userMessage, aiResponse, contextText, kbID, lang, FactcheckModel(ctx, h.siteConfigReader))
 		})
 	}
 
@@ -520,7 +520,7 @@ func (h *Handler) runLibraryPostResponseTasks(
 	wg.Add(1)
 	safego.GoCtx(ctx, func() {
 		defer wg.Done()
-		followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, "", lang)
+		followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, "", lang, ChatFollowUpsModel(ctx, h.siteConfigReader))
 	})
 	if CitationValidationEnabled(ctx, h.siteConfigReader) {
 		wg.Add(1)

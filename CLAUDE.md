@@ -366,9 +366,9 @@ Mutual exclusions and ordering gotchas (e.g. `chat_self_rag_enabled` REPLACES `c
 
 ## Model tier resolution
 
-Cost-optimization knob orthogonal to the feature recipes above. Each fast-tier task (CRAG grader, KG extractor, contextual enricher, factuality verifier, Self-RAG verifier, DAG critic, longmem extractor, KB router, RAPTOR summariser, **query decomposer (T1-1), longmem conflict classifier (T1-3), evidentiality classifier (T2-3), HyPE question generator, golden-set question generator, DRIFT follow-up generator, starter-question generator**) resolves its model in this chain (first non-empty wins; the starter-question generator has no per-task key and starts at step 2):
+Cost-optimization knob orthogonal to the feature recipes above. Each fast-tier task (CRAG grader, KG extractor, contextual enricher, factuality verifier, Self-RAG verifier, DAG critic, longmem extractor, KB router, RAPTOR summariser, **query decomposer (T1-1), longmem conflict classifier (T1-3), evidentiality classifier (T2-3), HyPE question generator, golden-set question generator, DRIFT follow-up generator, starter-question generator, chat condense, complexity classifier, follow-up generator, chat factcheck, enumeration extractor**) resolves its model in this chain (first non-empty wins; the starter-question generator has no per-task key and starts at step 2):
 
-1. The task's per-task site_config key (e.g. `crag_grader_model`, `kg_extraction_model`, `query_decompose_model`, `chat_longmem_conflict_model`, `chat_context_compression_model`, `hype_model`, `chat_drift_model`)
+1. The task's per-task site_config key (e.g. `crag_grader_model`, `kg_extraction_model`, `query_decompose_model`, `chat_longmem_conflict_model`, `chat_context_compression_model`, `hype_model`, `chat_drift_model`, `chat_condense_model`, `chat_classify_model`, `chat_followups_model`, `factcheck_model`, `chat_enumeration_model`)
 2. `model_tier_fast` — deployment-wide fast-tier default
 3. The KB's default chat model (legacy fallback)
 

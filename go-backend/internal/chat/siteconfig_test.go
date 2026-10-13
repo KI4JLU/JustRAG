@@ -69,3 +69,25 @@ func TestChatDriftReaders_SetAndOutOfRange(t *testing.T) {
 		t.Errorf("search_top_k: want 12, got %d", got)
 	}
 }
+
+func TestHelperModelReaders_FallThroughFastTier(t *testing.T) {
+	ctx := context.Background()
+	r := &fakeSiteConfigReader{values: map[string]*string{
+		"model_tier_fast":     strPtr("fast"),
+		"chat_classify_model": strPtr("tiny"),
+	}}
+	if got := ChatClassifyModel(ctx, r); got != "tiny" {
+		t.Errorf("classify = %q, want per-task key", got)
+	}
+	for name, fn := range map[string]func(context.Context, SiteConfigReader) string{
+		"condense": ChatCondenseModel, "followups": ChatFollowUpsModel,
+		"factcheck": FactcheckModel, "enumeration": ChatEnumerationModel,
+	} {
+		if got := fn(ctx, r); got != "fast" {
+			t.Errorf("%s = %q, want model_tier_fast", name, got)
+		}
+	}
+	if got := ChatCondenseModel(ctx, &fakeSiteConfigReader{values: map[string]*string{}}); got != "" {
+		t.Errorf("unset = %q, want empty (main model)", got)
+	}
+}

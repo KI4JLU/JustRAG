@@ -1256,7 +1256,7 @@ func PrepareChatContext(
 			ctx, aiResolver,
 			params.SearchQuery, contextText,
 			params.KbID, params.Language,
-			"", // modelOverride — use KB's chat model
+			ChatEnumerationModel(ctx, siteConfig), // fast-tier chain; empty = KB chat model
 			preSeeded,
 			seedMeta,
 		)
@@ -1341,7 +1341,7 @@ func CondenseFollowUp(
 	store Store,
 	chatID string,
 	parentMessageID *string,
-	message, kbID, language string,
+	message, kbID, language, model string,
 ) (string, error) {
 	var messages []MessageRow
 	var err error
@@ -1370,5 +1370,5 @@ func CondenseFollowUp(
 		}
 	}
 
-	return CondenseFromHistory(ctx, aiResolver, history, message, kbID, language)
+	return CondenseFromHistory(ctx, aiResolver, history, message, kbID, language, model)
 }

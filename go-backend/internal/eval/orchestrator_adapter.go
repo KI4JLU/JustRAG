@@ -37,7 +37,8 @@ func ClassifyQueryTypeForEval(ctx context.Context, resolver *ai.ConfigResolver, 
 	complexFromLLM := false
 	if hv := ai.HeuristicComplexity(query); hv != ai.ComplexitySimple {
 		if resolver != nil {
-			if isComplex, err := ai.ClassifyQueryComplexity(ctx, resolver, query, kbID, lang); err == nil && isComplex {
+			// eval keeps the main model until the eval adapter gains a site-config reader
+			if isComplex, err := ai.ClassifyQueryComplexity(ctx, resolver, query, kbID, lang, ""); err == nil && isComplex {
 				complexFromLLM = true
 			}
 		}

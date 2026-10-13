@@ -10,6 +10,12 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## Unreleased
+
+### ⚠ Upgrade notes
+
+- Chat-path helper calls (condense, complexity classifier, follow-ups, factcheck, enumeration extraction) now resolve through the fast-tier chain (`chat_condense_model`, `chat_classify_model`, `chat_followups_model`, `factcheck_model`, `chat_enumeration_model` → `model_tier_fast` → main model) and carry a `max_tokens` cap. **If `model_tier_fast` is set, these calls move to that model on deploy.** Pin one back with its per-task key = the main model name.
+
 ## v0.12.0 — 2026-10-12
 
 ### ⚠ Upgrade notes
