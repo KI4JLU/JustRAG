@@ -48,10 +48,12 @@ export function useKbLifecycle({
     }
   }, [currentKb, fetchFiles, fetchChats, fetchGeneratedContent, fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo]);
 
-  // ESC handler
+  // ESC handler. An Escape something inside the modal already handled — an
+  // open Select or ⋮ menu closing itself (Radix marks it defaultPrevented) —
+  // must not close the modal around it as well.
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         if (showShareModal) setShowShareModal(false);
         if (showSettings) setShowSettings(false);
       }

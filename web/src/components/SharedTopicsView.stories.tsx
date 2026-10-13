@@ -480,12 +480,10 @@ export const ShareDialogOpensFromASharedKb: Story = {
     await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
     await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
+      await expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
-    await expect(canvas.getByRole('dialog')).toHaveAttribute(
-      'aria-labelledby',
-      'members-modal-title',
-    );
+    // ORACLE: the dialog's accessible name is its DialogTitle (WAI-ARIA dialog).
+    await expect(screen.getByRole('dialog', { name: 'Mitglieder' })).toBeInTheDocument();
 
     // ORACLE: the parent's spy. The share click must not also open the KB —
     // the `e.stopPropagation()` in the production hook is what decides that.
