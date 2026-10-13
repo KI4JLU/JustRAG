@@ -252,6 +252,9 @@ var snapshotConfigKeys = []string{
 	// could exercise. See the comment in internal/siteconfig/registry.go.
 	"chat_answer_tools_enabled",
 	"chat_answer_tools_max_rounds",
+	// Transport-only (SSE early open): no eval path branches on it, captured
+	// because snapshot_registry_test.go requires every registry key.
+	"chat_sse_early_open_enabled",
 	// workflow_preset (kb-workflow-editor Phase 5 Task 2; cross-checked by
 	// snapshot_registry_test.go like the blocks above). A pure marker of
 	// which preset a KB was based on — no eval code branches on it — but the

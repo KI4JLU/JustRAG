@@ -290,6 +290,9 @@ var ignoredKeys = map[string]string{
 	"chat_answer_history_max_chars":   "tuning knob for the answer-time conversation-history correctness fix",
 	"chat_transform_followup_enabled": "retrieval-free reformat follow-ups, default-on correctness/UX kill switch, not a retrieval/answer pipeline stage",
 
+	// Transport, not a stage: when to send the SSE headers of a streamed turn.
+	"chat_sse_early_open_enabled": "opens the SSE response before retrieval and streams progress live; changes no retrieval or answer stage",
+
 	// Generation-layer safety guard, not a pipeline stage: it watches the
 	// answer stream for a runaway repetition and aborts the completion. It
 	// is global-only (a model failure mode, not a per-KB trade-off), so it

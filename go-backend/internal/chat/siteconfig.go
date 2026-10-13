@@ -1888,6 +1888,16 @@ func AgentTeamRouterModel(ctx context.Context, reader SiteConfigReader) string {
 	return ResolveFastTierModel(ctx, reader, "agent_team_router_model")
 }
 
+// ChatSSEEarlyOpenEnabled opens a streamed SendMessage turn's SSE response
+// before the pre-answer pipeline (condense, classify, retrieval) runs: headers
+// plus a `: open` comment go out at once, a `: ping` comment every
+// sseHeartbeatInterval keeps proxies and the FE idle watchdog fed, and
+// trajectory events stream live. Per-KB, default off. Tunable via
+// "chat_sse_early_open_enabled".
+func ChatSSEEarlyOpenEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_sse_early_open_enabled", false)
+}
+
 // ChatCondenseKeepRawEnabled gates the rewrite ⊕ raw retrieval lane: when a
 // follow-up was condensed (CondenseFollowUp), the user's verbatim utterance
 // is searched as an extra RRF list on both arms (vector.SearchOptions.RawQuery).

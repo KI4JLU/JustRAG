@@ -535,6 +535,10 @@ func (h *Handler) resolveGraphRouting(ctx context.Context, kbID, searchQuery, qu
 // the alternative — a 12-argument function — obscures the per-call
 // pipeline data the writers need.
 type chatResponseParams struct {
+	// turn is the early-opened SSE stream (chat_sse_early_open_enabled), nil
+	// otherwise. writeStreamingResponse hands it off before its first write
+	// and skips the bufferedTrajectory replay, which already went out live.
+	turn               *sseTurn
 	span               trace.Span
 	chatID             string
 	kbID               string
@@ -713,6 +717,11 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// Freshness dates for the cited files (one batch query, fail-soft).
 	// Runs before the `sources` frame below AND before the AddMessage that
 	// persists the same slice, so the SSE payload and messages.sources agree.
+	// Early-opened turn: stop the heartbeat before the first write below.
+	// EnableSSE then only re-sets header-map entries that are no longer sent
+	// and re-arms the write deadline (no WriteHeader, no bytes).
+	p.turn.handOff()
+
 	h.enrichResponseSources(ctx, p)
 	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
@@ -731,9 +740,12 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 
 	// Replay any trajectory events that were buffered during
 	// PrepareChatContext (CRAG branch decisions, etc.) so the
-	// frontend's reasoning panel sees them in order.
-	for _, evt := range p.bufferedTrajectory {
-		writeSSE(ctx, w, evt)
+	// frontend's reasoning panel sees them in order. An early-opened turn
+	// already streamed them live.
+	if p.turn == nil {
+		for _, evt := range p.bufferedTrajectory {
+			writeSSE(ctx, w, evt)
+		}
 	}
 
 	// Stream AI completion. Mirror the tryDeepChat branch's conditional

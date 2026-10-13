@@ -334,6 +334,18 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// chat_sse_early_open_enabled: headers + a heartbeat go out now, so the
+	// client sees bytes during condense/classify/retrieval, and progress
+	// events stream live instead of being replayed after retrieval. Every
+	// validation error (4xx) is decided above this line; the two late errors
+	// below end the open stream with an error frame + [DONE] instead of an
+	// HTTP 500. The deferred handOff backs up the explicit ones (idempotent).
+	var turn *sseTurn
+	if streamMode && ChatSSEEarlyOpenEnabled(ctx, h.siteConfigReader) {
+		turn = openSSETurn(ctx, w, sseHeartbeatInterval)
+		defer turn.handOff()
+	}
+
 	// Condensing needs a preceding turn. A regenerate at the start of a chat
 	// has none (convRows is empty there, so condense would be a no-op anyway).
 	searchQuery := body.Message
@@ -412,7 +424,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	deepChatAttempted := false
 	if shouldTryDeepChat(isComplex, runCompare, teamSel != nil, streamMode, turnPol) {
 		deepChatAttempted = true
-		if handled := h.tryDeepChat(ctx, w, r, chatID, kbID, lang, dateLine, searchQuery, rawQuery, cls.QueryType, kbSystemPrompt, reasoningLevel, body, anchor, graphDec, graphChunkIDs, bridgeChunks, answerHistory, teamSel, teamSelReason, turnPol); handled {
+		if handled := h.tryDeepChat(ctx, w, r, chatID, kbID, lang, dateLine, searchQuery, rawQuery, cls.QueryType, kbSystemPrompt, reasoningLevel, body, anchor, graphDec, graphChunkIDs, bridgeChunks, answerHistory, teamSel, teamSelReason, turnPol, turn); handled {
 			return
 		}
 		// Deep chat failed — fall through to standard path.
@@ -439,12 +451,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// SSE headers are not yet written, so they have to be replayed
 	// later (mirror the tryDeepChat buffer-and-replay pattern). When
 	// streamMode is false collectEmit stays nil so the helper short-
-	// circuits and the slice never allocates.
+	// circuits and the slice never allocates. On an early-opened turn the
+	// events go out live as well; the buffer is still kept because
+	// recordStandardPathDecision derives the agent_decisions outcome from it,
+	// and writeStreamingResponse skips the replay (p.turn != nil).
 	var bufferedTrajectory []map[string]any
 	var collectEmit func(data map[string]any)
 	if streamMode {
 		collectEmit = func(data map[string]any) {
 			bufferedTrajectory = append(bufferedTrajectory, data)
+			turn.emit(data)
 		}
 	}
 	if policyFellThrough {
@@ -500,6 +516,12 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	chatCtx, err := PrepareChatContext(ctx, h.aiResolver, h.searchService, h.siteConfigReader, params)
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: prepare context", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
+		if turn != nil {
+			turn.handOff()
+			writeSSE(ctx, w, map[string]string{"error": "failed to prepare context"})
+			writeSSEDone(ctx, w)
+			return
+		}
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to prepare context")
 		return
 	}
@@ -519,11 +541,18 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}, anchor)
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save user message", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
+		if turn != nil {
+			turn.handOff()
+			writeSSE(ctx, w, map[string]string{"error": "failed to save user message"})
+			writeSSEDone(ctx, w)
+			return
+		}
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to save user message")
 		return
 	}
 
 	rp := chatResponseParams{
+		turn:               turn,
 		span:               span,
 		chatID:             chatID,
 		kbID:               kbID,
@@ -701,6 +730,7 @@ func (h *Handler) tryDeepChat(
 	teamSel *teamSelection,
 	teamSelReason string,
 	turnPol turnPolicy,
+	turn *sseTurn,
 ) bool {
 	ctx, span := observability.Tracer().Start(ctx, "chat.deep_chat")
 	defer span.End()
@@ -733,9 +763,15 @@ func (h *Handler) tryDeepChat(
 
 	// Build an emit function that buffers events until SSE headers are set.
 	// We'll collect progress events and replay them once we commit to SSE.
+	// On an early-opened turn (turn != nil) they also stream live and the
+	// replay below is skipped; the buffer stays because finishDeepChatAnswer
+	// derives the agent_decisions outcome from it. Events of an orchestrator
+	// that then fails and falls through stay visible on that path — they
+	// were already sent, where the buffered path drops them.
 	var progressEvents []map[string]any
 	collectEmit := func(data map[string]any) {
 		progressEvents = append(progressEvents, data)
+		turn.emit(data)
 	}
 
 	// Surface a silent team-selection degradation: the user explicitly picked
@@ -1247,6 +1283,13 @@ func (h *Handler) tryDeepChat(
 		return false
 	}
 
+	// From here on this function writes the stream itself: stop the
+	// early-open heartbeat first (no-op when the flag is off). EnableSSE
+	// only sets header-map entries and the write deadline — it neither
+	// calls WriteHeader nor writes bytes — so it is harmless on a stream
+	// that is already open.
+	turn.handOff()
+
 	// Set SSE headers + opt out of the server-wide WriteTimeout.
 	httputil.EnableSSE(w)
 
@@ -1257,9 +1300,12 @@ func (h *Handler) tryDeepChat(
 		}
 	}()
 
-	// Replay buffered progress events.
-	for _, evt := range progressEvents {
-		writeSSE(ctx, w, evt)
+	// Replay buffered progress events (already sent live on an early-opened
+	// turn).
+	if turn == nil {
+		for _, evt := range progressEvents {
+			writeSSE(ctx, w, evt)
+		}
 	}
 
 	// Send initial metadata.

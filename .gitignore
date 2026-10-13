@@ -31,6 +31,7 @@ e2e/.auth/
 /docs/api-contracts/*
 !/docs/api-contracts/user-file-library.md
 !/docs/api-contracts/agent-chat.md
+!/docs/api-contracts/chat-sse-early-open.md
 !/docs/runbooks/
 /docs/runbooks/*
 !/docs/runbooks/hnsw-reindex.md

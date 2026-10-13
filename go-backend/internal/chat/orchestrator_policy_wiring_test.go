@@ -58,7 +58,7 @@ func runPolicyWiringTurn(t *testing.T, h *Handler, queryType string) string {
 	tp := h.resolveTurnPolicy(wiringCtx("u1"), "kb1", queryType, "Welche Themen dominieren?", "de", body, nil)
 	handled := h.tryDeepChat(wiringCtx("u1"), w, r, "chat1", "kb1", "de", "",
 		"Welche Themen dominieren?", "", queryType, "", "",
-		body, turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, nil, "", tp)
+		body, turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, nil, "", tp, nil)
 	if !handled {
 		t.Fatalf("tryDeepChat did not handle the turn; body: %s", w.Body.String())
 	}
