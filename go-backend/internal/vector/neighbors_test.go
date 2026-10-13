@@ -3,8 +3,10 @@ package vector
 import (
 	"context"
 	"encoding/json"
-
+	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // stubNeighborFetcher returns pre-configured rows keyed by fileID + chunkIndex.
@@ -242,3 +244,75 @@ func TestExpandNeighbors_NilFetcher(t *testing.T) {
 
 // Ensure the stub satisfies the interface.
 var _ NeighborFetcher = (*stubNeighborFetcher)(nil)
+
+type slowNeighborFetcher struct {
+	delay    time.Duration
+	inflight atomic.Int32
+	peak     atomic.Int32
+}
+
+func (s *slowNeighborFetcher) FetchChunksByIndices(
+	ctx context.Context, tableName, kbID, fileID string, indices []int,
+) ([]rawRow, error) {
+	n := s.inflight.Add(1)
+	defer s.inflight.Add(-1)
+	for {
+		p := s.peak.Load()
+		if n <= p || s.peak.CompareAndSwap(p, n) {
+			break
+		}
+	}
+	time.Sleep(s.delay)
+	return nil, nil
+}
+
+func TestExpandNeighbors_FetchesFilesConcurrently(t *testing.T) {
+	f := &slowNeighborFetcher{delay: 50 * time.Millisecond}
+	chunks := make([]SearchChunk, 4)
+	for i := range chunks {
+		chunks[i] = SearchChunk{
+			ID: fmt.Sprintf("c%d", i), FileID: fmt.Sprintf("f%d", i),
+			Metadata: map[string]any{"chunkIndex": float64(5), "totalChunks": float64(10)},
+		}
+	}
+	start := time.Now()
+	_ = ExpandNeighbors(context.Background(), chunks, 1, f, "t", "kb")
+	if d := time.Since(start); d > 150*time.Millisecond {
+		t.Fatalf("took %v for 4 files; fetches are still sequential", d)
+	}
+	if f.peak.Load() < 2 {
+		t.Fatalf("peak concurrent fetches = %d, want >= 2", f.peak.Load())
+	}
+}
+
+func TestExpandNeighbors_ParallelOutputMatchesExpected(t *testing.T) {
+	rows := func(contents ...string) map[int]rawRow {
+		m := map[int]rawRow{}
+		for i, c := range contents {
+			m[i] = rawRow{Content: c, Metadata: makeMetadata(i, len(contents), nil)}
+		}
+		return m
+	}
+	f := &stubNeighborFetcher{chunks: map[string]map[int]rawRow{
+		"a": rows("a0", "a1", "a2", "a3", "a4"),
+		"b": rows("b0", "b1", "b2", "b3", "b4"),
+	}}
+	mk := func(id, file, content string, idx int) SearchChunk {
+		return SearchChunk{ID: id, FileID: file, Content: content,
+			Metadata: map[string]any{"chunkIndex": float64(idx), "totalChunks": float64(5)}}
+	}
+	chunks := []SearchChunk{
+		mk("1", "a", "a1", 1), mk("2", "b", "b3", 3), mk("3", "a", "a2", 2), mk("4", "b", "b1", 1),
+	}
+	want := []string{
+		"a0\n\na1\n\na2", "b2\n\nb3\n\nb4", "a1\n\na2\n\na3", "b0\n\nb1\n\nb2",
+	}
+	for run := 0; run < 20; run++ {
+		got := ExpandNeighbors(context.Background(), chunks, 1, f, "t", "kb")
+		for i := range want {
+			if got[i].ID != chunks[i].ID || got[i].Content != want[i] {
+				t.Fatalf("run %d chunk %d: got %q (id %s), want %q", run, i, got[i].Content, got[i].ID, want[i])
+			}
+		}
+	}
+}
