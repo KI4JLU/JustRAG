@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
-import { AtSign, ChevronLeft, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
+import { AtSign, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
 import {
-    ActionMenu, Avatar, Badge, Button, Combobox, ComboboxChip, ComboboxChipsInput, ComboboxContent, ComboboxItem,
+    ActionMenu, Avatar, Badge, BreadcrumbBack, Button, Combobox, ComboboxChip, ComboboxChipsInput, ComboboxContent, ComboboxItem,
     ComboboxList, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger,
     type ActionMenuItem, type ComboboxChipTone,
@@ -551,15 +551,17 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                     </>
                 ) : (
                     <>
-                        <div className="flex items-start gap-2 pr-10">
-                            <Button variant="ghost" size="icon" onClick={() => setView('members')} aria-label={t('back')}>
-                                <ChevronLeft className="size-5" aria-hidden="true" />
-                            </Button>
-                            <DialogHeader className="min-w-0 flex-1">
-                                <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
-                                <DialogTitle>{t('addMembers')}</DialogTitle>
-                            </DialogHeader>
-                        </div>
+                        {/* Back navigation is a breadcrumb above the title, the default
+                            for every sub-view (developer, 2026-10-13); "Abbrechen" and
+                            "Fertig" also return to the list, only the ✕ closes. */}
+                        <DialogHeader className="min-w-0 pr-10">
+                            <BreadcrumbBack
+                                trail={[sharingKb?.name ?? '', t('members')].filter(Boolean)}
+                                labels={{ nav: t('breadcrumbNav'), back: t('backTo') }}
+                                onClick={() => setView('members')}
+                            />
+                            <DialogTitle>{t('addMembers')}</DialogTitle>
+                        </DialogHeader>
 
                         <Tabs value={addTab} onValueChange={(v) => {
                             setAddTab(v as typeof addTab);
@@ -740,7 +742,10 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                                                 >
                                                                     {link.redemptionCount === 0
                                                                         ? t('inviteLinkNeverUsed')
-                                                                        : t('inviteLinkUsedTimes').replace('{count}', String(link.redemptionCount))}
+                                                                        : link.redemptionCount === 1
+                                                                            ? t('inviteLinkUsedOnce')
+                                                                            // The count is people, not visits (backend: kb_invite_link_redemptions).
+                                                                            : t('inviteLinkUsedTimes').replace('{count}', String(link.redemptionCount))}
                                                                 </div>
                                                             </div>
                                                             <Button variant="outline" size="sm" onClick={() => handleCopyInviteLink(link)} aria-label={`${t('copy')}: ${title}`}>

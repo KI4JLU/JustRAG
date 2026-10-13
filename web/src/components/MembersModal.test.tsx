@@ -224,13 +224,27 @@ describe('MembersModal — add by username', () => {
   const chipTexts = () => within(screen.getByRole('list', { name: 'selectedPeople' }))
     .getAllByRole('listitem').map(li => li.textContent);
 
-  it('goes to the add view and back', async () => {
+  it('goes to the add view and back through the breadcrumb', async () => {
     renderModal();
     await openAddView();
     expect(screen.getByRole('tab', { name: 'byUsername' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('member-row-u1')).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: 'back' }));
+    // ORACLE: the breadcrumb names the parent level — the KB, then the member list.
+    const back = within(screen.getByRole('navigation', { name: 'breadcrumbNav' }))
+      .getByRole('button', { name: 'backTo Test KB, members' });
+    await userEvent.click(back);
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
+  });
+
+  // ORACLE: the developer's rule (2026-10-13) — "Abbrechen" returns to the list,
+  // it does not close the dialog; only the ✕ does.
+  it('returns to the member list with Abbrechen, without closing the dialog', async () => {
+    const onClose = vi.fn();
+    render(<MembersModal show onClose={onClose} sharingKb={kb} myRole="owner" />);
+    await openAddView();
+    await userEvent.click(screen.getByRole('button', { name: 'cancel' }));
+    expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   // ORACLE: the directory fixture above — which names have accounts, which is a
@@ -404,11 +418,13 @@ describe('MembersModal — invite links', () => {
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('clipboardCopyFailed'));
   });
 
-  it('returns to the member list with Done', async () => {
+  it('returns to the member list with Done, without closing the dialog', async () => {
     mockGets();
-    renderModal();
+    const onClose = vi.fn();
+    render(<MembersModal show onClose={onClose} sharingKb={kb} myRole="owner" />);
     await openLinks();
     await userEvent.click(screen.getByRole('button', { name: 'done' }));
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
