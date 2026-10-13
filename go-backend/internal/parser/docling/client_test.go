@@ -1169,3 +1169,22 @@ func TestClient_Probe_ReportsAMissingFormulaModel(t *testing.T) {
 		t.Errorf("probe must not retry, saw %d requests", len(*seen))
 	}
 }
+
+// docling-serve's validation errors (FastAPI 422) echo the rejected input,
+// and picture_description_api carries the model API key as an Authorization
+// header. The status error lands in the worker log and, without a fallback
+// parser, in the caller's error. ORACLE: the key string is gone from it.
+func TestStatusError_RedactsEchoedAPIKey(t *testing.T) {
+	const key = "sk-TestOnly0123456789abcdefghij"
+	body := `{"detail":[{"type":"value_error","loc":["body","picture_description_api"],` +
+		`"input":"{\"url\": \"https://llm/v1/chat/completions\", \"headers\": {\"Authorization\": \"Bearer ` + key + `\"}}"}]}`
+	resp := &http.Response{StatusCode: http.StatusUnprocessableEntity, Body: io.NopCloser(strings.NewReader(body))}
+
+	err := statusError(resp)
+	if strings.Contains(err.Error(), key) {
+		t.Errorf("status error leaks the API key: %v", err)
+	}
+	if !strings.Contains(err.Error(), "status 422") || !strings.Contains(err.Error(), "value_error") {
+		t.Errorf("status error lost its detail: %v", err)
+	}
+}

@@ -2,6 +2,7 @@ package httputil_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/justrag/go-backend/internal/httputil"
@@ -115,6 +116,28 @@ func TestSanitizeError_PathHeuristicCatchesPaths(t *testing.T) {
 		got := httputil.SanitizeError(fmt.Errorf("%s", msg))
 		if got != "An internal error occurred. Please contact support." {
 			t.Errorf("expected path filter for %q, got: %s", msg, got)
+		}
+	}
+}
+
+// A *url.Error quotes its full request URL; the word list never matched a
+// credential carried as a query parameter, so the Google Custom Search key
+// reached a client toast on a timeout. ORACLE: the key string is gone, the
+// cause survives.
+func TestSanitizeError_RedactsURLCredentials(t *testing.T) {
+	const key = "AIzaSyTestOnly0123456789abcdef"
+	cases := []string{
+		`Get "https://www.googleapis.com/customsearch/v1?cx=c&key=` + key + `&q=x": context deadline exceeded`,
+		`Get "https://x-access-token:` + key + `@example.com/o/r.git": context deadline exceeded`,
+		`upstream rejected Authorization Bearer ` + key + `: context deadline exceeded`,
+	}
+	for _, msg := range cases {
+		got := httputil.SanitizeError(fmt.Errorf("call: %s", msg))
+		if strings.Contains(got, key) {
+			t.Errorf("SanitizeError leaks the credential: %s", got)
+		}
+		if !strings.Contains(got, "context deadline exceeded") {
+			t.Errorf("SanitizeError dropped the cause: %s", got)
 		}
 	}
 }

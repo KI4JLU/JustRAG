@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/justrag/go-backend/internal/mcp"
@@ -92,5 +93,38 @@ func TestPostReload_AppliesValidServersAndReportsUnreachable(t *testing.T) {
 	}
 	if resp.Servers[0].Error == "" {
 		t.Errorf("unreachable server should carry Error message")
+	}
+}
+
+// The status response shows the configured servers; their headers and any
+// URL-borne token are credentials. ORACLE: neither token string appears in
+// the body, the server is still identifiable, and the header name survives.
+func TestPostReload_StatusOmitsServerCredentials(t *testing.T) {
+	const headerToken = "mcp-TestOnly0123456789abcdef"
+	const urlToken = "url-TestOnly0123456789abcdef"
+	cfg := &fakeCfg{values: map[string]string{
+		"mcp_servers": `[{"name":"secured","url":"http://127.0.0.1:1/mcp?token=` + urlToken + `",` +
+			`"headers":{"Authorization":"Bearer ` + headerToken + `"}}]`,
+	}}
+	h := NewHandler(mcp.NewRegistry(), cfg)
+
+	w := httptest.NewRecorder()
+	h.PostReload(w, httptest.NewRequest(http.MethodPost, "/api/admin/mcp/reload", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, headerToken) || strings.Contains(body, urlToken) {
+		t.Fatalf("status response leaks a server credential: %s", body)
+	}
+	var resp StatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if len(resp.ServerSpec) != 1 || resp.ServerSpec[0].Name != "secured" || resp.ServerSpec[0].Headers["Authorization"] != "********" {
+		t.Errorf("server_spec = %+v, want the server with its header masked", resp.ServerSpec)
+	}
+	if len(resp.Servers) != 1 || resp.Servers[0].Name != "secured" {
+		t.Errorf("servers = %+v, want the server listed", resp.Servers)
 	}
 }
