@@ -440,6 +440,61 @@ func TestDeleteKB_RemovesInviteLinks(t *testing.T) {
 	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_invite_links WHERE kb_id = $1::uuid`, kbID)
 }
 
+// TestDeleteKBAndUser_RemoveInviteLinkRedemptions: the redemption records
+// (migration 0087) leave with the KB whose link was redeemed and with the user
+// who redeemed it. Like the tests around it, this pins the end state and
+// cannot tell the explicit DELETE steps from the FKs' ON DELETE CASCADE.
+// Oracle: raw COUNT(*) queries against rows this test inserted by hand.
+func TestDeleteKBAndUser_RemoveInviteLinkRedemptions(t *testing.T) {
+	mainPool, vectorPool := openTestPools(t)
+	ctx := context.Background()
+	userID, kbID, _ := seedFixture(t, mainPool, false)
+
+	var joiner string
+	if err := mainPool.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash) VALUES ($1, 'x') RETURNING id::text`,
+		fmt.Sprintf("cascade-redeem-joiner-%d-%d", os.Getpid(), nextSerial())).Scan(&joiner); err != nil {
+		t.Fatalf("insert joiner: %v", err)
+	}
+	t.Cleanup(func() { _, _ = mainPool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, joiner) })
+
+	redeemed := func(kb string) {
+		t.Helper()
+		var linkID string
+		if err := mainPool.QueryRow(ctx, `
+			INSERT INTO kb_invite_links (kb_id, token, role) VALUES ($1::uuid, $2, 'view') RETURNING id::text`,
+			kb, fmt.Sprintf("cascade-redeem-%d-%d", os.Getpid(), nextSerial())).Scan(&linkID); err != nil {
+			t.Fatalf("insert link: %v", err)
+		}
+		if _, err := mainPool.Exec(ctx, `
+			INSERT INTO kb_invite_link_redemptions (link_id, user_id) VALUES ($1::uuid, $2::uuid)`, linkID, joiner); err != nil {
+			t.Fatalf("insert redemption: %v", err)
+		}
+	}
+
+	redeemed(kbID)
+	d := cascade.New(mainPool, vectorPool, localFS(t, mainPool, kbID))
+	if err := d.DeleteKB(ctx, kbID); err != nil {
+		t.Fatalf("DeleteKB: %v", err)
+	}
+	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_invite_link_redemptions WHERE user_id = $1::uuid`, joiner)
+
+	// The user side: the joiner redeems a link of another KB, then is deleted.
+	var kb2 string
+	if err := mainPool.QueryRow(ctx, `
+		INSERT INTO knowledge_bases (name, user_id) VALUES ('cascade-redeem-kb2', $1::uuid) RETURNING id::text`,
+		userID).Scan(&kb2); err != nil {
+		t.Fatalf("insert kb2: %v", err)
+	}
+	redeemed(kb2)
+	if err := d.DeleteUser(ctx, joiner); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_invite_link_redemptions WHERE user_id = $1::uuid`, joiner)
+	// The link itself stays with its KB.
+	assertCountOne(t, mainPool, `SELECT count(*) FROM kb_invite_links WHERE kb_id = $1::uuid`, kb2)
+}
+
 // TestDeleteKBAndUser_RemoveTopicFilters: the per-user topic filters
 // (migration 0086) leave with the KB they point at and with the user who
 // owns them. Like TestDeleteKB_RemovesInviteLinks above, this pins the end

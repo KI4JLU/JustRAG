@@ -301,10 +301,77 @@ func TestRedeemUpgrades(t *testing.T) {
 
 	links, _ := store.List(ctx, kbID)
 	if links[0].ID != link.ID || links[0].RedemptionCount != 1 {
-		t.Fatalf("RedemptionCount = %d, want 1 — an already-member redemption must still count as link usage", links[0].RedemptionCount)
+		t.Fatalf("RedemptionCount = %d, want 1 — a member's first redemption of the link counts them once", links[0].RedemptionCount)
 	}
 	if links[0].LastUsedAt == nil {
 		t.Fatal("LastUsedAt is nil after an already-member redemption")
+	}
+}
+
+// The counter is the number of distinct people who redeemed the link, not the
+// number of redemptions (migration 0087): a person opening the same link again
+// adds nothing, a second person adds one, and last_used_at still moves on every
+// redemption. Oracle: the fixture's own users and call sequence — two calls by
+// one person and one by another must read back as 2.
+func TestRedeemCountsPeopleNotVisits(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kbinvites.NewStore(pool)
+
+	ownerID := insertUser(t, pool, "people-owner")
+	aliceID := insertUser(t, pool, "people-alice")
+	bobID := insertUser(t, pool, "people-bob")
+	kbID := insertKB(t, pool, ownerID, false, false)
+
+	tok, _ := kbinvites.NewToken()
+	if _, err := store.Create(ctx, kbID, tok, "view", nil, ownerID); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	count := func() (int, *time.Time) {
+		t.Helper()
+		links, err := store.List(ctx, kbID)
+		if err != nil || len(links) != 1 {
+			t.Fatalf("List = %v, %v", links, err)
+		}
+		return links[0].RedemptionCount, links[0].LastUsedAt
+	}
+
+	if _, err := store.Redeem(ctx, tok, aliceID); err != nil {
+		t.Fatalf("Redeem alice: %v", err)
+	}
+	if n, _ := count(); n != 1 {
+		t.Fatalf("after alice: RedemptionCount = %d, want 1", n)
+	}
+	_, firstUse := count()
+
+	// Alice again: a repeat visit, not a new person.
+	time.Sleep(10 * time.Millisecond)
+	if _, err := store.Redeem(ctx, tok, aliceID); err != nil {
+		t.Fatalf("Redeem alice again: %v", err)
+	}
+	n, again := count()
+	if n != 1 {
+		t.Fatalf("after alice twice: RedemptionCount = %d, want 1 — a repeat visit must not count", n)
+	}
+	if firstUse == nil || again == nil || !again.After(*firstUse) {
+		t.Fatalf("last_used_at did not move on the repeat redemption: %v -> %v", firstUse, again)
+	}
+
+	if _, err := store.Redeem(ctx, tok, bobID); err != nil {
+		t.Fatalf("Redeem bob: %v", err)
+	}
+	if n, _ := count(); n != 2 {
+		t.Fatalf("after bob: RedemptionCount = %d, want 2", n)
+	}
+
+	var rows int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM kb_invite_link_redemptions r
+		JOIN kb_invite_links l ON l.id = r.link_id WHERE l.kb_id = $1::uuid`, kbID).Scan(&rows); err != nil {
+		t.Fatalf("count redemptions: %v", err)
+	}
+	if rows != 2 {
+		t.Fatalf("kb_invite_link_redemptions rows = %d, want 2 (alice, bob)", rows)
 	}
 }
 
