@@ -920,7 +920,9 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// is still persisted to DB by runPostResponseTasks.
 	emit := func(pl map[string]any) { writeSSE(ctx, w, pl) }
 	followUps, verification, _ := h.runResponsePostTasks(ctx, p, fullResponse, aiMsg.ID, emit)
-	if len(followUps) > 0 {
+	// A KB turn's runPostResponseTasks already emitted the follow-ups
+	// through emit; the library pipeline takes no emit, so write them here.
+	if p.library && len(followUps) > 0 {
 		writeSSE(ctx, w, map[string]any{"followUpQuestions": followUps})
 	}
 	if verification != nil {

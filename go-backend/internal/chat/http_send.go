@@ -1497,10 +1497,8 @@ func (h *Handler) finishDeepChatAnswer(
 	// AP-A2: emit callback so refine_start/refine_complete trajectory
 	// events stream live; the painted streaming UI mutates in place.
 	emit := func(p map[string]any) { writeSSE(ctx, w, p) }
-	followUps, verification, _ := h.runPostResponseTasks(ctx, body.Message, fullResponse, chatCtx.Context, kbID, lang, aiMsg.ID, chatCtx.Sources, emit, chatCtx.TabularTrace)
-	if len(followUps) > 0 {
-		writeSSE(ctx, w, map[string]any{"followUpQuestions": followUps})
-	}
+	// The follow-ups frame is emitted by runPostResponseTasks itself.
+	_, verification, _ := h.runPostResponseTasks(ctx, body.Message, fullResponse, chatCtx.Context, kbID, lang, aiMsg.ID, chatCtx.Sources, emit, chatCtx.TabularTrace)
 	if verification != nil {
 		writeSSE(ctx, w, map[string]any{"verification": verification})
 	}
