@@ -192,7 +192,7 @@ func writeSSEDone(ctx context.Context, w http.ResponseWriter) {
 // returns a single JSON response otherwise.
 // Auth + KB view permission are enforced by middleware in main.go.
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx := withTurnStart(r.Context(), time.Now())
 	user := auth.UserFromContext(ctx)
 	if user == nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
@@ -1282,9 +1282,10 @@ func (h *Handler) tryDeepChat(
 	genCtx, cancelGen := context.WithCancel(ctx)
 	defer cancelGen()
 	guard := newAnswerGuard(ChatAnswerDegenerateRunLimit(ctx, h.siteConfigReader), lang, "web", cancelGen)
+	ttft := newTTFTRecorder(ctx, ttftPathForOrchestrator(orch), deepChatStart)
 	streamEmit := newGuardedEmit(guard, &responseBuf, &reasoningBuf,
-		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
-		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
+		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"content": s}) },
+		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
 	// Team synthesis carries user-authored, persona-influenced findings in its
 	// system prompt (a prompt-injection amplifier if handed the full,
@@ -1399,7 +1400,7 @@ func (h *Handler) tryDeepChat(
 	if rec := ToolCallRecorderFromContext(ctx); rec != nil {
 		toolCallsThisTurn = len(rec.Snapshot())
 	}
-	logctx.From(ctx).Info("rag.completion",
+	logctx.From(ctx).Info("rag.completion", append([]any{
 		"stage", "llm_completion",
 		"answer_len", len(fullResponse),
 		"reasoning_len", reasoningBuf.Len(),
@@ -1419,6 +1420,7 @@ func (h *Handler) tryDeepChat(
 		"answer_tools_path", runAnswerTools,
 		"web_search_requested", webSearchLogValue(body.WebSearch),
 		"tool_calls", toolCallsThisTurn,
+	}, ttft.logFields()...)...,
 	)
 	observability.RecordCompletion(true, time.Since(deepChatStart).Seconds())
 	if len(chatCtx.Sources) < 3 {

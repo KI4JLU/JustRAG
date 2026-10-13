@@ -637,3 +637,18 @@ func TestRecordJudgeRetry_UnknownJudgeNormalizesToOther(t *testing.T) {
 		t.Errorf("unknown judge did not normalize to 'other': before=%v after=%v", before, after)
 	}
 }
+
+func TestRecordChatTTFT_SkipsRequestHistogramWithoutStart(t *testing.T) {
+	path := "ttft_test_path"
+	RecordChatTTFT(path, 0, 300*time.Millisecond)
+	if got := histogramCount(t, chatTTFT, path); got != 0 {
+		t.Fatalf("ttft observed without a request start: count %d", got)
+	}
+	if got := histogramCount(t, chatAnswerTTFT, path); got != 1 {
+		t.Fatalf("answer ttft count = %d, want 1", got)
+	}
+	RecordChatTTFT(path, 2*time.Second, 300*time.Millisecond)
+	if got := histogramCount(t, chatTTFT, path); got != 1 {
+		t.Fatalf("ttft count = %d, want 1", got)
+	}
+}

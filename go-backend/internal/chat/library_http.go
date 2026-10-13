@@ -83,7 +83,7 @@ func (h *Handler) libraryChatWired() bool {
 // later rejection is then an SSE {"error": …} frame followed by [DONE] (the
 // KB path's post-SSE error shape) instead of a status code.
 func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx := withTurnStart(r.Context(), time.Now())
 	user := auth.UserFromContext(ctx)
 	if user == nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "authentication required")

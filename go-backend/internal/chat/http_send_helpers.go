@@ -749,9 +749,10 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	genCtx, cancelGen := context.WithCancel(ctx)
 	defer cancelGen()
 	guard := newAnswerGuard(ChatAnswerDegenerateRunLimit(ctx, h.siteConfigReader), p.lang, "web", cancelGen)
+	ttft := newTTFTRecorder(ctx, ttftPathForResponse(p), streamStart)
 	streamEmit := newGuardedEmit(guard, &responseBuf, &reasoningBuf,
-		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
-		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
+		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"content": s}) },
+		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
 	// A library turn never gets answer-time tools (P3-R5): every catalog tool
 	// is KB-scoped, and kbID is "" there; answerToolsForTurn enforces it.
@@ -860,7 +861,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	if rec := ToolCallRecorderFromContext(ctx); rec != nil {
 		toolCallsThisTurn = len(rec.Snapshot())
 	}
-	logctx.From(ctx).Info("rag.completion",
+	logctx.From(ctx).Info("rag.completion", append([]any{
 		"stage", "llm_completion",
 		"answer_len", len(fullResponse),
 		"reasoning_len", reasoningBuf.Len(),
@@ -875,6 +876,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		"answer_tools_path", runAnswerTools,
 		"web_search_requested", webSearchLogValue(p.webSearch),
 		"tool_calls", toolCallsThisTurn,
+	}, ttft.logFields()...)...,
 	)
 	p.span.SetAttributes(
 		attribute.Int("chat.source_count", len(sources)),

@@ -143,6 +143,48 @@ func RecordCompletion(stream bool, durationSeconds float64) {
 	completionDuration.WithLabelValues(strconv.FormatBool(stream)).Observe(durationSeconds)
 }
 
+// --- Time to first token -----------------------------------------------------
+
+// ttftBuckets spans a cache-warm lookup (sub-second) up to a stalled
+// orchestrator turn; the upper buckets matter because the pre-answer pipeline
+// runs several LLM round trips back to back.
+var ttftBuckets = []float64{0.25, 0.5, 1, 2, 3, 5, 8, 13, 20, 30, 60, 120}
+
+var chatTTFT = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name: "rag_chat_ttft_seconds",
+		Help: "Streaming chat: request arrival to the first answer frame " +
+			"(content or reasoning) written to the client. Includes the whole " +
+			"pre-answer pipeline. path = standard|transform_followup|library|" +
+			"<orchestrator>.",
+		Buckets:     ttftBuckets,
+		ConstLabels: commonLabels,
+	},
+	[]string{"path"},
+)
+
+var chatAnswerTTFT = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name: "rag_chat_answer_ttft_seconds",
+		Help: "Streaming chat: answer-stream start to the first answer frame " +
+			"written to the client — the model server's share (queueing + " +
+			"prefill, plus tool rounds on the answer-tools path). Subtract from " +
+			"rag_chat_ttft_seconds for the pipeline's share.",
+		Buckets:     ttftBuckets,
+		ConstLabels: commonLabels,
+	},
+	[]string{"path"},
+)
+
+// RecordChatTTFT observes one streaming turn's first answer frame. sinceRequest
+// is skipped when non-positive (no request start was recorded on the context).
+func RecordChatTTFT(path string, sinceRequest, sinceStream time.Duration) {
+	if sinceRequest > 0 {
+		chatTTFT.WithLabelValues(path).Observe(sinceRequest.Seconds())
+	}
+	chatAnswerTTFT.WithLabelValues(path).Observe(sinceStream.Seconds())
+}
+
 // --- Low-confidence answers + cache hit/miss --------------------------------
 
 var (
