@@ -42,7 +42,7 @@ func CheckFacts(ctx context.Context, resolver *ConfigResolver, question, answer,
 	systemPrompt := prompts.FactCheckSystemPrompt(lang)
 	userPrompt := prompts.FactCheckUserPrompt(question, answer, contextText)
 
-	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, systemPrompt, kbID, model, factcheckMaxTokens)
+	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, systemPrompt, kbID, model, factcheckMaxTokens, "factcheck")
 	if err != nil {
 		logctx.From(ctx).Warn("fact check failed", "error", err)
 		fc := &FactCheckResult{Verified: false, Score: 0, Issues: []string{"Fact check failed due to system error."}}

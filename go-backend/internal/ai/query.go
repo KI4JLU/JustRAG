@@ -156,7 +156,7 @@ func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []C
 	formattedHistory := strings.TrimRight(sb.String(), "\n")
 	userPrompt := prompts.ConversationCondenseUser(formattedHistory, followUp)
 
-	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.ConversationCondenseSystem(lang), kbID, model, condenseMaxTokens)
+	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.ConversationCondenseSystem(lang), kbID, model, condenseMaxTokens, "condense")
 	if err != nil {
 		return "", err
 	}
@@ -178,7 +178,7 @@ func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, us
 	}
 
 	userPrompt := prompts.FollowUpQuestionsUser(userMessage, truncated)
-	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.FollowUpQuestionsSystem(lang), kbID, model, followUpsMaxTokens)
+	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.FollowUpQuestionsSystem(lang), kbID, model, followUpsMaxTokens, "followups")
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +196,7 @@ func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, us
 // ClassifyQueryComplexity returns true when the AI classifies the query as
 // complex. On JSON parse failure false is returned (default to simple).
 func ClassifyQueryComplexity(ctx context.Context, resolver *ConfigResolver, query, kbID, lang, model string) (bool, error) {
-	result, err := GenerateCompletionCapped(ctx, resolver, query, prompts.QueryClassifierPrompt(lang), kbID, model, classifyMaxTokens)
+	result, err := GenerateCompletionCapped(ctx, resolver, query, prompts.QueryClassifierPrompt(lang), kbID, model, classifyMaxTokens, "classify")
 	if err != nil {
 		return false, err
 	}

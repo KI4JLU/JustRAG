@@ -37,6 +37,7 @@ func CondenseFromHistory(
 	condensed, err := ai.CondenseQuestion(ctx, aiResolver, historyWindow(history), message, kbID, language, model)
 	if err != nil {
 		// Fail open.
+		logctx.From(ctx).Warn("chat.condense.fallback_raw", "reason", "error", "error", err)
 		return message, nil
 	}
 	if strings.TrimSpace(condensed) == "" {

@@ -86,8 +86,9 @@ func GenerateCompletionWithModel(ctx context.Context, resolver *ConfigResolver, 
 
 // GenerateCompletionCapped is GenerateCompletionWithModel plus an output cap,
 // for the short helper calls on the chat path (condense, classifier,
-// follow-ups, factcheck). maxTokens 0 sends no cap.
-func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, prompt, systemPrompt, kbID, modelOverride string, maxTokens int) (*CompletionResult, error) {
+// follow-ups, factcheck). maxTokens 0 sends no cap; task labels the
+// ai.helper.truncated log line.
+func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, prompt, systemPrompt, kbID, modelOverride string, maxTokens int, task string) (*CompletionResult, error) {
 	config, err := resolver.Resolve(ctx, kbID)
 	if err != nil {
 		return nil, fmt.Errorf("ai: resolve config: %w", err)
@@ -100,7 +101,7 @@ func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, pro
 	}
 	res, err := generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
 	if err == nil && maxTokens > 0 && res != nil && res.FinishReason == "length" {
-		slog.Warn("ai.helper.truncated", "model", model, "max_tokens", maxTokens)
+		logctx.From(ctx).Warn("ai.helper.truncated", "task", task, "model", model, "max_tokens", maxTokens)
 	}
 	return res, err
 }

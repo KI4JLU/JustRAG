@@ -588,7 +588,7 @@ func TestGenerateCompletionCapped_SendsMaxTokensAndModel(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		writeChatJSON(w, chatResponse("ok", ""))
 	})
-	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main", "fast"), "q", "s", "", "fast", 64)
+	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main", "fast"), "q", "s", "", "fast", 64, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestGenerateCompletionCapped_UnknownModelFallsBackToMain(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		writeChatJSON(w, chatResponse("ok", ""))
 	})
-	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "not-listed", 0)
+	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "not-listed", 0, "t")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +645,7 @@ func TestGenerateCompletionCapped_PopulatesFinishReason(t *testing.T) {
 		resp["choices"].([]map[string]any)[0]["finish_reason"] = "length"
 		writeChatJSON(w, resp)
 	})
-	res, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "", 8)
+	res, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "", 8, "t")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -714,14 +714,14 @@ func (h *Handler) runResponsePostTasks(ctx context.Context, p chatResponseParams
 // Caller has already saved the user message; ctx already carries the
 // turn budget + tool-call recorder.
 func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
-	// Freshness dates for the cited files (one batch query, fail-soft).
-	// Runs before the `sources` frame below AND before the AddMessage that
-	// persists the same slice, so the SSE payload and messages.sources agree.
 	// Early-opened turn: stop the heartbeat before the first write below.
 	// EnableSSE then only re-sets header-map entries that are no longer sent
 	// and re-arms the write deadline (no WriteHeader, no bytes).
 	p.turn.handOff()
 
+	// Freshness dates for the cited files (one batch query, fail-soft).
+	// Runs before the `sources` frame below AND before the AddMessage that
+	// persists the same slice, so the SSE payload and messages.sources agree.
 	h.enrichResponseSources(ctx, p)
 	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
