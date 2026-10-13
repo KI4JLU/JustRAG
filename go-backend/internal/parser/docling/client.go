@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/justrag/go-backend/internal/redact"
 )
 
 // ConvertOptions carries the optional enrichment flags sent on each convert
@@ -513,10 +515,12 @@ func (c *Client) post(ctx context.Context, path string, form []byte, contentType
 }
 
 // statusError renders a non-2xx response as an error carrying the status
-// and a snippet of the body.
+// and a snippet of the body. The snippet is redacted: a validation error
+// may echo the submitted form back, and picture_description_api carries
+// the model API key as an Authorization header.
 func statusError(resp *http.Response) error {
 	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	return fmt.Errorf("docling: status %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	return fmt.Errorf("docling: status %d: %s", resp.StatusCode, redact.Secrets(strings.TrimSpace(string(snippet))))
 }
 
 // doclingJSONDoc is the subset of the DoclingDocument (json_content) we read:

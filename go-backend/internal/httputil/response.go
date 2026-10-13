@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/justrag/go-backend/internal/logctx"
+	"github.com/justrag/go-backend/internal/redact"
 )
 
 // errorResponse is the wire shape for every JSON error body: {"error": msg}.
@@ -163,5 +164,8 @@ func SanitizeError(err error) string {
 			return "A system error occurred. Please contact support."
 		}
 	}
-	return msg
+	// The word list above cannot see a credential inside a URL (?key=…,
+	// user:pass@host) or a bare Bearer token; a *url.Error quotes its whole
+	// request URL. Redact by shape rather than reject, so the cause survives.
+	return redact.Secrets(msg)
 }
