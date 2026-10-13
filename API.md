@@ -318,6 +318,10 @@ An invite link is a permanent, revocable credential that grants the role it
 was minted with. `POST /invites/{token}/redeem` is deliberately not KB-gated —
 the caller has no role on the KB yet — and is rate-limited to 10 requests per
 minute. Redeeming never lowers an existing role and never touches the owner.
+A link's `redemptionCount` (in `GET /kb/{id}/invite-links`) is the number of
+distinct people who redeemed it, not the number of redemptions: the same person
+redeeming again leaves it unchanged, while `lastUsedAt` moves on every
+redemption.
 
 ### Files and source ingestion
 

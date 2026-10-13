@@ -565,6 +565,7 @@ func kbDeleteSteps(kbID string) []txStep {
 		{`DELETE FROM knowledge_base_shares WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM global_kb_editors WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_members WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_invite_link_redemptions WHERE link_id IN (SELECT id FROM kb_invite_links WHERE kb_id = $1)`, []any{kbID}},
 		{`DELETE FROM kb_invite_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
@@ -592,6 +593,7 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 			txStep{`DELETE FROM knowledge_base_shares WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM global_kb_editors WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_members WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
+			txStep{`DELETE FROM kb_invite_link_redemptions WHERE link_id IN (SELECT id FROM kb_invite_links WHERE kb_id = ANY($1::uuid[]))`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_invite_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_subscriptions WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM kb_category_links WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -606,6 +608,8 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 		txStep{`DELETE FROM knowledge_base_shares WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_members WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_subscriptions WHERE user_id = $1`, []any{userID}},
+		// Invite-link redemptions the user made (migration 0087).
+		txStep{`DELETE FROM kb_invite_link_redemptions WHERE user_id = $1`, []any{userID}},
 		// Per-user topic filters (migration 0086). Links before categories,
 		// so no step leans on the composite FK's ON DELETE CASCADE.
 		txStep{`DELETE FROM kb_favorites WHERE user_id = $1`, []any{userID}},
@@ -632,6 +636,7 @@ func globalKBDeleteSteps(kbID string) []txStep {
 		{`DELETE FROM global_kb_editors WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_base_shares WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_members WHERE kb_id = $1`, []any{kbID}},
+		{`DELETE FROM kb_invite_link_redemptions WHERE link_id IN (SELECT id FROM kb_invite_links WHERE kb_id = $1)`, []any{kbID}},
 		{`DELETE FROM kb_invite_links WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_subscriptions WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM kb_category_links WHERE kb_id = $1`, []any{kbID}},
