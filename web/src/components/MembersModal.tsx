@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { AtSign, ChevronLeft, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
 import {
     ActionMenu, Avatar, Badge, Button, Combobox, ComboboxChip, ComboboxChipsInput, ComboboxContent, ComboboxItem,
-    ComboboxList, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label,
+    ComboboxList, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger,
     type ActionMenuItem, type ComboboxChipTone,
 } from '@ki4jlu/design-system';
@@ -444,16 +444,10 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
             <DialogContent closeLabel={t('close')} className="max-w-xl" aria-describedby={undefined}>
                 {view === 'members' ? (
                     <>
-                        <div className="flex items-start gap-stack-sm pr-10">
-                            <DialogHeader className="min-w-0 flex-1">
-                                <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
-                                <DialogTitle>{t('members')}</DialogTitle>
-                            </DialogHeader>
-                            <Button onClick={openAdd}>
-                                <Plus className="size-4" aria-hidden="true" />
-                                {t('add')}
-                            </Button>
-                        </div>
+                        <DialogHeader className="min-w-0 pr-10">
+                            <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
+                            <DialogTitle>{t('members')}</DialogTitle>
+                        </DialogHeader>
 
                         <section aria-labelledby={membersHeadingId} className="flex flex-col gap-stack-sm">
                             <div className="flex items-center gap-2">
@@ -516,6 +510,17 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                 </ul>
                             </section>
                         )}
+
+                        {/* A dialog's actions live in its footer — a hard design rule
+                            (developer, 2026-10-13), never in the header. */}
+                        <div className="border-t border-outline-variant pt-4">
+                            <DialogFooter>
+                                <Button onClick={openAdd}>
+                                    <Plus className="size-4" aria-hidden="true" />
+                                    {t('add')}
+                                </Button>
+                            </DialogFooter>
+                        </div>
                     </>
                 ) : (
                     <>
@@ -632,12 +637,14 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                         <Label htmlFor={roleId}>{t('roleLabel')}</Label>
                                         <RoleSelect id={roleId} value={bulkPermission} onChange={setBulkPermission} label={t('roleLabel')} t={t} wide />
                                     </div>
-                                    <div className="flex items-center justify-end gap-stack-sm border-t border-outline-variant pt-4">
-                                        <Button type="button" variant="ghost" onClick={() => setView('members')}>{t('cancel')}</Button>
-                                        <Button type="submit" disabled={bulkLoading || resolving || addableCount === 0}>
-                                            {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                                            {(addableCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(addableCount))}
-                                        </Button>
+                                    <div className="border-t border-outline-variant pt-4">
+                                        <DialogFooter>
+                                            <Button type="button" variant="ghost" onClick={() => setView('members')}>{t('cancel')}</Button>
+                                            <Button type="submit" disabled={bulkLoading || resolving || addableCount === 0}>
+                                                {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                                                {(addableCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(addableCount))}
+                                            </Button>
+                                        </DialogFooter>
                                     </div>
                                 </form>
                             </TabsContent>
@@ -730,8 +737,10 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                         )}
                                     </section>
 
-                                    <div className="flex justify-end border-t border-outline-variant pt-4">
-                                        <Button variant="outline" onClick={() => setView('members')}>{t('done')}</Button>
+                                    <div className="border-t border-outline-variant pt-4">
+                                        <DialogFooter>
+                                            <Button variant="outline" onClick={() => setView('members')}>{t('done')}</Button>
+                                        </DialogFooter>
                                     </div>
                                 </div>
                             </TabsContent>
