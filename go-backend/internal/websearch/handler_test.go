@@ -7,8 +7,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // fakeStore returns canned site_config values keyed by config key. A nil
@@ -298,5 +300,86 @@ func TestCallGoogle_BadJSON(t *testing.T) {
 	_, err := CallGoogle(context.Background(), "k", "c", "q", 1, "en")
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
+	}
+}
+
+// The API key must never reach a URL. ORACLE: the secret string itself — it
+// may appear in the X-Goog-Api-Key header and nowhere in the request URL, in
+// a returned error, or in the HTTP response the handler writes. Google reads
+// the header (checked against the live API: an expired key in the header is
+// reported as expired, no key as an unregistered caller).
+const secretKey = "AIzaSyTestOnly0123456789abcdefghijklmnop" // no word SanitizeError keys on, like a real key
+
+func TestCallGoogle_SendsKeyInHeaderNotURL(t *testing.T) {
+	restoreEndpoint(t, googleSearchEndpoint)
+
+	var gotURL, gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		gotHeader = r.Header.Get("X-Goog-Api-Key")
+		_ = json.NewEncoder(w).Encode(googleSearchResponse{})
+	}))
+	t.Cleanup(srv.Close)
+	googleSearchEndpoint = srv.URL
+
+	if _, err := CallGoogle(context.Background(), secretKey, "c", "q", 1, "en"); err != nil {
+		t.Fatalf("CallGoogle: %v", err)
+	}
+	if gotHeader != secretKey {
+		t.Errorf("X-Goog-Api-Key = %q, want the key", gotHeader)
+	}
+	if strings.Contains(gotURL, secretKey) || strings.Contains(gotURL, "key=") {
+		t.Errorf("request URL carries the key: %s", gotURL)
+	}
+}
+
+func TestCallGoogle_TransportErrorOmitsKey(t *testing.T) {
+	restoreEndpoint(t, googleSearchEndpoint)
+
+	// A closed server: the client fails before any response, which is the
+	// *url.Error path whose text used to include the full request URL.
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	googleSearchEndpoint = srv.URL
+	srv.Close()
+
+	_, err := CallGoogle(context.Background(), secretKey, "c", "q", 1, "en")
+	if err == nil {
+		t.Fatal("expected a transport error, got nil")
+	}
+	if strings.Contains(err.Error(), secretKey) {
+		t.Errorf("error leaks the key: %v", err)
+	}
+}
+
+func TestWebSearch_TimeoutResponseOmitsKey(t *testing.T) {
+	restoreEndpoint(t, googleSearchEndpoint)
+
+	// The staging failure: Google never answers and the request times out.
+	// That error text passes SanitizeError unchanged, so before this fix the
+	// toast showed the full URL with the key.
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	googleSearchEndpoint = srv.URL
+
+	h := NewHandler(&fakeStore{vals: map[string]*string{
+		"web_search_enabled":    ptr("true"),
+		"google_search_api_key": ptr(secretKey),
+		"google_search_cx":      ptr("c"),
+	}})
+	body, _ := json.Marshal(webSearchRequest{Query: "tetris"})
+	req := httptest.NewRequest(http.MethodPost, "/api/kb/kb-1/websearch", bytes.NewReader(body))
+	req.SetPathValue("id", "kb-1")
+	ctx, cancel := context.WithTimeout(req.Context(), 100*time.Millisecond)
+	defer cancel()
+	rec := httptest.NewRecorder()
+	h.WebSearch(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 (body %s)", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secretKey) {
+		t.Errorf("response leaks the key: %s", rec.Body.String())
 	}
 }

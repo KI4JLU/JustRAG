@@ -165,11 +165,15 @@ func (h *Handler) WebSearch(w http.ResponseWriter, r *http.Request) {
 var googleSearchEndpoint = "https://www.googleapis.com/customsearch/v1"
 
 // callGoogleSearch calls the Google Custom Search JSON API and returns parsed results.
+//
+// The API key travels in the X-Goog-Api-Key header, never in the URL: a
+// transport error's text (*url.Error) quotes the full request URL, and that
+// text reached the client — staging showed the key in a toast on a timeout.
+// The header also keeps the key out of proxy and access logs.
 func callGoogleSearch(ctx context.Context, apiKey, cx, query string, limit int, lang string) ([]searchResult, error) {
 	endpoint := googleSearchEndpoint
 
 	params := url.Values{}
-	params.Set("key", apiKey)
 	params.Set("cx", cx)
 	params.Set("q", query)
 	params.Set("num", strconv.Itoa(limit))
@@ -182,9 +186,15 @@ func callGoogleSearch(ctx context.Context, apiKey, cx, query string, limit int, 
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
+	httpReq.Header.Set("X-Goog-Api-Key", apiKey)
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
+		// Drop the URL (cx, query) from the message; keep the cause.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return nil, fmt.Errorf("call Google API: %w", err)
 	}
 	defer resp.Body.Close()
