@@ -196,8 +196,31 @@ describe('MembersModal — member list', () => {
 });
 
 describe('MembersModal — add by username', () => {
+  // The exact-username lookup (GET /api/users/{username}): carl and grace have
+  // accounts (grace is already a member, u2), everybody else answers 404.
+  const directory: Record<string, { id: string; username: string; firstName: string; lastName: string }> = {
+    carl: { id: 'u9', username: 'carl', firstName: 'Carl', lastName: 'Zeiss' },
+    grace: { id: 'u2', username: 'grace', firstName: 'Grace', lastName: 'H' },
+  };
+  beforeEach(() => {
+    vi.mocked(axios.isAxiosError).mockImplementation((e: unknown) => Boolean((e as { isAxiosError?: boolean })?.isAxiosError));
+    vi.mocked(axios.get).mockImplementation(async (url: string) => {
+      const user = /\/api\/users\/([^/?]+)$/.exec(url);
+      if (user) {
+        const hit = directory[decodeURIComponent(user[1])];
+        if (hit) return { data: hit };
+        throw Object.assign(new Error('404'), { isAxiosError: true, response: { status: 404 } });
+      }
+      if (url.endsWith('/invite-links')) return { data: { links: [] } };
+      return { data: { members, pending: [] } };
+    });
+  });
+
+  const field = () => screen.getByRole('combobox', { name: 'usernamesLabel' });
+  const chipTexts = () => within(screen.getByRole('list', { name: 'selectedPeople' }))
+    .getAllByRole('listitem').map(li => li.textContent);
+
   it('goes to the add view and back', async () => {
-    mockGets();
     renderModal();
     await openAddView();
     expect(screen.getByRole('tab', { name: 'byUsername' })).toHaveAttribute('aria-selected', 'true');
@@ -206,32 +229,63 @@ describe('MembersModal — add by username', () => {
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
   });
 
-  it('adds the pasted names with the chosen role, then returns to the list', async () => {
-    mockGets();
+  // ORACLE: the directory fixture above — which names have accounts, which is a
+  // member — and the bulk endpoint's request shape (kbmembers bulk handler).
+  it('resolves each name into a chip and adds only accounts and pending invites', async () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { shared: ['carl'], pending: ['dora'], alreadyHadAccess: [] } });
     renderModal();
     await openAddView();
 
-    const submit = screen.getByRole('button', { name: 'addNPeople' });
-    expect(submit).toBeDisabled();
-    await userEvent.type(screen.getByLabelText('usernamesLabel'), 'carl, dora');
-    await userEvent.click(submit);
+    await userEvent.type(field(), 'carl, dora, grace, max mustermann,');
+    await waitFor(() => expect(chipTexts()).toEqual([
+      'CZCarl Zeiss',
+      expect.stringContaining('dora'),
+      expect.stringContaining('Grace H'),
+      expect.stringContaining('max mustermann'),
+    ]));
+    expect(chipTexts()[1]).toContain('chipPending');
+    expect(chipTexts()[2]).toContain('alreadyMember');
+    expect(chipTexts()[3]).toContain('chipInvalid');
+    expect(screen.getByText('pendingChipsNotice')).toBeInTheDocument();
+    expect(screen.getByText('skippedChipsNotice')).toBeInTheDocument();
 
-    // ORACLE: the bulk endpoint's request shape (kbmembers bulk handler): it
-    // shares with known users and parks unknown ones as pending invites.
+    await userEvent.click(screen.getByRole('button', { name: 'addNPeople' }));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       expect.stringContaining('/members/bulk'), { usernames: ['carl', 'dora'], role: 'view' }));
     expect(toastMock.success).toHaveBeenCalledWith('bulkInviteSummary');
     expect(await screen.findByRole('heading', { name: 'members' })).toBeInTheDocument();
   });
 
-  it('takes the names from an uploaded CSV, without its header', async () => {
-    mockGets();
+  it('suggests the exact username and adds it with Tab', async () => {
     renderModal();
     await openAddView();
-    const csv = new File(['username\nada9;bob\nkai\n'], 'people.csv', { type: 'text/csv' });
+    await userEvent.type(field(), 'carl');
+    const option = await screen.findByRole('option', { name: /Carl Zeiss/ });
+    expect(option).toHaveTextContent('tabToAdd');
+    await userEvent.tab();
+    await waitFor(() => expect(chipTexts()).toEqual(['CZCarl Zeiss']));
+    expect(field()).toHaveValue('');
+  });
+
+  it('removes a chip with its button', async () => {
+    renderModal();
+    await openAddView();
+    await userEvent.type(field(), 'dora,');
+    await waitFor(() => expect(chipTexts()[0]).toContain('chipPending'));
+    await userEvent.click(screen.getByRole('button', { name: 'removeChip' }));
+    expect(screen.queryByRole('list', { name: 'selectedPeople' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'addNPeople' })).toBeDisabled();
+  });
+
+  it('turns the names of an uploaded CSV into chips, without its header', async () => {
+    renderModal();
+    await openAddView();
+    const csv = new File(['username\ncarl;bob\nkai\n'], 'people.csv', { type: 'text/csv' });
     await userEvent.upload(screen.getByLabelText('uploadCsv', { selector: 'input' }), csv);
-    await waitFor(() => expect(screen.getByLabelText('usernamesLabel')).toHaveValue('ada9\nbob\nkai'));
+    await waitFor(() => expect(chipTexts()).toHaveLength(3));
+    expect(chipTexts()[0]).toContain('Carl Zeiss');
+    expect(chipTexts()[1]).toContain('bob');
+    expect(chipTexts()[2]).toContain('kai');
   });
 });
 

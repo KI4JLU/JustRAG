@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { AtSign, ChevronLeft, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
 import {
-    ActionMenu, Avatar, Badge, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label,
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger, Textarea,
-    type ActionMenuItem,
+    ActionMenu, Avatar, Badge, Button, Combobox, ComboboxChip, ComboboxChipsInput, ComboboxContent, ComboboxItem,
+    ComboboxList, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Label,
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger,
+    type ActionMenuItem, type ComboboxChipTone,
 } from '@ki4jlu/design-system';
 import type { KnowledgeBase, KbMember, KbRole, KbAssignableRole, KbInviteLink } from '../types';
 import axios from 'axios';
@@ -102,6 +103,27 @@ function displayName(firstName: string | null | undefined, lastName: string | nu
     return [firstName, lastName].filter(Boolean).join(' ').trim() || username;
 }
 
+/** A user as GET /api/users/{username} returns them. */
+interface LookedUpUser { id: string; username: string; firstName?: string | null; lastName?: string | null }
+
+/**
+ * One name in the "Benutzernamen" field. Resolved by an exact username lookup
+ * (no directory search, developer 2026-10-12):
+ * - `found`: an account — a chip with avatar and name, added directly;
+ * - `pending`: no account yet — a warning chip, parked as a pending invite
+ *   and granted at the person's first login (kept, developer 2026-10-12);
+ * - `member` / `invalid` / `failed`: an error chip, skipped when adding.
+ */
+interface Candidate {
+    key: string;
+    typed: string;
+    status: 'resolving' | 'found' | 'pending' | 'member' | 'invalid' | 'failed';
+    user?: LookedUpUser;
+}
+
+/** Names that are sent to the bulk endpoint: accounts and pending invites. */
+const isAddable = (c: Candidate) => c.status === 'found' || c.status === 'pending';
+
 export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, sharingKb, myRole }) => {
     const { t, language } = useTheme();
     const { token } = useAuth();
@@ -114,7 +136,11 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     // "Mitglieder hinzufügen" with its two tabs.
     const [view, setView] = useState<'members' | 'add'>('members');
     const [addTab, setAddTab] = useState<'usernames' | 'links'>('usernames');
-    const [bulkText, setBulkText] = useState('');
+    const [candidates, setCandidates] = useState<Candidate[]>([]);
+    const [query, setQuery] = useState('');
+    // The lookup result for one typed string; shown only while it still matches.
+    const [lookedUp, setLookedUp] = useState<{ typed: string; user: LookedUpUser | null } | null>(null);
+    const [suggestionsOpen, setSuggestionsOpen] = useState(false);
     const [bulkPermission, setBulkPermission] = useState<KbAssignableRole>('view');
     const [bulkLoading, setBulkLoading] = useState(false);
 
@@ -275,7 +301,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
 
     const handleBulkInvite = async () => {
         if (!sharingKb) return;
-        const usernames = splitUsernames(bulkText);
+        const usernames = candidates.filter(isAddable).map(c => c.user?.username ?? c.typed);
         if (usernames.length === 0) return;
         setBulkLoading(true);
         try {
@@ -291,7 +317,8 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                 .replace('{shared}', String(summary.shared.length))
                 .replace('{pending}', String(summary.pending.length))
                 .replace('{already}', String(summary.alreadyHadAccess.length)));
-            setBulkText('');
+            setCandidates([]);
+            setQuery('');
             setView('members');
             await fetchMembers(); // refresh members + pending lists
         } catch (err: unknown) {
@@ -302,19 +329,86 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
         }
     };
 
-    // "CSV hochladen": the file's usernames are appended to the field, so the
-    // owner can still edit the list before adding. Any separator splitUsernames
-    // knows (comma, whitespace, newline); a header cell "username" is dropped.
+    const isMember = useCallback((userId: string) => members.some(m => m.userId === userId), [members]);
+
+    const lookup = useCallback(async (username: string): Promise<Pick<Candidate, 'status' | 'user'>> => {
+        if (!username || /\s/.test(username)) return { status: 'invalid' };
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/users/${encodeURIComponent(username)}`);
+            const user = res.data as LookedUpUser;
+            return { status: isMember(user.id) ? 'member' : 'found', user };
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err) && err.response?.status === 404) return { status: 'pending' };
+            return { status: 'failed' };
+        }
+    }, [isMember]);
+
+    // Commit names: each becomes a chip at once ("resolving"), then takes the
+    // state its lookup returns. A name already in the field is not added twice.
+    const addNames = useCallback((names: string[]) => {
+        setCandidates(prev => {
+            const seen = new Set(prev.map(c => c.key));
+            const fresh: Candidate[] = [];
+            for (const typed of names) {
+                const key = typed.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                fresh.push({ key, typed, status: 'resolving' });
+            }
+            for (const c of fresh) {
+                void lookup(c.typed).then(result => setCandidates(cur => cur.map(x => x.key === c.key ? { ...x, ...result } : x)));
+            }
+            return [...prev, ...fresh];
+        });
+    }, [lookup]);
+
+    const addSuggestion = (user: LookedUpUser) => {
+        const key = user.username.toLowerCase();
+        setCandidates(prev => prev.some(c => c.key === key)
+            ? prev
+            : [...prev, { key, typed: user.username, status: isMember(user.id) ? 'member' : 'found', user }]);
+    };
+
+    // The suggestion row: the exact username typed so far, once it names an
+    // account that is not yet in the field.
+    const typedQuery = query.trim();
+    const canSuggest = typedQuery.length >= 2 && !/\s/.test(typedQuery);
+    useEffect(() => {
+        if (!canSuggest) return;
+        const timer = setTimeout(() => {
+            void lookup(typedQuery).then(r => setLookedUp({ typed: typedQuery, user: r.user ?? null }));
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [typedQuery, canSuggest, lookup]);
+    const suggestion = canSuggest && lookedUp?.typed === typedQuery && lookedUp.user
+        && !candidates.some(c => c.key === lookedUp.user!.username.toLowerCase())
+        ? lookedUp.user : null;
+
+    // "CSV hochladen": the file's names become chips like typed ones. Any
+    // separator splitUsernames knows (comma, whitespace, newline, and ";"); a
+    // header cell "username" is dropped.
     const csvRef = useRef<HTMLInputElement>(null);
     const handleCsv = async (file: File | undefined) => {
         if (!file) return;
         const names = splitUsernames((await file.text()).replace(/;/g, ','))
             .filter(n => !/^(username|benutzername|user)$/i.test(n));
-        setBulkText(prev => [...splitUsernames(prev), ...names].join('\n'));
+        addNames(names);
         if (csvRef.current) csvRef.current.value = '';
     };
 
-    const bulkCount = splitUsernames(bulkText).length;
+    const addableCount = candidates.filter(isAddable).length;
+    const resolving = candidates.some(c => c.status === 'resolving');
+    const pendingNames = candidates.filter(c => c.status === 'pending').map(c => c.typed);
+    const skippedNames = candidates.filter(c => c.status === 'member' || c.status === 'invalid' || c.status === 'failed')
+        .map(c => (c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed));
+
+    const chipTone = (c: Candidate): ComboboxChipTone =>
+        c.status === 'pending' ? 'warning' : c.status === 'member' || c.status === 'invalid' || c.status === 'failed' ? 'error' : 'default';
+    const chipStatusKey: Record<Candidate['status'], string> = {
+        resolving: 'chipResolving', found: '', pending: 'chipPending', member: 'alreadyMember',
+        invalid: 'chipInvalid', failed: 'chipLookupFailed',
+    };
+
     const usernamesId = useId();
     const usernamesHintId = useId();
     const roleId = useId();
@@ -449,11 +543,11 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                             <TabsContent value="usernames">
                                 <form
                                     className="flex flex-col gap-stack-md"
-                                    onSubmit={(e) => { e.preventDefault(); void handleBulkInvite(); }}
+                                    onSubmit={(e) => { e.preventDefault(); if (!resolving) void handleBulkInvite(); }}
                                 >
                                     <div className="flex flex-col gap-stack-sm">
                                         <div className="flex items-center justify-between gap-stack-sm">
-                                            <Label htmlFor={usernamesId}>{t('usernamesLabel')}</Label>
+                                            <Label id={usernamesId}>{t('usernamesLabel')}</Label>
                                             <Button type="button" variant="link" size="sm" onClick={() => csvRef.current?.click()}>
                                                 {t('uploadCsv')}
                                             </Button>
@@ -467,15 +561,72 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                             />
                                         </div>
                                         <p id={usernamesHintId} className="m-0 text-sm text-on-surface-variant">{t('usernamesHint')}</p>
-                                        {/* A plain textarea until the design system's Combobox gains a
-                                            chips mode; then each name becomes a chip with its avatar. */}
-                                        <Textarea
-                                            id={usernamesId}
-                                            aria-describedby={usernamesHintId}
-                                            value={bulkText}
-                                            onChange={e => setBulkText(e.target.value)}
-                                            rows={4}
-                                        />
+                                        <Combobox
+                                            shouldFilter={false}
+                                            open={suggestionsOpen && suggestion !== null}
+                                            onOpenChange={setSuggestionsOpen}
+                                        >
+                                            <ComboboxChipsInput
+                                                aria-labelledby={usernamesId}
+                                                aria-describedby={usernamesHintId}
+                                                chipsLabel={t('selectedPeople')}
+                                                placeholder={candidates.length === 0 ? t('username') : undefined}
+                                                autoComplete="off"
+                                                value={query}
+                                                onValueChange={setQuery}
+                                                onCommit={addNames}
+                                                onRemoveLast={() => setCandidates(prev => prev.slice(0, -1))}
+                                            >
+                                                {candidates.map(c => {
+                                                    const label = c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed;
+                                                    const status = chipStatusKey[c.status] ? t(chipStatusKey[c.status]) : '';
+                                                    return (
+                                                        <ComboboxChip
+                                                            key={c.key}
+                                                            label={label}
+                                                            tone={chipTone(c)}
+                                                            leading={c.status === 'resolving'
+                                                                ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                                                : c.user ? <Avatar size="xs" initials={initialsOf(c.user.firstName, c.user.lastName, c.user.username)} /> : undefined}
+                                                            labels={{
+                                                                remove: (l) => t('removeChip').replace('{label}', l),
+                                                                warning: status,
+                                                                error: status,
+                                                            }}
+                                                            onRemove={() => setCandidates(prev => prev.filter(x => x.key !== c.key))}
+                                                        />
+                                                    );
+                                                })}
+                                            </ComboboxChipsInput>
+                                            <ComboboxContent>
+                                                <ComboboxList label={t('usernamesLabel')}>
+                                                    {suggestion && (
+                                                        <ComboboxItem value={suggestion.username} onSelect={() => addSuggestion(suggestion)}>
+                                                            <Avatar size="xs" initials={initialsOf(suggestion.firstName, suggestion.lastName, suggestion.username)} />
+                                                            <span className="min-w-0">
+                                                                <span className="block truncate">{displayName(suggestion.firstName, suggestion.lastName, suggestion.username)}</span>
+                                                                <span className="block truncate text-sm text-on-surface-variant">@{suggestion.username}</span>
+                                                            </span>
+                                                            <span aria-hidden="true" className="ml-auto shrink-0 text-xs text-primary">
+                                                                {isMember(suggestion.id) ? t('alreadyMember') : t('tabToAdd')}
+                                                            </span>
+                                                        </ComboboxItem>
+                                                    )}
+                                                </ComboboxList>
+                                            </ComboboxContent>
+                                        </Combobox>
+                                        <div role="status" className="flex flex-col gap-1 text-sm">
+                                            {pendingNames.length > 0 && (
+                                                <p className="m-0 text-on-surface-variant">
+                                                    {t('pendingChipsNotice').replace('{names}', pendingNames.map(n => `„${n}“`).join(', '))}
+                                                </p>
+                                            )}
+                                            {skippedNames.length > 0 && (
+                                                <p className="m-0 text-error">
+                                                    {t('skippedChipsNotice').replace('{names}', skippedNames.map(n => `„${n}“`).join(', '))}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex flex-col gap-stack-sm">
                                         <Label htmlFor={roleId}>{t('roleLabel')}</Label>
@@ -483,9 +634,9 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                     </div>
                                     <div className="flex items-center justify-end gap-stack-sm border-t border-outline-variant pt-4">
                                         <Button type="button" variant="ghost" onClick={() => setView('members')}>{t('cancel')}</Button>
-                                        <Button type="submit" disabled={bulkLoading || bulkCount === 0}>
+                                        <Button type="submit" disabled={bulkLoading || resolving || addableCount === 0}>
                                             {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                                            {(bulkCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(bulkCount))}
+                                            {(addableCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(addableCount))}
                                         </Button>
                                     </div>
                                 </form>
