@@ -331,17 +331,35 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
 
     const isMember = useCallback((userId: string) => members.some(m => m.userId === userId), [members]);
 
-    const lookup = useCallback(async (username: string): Promise<Pick<Candidate, 'status' | 'user'>> => {
-        if (!username || /\s/.test(username)) return { status: 'invalid' };
+    // GET /api/users/{term} is NOT an exact lookup: with no exact username (or
+    // id) it falls back to a substring search over username, first and last
+    // name and returns the first hit (users.SearchUserByTerm). Fine for the
+    // suggestion row — the owner picks that person explicitly — but a committed
+    // name must never silently become whoever the search hit first.
+    const fetchUser = useCallback(async (term: string): Promise<LookedUpUser | null> => {
         try {
-            const res = await axios.get(`${API_BASE_URL}/api/users/${encodeURIComponent(username)}`);
-            const user = res.data as LookedUpUser;
-            return { status: isMember(user.id) ? 'member' : 'found', user };
+            const res = await axios.get(`${API_BASE_URL}/api/users/${encodeURIComponent(term)}`);
+            return res.data as LookedUpUser;
         } catch (err: unknown) {
-            if (axios.isAxiosError(err) && err.response?.status === 404) return { status: 'pending' };
+            if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+            throw err;
+        }
+    }, []);
+
+    // A committed name: an account only on an exact username (or id) match.
+    // Anything else is what the bulk endpoint makes of it too — a pending invite
+    // for exactly the typed name.
+    const lookup = useCallback(async (typed: string): Promise<Pick<Candidate, 'status' | 'user'>> => {
+        if (!typed || /\s/.test(typed)) return { status: 'invalid' };
+        try {
+            const user = await fetchUser(typed);
+            const exact = user && (user.username.toLowerCase() === typed.toLowerCase() || user.id === typed);
+            if (!exact) return { status: 'pending' };
+            return { status: isMember(user.id) ? 'member' : 'found', user };
+        } catch {
             return { status: 'failed' };
         }
-    }, [isMember]);
+    }, [fetchUser, isMember]);
 
     // Commit names: each becomes a chip at once ("resolving"), then takes the
     // state its lookup returns. A name already in the field is not added twice.
@@ -356,7 +374,14 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                 fresh.push({ key, typed, status: 'resolving' });
             }
             for (const c of fresh) {
-                void lookup(c.typed).then(result => setCandidates(cur => cur.map(x => x.key === c.key ? { ...x, ...result } : x)));
+                void lookup(c.typed).then(result => setCandidates(cur => {
+                    // Two names that resolve to the same account ("Tester",
+                    // "tester", the user's id) are one person: keep the first chip.
+                    if (result.user && cur.some(x => x.key !== c.key && x.user?.id === result.user!.id)) {
+                        return cur.filter(x => x.key !== c.key);
+                    }
+                    return cur.map(x => x.key === c.key ? { ...x, ...result } : x);
+                }));
             }
             return [...prev, ...fresh];
         });
@@ -364,24 +389,26 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
 
     const addSuggestion = (user: LookedUpUser) => {
         const key = user.username.toLowerCase();
-        setCandidates(prev => prev.some(c => c.key === key)
+        setCandidates(prev => prev.some(c => c.key === key || c.user?.id === user.id)
             ? prev
             : [...prev, { key, typed: user.username, status: isMember(user.id) ? 'member' : 'found', user }]);
     };
 
-    // The suggestion row: the exact username typed so far, once it names an
-    // account that is not yet in the field.
+    // The suggestion row: whoever the search finds for the text typed so far
+    // ("tes" → Tessa Beispiel), unless that person is already in the field.
     const typedQuery = query.trim();
     const canSuggest = typedQuery.length >= 2 && !/\s/.test(typedQuery);
     useEffect(() => {
         if (!canSuggest) return;
         const timer = setTimeout(() => {
-            void lookup(typedQuery).then(r => setLookedUp({ typed: typedQuery, user: r.user ?? null }));
+            void fetchUser(typedQuery)
+                .then(user => setLookedUp({ typed: typedQuery, user }))
+                .catch(() => setLookedUp({ typed: typedQuery, user: null }));
         }, 250);
         return () => clearTimeout(timer);
-    }, [typedQuery, canSuggest, lookup]);
+    }, [typedQuery, canSuggest, fetchUser]);
     const suggestion = canSuggest && lookedUp?.typed === typedQuery && lookedUp.user
-        && !candidates.some(c => c.key === lookedUp.user!.username.toLowerCase())
+        && !candidates.some(c => c.key === lookedUp.user!.username.toLowerCase() || c.user?.id === lookedUp.user!.id)
         ? lookedUp.user : null;
 
     // "CSV hochladen": the file's names become chips like typed ones. Any

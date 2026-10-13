@@ -196,8 +196,9 @@ describe('MembersModal — member list', () => {
 });
 
 describe('MembersModal — add by username', () => {
-  // The exact-username lookup (GET /api/users/{username}): carl and grace have
-  // accounts (grace is already a member, u2), everybody else answers 404.
+  // GET /api/users/{term}, as users.GetUser answers it: an exact id or username
+  // first, else the FIRST substring hit over username / first / last name, else
+  // 404. carl and grace have accounts (grace is already a member, u2).
   const directory: Record<string, { id: string; username: string; firstName: string; lastName: string }> = {
     carl: { id: 'u9', username: 'carl', firstName: 'Carl', lastName: 'Zeiss' },
     grace: { id: 'u2', username: 'grace', firstName: 'Grace', lastName: 'H' },
@@ -207,7 +208,10 @@ describe('MembersModal — add by username', () => {
     vi.mocked(axios.get).mockImplementation(async (url: string) => {
       const user = /\/api\/users\/([^/?]+)$/.exec(url);
       if (user) {
-        const hit = directory[decodeURIComponent(user[1])];
+        const term = decodeURIComponent(user[1]).toLowerCase();
+        const people = Object.values(directory);
+        const hit = people.find(p => p.id === term || p.username === term)
+          ?? people.find(p => [p.username, p.firstName, p.lastName].some(f => f.toLowerCase().includes(term)));
         if (hit) return { data: hit };
         throw Object.assign(new Error('404'), { isAxiosError: true, response: { status: 404 } });
       }
@@ -260,6 +264,41 @@ describe('MembersModal — add by username', () => {
     renderModal();
     await openAddView();
     await userEvent.type(field(), 'carl');
+    const option = await screen.findByRole('option', { name: /Carl Zeiss/ });
+    expect(option).toHaveTextContent('tabToAdd');
+    await userEvent.tab();
+    await waitFor(() => expect(chipTexts()).toEqual(['CZCarl Zeiss']));
+    expect(field()).toHaveValue('');
+  });
+
+  // ORACLE: the fixture's search fallback — "car" finds Carl only by substring,
+  // so as a committed name it is not Carl's username.
+  it('does not turn a committed partial name into whoever the search finds first', async () => {
+    renderModal();
+    await openAddView();
+    await userEvent.type(field(), 'car,');
+    await waitFor(() => expect(chipTexts()[0]).toContain('chipPending'));
+    expect(chipTexts()[0]).toContain('car');
+    expect(chipTexts()[0]).not.toContain('Carl Zeiss');
+  });
+
+  it('keeps one chip per person, however the name was entered', async () => {
+    renderModal();
+    await openAddView();
+    // username, other case, and the user's id: one person.
+    await userEvent.type(field(), 'carl, CARL, u9,');
+    await waitFor(() => expect(chipTexts()).toEqual(['CZCarl Zeiss']));
+    // ...and the suggestion row does not offer them again.
+    await userEvent.type(field(), 'carl');
+    await new Promise(r => setTimeout(r, 400));
+    expect(screen.queryByRole('option')).toBeNull();
+  });
+
+  it('suggests by partial name and adds the chosen person with Tab', async () => {
+    renderModal();
+    await openAddView();
+    await userEvent.type(field(), 'zei');
+    // ORACLE: the fixture's search — "zei" matches only Carl's last name.
     const option = await screen.findByRole('option', { name: /Carl Zeiss/ });
     expect(option).toHaveTextContent('tabToAdd');
     await userEvent.tab();
