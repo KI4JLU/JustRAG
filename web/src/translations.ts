@@ -617,7 +617,7 @@ export const translations = {
     revokeInvite: { de: 'Einladung zurückziehen', en: 'Revoke invite' },
     inviteLinks: { de: 'Einladungslinks', en: 'Invite links' },
     inviteLinkLabel: { de: 'Bezeichnung (optional)', en: 'Label (optional)' },
-    inviteLinkLabelPlaceholder: { de: 'z. B. Kurs oder Arbeitsgruppe', en: 'e.g. course or working group' },
+    inviteLinkLabelPlaceholder: { de: 'z. B. Kurs oder Gruppe', en: 'e.g. course or group' },
     createInviteLink: { de: 'Link erstellen', en: 'Create link' },
     inviteLinkCreated: { de: 'Einladungslink erstellt', en: 'Invite link created' },
     inviteLinkCopied: { de: 'Link kopiert', en: 'Link copied' },

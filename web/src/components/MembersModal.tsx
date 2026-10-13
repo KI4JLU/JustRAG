@@ -441,7 +441,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                             // touch invite links.
                             if (v === 'links') void fetchInviteLinks();
                         }}>
-                            <TabsList aria-label={t('addMembers')} className="self-start">
+                            <TabsList variant="segmented" aria-label={t('addMembers')} className="self-start">
                                 <TabsTrigger value="usernames"><AtSign className="size-4" aria-hidden="true" />{t('byUsername')}</TabsTrigger>
                                 <TabsTrigger value="links"><Link2 className="size-4" aria-hidden="true" />{t('inviteLinks')}</TabsTrigger>
                             </TabsList>
@@ -514,7 +514,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                                 <Label htmlFor={linkRoleId}>{t('roleLabel')} <span aria-hidden="true" className="text-error">*</span></Label>
                                                 <RoleSelect id={linkRoleId} value={linkPermission} onChange={setLinkPermission} label={t('roleLabel')} t={t} />
                                             </div>
-                                            <Button type="submit" disabled={linkLoading || !linkLabel.trim()}>
+                                            <Button type="submit" size="field" disabled={linkLoading || !linkLabel.trim()}>
                                                 {linkLoading
                                                     ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                                                     : <Plus className="size-4" aria-hidden="true" />}
