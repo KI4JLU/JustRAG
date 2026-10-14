@@ -1838,4 +1838,10 @@ func registerOWUICompatRoutes(rc *routeCtx) {
 	data := func(f http.HandlerFunc) http.Handler { return apiKeyAuth.Authenticate(dataRL.Middleware(h.Gate(f))) }
 
 	rc.mux.Handle("GET /owui/api/models", data(h.Models))
+	rc.mux.Handle("POST /owui/api/v1/files/{$}", data(h.UploadFile))
+	rc.mux.Handle("POST /owui/api/v1/files", data(h.UploadFile))
+	rc.mux.Handle("GET /owui/api/v1/files/{$}", data(h.ListFiles))
+	rc.mux.Handle("GET /owui/api/v1/files/{id}", data(h.FileStatus))
+	rc.mux.Handle("DELETE /owui/api/v1/files/{id}", data(h.DeleteFile))
+	rc.mux.Handle("GET /owui/api/v1/files/{id}/data/content", data(h.FileContent))
 }
