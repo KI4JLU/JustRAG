@@ -550,12 +550,32 @@ func recordMetricsSnapshot(ctx context.Context, mainDB *pgxpool.Pool, libraryTot
 	}
 
 	refreshSourceSyncAge(ctx, mainDB)
+	refreshOWUIFilesError(ctx, mainDB)
 
 	if err := userfiles.RefreshLibraryGauges(ctx, libraryTotals, observability.SetUserFileTotals); err != nil {
 		slog.Error("metrics snapshot: library totals failed", "error", err)
 	}
 
 	slog.Debug("metrics snapshot recorded")
+}
+
+// refreshOWUIFilesError publishes how many KB files linked through the Open
+// WebUI surface (ILIAS plugin) ended in status 'error'. The plugin reports
+// such files as completed (spec §4.3 option B), so this gauge is the only
+// signal that course material is missing. A query failure keeps the last value.
+func refreshOWUIFilesError(ctx context.Context, mainDB *pgxpool.Pool) {
+	if mainDB == nil {
+		return
+	}
+	var n float64
+	if err := mainDB.QueryRow(ctx, `
+		SELECT count(*) FROM files f
+		  JOIN owui_knowledge_files k ON k.file_id = f.id
+		 WHERE f.status = 'error'`).Scan(&n); err != nil {
+		slog.Error("owui files error gauge: query failed", "error", err)
+		return
+	}
+	observability.SetOWUIKBFilesError(n)
 }
 
 // sourceSyncAgeSQL reports, per (kb, source kind), the age in seconds of the
