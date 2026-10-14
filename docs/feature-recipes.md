@@ -929,15 +929,16 @@ Serves the ILIAS LfAssistant plugin's "Open WebUI RAG" mode (`internal/owuicompa
    ```
 4. Route `/owui/` to the Go server in the ingress/nginx; set `TRUSTED_PROXY_HOP_COUNT`.
 5. In ILIAS (Administration > Plugins > LfAssistant > Provider): API mode **Open WebUI RAG**, endpoint base `https://<host>/owui`, API key = the key from step 2; interface config "Open AI Chat Completion", path `api/chat/completions`, model `justrag`.
-6. Cut-over from an existing Open WebUI: the plugin's stored file ids and collections belong to the old server, so reset its sync state. The ILIAS operators run this on the ILIAS database with the LfAssistantCron job paused, after switching the provider's endpoint and key (verify the column names against the live schema first; rows with `delete_flag = 1` are deleted rather than reset):
+6. Cut-over from an existing Open WebUI: the plugin's stored file ids and collections belong to the old server, so reset its sync state. The ILIAS operators run this on the ILIAS database with the LfAssistantCron job paused, after switching the provider's endpoint and key (verify the column names against the live schema first). It drops the context rows (they reference indexed items, so they go first), deletes the indexed items flagged `delete_flag = 1`, and resets the rest:
    ```sql
-   UPDATE lf_rag_indexed_item
-      SET ext_file_id = '', files_added_ts = 0, added_status_checked_ts = 0,
-          files_indexed_ts = 0, consumer_update_ts = 0, force_reindex = 0
-    WHERE provider_id = <provider id>;
    DELETE FROM lf_rag_context_item
     WHERE consumer_obj_id IN (SELECT consumer_obj_id FROM lf_rag_context WHERE provider_id = <provider id>);
    DELETE FROM lf_rag_context WHERE provider_id = <provider id>;
+   DELETE FROM lf_rag_indexed_item WHERE provider_id = <provider id> AND delete_flag = 1;
+   UPDATE lf_rag_indexed_item
+      SET ext_file_id = '', files_added_ts = 0, added_status_checked_ts = 0,
+          files_indexed_ts = 0, consumer_update_ts = 0, force_reindex = 0
+    WHERE provider_id = <provider id> AND delete_flag = 0;
    ```
    Then run the LfAssistantCron job once by hand.
 
