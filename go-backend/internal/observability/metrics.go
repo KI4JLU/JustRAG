@@ -2926,7 +2926,7 @@ func IngestInjectionFlagTotalForTest() *prometheus.CounterVec {
 var answerDegenerateTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name:        "rag_answer_degenerate_total",
-		Help:        "Answers the degenerate-run guard truncated, by answering surface (web | api_v1 | openai_compat | mcp). One increment per affected answer: on the streaming surfaces the completion was cancelled mid-run, on the non-streaming ones the finished answer was stripped post hoc. A non-zero rate means the model is collapsing into runaway repetition — the guard contains the symptom, it does not fix it.",
+		Help:        "Answers the degenerate-run guard truncated, by answering surface (web | api_v1 | openai_compat | mcp | owui_compat). One increment per affected answer: on the streaming surfaces the completion was cancelled mid-run, on the non-streaming ones the finished answer was stripped post hoc. A non-zero rate means the model is collapsing into runaway repetition — the guard contains the symptom, it does not fix it.",
 		ConstLabels: commonLabels,
 	},
 	[]string{"surface"},
@@ -2940,6 +2940,7 @@ var answerDegenerateKnownSurfaces = map[string]bool{
 	"api_v1":        true,
 	"openai_compat": true,
 	"mcp":           true,
+	"owui_compat":   true,
 }
 
 // RecordAnswerDegenerate increments the per-surface counter for one answer

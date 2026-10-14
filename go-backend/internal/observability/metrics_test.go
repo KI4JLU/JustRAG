@@ -652,3 +652,15 @@ func TestRecordChatTTFT_SkipsRequestHistogramWithoutStart(t *testing.T) {
 		t.Fatalf("ttft count = %d, want 1", got)
 	}
 }
+
+// Every answering surface that runs the degenerate guard must be in the
+// allowlist, or its trips vanish silently from rag_answer_degenerate_total.
+func TestRecordAnswerDegenerate_CountsEveryAnsweringSurface(t *testing.T) {
+	for _, surface := range []string{"web", "api_v1", "openai_compat", "mcp", "owui_compat"} {
+		before := testutil.ToFloat64(answerDegenerateTotal.WithLabelValues(surface))
+		RecordAnswerDegenerate(surface)
+		if got := testutil.ToFloat64(answerDegenerateTotal.WithLabelValues(surface)) - before; got != 1 {
+			t.Errorf("surface %q: counter delta = %v, want 1", surface, got)
+		}
+	}
+}
