@@ -929,7 +929,17 @@ Serves the ILIAS LfAssistant plugin's "Open WebUI RAG" mode (`internal/owuicompa
    ```
 4. Route `/owui/` to the Go server in the ingress/nginx; set `TRUSTED_PROXY_HOP_COUNT`.
 5. In ILIAS (Administration > Plugins > LfAssistant > Provider): API mode **Open WebUI RAG**, endpoint base `https://<host>/owui`, API key = the key from step 2; interface config "Open AI Chat Completion", path `api/chat/completions`, model `justrag`.
-6. Cut-over from an existing Open WebUI: reset the plugin's sync state (spec section 8), then run the LfAssistantCron job once by hand.
+6. Cut-over from an existing Open WebUI: the plugin's stored file ids and collections belong to the old server, so reset its sync state. The ILIAS operators run this on the ILIAS database with the LfAssistantCron job paused, after switching the provider's endpoint and key (verify the column names against the live schema first; rows with `delete_flag = 1` are deleted rather than reset):
+   ```sql
+   UPDATE lf_rag_indexed_item
+      SET ext_file_id = '', files_added_ts = 0, added_status_checked_ts = 0,
+          files_indexed_ts = 0, consumer_update_ts = 0, force_reindex = 0
+    WHERE provider_id = <provider id>;
+   DELETE FROM lf_rag_context_item
+    WHERE consumer_obj_id IN (SELECT consumer_obj_id FROM lf_rag_context WHERE provider_id = <provider id>);
+   DELETE FROM lf_rag_context WHERE provider_id = <provider id>;
+   ```
+   Then run the LfAssistantCron job once by hand.
 
 Alert on `rag_owui_kb_files_error > 0` (refreshed on the worker metrics tick, needs `WORKER_MAINTENANCE`): these are files the plugin believes indexed (it is told "completed" at upload) whose ingest failed; retry them from the KB's file list. Limits are fixed: 600 chat / 300 other requests per minute per API key. Do not give the service user membership in any other KB. Unsupported uploads (types JustRAG cannot ingest) are recorded and reported "completed" but never indexed; `rag_owui_requests_total{route="upload",outcome="unsupported"}` counts them. No re-ingest and no backfill: the migration adds three tables and widens `usage_events_surface_check`.
 
