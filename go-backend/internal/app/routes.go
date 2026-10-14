@@ -1844,4 +1844,8 @@ func registerOWUICompatRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /owui/api/v1/files/{id}", data(h.FileStatus))
 	rc.mux.Handle("DELETE /owui/api/v1/files/{id}", data(h.DeleteFile))
 	rc.mux.Handle("GET /owui/api/v1/files/{id}/data/content", data(h.FileContent))
+	rc.mux.Handle("POST /owui/api/v1/knowledge/create", data(h.CreateKnowledge))
+	rc.mux.Handle("POST /owui/api/v1/knowledge/{id}/file/add", data(h.AddToKnowledge))
+	rc.mux.Handle("POST /owui/api/v1/knowledge/{id}/file/remove", data(h.RemoveFromKnowledge))
+	rc.mux.Handle("DELETE /owui/api/v1/knowledge/{id}/delete", data(h.DeleteKnowledge))
 }
