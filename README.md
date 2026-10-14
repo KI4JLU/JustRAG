@@ -25,7 +25,7 @@ The runtime is Go-only — the legacy Node.js path has been removed:
 - Research and academic research workflows with streaming progress plus DOCX and BibTeX export
 - Generated content for cards, presentations, podcasts, analyses, and abstracts
 - Built-in retrieval evaluation harness (`cmd/eval`) with golden sets, route-based metrics, optional LLM-as-judge, and an admin UI runner
-- API key based public API at `/api/v1/*` plus an OpenAI-compatible surface at `/openai/v1/*`
+- API key based public API at `/api/v1/*` plus an OpenAI-compatible surface at `/openai/v1/*`, and an Open WebUI-compatible surface at `/owui/*` for the ILIAS LfAssistant plugin (flag `owui_compat_enabled`, default off)
 - Structured logs with request-id correlation, Prometheus metrics, OpenTelemetry tracing with Langfuse deep-links, health/readiness probes, version metadata, worker health endpoints, and a content-freshness surface (source dates, per-KB staleness, last-successful-sync age)
 
 ## Known Gaps
@@ -129,6 +129,7 @@ That starts Vite on `http://localhost:5173`.
 - `GET /api/v1/docs`
 - `GET /openai/v1/models`
 - `POST /openai/v1/chat/completions`
+- `/owui/api/*` — Open WebUI-compatible files, knowledge and chat routes for ILIAS (see [docs/api-contracts/owui-compat.md](docs/api-contracts/owui-compat.md))
 
 ## Documentation
 
