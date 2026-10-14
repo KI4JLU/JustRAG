@@ -1825,18 +1825,25 @@ func registerOWUICompatRoutes(rc *routeCtx) {
 		Max: 300, Window: time.Minute, Category: "owui_data", Key: byKey,
 	})
 	h := owuicompat.NewHandler(owuicompat.Deps{
-		Store:   owuicompat.NewPGStore(rc.infra.db.Main),
-		Library: rc.libraryIngester,
-		Adder:   rc.filesHandler,
-		Creator: rc.kbStore,
-		Deleter: rc.cascadeDeleter,
-		Config:  rc.chatStore,
-		Guard:   rc.chatStore,
-		Usage:   usage.NewRecorder(rc.infra.db.Main),
+		Store:    owuicompat.NewPGStore(rc.infra.db.Main),
+		Library:  rc.libraryIngester,
+		Adder:    rc.filesHandler,
+		Creator:  rc.kbStore,
+		Deleter:  rc.cascadeDeleter,
+		Config:   rc.chatStore,
+		Guard:    rc.chatStore,
+		Usage:    usage.NewRecorder(rc.infra.db.Main),
+		Answerer: owuicompat.NewPipelineAnswerer(rc.aiResolver, rc.searchService, rc.kbStore, &fileDatesAdapter{store: rc.filesStore}),
+	})
+	chatRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 600, Window: time.Minute, Category: "owui_chat", Key: byKey,
 	})
 	// The limiter sits inside Authenticate so byKey sees the key id.
 	data := func(f http.HandlerFunc) http.Handler { return apiKeyAuth.Authenticate(dataRL.Middleware(h.Gate(f))) }
 
+	chatChain := func(f http.HandlerFunc) http.Handler { return apiKeyAuth.Authenticate(chatRL.Middleware(h.Gate(f))) }
+
+	rc.mux.Handle("POST /owui/api/chat/completions", chatChain(h.ChatCompletions))
 	rc.mux.Handle("GET /owui/api/models", data(h.Models))
 	rc.mux.Handle("POST /owui/api/v1/files/{$}", data(h.UploadFile))
 	rc.mux.Handle("POST /owui/api/v1/files", data(h.UploadFile))
