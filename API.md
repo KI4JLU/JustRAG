@@ -1,6 +1,8 @@
 # API Reference
 
 This document reflects the current Go backend API surface in `go-backend/internal/app/routes.go`.
+`TestAPIDocListsEveryRoute` (`go-backend/internal/app/api_doc_drift_test.go`) fails CI when a registered
+route has no table row here, or a row names a route that no longer exists.
 
 ## API Surfaces
 
@@ -20,6 +22,12 @@ This document reflects the current Go backend API surface in `go-backend/interna
 - Base path: `/openai/v1`
 - Authentication: API key bearer token
 
+### Open WebUI-compatible API (ILIAS)
+
+- Base path: `/owui`
+- Authentication: API key bearer token
+- Gated by the global `owui_compat_enabled` flag (default off)
+
 ## Docs and Service Endpoints
 
 | Method | Path | Notes |
@@ -30,10 +38,21 @@ This document reflects the current Go backend API surface in `go-backend/interna
 | GET | `/metrics` | Admin-only Prometheus endpoint |
 | GET | `/api/v1/openapi.json` | Embedded OpenAPI spec |
 | GET | `/api/v1/docs` | Scalar API reference |
+| GET | `/uploads/logo/` | Uploaded site logo file (`/uploads/logo/<file>`), public |
 
 ## Web/Session API
 
 All routes below are under `/api`.
+
+Where a table has an **Access** column, its values mean:
+
+- **public** — no authentication.
+- **authenticated** — any signed-in user; ownership, if any, is checked in the handler.
+- **KB view / edit / admin / owner** — the caller's effective KB role on `{id}` (`view < edit < admin < owner`, see "KB members and ownership").
+- **KB advanced** — KB role `admin` **and** a system role of `api-user`, `admin` or `superadmin` (the KB settings panel's RAG settings, agents and teams, evals and workflow).
+- **system admin** / **superadmin** — the user's system role (`admin` or `superadmin` / `superadmin` only).
+
+`docs/api-contracts/` holds the full request/response contracts for the larger features (agent chat, user file library, early-open SSE, Open WebUI).
 
 ### Authentication
 
@@ -42,6 +61,16 @@ All routes below are under `/api`.
 | POST | `/auth/login` |
 | POST | `/auth/logout` |
 | POST | `/auth/refresh` |
+| GET | `/auth/providers` |
+| GET | `/auth/oidc/login` |
+| GET | `/auth/oidc/callback` |
+| GET | `/auth/oidc/logout` |
+| POST | `/auth/oidc/logout` |
+
+- `GET /auth/providers` is public and lists the enabled login providers for the login page, without their secrets.
+- `GET /auth/oidc/login` → IdP → `GET /auth/oidc/callback` is the browser redirect flow for OIDC login.
+- `GET /auth/oidc/logout` is the browser's RP-initiated logout: it revokes the JWT if one is sent and redirects to the IdP's end-session endpoint.
+- `POST /auth/oidc/logout` is the IdP's back-channel logout (called server-to-server with a `logout_token`, never by the frontend).
 
 ### Users, site config, API keys
 
@@ -56,6 +85,17 @@ All routes below are under `/api`.
 | POST | `/api-keys` |
 | GET | `/api-keys` |
 | DELETE | `/api-keys/{id}` |
+
+### Long-term memory ("Mein Gedächtnis")
+
+The caller's own long-term memory entries. Available whether or not `chat_longmem_enabled` is on, so a user can always see, export and erase what was stored.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/user/memory` | authenticated |
+| GET | `/user/memory/export` | authenticated |
+| DELETE | `/user/memory/{id}` | authenticated |
+| DELETE | `/user/memory` | authenticated (deletes all) |
 
 ### Knowledge bases
 
@@ -87,6 +127,66 @@ Card fields on the KB rows of `GET /kb`, `GET /kb/global` and `GET /kb/{id}`:
 `PATCH /kb/{id}` returns the KB in the same caller-aware shape as
 `GET /kb/{id}` (card fields, `myRole`, and the per-user filter fields below),
 so a client can replace its copy with the response.
+
+### Catalog, subscriptions and categories
+
+Discovery and subscription of public KBs. A subscription decides whether a public KB appears in the caller's overview; the system-admin-curated categories are the catalog's filter tabs (the caller's own chips are the per-user topic filters below).
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb/catalog` | authenticated |
+| PUT | `/kb/{id}/subscription` | KB view |
+| DELETE | `/kb/{id}/subscription` | KB view |
+| GET | `/kb-categories` | authenticated |
+| GET | `/kb/{id}/categories` | KB view |
+| PUT | `/kb/{id}/categories` | KB admin |
+
+- `GET /kb/catalog` lists published public KBs plus staged public KBs the caller is a member of.
+- `DELETE /kb/{id}/subscription` is the "remove from Favoriten" star: it writes an opt-out and keeps memberships and chats.
+- Category CRUD is under Admin (`/admin/kb-categories`).
+
+### KB settings and workflow
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb/{id}/settings` | KB advanced |
+| PUT | `/kb/{id}/settings` | KB advanced |
+| DELETE | `/kb/{id}/settings/{key}` | KB advanced |
+| POST | `/kb/{id}/reembed` | KB advanced |
+| GET | `/workflow/presets` | authenticated |
+| GET | `/kb/{id}/workflow` | KB advanced |
+| GET | `/kb/{id}/workflow/preset` | KB advanced |
+| POST | `/kb/{id}/workflow/preset` | KB advanced |
+
+- `/settings` are the per-KB overrides of the `site_config` registry; `DELETE /settings/{key}` falls back to the global value.
+- `POST /reembed` queues a full re-ingest of the KB; the panel offers it after saving a key marked `requiresReingest`.
+- `GET /workflow/preset` previews which settings a preset would overwrite; `POST` applies it. `GET /workflow/presets` is the deployment-wide preset catalogue.
+
+### Agents and teams
+
+User-created agents (persona prompt, model override, tool allowlist, retrieval overrides) and teams (router → specialists → synthesis), attached to KBs and picked per chat.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/agents` | authenticated |
+| POST | `/agents` | authenticated |
+| GET | `/agents/registry` | authenticated |
+| GET | `/agents/{id}` | authenticated (owner) |
+| PUT | `/agents/{id}` | authenticated (owner) |
+| DELETE | `/agents/{id}` | authenticated (owner) |
+| GET | `/agent-teams` | authenticated |
+| POST | `/agent-teams` | authenticated |
+| GET | `/agent-teams/{id}` | authenticated (owner) |
+| PUT | `/agent-teams/{id}` | authenticated (owner) |
+| DELETE | `/agent-teams/{id}` | authenticated (owner) |
+| GET | `/kb/{id}/agents` | KB view |
+| PUT | `/kb/{id}/agents/{agentId}` | KB advanced |
+| DELETE | `/kb/{id}/agents/{agentId}` | KB advanced |
+| PUT | `/kb/{id}/teams/{teamId}` | KB advanced |
+| DELETE | `/kb/{id}/teams/{teamId}` | KB advanced |
+
+- `GET /agents/registry` returns the tools and override keys the agent form may offer (the same list the save validates against).
+- `GET /kb/{id}/agents` is the chat picker's payload: the agents and teams attached to the KB.
 
 ### Per-user topic filters
 
@@ -336,6 +436,37 @@ redemption.
 | POST | `/kb/{id}/websearch` |
 | GET | `/files/{id}/download` |
 | DELETE | `/files/{id}` |
+| POST | `/files/{id}/retry` |
+| POST | `/kb/{id}/files/retry-failed` |
+| POST | `/kb/{id}/files/from-library` |
+| POST | `/kb/{id}/files/adopt` |
+| GET | `/kb/{id}/files/{fileId}/tabular` |
+| POST | `/kb/{id}/tabular/rematerialize` |
+
+- `POST /files/{id}/retry` (KB edit on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (KB edit) does it for every failed file: `{"retried": N}`.
+- `POST /kb/{id}/files/from-library` (KB edit) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
+- `GET /kb/{id}/files/{fileId}/tabular` (KB view) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
+
+### User file library
+
+Every user's personal file library; a KB's indexed copy references a library file. Full contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/library/files` | authenticated (own files) |
+| POST | `/library/files` | authenticated |
+| GET | `/library/files/{id}` | authenticated (owner) |
+| PATCH | `/library/files/{id}` | authenticated (owner) |
+| DELETE | `/library/files/{id}` | authenticated (owner) |
+| GET | `/library/files/{id}/download` | authenticated (owner) |
+| GET | `/library/files/{id}/usage` | authenticated (owner) |
+| GET | `/library/quota` | authenticated |
+| POST | `/library/chat` | authenticated (owner of the files) |
+| GET | `/library/chats` | authenticated |
+| GET | `/library/chats/{id}` | authenticated (owner) |
+
+- `DELETE /library/files/{id}` removes the file from every KB that uses it. `GET …/usage` lists those KBs.
+- `POST /library/chat[?stream=true]` answers from 1–20 of the caller's library files without a KB; it uses the `chat` rate limit. Messages and deletion reuse `GET /chats/{id}/messages` and `DELETE /chats/{id}`.
 
 ### Chat
 
@@ -349,6 +480,11 @@ redemption.
 | DELETE | `/chats/{id}` |
 | POST | `/kb/{id}/chat` |
 | POST | `/kb/{id}/chats/{chatId}/messages/{messageId}/feedback` |
+| POST | `/kb/{id}/agui/chat` |
+| POST | `/kb/{id}/chat/attachment` |
+
+- `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
+- `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`.
 
 `POST /kb/{id}/chat` takes an optional boolean `webSearch` (per-turn web search):
 
@@ -422,14 +558,22 @@ generation for a minute; the cache is per server process. `lang` falls back to
 | POST | `/kb/{id}/generate/presentation` | available |
 | POST | `/kb/{id}/generate/podcast` | available |
 | GET | `/kb/{id}/generate/podcast/status/{jobId}` | available |
-| POST | `/kb/{id}/generate/chart` | returns `501` in Go runtime |
+| POST | `/kb/{id}/generate/chart` | available |
 | POST | `/kb/{id}/generate/analysis` | available |
 | POST | `/kb/{id}/generate/abstract` | available |
+| POST | `/kb/{id}/generate/quiz` | available |
+| POST | `/kb/{id}/generate/briefing_doc` | available |
+| POST | `/kb/{id}/generate/faq` | available |
+| POST | `/kb/{id}/generate/study_guide` | available |
+| POST | `/kb/{id}/generate/timeline` | available |
+| GET | `/kb/{id}/workspace/presets` | available |
 | PATCH | `/generated-content/{id}` | available |
 | DELETE | `/generated-content/{id}` | available |
 | GET | `/generated-content/{id}/download` | available |
 | GET | `/generated-content/{id}/stream` | available |
-| POST | `/describe-image` | returns `501` in Go runtime |
+| POST | `/describe-image` | `503` unless `describe_image_enabled` and `describe_image_model` are set |
+
+All `generate/*` routes need KB view and use the `generate` rate limit. `briefing_doc`, `faq`, `study_guide` and `timeline` are the Markdown study artifacts (one generic handler, `contentgen.TextArtifacts`). `GET /kb/{id}/workspace/presets` returns the workspace tiles available for the KB (generator presets, plus whether document comparison is enabled).
 
 ### Research and export
 
@@ -477,12 +621,41 @@ generation for a minute; the cache is per server process. `lang` falls back to
 | POST | `/confluence/connections/{id}/verify` |
 | GET | `/confluence/spaces` |
 | GET | `/confluence/spaces/{spaceKey}/pages` |
+| GET | `/confluence/spaces/{spaceKey}/pages/all` |
 | GET | `/confluence/pages/{pageId}/children` |
 | POST | `/kb/{id}/confluence-sources` |
 | GET | `/kb/{id}/confluence-sources` |
 | PATCH | `/kb/{id}/confluence-sources/{sourceId}` |
 | DELETE | `/kb/{id}/confluence-sources/{sourceId}` |
 | POST | `/kb/{id}/confluence-sources/{sourceId}/sync` |
+
+`GET /confluence/spaces/{spaceKey}/pages/all` returns every page of a space with its ancestor titles, for the import dialog's client-side search.
+
+### Git repositories
+
+Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb/{id}/git-repos` | KB view |
+| POST | `/kb/{id}/git-repos` | KB edit |
+| PATCH | `/kb/{id}/git-repos/{sourceId}` | KB edit |
+| DELETE | `/kb/{id}/git-repos/{sourceId}` | KB edit |
+| POST | `/kb/{id}/git-repos/{sourceId}/sync` | KB edit |
+
+### Knowledge graph
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb/{id}/graph` | KB view |
+| GET | `/kb/{id}/graph/stream` | KB view |
+| GET | `/kb/{id}/graph/entity/{entityId}` | KB view |
+| POST | `/kb/{id}/canonicalize` | KB admin |
+| POST | `/kb/{id}/communities/build` | KB admin |
+
+- `GET /graph/stream` is an SSE stream of live mind-map updates while files are ingested.
+- `GET /graph/entity/{entityId}` is one entity's card (type, aliases, degree, sources, neighbours).
+- `POST /canonicalize` queues entity deduplication (needs `kg_canonicalization_enabled`); `POST /communities/build` queues community detection and summaries (needs `kg_communities_enabled`).
 
 ### Analytics and system health
 
@@ -526,6 +699,28 @@ generation for a minute; the cache is per server process. `lang` falls back to
 | GET | `/admin/audit-logs` |
 | POST | `/admin/reembed-all` |
 | POST | `/admin/agent/template` |
+| POST | `/admin/reembed-user-memory` |
+| GET | `/admin/kb-overview` |
+| DELETE | `/admin/kbs/{id}` |
+| PATCH | `/admin/kbs/{id}/owner` |
+| POST | `/admin/kb/{id}/publish` |
+| POST | `/admin/kb/{id}/unpublish` |
+| GET | `/admin/kb/{id}/unpublish-impact` |
+| GET | `/admin/kb-categories` |
+| POST | `/admin/kb-categories` |
+| PATCH | `/admin/kb-categories/{catId}` |
+| DELETE | `/admin/kb-categories/{catId}` |
+| GET | `/admin/agent-metrics` |
+| GET | `/admin/feedback/chunks` |
+| GET | `/admin/mcp/status` |
+| POST | `/admin/mcp/reload` |
+
+All admin routes need a system role of `admin` or `superadmin`; these are **superadmin only**: `/admin/reembed-all`, `/admin/reembed-user-memory`, `/admin/agent/template`, `DELETE /admin/kbs/{id}` and `PATCH /admin/kbs/{id}/owner`.
+
+- `GET /admin/kb-overview` is the KB-Übersicht (activity, freshness, sync status, RAGAS, injection flags per KB).
+- `POST /admin/kb/{id}/publish` makes a KB public but staged (`is_published = false`); `unpublish` needs a new owner, and `unpublish-impact` returns the numbers and owner candidates for its confirmation dialog.
+- `GET /admin/feedback/chunks?kb_id=&limit=` lists the most net-negatively rated chunks; `GET /admin/agent-metrics` the orchestrator outcome distributions.
+- `POST /admin/mcp/reload` re-reads `mcp_servers` and returns the fresh per-server status.
 
 ### Admin evaluation runner
 
@@ -541,6 +736,31 @@ These routes drive the in-app evaluation runner. They are admin-only and are ski
 | POST | `/admin/eval/golden-sets` |
 | GET | `/admin/eval/golden-sets` |
 | DELETE | `/admin/eval/golden-sets/{id}` |
+| GET | `/admin/eval/golden-sets/{id}` |
+| PATCH | `/admin/eval/golden-sets/{id}` |
+| POST | `/admin/eval/golden-sets/generate` |
+| GET | `/admin/eval/golden-sets/jobs` |
+
+`POST /admin/eval/golden-sets/generate` starts an asynchronous draft golden set generated from a KB's corpus; `GET /admin/eval/golden-sets/jobs` reports the jobs.
+
+### Per-KB evaluation
+
+The KB settings panel's Evals tab. **KB advanced**; skipped at boot together with the routes above when `eval_ui_enabled` is falsy.
+
+| Method | Path |
+|---|---|
+| GET | `/kb/{id}/eval/golden-sets` |
+| POST | `/kb/{id}/eval/golden-sets` |
+| POST | `/kb/{id}/eval/golden-sets/generate` |
+| GET | `/kb/{id}/eval/golden-sets/jobs` |
+| GET | `/kb/{id}/eval/golden-sets/{gsId}` |
+| PATCH | `/kb/{id}/eval/golden-sets/{gsId}` |
+| DELETE | `/kb/{id}/eval/golden-sets/{gsId}` |
+| POST | `/kb/{id}/eval/runs` |
+| GET | `/kb/{id}/eval/runs` |
+| GET | `/kb/{id}/eval/runs/{runId}` |
+| GET | `/kb/{id}/eval/runs/{runId}/export` |
+| DELETE | `/kb/{id}/eval/runs/{runId}` |
 
 ### Data Explorer
 
@@ -563,11 +783,13 @@ All routes below are under `/api/v1` and require `Authorization: Bearer <api-key
 | GET | `/kb/{id}/chats/{chatId}/messages` |
 | POST | `/kb/{id}/chat` |
 | POST | `/kb/{id}/research` |
+| POST | `/kb/{id}/mcp` |
 
 Notes:
 
 - KB permissions are still enforced.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
+- `POST /api/v1/kb/{id}/mcp` exposes the KB as an MCP server with the single tool `ask_kb` (KB view); `404` unless `mcp_server_enabled` is on.
 
 ## OpenAI-Compatible API
 
@@ -637,6 +859,39 @@ post-response task on the in-app chat path), so annotations reflect what the
 model claimed, not what was verified. Markers referencing a source that was
 never retrieved are dropped rather than emitted as dangling annotations.
 
+## Open WebUI-Compatible API (ILIAS LfAssistant)
+
+All routes below are under `/owui` and require an API key. They exist only for
+the ILIAS LfAssistant plugin's "Open WebUI RAG" mode and mirror the subset of
+Open WebUI's API that plugin calls. While `owui_compat_enabled` is off, every
+route answers `404 {"detail"}` for an authenticated key (a missing or invalid
+key still gets the API-key middleware's `401 {"error"}`).
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/chat/completions` | RAG answer over the collection(s) in `files`; streams Open WebUI's `sources` frame first |
+| GET | `/api/models` | The one advertised model, `justrag`; the request's `model` is ignored |
+| POST | `/api/v1/files/` | Stores the upload in the key's service-user file library — **no indexing** |
+| GET | `/api/v1/files/` | Lists the key's uploads |
+| GET | `/api/v1/files/{id}` | Status; `completed` once stored (unknown id → 200 `failed`) |
+| DELETE | `/api/v1/files/{id}` | Drops the upload id and the KB copies only it reaches; the library file goes with the last upload id sharing its bytes |
+| GET | `/api/v1/files/{id}/data/content` | Always `{"id", "content": ""}` (only the plugin's debug modal calls it) |
+| POST | `/api/v1/knowledge/create` | Creates a collection = a private KB owned by the service user |
+| POST | `/api/v1/knowledge/{id}/file/add` | Starts **indexing** the upload in that KB (parse, chunk, embed, KG — or an index copy), in the background |
+| POST | `/api/v1/knowledge/{id}/file/remove` | Removes the file and its index from that KB |
+| DELETE | `/api/v1/knowledge/{id}/delete` | Deletes the collection's KB |
+
+Indexing happens only on `file/add`, per KB: an upload that is never added to a
+collection costs storage but no model calls, and each collection's knowledge
+graph contains only its own documents. A file added to a second collection
+reuses the first collection's index through the library's copy mode.
+
+Because the plugin throws on any status ≥ 400, several error cases answer 2xx
+by design. Full request/response shapes, every deviation from Open WebUI and the
+cut-over procedure: [`docs/api-contracts/owui-compat.md`](docs/api-contracts/owui-compat.md)
+and the "ILIAS LfAssistant (Open WebUI RAG mode)" recipe in
+[`docs/feature-recipes.md`](docs/feature-recipes.md).
+
 ## Rate Limiting
 
 The Go server applies per-category Redis-backed rate limits:
@@ -650,6 +905,9 @@ The Go server applies per-category Redis-backed rate limits:
 | starter_questions | 30 / min | `GET /api/kb/{id}/starter-questions` |
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
 | search | 60 / min **per user** | `GET /api/search` |
+| owui_chat | 600 / min **per API key** | `POST /owui/api/chat/completions` |
+| owui_data | 300 / min **per API key** | every other `/owui/*` route |
 
 Limits are counted per client IP, except `search`, which runs after
-authentication and is counted per user.
+authentication and is counted per user, and the two `owui_*` categories, which
+are counted per API key because one ILIAS server carries every student.
