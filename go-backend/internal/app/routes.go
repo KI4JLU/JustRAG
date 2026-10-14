@@ -73,6 +73,7 @@ import (
 	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/misc"
 	"github.com/justrag/go-backend/internal/openaicompat"
+	"github.com/justrag/go-backend/internal/owuicompat"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/pipeline"
 	"github.com/justrag/go-backend/internal/prompts"
@@ -110,6 +111,7 @@ type routeCtx struct {
 	chatStore       *chat.PGStore
 	filesStore      *files.PGStore
 	filesHandler    *files.Handler
+	libraryIngester *userfiles.Ingester
 	genContentStore *gencontent.PGStore
 	chunkService    *vector.ChunkService
 	cascadeDeleter  *cascade.Deleter
@@ -408,6 +410,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	registerContentGenRoutes(rc, generateRL)
 	registerResearchRoutes(rc, researchRL)
 	registerPublicAPIRoutes(rc, apiRL)
+	registerOWUICompatRoutes(rc)
 	registerMiscRoutes(rc)
 	registerStaticRoutes(rc)
 
@@ -772,6 +775,7 @@ func registerLibraryRoutes(rc *routeCtx) {
 	store := userfiles.NewStore(rc.infra.db.Main)
 	quota := userFileQuota{reader: rc.chatStore}
 	ingester := userfiles.NewIngester(store, rc.infra.stor, quota)
+	rc.libraryIngester = ingester
 	h := userfiles.NewHandler(store, ingester, rc.infra.stor, tabularUploadLimits{reader: rc.chatStore}, quota)
 	h.SetDeleter(rc.cascadeDeleter)
 	// KB uploads and add-from-library go through the same library.
@@ -1803,4 +1807,52 @@ func kbAdvancedInner(authMw *auth.Middleware, kbMw *kbaccess.Middleware) func(ht
 		return authMw.RequireRole(auth.RoleAPIUser, auth.RoleAdmin)(
 			kbMw.RequireKBRole(kbaccess.RoleAdmin)(http.HandlerFunc(h)))
 	}
+}
+
+// registerOWUICompatRoutes wires the Open WebUI compatibility surface for the
+// ILIAS LfAssistant plugin (internal/owuicompat). Gated by the global
+// owui_compat_enabled flag inside the handler; limits key on the API key, not
+// the IP, because one ILIAS server carries every student.
+func registerOWUICompatRoutes(rc *routeCtx) {
+	apiKeyAuth := apikeyauth.NewMiddleware(apikeyauth.NewStore(rc.infra.db.Main))
+	byKey := func(r *http.Request) string {
+		if id := auth.APIKeyIDFromContext(r.Context()); id != nil {
+			return "key:" + *id
+		}
+		return ""
+	}
+	dataRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 300, Window: time.Minute, Category: "owui_data", Key: byKey,
+	})
+	h := owuicompat.NewHandler(owuicompat.Deps{
+		Store:    owuicompat.NewPGStore(rc.infra.db.Main),
+		Library:  rc.libraryIngester,
+		Adder:    rc.filesHandler,
+		Creator:  rc.kbStore,
+		Deleter:  rc.cascadeDeleter,
+		Config:   rc.chatStore,
+		Guard:    rc.chatStore,
+		Usage:    usage.NewRecorder(rc.infra.db.Main),
+		Answerer: owuicompat.NewPipelineAnswerer(rc.aiResolver, rc.searchService, rc.kbStore, &fileDatesAdapter{store: rc.filesStore}),
+	})
+	chatRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 600, Window: time.Minute, Category: "owui_chat", Key: byKey,
+	})
+	// The limiter sits inside Authenticate so byKey sees the key id.
+	data := func(f http.HandlerFunc) http.Handler { return apiKeyAuth.Authenticate(dataRL.Middleware(h.Gate(f))) }
+
+	chatChain := func(f http.HandlerFunc) http.Handler { return apiKeyAuth.Authenticate(chatRL.Middleware(h.Gate(f))) }
+
+	rc.mux.Handle("POST /owui/api/chat/completions", chatChain(h.ChatCompletions))
+	rc.mux.Handle("GET /owui/api/models", data(h.Models))
+	rc.mux.Handle("POST /owui/api/v1/files/{$}", data(h.UploadFile))
+	rc.mux.Handle("POST /owui/api/v1/files", data(h.UploadFile))
+	rc.mux.Handle("GET /owui/api/v1/files/{$}", data(h.ListFiles))
+	rc.mux.Handle("GET /owui/api/v1/files/{id}", data(h.FileStatus))
+	rc.mux.Handle("DELETE /owui/api/v1/files/{id}", data(h.DeleteFile))
+	rc.mux.Handle("GET /owui/api/v1/files/{id}/data/content", data(h.FileContent))
+	rc.mux.Handle("POST /owui/api/v1/knowledge/create", data(h.CreateKnowledge))
+	rc.mux.Handle("POST /owui/api/v1/knowledge/{id}/file/add", data(h.AddToKnowledge))
+	rc.mux.Handle("POST /owui/api/v1/knowledge/{id}/file/remove", data(h.RemoveFromKnowledge))
+	rc.mux.Handle("DELETE /owui/api/v1/knowledge/{id}/delete", data(h.DeleteKnowledge))
 }

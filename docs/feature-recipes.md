@@ -916,6 +916,34 @@ No migration. Lets a user switch web search on for a single chat turn (request f
 
 **Reported, not refused:** a `chat_answer_tools_by_route` allowlist that does not list `web_search` for the turn's classified route (only known after classification) drops it — the turn streams the trajectory event `{"agentTrajectory":{"stage":"web_search","decision":"skipped","reason":"web search is not available for this turn"}}` — deliberately generic, since it reaches the client — and logs the actual cause as `chat.web_search.skipped`, so the opt-in is never dropped silently. Admin restrictions win over the user's request.
 
+## ILIAS LfAssistant (Open WebUI RAG mode)
+
+Serves the ILIAS LfAssistant plugin's "Open WebUI RAG" mode (`internal/owuicompat`, migration 0088, contract `docs/api-contracts/owui-compat.md`). Global flag `owui_compat_enabled` (default off); the surface is mounted at `/owui` and answers 404 until the flag is `true`.
+
+1. Create a service user (system role `api-user`), e.g. `ilias-lfassistant`; leave `users.file_quota_bytes` NULL (unlimited at the default `user_file_quota_bytes = 0`).
+2. Log in as that user and mint an API key (`POST /api/api-keys`, set `expiresAt`).
+3. Enable the surface:
+   ```sql
+   INSERT INTO site_configs (key, value, updated_at) VALUES ('owui_compat_enabled', 'true', now())
+   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+   ```
+4. Route `/owui/` to the Go server in the ingress/nginx; set `TRUSTED_PROXY_HOP_COUNT`.
+5. In ILIAS (Administration > Plugins > LfAssistant > Provider): API mode **Open WebUI RAG**, endpoint base `https://<host>/owui`, API key = the key from step 2; interface config "Open AI Chat Completion", path `api/chat/completions`, model `justrag`.
+6. Cut-over from an existing Open WebUI: the plugin's stored file ids and collections belong to the old server, so reset its sync state. The ILIAS operators run this on the ILIAS database with the LfAssistantCron job paused, after switching the provider's endpoint and key (verify the column names against the live schema first). It drops the context rows (they reference indexed items, so they go first), deletes the indexed items flagged `delete_flag = 1`, and resets the rest:
+   ```sql
+   DELETE FROM lf_rag_context_item
+    WHERE consumer_obj_id IN (SELECT consumer_obj_id FROM lf_rag_context WHERE provider_id = <provider id>);
+   DELETE FROM lf_rag_context WHERE provider_id = <provider id>;
+   DELETE FROM lf_rag_indexed_item WHERE provider_id = <provider id> AND delete_flag = 1;
+   UPDATE lf_rag_indexed_item
+      SET ext_file_id = '', files_added_ts = 0, added_status_checked_ts = 0,
+          files_indexed_ts = 0, consumer_update_ts = 0, force_reindex = 0
+    WHERE provider_id = <provider id> AND delete_flag = 0;
+   ```
+   Then run the LfAssistantCron job once by hand.
+
+Alert on `rag_owui_kb_files_error > 0` (refreshed on the worker metrics tick, needs `WORKER_MAINTENANCE`): these are files the plugin believes indexed (it is told "completed" at upload) whose ingest failed; retry them from the KB's file list. Limits are fixed: 600 chat / 300 other requests per minute per API key. Do not give the service user membership in any other KB. Unsupported uploads (types JustRAG cannot ingest) are recorded and reported "completed" but never indexed; `rag_owui_requests_total{route="upload",outcome="unsupported"}` counts them. No re-ingest and no backfill: the migration adds three tables and widens `usage_events_surface_check`.
+
 ## KB permission model — rights matrix (Phase 1)
 
 No flag; live since migration **0064**. Four roles, strictly ordered `view < edit < admin < owner`, resolved by `kbaccess.EffectiveRole` and enforced by `kbaccess.RequireKBRole(min)` — see the Quick reference block in `CLAUDE.md` for the five-rule resolution ladder. Reproduced here (from `docs/superpowers/specs/2026-08-12-kb-rollen-und-sichtbarkeit-design.md`) so operators and developers don't have to open the spec for the matrix itself:

@@ -26,6 +26,7 @@ const (
 	SurfaceAPIv1        Surface = "api_v1"
 	SurfaceOpenAICompat Surface = "openai_compat"
 	SurfaceMCP          Surface = "mcp"
+	SurfaceOWUICompat   Surface = "owui_compat"
 )
 
 // Event is one accepted turn. APIKeyID is nil for web turns (JWT auth).

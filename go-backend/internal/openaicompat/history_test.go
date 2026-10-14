@@ -19,7 +19,7 @@ func TestCapAnswerHistory_LastNAndRuneSafeTruncation(t *testing.T) {
 		{Role: "user", Content: "q3"},
 		{Role: "assistant", Content: "a3"},
 	}
-	got := capAnswerHistory(in)
+	got := CapAnswerHistory(in)
 	if len(got) != 6 {
 		t.Fatalf("len=%d, want 6 (last N)", len(got))
 	}
@@ -29,7 +29,7 @@ func TestCapAnswerHistory_LastNAndRuneSafeTruncation(t *testing.T) {
 	if n := len([]rune(got[1].Content)); n != 4000 {
 		t.Errorf("long entry not capped to 4000 runes: %d", n)
 	}
-	if got2 := capAnswerHistory(nil); got2 != nil {
+	if got2 := CapAnswerHistory(nil); got2 != nil {
 		t.Errorf("nil in, got %+v", got2)
 	}
 }
