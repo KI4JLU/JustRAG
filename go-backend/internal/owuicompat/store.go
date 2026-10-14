@@ -47,12 +47,17 @@ type Store interface {
 	GetHandle(ctx context.Context, ownerID, id string) (*FileHandle, error)
 	ListHandles(ctx context.Context, ownerID string) ([]FileHandle, error)
 	DeleteHandle(ctx context.Context, ownerID, id string) (deleted bool, lastForUserFile bool, orphanFileIDs []string, err error)
+	// HandleCleanupPlan is DeleteHandle's computation without the delete:
+	// the cascade runs first, the handle goes only after it succeeded.
+	HandleCleanupPlan(ctx context.Context, ownerID, id string) (found bool, lastForUserFile bool, orphanFileIDs []string, err error)
 
 	RegisterKnowledge(ctx context.Context, kbID, ownerID string) error
 	OwnsKnowledge(ctx context.Context, ownerID, kbID string) (bool, error)
 	KBFileForUserFile(ctx context.Context, kbID, userFileID string) (string, error)
 	LinkFile(ctx context.Context, kbID, handleID, fileID string) error
 	UnlinkFile(ctx context.Context, kbID, handleID string) (orphanFileID string, err error)
+	// UnlinkPlan reports the files row UnlinkFile would orphan, deleting nothing.
+	UnlinkPlan(ctx context.Context, kbID, handleID string) (orphanFileID string, err error)
 	HandlesForFiles(ctx context.Context, kbID string, fileIDs []string) (map[string]FileHandle, error)
 }
 
@@ -186,6 +191,70 @@ func (s *PGStore) DeleteHandle(ctx context.Context, ownerID, id string) (bool, b
 		return nil
 	})
 	return deleted, last, orphans, err
+}
+
+func (s *PGStore) HandleCleanupPlan(ctx context.Context, ownerID, id string) (bool, bool, []string, error) {
+	if !validUUID(id) || !validUUID(ownerID) {
+		return false, false, nil, nil
+	}
+	var userFileID *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT user_file_id::text FROM owui_files WHERE id = $1::uuid AND owner_user_id = $2::uuid`,
+		id, ownerID).Scan(&userFileID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil, nil
+	}
+	if err != nil {
+		return false, false, nil, err
+	}
+	orphans := []string{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT k.file_id::text FROM owui_knowledge_files k
+		 WHERE k.owui_file_id = $1::uuid AND k.file_id IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM owui_knowledge_files o
+		                    WHERE o.file_id = k.file_id AND o.owui_file_id <> $1::uuid)`, id)
+	if err != nil {
+		return false, false, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return false, false, nil, err
+		}
+		orphans = append(orphans, f)
+	}
+	if err := rows.Err(); err != nil {
+		return false, false, nil, err
+	}
+	last := false
+	if userFileID != nil {
+		var others bool
+		if err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM owui_files WHERE user_file_id = $1::uuid AND owner_user_id = $2::uuid AND id <> $3::uuid)`,
+			*userFileID, ownerID, id).Scan(&others); err != nil {
+			return false, false, nil, err
+		}
+		last = !others
+	}
+	return true, last, orphans, nil
+}
+
+func (s *PGStore) UnlinkPlan(ctx context.Context, kbID, handleID string) (string, error) {
+	if !validUUID(kbID) || !validUUID(handleID) {
+		return "", nil
+	}
+	var orphan *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT k.file_id::text FROM owui_knowledge_files k
+		 WHERE k.kb_id = $1::uuid AND k.owui_file_id = $2::uuid AND k.file_id IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM owui_knowledge_files o
+		                    WHERE o.kb_id = k.kb_id AND o.file_id = k.file_id AND o.owui_file_id <> k.owui_file_id)`,
+		kbID, handleID).Scan(&orphan)
+	if errors.Is(err, pgx.ErrNoRows) || orphan == nil {
+		return "", nil
+	}
+	return *orphan, err
 }
 
 func (s *PGStore) RegisterKnowledge(ctx context.Context, kbID, ownerID string) error {

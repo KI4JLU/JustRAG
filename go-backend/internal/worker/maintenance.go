@@ -569,7 +569,7 @@ func refreshOWUIFilesError(ctx context.Context, mainDB *pgxpool.Pool) {
 	}
 	var n float64
 	if err := mainDB.QueryRow(ctx, `
-		SELECT count(*) FROM files f
+		SELECT count(DISTINCT f.id) FROM files f
 		  JOIN owui_knowledge_files k ON k.file_id = f.id
 		 WHERE f.status = 'error'`).Scan(&n); err != nil {
 		slog.Error("owui files error gauge: query failed", "error", err)

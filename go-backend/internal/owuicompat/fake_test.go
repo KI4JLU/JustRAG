@@ -89,6 +89,51 @@ func (f *fakeStore) DeleteHandle(_ context.Context, owner, id string) (bool, boo
 	}
 	return true, last, orphans, nil
 }
+func (f *fakeStore) HandleCleanupPlan(_ context.Context, owner, id string) (bool, bool, []string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, ok := f.handles[id]
+	if !ok || h.OwnerUserID != owner {
+		return false, false, nil, nil
+	}
+	orphans := []string{}
+	for _, m := range f.links {
+		fid, linked := m[id]
+		if !linked || fid == "" {
+			continue
+		}
+		shared := false
+		for other, ofid := range m {
+			if other != id && ofid == fid {
+				shared = true
+			}
+		}
+		if !shared {
+			orphans = append(orphans, fid)
+		}
+	}
+	last := h.UserFileID != ""
+	for oid, o := range f.handles {
+		if oid != id && o.UserFileID == h.UserFileID && o.UserFileID != "" {
+			last = false
+		}
+	}
+	return true, last, orphans, nil
+}
+func (f *fakeStore) UnlinkPlan(_ context.Context, kb, handle string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fid, ok := f.links[kb][handle]
+	if !ok || fid == "" {
+		return "", nil
+	}
+	for other, ofid := range f.links[kb] {
+		if other != handle && ofid == fid {
+			return "", nil
+		}
+	}
+	return fid, nil
+}
 func (f *fakeStore) RegisterKnowledge(_ context.Context, kb, owner string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

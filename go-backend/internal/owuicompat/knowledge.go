@@ -175,16 +175,28 @@ func (h *Handler) RemoveFromKnowledge(w http.ResponseWriter, r *http.Request) {
 		writeDetail(ctx, w, http.StatusBadRequest, "Ungültige Anfrage.")
 		return
 	}
-	orphan, err := h.d.Store.UnlinkFile(ctx, kbID, body.FileID)
+	orphan, err := h.d.Store.UnlinkPlan(ctx, kbID, body.FileID)
 	if err != nil {
-		logctx.From(ctx).Error("owuicompat: unlink", "error", err)
+		logctx.From(ctx).Error("owuicompat: unlink plan", "error", err)
+		observability.RecordOWUIRequest("knowledge_remove", "error")
 		writeDetail(ctx, w, http.StatusInternalServerError, "Interner Fehler.")
 		return
 	}
+	// Delete the indexed copy first; the link is the retry anchor.
 	if orphan != "" {
 		if err := h.d.Deleter.DeleteFiles(ctx, []string{orphan}); err != nil {
-			logctx.From(ctx).Error("owuicompat: delete KB file", "fileId", orphan, "error", err)
+			logctx.From(ctx).Error("owuicompat: delete KB file failed, link kept",
+				"kb", kbID, "handle", body.FileID, "fileId", orphan, "error", err)
+			observability.RecordOWUIRequest("knowledge_remove", "error")
+			writeDetail(ctx, w, http.StatusInternalServerError, "Die Datei konnte nicht vollständig entfernt werden. Bitte später erneut versuchen.")
+			return
 		}
+	}
+	if _, err := h.d.Store.UnlinkFile(ctx, kbID, body.FileID); err != nil {
+		logctx.From(ctx).Error("owuicompat: unlink", "error", err)
+		observability.RecordOWUIRequest("knowledge_remove", "error")
+		writeDetail(ctx, w, http.StatusInternalServerError, "Interner Fehler.")
+		return
 	}
 	observability.RecordOWUIRequest("knowledge_remove", "ok")
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, knowledgeObject{ID: kbID, Files: []map[string]any{}})

@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
+	"github.com/justrag/go-backend/internal/cascade"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
@@ -80,9 +82,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		if r.MultipartForm != nil && len(r.MultipartForm.File["file"]) > 0 {
 			name = filepath.Base(r.MultipartForm.File["file"][0].Filename)
 		}
-		if len(name) > 255 {
-			name = name[:255]
-		}
+		name = truncateUTF8(name, 255)
 		fh, cerr := h.d.Store.CreateHandle(ctx, NewHandle{ID: uuid.NewString(), OwnerUserID: owner,
 			Filename: name, Metadata: parseMetadata(r), Unsupported: true})
 		if cerr != nil {
@@ -190,25 +190,56 @@ func (h *Handler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"id": id, "deleted": false})
 		return
 	}
-	_, last, orphans, err := h.d.Store.DeleteHandle(ctx, owner, id)
+	found, last, orphans, err := h.d.Store.HandleCleanupPlan(ctx, owner, id)
 	if err != nil {
-		logctx.From(ctx).Error("owuicompat: delete handle", "error", err)
+		logctx.From(ctx).Error("owuicompat: plan handle cleanup", "handle", id, "error", err)
 		observability.RecordOWUIRequest("file_delete", "error")
 		writeDetail(ctx, w, http.StatusInternalServerError, "Interner Fehler.")
 		return
 	}
+	if !found {
+		observability.RecordOWUIRequest("file_delete", "not_found")
+		httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"id": id, "deleted": false})
+		return
+	}
+	// Cascade first: the handle is the plugin's only retry anchor, so it
+	// goes only once the indexed copies are gone.
+	var cerr error
 	if last && fh.UserFileID != "" {
 		// Cascades to every KB copy of the library file.
-		if err := h.d.Deleter.DeleteUserFile(ctx, owner, fh.UserFileID); err != nil {
-			logctx.From(ctx).Error("owuicompat: delete user file", "error", err)
+		cerr = h.d.Deleter.DeleteUserFile(ctx, owner, fh.UserFileID)
+		if errors.Is(cerr, cascade.ErrUserFileNotFound) {
+			cerr = nil // an earlier, partial attempt already removed it
 		}
 	} else if len(orphans) > 0 {
-		if err := h.d.Deleter.DeleteFiles(ctx, orphans); err != nil {
-			logctx.From(ctx).Error("owuicompat: delete orphaned KB files", "error", err)
-		}
+		cerr = h.d.Deleter.DeleteFiles(ctx, orphans)
+	}
+	if cerr != nil {
+		logctx.From(ctx).Error("owuicompat: delete cascade failed, handle kept",
+			"handle", id, "userFileId", fh.UserFileID, "orphans", orphans, "error", cerr)
+		observability.RecordOWUIRequest("file_delete", "error")
+		writeDetail(ctx, w, http.StatusInternalServerError, "Die Datei konnte nicht vollständig gelöscht werden. Bitte später erneut versuchen.")
+		return
+	}
+	if _, _, _, err := h.d.Store.DeleteHandle(ctx, owner, id); err != nil {
+		logctx.From(ctx).Error("owuicompat: delete handle", "handle", id, "error", err)
+		observability.RecordOWUIRequest("file_delete", "error")
+		writeDetail(ctx, w, http.StatusInternalServerError, "Interner Fehler.")
+		return
 	}
 	observability.RecordOWUIRequest("file_delete", "ok")
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"id": id, "deleted": true})
+}
+
+// truncateUTF8 cuts s to at most max bytes without splitting a rune.
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
 }
 
 // FileContent handles GET /owui/api/v1/files/{id}/data/content, reachable

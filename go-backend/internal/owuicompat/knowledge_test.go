@@ -3,6 +3,7 @@ package owuicompat
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -150,6 +151,32 @@ func TestRemoveDeletesKBFileOnlyWhenUnshared(t *testing.T) {
 		t.Fatalf("got %d, deleted %v", rec.Code, del.files)
 	}
 	decode(t, rec)
+}
+
+func TestRemoveCascadeFailureKeepsLink(t *testing.T) {
+	h, st, _, del := newKnowledgeHandler()
+	kbID := createKB(t, h)
+	a := upload(t, h, "a.pdf", "x")
+	do(http.HandlerFunc(h.AddToKnowledge), withID(jsonReq("POST", "/x", `{"file_id":"`+a+`"}`), kbID))
+	del.fail = errors.New("boom")
+	rec := do(http.HandlerFunc(h.RemoveFromKnowledge), withID(jsonReq("POST", "/x", `{"file_id":"`+a+`"}`), kbID))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if _, ok := decode(t, rec)["detail"]; !ok {
+		t.Fatalf("no detail: %s", rec.Body)
+	}
+	if _, linked := st.links[kbID][a]; !linked {
+		t.Fatal("link dropped although the cascade failed")
+	}
+	del.fail = nil
+	rec = do(http.HandlerFunc(h.RemoveFromKnowledge), withID(jsonReq("POST", "/x", `{"file_id":"`+a+`"}`), kbID))
+	if rec.Code != http.StatusOK || len(del.files) != 1 {
+		t.Fatalf("retry: status=%d files=%v", rec.Code, del.files)
+	}
+	if _, linked := st.links[kbID][a]; linked {
+		t.Fatal("link still present after successful retry")
+	}
 }
 
 func TestDeleteKnowledge(t *testing.T) {

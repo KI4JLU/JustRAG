@@ -170,3 +170,50 @@ func TestDeleteHandleReportsOrphanKBFiles(t *testing.T) {
 	}
 	_ = b
 }
+
+func TestCleanupPlansAreReadOnlyAndMatchDeletes(t *testing.T) {
+	pool := openMainPool(t)
+	ctx := context.Background()
+	st := owuicompat.NewPGStore(pool)
+	owner := seedUser(t, pool)
+	kb := seedKB(t, pool, owner)
+	uf := seedUserFile(t, pool, owner)
+	fileID := seedKBFile(t, pool, kb, uf)
+	_ = st.RegisterKnowledge(ctx, kb, owner)
+	a, _ := st.CreateHandle(ctx, owuicompat.NewHandle{ID: uuid.NewString(), OwnerUserID: owner, UserFileID: uf, Filename: "a.pdf"})
+	b, _ := st.CreateHandle(ctx, owuicompat.NewHandle{ID: uuid.NewString(), OwnerUserID: owner, UserFileID: uf, Filename: "b.pdf"})
+	_ = st.LinkFile(ctx, kb, a.ID, fileID)
+
+	// Unknown handle.
+	if found, _, _, err := st.HandleCleanupPlan(ctx, owner, uuid.NewString()); err != nil || found {
+		t.Fatalf("unknown: found=%v err=%v", found, err)
+	}
+	// Handle a: b shares the user file (last=false), the KB file is orphaned.
+	found, last, orphans, err := st.HandleCleanupPlan(ctx, owner, a.ID)
+	if err != nil || !found || last || len(orphans) != 1 || orphans[0] != fileID {
+		t.Fatalf("plan a: found=%v last=%v orphans=%v err=%v", found, last, orphans, err)
+	}
+	if got, _ := st.GetHandle(ctx, owner, a.ID); got == nil {
+		t.Fatal("HandleCleanupPlan deleted the handle")
+	}
+	if o, err := st.UnlinkPlan(ctx, kb, a.ID); err != nil || o != fileID {
+		t.Fatalf("UnlinkPlan = %q, %v, want %q", o, err, fileID)
+	}
+	if m, _ := st.HandlesForFiles(ctx, kb, []string{fileID}); m[fileID].ID == "" {
+		t.Fatal("UnlinkPlan removed the link")
+	}
+	// The destructive calls then return the same values.
+	if o, err := st.UnlinkFile(ctx, kb, a.ID); err != nil || o != fileID {
+		t.Fatalf("UnlinkFile = %q, %v", o, err)
+	}
+	_ = st.LinkFile(ctx, kb, a.ID, fileID)
+	_, dLast, dOrphans, err := st.DeleteHandle(ctx, owner, a.ID)
+	if err != nil || dLast != last || len(dOrphans) != 1 || dOrphans[0] != fileID {
+		t.Fatalf("DeleteHandle last=%v orphans=%v err=%v", dLast, dOrphans, err)
+	}
+	// Handle b is now the last one for the user file.
+	found, last, orphans, err = st.HandleCleanupPlan(ctx, owner, b.ID)
+	if err != nil || !found || !last || len(orphans) != 0 {
+		t.Fatalf("plan b: found=%v last=%v orphans=%v err=%v", found, last, orphans, err)
+	}
+}

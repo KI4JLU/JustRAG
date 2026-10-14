@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/justrag/go-backend/internal/cascade"
 	"github.com/justrag/go-backend/internal/uploadcheck"
 	"github.com/justrag/go-backend/internal/userfiles"
 )
@@ -35,16 +39,23 @@ func (l *fakeLibrary) Ingest(_ context.Context, owner string, up *uploadcheck.Up
 }
 
 type fakeDeleter struct {
+	fail      error
 	files     []string
 	userFiles []string
 	kbs       []string
 }
 
 func (d *fakeDeleter) DeleteFiles(_ context.Context, ids []string) error {
+	if d.fail != nil {
+		return d.fail
+	}
 	d.files = append(d.files, ids...)
 	return nil
 }
 func (d *fakeDeleter) DeleteUserFile(_ context.Context, _, id string) error {
+	if d.fail != nil {
+		return d.fail
+	}
 	d.userFiles = append(d.userFiles, id)
 	return nil
 }
@@ -171,6 +182,55 @@ func TestDeleteSharedBytesKeepsOtherHandle(t *testing.T) {
 	do(http.HandlerFunc(h.DeleteFile), withID(httptest.NewRequest("DELETE", "/x", nil), b))
 	if len(del.userFiles) != 1 {
 		t.Fatalf("library file not deleted with the last handle: %v", del.userFiles)
+	}
+}
+
+func TestDeleteFileCascadeFailureKeepsHandle(t *testing.T) {
+	h, st, del := newFilesHandler()
+	id := decode(t, do(http.HandlerFunc(h.UploadFile), uploadReq(t, "a.pdf", "x", "")))["id"].(string)
+	del.fail = errors.New("boom")
+	rec := do(http.HandlerFunc(h.DeleteFile), withID(httptest.NewRequest("DELETE", "/x", nil), id))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if _, ok := decode(t, rec)["detail"]; !ok {
+		t.Fatalf("no detail: %s", rec.Body)
+	}
+	if got, _ := st.GetHandle(context.Background(), testOwner, id); got == nil {
+		t.Fatal("handle dropped although the cascade failed")
+	}
+	del.fail = nil
+	rec = do(http.HandlerFunc(h.DeleteFile), withID(httptest.NewRequest("DELETE", "/x", nil), id))
+	if rec.Code != http.StatusOK || len(del.userFiles) != 1 {
+		t.Fatalf("retry: status=%d userFiles=%v", rec.Code, del.userFiles)
+	}
+	if got, _ := st.GetHandle(context.Background(), testOwner, id); got != nil {
+		t.Fatal("handle still present after successful retry")
+	}
+}
+
+func TestDeleteFileUserFileNotFoundCountsAsSuccess(t *testing.T) {
+	h, st, del := newFilesHandler()
+	id := decode(t, do(http.HandlerFunc(h.UploadFile), uploadReq(t, "a.pdf", "x", "")))["id"].(string)
+	del.fail = cascade.ErrUserFileNotFound
+	rec := do(http.HandlerFunc(h.DeleteFile), withID(httptest.NewRequest("DELETE", "/x", nil), id))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got, _ := st.GetHandle(context.Background(), testOwner, id); got != nil {
+		t.Fatal("handle kept")
+	}
+}
+
+func TestUploadUnsupportedLongUmlautNameStaysValidUTF8(t *testing.T) {
+	h, st, _ := newFilesHandler()
+	rec := do(http.HandlerFunc(h.UploadFile), uploadReq(t, strings.Repeat("ä", 200)+".zip", "zipbytes", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body)
+	}
+	got, _ := st.GetHandle(context.Background(), testOwner, decode(t, rec)["id"].(string))
+	if got == nil || !utf8.ValidString(got.Filename) || len(got.Filename) > 255 {
+		t.Fatalf("handle = %+v", got)
 	}
 }
 
