@@ -289,7 +289,9 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     const line = await screen.findByText(translations.workspaceSearchTopicUnavailable.de, {}, { timeout: 2000 });
     expect(line).toHaveAttribute('role', 'status');
     expect(screen.queryByText(translations.globalSearchError.de)).toBeNull();
-    expect(screen.getByRole('option', { name: translations.workspaceSearchAllTopics.de })).toBeInTheDocument();
+    // The combobox registers its items after mount; on a slow runner the
+    // option can land a tick after the status line.
+    expect(await screen.findByRole('option', { name: translations.workspaceSearchAllTopics.de }, { timeout: 2000 })).toBeInTheDocument();
     const toasts = document.querySelector('.toast-container');
     expect(toasts).not.toBeNull();
     expect(toasts!.textContent).toBe('');
