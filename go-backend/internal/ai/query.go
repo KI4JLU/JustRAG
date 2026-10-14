@@ -110,10 +110,20 @@ func SpellCorrect(ctx context.Context, resolver *ConfigResolver, query, kbID, la
 	return result.Content, nil
 }
 
+// Output caps for the chat-path helper calls. Each is several times the
+// longest well-formed output; a cut-off result fails soft in its parser.
+const (
+	condenseMaxTokens  = 256
+	classifyMaxTokens  = 64
+	followUpsMaxTokens = 300
+)
+
 // CondenseQuestion turns a follow-up question into a standalone query by
 // incorporating context from the conversation history.
 // When history is empty the follow-up is returned unchanged without an API call.
-func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []ChatHistoryEntry, followUp, kbID, lang string) (string, error) {
+// A result cut off by the token cap (finish_reason "length") is returned as ""
+// so callers fall back to the raw follow-up exactly as for an empty result.
+func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []ChatHistoryEntry, followUp, kbID, lang, model string) (string, error) {
 	if len(history) == 0 {
 		return followUp, nil
 	}
@@ -146,9 +156,13 @@ func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []C
 	formattedHistory := strings.TrimRight(sb.String(), "\n")
 	userPrompt := prompts.ConversationCondenseUser(formattedHistory, followUp)
 
-	result, err := GenerateCompletion(ctx, resolver, userPrompt, prompts.ConversationCondenseSystem(lang), kbID, false)
+	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.ConversationCondenseSystem(lang), kbID, model, condenseMaxTokens, "condense")
 	if err != nil {
 		return "", err
+	}
+	if result.FinishReason == "length" {
+		// Cut off by condenseMaxTokens: a partial query is worse than none.
+		return "", nil
 	}
 	return strings.TrimSpace(result.Content), nil
 }
@@ -156,7 +170,7 @@ func CondenseQuestion(ctx context.Context, resolver *ConfigResolver, history []C
 // GenerateFollowUpQuestions generates up to 3 follow-up questions based on the
 // user message and the AI response. On JSON parse failure an empty slice is
 // returned (non-critical operation).
-func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, userMessage, aiResponse, kbID, lang string) ([]string, error) {
+func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, userMessage, aiResponse, kbID, lang, model string) ([]string, error) {
 	// Truncate aiResponse to avoid excessive token usage.
 	truncated := aiResponse
 	if len(truncated) > 1500 {
@@ -164,7 +178,7 @@ func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, us
 	}
 
 	userPrompt := prompts.FollowUpQuestionsUser(userMessage, truncated)
-	result, err := GenerateCompletion(ctx, resolver, userPrompt, prompts.FollowUpQuestionsSystem(lang), kbID, false)
+	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, prompts.FollowUpQuestionsSystem(lang), kbID, model, followUpsMaxTokens, "followups")
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +195,8 @@ func GenerateFollowUpQuestions(ctx context.Context, resolver *ConfigResolver, us
 
 // ClassifyQueryComplexity returns true when the AI classifies the query as
 // complex. On JSON parse failure false is returned (default to simple).
-func ClassifyQueryComplexity(ctx context.Context, resolver *ConfigResolver, query, kbID, lang string) (bool, error) {
-	result, err := GenerateCompletion(ctx, resolver, query, prompts.QueryClassifierPrompt(lang), kbID, false)
+func ClassifyQueryComplexity(ctx context.Context, resolver *ConfigResolver, query, kbID, lang, model string) (bool, error) {
+	result, err := GenerateCompletionCapped(ctx, resolver, query, prompts.QueryClassifierPrompt(lang), kbID, model, classifyMaxTokens, "classify")
 	if err != nil {
 		return false, err
 	}

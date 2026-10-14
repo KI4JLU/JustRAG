@@ -6,6 +6,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/app"
 	"github.com/justrag/go-backend/internal/config"
+	"github.com/justrag/go-backend/internal/redact"
 
 	// The runtime image (alpine, no tzdata package) has no zoneinfo database,
 	// so time.LoadLocation("Europe/Berlin") would fail and every wall-clock
@@ -22,6 +23,8 @@ var version = ""
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
+		// Strip credentials from log values (a *url.Error quotes its URL).
+		ReplaceAttr: redact.ReplaceAttr,
 	})))
 
 	cfg, err := config.Load()

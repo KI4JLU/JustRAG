@@ -6,7 +6,13 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
+
+// neighborFetchConcurrency bounds how many files' neighbors are fetched at once.
+const neighborFetchConcurrency = 4
 
 // NeighborFetcher retrieves neighboring chunks from the same file by their
 // chunkIndex values.
@@ -74,6 +80,8 @@ func ExpandNeighbors(
 	}
 	neighborParts := make(map[fileIdx]part)
 
+	// First pass (no I/O): plan the indices to fetch per file.
+	plan := make(map[string][]int)
 	for fileID, positions := range byFile {
 		// Collect all chunkIndices for this file.
 		var indices []int
@@ -122,29 +130,44 @@ func ExpandNeighbors(
 		}
 		slices.Sort(fetchIndices)
 
-		rows, err := fetcher.FetchChunksByIndices(ctx, tableName, kbID, fileID, fetchIndices)
-		if err != nil {
-			slog.Warn("neighbor expansion: fetch failed, skipping file",
-				"fileID", fileID, "error", err)
-			continue
-		}
-
-		for _, r := range rows {
-			var meta map[string]any
-			if len(r.Metadata) > 0 {
-				// Parse metadata to get chunkIndex.
-				meta = parseMetadataJSON(r.Metadata)
-			}
-			ci, ok := extractInt(meta, "chunkIndex")
-			if !ok {
-				continue
-			}
-			neighborParts[fileIdx{fileID, ci}] = part{
-				index:   ci,
-				content: r.Content,
-			}
-		}
+		plan[fileID] = fetchIndices
 	}
+
+	// Second pass: fetch files concurrently. A failed file is skipped.
+	var (
+		mu sync.Mutex
+		g  errgroup.Group
+	)
+	g.SetLimit(neighborFetchConcurrency)
+	for fileID, fetchIndices := range plan {
+		g.Go(func() error {
+			rows, err := fetcher.FetchChunksByIndices(ctx, tableName, kbID, fileID, fetchIndices)
+			if err != nil {
+				slog.Warn("neighbor expansion: fetch failed, skipping file",
+					"fileID", fileID, "error", err)
+				return nil
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for _, r := range rows {
+				var meta map[string]any
+				if len(r.Metadata) > 0 {
+					// Parse metadata to get chunkIndex.
+					meta = parseMetadataJSON(r.Metadata)
+				}
+				ci, ok := extractInt(meta, "chunkIndex")
+				if !ok {
+					continue
+				}
+				neighborParts[fileIdx{fileID, ci}] = part{
+					index:   ci,
+					content: r.Content,
+				}
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
 
 	// Build expanded chunks.
 	result := make([]SearchChunk, len(chunks))

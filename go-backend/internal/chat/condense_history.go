@@ -2,8 +2,10 @@ package chat
 
 import (
 	"context"
+	"strings"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/logctx"
 )
 
 // ---------------------------------------------------------------------------
@@ -26,18 +28,35 @@ func CondenseFromHistory(
 	ctx context.Context,
 	aiResolver *ai.ConfigResolver,
 	history []ai.ChatHistoryEntry,
-	message, kbID, language string,
+	message, kbID, language, model string,
 ) (string, error) {
 	if aiResolver == nil || len(history) < 2 {
 		return message, nil
 	}
 
-	condensed, err := ai.CondenseQuestion(ctx, aiResolver, historyWindow(history), message, kbID, language)
+	condensed, err := ai.CondenseQuestion(ctx, aiResolver, historyWindow(history), message, kbID, language, model)
 	if err != nil {
 		// Fail open.
+		logctx.From(ctx).Warn("chat.condense.fallback_raw", "reason", "error", "error", err)
+		return message, nil
+	}
+	if strings.TrimSpace(condensed) == "" {
+		// Empty (model returned nothing) or cut off by the token cap, which
+		// CondenseQuestion reports as "" too; ai.helper.truncated tells them apart.
+		logctx.From(ctx).Info("chat.condense.fallback_raw", "reason", "empty_or_truncated")
 		return message, nil
 	}
 	return condensed, nil
+}
+
+// condenseHistoryFromRows maps stored messages to condense input. Windowing
+// and content caps stay in CondenseFromHistory (historyWindow).
+func condenseHistoryFromRows(rows []MessageRow) []ai.ChatHistoryEntry {
+	history := make([]ai.ChatHistoryEntry, len(rows))
+	for i, m := range rows {
+		history[i] = ai.ChatHistoryEntry{Role: m.Role, Content: m.Content}
+	}
+	return history
 }
 
 // historyWindow returns the last 6 entries of history (oldest of those kept

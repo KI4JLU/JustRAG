@@ -151,10 +151,11 @@ func (s *PGStore) Redeem(ctx context.Context, token, userID string) (RedeemResul
 		// be stale. The persisted state cannot: the upsert below re-evaluates
 		// its WHERE against the actually-locked row at write time, so
 		// kb_members.role always lands correct regardless of this read's
-		// timing, and the redemption counter still increments once per call
-		// (it counts link usage, not net new members — see the UPDATE
-		// below). That is not worth a lock; do not add one to "fix" the
-		// boolean's accuracy without re-deriving this trade-off first.
+		// timing, and the redemption counter counts each person once — the
+		// kb_invite_link_redemptions primary key decides that, not this read
+		// (see the INSERT below). That is not worth a lock; do not add one to
+		// "fix" the boolean's accuracy without re-deriving this trade-off
+		// first.
 		var existing string
 		err = tx.QueryRow(ctx,
 			`SELECT role FROM kb_members WHERE kb_id = $1::uuid AND user_id = $2::uuid`,
@@ -198,13 +199,25 @@ func (s *PGStore) Redeem(ctx context.Context, token, userID string) (RedeemResul
 			return fmt.Errorf("Redeem: clear opt-out: %w", err)
 		}
 
-		// Unconditional: the counter measures link usage, not net new
-		// members, so it increments on every successful redemption
-		// including an AlreadyMember=true repeat (see TestRedeemUpgrades).
+		// The counter is the number of distinct PEOPLE who redeemed this link
+		// (migration 0087), not the number of visits: a person counts once,
+		// on their first redemption, whether or not they were already a
+		// member then. The primary key makes "first" race-free — of two
+		// concurrent first redemptions by one person, exactly one insert
+		// lands. last_used_at still moves on every redemption.
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO kb_invite_link_redemptions (link_id, user_id)
+			VALUES ($1::uuid, $2::uuid)
+			ON CONFLICT (link_id, user_id) DO NOTHING`, res.LinkID, userID)
+		if err != nil {
+			return fmt.Errorf("Redeem: record redemption: %w", err)
+		}
+		firstByThisPerson := tag.RowsAffected() == 1
 		if _, err := tx.Exec(ctx, `
 			UPDATE kb_invite_links
-			SET redemption_count = redemption_count + 1, last_used_at = NOW()
-			WHERE id = $1::uuid`, res.LinkID); err != nil {
+			SET redemption_count = redemption_count + CASE WHEN $2 THEN 1 ELSE 0 END,
+			    last_used_at = NOW()
+			WHERE id = $1::uuid`, res.LinkID, firstByThisPerson); err != nil {
 			return fmt.Errorf("Redeem: count redemption: %w", err)
 		}
 

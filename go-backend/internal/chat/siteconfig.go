@@ -1888,6 +1888,16 @@ func AgentTeamRouterModel(ctx context.Context, reader SiteConfigReader) string {
 	return ResolveFastTierModel(ctx, reader, "agent_team_router_model")
 }
 
+// ChatSSEEarlyOpenEnabled opens a streamed SendMessage turn's SSE response
+// before the pre-answer pipeline (condense, classify, retrieval) runs: headers
+// plus a `: open` comment go out at once, a `: ping` comment every
+// sseHeartbeatInterval keeps proxies and the FE idle watchdog fed, and
+// trajectory events stream live. Per-KB, default off. Tunable via
+// "chat_sse_early_open_enabled".
+func ChatSSEEarlyOpenEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_sse_early_open_enabled", false)
+}
+
 // ChatCondenseKeepRawEnabled gates the rewrite ⊕ raw retrieval lane: when a
 // follow-up was condensed (CondenseFollowUp), the user's verbatim utterance
 // is searched as an extra RRF list on both arms (vector.SearchOptions.RawQuery).
@@ -2001,4 +2011,26 @@ func ChatAnswerToolsByRoute(ctx context.Context, reader SiteConfigReader) chatpo
 		return nil
 	}
 	return m
+}
+
+// Fast-tier models for the chat-path helper calls. Empty means the KB's main
+// chat model (the pre-2026-10 behaviour when no tier key is set).
+func ChatCondenseModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_condense_model")
+}
+
+func ChatClassifyModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_classify_model")
+}
+
+func ChatFollowUpsModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_followups_model")
+}
+
+func FactcheckModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "factcheck_model")
+}
+
+func ChatEnumerationModel(ctx context.Context, reader SiteConfigReader) string {
+	return ResolveFastTierModel(ctx, reader, "chat_enumeration_model")
 }

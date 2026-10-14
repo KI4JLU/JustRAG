@@ -74,7 +74,7 @@ func TestGenerateFollowUpQuestions(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	questions, err := GenerateFollowUpQuestions(context.Background(), resolver, "Tell me about RAG", "RAG stands for...", "", "en")
+	questions, err := GenerateFollowUpQuestions(context.Background(), resolver, "Tell me about RAG", "RAG stands for...", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestGenerateFollowUpQuestions_CapsAtThree(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	questions, err := GenerateFollowUpQuestions(context.Background(), resolver, "msg", "resp", "", "en")
+	questions, err := GenerateFollowUpQuestions(context.Background(), resolver, "msg", "resp", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestGenerateFollowUpQuestions_ParseFailure(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	questions, err := GenerateFollowUpQuestions(context.Background(), resolver, "msg", "resp", "", "en")
+	questions, err := GenerateFollowUpQuestions(context.Background(), resolver, "msg", "resp", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestClassifyQueryComplexity_Complex(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	isComplex, err := ClassifyQueryComplexity(context.Background(), resolver, "Compare the economic impacts of AI adoption across different industries and regions", "", "en")
+	isComplex, err := ClassifyQueryComplexity(context.Background(), resolver, "Compare the economic impacts of AI adoption across different industries and regions", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestClassifyQueryComplexity_Simple(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	isComplex, err := ClassifyQueryComplexity(context.Background(), resolver, "What is Go?", "", "en")
+	isComplex, err := ClassifyQueryComplexity(context.Background(), resolver, "What is Go?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestClassifyQueryComplexity_ParseFailure(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	isComplex, err := ClassifyQueryComplexity(context.Background(), resolver, "some query", "", "en")
+	isComplex, err := ClassifyQueryComplexity(context.Background(), resolver, "some query", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestCondenseQuestion_EmptyHistory(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	got, err := CondenseQuestion(context.Background(), resolver, nil, "What is the weather today?", "", "en")
+	got, err := CondenseQuestion(context.Background(), resolver, nil, "What is the weather today?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestCondenseQuestion_WithHistory(t *testing.T) {
 		{Role: "user", Content: "Tell me about water."},
 		{Role: "assistant", Content: "Water is a chemical compound with formula H2O."},
 	}
-	got, err := CondenseQuestion(context.Background(), resolver, history, "What about its boiling point?", "", "en")
+	got, err := CondenseQuestion(context.Background(), resolver, history, "What about its boiling point?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestCondenseQuestion_RoleInjectionSanitized(t *testing.T) {
 		writeChatJSON(w, chatResponse("standalone question", ""))
 	})
 	resolver := resolverForServer(srv, "gpt-4o")
-	_, err := CondenseQuestion(context.Background(), resolver, history, "follow up", "", "en")
+	_, err := CondenseQuestion(context.Background(), resolver, history, "follow up", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

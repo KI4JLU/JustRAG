@@ -10,11 +10,19 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## Unreleased
+
+### ⚠ Upgrade notes
+
+- **Check `model_tier_fast` before deploying: five chat-path helper calls now carry an output cap and resolve through the fast-tier chain.** Condense (256 `max_tokens`), complexity classifier (64), follow-up questions (300) and chat factcheck (1024) are capped; enumeration extraction is re-routed only. Model chain per call: `chat_condense_model`, `chat_classify_model`, `chat_followups_model`, `factcheck_model`, `chat_enumeration_model` → `model_tier_fast` → the KB's main model. The caps assume a model that does not think by default. A reasoning-by-default fast model (e.g. Qwen3 behind a vLLM reasoning parser) spends the cap on reasoning: the 64-token classifier then silently reads as "simple" and complex turns stop reaching the orchestrators. After deploying, watch the `ai.helper.truncated` log line (fields `task`, `model`, `max_tokens`). A cut-off or empty condense falls back to the raw follow-up message (`chat.condense.fallback_raw`).
+- **Scope of the new helper-call routing.** The caps apply on every surface (web chat, public API, OpenAI-compat, eval). The fast-tier model applies only where a site-config reader is available: condense on web chat and agent chat; classifier, follow-ups and factcheck on web chat; enumeration extraction on web chat, agent chat, KB-as-MCP `ask_kb` and `cmd/eval --production-context`. Public API and OpenAI-compat (condense, follow-ups, enumeration) and the eval condense/classifier adapters stay on the main model. **If `model_tier_fast` is set, those calls move to it on deploy.** The five keys have no admin-UI field; to pin one back to the main model, set the `site_config` key to the main model name via SQL or the generic site-config editor (same as the `chat_compare_*` keys).
+
 ## v0.12.0 — 2026-10-12
 
 ### ⚠ Upgrade notes
 
-- **Migrations 0075 – 0086; the highest is 0086.** v0.11.2 ended at 0074. Compose applies them through the `migrate` one-shot service; on Kubernetes run `/app/migrate` out of the RC image first (`docs/runbooks/release.md`). No one-step rollback. Per-migration notes follow.
+- **Migrations 0075 – 0087; the highest is 0087.** v0.11.2 ended at 0074. Compose applies them through the `migrate` one-shot service; on Kubernetes run `/app/migrate` out of the RC image first (`docs/runbooks/release.md`). No one-step rollback. Per-migration notes follow.
+- Invite links: migration **0087** adds `kb_invite_link_redemptions` (one row per link and person). A link's `redemptionCount` now counts the **people** who joined through it, not the visits: a person opening the same link again no longer adds to it. No backfill — counts from before this release are kept as they were and grow by the new rule from now on. `last_used_at` still moves on every redemption.
 - **Web UI on `@ki4jlu/design-system` 0.46.0** (#6): app shell, topic overview, chat workspace, global search, settings window and sources panel are rebuilt on the design system. No operator action; the CSP hash in `middleware/security.go` follows `web/index.html`'s theme script.
 - **The onboarding tour no longer opens on first login** (temporary). It still opens from its help button.
 - **Release process:** every release now goes through a release candidate (`vX.Y.Z-rc.N`) tested on staging and is then *promoted* without a rebuild (Actions → Promote Release Candidate); a plain `vX.Y.Z` tag no longer builds an image. The k8s worker manifests now pull `:stable` with `imagePullPolicy: Always` instead of a literal version pin, so promoting IS the prod deploy: run the migrations with the RC image first, then promote, then `kubectl rollout restart`. The out-of-repo `go-server` Deployment must also use `:stable` with an explicit `imagePullPolicy: Always`. Going back is Actions → Roll Back Stable. `GET /version` in prod reports the promoted RC (e.g. `v0.12.0-rc.2`). Procedure: `docs/runbooks/release.md`.

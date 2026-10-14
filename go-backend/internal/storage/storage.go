@@ -468,16 +468,50 @@ func (s *s3Storage) StoreFile(ctx context.Context, storagePath string, content [
 }
 
 func (s *s3Storage) StoreFileFromReader(ctx context.Context, storagePath string, reader io.Reader, contentType string) error {
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	body, cleanup, err := seekableBody(ctx, reader)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(storagePath),
-		Body:        reader,
+		Body:        body,
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		return fmt.Errorf("storage: s3 put object from reader: %w", err)
 	}
 	return nil
+}
+
+// seekableBody returns reader as an io.ReadSeeker, spooling it to a temp file
+// when it is not one. The SDK must rewind the body to hash/checksum it unless
+// the endpoint is HTTPS (trailing checksum), so an unseekable body — e.g. the
+// io.TeeReader the library upload hashes through — fails on a plain-HTTP
+// S3-compatible endpoint such as MinIO without TLS. A temp file rather than
+// memory, since uploads go up to 500 MiB.
+func seekableBody(ctx context.Context, reader io.Reader) (io.ReadSeeker, func(), error) {
+	if rs, ok := reader.(io.ReadSeeker); ok {
+		return rs, func() {}, nil
+	}
+	f, err := os.CreateTemp("", "justrag-s3-put-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("storage: create spool file: %w", err)
+	}
+	cleanup := func() {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+	}
+	if _, err := io.Copy(f, newContextReader(ctx, reader)); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("storage: spool upload body: %w", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("storage: rewind spool file: %w", err)
+	}
+	return f, cleanup, nil
 }
 
 func (s *s3Storage) ReadFile(ctx context.Context, storagePath string) ([]byte, error) {

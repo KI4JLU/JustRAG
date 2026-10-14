@@ -222,7 +222,7 @@ func (h *AgentChatHandler) condenseFollowUp(ctx context.Context, chatID string, 
 	if h.d.Store == nil {
 		return q, nil
 	}
-	return CondenseFollowUp(ctx, h.d.AI, h.d.Store, chatID, parent, q, kbID, lang)
+	return CondenseFollowUp(ctx, h.d.AI, h.d.Store, chatID, parent, q, kbID, lang, ChatCondenseModel(ctx, h.d.SiteConfig))
 }
 
 // agentTurnLimits are the turn's limits, from the legacy readers on the KB

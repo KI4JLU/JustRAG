@@ -92,11 +92,7 @@ func (h *Handler) GetSiteConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		// Never send a secret to the client — admins included. The admin UI
 		// renders the mask and only writes a real value back when changed.
-		if sensitiveConfigKeys[row.Key] && *row.Value != "" {
-			result[row.Key] = siteConfigSecretMask
-			continue
-		}
-		result[row.Key] = *row.Value
+		result[row.Key] = maskForClient(row.Key, *row.Value)
 	}
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, result)
@@ -130,7 +126,7 @@ func (h *Handler) UpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
 		case string:
 			// A sensitive key submitted as the mask means "unchanged" — skip it
 			// so we don't overwrite the stored secret with the placeholder.
-			if sensitiveConfigKeys[k] && val == siteConfigSecretMask {
+			if (sensitiveConfigKeys[k] || k == mcpServersKey) && val == siteConfigSecretMask {
 				continue
 			}
 			kvs = append(kvs, KeyValue{Key: k, Value: &val})
@@ -152,11 +148,36 @@ func (h *Handler) UpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
 	// current table first; on fetch failure fall through to the save rather
 	// than blocking config writes on a read error — the runtime skip logic
 	// still guards against the incoherent combinations.
-	if existing, err := h.store.GetAllSiteConfigs(ctx); err == nil {
-		existingMap := make(map[string]*string, len(existing))
-		for _, row := range existing {
-			existingMap[row.Key] = row.Value
+	existing, existingErr := h.store.GetAllSiteConfigs(ctx)
+	existingMap := make(map[string]*string, len(existing))
+	for _, row := range existing {
+		existingMap[row.Key] = row.Value
+	}
+
+	// Put the stored MCP server credentials back wherever the client sent
+	// their mask. This one cannot fall through on a read error: writing the
+	// mask would replace every token with "********".
+	for i, kv := range kvs {
+		if kv.Key != mcpServersKey || kv.Value == nil || !strings.Contains(*kv.Value, siteConfigSecretMask) {
+			continue
 		}
+		if existingErr != nil {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to update site config")
+			return
+		}
+		stored := ""
+		if v := existingMap[mcpServersKey]; v != nil {
+			stored = *v
+		}
+		restored, err := restoreMaskedMCPHeaders(*kv.Value, stored)
+		if err != nil {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, err.Error())
+			return
+		}
+		kvs[i].Value = &restored
+	}
+
+	if existingErr == nil {
 		if err := ValidateConflicts(existingMap, kvs); err != nil {
 			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, httputil.SanitizeError(err))
 			return
@@ -181,7 +202,7 @@ func (h *Handler) UpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
 	result := make(map[string]string, len(rows))
 	for _, row := range rows {
 		if row.Value != nil {
-			result[row.Key] = *row.Value
+			result[row.Key] = maskForClient(row.Key, *row.Value)
 		}
 	}
 

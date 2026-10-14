@@ -27,6 +27,7 @@ import (
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/mcp"
+	"github.com/justrag/go-backend/internal/redact"
 )
 
 // SiteConfigReader is the read-only surface needed to look up the
@@ -96,12 +97,42 @@ func (h *Handler) buildStatus(ctx context.Context) StatusResponse {
 	if v, err := h.cfg.GetSiteConfigValue(ctx, "chat_use_mcp_tools"); err == nil && v != nil {
 		useMCP = *v == "true" || *v == "1"
 	}
+	for i := range servers {
+		servers[i].URL = redact.Secrets(servers[i].URL)
+		servers[i].Error = redact.Secrets(servers[i].Error)
+	}
 	return StatusResponse{
 		UseMCPTools: useMCP,
 		Builtins:    builtins,
 		Servers:     servers,
-		ServerSpec:  h.registry.GlobalSpec(),
+		ServerSpec:  redactSpecs(h.registry.GlobalSpec()),
 	}
+}
+
+// specSecretMask matches the site-config mask, so the admin sees the same
+// placeholder in the status panel as in the mcp_servers editor.
+const specSecretMask = "********"
+
+// redactSpecs masks every non-empty header value (the remote servers'
+// credentials) and any URL-borne token. GlobalSpec returns a copy of the
+// slice, but its Headers maps are the registry's own, so they are cloned
+// rather than written.
+func redactSpecs(specs []mcp.ServerSpec) []mcp.ServerSpec {
+	for i, s := range specs {
+		specs[i].URL = redact.Secrets(s.URL)
+		if len(s.Headers) == 0 {
+			continue
+		}
+		masked := make(map[string]string, len(s.Headers))
+		for k, v := range s.Headers {
+			if v != "" {
+				v = specSecretMask
+			}
+			masked[k] = v
+		}
+		specs[i].Headers = masked
+	}
+	return specs
 }
 
 // loadSpecs reads the `mcp_servers` site_config and parses it as a

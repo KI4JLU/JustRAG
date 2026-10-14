@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -525,4 +526,130 @@ func TestChatUsage_CachedTokens(t *testing.T) {
 			t.Errorf("expected 0 when no cache hit reported, got %d", got)
 		}
 	})
+}
+
+func TestGenerateCompletion_NoRetryOnBadRequest(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		http.Error(w, `{"error":"context length exceeded"}`, http.StatusBadRequest)
+	})
+	_, err := GenerateCompletion(context.Background(), resolverForServer(srv, "m"), "Hi", "", "", false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("attempts = %d, want 1 (a 400 cannot succeed on retry)", got)
+	}
+}
+
+func TestGenerateCompletion_RetriesRateLimit(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			http.Error(w, `{"error":"slow down"}`, http.StatusTooManyRequests)
+			return
+		}
+		writeChatJSON(w, chatResponse("ok", ""))
+	})
+	res, err := GenerateCompletion(context.Background(), resolverForServer(srv, "m"), "Hi", "", "", false)
+	if err != nil || res.Content != "ok" {
+		t.Fatalf("got %v / %v, want ok after a 429 retry", res, err)
+	}
+}
+
+func TestGenerateCompletionStructured_SchemaRejectionDowngradesOnceWithoutBackoff(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
+	})
+	start := time.Now()
+	_, err := GenerateCompletionStructured(context.Background(), resolverForServer(srv, "m"), "Hi", "", "", "",
+		&StructuredSpec{Name: "x", Schema: json.RawMessage(`{"type":"object"}`)})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("attempts = %d, want 2 (strict, then one json_object downgrade)", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("took %v; a deterministic schema rejection must not wait for backoff", d)
+	}
+}
+
+func TestGenerateCompletionCapped_SendsMaxTokensAndModel(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeChatJSON(w, chatResponse("ok", ""))
+	})
+	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main", "fast"), "q", "s", "", "fast", 64, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["model"] != "fast" || body["max_tokens"] != float64(64) {
+		t.Fatalf("request model=%v max_tokens=%v, want fast/64", body["model"], body["max_tokens"])
+	}
+}
+
+func TestGenerateCompletionCapped_UnknownModelFallsBackToMain(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeChatJSON(w, chatResponse("ok", ""))
+	})
+	_, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "not-listed", 0, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["model"] != "main" {
+		t.Fatalf("model = %v, want main", body["model"])
+	}
+	if _, ok := body["max_tokens"]; ok {
+		t.Fatal("max_tokens 0 must be omitted")
+	}
+}
+
+func TestClassifyQueryComplexity_TruncatedJSONIsSimple(t *testing.T) {
+	t.Parallel()
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeChatJSON(w, chatResponse(`{"isComple`, ""))
+	})
+	got, err := ClassifyQueryComplexity(context.Background(), resolverForServer(srv, "main"), "q", "", "de", "")
+	if err != nil || got {
+		t.Fatalf("got %v / %v, want false / nil", got, err)
+	}
+}
+
+func TestCheckFacts_TruncatedJSONFailsSoft(t *testing.T) {
+	t.Parallel()
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeChatJSON(w, chatResponse(`{"verified": true, "score": 9`, ""))
+	})
+	res := CheckFacts(context.Background(), resolverForServer(srv, "main"), "q", "a", "ctx", "", "de", "")
+	if res == nil || res.Verified {
+		t.Fatalf("CheckFacts must fail soft to unverified, got %+v", res)
+	}
+}
+
+func TestGenerateCompletionCapped_PopulatesFinishReason(t *testing.T) {
+	t.Parallel()
+	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
+		resp := chatResponse("cut", "")
+		resp["choices"].([]map[string]any)[0]["finish_reason"] = "length"
+		writeChatJSON(w, resp)
+	})
+	res, err := GenerateCompletionCapped(context.Background(), resolverForServer(srv, "main"), "q", "s", "", "", 8, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FinishReason != "length" {
+		t.Fatalf("FinishReason = %q, want length", res.FinishReason)
+	}
 }

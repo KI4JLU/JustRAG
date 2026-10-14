@@ -218,7 +218,7 @@ func (h *Handler) classifyQuery(ctx context.Context, searchQuery, enhance, kbID,
 			heuristicVerdictName = "unknown"
 		}
 		if hv != ai.ComplexitySimple {
-			isComplex, classifyErr := ai.ClassifyQueryComplexity(ctx, h.aiResolver, searchQuery, kbID, lang)
+			isComplex, classifyErr := ai.ClassifyQueryComplexity(ctx, h.aiResolver, searchQuery, kbID, lang, ChatClassifyModel(ctx, h.siteConfigReader))
 			switch {
 			case classifyErr != nil:
 				llmComplexityVerdict = "error"
@@ -535,6 +535,10 @@ func (h *Handler) resolveGraphRouting(ctx context.Context, kbID, searchQuery, qu
 // the alternative — a 12-argument function — obscures the per-call
 // pipeline data the writers need.
 type chatResponseParams struct {
+	// turn is the early-opened SSE stream (chat_sse_early_open_enabled), nil
+	// otherwise. writeStreamingResponse hands it off before its first write
+	// and skips the bufferedTrajectory replay, which already went out live.
+	turn               *sseTurn
 	span               trace.Span
 	chatID             string
 	kbID               string
@@ -710,6 +714,11 @@ func (h *Handler) runResponsePostTasks(ctx context.Context, p chatResponseParams
 // Caller has already saved the user message; ctx already carries the
 // turn budget + tool-call recorder.
 func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
+	// Early-opened turn: stop the heartbeat before the first write below.
+	// EnableSSE then only re-sets header-map entries that are no longer sent
+	// and re-arms the write deadline (no WriteHeader, no bytes).
+	p.turn.handOff()
+
 	// Freshness dates for the cited files (one batch query, fail-soft).
 	// Runs before the `sources` frame below AND before the AddMessage that
 	// persists the same slice, so the SSE payload and messages.sources agree.
@@ -731,9 +740,12 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 
 	// Replay any trajectory events that were buffered during
 	// PrepareChatContext (CRAG branch decisions, etc.) so the
-	// frontend's reasoning panel sees them in order.
-	for _, evt := range p.bufferedTrajectory {
-		writeSSE(ctx, w, evt)
+	// frontend's reasoning panel sees them in order. An early-opened turn
+	// already streamed them live.
+	if p.turn == nil {
+		for _, evt := range p.bufferedTrajectory {
+			writeSSE(ctx, w, evt)
+		}
 	}
 
 	// Stream AI completion. Mirror the tryDeepChat branch's conditional
@@ -749,9 +761,10 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	genCtx, cancelGen := context.WithCancel(ctx)
 	defer cancelGen()
 	guard := newAnswerGuard(ChatAnswerDegenerateRunLimit(ctx, h.siteConfigReader), p.lang, "web", cancelGen)
+	ttft := newTTFTRecorder(ctx, ttftPathForResponse(p), streamStart)
 	streamEmit := newGuardedEmit(guard, &responseBuf, &reasoningBuf,
-		func(s string) { writeSSE(ctx, w, map[string]string{"content": s}) },
-		func(s string) { writeSSE(ctx, w, map[string]string{"reasoning": s}) },
+		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"content": s}) },
+		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
 	// A library turn never gets answer-time tools (P3-R5): every catalog tool
 	// is KB-scoped, and kbID is "" there; answerToolsForTurn enforces it.
@@ -860,7 +873,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	if rec := ToolCallRecorderFromContext(ctx); rec != nil {
 		toolCallsThisTurn = len(rec.Snapshot())
 	}
-	logctx.From(ctx).Info("rag.completion",
+	logctx.From(ctx).Info("rag.completion", append([]any{
 		"stage", "llm_completion",
 		"answer_len", len(fullResponse),
 		"reasoning_len", reasoningBuf.Len(),
@@ -875,6 +888,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		"answer_tools_path", runAnswerTools,
 		"web_search_requested", webSearchLogValue(p.webSearch),
 		"tool_calls", toolCallsThisTurn,
+	}, ttft.logFields()...)...,
 	)
 	p.span.SetAttributes(
 		attribute.Int("chat.source_count", len(sources)),
@@ -918,7 +932,9 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// is still persisted to DB by runPostResponseTasks.
 	emit := func(pl map[string]any) { writeSSE(ctx, w, pl) }
 	followUps, verification, _ := h.runResponsePostTasks(ctx, p, fullResponse, aiMsg.ID, emit)
-	if len(followUps) > 0 {
+	// A KB turn's runPostResponseTasks already emitted the follow-ups
+	// through emit; the library pipeline takes no emit, so write them here.
+	if p.library && len(followUps) > 0 {
 		writeSSE(ctx, w, map[string]any{"followUpQuestions": followUps})
 	}
 	if verification != nil {

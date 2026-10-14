@@ -59,10 +59,14 @@ func detachedContext(parent context.Context, timeout time.Duration) (context.Con
 // emit (AP-A2): SSE write callback used to stream refine_start /
 // refine_complete trajectory events while the refine LLM call runs.
 // Streaming callers pass `func(p) { writeSSE(w, p) }`; non-streaming
-// callers pass nil. Emit is called from the same goroutine that owns
-// the SSE writer — refine + the v2 verifier are deliberately moved
-// out of the parallel wg into the post-wait main path so the writer
-// stays single-owner and we don't need a mutex around writeSSE.
+// callers pass nil. Every emit is serialised by lockedEmit, so the SSE
+// writer is never written from two goroutines at once. The follow-up
+// goroutine is the one emitter inside the parallel fan-out: it writes
+// `{"followUpQuestions": …}` itself as soon as the suggestions exist,
+// so streaming callers must NOT write that frame again (the follow-ups
+// are still returned, for non-streaming callers). Refine + the v2
+// verifier stay in the post-wait main path. Callers must not write to
+// the ResponseWriter directly until this function returns.
 
 // Per-goroutine result containers for the parallel post-response work.
 // Each goroutine owns exactly one of these and writes into its own fields;
@@ -112,6 +116,7 @@ func (h *Handler) runPostResponseTasks(
 	// callback tolerates a dead client (writeSSE logs and drops).
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postResponseTimeout)
 	defer cancel()
+	emit = lockedEmit(emit)
 
 	var (
 		fuRes  followUpResult
@@ -130,14 +135,19 @@ func (h *Handler) runPostResponseTasks(
 	wg.Add(1)
 	safego.GoCtx(ctx, func() {
 		defer wg.Done()
-		fuRes.followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, kbID, lang)
+		fuRes.followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, kbID, lang, ChatFollowUpsModel(ctx, h.siteConfigReader))
+		// Sent as soon as it exists rather than after the factcheck: the
+		// suggestions don't depend on it.
+		if emit != nil && len(fuRes.followUps) > 0 {
+			emit(map[string]any{"followUpQuestions": fuRes.followUps})
+		}
 	})
 
 	if FactcheckEnabled(ctx, h.siteConfigReader) {
 		wg.Add(1)
 		safego.GoCtx(ctx, func() {
 			defer wg.Done()
-			fcRes.result = ai.CheckFacts(ctx, h.aiResolver, userMessage, aiResponse, contextText, kbID, lang)
+			fcRes.result = ai.CheckFacts(ctx, h.aiResolver, userMessage, aiResponse, contextText, kbID, lang, FactcheckModel(ctx, h.siteConfigReader))
 		})
 	}
 
@@ -442,7 +452,7 @@ func (h *Handler) runPostResponseTasks(
 	factualityClaims := verRes.factualityClaims
 
 	// AP-A1/A2 refine gate: runs in the main goroutine after wg.Wait
-	// so the SSE emit callback has single-owner semantics. Eligibility
+	// (emit is lockedEmit-serialised either way). Eligibility
 	// requires (a) the gate is on, (b) EITHER the verifier ran AND
 	// produced at least one refine-triggering claim OR the AP-D2
 	// Self-RAG verifier set ISUSE != "yes" (answer doesn't address
@@ -520,7 +530,7 @@ func (h *Handler) runLibraryPostResponseTasks(
 	wg.Add(1)
 	safego.GoCtx(ctx, func() {
 		defer wg.Done()
-		followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, "", lang)
+		followUps, _ = ai.GenerateFollowUpQuestions(ctx, h.aiResolver, userMessage, aiResponse, "", lang, ChatFollowUpsModel(ctx, h.siteConfigReader))
 	})
 	if CitationValidationEnabled(ctx, h.siteConfigReader) {
 		wg.Add(1)

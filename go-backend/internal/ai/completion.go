@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -35,8 +36,12 @@ type CompletionResult struct {
 
 	// Token usage as reported by the provider. Zero values indicate the
 	// provider did not include a usage block (some self-hosted setups).
-	PromptTokens       int
-	CompletionTokens   int
+	PromptTokens     int
+	CompletionTokens int
+	// FinishReason is the provider's finish_reason for the first choice
+	// ("stop", "length", ...). Empty when the provider omitted it.
+	FinishReason string
+
 	CachedPromptTokens int // OpenAI prompt_tokens_details.cached_tokens or DeepSeek prompt_cache_hit_tokens
 }
 
@@ -77,6 +82,28 @@ func GenerateCompletionWithModel(ctx context.Context, resolver *ConfigResolver, 
 		}
 	}
 	return generateCompletionInner(ctx, config, prompt, systemPrompt, model, wantReasoning, 0.2)
+}
+
+// GenerateCompletionCapped is GenerateCompletionWithModel plus an output cap,
+// for the short helper calls on the chat path (condense, classifier,
+// follow-ups, factcheck). maxTokens 0 sends no cap; task labels the
+// ai.helper.truncated log line.
+func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, prompt, systemPrompt, kbID, modelOverride string, maxTokens int, task string) (*CompletionResult, error) {
+	config, err := resolver.Resolve(ctx, kbID)
+	if err != nil {
+		return nil, fmt.Errorf("ai: resolve config: %w", err)
+	}
+	model := config.EffectiveChatModel(modelOverride)
+	if modelOverride != "" && model != modelOverride {
+		observability.RecordModelFallback("not_in_chat_models")
+		slog.Warn("ai: model override not available in resolved config, falling back to ChatModel",
+			"modelOverride", modelOverride, "providerName", config.ProviderName, "fallback", config.ChatModel)
+	}
+	res, err := generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
+	if err == nil && maxTokens > 0 && res != nil && res.FinishReason == "length" {
+		logctx.From(ctx).Warn("ai.helper.truncated", "task", task, "model", model, "max_tokens", maxTokens)
+	}
+	return res, err
 }
 
 // GenerateCompletionWithModelDeterministic is like GenerateCompletionWithModel
@@ -133,7 +160,7 @@ func GenerateCompletionStructured(ctx context.Context, resolver *ConfigResolver,
 				"fallback", config.ChatModel)
 		}
 	}
-	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.0, spec)
+	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.0, spec, 0)
 }
 
 // structuredCompletionFn is the Structured-Outputs sibling of completionFn:
@@ -156,10 +183,10 @@ func generateCompletionInner(ctx context.Context, config *ResolvedConfig, prompt
 }
 
 func generateCompletionHistoryInner(ctx context.Context, config *ResolvedConfig, history []ChatHistoryEntry, prompt, systemPrompt, model string, wantReasoning bool, temperature float64) (*CompletionResult, error) {
-	return generateCompletionStructuredInner(ctx, config, history, prompt, systemPrompt, model, wantReasoning, temperature, nil)
+	return generateCompletionStructuredInner(ctx, config, history, prompt, systemPrompt, model, wantReasoning, temperature, nil, 0)
 }
 
-func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConfig, history []ChatHistoryEntry, prompt, systemPrompt, model string, wantReasoning bool, temperature float64, structured *StructuredSpec) (*CompletionResult, error) {
+func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConfig, history []ChatHistoryEntry, prompt, systemPrompt, model string, wantReasoning bool, temperature float64, structured *StructuredSpec, maxTokens int) (*CompletionResult, error) {
 	ctx, span := observability.StartGenerationSpan(ctx, "rag.llm_completion", observability.GenerationAttrs{
 		System: observability.ProviderSystemFromBaseURL(config.BaseURL),
 		Model:  model,
@@ -172,6 +199,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 		Model:       model,
 		Messages:    messages,
 		Temperature: &temperature,
+		MaxTokens:   maxTokens,
 	}
 	if structured != nil {
 		req.ResponseFormat = &ResponseFormat{
@@ -196,8 +224,9 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 	client := CachedClient(config.BaseURL, config.APIKey)
 
 	var lastErr error
+	skipBackoff := false
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
+		if attempt > 0 && !skipBackoff {
 			// time.NewTimer + t.Stop() instead of time.After: when ctx is
 			// cancelled mid-backoff, the timer goroutine is freed
 			// immediately rather than living for the remainder of the
@@ -213,6 +242,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 			}
 			backoff *= 2
 		}
+		skipBackoff = false
 
 		resp, err := client.ChatCompletion(ctx, req)
 		if err != nil {
@@ -228,6 +258,13 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 				logctx.From(ctx).Info("ai.structured.strict_schema_rejected_falling_back",
 					"error", err, "model", model)
 				req.ResponseFormat = &ResponseFormat{Type: "json_object"}
+				// A rejected schema is deterministic: try the looser
+				// contract straight away instead of after a backoff.
+				skipBackoff = !retryableCompletionError(err)
+				continue
+			}
+			if !retryableCompletionError(err) {
+				return nil, fmt.Errorf("ai: completion failed: %w", err)
 			}
 			continue
 		}
@@ -240,6 +277,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 		choice := resp.Choices[0]
 		result := &CompletionResult{
 			Content:            choice.Message.Content,
+			FinishReason:       choice.FinishReason,
 			PromptTokens:       resp.Usage.PromptTokens,
 			CompletionTokens:   resp.Usage.CompletionTokens,
 			CachedPromptTokens: resp.Usage.CachedTokens(),
@@ -255,6 +293,17 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 	}
 
 	return nil, fmt.Errorf("ai: all %d attempts failed: %w", maxAttempts, lastErr)
+}
+
+// retryableCompletionError reports whether another attempt can succeed. A
+// 4xx other than 408/429 is deterministic (context too long, bad request,
+// unknown model): retrying it only adds the backoff to the turn.
+func retryableCompletionError(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 408 || apiErr.StatusCode == 429 || apiErr.StatusCode >= 500
+	}
+	return true // transport errors and timeouts
 }
 
 // extractReasoning checks multiple locations for reasoning content in priority

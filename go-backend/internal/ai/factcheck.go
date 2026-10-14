@@ -13,6 +13,9 @@ import (
 	"github.com/justrag/go-backend/internal/prompts"
 )
 
+// factcheckMaxTokens caps the verdict JSON; a cut-off one fails soft to unverified.
+const factcheckMaxTokens = 1024
+
 type FactCheckResult struct {
 	Verified bool     `json:"verified"`
 	Score    float64  `json:"score"`
@@ -21,12 +24,12 @@ type FactCheckResult struct {
 
 // CheckFacts verifies an AI answer against source context via a separate LLM call.
 // Fails open: returns a default "unverified" result on error rather than propagating.
-func CheckFacts(ctx context.Context, resolver *ConfigResolver, question, answer, contextText, kbID, lang string) *FactCheckResult {
+func CheckFacts(ctx context.Context, resolver *ConfigResolver, question, answer, contextText, kbID, lang, model string) *FactCheckResult {
 	cfg, _ := resolver.Resolve(ctx, kbID) // best-effort; nil-safe below
 	modelName := ""
 	baseURL := ""
 	if cfg != nil {
-		modelName = cfg.ChatModel
+		modelName = cfg.EffectiveChatModel(model)
 		baseURL = cfg.BaseURL
 	}
 	ctx, span := observability.StartGenerationSpan(ctx, "rag.factcheck", observability.GenerationAttrs{
@@ -39,7 +42,7 @@ func CheckFacts(ctx context.Context, resolver *ConfigResolver, question, answer,
 	systemPrompt := prompts.FactCheckSystemPrompt(lang)
 	userPrompt := prompts.FactCheckUserPrompt(question, answer, contextText)
 
-	result, err := GenerateCompletion(ctx, resolver, userPrompt, systemPrompt, kbID, false)
+	result, err := GenerateCompletionCapped(ctx, resolver, userPrompt, systemPrompt, kbID, model, factcheckMaxTokens, "factcheck")
 	if err != nil {
 		logctx.From(ctx).Warn("fact check failed", "error", err)
 		fc := &FactCheckResult{Verified: false, Score: 0, Issues: []string{"Fact check failed due to system error."}}
