@@ -87,7 +87,7 @@ func (h *Handler) SetFileDates(l chat.FileDateLookup) {
 }
 
 // SetSiteConfig injects a site_config reader. This surface has no
-// site-config-driven behaviour otherwise (see capAnswerHistory's fixed
+// site-config-driven behaviour otherwise (see CapAnswerHistory's fixed
 // caps); the reader exists for exactly ONE key,
 // chat_answer_degenerate_run_limit, whose 0 value is a deployment-wide kill
 // switch that has to reach every answering surface. Optional — when unset
@@ -129,20 +129,20 @@ type modelList struct {
 	Data   []modelObject `json:"data"`
 }
 
-type chatMessage struct {
+type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
 type completionRequest struct {
 	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
+	Messages []ChatMessage `json:"messages"`
 	Stream   bool          `json:"stream"`
 }
 
 // responseMessage is the assistant message we emit. It is deliberately a
-// separate type from the request-side chatMessage: only responses carry
-// citation data, and folding it into chatMessage would make those fields
+// separate type from the request-side ChatMessage: only responses carry
+// citation data, and folding it into ChatMessage would make those fields
 // look like something a client may send.
 type responseMessage struct {
 	Role        string          `json:"role"`
@@ -408,31 +408,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 5. Parse messages: collect system content, conversation history,
 	//    and the last user message.
 	// ------------------------------------------------------------------
-	var systemParts []string
-	var history []ai.ChatHistoryEntry
-	var lastUserMessage string
-
-	for _, msg := range body.Messages {
-		switch msg.Role {
-		case "system":
-			systemParts = append(systemParts, msg.Content)
-		case "user", "assistant":
-			history = append(history, ai.ChatHistoryEntry{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
-		}
-	}
-
-	// The last user message is the query; strip it from history so it is not
-	// sent twice to CondenseQuestion.
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == "user" {
-			lastUserMessage = history[i].Content
-			history = append(history[:i], history[i+1:]...)
-			break
-		}
-	}
+	systemParts, history, lastUserMessage := SplitMessages(body.Messages)
 
 	if lastUserMessage == "" {
 		writeAPIError(ctx, w, http.StatusBadRequest, "messages must contain at least one user message")
@@ -517,7 +493,7 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// answer call — OpenAI-compat clients (ILIAS, OpenWebUI) send the full
 	// transcript and expect multi-turn semantics; dropping it made the model
 	// claim it had no previous conversation on follow-ups.
-	answerHistory := capAnswerHistory(history)
+	answerHistory := CapAnswerHistory(history)
 
 	if body.Stream {
 		h.streamResponse(w, ctx, answerHistory, lastUserMessage, chatCtx.SystemPrompt, kbID, body.Model, completionID, created, chatCtx.Sources)
@@ -527,11 +503,11 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	h.nonStreamResponse(w, ctx, answerHistory, lastUserMessage, chatCtx.SystemPrompt, kbID, body.Model, completionID, created, chatCtx.Sources)
 }
 
-// capAnswerHistory bounds the client-supplied history before it reaches the
+// CapAnswerHistory bounds the client-supplied history before it reaches the
 // answer LLM: last 6 messages, each truncated to 4000 runes — the same
 // defaults as the in-app chat's chat_answer_history_* knobs (this endpoint
 // has no site-config reader, so the caps are fixed).
-func capAnswerHistory(history []ai.ChatHistoryEntry) []ai.ChatHistoryEntry {
+func CapAnswerHistory(history []ai.ChatHistoryEntry) []ai.ChatHistoryEntry {
 	const maxMessages, maxRunes = 6, 4000
 	if len(history) == 0 {
 		return nil
@@ -740,4 +716,26 @@ func (h *Handler) streamResponse(
 	writeSSEChunk(w, finalChunk(completionID, model, created, answerText, sources))
 
 	writeSSEDone(w)
+}
+
+// SplitMessages separates an OpenAI messages array into the system parts,
+// the user/assistant history and the last user message (removed from the
+// history so it is not sent twice). Shared with internal/owuicompat.
+func SplitMessages(msgs []ChatMessage) (systemParts []string, history []ai.ChatHistoryEntry, lastUser string) {
+	for _, msg := range msgs {
+		switch msg.Role {
+		case "system":
+			systemParts = append(systemParts, msg.Content)
+		case "user", "assistant":
+			history = append(history, ai.ChatHistoryEntry{Role: msg.Role, Content: msg.Content})
+		}
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" {
+			lastUser = history[i].Content
+			history = append(history[:i], history[i+1:]...)
+			break
+		}
+	}
+	return systemParts, history, lastUser
 }
