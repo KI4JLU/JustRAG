@@ -46,16 +46,24 @@ type Upload struct {
 }
 
 // Error is a validation failure carrying the exact HTTP status + message the
-// KB upload endpoint has always returned.
+// KB upload endpoint has always returned. Rejected is true when the request
+// itself was well-formed but the file is not acceptable (empty, dangerous or
+// unsupported extension, over-long name) — internal/owuicompat records such
+// files instead of failing the upload.
 type Error struct {
-	Status  int
-	Message string
+	Status   int
+	Message  string
+	Rejected bool
 }
 
 func (e *Error) Error() string { return e.Message }
 
 func fail(status int, msg string) (*Upload, error) {
 	return nil, &Error{Status: status, Message: msg}
+}
+
+func rejected(status int, msg string) *Error {
+	return &Error{Status: status, Message: msg, Rejected: true}
 }
 
 // dangerousExtensions is the set of file extensions that are rejected on upload.
@@ -80,16 +88,16 @@ var dangerousExtensions = map[string]bool{
 func ValidateName(name string) *Error {
 	ext := strings.ToLower(filepath.Ext(name))
 	if dangerousExtensions[ext] {
-		return &Error{Status: http.StatusBadRequest, Message: "File type not allowed"}
+		return rejected(http.StatusBadRequest, "File type not allowed")
 	}
 	// Without the supported check an unsupported binary (e.g. a legacy .doc)
 	// would be queued for ingestion and fail or be indexed as garbage.
 	if !parser.IsSupportedExtension(name) {
-		return &Error{Status: http.StatusBadRequest, Message: fmt.Sprintf("File type not supported (%s)", ext)}
+		return rejected(http.StatusBadRequest, fmt.Sprintf("File type not supported (%s)", ext))
 	}
 	// files.name is varchar(255); reject cleanly instead of a DB 500.
 	if len(name) > MaxFileNameBytes {
-		return &Error{Status: http.StatusBadRequest, Message: fmt.Sprintf("Filename must not exceed %d bytes", MaxFileNameBytes)}
+		return rejected(http.StatusBadRequest, fmt.Sprintf("Filename must not exceed %d bytes", MaxFileNameBytes))
 	}
 	return nil
 }
@@ -158,7 +166,7 @@ func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, erro
 
 	// 3a. Reject empty files.
 	if header.Size == 0 {
-		return fail(http.StatusBadRequest, "File must not be empty")
+		return nil, rejected(http.StatusBadRequest, "File must not be empty")
 	}
 
 	// 3b-3c. Reject dangerous / unsupported extensions and over-long names.

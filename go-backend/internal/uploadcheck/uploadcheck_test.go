@@ -135,6 +135,18 @@ func TestParse_Valid(t *testing.T) {
 	}
 }
 
+func TestValidateNameMarksRejected(t *testing.T) {
+	for _, name := range []string{"x.zip", "x.exe", strings.Repeat("a", 300) + ".pdf"} {
+		err := uploadcheck.ValidateName(name)
+		if err == nil || !err.Rejected {
+			t.Errorf("ValidateName(%q) = %+v, want Rejected", name, err)
+		}
+	}
+	if err := uploadcheck.ValidateName("ok.pdf"); err != nil {
+		t.Errorf("ValidateName(ok.pdf) = %+v, want nil", err)
+	}
+}
+
 func TestValidateName(t *testing.T) {
 	long := strings.Repeat("a", uploadcheck.MaxFileNameBytes) + ".pdf"
 	for name, wantOK := range map[string]bool{
