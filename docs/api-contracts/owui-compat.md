@@ -5,12 +5,12 @@ Backend: `go-backend/internal/owuicompat`, wired in `registerOWUICompatRoutes` (
 ## Conventions
 
 - Plugin config: endpoint base `https://<host>/owui`, chat path `api/chat/completions`, model `justrag` (the request's `model` is ignored).
-- Gated by the global `site_config` flag `owui_compat_enabled` (default **off**, absent = off): every route answers `404 {"detail":"Not Found"}` while it is off.
+- Gated by the global `site_config` flag `owui_compat_enabled` (default **off**, absent = off): every route answers `404 {"detail":"Not Found"}` while it is off, for an authenticated key. The API-key middleware runs first, so a missing or invalid key still gets its flat `{"error":…}` `401`.
 - Auth: `Authorization: Bearer jrag_…` (the standard API key chain). A missing or bad key is rejected by the key middleware with its own flat body, `401 {"error":"…"}`; a request that reaches the handlers without a user gets `401 {"detail":"Not authenticated"}`.
 - Handler errors use Open WebUI's shape `{"detail": "<German message>"}` with the HTTP status; messages are safe to show students and carry no internals.
 - Rate limits per **API key** (not IP), fixed constants: chat route 600 requests/min, every other route 300 requests/min. Over the limit: `429` from the shared limiter (flat `{"error":…}` body).
 - Scope: the surface only ever addresses KBs it created (`owui_knowledge`) and uploads it recorded (`owui_files`), owned by the key's user. Foreign and malformed ids behave as unknown ids.
-- Usage: one `usage_events` row (surface `owui_compat`) per accepted chat request, with or without a collection.
+- Usage: one `usage_events` row (surface `owui_compat`) per accepted chat request, with or without a collection. Chat-title requests (non-streaming, same collection) are chat requests too, so message counts include them.
 
 ## Routes
 
@@ -62,7 +62,7 @@ File object: `{id, user_id, filename, meta:{name, data:<metadata>}, data:{status
 
 ### `DELETE /owui/api/v1/files/{id}`
 
-`200 {"id","deleted":true}`. Unknown id: `200 {"id","deleted":false}`. The library file (and with it every KB copy) goes with the **last** upload id sharing its bytes; otherwise only KB copies reachable solely through this id go. `500` on a store error.
+`200 {"id","deleted":true}`. Unknown id: `200 {"id","deleted":false}`. The library file (and with it every KB copy) goes with the **last** upload id sharing its bytes; otherwise only KB copies reachable solely through this id go. The cascade runs **before** the upload id is dropped: if it fails, the answer is `500 {"detail"}` and the id is kept, so the plugin's next run retries (an already-removed library file counts as success). `500` also on a store error.
 
 ### `GET /owui/api/v1/files/{id}/data/content`
 
@@ -74,11 +74,11 @@ Reads `name` (default `ILIAS`, at most 255 runes), `description` (at most 2000 r
 
 ### `POST /owui/api/v1/knowledge/{id}/file/add`
 
-Reads `file_id` (the upload id). Starts indexing (or an index copy) of the upload's library file in the collection. `200 {"id":<kbId>,"description":"","files":[{"id":<file_id>}]}`; an unsupported upload is linked but not indexed and answers the same. `404` collection unknown or not owned; `400` bad JSON. A **soft failure** (unknown upload, KB full, file gone, internal error) is `200 {"detail":"Datei konnte nicht hinzugefügt werden (<reason>)."}` **without `id`**: the plugin throws on >= 400 and retries soft failures in its next run.
+Reads `file_id` (the upload id). Starts indexing (or an index copy) of the upload's library file in the collection. `200 {"id":<kbId>,"description":"","files":[{"id":<file_id>}]}`; an unsupported upload is linked but not indexed and answers the same. `404` collection unknown or not owned; `400` bad JSON; `500` on a handle-lookup error. A **soft failure** (unknown upload, KB full, file gone, internal error) is `200 {"detail":"Datei konnte nicht hinzugefügt werden (<reason>)."}` **without `id`**: the plugin throws on >= 400 and retries soft failures in its next run.
 
 ### `POST /owui/api/v1/knowledge/{id}/file/remove`
 
-Reads `file_id`. Unlinks the upload; the library file stays, the KB copy goes unless another upload id in the collection still maps to it. `200 {"id":<kbId>,"description":"","files":[]}`; `404` collection; `400` bad JSON; `500`.
+Reads `file_id`. Unlinks the upload; the library file stays, the KB copy goes unless another upload id in the collection still maps to it. `200 {"id":<kbId>,"description":"","files":[]}`; `404` collection; `400` bad JSON; `500`. The KB copy is deleted **before** the link is dropped: if that fails, the answer is `500 {"detail"}` and the link is kept, so the plugin retries in its next run.
 
 ### `DELETE /owui/api/v1/knowledge/{id}/delete`
 
