@@ -25,6 +25,11 @@ func TestIsUploadExempt(t *testing.T) {
 		{http.MethodPost, "/api/admin/eval/golden-sets", true},
 		{http.MethodPost, "/api/library/files", true},
 		{http.MethodPatch, "/api/library/files", false},
+		{http.MethodPost, "/owui/api/v1/files/", true},
+		{http.MethodPost, "/owui/api/v1/files", true},
+		{http.MethodPost, "/owui/api/chat/completions", true},
+		{http.MethodGet, "/owui/api/v1/files", false},
+		{http.MethodPost, "/owui/api/v1/knowledge/create", false},
 		{http.MethodPost, "/api/library/files/123", false},
 
 		// Non-POST never exempt.

@@ -29,10 +29,12 @@ func isUploadExempt(r *http.Request) bool {
 	}
 	switch r.URL.Path {
 	case "/api/site-config/logo", // logo upload (siteconfig.maxLogoSize)
-		"/api/describe-image",         // vision input, 10 MiB (misc.maxImageBytes)
-		"/api/admin/agent/template",   // template upload, 10 MiB (adminmaintenance)
-		"/api/admin/eval/golden-sets", // golden-set JSONL upload, 5 MiB (admineval)
-		"/api/library/files":          // user library upload, 500 MiB (uploadcheck.MaxUploadSize)
+		"/api/describe-image",                       // vision input, 10 MiB (misc.maxImageBytes)
+		"/api/admin/agent/template",                 // template upload, 10 MiB (adminmaintenance)
+		"/api/admin/eval/golden-sets",               // golden-set JSONL upload, 5 MiB (admineval)
+		"/api/library/files",                        // user library upload, 500 MiB (uploadcheck.MaxUploadSize)
+		"/owui/api/v1/files/", "/owui/api/v1/files", // ILIAS plugin upload, 500 MiB (owuicompat → uploadcheck.MaxUploadSize)
+		"/owui/api/chat/completions": // ILIAS plugin chat, 4 MiB (owuicompat.maxChatBodyBytes)
 		return true
 	}
 	// POST /api/kb/{id}/files (500 MiB) and POST /api/kb/{id}/eval/golden-sets
