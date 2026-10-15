@@ -1,10 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { X, Loader2 } from 'lucide-react';
+import { Download, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import {
+    Badge, Button, Dialog, DialogContent, DialogTitle,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
+import { useToast } from '../contexts/ToastContext';
 import type { TabularFileDetail, TabularTable } from '../types';
-import './TabularDetailModal.css';
 
 interface TabularDetailModalProps {
     show: boolean;
@@ -17,12 +21,17 @@ interface TabularDetailModalProps {
 type TabularDetailContentProps = Omit<TabularDetailModalProps, 'show'>;
 
 /**
- * "Tabellen" file-detail panel: fetches GET /api/kb/{kbId}/files/{fileId}/tabular
- * (tabular.FileTabularDTO) and renders the per-file ingest report (one card
- * per sheet) plus the materialized table/column structure for each sheet.
+ * Spreadsheet source preview: the ingest report of GET
+ * /api/kb/{kbId}/files/{fileId}/tabular (tabular.FileTabularDTO) — one page
+ * per sheet with its counts and the materialized column structure. It opens
+ * like every other source preview (row click, `useWebTools.handlePreviewSource`)
+ * in the PDF preview's frame (`PdfPreviewModal`): the same dialog size, 56px
+ * title row, and a PdfViewer-style 48px toolbar ending in download and
+ * fullscreen above the pages.
  */
 const TabularDetailContent: React.FC<TabularDetailContentProps> = ({ kbId, fileId, fileName, onClose }) => {
     const { t, language } = useTheme();
+    const toast = useToast();
     const [detail, setDetail] = useState<TabularFileDetail | null>(null);
     // Content remounts per fileId (see the default export below), so this
     // effect fetches exactly once per mounted instance — the loading/error
@@ -30,6 +39,9 @@ const TabularDetailContent: React.FC<TabularDetailContentProps> = ({ kbId, fileI
     // reset performed from inside the effect.
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const viewerRef = useRef<HTMLDivElement>(null);
+    const [fullscreen, setFullscreen] = useState(false);
+    const fullscreenSupported = typeof document !== 'undefined' && !!document.fullscreenEnabled;
 
     useEffect(() => {
         let cancelled = false;
@@ -51,12 +63,30 @@ const TabularDetailContent: React.FC<TabularDetailContentProps> = ({ kbId, fileI
     }, [kbId, fileId, t]);
 
     useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-    }, [onClose]);
+        const onChange = () => setFullscreen(document.fullscreenElement === viewerRef.current);
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
+    }, []);
+
+    const toggleFullscreen = () => {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void viewerRef.current?.requestFullscreen();
+    };
+
+    // The original file, through the authenticated client. The object URL is
+    // made on click and revoked right after, so none outlives the download.
+    const download = () => {
+        axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, { responseType: 'blob' })
+            .then(res => {
+                const url = URL.createObjectURL(res.data as Blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                a.click();
+                URL.revokeObjectURL(url);
+            })
+            .catch(() => toast.error(t('downloadFailed')));
+    };
 
     const formatNum = (n: number): string =>
         language === 'de' ? n.toLocaleString('de-DE') : n.toLocaleString('en-US');
@@ -68,126 +98,131 @@ const TabularDetailContent: React.FC<TabularDetailContentProps> = ({ kbId, fileI
     const tablesForSheet = (sheetIndex: number): TabularTable[] =>
         (detail?.tables ?? []).filter(tbl => tbl.sheet_index === sheetIndex);
 
+    const status = (content: React.ReactNode, className = 'text-on-surface-variant') => (
+        <div className={`flex h-full items-center justify-center gap-2 p-8 text-sm ${className}`}>{content}</div>
+    );
+
     return (
-        <div
-            className="modal-overlay"
-            role="presentation"
-            onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-        >
-            <div
-                className="modal-content tabular-detail-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="tabular-detail-title"
+        <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+            <DialogContent
+                closeLabel={t('close')}
+                className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
+                aria-describedby={undefined}
             >
-                <div className="tabular-detail-modal__header">
-                    <h2 id="tabular-detail-title" className="tabular-detail-modal__title">
-                        {fileName} · {t('tabularPanelTitle')}
-                    </h2>
-                    <button onClick={onClose} className="icon-button" aria-label={t('close')}>
-                        <X size={20} />
-                    </button>
+                <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
+                    <DialogTitle className="min-w-0 flex-1 truncate text-base font-semibold" title={fileName}>
+                        {fileName}
+                    </DialogTitle>
                 </div>
 
-                <div className="tabular-detail-modal__body">
-                    {loading && (
-                        <div className="tabular-detail-modal__status">
-                            <Loader2 className="animate-spin" size={20} />
+                <div ref={viewerRef} className="flex min-h-0 flex-1 flex-col bg-surface-container-low text-on-surface">
+                    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant bg-surface-container-lowest px-2">
+                        {detail?.report && (
+                            <span className="px-2 text-sm tabular-nums text-on-surface-variant">
+                                {detail.report.sheets.length === 1
+                                    ? t('tabularSheetCountOne')
+                                    : t('tabularSheetCount').replace('{count}', formatNum(detail.report.sheets.length))}
+                            </span>
+                        )}
+                        <div className="ml-auto flex items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={download} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
+                                <Download size={16} aria-hidden="true" />
+                            </Button>
+                            {fullscreenSupported && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={fullscreen ? t('exitFullscreen') : t('fullscreen')}
+                                    aria-pressed={fullscreen}
+                                    onClick={toggleFullscreen}
+                                >
+                                    {fullscreen ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
+                                </Button>
+                            )}
                         </div>
-                    )}
+                    </div>
 
-                    {!loading && error && (
-                        <div className="tabular-detail-modal__status tabular-detail-modal__status--error">
-                            {error}
-                        </div>
-                    )}
+                    <div className="min-h-0 flex-1 overflow-auto">
+                        {loading && status(<Loader2 className="animate-spin" size={20} aria-hidden="true" />)}
+                        {!loading && error && status(error, 'text-error')}
+                        {!loading && !error && detail && detail.report === null && status(t('tabularNoReport'))}
 
-                    {!loading && !error && detail && detail.report === null && (
-                        <div className="tabular-detail-modal__status">{t('tabularNoReport')}</div>
-                    )}
-
-                    {!loading && !error && detail && detail.report && (
-                        <div className="tabular-detail-modal__sheets">
-                            {detail.report.sheets.map((sheet, sheetIndex) => (
-                                <div key={sheetIndex} className="tabular-detail-modal__sheet-card">
-                                    <div className="tabular-detail-modal__sheet-header">
-                                        <span className="tabular-detail-modal__sheet-name">{sheet.name}</span>
-                                        <span className="tabular-detail-modal__badge" title={t('tabularKind')}>
-                                            {sheet.kind}
-                                        </span>
-                                        {sheet.hidden && (
-                                            <span className="tabular-detail-modal__badge tabular-detail-modal__badge--muted">
-                                                {t('tabularHidden')}
-                                            </span>
-                                        )}
-                                        {sheet.used_llm && (
-                                            <span className="tabular-detail-modal__badge tabular-detail-modal__badge--accent">
-                                                {t('tabularUsedLLM')}
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="tabular-detail-modal__counts">
-                                        <span>{t('tabularHeaderRow')}: {sheet.header_row >= 0 ? formatNum(sheet.header_row + 1) : '—'}</span>
-                                        <span>{t('tabularRowsRead')}: {formatNum(sheet.rows_read)}</span>
-                                        <span>{t('tabularRowsMaterialised')}: {formatNum(sheet.rows_materialised)}</span>
-                                        <span>{t('tabularRowsEmbedded')}: {formatNum(sheet.rows_embedded)}</span>
-                                        <span>{t('tabularRowsPastCap')}: {formatNum(sheet.rows_past_cap)}</span>
-                                        <span>{t('tabularFormulaEmpty')}: {formatNum(sheet.formula_cells_empty)}</span>
-                                        <span>{t('tabularCoercionFailures')}: {formatNum(sheet.coercion_failures)}</span>
-                                    </div>
-
-                                    {sheet.dropped_columns > 0 && (
-                                        <div className="tabular-detail-modal__note">
-                                            {t('tabularDroppedColumns')}: {formatNum(sheet.dropped_columns)}
+                        {!loading && !error && detail?.report && (
+                            <div className="flex flex-col gap-4 px-6 py-4">
+                                {detail.report.sheets.map((sheet, sheetIndex) => (
+                                    <section
+                                        key={sheetIndex}
+                                        aria-label={sheet.name}
+                                        className="flex flex-col gap-3 bg-surface-container-lowest p-5 shadow-card"
+                                    >
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <h3 className="mr-1 text-base font-semibold">{sheet.name}</h3>
+                                            <Badge appearance="filled" tone="neutral" title={t('tabularKind')}>{sheet.kind}</Badge>
+                                            {sheet.hidden && <Badge appearance="filled" tone="neutral">{t('tabularHidden')}</Badge>}
+                                            {sheet.used_llm && <Badge appearance="filled" tone="info">{t('tabularUsedLLM')}</Badge>}
                                         </div>
-                                    )}
 
-                                    {sheet.notes && sheet.notes.length > 0 && (
-                                        <ul className="tabular-detail-modal__notes">
-                                            <li className="tabular-detail-modal__notes-label">{t('tabularNotes')}</li>
-                                            {sheet.notes.map((note, i) => <li key={i}>{note}</li>)}
-                                        </ul>
-                                    )}
+                                        <dl className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-x-6 gap-y-1 text-sm text-on-surface-variant">
+                                            {([
+                                                ['tabularHeaderRow', sheet.header_row >= 0 ? formatNum(sheet.header_row + 1) : '—'],
+                                                ['tabularRowsRead', formatNum(sheet.rows_read)],
+                                                ['tabularRowsMaterialised', formatNum(sheet.rows_materialised)],
+                                                ['tabularRowsEmbedded', formatNum(sheet.rows_embedded)],
+                                                ['tabularRowsPastCap', formatNum(sheet.rows_past_cap)],
+                                                ['tabularFormulaEmpty', formatNum(sheet.formula_cells_empty)],
+                                                ['tabularCoercionFailures', formatNum(sheet.coercion_failures)],
+                                                ...(sheet.dropped_columns > 0 ? [['tabularDroppedColumns', formatNum(sheet.dropped_columns)]] : []),
+                                            ] as [string, string][]).map(([key, value]) => (
+                                                <div key={key} className="flex justify-between gap-3">
+                                                    <dt>{t(key)}</dt>
+                                                    <dd className="tabular-nums text-on-surface">{value}</dd>
+                                                </div>
+                                            ))}
+                                        </dl>
 
-                                    {tablesForSheet(sheetIndex).map(table => (
-                                        <div
-                                            key={`${table.sheet_index}-${table.region_index}`}
-                                            className="tabular-detail-modal__table-wrap"
-                                        >
-                                            <table className="tabular-detail-modal__table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>{t('tabularColHeader')}</th>
-                                                        <th>{t('tabularColSQLName')}</th>
-                                                        <th>{t('tabularColType')}</th>
-                                                        <th>{t('tabularColRole')}</th>
-                                                        <th>{t('tabularColDescription')}</th>
-                                                        <th>{t('tabularColShadow')}</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
+                                        {sheet.notes && sheet.notes.length > 0 && (
+                                            <div className="text-sm">
+                                                <div className="font-semibold">{t('tabularNotes')}</div>
+                                                <ul className="list-disc pl-5 text-on-surface-variant">
+                                                    {sheet.notes.map((note, i) => <li key={i}>{note}</li>)}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {tablesForSheet(sheetIndex).map(table => (
+                                            <Table key={`${table.sheet_index}-${table.region_index}`} className="text-sm">
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead>{t('tabularColHeader')}</TableHead>
+                                                        <TableHead>{t('tabularColSQLName')}</TableHead>
+                                                        <TableHead>{t('tabularColType')}</TableHead>
+                                                        <TableHead>{t('tabularColRole')}</TableHead>
+                                                        <TableHead>{t('tabularColDescription')}</TableHead>
+                                                        <TableHead>{t('tabularColShadow')}</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
                                                     {table.columns.map((col, i) => (
-                                                        <tr key={i}>
-                                                            <td>{col.original}</td>
-                                                            <td>{col.name}</td>
-                                                            <td>{col.type}</td>
-                                                            <td>{col.role || '—'}</td>
-                                                            <td>{col.description || ''}</td>
-                                                            <td>{col.shadow_of || col.shadow_column || ''}</td>
-                                                        </tr>
+                                                        <TableRow key={i}>
+                                                            <TableCell>{col.original}</TableCell>
+                                                            <TableCell className="font-mono">{col.name}</TableCell>
+                                                            <TableCell>{col.type}</TableCell>
+                                                            <TableCell>{col.role || '—'}</TableCell>
+                                                            <TableCell>{col.description || ''}</TableCell>
+                                                            <TableCell className="font-mono">{col.shadow_of || col.shadow_column || ''}</TableCell>
+                                                        </TableRow>
                                                     ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                                                </TableBody>
+                                            </Table>
+                                        ))}
+                                    </section>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 };
 
