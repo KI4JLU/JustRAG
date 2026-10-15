@@ -421,6 +421,19 @@ export interface TabularColumn {
     coercion_failed: number;
     samples?: string[];
     value_set?: string[];
+    lookup?: TabularLookup;
+}
+
+// A column's link to a lookup table of the same file (tabular.LookupRef):
+// without `via` the column holds codes whose name is `label` where `key`
+// equals the code; with `via` it holds an already looked-up value keyed by
+// that column. `source` says how the ingest found it ("heuristic" = inferred).
+export interface TabularLookup {
+    table: string;
+    key: string;
+    label: string;
+    via?: string;
+    source: 'formula' | 'validation' | 'heuristic';
 }
 
 export interface TabularTable {
@@ -433,6 +446,30 @@ export interface TabularTable {
     header_row: number; // -1 = none
     row_count: number;
     columns: TabularColumn[];
+}
+
+// One page of a materialized table — GET
+// /api/kb/{id}/files/{fileId}/tabular/rows (kb.TabularRowsDTO). Columns by SQL
+// name, cells as SQL text (null for NULL). `id` is the _rowid (ingest order,
+// not the Excel row). `matched` counts the rows passing search and the
+// empty-row filter; empty_rows / empty_columns come with offset 0 only.
+export interface TabularRow {
+    id: number;
+    empty: boolean;
+    cells: (string | null)[];
+}
+
+export interface TabularRows {
+    table_name: string;
+    sheet_name: string;
+    columns: string[];
+    rows: TabularRow[];
+    row_count: number;
+    matched: number;
+    empty_rows?: number;
+    empty_columns?: string[];
+    offset: number;
+    limit: number;
 }
 
 // TabularSheetReport mirrors tabular.SheetReport. Note: dropped_columns is an
