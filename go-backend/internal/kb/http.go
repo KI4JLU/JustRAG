@@ -149,6 +149,10 @@ type Store interface {
 	// ListTabularCatalogByFile returns the tabular_catalog rows for fileID
 	// (empty for a non-spreadsheet file).
 	ListTabularCatalogByFile(ctx context.Context, fileID string) ([]tabular.CatalogEntry, error)
+	// PreviewTabularRows reads one page of a catalog entry's materialized
+	// table (tabular.Catalog.PreviewRows): its columns and each cell as SQL
+	// text, searched, sorted and empty-row filtered per pq.
+	PreviewTabularRows(ctx context.Context, entry tabular.CatalogEntry, pq tabular.PreviewQuery) (*tabular.PreviewPage, error)
 }
 
 // FileRef is the minimal file/KB-ownership pair GetFileTabular's cross-KB

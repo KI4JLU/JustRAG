@@ -38,6 +38,12 @@ type mockStore struct {
 	catalogEntries []tabular.CatalogEntry
 	catalogErr     error
 	gotFileID      string
+
+	// GetFileTabularRows fakes — see http_tabular_test.go.
+	previewPage     *tabular.PreviewPage
+	previewErr      error
+	gotPreviewEntry tabular.CatalogEntry
+	gotPreviewQuery tabular.PreviewQuery
 }
 
 func (m *mockStore) ListKnowledgeBasesWithUserFilters(_ context.Context, _ string, _, _ int) ([]kb.KBRow, error) {
@@ -69,6 +75,11 @@ func (m *mockStore) GetFileParseReport(_ context.Context, _ string) (json.RawMes
 
 func (m *mockStore) ListTabularCatalogByFile(_ context.Context, _ string) ([]tabular.CatalogEntry, error) {
 	return m.catalogEntries, m.catalogErr
+}
+
+func (m *mockStore) PreviewTabularRows(_ context.Context, entry tabular.CatalogEntry, pq tabular.PreviewQuery) (*tabular.PreviewPage, error) {
+	m.gotPreviewEntry, m.gotPreviewQuery = entry, pq
+	return m.previewPage, m.previewErr
 }
 
 // ---------------------------------------------------------------------------
