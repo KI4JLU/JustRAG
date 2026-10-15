@@ -19,6 +19,9 @@ export function parseCell(text: string | null, kind: ColumnKind): Cell {
     if (text === null) return null;
     if (kind === 'number') {
         const n = Number(text);
+        // An integer past 2^53 (a bigint id) would silently lose digits as a
+        // number: it stays text, exactly as stored.
+        if (/^-?\d+$/.test(text.trim()) && !Number.isSafeInteger(n)) return text;
         return Number.isFinite(n) ? n : text;
     }
     return text;

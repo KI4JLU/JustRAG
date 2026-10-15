@@ -69,3 +69,11 @@ describe('row copy formats', () => {
         expect(rowToMarkdown(['nr', 'name'], [1, 'a|b'])).toBe('| nr | name |\n| --- | --- |\n| 1 | a\\|b |');
     });
 });
+
+// Codex review of the UI: integers past 2^53 must not lose digits.
+describe('parseCell with large integers', () => {
+    it('keeps an integer beyond the safe range as its exact text', () => {
+        expect(parseCell('9007199254740993', 'number')).toBe('9007199254740993');
+        expect(parseCell('9007199254740991', 'number')).toBe(9007199254740991);
+    });
+});

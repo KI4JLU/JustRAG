@@ -40,25 +40,24 @@ interface Loaded {
  * One sheet's rows for the preview, page by page as the table scrolls.
  * Search, sort and the empty-row filter are server-side (GET …/tabular/rows),
  * so a new query starts over at offset 0; `loadMore` appends the next page.
- * State is keyed by table + query, so a stale response for an earlier query
- * is dropped instead of mixed in.
+ *
+ * Every query run gets a GENERATION number, bumped whenever table, query or
+ * file change (also when the same query comes back later: A → B → A is a new
+ * run). A response, a failure or a pending flag only counts for the
+ * generation it was started in, so a late page of an earlier run can never
+ * be appended to, or overwrite, the current one.
  */
 export function useSheetRows(kbId: string, fileId: string, table: string, query: SheetQuery): SheetRowsState {
     const key = JSON.stringify([table, query.search, query.sort, query.showEmpty]);
-    const [loaded, setLoaded] = useState<Loaded | null>(null);
-    const [pending, setPending] = useState<{ key: string; offset: number } | null>(null);
-    const [failedKey, setFailedKey] = useState<string | null>(null);
-    // The query a response must still belong to; updated after render (and
-    // before the fetch effect below, which is declared after it).
-    const keyRef = useRef(key);
-    useEffect(() => { keyRef.current = key; }, [key]);
+    const genRef = useRef(0);
+    const [gen, setGen] = useState(0);
+    const [loaded, setLoaded] = useState<(Loaded & { gen: number }) | null>(null);
+    const [pending, setPending] = useState<{ gen: number; offset: number } | null>(null);
+    const [failedGen, setFailedGen] = useState<number | null>(null);
 
-    const current = loaded?.key === key ? loaded : null;
-
-    const fetchPage = useCallback((offset: number) => {
+    const fetchPage = useCallback((runGen: number, offset: number) => {
         if (!table) return;
-        const requestKey = key;
-        setPending({ key: requestKey, offset });
+        setPending({ gen: runGen, offset });
         axios.get<TabularRows>(rowsUrl(kbId, fileId), {
             params: {
                 table,
@@ -70,43 +69,50 @@ export function useSheetRows(kbId: string, fileId: string, table: string, query:
             },
         })
             .then(res => {
-                if (keyRef.current !== requestKey) return;
+                if (genRef.current !== runGen) return;
                 const page = res.data;
                 setLoaded(prev => {
-                    const base = prev?.key === requestKey && offset > 0 ? prev : null;
+                    const base = prev?.gen === runGen && offset > 0 ? prev : null;
+                    if (offset > 0 && base?.rows.length !== offset) return prev; // not the next page of this run
                     return {
-                        key: requestKey,
+                        gen: runGen,
+                        key,
                         rows: base ? [...base.rows, ...page.rows] : page.rows,
                         matched: page.matched,
                         emptyRows: page.empty_rows ?? base?.emptyRows,
                         emptyColumns: page.empty_columns ?? base?.emptyColumns,
                     };
                 });
-                setFailedKey(null);
+                setFailedGen(null);
             })
             .catch(() => {
-                if (keyRef.current === requestKey) setFailedKey(requestKey);
+                if (genRef.current === runGen) setFailedGen(runGen);
             })
             .finally(() => {
-                setPending(p => (p?.key === requestKey && p.offset === offset ? null : p));
+                setPending(p => (p?.gen === runGen && p.offset === offset ? null : p));
             });
         // `query` is captured through `key`, which covers every field used.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [kbId, fileId, table, key]);
 
+    // A new run per table/query/file: bump the generation, then fetch page 0.
     useEffect(() => {
-        fetchPage(0);
+        genRef.current += 1;
+        const runGen = genRef.current;
+        setGen(runGen);
+        fetchPage(runGen, 0);
     }, [fetchPage]);
 
+    const current = loaded?.gen === gen ? loaded : null;
     const rows = current?.rows ?? [];
     const matched = current?.matched ?? 0;
-    const loading = pending?.key === key;
+    const loading = pending?.gen === gen;
     const hasMore = !!current && rows.length < matched;
 
     const loadMore = useCallback(() => {
         if (!current || loading || current.rows.length >= current.matched) return;
-        fetchPage(current.rows.length);
-    }, [current, loading, fetchPage]);
+        fetchPage(gen, current.rows.length);
+    }, [current, loading, fetchPage, gen]);
 
     return {
         rows,
@@ -114,7 +120,7 @@ export function useSheetRows(kbId: string, fileId: string, table: string, query:
         emptyRows: current?.emptyRows,
         emptyColumns: current?.emptyColumns,
         loading,
-        error: failedKey === key,
+        error: failedGen === gen,
         hasMore,
         loadMore,
     };
@@ -150,8 +156,11 @@ const LOOKUP_LIMIT = 500;
 
 /** A code as the lookup map keys it: integers canonicalised ("5.0" → "5"). */
 export function lookupKey(v: string | number): string {
-    const n = Number(v);
-    return Number.isFinite(n) && String(v).trim() !== '' ? String(n) : String(v).trim();
+    const t = String(v).trim();
+    const n = Number(t);
+    // Integers past 2^53 lose digits as numbers: those stay text.
+    if (/^-?\d+$/.test(t) && !Number.isSafeInteger(n)) return t.replace(/^(-?)0+(?=\d)/, '$1');
+    return Number.isFinite(n) && t !== '' ? String(n) : t;
 }
 
 /**

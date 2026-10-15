@@ -100,7 +100,7 @@ export const SheetTabs: React.FC<SheetTabsProps> = ({ tabs, active, end, actions
                             {tab.hidden && <EyeOff className="size-3.5" aria-hidden="true" />}
                             {tab.label}
                             {tab.count !== undefined && (
-                                <span className="rounded-full bg-surface-dim px-1.5 text-[11px] tabular-nums text-on-surface-variant group-data-[state=active]:bg-surface-container-lowest group-data-[state=active]:text-on-primary-fixed">
+                                <span className="rounded-full bg-surface-dim px-1.5 text-[11px] tabular-nums text-on-surface-variant group-data-[state=active]:bg-surface-container-lowest group-data-[state=active]:text-on-surface">
                                     {tab.count}
                                 </span>
                             )}
