@@ -138,17 +138,20 @@ func BuildPreviewSQL(table string, cols []ColumnSpec, pq PreviewQuery) string {
 	for _, c := range cols {
 		exprs = append(exprs, q(c.Name)+"::text")
 	}
-	order := q(RowIDColumn)
+	// ORDER BY names the table alias: a bare name would resolve to the
+	// same-named OUTPUT column first, i.e. the ::text cast, and a numeric
+	// column would sort as text (2, 10 → "10", "2").
+	order := "t." + q(RowIDColumn)
 	if pq.SortColumn != "" {
 		dir := "ASC"
 		if pq.SortDesc {
 			dir = "DESC"
 		}
-		order = fmt.Sprintf("%s %s NULLS LAST, %s", q(pq.SortColumn), dir, q(RowIDColumn))
+		order = fmt.Sprintf("t.%s %s NULLS LAST, t.%s", q(pq.SortColumn), dir, q(RowIDColumn))
 	}
 	n := len(searchArgs(cols, pq))
 	limit, offset := fmt.Sprintf("$%d", n+1), fmt.Sprintf("$%d", n+2)
-	return fmt.Sprintf(`SELECT %s FROM %s.%s WHERE %s ORDER BY %s LIMIT %s OFFSET %s`,
+	return fmt.Sprintf(`SELECT %s FROM %s.%s AS t WHERE %s ORDER BY %s LIMIT %s OFFSET %s`,
 		strings.Join(exprs, ", "), q(TabularSchema), q(table), whereSQL(cols, pq), order, limit, offset)
 }
 

@@ -123,6 +123,31 @@ func TestPreviewRows(t *testing.T) {
 		}
 	})
 
+	t.Run("sorts a numeric column by value, not as text", func(t *testing.T) {
+		// Regression (Codex review of #10): ORDER BY "amount" resolved to the
+		// ::text output column, so 2 and 10 sorted as "10" < "2".
+		if _, err := pool.Exec(ctx, `CREATE TABLE tabular.preview_it_2_0 (_rowid bigint PRIMARY KEY, nr bigint, amount numeric)`); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { pool.Exec(ctx, `DROP TABLE IF EXISTS tabular.preview_it_2_0`) })
+		if _, err := pool.Exec(ctx, `INSERT INTO tabular.preview_it_2_0 VALUES (1, 1, 10), (2, 2, 2), (3, 3, -1), (4, 4, NULL)`); err != nil {
+			t.Fatal(err)
+		}
+		nums := CatalogEntry{TableName: "preview_it_2_0", Columns: []ColumnSpec{{Name: "nr", Type: TypeBigint}, {Name: "amount", Type: TypeNumeric}}}
+		for _, c := range []struct {
+			desc bool
+			want []int64
+		}{{false, []int64{3, 2, 1, 4}}, {true, []int64{1, 2, 3, 4}}} {
+			p, err := cat.PreviewRows(ctx, nums, PreviewQuery{SortColumn: "amount", SortDesc: c.desc, ShowEmpty: true, Limit: 10})
+			if err != nil {
+				t.Fatalf("PreviewRows: %v", err)
+			}
+			if got := ids(p); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("desc=%v -> %v, want %v (-1, 2, 10, NULL by value)", c.desc, got, c.want)
+			}
+		}
+	})
+
 	t.Run("pages with limit and offset", func(t *testing.T) {
 		p := read(t, PreviewQuery{ShowEmpty: true, Offset: 1, Limit: 2})
 		if got := ids(p); !reflect.DeepEqual(got, []int64{2, 3}) || p.Matched != 4 {

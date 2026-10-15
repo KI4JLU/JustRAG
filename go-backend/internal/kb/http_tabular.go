@@ -109,7 +109,8 @@ type TabularRowDTO struct {
 // TabularRowsDTO is one page of a materialized spreadsheet table for the
 // source preview. matched counts the rows passing search and the empty-row
 // filter; empty_rows and empty_columns are whole-table stats, sent with the
-// first page (offset 0) only.
+// first page (offset 0) only — and then always, empty_columns as [] when
+// there are none (a pointer, so omitempty only drops it when not computed).
 type TabularRowsDTO struct {
 	TableName    string          `json:"table_name"`
 	SheetName    string          `json:"sheet_name"`
@@ -118,7 +119,7 @@ type TabularRowsDTO struct {
 	RowCount     int64           `json:"row_count"`
 	Matched      int64           `json:"matched"`
 	EmptyRows    *int64          `json:"empty_rows,omitempty"`
-	EmptyColumns []string        `json:"empty_columns,omitempty"`
+	EmptyColumns *[]string       `json:"empty_columns,omitempty"`
 	Offset       int             `json:"offset"`
 	Limit        int             `json:"limit"`
 }
@@ -225,6 +226,14 @@ func (h *Handler) GetFileTabularRows(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to read table")
 		return
 	}
+	var emptyCols *[]string
+	if page.EmptyRows != nil {
+		cols := page.EmptyColumns
+		if cols == nil {
+			cols = []string{}
+		}
+		emptyCols = &cols
+	}
 	rows := make([]TabularRowDTO, len(page.Rows))
 	for i, row := range page.Rows {
 		rows[i] = TabularRowDTO{ID: row.ID, Empty: row.Empty, Cells: row.Cells}
@@ -237,7 +246,7 @@ func (h *Handler) GetFileTabularRows(w http.ResponseWriter, r *http.Request) {
 		RowCount:     entry.RowCount,
 		Matched:      page.Matched,
 		EmptyRows:    page.EmptyRows,
-		EmptyColumns: page.EmptyColumns,
+		EmptyColumns: emptyCols,
 		Offset:       pq.Offset,
 		Limit:        pq.Limit,
 	})

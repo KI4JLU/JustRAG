@@ -167,6 +167,11 @@ func TestGetFileTabularRows_OK(t *testing.T) {
 	if got.SheetName != "Daten" || got.RowCount != 6 || got.Matched != 2 || got.EmptyRows == nil || *got.EmptyRows != 3 {
 		t.Errorf("unexpected body %+v", got)
 	}
+	// Stats computed with no empty column: the field is present as [], not
+	// dropped (Codex review of #10).
+	if got.EmptyColumns == nil || len(*got.EmptyColumns) != 0 {
+		t.Errorf("empty_columns = %v, want present and empty", got.EmptyColumns)
+	}
 	if len(got.Rows) != 2 || got.Rows[0].ID != 7 || *got.Rows[0].Cells[0] != "a" || !got.Rows[1].Empty || got.Rows[1].Cells[0] != nil {
 		t.Errorf("unexpected rows %+v", got.Rows)
 	}

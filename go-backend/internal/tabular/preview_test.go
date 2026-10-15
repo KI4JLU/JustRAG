@@ -17,7 +17,7 @@ const previewEmpty = `(("name" IS NULL OR btrim("name") IN ('', '0')) AND ("bauj
 func TestBuildPreviewSQL_Default(t *testing.T) {
 	got := BuildPreviewSQL("sheet_ab_0_0", previewCols, PreviewQuery{})
 	want := `SELECT "_rowid", ` + previewEmpty + `, "nr"::text, "name"::text, "baujahr_num"::text, "seit"::text` +
-		` FROM "tabular"."sheet_ab_0_0" WHERE NOT ` + previewEmpty + ` ORDER BY "_rowid" LIMIT $1 OFFSET $2`
+		` FROM "tabular"."sheet_ab_0_0" AS t WHERE NOT ` + previewEmpty + ` ORDER BY t."_rowid" LIMIT $1 OFFSET $2`
 	if got != want {
 		t.Errorf("default:\n got %s\nwant %s", got, want)
 	}
@@ -30,8 +30,8 @@ func TestBuildPreviewSQL_SearchSortShowEmpty(t *testing.T) {
 	search := `("nr"::text ILIKE $1 ESCAPE '\' OR "nr"::text ILIKE $2 ESCAPE '\' OR "name"::text ILIKE $1 ESCAPE '\'` +
 		` OR "baujahr_num"::text ILIKE $1 ESCAPE '\' OR "baujahr_num"::text ILIKE $2 ESCAPE '\' OR "seit"::text ILIKE $1 ESCAPE '\')`
 	want := `SELECT "_rowid", ` + previewEmpty + `, "nr"::text, "name"::text, "baujahr_num"::text, "seit"::text` +
-		` FROM "tabular"."sheet_ab_0_0" WHERE ` + search +
-		` ORDER BY "baujahr_num" DESC NULLS LAST, "_rowid" LIMIT $3 OFFSET $4`
+		` FROM "tabular"."sheet_ab_0_0" AS t WHERE ` + search +
+		` ORDER BY t."baujahr_num" DESC NULLS LAST, t."_rowid" LIMIT $3 OFFSET $4`
 	if got != want {
 		t.Errorf("search/sort/showEmpty:\n got %s\nwant %s", got, want)
 	}
@@ -65,8 +65,8 @@ func TestBuildPreviewSQL_SearchTextOnly(t *testing.T) {
 		t.Fatalf("text-only search must bind one pattern, got %v", args)
 	}
 	empty := `(("b" IS NULL OR btrim("b") IN ('', '0')))`
-	want := `SELECT "_rowid", ` + empty + `, "a"::text, "b"::text FROM "tabular"."t" WHERE NOT ` + empty +
-		` AND ("a"::text ILIKE $1 ESCAPE '\' OR "b"::text ILIKE $1 ESCAPE '\') ORDER BY "_rowid" LIMIT $2 OFFSET $3`
+	want := `SELECT "_rowid", ` + empty + `, "a"::text, "b"::text FROM "tabular"."t" AS t WHERE NOT ` + empty +
+		` AND ("a"::text ILIKE $1 ESCAPE '\' OR "b"::text ILIKE $1 ESCAPE '\') ORDER BY t."_rowid" LIMIT $2 OFFSET $3`
 	if got := BuildPreviewSQL("t", cols, pq); got != want {
 		t.Errorf("text-only search:\n got %s\nwant %s", got, want)
 	}
