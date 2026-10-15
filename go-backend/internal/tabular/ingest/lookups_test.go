@@ -33,6 +33,19 @@ func TestParseLookupFormula(t *testing.T) {
 		{"plain cross-sheet copy is not a lookup", `'Erhebung Zustand Bausubstanz'!B4`, lookupCall{}, false},
 		{"hard-coded IF chain is not a lookup", `IF('Erhebung Nutzungsart'!$C5=1,"gering","hoch")`, lookupCall{}, false},
 		{"column index past the range", `VLOOKUP(A1,Codes!A1:B5,3,FALSE)`, lookupCall{}, false},
+		// Codex review of #11 — only exact, row-aligned, column-precise lookups
+		// with a plain cell key are links:
+		{"approximate vlookup (TRUE)", `VLOOKUP(A2,Codes!A:B,2,TRUE)`, lookupCall{}, false},
+		{"vlookup without range_lookup is approximate", `VLOOKUP(A2,Codes!A:B,2)`, lookupCall{}, false},
+		{"approximate match", `INDEX(Codes!B2:B9,MATCH(A2,Codes!A2:A9,1))`, lookupCall{}, false},
+		{"index honours its column argument", `INDEX(Codes!B2:D9,MATCH(A2,Codes!A2:A9,0),3)`,
+			lookupCall{KeyArgCol: 0, Sheet: "Codes", KeyCol: 0, LabelCol: 3, FromRow: 1, ToRow: 8}, true},
+		{"multi-column index without a column", `INDEX(Codes!B2:D9,MATCH(A2,Codes!A2:A9,0))`, lookupCall{}, false},
+		{"offset match is no key read", `INDEX(Codes!B2:B9,MATCH(A2,Codes!A2:A9,0)+1)`, lookupCall{}, false},
+		{"misaligned xlookup ranges", `XLOOKUP(A2,Codes!A2:A9,Codes!B3:B10)`, lookupCall{}, false},
+		{"approximate xlookup match_mode", `XLOOKUP(A2,Codes!A2:A9,Codes!B2:B9,"",-1)`, lookupCall{}, false},
+		{"key is an expression", `VLOOKUP(TRIM(A2),Codes!A:B,2,FALSE)`, lookupCall{}, false},
+		{"function name inside a string literal", `IF(A1="VLOOKUP(A2,Codes!A:B,2,0)","x","y")`, lookupCall{}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -104,7 +117,7 @@ func fixture() ([]*linkTable, map[string][]string) {
 		"t_arten.index":        {"1", "2", "3", "4", "5"},
 		"t_arten.nutzungsart":  {"gering", "leicht", "erhöht", "hoch", "sehr hoch"},
 		"t_noten.prozent":      nil, // 101 rows: never read as a key set by these tests' expectations
-		"t_survey.nutzungsart": {"5", "2", "1", "4", "0"},
+		"t_survey.nutzungsart": {"5", "2", "1", "4", ""},
 		"t_survey.baujahr":     {"1968", "2004"},
 		"t_listen.status":      {"offen", "erledigt", "geprüft"},
 		"t_survey.nr":          {"1", "2", "3"},
@@ -132,7 +145,7 @@ func TestDetectLookups(t *testing.T) {
 			"note": {Table: "t_noten", Key: "prozent", Label: "ganze_note", Via: "prozent", Source: tabular.LookupSourceFormula},
 			// Dropdown listing Listen!A2:A4.
 			"status": {Table: "t_listen", Key: "status", Label: "status", Source: tabular.LookupSourceValidation},
-			// Name matches the sheet "Nutzungsarten"; 5, 2, 1, 4 are keys, 0 is a blank template cell.
+			// Name matches the sheet "Nutzungsarten"; 5, 2, 1, 4 are keys, "" carries no code.
 			"nutzungsart": {Table: "t_arten", Key: "index", Label: "nutzungsart", Source: tabular.LookupSourceHeuristic},
 		},
 	}
@@ -145,6 +158,14 @@ func TestHeuristicLinks_Negative(t *testing.T) {
 	t.Run("a value outside the key column blocks the link", func(t *testing.T) {
 		tables, vals := fixture()
 		vals["t_survey.nutzungsart"] = []string{"5", "7"}
+		if ref, ok := detectLookups(context.Background(), tables, fakeValues(vals))["t_survey"]["nutzungsart"]; ok {
+			t.Errorf("unexpected link %+v", ref)
+		}
+	})
+	t.Run("a zero that is no key blocks the link like any other value", func(t *testing.T) {
+		// Codex review of #11: 0 used to be skipped as a template blank.
+		tables, vals := fixture()
+		vals["t_survey.nutzungsart"] = []string{"5", "2", "0"}
 		if ref, ok := detectLookups(context.Background(), tables, fakeValues(vals))["t_survey"]["nutzungsart"]; ok {
 			t.Errorf("unexpected link %+v", ref)
 		}
@@ -191,5 +212,25 @@ func TestFirstLookupFormulas(t *testing.T) {
 	got := firstLookupFormulas(sample, rp)
 	if want := map[int]string{0: `VLOOKUP(A3,X!A1:B2,2,0)`}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// Codex review of #11: a whole-column reference over two stacked tables, or
+// a row range no table covers, is ambiguous or unmapped — no link.
+func TestResolveTarget_Unambiguous(t *testing.T) {
+	mk := func(name string, top, bottom int) *linkTable {
+		return &linkTable{Sheet: "Codes", TableName: name, Region: profile.Region{Top: top, Bottom: bottom}, DataStart: top + 1,
+			SourceCols: map[string]int{"key": 0, "label": 1}}
+	}
+	upper, lower := mk("t_upper", 0, 9), mk("t_lower", 20, 29)
+	tables := []*linkTable{upper, lower}
+	if _, _, _, ok := resolveTarget(tables, "Codes", 0, 1, -1, -1); ok {
+		t.Error("whole-column reference over two tables must be ambiguous")
+	}
+	if got, _, _, ok := resolveTarget(tables, "Codes", 0, 1, 21, 28); !ok || got.TableName != "t_lower" {
+		t.Errorf("rows 22-29 must resolve to t_lower, got %v %v", got, ok)
+	}
+	if _, _, _, ok := resolveTarget(tables, "Codes", 0, 1, 40, 49); ok {
+		t.Error("rows no table covers must not resolve")
 	}
 }
