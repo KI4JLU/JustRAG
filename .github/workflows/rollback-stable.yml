@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Release to point :stable at, e.g. v0.11.2"
+        description: "Release to point :stable at, e.g. v26.11.0 (0.x releases such as v0.11.2 work too)"
         required: true
         type: string
       accept_newer_schema:
@@ -48,7 +48,7 @@ jobs:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
           if [[ ! "$RELEASE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::release must look like v0.11.2, got '$RELEASE'"
+            echo "::error::release must look like v26.11.0 or v0.11.2, got '$RELEASE'"
             exit 1
           fi
           {

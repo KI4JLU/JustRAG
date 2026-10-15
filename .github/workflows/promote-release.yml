@@ -5,9 +5,10 @@ name: Promote Release Candidate
 # run the release's migrations (with the RC image) BEFORE promoting, then
 # `kubectl rollout restart` — see docs/runbooks/release.md.
 #
-# What it does: the RC image's digest gets the tags `:vX.Y.Z`, `:vX.Y` and
+# What it does: the RC image's digest gets the tags `:vYY.M.N`, `:vYY.M` and
 # (only if this is the highest release) `:stable`, and the annotated git tag
-# `vX.Y.Z` is created on the RC's commit. Prod therefore runs exactly the
+# `vYY.M.N` is created on the RC's commit. Only an RC cut on `main` can be
+# promoted (cut-release.yml), so `:stable` stays reserved for main. Prod therefore runs exactly the
 # image staging tested. docker-image.yml builds only `main` and `v*-rc.*`
 # tags, so the git tag pushed here builds nothing (and a tag pushed with
 # GITHUB_TOKEN would not trigger another workflow anyway).
@@ -20,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       rc_tag:
-        description: "Release candidate to promote, e.g. v0.12.0-rc.2"
+        description: "Release candidate to promote, e.g. v26.11.0-rc.2"
         required: true
         type: string
 
@@ -46,8 +47,9 @@ jobs:
           RC_TAG: ${{ inputs.rc_tag }}
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
-          if [[ ! "$RC_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-rc\.[0-9]+$ ]]; then
-            echo "::error::rc_tag must look like v0.12.0-rc.1, got '$RC_TAG'"
+          # CalVer vYY.M.N-rc.K, month without a leading zero (release.md).
+          if [[ ! "$RC_TAG" =~ ^v([0-9]{2})\.([1-9]|1[0-2])\.([0-9]+)-rc\.[0-9]+$ ]]; then
+            echo "::error::rc_tag must look like v26.11.0-rc.1, got '$RC_TAG'"
             exit 1
           fi
           {
@@ -79,6 +81,11 @@ jobs:
           git rev-parse -q --verify "refs/tags/$RC" >/dev/null || fail "tag $RC does not exist"
           commit=$(git rev-parse "$RC^{commit}")
 
+          # `:stable` is reserved for main: a candidate tagged on development
+          # or a feature branch by hand is refused.
+          git merge-base --is-ancestor "$commit" origin/main \
+            || fail "$RC ($commit) is not on main — cut release candidates with the Cut Release Candidate workflow"
+
           git show "$commit:CHANGELOG.md" | grep "^## $RELEASE " >/dev/null \
             || fail "CHANGELOG.md at $RC has no '## $RELEASE' section — cut the release-prep commit first"
           git show "$commit:package.json" | grep "\"version\": \"${RELEASE#v}\"" >/dev/null \
@@ -93,8 +100,8 @@ jobs:
           fi
 
           # `:stable` is the default of every unpinned compose deployment, so
-          # it only moves forward: a hotfix on an older line (v0.11.3 while
-          # v0.12.0 is out) gets its own tags but leaves `:stable` alone.
+          # it only moves forward: should an older release ever be promoted
+          # after a newer one, it gets its own tags but leaves `:stable` alone.
           highest=$( { git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; echo "$RELEASE"; } | sort -V | tail -1)
           if [[ "$highest" == "$RELEASE" ]]; then
             echo "move_stable=true" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,96 @@
+name: Deploy to Staging
+
+# Points the floating `:staging` image tag at an image that already exists.
+# Nothing is built. The staging server follows `:staging` on its own
+# (deploy/staging/: a systemd timer runs `docker compose pull && up -d`), so
+# running this workflow IS the staging deploy — a few minutes later
+# `GET /version` on staging reports the chosen build.
+#
+# `:staging` is never `:stable` and never a release (`vX.Y.Z`): staging tests
+# candidates, prod runs releases. Allowed targets:
+#   development        tip of the development branch
+#   edge               tip of main
+#   vYY.M.N-rc.N       a release candidate (what a release is tested on)
+#   <7–40 hex chars>   one specific main/development build (`:<sha>`)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image tag to deploy: development, edge, vYY.M.N-rc.N or a commit SHA"
+        required: true
+        default: development
+        type: string
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # move the :staging tag
+
+    steps:
+      - name: Check the target
+        id: v
+        env:
+          TARGET: ${{ inputs.image }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          if [[ ! "$TARGET" =~ ^(development|edge|v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+|[0-9a-f]{7,40})$ ]]; then
+            echo "::error::image must be development, edge, vYY.M.N-rc.N or a commit SHA, got '$TARGET'"
+            exit 1
+          fi
+          tag="$TARGET"
+          # CI tags main/development builds with the 7-char short SHA.
+          [[ "$TARGET" =~ ^[0-9a-f]{8,40}$ ]] && tag="${TARGET:0:7}"
+          {
+            echo "tag=$tag"
+            echo "image=${IMAGE,,}" # GHCR image names are lowercase
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Point :staging at the image
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          digest_of() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' 2>/dev/null | jq -r .digest
+          }
+
+          # Resolve the floating source tag to a digest ONCE and tag that, so
+          # a build finishing mid-run cannot change what staging gets.
+          target=$(digest_of "$IMAGE:$TAG") || true
+          [[ "$target" == sha256:* ]] || fail "image $IMAGE:$TAG not found — did its build succeed?"
+          before=$(digest_of "$IMAGE:staging") || true
+
+          docker buildx imagetools create -t "$IMAGE:staging" "$IMAGE@$target"
+
+          got=$(digest_of "$IMAGE:staging")
+          [[ "$got" == "$target" ]] || fail "$IMAGE:staging resolves to $got, expected $target"
+
+          {
+            echo "### :staging → $TAG"
+            echo ""
+            echo "Was \`${before:-none}\`, now \`$target\`."
+            echo "The staging server picks it up on its next pull (systemd timer, a few minutes)."
+          } >> "$GITHUB_STEP_SUMMARY"
