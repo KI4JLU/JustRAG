@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { TabularDetailModal } from './TabularDetailModal';
 import { API_BASE_URL } from '../api';
@@ -13,6 +14,9 @@ vi.mock('axios');
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (k: string) => k, language: 'de' }),
 }));
+
+const toastError = vi.fn();
+vi.mock('../contexts/ToastContext', () => ({ useToast: () => ({ error: toastError }) }));
 
 const fixture: TabularFileDetail = {
   report: {
@@ -83,8 +87,8 @@ describe('TabularDetailModal', () => {
 
     expect(await screen.findByText('Gebäude')).toBeInTheDocument();
     expect(screen.getByText('tabularHidden')).toBeInTheDocument();
-    // rows_read formatted with de-DE grouping.
-    expect(screen.getByText(/tabularRowsRead:\s*120\.000/)).toBeInTheDocument();
+    // rows_read formatted with de-DE grouping, as the value of its term.
+    expect(screen.getByText('tabularRowsRead').nextElementSibling).toHaveTextContent('120.000');
 
     // The "baujahr" row's Shadow cell carries its shadow column's name.
     const baujahrRow = screen.getByText('Baujahr').closest('tr');
@@ -113,6 +117,29 @@ describe('TabularDetailModal', () => {
     await waitFor(() => {
       expect(getSpy).toHaveBeenCalledWith(`${API_BASE_URL}/api/kb/kb1/files/f1/tabular`);
     });
+  });
+
+  it('titles the dialog with the file name, like the other source previews', async () => {
+    vi.spyOn(axios, 'get').mockResolvedValue({ data: fixture });
+    render(<TabularDetailModal {...baseProps} />);
+
+    expect(await screen.findByRole('dialog', { name: 'gebaeude.xlsx' })).toBeInTheDocument();
+    expect(screen.getByText('tabularSheetCountOne')).toBeInTheDocument();
+  });
+
+  it('downloads the original file through the authenticated client', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockImplementation((url: string) =>
+      Promise.resolve({ data: url.endsWith('/download') ? new Blob(['x']) : fixture }));
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(<TabularDetailModal {...baseProps} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'download gebaeude.xlsx' }));
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(getSpy).toHaveBeenCalledWith(`${API_BASE_URL}/api/files/f1/download`, { responseType: 'blob' });
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x');
+    click.mockRestore();
   });
 
   it('renders nothing when show is false', () => {

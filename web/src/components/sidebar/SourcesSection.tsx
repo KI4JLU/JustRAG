@@ -1,7 +1,7 @@
 import React, { createElement, memo } from 'react';
 import {
     Download, Trash2,
-    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, Table as TableIcon, ShieldAlert
+    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, ShieldAlert
 } from 'lucide-react';
 import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
@@ -32,7 +32,6 @@ interface SourcesSectionProps {
     onDeleteGitRepoSource: (sourceId: string) => void;
     onSyncGitRepoNow: (sourceId: string) => void;
     onRetryFile: (id: string) => void;
-    onOpenTabular: (file: FileEntry) => void;
 }
 
 // Maps files.error_stage values (backend vocabulary, see
@@ -51,19 +50,13 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // Extensions the spreadsheet parser handles (parser.SpreadsheetParser),
 // deliberately excluding .xlsm (macro-enabled workbooks, out of scope) — the
 // "Tabellen" file-detail button only makes sense for these.
-const SPREADSHEET_EXTENSIONS = ['.xlsx', '.xls', '.ods', '.csv', '.tsv'];
-const isSpreadsheetFile = (name: string): boolean => {
-    const lower = name.toLowerCase();
-    return SPREADSHEET_EXTENSIONS.some(ext => lower.endsWith(ext));
-};
-
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     files, onPreviewSource, onToggleFilesSelection,
     onDownloadFile, onDeleteFile,
     rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
-    onRetryFile, onOpenTabular
+    onRetryFile
 }) => {
     const { t } = useTheme();
 
@@ -135,17 +128,6 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         aria-label={`${t('retrySource')} ${file.name}`}
                                     >
                                         <RefreshCw size={16} aria-hidden="true" />
-                                    </Button>
-                                )}
-                                {file.status === 'completed' && isSpreadsheetFile(file.name) && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => { e.stopPropagation(); onOpenTabular(file); }}
-                                        title={t('tabularPanelOpen')}
-                                        aria-label={`${t('tabularPanelOpen')} ${file.name}`}
-                                    >
-                                        <TableIcon size={16} aria-hidden="true" />
                                     </Button>
                                 )}
                             </>}
