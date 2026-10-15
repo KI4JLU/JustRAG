@@ -17,6 +17,10 @@
     {
       "name": "OpenAI Compatible",
       "description": "OpenAI-compatible endpoints for using knowledge bases as models in external tools"
+    },
+    {
+      "name": "Open WebUI Compatible (ILIAS)",
+      "description": "Subset of Open WebUI's API for the ILIAS LfAssistant plugin's \"Open WebUI RAG\" mode; the plugin is the only intended client. Off unless the global site_config flag `owui_compat_enabled` is on (every route answers `404 {\"detail\"}` for an authenticated key while it is off). Rate limits count per API key: 600/min for chat, 300/min for every other route. Uploads are only stored; indexing starts when a file is added to a collection. Several error cases answer 2xx on purpose because the plugin throws on any status >= 400. Full contract: docs/api-contracts/owui-compat.md."
     }
   ],
   "security": [
@@ -410,6 +414,922 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OpenAIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/chat/completions": {
+      "post": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "RAG chat over a collection",
+        "description": "OpenAI-style chat request; `files: [{\"type\":\"collection\",\"id\":<kbId>}]` selects the collection. Streams SSE: the first frame is Open WebUI's `{\"sources\":[{\"source\",\"document\":[\u2026],\"metadata\":[{\"file_id\",\u2026}]}]}` (file_id = upload id, numbered like the answer's `[n]` markers), then OpenAI chunks and `[DONE]`. Honours `temperature` (streaming) and the reasoning knobs; `model`, `max_tokens` and `top_p` are ignored. A mid-stream error is a raw `{\"detail\"}` line.",
+        "operationId": "owuiChatCompletions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ChatCompletionRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "files": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "collection"
+                              ]
+                            },
+                            "id": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answer (SSE when `stream` is true, else a chat.completion object)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/models": {
+      "get": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "List models",
+        "description": "Always the one model `justrag`.",
+        "operationId": "owuiListModels",
+        "responses": {
+          "200": {
+            "description": "Model list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Model"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/files": {
+      "post": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Upload a file",
+        "description": "Stores the file in the API key user's file library. **No indexing** happens here; it starts on `knowledge/{id}/file/add`. Reported `completed` at once. A file type JustRAG cannot ingest is recorded (200) but never indexed. Also served with a trailing slash (`/owui/api/v1/files/`), which is what the plugin calls.",
+        "operationId": "owuiUploadFile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "metadata": {
+                    "type": "string",
+                    "description": "JSON object string, at most 16 KiB; malformed metadata is dropped"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIFile"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large or library quota exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "List uploads",
+        "description": "All uploads of the API key's user. Also served with a trailing slash.",
+        "operationId": "owuiListFiles",
+        "responses": {
+          "200": {
+            "description": "Uploads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OWUIFile"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/files/{id}": {
+      "get": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Upload status",
+        "description": "Unknown id answers 200 with `data.status: \"failed\"` (a 404 would wedge the plugin).",
+        "operationId": "owuiFileStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIFile"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Delete an upload",
+        "description": "Drops the upload id and the KB copies only it reaches; the library file (and every KB copy) goes with the last upload id sharing its bytes. Unknown id: 200 with `deleted: false`. If the cleanup fails the answer is 500 and the id is kept, so the plugin retries.",
+        "operationId": "owuiDeleteFile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDeleted"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/files/{id}/data/content": {
+      "get": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Upload content",
+        "description": "Always `{\"id\", \"content\": \"\"}`; no flat text is kept per library file.",
+        "operationId": "owuiFileContent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Empty content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/knowledge/create": {
+      "post": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Create a collection",
+        "description": "Creates a private KB owned by the API key's user.",
+        "operationId": "owuiCreateKnowledge",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Default `ILIAS`, at most 255 runes"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "At most 2000 runes"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIKnowledge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/knowledge/{id}/file/add": {
+      "post": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Add an upload to a collection",
+        "description": "Starts indexing the upload in the collection's KB (parse, chunk, embed, knowledge graph \u2014 or an index copy when another collection already indexed the same file). A soft failure (unknown upload, KB full, file gone) answers 200 **without `id`**, so the plugin retries in its next run.",
+        "operationId": "owuiAddToKnowledge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file_id": {
+                    "type": "string",
+                    "description": "Upload id"
+                  }
+                },
+                "required": [
+                  "file_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Added, or a soft failure (`{\"detail\"}` without `id`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/OWUIKnowledge"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OWUIDetail"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/knowledge/{id}/file/remove": {
+      "post": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Remove an upload from a collection",
+        "description": "Removes the file's KB copy and index (unless another upload id in the collection still maps to it); the library file stays. If the cleanup fails the answer is 500 and the link is kept.",
+        "operationId": "owuiRemoveFromKnowledge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file_id": {
+                    "type": "string",
+                    "description": "Upload id"
+                  }
+                },
+                "required": [
+                  "file_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIKnowledge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/owui/api/v1/knowledge/{id}/delete": {
+      "delete": {
+        "tags": [
+          "Open WebUI Compatible (ILIAS)"
+        ],
+        "summary": "Delete a collection",
+        "description": "Deletes the collection's KB.",
+        "operationId": "owuiDeleteKnowledge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDeleted"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key (flat `{\"error\"}` body)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Surface disabled (`owui_compat_enabled` off), or collection unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OWUIDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -1034,6 +1954,96 @@
           },
           "context": {
             "$ref": "#/components/schemas/MessageContext"
+          }
+        }
+      },
+      "OWUIDetail": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "German message, safe to show students"
+          }
+        }
+      },
+      "OWUIFile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Upload id (fresh per upload, not the library file id)"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data": {
+                "type": "object",
+                "description": "The upload's `metadata` form field, echoed"
+              }
+            }
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "completed",
+                  "failed"
+                ],
+                "description": "`completed` once stored; `failed` only for an unknown id"
+              }
+            }
+          },
+          "created_at": {
+            "type": "integer",
+            "description": "Unix seconds"
+          }
+        }
+      },
+      "OWUIKnowledge": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "KB id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "OWUIDeleted": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
           }
         }
       }

@@ -45,6 +45,7 @@ Admin, eval, observability:
 Public surfaces and config:
 
 - `internal/publicapi/`, `internal/publicconfigs/`, `internal/openaicompat/`: public API at `/api/v1/*` and OpenAI-compatible surface at `/openai/v1/*`
+- `internal/owuicompat/`: Open WebUI-compatible surface at `/owui/*` for the ILIAS LfAssistant plugin (gated by `owui_compat_enabled`)
 - `internal/config/`, `internal/siteconfig/`: env parsing and dynamic site config
 
 ## Local Development

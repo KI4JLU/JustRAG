@@ -37,6 +37,7 @@ The server exposes:
 - `/api/*`
 - `/api/v1/*`
 - `/openai/v1/*`
+- `/owui/*` (Open WebUI-compatible surface for the ILIAS LfAssistant plugin; 404 unless `owui_compat_enabled`)
 
 In production it also serves the built frontend from `/app/client/dist`.
 
@@ -86,6 +87,7 @@ Most Go features follow a package-per-domain layout under `go-backend/internal/`
 - `eval`
 - `publicapi`
 - `openaicompat`
+- `owuicompat`
 
 Handlers usually live in `http.go` or `handler.go`, persistence in `store_pg.go`, and package-specific logic alongside them.
 
