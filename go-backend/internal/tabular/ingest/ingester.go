@@ -29,6 +29,9 @@ import (
 type RegionMaterializer interface {
 	MaterializeRegion(ctx context.Context, in tabular.RegionInput) (*tabular.RegionResult, error)
 	DropTablesForFile(ctx context.Context, fileID string) error
+	// UpdateColumns and DistinctValues serve the lookup pass (lookups.go).
+	UpdateColumns(ctx context.Context, table string, cols []tabular.ColumnSpec) error
+	DistinctValues(ctx context.Context, table, column string, limit int) ([]string, bool, error)
 }
 
 // Options configures one file's ingest pass. Field comments name the
@@ -71,6 +74,8 @@ type Result struct {
 	Text   string
 	Report tabular.ParseReport
 	Tables []string // materialised table names
+
+	links []*linkTable // what the lookup pass needs about each table
 }
 
 // Ingester runs one file's ingest pass. A nil mat means render-only (no
@@ -171,6 +176,11 @@ func (g *Ingester) Ingest(ctx context.Context, in Input) (*Result, error) {
 		return nil, fmt.Errorf("ingest: every sheet in %q failed", in.FileName)
 	}
 
+	if materialise && len(res.links) > 1 {
+		progress("Verknüpfungen")
+		g.linkLookups(ctx, res.links)
+	}
+
 	texts := make([]string, len(pages))
 	for i, p := range pages {
 		texts[i] = p.Text
@@ -256,6 +266,11 @@ func (g *Ingester) ingestSheet(ctx context.Context, src sheetsource.Source, info
 				}
 				cardStats[key] = cardStatsFromResult(rr, *rp)
 				rowCounts[key] = int(rr.RowsMaterialised)
+				res.links = append(res.links, &linkTable{
+					Sheet: info.Name, Region: rp.Region, DataStart: rp.DataStart, TableName: rr.TableName,
+					Columns: rr.Columns, SourceCols: rr.SourceColumns, Formulas: firstLookupFormulas(sample, *rp),
+					Validations: sample.Extras.Validations, RowCount: rr.RowsMaterialised,
+				})
 			}
 		}
 		// R13/round-1 fix: no ingest-side fallback here. render/kv.go's

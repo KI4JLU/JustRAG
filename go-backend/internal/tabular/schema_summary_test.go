@@ -147,3 +147,19 @@ func TestRenderColumnLine_LabelIsNotQuotedAsIdentifier(t *testing.T) {
 		t.Errorf("label missing or in the wrong form:\n%s", s.Text)
 	}
 }
+
+// Oracle: the hint text written out by hand for each link shape — the table
+// in its executable two-identifier form, a heuristic link flagged.
+func TestLookupHint(t *testing.T) {
+	code := ColumnSpec{Name: "nutzungsart", Lookup: &LookupRef{Table: "t_arten", Key: "index", Label: "nutzungsart", Source: LookupSourceHeuristic}}
+	if got, want := lookupHint(code), `code; name via JOIN "tabular"."t_arten" ON index = this column, name in nutzungsart (inferred, verify)`; got != want {
+		t.Errorf("code link:\n got %s\nwant %s", got, want)
+	}
+	derived := ColumnSpec{Name: "note", Lookup: &LookupRef{Table: "t_noten", Key: "prozent", Label: "ganze_note", Via: "prozent", Source: LookupSourceFormula}}
+	if got, want := lookupHint(derived), `looked up from "tabular"."t_noten": ganze_note where prozent = prozent`; got != want {
+		t.Errorf("derived link:\n got %s\nwant %s", got, want)
+	}
+	if got := lookupHint(ColumnSpec{Name: "x"}); got != "" {
+		t.Errorf("no link must render nothing, got %q", got)
+	}
+}

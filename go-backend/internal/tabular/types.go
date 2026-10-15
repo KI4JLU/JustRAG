@@ -38,6 +38,34 @@ type ColumnSpec struct {
 	Role        string     `json:"role,omitempty"`
 	Description string     `json:"description,omitempty"`
 	ShadowOf    string     `json:"shadow_of,omitempty"`
+	// Lookup links the column to a lookup table of the same file (set by the
+	// ingest's lookup pass, nil otherwise). Omitted from older catalog JSON.
+	Lookup *LookupRef `json:"lookup,omitempty"`
+}
+
+// Lookup link sources: how the ingest found a link.
+const (
+	LookupSourceFormula    = "formula"    // VLOOKUP / XLOOKUP / INDEX(MATCH) into another sheet
+	LookupSourceValidation = "validation" // a dropdown (list validation) whose list is another sheet's range
+	LookupSourceHeuristic  = "heuristic"  // a code column matched by name and values; may be wrong
+)
+
+// LookupRef ties a column to a lookup table of the same file: the value in
+// Table's Key column that corresponds to a row, and the Label column that
+// names it. Two shapes:
+//
+//   - Via == "": the column itself holds keys (codes) — its value v reads as
+//     Label where Key = v (a heuristic code column, or a dropdown).
+//   - Via != "": the column holds an already looked-up value; Via is the
+//     column of the same table whose value was the key (a VLOOKUP result).
+//
+// Table, Key, Label and Via are SQL names.
+type LookupRef struct {
+	Table  string `json:"table"`
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Via    string `json:"via,omitempty"`
+	Source string `json:"source"`
 }
 
 // ColumnStat is the per-column entry of tabular_catalog.column_stats: the

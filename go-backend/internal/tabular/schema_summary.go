@@ -140,6 +140,9 @@ func renderColumnLine(col ColumnSpec, stat *ColumnStat) string {
 			parts = append(parts, "numeric shadow: "+stat.ShadowColumn)
 		}
 	}
+	if hint := lookupHint(col); hint != "" {
+		parts = append(parts, hint)
+	}
 
 	if len(parts) > 0 {
 		head.WriteString(": ")
@@ -321,4 +324,23 @@ func CompactSchema(entries []CatalogEntry, hits []ValueHit, query string, maxTok
 		Pruned:        true,
 		AllowedTables: allowed,
 	}
+}
+
+// lookupHint renders a column's lookup link as a join hint, with the table
+// in its executable form (renderTableRef). A heuristic link says so.
+func lookupHint(col ColumnSpec) string {
+	l := col.Lookup
+	if l == nil {
+		return ""
+	}
+	var hint string
+	if l.Via != "" {
+		hint = fmt.Sprintf("looked up from %s: %s where %s = %s", renderTableRef(l.Table), l.Label, l.Key, l.Via)
+	} else {
+		hint = fmt.Sprintf("code; name via JOIN %s ON %s = this column, name in %s", renderTableRef(l.Table), l.Key, l.Label)
+	}
+	if l.Source == LookupSourceHeuristic {
+		hint += " (inferred, verify)"
+	}
+	return hint
 }
