@@ -234,9 +234,67 @@ The default Go runtime still has known gaps:
 
 Be careful not to document those as production-ready unless you are also implementing them.
 
+## Branches, staging and releases
+
+Two branches, two rules:
+
+- **`development`** — where the work happens. Pushing directly is fine.
+- **`main`** — protected. It only changes through a pull request from
+  `development` (or, for a hotfix, from a short branch off `main`), with CI
+  green, merged **with a merge commit** (never squash or rebase: `development`
+  is merged into `main` over and over, and rewritten commits make the next PR
+  show them again). `main` collects several PRs; a release is cut from it when
+  we decide to release.
+
+Every push builds an image: `development` → `:development`, `main` → `:edge`,
+both also as `:<sha>`. **Nothing deploys automatically.** The staging server
+runs `:staging`, prod runs `:stable`, and each moves only through a GitHub
+Actions workflow.
+
+### Day to day
+
+1. `git pull --rebase` on `development`, work, commit small, push often.
+   `--rebase` keeps the history free of "Merge branch 'development' of …"
+   commits when we both pushed.
+2. For something bigger or risky — especially an API change the frontend
+   depends on — use a short feature branch and a PR into `development`, so
+   the other one sees it before it lands.
+3. **Want to try it on staging?** Actions → **Deploy to Staging**, image
+   `development` (or a commit SHA). A few minutes later staging runs it;
+   `GET /version` on staging shows which build. Say so in the chat — there is
+   one staging server, and the other one may be testing on it.
+4. **Ready for `main`?** Open a PR `development → main`. A review is welcome,
+   not required (with two people a required approval blocks releases during a
+   vacation).
+
+### Releases
+
+Versions are CalVer `vYY.M.N`: year, month without a leading zero, a counter
+that restarts every month (`v26.11.0`, `v26.11.1`, `v26.12.0`). The version
+says nothing about risk; migrations, flipped defaults and re-ingests are in
+the release's **⚠ Upgrade notes** in `CHANGELOG.md`.
+
+The short version: release-prep commit on `development`
+(`scripts/next-version.sh`, changelog, `package.json`) → PR into `main` →
+**Cut Release Candidate** → **Deploy to Staging** with the RC → test →
+**Promote Release Candidate** (moves `:stable`, i.e. deploys prod) → merge
+`main` back into `development`. Full procedure, image tags and repository
+settings: [`docs/runbooks/release.md`](docs/runbooks/release.md).
+
+### Two team rules
+
+- **Migrations:** pull right before creating one, push right after, so we do
+  not both take the same number. A migration that has been on staging is
+  final (`cmd/migrate` is up-only) — fix it with a new migration, never by
+  editing it.
+- **API changes:** the contract under `docs/api-contracts/` lands first, or in
+  the same push as the backend change, so the frontend is never surprised.
+
 ## Submitting Changes
 
 1. Make a focused change.
 2. Run the relevant tests.
 3. Update docs when behavior or setup changed.
-4. Open a PR with scope, risk, and any operational notes.
+4. Push to `development`, or open a PR into `development` for bigger changes
+   (see "Branches, staging and releases" above), with scope, risk, and any
+   operational notes.

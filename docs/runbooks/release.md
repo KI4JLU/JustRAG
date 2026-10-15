@@ -1,56 +1,90 @@
-# Runbook: cutting and rolling back a release
+# Runbook: branches, staging and releases
 
-JustRAG uses SemVer `0.x`. The **annotated git tag is the only source of
-truth** — there is no version constant in the Go code and no version file to
-forget to bump.
+This is the operator side: what CI builds, how staging and prod get a build,
+and how a release is cut, deployed and rolled back. The day-to-day developer
+side (where to commit, when to open a PR) is in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md#branches-staging-and-releases).
 
-| Bump | When |
+## Versions: CalVer `vYY.M.N`
+
+| Part | Meaning |
 |---|---|
-| **minor** (`0.1.0` → `0.2.0`) | New features, **and anything breaking**. The leading `0` means breaking changes do not force a major bump before 1.0. |
-| **patch** (`0.1.0` → `0.1.1`) | Fixes only. No migration, no changed `site_config` default, no re-ingest. |
+| `YY` | two-digit year of the release (`26` = 2026) |
+| `M` | month of the release, **no leading zero** (`1`–`12`). npm and strict semver reject `26.01.0`. |
+| `N` | counter within the month, starting at `0`, reset every month |
 
-`v1.0.0` is reserved for the first public release. The app version is
-independent of the **API** version — `/api/v1/*`, the OpenAI-compat layer, MCP
-`ask_kb`, and the ILIAS shim are path-versioned as `v1` and stay that way.
+So the releases of November 2026 are `v26.11.0`, `v26.11.1`, …, and the first
+one in December is `v26.12.0`. Release candidates append `-rc.K`:
+`v26.11.0-rc.1`, `v26.11.0-rc.2`. `scripts/next-version.sh` prints the next
+version (current month in Europe/Berlin; only promoted releases count, so an
+abandoned candidate does not burn a number).
 
-## The flow at a glance
+The **annotated git tag is the only source of truth** — there is no version
+constant in the Go code. `package.json` carries the version only so the
+release workflows can check that the prep commit is in the candidate.
+
+**A version number says nothing about risk.** Under the old `0.x` SemVer a
+patch meant "fixes only, no migration"; CalVer has no such promise. Whether a
+release needs migrations, flips a `site_config` default or needs a re-ingest
+is in its **⚠ Upgrade notes** in `CHANGELOG.md` and nowhere else — read them
+before every deploy.
+
+The scheme started after `v0.11.2`, the last `0.x` release (`v0.12.0-rc.1`
+was never promoted). `v26.x` sorts after `v0.x` everywhere (`sort -V`, the
+promote and rollback workflows), so the switch is a normal forward step.
+
+The app version is independent of the **API** version — `/api/v1/*`, the
+OpenAI-compat layer, MCP `ask_kb`, and the ILIAS shim are path-versioned as
+`v1` and stay that way.
+
+## Branches and image tags
 
 ```
-release-prep commit ──tag vX.Y.Z-rc.1──▶ CI builds :vX.Y.Z-rc.1 ──▶ staging (compose)
-        ▲                                                              │
-        └──── fix on main / release branch, tag vX.Y.Z-rc.2 ◀── broken ┤
-                                                                       │ good
-promote-release.yml (rc_tag = vX.Y.Z-rc.N) ◀───────────────────────────┘
-   └─▶ same digest tagged :vX.Y.Z, :vX.Y, :stable  +  git tag vX.Y.Z on the RC's commit
-         └─▶ prod (:stable): kubectl rollout restart
+ development ──●──●──●──●──●──●──●──●──●──►   direct pushes allowed
+                      \          \       \
+ main ─────────────────●──────────●───────●──►  pull requests only
+                                  │
+                         Cut Release Candidate → v26.11.0-rc.1
+                                  │  Deploy to Staging → test → Promote
+                               v26.11.0  (:stable)
 ```
+
+| Branch | Rules | Purpose |
+|---|---|---|
+| `development` | direct pushes allowed; no force push, no deletion | integration branch, day-to-day work |
+| `main` | **pull requests only**, CI green, **merge commits only**; no force push, no deletion | what the next release is cut from; collects several PRs between releases |
+
+| Image tag | Comes from | Moves |
+|---|---|---|
+| `:development`, `:<sha>` | every push to `development` | automatically |
+| `:edge`, `:<sha>` | every push to `main` | automatically |
+| `:vYY.M.N-rc.K` | **Cut Release Candidate** workflow (tag on `main`) | never — one build per candidate |
+| `:staging` | **Deploy to Staging** workflow — a pointer, nothing is built | manually; the staging server follows it |
+| `:vYY.M.N`, `:vYY.M`, `:stable` | **Promote Release Candidate** workflow — added to the RC's image, nothing is built | only through a promotion (or Roll Back Stable) |
+| `vYY.M.N` pushed by hand | — | **builds nothing**, use the promote workflow |
 
 **Build once, promote by digest.** A release is never rebuilt: the image
 staging tested is the image prod runs. A rebuild from the same commit would
 not be the same bits (base-image layers, OS packages and build time all
-drift), so a rebuilt release would make the staging round meaningless.
+drift), so a rebuilt release would make the staging round meaningless. That
+is why `:staging` and `:stable` are pointers and why only a candidate cut on
+`main` can be promoted (the promote workflow checks that the RC's commit is
+on `main`).
 
-## What CI publishes
-
-| Trigger | Image tags |
-|---|---|
-| push to `main` | `:<sha>`, `:edge` |
-| push tag `vX.Y.Z-rc.N` | `:vX.Y.Z-rc.N` (exactly the git tag) |
-| **Promote Release Candidate** workflow (manual) | `:vX.Y.Z`, `:vX.Y`, and `:stable` — added to the RC's existing image, nothing is built |
-| push tag `vX.Y.Z` by hand | **nothing** — use the promote workflow |
-
-`:stable` is the default for every unpinned compose deployment
-(`${JUSTRAG_VERSION:-stable}`), so it only moves forward: promoting a hotfix
-on an older line (`v0.11.3` while `v0.12.0` is out) tags `:v0.11.3` and
-`:v0.11` but leaves `:stable` alone.
+**Why `main` takes merge commits only.** `development` is merged into `main`
+again and again. A squash or rebase merge rewrites the commits, so the next
+`development → main` PR shows the same changes again or conflicts with
+itself. A merge commit keeps both histories joined.
 
 **Prod runs `:stable`** (workers and `go-server`, with `imagePullPolicy:
-Always`). That is safe only because `:stable` now moves exclusively through a
+Always`). That is safe only because `:stable` moves exclusively through a
 promotion — after staging, and after the release's migrations have run (see
 "Deploying a release"). The flip side: **promoting is deploying.** From that
 moment any prod pod that restarts, for whatever reason, comes up on the new
-release, so never promote before the migrations are in. Going back is the
-**Roll Back Stable** workflow (see "Rolling back").
+release, so never promote before the migrations are in. `:stable` only moves
+forward; going back is the **Roll Back Stable** workflow (see "Rolling
+back"). It is also the default of every unpinned compose deployment
+(`${JUSTRAG_VERSION:-stable}`).
 
 `:latest` is not published. It was the mechanism by which production drifted
 forward on unrelated pod restarts. What suppresses it is the `flavor:
@@ -60,19 +94,35 @@ on its own, so simply not listing `latest` under `tags:` is **not** enough. Do
 not remove that input.
 
 `GET /version` reports `git describe --tags --always` of the build:
-`v0.1.0-rc.2` on a release candidate, `v0.1.0-12-gabc1234` on a main build.
-**A promoted release keeps reporting the RC it came from** — prod on
-`v0.12.0` answers `{"version":"v0.12.0-rc.2"}`, because it is that binary.
-That is the honest answer, not a bug: it tells you which candidate was
-promoted. The frontend's update check only compares for inequality, so it is
-unaffected.
+`v26.11.0-rc.2` on a release candidate, `v26.11.0-12-gabc1234` on a
+`main`/`development` build. **A promoted release keeps reporting the RC it
+came from** — prod on `v26.11.0` answers `{"version":"v26.11.0-rc.2"}`,
+because it is that binary. The frontend's update check only compares for
+inequality, so it is unaffected. A `development` build describes itself from
+the newest tag reachable from `development`, which is why `main` is merged
+back after every release (step 9 below).
 
-The promote workflow refuses to run unless the RC is release-ready: the RC's
-tree must carry a `## vX.Y.Z` section in `CHANGELOG.md` and `package.json` at
-`X.Y.Z`. It also never
-re-points an existing release: a git tag or image tag `vX.Y.Z` that already
-exists elsewhere fails the run (re-running a promotion that already
-succeeded is harmless).
+Release and release-candidate images are retained indefinitely: the GHCR
+prune step excludes `stable,edge,development,staging,v*`, so `keep-n-tagged:
+20` only ages out the `main`/`development` SHA images.
+
+## Repository settings (once)
+
+Set in GitHub → Settings → Rules → Rulesets. The workflows assume them.
+
+- **`main`** (branch ruleset, target `main`): restrict deletions; block force
+  pushes; require a pull request before merging with **0 required
+  approvals** (two people: a mandatory approval blocks every release while one
+  of them is away — review is a habit, not a gate) and allowed merge methods
+  = **merge** only; require status checks `go` and `web` (the `ci.yml` jobs).
+- **`development`** (branch ruleset): restrict deletions, block force pushes.
+  Nothing else — direct pushes are the point.
+- **Release tags** (tag ruleset, target `v*`): restrict creations, updates
+  and deletions, with **GitHub Actions** (and repository admins, for
+  emergencies) as bypass actors. Cut Release Candidate and Promote push tags
+  with `GITHUB_TOKEN`; without the bypass they fail at the push.
+- Settings → General → Pull Requests: untick "Allow squash merging" and
+  "Allow rebase merging" as well, so the button cannot offer them.
 
 ## Prerequisites
 
@@ -82,24 +132,21 @@ succeeded is harmless).
 - **`docker login ghcr.io`** on your machine and on the staging server — the
   package is private. A GitHub PAT with `read:packages` as the password works.
 - **`kubectl`** context pointing at the cluster, for the prod deploy.
-- The promote workflow pushes a git tag with `GITHUB_TOKEN`. If a tag ruleset
-  protects `v*`, allow GitHub Actions to bypass it.
 
 ## Cutting a release
 
-1. **Pick the base.** A normal release is cut from `main`:
+`main` collects merged PRs until you decide to release. Then:
+
+1. **Prepare the release on `development`** (`main` takes no direct pushes,
+   so the prep commit travels through the next PR):
 
    ```bash
-   git checkout main && git pull && git status --short   # must be empty
+   git checkout development && git pull --rebase && git fetch --tags
+   scripts/next-version.sh            # e.g. v26.11.0 — use it as vYY.M.N below
    ```
 
-   A **hotfix** for the current release while `main` already holds unreleased
-   features is cut from a release branch instead, so the features stay out:
-
-   ```bash
-   git checkout -b release/0.11 v0.11.2      # once per minor line; reuse it afterwards
-   git cherry-pick <fix-sha>                 # the fix lands on main first
-   ```
+   Make sure `development` holds exactly what should ship: everything on it
+   goes into `main` with this PR.
 
 2. **Generate the new release's changelog section incrementally.** Use
    `--unreleased --prepend`, never `-o` / `--output`: `-o` fully regenerates
@@ -112,10 +159,12 @@ succeeded is harmless).
    untouched.
 
    ```bash
-   git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
+   git cliff --unreleased --tag vYY.M.N --prepend CHANGELOG.md
    ```
 
    Use the **release** version here, not the RC: the section is what ships.
+   Fold the hand-written `## Unreleased` block (upgrade notes collected
+   since the last release) into the new section and delete it.
 
    > **Do not reword the preamble at the top of `CHANGELOG.md` on its own.**
    > `--prepend` keeps the file to a single preamble by stripping
@@ -127,11 +176,9 @@ succeeded is harmless).
    > another copy of the "# Changelog / All notable changes…" block.
    > Verified against git-cliff 2.13.1.
 
-3. **Hand-write the `### ⚠ Upgrade notes` block** under the new heading that
-   command just added. This is the part no generator can produce, and the
-   reason this step is not automated — it only needs to cover the release
-   you just cut, not history (history's blocks are already in the file and
-   untouched by step 2). Record every item that applies:
+3. **Hand-write the `### ⚠ Upgrade notes` block** under the new heading.
+   This is the part no generator can produce. Record every item that
+   applies:
 
    - **Migrations** — the highest number this release requires:
      `ls go-backend/migrations/main/ | grep -oE '^[0-9]+' | sort -n | tail -1`
@@ -143,85 +190,101 @@ succeeded is harmless).
    If none apply, write "No upgrade actions required." — do not omit the block.
 
 4. **Bump `package.json`** to the release version (nothing reads it at
-   runtime, but the promote workflow checks it):
-   `npm version X.Y.Z --no-git-tag-version --workspaces-update=false`.
+   runtime, but Cut Release Candidate reads the version from it and Promote
+   checks it): `npm version YY.M.N --no-git-tag-version --workspaces-update=false`
+   (without the `v`).
 
-5. **Commit, tag the first release candidate, push.**
+5. **Commit on `development`, push, open the release PR.**
 
    ```bash
    git add CHANGELOG.md package.json package-lock.json
-   git commit -m "docs: changelog and version for vX.Y.Z"
-   git tag -a vX.Y.Z-rc.1 -m "vX.Y.Z-rc.1"
-   git push origin HEAD            # main, or release/X.Y for a hotfix
-   git push origin vX.Y.Z-rc.1
+   git commit -m "chore(release): vYY.M.N"
+   git push
    ```
 
-   The tag must be **annotated** (`-a`) — `git describe` prefers annotated
-   tags, and a lightweight tag produces a different build id.
+   Open a PR `development → main`, wait for CI, merge it **with a merge
+   commit**.
 
-6. **Wait for the RC build** (Actions → *Build and Push Docker Image*) and
-   confirm the image exists:
+6. **Cut the candidate.** Actions → **Cut Release Candidate** → *Run
+   workflow* from `main`. It reads the version from `package.json`, refuses
+   if that release exists, is not newer than the last one or has no
+   changelog section, tags `main`'s tip as `vYY.M.N-rc.K` (K counts up per
+   version) and starts the image build. Wait for *Build and Push Docker
+   Image* to go green.
+
+7. **Test it on staging.** Actions → **Deploy to Staging**, image =
+   `vYY.M.N-rc.K`. The server picks it up within a few minutes (see
+   "Staging"); confirm with `curl -s https://<staging-host>/version`.
+
+   If staging finds a problem: fix it on `development`, PR into `main`
+   (amend the changelog section in the same PR if the fix belongs in it),
+   and run Cut Release Candidate again — it tags `-rc.K+1` on the new tip.
+   An RC tag is never moved, so it is always clear which build staging
+   tested.
+
+8. **Deploy to prod:** run the release's migrations with the RC image,
+   promote, restart — "Deploying a release" below. Promote = Actions →
+   **Promote Release Candidate**, `rc_tag` = the RC that passed. It adds
+   `:vYY.M.N`, `:vYY.M` and (if newest) `:stable` to that exact image and
+   pushes the git tag `vYY.M.N` on the RC's commit.
+
+9. **Merge `main` back into `development`**, so `development` contains the
+   release's merge commit and tags (and any fix that went straight to
+   `main`):
 
    ```bash
-   docker buildx imagetools inspect ghcr.io/ki4jlu/justrag:vX.Y.Z-rc.1
+   git checkout development && git pull --rebase
+   git fetch --tags && git merge origin/main && git push
    ```
 
-7. **Deploy the RC to staging and test it** (see "Staging" below).
+   A release's own changes all came from `development`, so this merge is
+   normally conflict-free.
 
-   If staging finds a problem: fix it on the same branch, amend the changelog
-   section if the fix belongs in it, and tag `vX.Y.Z-rc.2` on the new commit —
-   steps 5–7 again. Never move an existing RC tag; every candidate gets its
-   own number, so it is always clear which build staging tested.
+### Hotfixes
 
-8. **Run the release's migrations on prod** with the RC image — "Deploying a
-   release", step 1. Skip only if the upgrade notes list no migration.
-   Until step 10 the **previous** release keeps running against the new
-   schema, so a release's migrations must be additive (new tables, nullable
-   or defaulted columns, `CONCURRENTLY` indexes). A migration that renames
-   or drops something the previous release still reads needs a two-release
-   split: the release that stops reading it first, the removal after.
-
-9. **Promote.** Actions → **Promote Release Candidate** → *Run workflow*,
-   `rc_tag` = the RC that passed (e.g. `vX.Y.Z-rc.2`). It adds `:vX.Y.Z`,
-   `:vX.Y` and (if newest) `:stable` to that exact image and pushes the git
-   tag `vX.Y.Z` on the RC's commit. Then `git fetch --tags`.
-
-10. **Restart prod** onto the new `:stable` — "Deploying a release", step 3.
-
-11. **After a hotfix:** make sure every fix on `release/X.Y` is also on
-    `main`, and fold the hotfix's changelog section into `main`'s
-    `CHANGELOG.md` so the next release's `--prepend` does not lose it. A
-    hotfix on an **older** line does not move `:stable`, so prod (on
-    `:stable`) does not get it — that is only for installs pinned to `:vX.Y`.
+There are no maintenance branches: a hotfix is simply the next release.
+Commit the fix on `development` (or, if `development` already holds work
+that must not ship yet, on a branch off `main` with a PR into `main`), then
+run steps 1–9 with the next version — `scripts/next-version.sh` gives
+`v26.11.3` mid-month or `v26.12.0` after the turn of the month. With a
+branch off `main`, step 9's back-merge is what brings the fix into
+`development`.
 
 ## Staging
 
-Staging is a compose server for developers to test release candidates on; it
-does not need the worker split of prod. It runs **exactly one pinned RC** —
-never `:stable` or `:edge`, so what is on staging is always a known
-candidate.
+Staging is a compose server for testing builds before they reach prod. It
+does not need the worker split of prod. It runs **whatever `:staging` points
+at**, and `:staging` only moves through Actions → **Deploy to Staging**:
 
-On the staging server, check out the RC's tree (so the compose files are the
-candidate's too) and pin the image to it:
+| Deploy to Staging with | to test |
+|---|---|
+| `development` | the current state of `development` (day-to-day, FE + BE together) |
+| `edge` | the current state of `main` |
+| `vYY.M.N-rc.K` | a release candidate — the only thing that can be promoted |
+| a commit SHA | one specific `main`/`development` build |
 
-```bash
-git fetch --tags && git checkout vX.Y.Z-rc.N
-# .env
-JUSTRAG_VERSION=vX.Y.Z-rc.N
-docker compose -f docker-compose.yml -f docker-compose.production.yml pull
-docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
-docker compose logs migrate       # confirm the goose run finished cleanly
-curl -s https://<staging-host>/version   # expect {"version":"vX.Y.Z-rc.N"}
-```
+The server follows the tag on its own: a systemd timer pulls every few
+minutes and restarts what changed. Setup and day-to-day commands are in
+[`deploy/staging/README.md`](../../deploy/staging/README.md). The staging
+`.env` carries `JUSTRAG_VERSION=staging`; `GET /version` tells you which
+build it is. Only the image follows `:staging` — the compose files on the
+server are a git checkout that is updated by hand when they change.
 
-Compose applies migrations automatically, so staging is also where a
-release's migrations run first. Two consequences:
+Compose applies migrations automatically, so staging is where a migration
+runs first. Consequences:
 
-- **Staging's schema moves ahead of prod** with every RC that carries a
-  migration, and `cmd/migrate` is up-only. To go back (an abandoned RC, or to
-  re-test an upgrade from the current prod version), restore staging's
-  database from a snapshot rather than migrating down. Take a snapshot before
-  deploying an RC with a migration.
+- **A migration is final once it has been on staging.** `cmd/migrate` is
+  up-only: if migration 0089 ran on staging and is then changed on
+  `development`, staging's schema no longer matches the code. Change a
+  migration that has been deployed by writing a new one. Pull right before
+  creating a migration and push right after, so two people do not take the
+  same number.
+- **Staging's schema moves ahead of prod**, and deploying an older image
+  after a newer one with a migration runs old code on a newer schema. To go
+  back for real (an abandoned candidate, or re-testing an upgrade from the
+  current prod version), restore staging's database from a snapshot rather
+  than migrating down. Take a snapshot before deploying a build that adds a
+  migration.
 - How long a migration takes depends on the data. If staging's database is
   much smaller than prod's, a `CREATE INDEX CONCURRENTLY` or a backfill that
   is instant on staging can still hit `/app/migrate`'s 5-minute cap on prod —
@@ -236,7 +299,7 @@ Migrations run automatically: the `migrate` one-shot service applies them and
 cannot start against an old schema.
 
 ```bash
-JUSTRAG_VERSION=vX.Y.Z            # in .env
+JUSTRAG_VERSION=vYY.M.N            # in .env
 docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
 docker compose logs migrate       # confirm the goose run finished cleanly
 ```
@@ -251,7 +314,7 @@ migration set. Applying the Deployments first runs new binaries against the
 old schema.
 
 **Do this before promoting.** Run `/app/migrate` out of the **RC image** you
-are about to promote (`:vX.Y.Z-rc.N` — the same digest the release will be)
+are about to promote (`:vYY.M.N-rc.K` — the same digest the release will be)
 as a one-shot pod, reusing the
 workers' existing config and secrets — `worker-config` carries `DB_*` /
 `VECTOR_DB_*` and `worker-secrets` carries the passwords plus `JWT_SECRET`.
@@ -261,25 +324,25 @@ hard-fails startup without `ALLOWED_ORIGINS` once `NODE_ENV=production`
 sets that var here, so if the cluster's real `worker-config` doesn't carry it
 either, this pod dies with a CORS-shaped error, not an obviously
 migration-related one. Substitute the real RC in the
-pod name using dashes (`migrate-v0-2-0-rc-1`); dots are not valid there. If your
+pod name using dashes (`migrate-v26-11-0-rc-1`); dots are not valid there. If your
 GHCR package is private, add
 `"imagePullSecrets":[{"name":"ghcr-secret"}]` inside `spec` in the override,
 the same way the worker manifests do.
 
 ```bash
-kubectl -n justrag run migrate-vX-Y-Z-rc-N \
-  --image=ghcr.io/ki4jlu/justrag:vX.Y.Z-rc.N \
+kubectl -n justrag run migrate-vYY-M-N-rc-K \
+  --image=ghcr.io/ki4jlu/justrag:vYY.M.N-rc.K \
   --restart=Never --attach --rm \
-  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/ki4jlu/justrag:vX.Y.Z-rc.N","command":["/app/migrate"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
+  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/ki4jlu/justrag:vYY.M.N-rc.K","command":["/app/migrate"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
 ```
 
 Then confirm the schema is where the release expects it:
 
 ```bash
-kubectl -n justrag run migrate-status-vX-Y-Z-rc-N \
-  --image=ghcr.io/ki4jlu/justrag:vX.Y.Z-rc.N \
+kubectl -n justrag run migrate-status-vYY-M-N-rc-K \
+  --image=ghcr.io/ki4jlu/justrag:vYY.M.N-rc.K \
   --restart=Never --attach --rm \
-  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/ki4jlu/justrag:vX.Y.Z-rc.N","command":["/app/migrate","--status"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
+  --overrides='{"spec":{"containers":[{"name":"migrate","image":"ghcr.io/ki4jlu/justrag:vYY.M.N-rc.K","command":["/app/migrate","--status"],"envFrom":[{"configMapRef":{"name":"worker-config"}},{"secretRef":{"name":"worker-secrets"}}]}]}}'
 ```
 
 `--status` prints one `migration status db=main version=NNNN` line per database
@@ -330,7 +393,7 @@ themselves changed in this release — then apply them first.
 Confirm what is actually running:
 
 ```bash
-curl -s https://<host>/version   # expect {"version":"vX.Y.Z-rc.N"} — the promoted RC
+curl -s https://<host>/version   # expect {"version":"vYY.M.N-rc.K"} — the promoted RC
 ```
 
 ## Rolling back
@@ -349,13 +412,9 @@ For a release with **no** migration:
 
 - **Compose:** set `JUSTRAG_VERSION` to the previous version, `up -d`.
 - **k8s (prod on `:stable`):** run Actions → **Roll Back Stable** with
-  `release` = the version to go back to (e.g. `v0.11.2`), then restart as in
+  `release` = the version to go back to (e.g. `v26.11.0`), then restart as in
   "Deploying a release", step 3. Nothing is built and no git tag changes;
   `:stable` is pointed at that release's existing image. The workflow refuses
   if any later release added a migration, unless `accept_newer_schema` is
   ticked — read the box above first. A later promotion moves `:stable`
   forward again as usual.
-
-Release and release-candidate images are retained indefinitely: the GHCR
-prune step excludes `stable,edge,v*`, so `keep-n-tagged: 10` only ages out
-`main`'s SHA images.

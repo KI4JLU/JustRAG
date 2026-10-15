@@ -2,8 +2,9 @@
 
 All notable changes to JustRAG are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
-SemVer `0.x`, where a **minor** bump covers features *and* breaking changes
-and a **patch** bump is fixes only.
+CalVer `vYY.M.N` (year, month, a counter that restarts every month) since
+the release after `v0.11.2`; earlier releases used SemVer `0.x`. A version
+number carries no compatibility promise.
 
 Releases may carry a hand-written **⚠ Upgrade notes** block recording
 migrations, changed `site_config` defaults, and re-ingest requirements.

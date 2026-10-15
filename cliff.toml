@@ -28,8 +28,9 @@ header = """
 
 All notable changes to JustRAG are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
-SemVer `0.x`, where a **minor** bump covers features *and* breaking changes
-and a **patch** bump is fixes only.
+CalVer `vYY.M.N` (year, month, a counter that restarts every month) since
+the release after `v0.11.2`; earlier releases used SemVer `0.x`. A version
+number carries no compatibility promise.
 
 Releases may carry a hand-written **⚠ Upgrade notes** block recording
 migrations, changed `site_config` defaults, and re-ingest requirements.
@@ -55,7 +56,11 @@ conventional_commits = true
 # not conventional.
 filter_unconventional = true
 protect_breaking_commits = true
-tag_pattern = "v[0-9]*"
+# Release candidates are not releases: their commits belong to the release
+# they become, so `--unreleased` starts at the last promoted `vYY.M.N`.
+# (`ignore_tags` does not achieve that in 2.13.1 — `--unreleased` still stops
+# at an ignored RC tag; checked 2026-10-15.)
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 sort_commits = "newest"
 commit_parsers = [
   # Must be the FIRST match — git-cliff uses the first matching parser, so

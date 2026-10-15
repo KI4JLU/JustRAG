@@ -115,7 +115,7 @@ CLAUDE.md is the operational reference (commands, env, architecture, feature ind
 - **`docs/observability/docling.md`** — opt-in Docling sidecar for layout-aware PDF parsing.
 - **`docs/runbooks/hnsw-reindex.md`** — operator runbook for the T0-1 HNSW iterative-scan path (rebuilding the index after pgvector upgrade).
 - **`docs/runbooks/migration-rollback.md`** — operator runbook for rolling back a migration with the goose CLI (`cmd/migrate` is up-only by design).
-- **`docs/runbooks/release.md`** — cutting a versioned release, deploying it, and the rollback caveat that a release containing a migration cannot be reverted by re-pointing the image tag alone.
+- **`docs/runbooks/release.md`** — branches, image tags, staging deploys, cutting a CalVer release, deploying it, and the rollback caveat that a release containing a migration cannot be reverted by re-pointing the image tag alone.
 - **`docs/runbooks/spreadsheet-ingest-ops.md`** — operating the spreadsheet ingest pipeline: `worker-heavy` sizing arithmetic, the two upload size gates and the 413 gotcha, the large-file gate's stage-detail signal, the orphan-table sweep (R65), rematerialise, the metrics/log lines to alert on, the read-only role grant checklist, and the golden-set acceptance procedure.
 - **`docs/runbooks/stuck-quick-jobs.md`** — operator runbook for draining asynq tasks wedged in `active` (a `rollout restart` requeues rather than removes them; the pause → restart → delete-by-id sequence, plus the enqueue-site `asynq.Timeout` audit that prevents recurrence).
 
@@ -195,56 +195,58 @@ before merging DS-dependent work.
 
 ## Releases
 
-SemVer `0.x` via **annotated git tags** (`v0.1.0`); the tag is the only source
-of truth. Pre-1.0: **minor** = features *and* breaking changes, **patch** =
-fixes only (no migration, no changed `site_config` default, no re-ingest).
-`v1.0.0` is reserved for the first public release. Independent of the API
-version — `/api/v1/*`, OpenAI-compat, MCP, and the ILIAS shim stay `v1`.
+**Branches:** `development` takes direct pushes; `main` is protected — PRs only,
+CI green, **merge commits only** (squash/rebase rewrites commits and breaks the
+recurring `development → main` PR). `main` collects several PRs between
+releases. Never push to `main` directly, and still never commit/push without the
+user's permission.
 
-- **Release candidates, build once:** every release goes through an RC tag
-  (`vX.Y.Z-rc.N`) that is tested on the compose **staging** server, then
-  promoted. CI builds only `main` (→ `:edge` + `:<sha>`) and `v*-rc.*` tags
-  (→ `:vX.Y.Z-rc.N`, exactly the git tag). A release is **never rebuilt**:
-  the manual **Promote Release Candidate** workflow
-  (`.github/workflows/promote-release.yml`, input `rc_tag`) adds `:vX.Y.Z`,
-  `:vX.Y` and `:stable` to the RC's existing digest and pushes the annotated
-  git tag `vX.Y.Z` on the RC's commit — so prod runs the bits staging tested.
-  A hand-pushed `vX.Y.Z` tag builds nothing. The workflow refuses an RC whose
-  tree lacks the `## vX.Y.Z` changelog section or `package.json` at `X.Y.Z`,
-  never re-points an existing release tag, and
-  moves `:stable` only forward (a hotfix on an older line leaves it alone);
-  going back is the separate **Roll Back Stable** workflow
-  (`rollback-stable.yml`, refuses to cross a later migration unless
-  `accept_newer_schema`). **Prod runs `:stable`**, so promoting IS
-  deploying: on k8s, run the migrations with the RC image first, then
-  promote, then `kubectl rollout restart`.
-  Hotfixes while `main` holds unreleased features go through a
-  `release/X.Y` branch. **`:latest` is not published** — it was how prod
-  drifted. What suppresses it is `flavor: latest=false` on the metadata
-  step; `docker/metadata-action` defaults to `latest=auto` and generates
-  `:latest` for tag rules by itself, so omitting it from `tags:` is not
-  sufficient. Do not remove it.
+**CalVer `vYY.M.N`** via **annotated git tags** (the only source of truth): year,
+month **without a leading zero** (npm rejects `26.01.0`), counter reset monthly
+(`v26.11.0`, `v26.11.1`, `v26.12.0`); `scripts/next-version.sh` prints the next
+one. Started after `v0.11.2` (`v0.12.0-rc.1` never promoted). The version carries
+no risk signal — migrations, flipped defaults and re-ingests are only in the
+`⚠ Upgrade notes`. No maintenance branches: a hotfix is the next release.
+Independent of the API version — `/api/v1/*`, OpenAI-compat, MCP, and the ILIAS
+shim stay `v1`.
+
+**Images:** `development` → `:development` + `:<sha>`, `main` → `:edge` +
+`:<sha>`, RC → `:vYY.M.N-rc.K`. Nothing deploys by itself. `:staging` is a
+pointer moved by **Deploy to Staging** (`deploy-staging.yml`, input
+`development|edge|<rc>|<sha>`, no rebuild); the staging server follows it with a
+systemd timer (`deploy/staging/`, pull-based — it is inside the uni network).
+`:stable` is reserved for `main`: **Cut Release Candidate** (`cut-release.yml`,
+from `main`; reads the version from `package.json`, tags `-rc.K`, dispatches the
+build because a `GITHUB_TOKEN` tag push triggers nothing) → Deploy to Staging →
+**Promote Release Candidate** (`promote-release.yml`; adds `:vYY.M.N`,
+`:vYY.M`, `:stable` to the RC's digest — **build once**, refuses an RC not on
+`main` or without the changelog section / `package.json` version; `:stable`
+only moves forward) → merge `main` back into `development`. The release-prep
+commit (changelog + `package.json`) is made on `development`, since `main` takes
+no pushes. Going back is **Roll Back Stable** (`rollback-stable.yml`, refuses to
+cross a later migration unless `accept_newer_schema`). **Prod runs `:stable`**,
+so promoting IS deploying: on k8s, run the migrations with the RC image first,
+then promote, then `kubectl rollout restart`. **`:latest` is not published** —
+`flavor: latest=false` on the metadata step suppresses it
+(`docker/metadata-action` defaults to `latest=auto`); do not remove it.
+
 - **`GET /version`** reports `git describe --tags --always` of the build
-  (`v0.1.0-rc.2`, or `v0.1.0-12-gabc1234` on a main build), stamped in via
-  `BUILD_VERSION`. A promoted release keeps reporting its RC
-  (`v0.12.0` in prod answers `v0.12.0-rc.2`) — it is the same binary.
+  (`v26.11.0-rc.2`, or `v26.11.0-12-gabc1234` on a branch build), stamped in via
+  `BUILD_VERSION`. A promoted release keeps reporting its RC — it is the same
+  binary.
 - **Pinning:** prod (the k8s workers and the out-of-repo `go-server`
-  Deployment) pulls `:stable` with `imagePullPolicy: Always` — without
-  `Always`, a node with an older `:stable` cached keeps running it. Staging
-  pins an exact RC via `JUSTRAG_VERSION`. Compose files interpolate
+  Deployment) pulls `:stable` with `imagePullPolicy: Always`. Staging sets
+  `JUSTRAG_VERSION=staging`. Compose files interpolate
   `${JUSTRAG_VERSION:-stable}`.
+- **Migrations:** a migration is final once it reached staging (compose applies
+  it automatically; `cmd/migrate` is up-only). **k8s does not** migrate on
+  deploy — the runbook's `kubectl run … /app/migrate` step is mandatory. A
+  release whose upgrade notes list a migration has no one-step rollback.
 - **`CHANGELOG.md`** is generated by git-cliff (`cliff.toml`) plus a
-  hand-written `⚠ Upgrade notes` block per release (migrations, flipped flag
-  defaults, re-ingest requirements).
-- **Migrations on deploy:** compose applies them automatically (the `migrate`
-  one-shot service + `service_completed_successfully` gates). **k8s does
-  not** — there is no migrate Job and neither binary self-migrates, so the
-  runbook's `kubectl run … /app/migrate` step is mandatory before
-  `kubectl apply`.
-- **A release whose upgrade notes list a migration has no one-step rollback**
-  — `cmd/migrate` is up-only.
+  hand-written `⚠ Upgrade notes` block per release.
 
-Full procedure: `docs/runbooks/release.md`.
+Full procedure and repository settings: `docs/runbooks/release.md`; team
+workflow: `CONTRIBUTING.md` § Branches, staging and releases.
 
 ## Local dev setup
 

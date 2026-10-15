@@ -32,7 +32,8 @@ services:
   migrate:
     # Version pin. Unset -> `stable`, which always points at the most recent
     # release, so a bare `docker compose up -d` still works with no .env.
-    # Production sets JUSTRAG_VERSION=v0.1.0 in .env. The same expression is
+    # A pinned install sets e.g. JUSTRAG_VERSION=v26.11.0 in .env; the staging
+    # server sets JUSTRAG_VERSION=staging (deploy/staging/). The same expression is
     # used in docker-compose.production.yml and docker-compose.k8s.yml so
     # overlay combinations cannot run server and workers on different
     # versions. Deliberately NOT `latest` — see docs/runbooks/release.md.
