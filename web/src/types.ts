@@ -341,6 +341,36 @@ export interface KnowledgeBase {
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
     visibility?: 'private' | 'public';
+    // Per-KB source permissions (migration 0089, API.md "Source permissions").
+    // Written by a KB admin through PATCH /api/kb/{id}; absent on the API-key
+    // surfaces. viewer* apply to the view role, editorManageSources to edit.
+    viewerSeeSources?: boolean;
+    viewerSelectSources?: boolean;
+    viewerDownloadSources?: boolean;
+    viewerSeeCitations?: boolean;
+    editorManageSources?: boolean;
+    // The caller's own resolved permissions on this KB, computed by the
+    // backend from role + flags so the client never re-derives the ladder.
+    capabilities?: KbCapabilities;
+}
+
+/** The per-KB source flags a KB admin can switch (PATCH /api/kb/{id}). */
+export type KbSourceFlag =
+    | 'viewerSeeSources'
+    | 'viewerSelectSources'
+    | 'viewerDownloadSources'
+    | 'viewerSeeCitations'
+    | 'editorManageSources';
+
+export type KbSourceFlags = Record<KbSourceFlag, boolean>;
+
+/** GET /api/kb… `capabilities`: what the CALLER may do with this KB's sources. */
+export interface KbCapabilities {
+    seeSources: boolean;
+    selectSources: boolean;
+    downloadSources: boolean;
+    seeCitations: boolean;
+    manageSources: boolean;
 }
 
 // A curator of a global KB: a kb_members row with role='admin'. `id` is the

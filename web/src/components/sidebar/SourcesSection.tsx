@@ -18,6 +18,11 @@ interface SourcesSectionProps {
     onToggleFilesSelection: (fileIds: string[], selected: boolean) => void;
     onDownloadFile: (id: string) => void;
     onDeleteFile: (id: string, e: React.MouseEvent) => void;
+    /** Whether the caller may edit the KB's sources (role edit or better).
+     *  false hides delete, retry, sync, pause and the schedule picker: the
+     *  backend's edit chain would refuse each of them with a 403. Required, so
+     *  a new call site cannot forget it and show a viewer dead controls. */
+    canEdit: boolean;
     rssFeeds: RssFeed[];
     onUpdateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
     onDeleteRssFeed: (feedId: string) => void;
@@ -52,7 +57,7 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // "Tabellen" file-detail button only makes sense for these.
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     files, onPreviewSource, onToggleFilesSelection,
-    onDownloadFile, onDeleteFile,
+    onDownloadFile, onDeleteFile, canEdit,
     rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
@@ -119,7 +124,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 )}
                             </>}
                             extra={<>
-                                {file.status === 'error' && (
+                                {canEdit && file.status === 'error' && (
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -134,8 +139,10 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
-                                { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
-                                  onSelect: (e) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                                ...(canEdit ? [
+                                    { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
+                                      onSelect: (e: Event) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                                ] : []),
                             ]}
                             selectable
                             selected={file.selected !== false}
@@ -172,26 +179,32 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 {feed.status === 'error' && feed.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{feed.errorMessage}</div>
                                 )}
-                                <SyncScheduleSelect
-                                    id={`rss-row-schedule-${feed.id}`}
-                                    value={feed.syncSchedule}
-                                    onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
-                                />
+                                {canEdit && (
+                                    <SyncScheduleSelect
+                                        id={`rss-row-schedule-${feed.id}`}
+                                        value={feed.syncSchedule}
+                                        onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
+                                    />
+                                )}
                                 <div className="sidebar-left__rss-feed-actions">
-                                    <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
-                                        <RefreshCw size={14} />
-                                    </button>
-                                    <button onClick={() => onUpdateRssFeed(feed.id, {
-                                        status: feed.status === 'active' ? 'paused' : 'active'
-                                    })} title={feed.status === 'active' ? t('pause') : t('resume')} aria-label={feed.status === 'active' ? t('pause') : t('resume')}>
-                                        {feed.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-                                    </button>
+                                    {canEdit && (<>
+                                        <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
+                                            <RefreshCw size={14} />
+                                        </button>
+                                        <button onClick={() => onUpdateRssFeed(feed.id, {
+                                            status: feed.status === 'active' ? 'paused' : 'active'
+                                        })} title={feed.status === 'active' ? t('pause') : t('resume')} aria-label={feed.status === 'active' ? t('pause') : t('resume')}>
+                                            {feed.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
+                                        </button>
+                                    </>)}
                                     <button onClick={() => onViewFeed(feed)} title={t('rssViewEntries')} aria-label={t('rssViewEntries')}>
                                         <Eye size={14} />
                                     </button>
-                                    <button onClick={() => onDeleteRssFeed(feed.id)} title={t('delete')} aria-label={`${t('delete')} ${feed.title || feed.url}`}>
-                                        <Trash2 size={14} />
-                                    </button>
+                                    {canEdit && (
+                                        <button onClick={() => onDeleteRssFeed(feed.id)} title={t('delete')} aria-label={`${t('delete')} ${feed.title || feed.url}`}>
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <Checkbox
@@ -250,11 +263,14 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 {source.status === 'error' && source.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
                                 )}
+                                {canEdit && (
                                 <SyncScheduleSelect
                                     id={`confluence-row-schedule-${source.id}`}
                                     value={source.syncSchedule}
                                     onChange={(syncSchedule) => onUpdateConfluenceSource(source.id, { syncSchedule })}
                                 />
+                                )}
+                                {canEdit && (
                                 <div className="sidebar-left__rss-feed-actions">
                                     <button onClick={() => onSyncConfluenceNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                         <RefreshCw size={14} />
@@ -268,6 +284,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
+                                )}
                             </div>
                         </div>
                     </li>
@@ -312,11 +329,14 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     {source.status === 'error' && source.errorMessage && (
                                         <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
                                     )}
+                                    {canEdit && (
                                     <SyncScheduleSelect
                                         id={`gitrepo-row-schedule-${source.id}`}
                                         value={source.syncSchedule}
                                         onChange={(syncSchedule) => onUpdateGitRepoSource(source.id, { syncSchedule })}
                                     />
+                                    )}
+                                    {canEdit && (
                                     <div className="sidebar-left__rss-feed-actions">
                                         <button onClick={() => onSyncGitRepoNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                             <RefreshCw size={14} />
@@ -328,6 +348,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                             <Trash2 size={14} />
                                         </button>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                         </li>

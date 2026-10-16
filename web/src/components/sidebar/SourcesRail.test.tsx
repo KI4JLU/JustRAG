@@ -6,6 +6,8 @@ import { SourcesRail } from './SourcesRail';
 
 const handlePreviewSource = vi.fn();
 const setShowUploadModal = vi.fn();
+// The caller's role on the open KB. The real canEditKbSources decides from it.
+let myRole: string | undefined = 'edit';
 
 // The preview card itself is not under test here.
 vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
@@ -21,6 +23,10 @@ vi.mock('../../hooks/sourcePreviews', () => ({
   preloadSourcePreview: () => Promise.resolve(null),
 }));
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'user' } }) }));
+vi.mock('../../contexts/KbCoreContext', () => ({
+  useKbCore: () => ({ currentKb: { id: 'kb1', isGlobal: false, visibility: 'private', userId: null, myRole } }),
+}));
 vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: {
@@ -35,7 +41,7 @@ vi.mock('../../contexts/KbDataContext', () => ({
   }),
 }));
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); myRole = 'edit'; });
 
 // Oracle: the fixture above — two listed files, one feed item that the
 // expanded list also leaves out, one excluded file.
@@ -60,5 +66,12 @@ describe('SourcesRail', () => {
     render(<SourcesRail />);
     await userEvent.click(screen.getByRole('button', { name: 'addSources' }));
     expect(setShowUploadModal).toHaveBeenCalledWith(true);
+  });
+
+  it('offers no add-source action to a viewer (the edit chain would refuse the upload)', () => {
+    myRole = 'view';
+    render(<SourcesRail />);
+    expect(screen.queryByRole('button', { name: 'addSources' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'a.pdf' })).toBeInTheDocument();
   });
 });

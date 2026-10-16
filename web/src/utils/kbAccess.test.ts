@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { KnowledgeBase } from '../types';
-import { canOpenKbAdvancedSettings, canRenameKb, hasAdvancedSystemRole, hasKbAdminRole, splitKbsByOwnership } from './kbAccess';
+import { canEditKbSources, chatSourceSelection, canOpenKbAdvancedSettings, canRenameKb, hasAdvancedSystemRole, hasKbAdminRole, splitKbsByOwnership } from './kbAccess';
 
 type KbShape = Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'>;
 
@@ -179,5 +179,63 @@ describe('splitKbsByOwnership', () => {
 
   it('returns two empty lists for an empty input', () => {
     expect(splitKbsByOwnership([])).toEqual({ ownedKbs: [], sharedKbs: [] });
+  });
+});
+
+// Oracle: the backend ladder kbaccess.EffectiveRole (internal/kbaccess/
+// middleware.go) followed by the edit chain's RequireKBRole("edit") threshold
+// (internal/app/routes.go). Each expected value below is read off those two by
+// hand — not produced by the helper — so a drift in either direction fails.
+describe('canEditKbSources', () => {
+  const priv = { visibility: 'private' as const, isGlobal: false, userId: null };
+  const pub = { visibility: 'public' as const, isGlobal: true, userId: null };
+  const cases: Array<[string, Parameters<typeof canEditKbSources>[0], string | undefined, string | undefined, boolean]> = [
+    // [name, kb, systemRole, userId, expected]
+    ['view row on a private KB (rule 2 -> view)', { ...priv, myRole: 'view' }, 'user', 'u1', false],
+    ['edit row (rule 2 -> edit)', { ...priv, myRole: 'edit' }, 'user', 'u1', true],
+    ['admin row (rule 2 -> admin)', { ...priv, myRole: 'admin' }, 'user', 'u1', true],
+    ['owner row (rule 2 -> owner)', { ...priv, myRole: 'owner' }, 'user', 'u1', true],
+    ['owner via the legacy kb.userId mirror, no row', { ...priv, userId: 'u1' }, 'user', 'u1', true],
+    ['superadmin with no row (rule 1 -> owner)', { ...priv }, 'superadmin', 'u9', true],
+    ['superadmin with a view row (rule 1 beats rule 2)', { ...priv, myRole: 'view' }, 'superadmin', 'u9', true],
+    ['implicit viewer of a published public KB (rule 4 -> view)', { ...pub }, 'user', 'u1', false],
+    ['system admin on a public KB, no row (rule 3 -> admin)', { ...pub }, 'admin', 'u1', true],
+    ['system admin with a view row on a public KB (rule 2 beats rule 3)', { ...pub, myRole: 'view' }, 'admin', 'u1', false],
+    ['system admin on a private KB with no row (no rule matches)', { ...priv }, 'admin', 'u1', false],
+    ['api-user with no row (not an admin of anything)', { ...priv }, 'api-user', 'u1', false],
+    ['api-user with a view row', { ...pub, myRole: 'view' }, 'api-user', 'u1', false],
+    ['no user at all', { ...pub }, undefined, undefined, false],
+  ];
+  it.each(cases)('%s', (_name, kb, systemRole, userId, expected) => {
+    expect(canEditKbSources(kb, systemRole, userId)).toBe(expected);
+  });
+
+  it('refuses when there is no KB', () => {
+    expect(canEditKbSources(null, 'superadmin', 'u1')).toBe(false);
+  });
+});
+
+describe('canEditKbSources with backend capabilities', () => {
+  const caps = (manageSources: boolean) => ({ seeSources: true, selectSources: true, downloadSources: true, seeCitations: true, manageSources });
+  it('follows manageSources over the ladder (editorManageSources off for an editor)', () => {
+    expect(canEditKbSources({ visibility: 'private', isGlobal: false, userId: null, myRole: 'edit', capabilities: caps(false) }, 'user', 'u1')).toBe(false);
+    expect(canEditKbSources({ visibility: 'private', isGlobal: false, userId: null, myRole: 'view', capabilities: caps(true) }, 'user', 'u1')).toBe(true);
+  });
+});
+
+// Oracle: API.md "Source permissions" — selectedFileIds without selectSources is a 403.
+describe('chatSourceSelection', () => {
+  const files = [{ id: 'a', selected: true }, { id: 'b', selected: false }, { id: 'c' }];
+  const caps = (selectSources: boolean) => ({ seeSources: true, selectSources, downloadSources: true, seeCitations: true, manageSources: false });
+  it('sends the selected ids (selected !== false) when the caller may select', () => {
+    expect(chatSourceSelection({ capabilities: caps(true) }, files)).toEqual({ canSend: true, selectedFileIds: ['a', 'c'] });
+  });
+  it('keeps the old rule against a backend without capabilities', () => {
+    expect(chatSourceSelection({}, files).selectedFileIds).toEqual(['a', 'c']);
+    expect(chatSourceSelection({}, []).canSend).toBe(false);
+  });
+  it('sends no ids, but can send, without the select right — even with no list at all', () => {
+    expect(chatSourceSelection({ capabilities: caps(false) }, files)).toEqual({ canSend: true });
+    expect(chatSourceSelection({ capabilities: caps(false) }, [])).toEqual({ canSend: true });
   });
 });

@@ -1,4 +1,4 @@
-import type { KnowledgeBase } from '../types';
+import type { FileEntry, KnowledgeBase } from '../types';
 
 /**
  * The system roles that may operate the KB "advanced settings" surface
@@ -40,6 +40,65 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
   if (kb.myRole) return kb.myRole === 'admin' || kb.myRole === 'owner';
   if (kb.isGlobal || kb.visibility === 'public') return systemRole === 'admin';
   return false;
+}
+
+/**
+ * canEditKbSources: whether the caller's EFFECTIVE role on `kb` is edit or
+ * better — the threshold of the backend's edit chain (RequireKBRole("edit") in
+ * internal/app/routes.go), which gates upload, add-sources, delete, retry and
+ * every rss/confluence/git create/patch/delete/sync/poll route. A viewer who
+ * is offered those controls only ever gets a 403, so the sidebar hides them.
+ *
+ * Same ladder as hasKbAdminRole, truncated at edit instead of admin:
+ *
+ *   1. system role superadmin        -> owner
+ *   2. a kb_members row              -> that role (view fails, the rest pass)
+ *   3. public KB + system role admin -> admin
+ *   4. anything else (implicit viewer of a published KB, no row) -> false
+ *
+ * `userId` covers the legacy owner-mirror column (`kb.userId`), the same
+ * owner check ChatView makes next to hasKbAdminRole. Like the other helpers
+ * here this only decides whether to offer a control; the server enforces it.
+ *
+ * When the backend sends the resolved `capabilities` (per-KB source
+ * permissions), `manageSources` is the answer: it already folds in the
+ * editorManageSources switch, which the ladder alone cannot see.
+ */
+export function canEditKbSources(
+  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'capabilities'> | null | undefined,
+  systemRole?: string,
+  userId?: string,
+): boolean {
+  if (kb == null) return false;
+  if (kb.capabilities) return kb.capabilities.manageSources;
+  if (systemRole === 'superadmin') return true;
+  if (userId != null && kb.userId === userId) return true;
+  if (kb.myRole) return kb.myRole !== 'view';
+  if (kb.isGlobal || kb.visibility === 'public') return systemRole === 'admin';
+  return false;
+}
+
+/**
+ * chatSourceSelection decides what a chat turn sends about the source
+ * selection, and whether it can be sent at all.
+ *
+ * A caller without `capabilities.selectSources` (a viewer of a KB whose admin
+ * keeps the per-request selection off) must not send `selectedFileIds`: the
+ * backend refuses such a request with 403 before anything is written. Without
+ * the right the turn goes out without a selection and the answer uses the
+ * whole KB — it also cannot depend on the sidebar list, which such a viewer
+ * may not be allowed to load at all (an empty list is not "nothing selected").
+ *
+ * With the right (or from a backend that predates capabilities) the old rule
+ * holds: at least one selected source, and their ids are sent.
+ */
+export function chatSourceSelection(
+  kb: Pick<KnowledgeBase, 'capabilities'> | null | undefined,
+  files: readonly Pick<FileEntry, 'id' | 'selected'>[],
+): { canSend: boolean; selectedFileIds?: string[] } {
+  if (kb?.capabilities && !kb.capabilities.selectSources) return { canSend: true };
+  const selectedFileIds = files.filter(f => f.selected !== false).map(f => f.id);
+  return { canSend: selectedFileIds.length > 0, selectedFileIds };
 }
 
 /**

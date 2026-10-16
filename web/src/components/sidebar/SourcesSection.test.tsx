@@ -84,6 +84,7 @@ const baseProps = {
   onDeleteGitRepoSource: vi.fn(),
   onSyncGitRepoNow: vi.fn(),
   onRetryFile: vi.fn(),
+  canEdit: true,
 };
 
 describe('SourcesSection error display + retry', () => {
@@ -359,5 +360,48 @@ describe('SourcesSection injection screening badge', () => {
     expect(screen.getAllByLabelText('fileInjectionFlagged')).toHaveLength(2);
     // No second copy of the header summary inside the list.
     expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
+  });
+});
+
+// A viewer may not edit sources: the backend's edit chain refuses delete,
+// retry, sync, pause and reschedule with a 403 (oracle: RequireKBRole("edit")
+// on those routes in internal/app/routes.go). So none of those controls may
+// render, while what a viewer CAN do — open, download, select, read an RSS
+// feed's entries — stays.
+describe('SourcesSection for a viewer (canEdit=false)', () => {
+  const viewer = { ...baseProps, canEdit: false };
+
+  it('offers no retry button and no delete action on a file, but keeps download and select', async () => {
+    render(<SourcesSection {...viewer} files={[makeFile({ status: 'error', errorMessage: 'x' })]} />);
+    expect(screen.queryByRole('button', { name: /retrySource/ })).not.toBeInTheDocument();
+    // Before opening the menu: an open (modal) menu hides the rest from the a11y tree.
+    expect(screen.getByRole('checkbox', { name: /selectSource/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /sourceActions/ }));
+    expect(await screen.findByRole('menuitem', { name: /download/ })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /delete/ })).not.toBeInTheDocument();
+  });
+
+  it('shows an RSS feed without sync, pause, delete or schedule, but with its entries', () => {
+    render(<SourcesSection {...viewer} files={[]} rssFeeds={[makeRssFeed()]} />);
+    for (const name of [/pollNow/, /^pause$/, /delete/]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /rssViewEntries/ })).toBeInTheDocument();
+  });
+
+  it('shows Confluence and git sources without any edit control', () => {
+    render(<SourcesSection {...viewer} files={[]}
+      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
+    expect(screen.getByText('ENG')).toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: /pollNow|pause|delete/ })).toHaveLength(0);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('an editor still gets every control (the same rows with canEdit=true)', () => {
+    render(<SourcesSection {...baseProps} files={[]}
+      rssFeeds={[makeRssFeed()]} confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
+    expect(screen.getAllByRole('button', { name: /pollNow/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /^delete/ })).toHaveLength(3);
   });
 });

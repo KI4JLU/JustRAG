@@ -17,6 +17,7 @@ import { TextSourceModal } from '../sidebar/TextSourceModal';
 import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
 import { ACCEPTED_FILE_TYPES } from '../../constants';
+import { useCanEditKbSources } from '../../hooks/useCanEditKbSources';
 import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
@@ -53,12 +54,17 @@ const SourcesPanelComp: React.FC = () => {
     } = webTools;
 
     const isGlobal = currentKb?.isGlobal;
+    // A viewer may not add, delete, retry or sync sources (the backend's edit
+    // chain answers 403), so none of those controls is offered to them.
+    const canEdit = useCanEditKbSources();
+    // Adding sources happens here only on a non-global KB the caller may edit.
+    const canAdd = canEdit && !isGlobal;
     // Files dragged anywhere over the workspace turn the source list into a
     // dropzone (not for the global KB, which takes no uploads here).
-    const fileDragActive = useWindowFileDrag(!isGlobal);
+    const fileDragActive = useWindowFileDrag(canAdd);
     // A KB with no sources at all keeps the dropzone as its list (the empty
     // workspace placeholder); it opens the file picker on click / Enter too.
-    const noSourcesYet = !isGlobal && filesLoaded && files.length === 0
+    const noSourcesYet = canAdd && filesLoaded && files.length === 0
         && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0;
     const handleOpenWorkspace = useCallback(() => setShowWebWorkspace(true), [setShowWebWorkspace]);
 
@@ -102,10 +108,10 @@ const SourcesPanelComp: React.FC = () => {
                 head — heading, web search, source types, retry-all — and only
                 the source list below it scrolls. */}
             <SidebarPanel
-                title={isGlobal ? t('sources') : t('addSources')}
+                title={canAdd ? t('addSources') : t('sources')}
                 head={(
                     <>
-                        {!isGlobal && (
+                        {canAdd && (
                             <SourcesGrid
                                 onSelect={handleSourceSelect}
                                 webSearch={{
@@ -144,6 +150,7 @@ const SourcesPanelComp: React.FC = () => {
                     onToggleFilesSelection={handleToggleFilesSelection}
                     onDownloadFile={handleDownloadFile}
                     onDeleteFile={handleDeleteFile}
+                    canEdit={canEdit}
                     rssFeeds={rssFeeds}
                     onUpdateRssFeed={updateRssFeed}
                     onDeleteRssFeed={deleteRssFeed}
@@ -175,7 +182,7 @@ const SourcesPanelComp: React.FC = () => {
                 <RssFeedEntriesModal
                     feed={viewingFeed}
                     files={rssFeedFiles(viewingFeed.id)}
-                    onDeleteFile={handleDeleteFile}
+                    onDeleteFile={canEdit ? handleDeleteFile : undefined}
                     onClose={() => setViewingFeed(null)}
                 />
             )}

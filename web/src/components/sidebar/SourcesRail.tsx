@@ -7,6 +7,7 @@ import { useKbData } from '../../contexts/KbDataContext';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
 import { SourceHoverPreview } from './SourceHoverPreview';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
+import { useCanEditKbSources } from '../../hooks/useCanEditKbSources';
 
 /** Same filter as the expanded list (SourcesSection): files, not feed/sync items. */
 const listedFiles = (files: FileEntry[]) =>
@@ -14,7 +15,8 @@ const listedFiles = (files: FileEntry[]) =>
 
 /**
  * The collapsed 60px right rail: one icon per source, the counterpart of the
- * history rail on the left. "Add source" leads, like "new chat" there. Each
+ * history rail on the left. "Add source" leads, like "new chat" there (only
+ * for a caller who may edit the KB's sources). Each
  * icon opens the source's preview on click and shows the hover preview card
  * (DS `FilePreview`, with the file name, since the rail has no text) —
  * pre-rendered by the same cache the expanded list uses.
@@ -22,19 +24,22 @@ const listedFiles = (files: FileEntry[]) =>
 export function SourcesRail() {
     const { t } = useTheme();
     const { fileMgmt, webTools } = useKbData();
+    const canEdit = useCanEditKbSources();
     const files = listedFiles(fileMgmt.files);
     useSourcePreviews(files);
 
     return (
         <>
-            <SidebarRailItem
-                variant="action"
-                onClick={() => fileMgmt.setShowUploadModal(true)}
-                title={t('addSources')}
-                aria-label={t('addSources')}
-            >
-                <Plus aria-hidden="true" />
-            </SidebarRailItem>
+            {canEdit && (
+                <SidebarRailItem
+                    variant="action"
+                    onClick={() => fileMgmt.setShowUploadModal(true)}
+                    title={t('addSources')}
+                    aria-label={t('addSources')}
+                >
+                    <Plus aria-hidden="true" />
+                </SidebarRailItem>
+            )}
             <SidebarRail aria-label={t('sources')}>
                 {files.map(file => {
                     const excluded = file.selected === false;
