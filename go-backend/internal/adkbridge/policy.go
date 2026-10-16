@@ -84,3 +84,10 @@ func RoleAtLeast(have, need string) bool {
 func privilegedInBridge(name string) bool {
 	return mcp.PrivilegedTools[name] && name != "web_search"
 }
+
+// sourceWriteAllowed reports whether sc may run a tool with policy pol as far
+// as the KB's source permissions go: a KB-write tool changes the corpus, so it
+// needs Scope.ManageSources; every other side effect is unaffected.
+func sourceWriteAllowed(sc Scope, pol ToolPolicy) bool {
+	return pol.SideEffect != SideEffectKBWrite || sc.ManageSources
+}

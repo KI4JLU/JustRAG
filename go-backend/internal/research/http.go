@@ -115,6 +115,13 @@ func (h *Handler) StartResearch(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "goal must not exceed 2000 characters")
 		return
 	}
+	// fileIds is the per-request source selection, the same checkbox a chat
+	// turn's selectedFileIds comes from; refused before the research session
+	// row is created.
+	if len(body.FileIDs) > 0 && !kbaccess.HasCapability(r.Context(), kbaccess.CapSelectSources) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, chat.MsgSelectSourcesForbidden)
+		return
+	}
 	body.MaxSteps = clampMaxSteps(body.MaxSteps)
 	if body.Language == "" {
 		body.Language = "en"

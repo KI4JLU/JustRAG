@@ -172,7 +172,7 @@ func deadEndDeps(fc *agentFakeClient, dispatch map[string]adkbridge.DispatchFunc
 	}
 }
 
-var editScope = adkbridge.Scope{UserID: "u1", KBID: "kb1", Role: "edit", IsGlobal: true}
+var editScope = adkbridge.Scope{UserID: "u1", KBID: "kb1", Role: "edit", IsGlobal: true, ManageSources: true}
 
 func TestDeadEndActionsOrder(t *testing.T) {
 	ids := func(as []adkbridge.Action) []string {
@@ -224,6 +224,14 @@ func TestNoEvidenceOffersWebFirst(t *testing.T) {
 	deps := deadEndDeps(&agentFakeClient{}, allDispatchers())
 	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, editScope).ask("Budget?"))); !slices.Equal(got, []string{"web", "library", "upload", "confluence"}) {
 		t.Fatalf("edit: offered = %v", got)
+	}
+	// An editor on a KB whose editor_manage_sources flag is off holds the
+	// edit role but not the manageSources capability: the KB-write actions
+	// disappear, web stays.
+	lockedEdit := editScope
+	lockedEdit.ManageSources = false
+	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, lockedEdit).ask("Budget?"))); !slices.Equal(got, []string{"web"}) {
+		t.Fatalf("edit without manageSources: offered = %v", got)
 	}
 	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, viewScope).ask("Budget?"))); !slices.Equal(got, []string{"web"}) {
 		t.Fatalf("view: offered = %v", got)

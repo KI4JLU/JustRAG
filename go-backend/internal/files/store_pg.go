@@ -31,60 +31,21 @@ var _ Store = (*PGStore)(nil)
 // kbaccess helpers (required by files.Store)
 // ---------------------------------------------------------------------------
 
-// kbRow is an internal struct with db tags for scanning knowledge_bases.
-type kbRow struct {
-	ID          string  `db:"id"`
-	UserID      *string `db:"user_id"`
-	IsGlobal    bool    `db:"is_global"`
-	IsPublished bool    `db:"is_published"`
-}
-
 // GetKBByID returns the knowledge base with the given ID, or nil if not found.
+// It delegates to kbaccess.PGStore so the KB row the files handlers resolve
+// access from — including the source-permission flags CapabilitiesFor reads —
+// comes from the one query RequireKBRole uses, not a copy of it.
 func (s *PGStore) GetKBByID(ctx context.Context, id string) (*kbaccess.KnowledgeBase, error) {
-	// visibility ist seit Migration 0065 die Schreibwahrheit; is_global ist nur
-	// noch eine generierte Spiegelspalte und faellt im Cleanup-Release. Der
-	// Alias haelt kbRow.IsGlobal und damit EffectiveRole unveraendert.
-	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published
-	             FROM knowledge_bases WHERE id = $1`
-
-	rows, err := pgxutil.QueryRows[kbRow](ctx, s.pool, sql, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-
-	r := rows[0]
-	return &kbaccess.KnowledgeBase{
-		ID:          r.ID,
-		UserID:      r.UserID,
-		IsGlobal:    r.IsGlobal,
-		IsPublished: r.IsPublished,
-	}, nil
-}
-
-// kbRoleRow is an internal struct with db tags for scanning kb_members.
-type kbRoleRow struct {
-	Role string `db:"role"`
+	return kbaccess.NewStore(s.pool).GetKBByID(ctx, id)
 }
 
 // GetKBRole returns the explicit kb_members role for (kbID, userID), or ""
 // when the user has no row. Implicit roles (superadmin, systemadmin on a
 // public KB, any user on a published public KB) are resolved by
-// kbaccess.EffectiveRole, not here — the store answers only what is stored.
-// Mirrors internal/kbaccess/store_pg.go's GetKBRole.
+// kbaccess.EffectiveRole, not here. Delegates to kbaccess.PGStore for the
+// same reason as GetKBByID.
 func (s *PGStore) GetKBRole(ctx context.Context, kbID, userID string) (string, error) {
-	const sql = `SELECT role FROM kb_members WHERE kb_id = $1 AND user_id = $2 LIMIT 1`
-
-	rows, err := pgxutil.QueryRows[kbRoleRow](ctx, s.pool, sql, kbID, userID)
-	if err != nil {
-		return "", err
-	}
-	if len(rows) == 0 {
-		return "", nil
-	}
-	return rows[0].Role, nil
+	return kbaccess.NewStore(s.pool).GetKBRole(ctx, kbID, userID)
 }
 
 // ---------------------------------------------------------------------------

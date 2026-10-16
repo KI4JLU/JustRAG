@@ -319,6 +319,12 @@ func (h *Handler) AddPapers(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "you do not have edit access to this knowledge base")
 		return
 	}
+	// Adding papers adds sources, so it follows the KB's
+	// editor_manage_sources flag like every other add-source route.
+	if !kbaccess.CapabilitiesFor(kb, role).ManageSources {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "managing sources is not permitted on this knowledge base")
+		return
+	}
 
 	result := addPapersResult{
 		Added:  []string{},

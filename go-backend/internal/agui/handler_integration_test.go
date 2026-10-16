@@ -288,7 +288,7 @@ func newFixtureFull(t *testing.T, ttl time.Duration, hooks TurnHooks, runTimeout
 			if u == "" {
 				return adkbridge.Scope{}, ErrUnauthorized
 			}
-			return adkbridge.Scope{UserID: u, KBID: r.Header.Get("X-Test-KB"), Role: "edit"}, nil
+			return adkbridge.Scope{UserID: u, KBID: r.Header.Get("X-Test-KB"), Role: "edit", ManageSources: true}, nil
 		},
 	}))
 	t.Cleanup(f.srv.Close)

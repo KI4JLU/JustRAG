@@ -1579,7 +1579,7 @@
               "type": "string",
               "format": "uuid"
             },
-            "description": "Restrict context to specific files"
+            "description": "Restrict context to specific files. Needs the selectSources permission on the knowledge base (for a viewer, the KB's viewerSelectSources setting); otherwise the request is refused with 403 before a chat is created."
           }
         }
       },

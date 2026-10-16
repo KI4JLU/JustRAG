@@ -46,7 +46,8 @@ func (h *Handler) enqueueRetry(file *FileInfo) error {
 }
 
 // Retry handles POST /api/files/{id}/retry.
-// Requires authentication; the user must have edit access to the file's KB.
+// Requires authentication; the user must have edit access to the file's KB
+// and the manageSources capability on it (canManage).
 // Only files in status='error' can be retried — the conditional reset is
 // also the guard against double-clicks and concurrent retries (one wins,
 // the rest get 409).
@@ -83,7 +84,7 @@ func (h *Handler) Retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.hasEditAccess(r.Context(), kb, user)
+	ok, err := h.canManage(r.Context(), kb, user)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
 		return

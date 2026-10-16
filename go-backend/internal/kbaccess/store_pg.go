@@ -23,10 +23,15 @@ var _ KBStore = (*PGStore)(nil)
 
 // kbRow is an internal struct with db tags for scanning knowledge_bases.
 type kbRow struct {
-	ID          string  `db:"id"`
-	UserID      *string `db:"user_id"`
-	IsGlobal    bool    `db:"is_global"`
-	IsPublished bool    `db:"is_published"`
+	ID                    string  `db:"id"`
+	UserID                *string `db:"user_id"`
+	IsGlobal              bool    `db:"is_global"`
+	IsPublished           bool    `db:"is_published"`
+	ViewerSeeSources      bool    `db:"viewer_see_sources"`
+	ViewerSelectSources   bool    `db:"viewer_select_sources"`
+	ViewerDownloadSources bool    `db:"viewer_download_sources"`
+	ViewerSeeCitations    bool    `db:"viewer_see_citations"`
+	EditorManageSources   bool    `db:"editor_manage_sources"`
 }
 
 // GetKBByID returns the knowledge base with the given ID, or nil if not found.
@@ -34,7 +39,12 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 	// visibility ist seit Migration 0065 die Schreibwahrheit; is_global ist nur
 	// noch eine generierte Spiegelspalte und faellt im Cleanup-Release. Der
 	// Alias haelt kbRow.IsGlobal und damit EffectiveRole unveraendert.
-	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published
+	// The source-permission flags (migration 0089) ride along, so every
+	// consumer of this lookup — RequireKBRole and the handler-internal checks
+	// that share it — sees the same flags CapabilitiesFor resolves.
+	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published,
+	                    viewer_see_sources, viewer_select_sources, viewer_download_sources,
+	                    viewer_see_citations, editor_manage_sources
 	             FROM knowledge_bases WHERE id = $1`
 
 	rows, err := pgxutil.QueryRows[kbRow](ctx, s.pool, sql, id)
@@ -51,6 +61,13 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 		UserID:      r.UserID,
 		IsGlobal:    r.IsGlobal,
 		IsPublished: r.IsPublished,
+		Sources: SourcePermissions{
+			ViewerSeeSources:      r.ViewerSeeSources,
+			ViewerSelectSources:   r.ViewerSelectSources,
+			ViewerDownloadSources: r.ViewerDownloadSources,
+			ViewerSeeCitations:    r.ViewerSeeCitations,
+			EditorManageSources:   r.EditorManageSources,
+		},
 	}, nil
 }
 

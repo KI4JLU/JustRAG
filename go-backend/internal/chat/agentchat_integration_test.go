@@ -202,7 +202,12 @@ func newAgentChatFixture(t *testing.T, flagOn bool, opts ...func(*AgentChatDeps)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Stands in for authMw + kbaccess.RequireKBRole(view).
 		ctx := auth.WithUser(r.Context(), &auth.Claims{ID: r.Header.Get("X-Test-User")})
-		ctx = kbaccess.WithAccess(ctx, &kbaccess.KBAccessResult{KB: &kbaccess.KnowledgeBase{ID: f.kbID}, Role: "edit"})
+		// EditorManageSources mirrors the column default (migration 0089):
+		// an editor may add sources unless a KB admin switched it off.
+		ctx = kbaccess.WithAccess(ctx, &kbaccess.KBAccessResult{
+			KB:   &kbaccess.KnowledgeBase{ID: f.kbID, Sources: kbaccess.SourcePermissions{EditorManageSources: true}},
+			Role: "edit",
+		})
 		h.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(f.srv.Close)

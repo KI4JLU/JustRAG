@@ -85,7 +85,11 @@ var topicsSQL = `WITH ` + visibleKBsCTE + `
 	         lower(v.name), v.id
 	LIMIT $6`
 
-// sourcesSQL matches files by name in every visible KB, both ways.
+// sourcesSQL matches files by name in every visible KB whose source list the
+// caller may see, both ways. "May see" is kbaccess.SeeSourcesSQL, the SQL
+// mirror of CapabilitiesFor(...).SeeSources: a viewer of a KB with
+// viewer_see_sources off gets no file hits from it (the KB itself, and the
+// caller's chats and messages in it, are still found).
 //
 // Rank: 0 prefix, 1 substring, 2 fuzzy (by similarity desc); ties by
 // case-folded name, then id. Both arms of the WHERE are served by
@@ -104,6 +108,7 @@ var sourcesSQL = `WITH ` + visibleKBsCTE + `
 		       END AS rank
 	) r
 	WHERE v.role IS NOT NULL
+	  AND ` + kbaccess.SeeSourcesSQL("v") + `
 	  AND ` + searchMatch.matches("f.name") + `
 	ORDER BY r.rank,
 	         CASE WHEN r.rank = 2 THEN ` + searchMatch.similarity("f.name") + ` END DESC NULLS LAST,

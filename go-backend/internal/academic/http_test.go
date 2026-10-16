@@ -31,6 +31,8 @@ type stubStore struct {
 	createErr  error
 	fileErr    error
 	kbRole     string
+	// sources are the KB's source-permission flags GetKBByID hands back.
+	sources kbaccess.SourcePermissions
 }
 
 func newStubStore(enabled bool, baseURL string) *stubStore {
@@ -91,7 +93,7 @@ func (s *stubStore) CreateFile(_ context.Context, data files.CreateFileData) (*f
 
 func (s *stubStore) GetKBByID(_ context.Context, id string) (*kbaccess.KnowledgeBase, error) {
 	userID := "user-1"
-	return &kbaccess.KnowledgeBase{ID: id, UserID: &userID, IsGlobal: false}, nil
+	return &kbaccess.KnowledgeBase{ID: id, UserID: &userID, IsGlobal: false, Sources: s.sources}, nil
 }
 
 func (s *stubStore) GetKBRole(_ context.Context, kbID, userID string) (string, error) {
@@ -427,5 +429,52 @@ func TestSearchJustFind_EndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(gotRawQuery, "RV:y") {
 		t.Errorf("expected peer-reviewed filter RV:y in query, got %q", gotRawQuery)
+	}
+}
+
+// TestAddPapers_FollowsEditorManageSources pins the manageSources gate on
+// POST /api/academic-research/{researchId}/papers/add: adding papers adds
+// sources to the KB named in the body, so an editor needs the KB's
+// editor_manage_sources flag, while the owner is unaffected by it.
+//
+// Oracle: the expected status per (role, flag) written by hand from the
+// spec, plus the response shape only an accepted request
+// produces (the added/failed lists). The body names no papers, so an
+// accepted request does no network I/O.
+func TestAddPapers_FollowsEditorManageSources(t *testing.T) {
+	cases := []struct {
+		name  string
+		role  string
+		flags kbaccess.SourcePermissions
+		want  int
+	}{
+		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorManageSources: true}, http.StatusOK},
+		{"editor_flag_off", kbaccess.RoleEdit, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true}, http.StatusForbidden},
+		{"viewer_flag_on", kbaccess.RoleView, kbaccess.SourcePermissions{EditorManageSources: true}, http.StatusForbidden},
+		{"owner_flag_off", kbaccess.RoleOwner, kbaccess.SourcePermissions{}, http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newStubStore(true, "http://justfind.example.com")
+			store.kbRole = tc.role
+			store.sources = tc.flags
+			h := academic.NewHandler(store, nil, nil, newStubStorage(), nil, nil)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/academic-research/r1/papers/add",
+				strings.NewReader(`{"kbId":"kb-1","papers":[]}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("researchId", "r1")
+			req = withUser(req, "user-1")
+			w := httptest.NewRecorder()
+			h.AddPapers(w, req)
+
+			if w.Code != tc.want {
+				t.Fatalf("status %d, want %d: %s", w.Code, tc.want, w.Body.String())
+			}
+			accepted := strings.Contains(w.Body.String(), `"added"`)
+			if accepted != (tc.want == http.StatusOK) {
+				t.Fatalf("accepted response shape = %v with status %d", accepted, w.Code)
+			}
+		})
 	}
 }

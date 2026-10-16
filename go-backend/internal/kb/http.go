@@ -12,6 +12,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/tabular"
 )
 
@@ -41,6 +42,16 @@ type KBRow struct {
 	ChunkSize      *int      `json:"chunkSize"      db:"chunk_size"`
 	ChunkOverlap   *int      `json:"chunkOverlap"   db:"chunk_overlap"`
 	CreatedAt      time.Time `json:"createdAt"      db:"created_at"`
+
+	// Source permissions (migration 0089): the flags a KB admin sets through
+	// PATCH /api/kb/{id} to decide what viewers — and, for
+	// editorManageSources, editors — may do with the KB's sources. They are
+	// the stored settings; what the CALLER may do is Capabilities below.
+	ViewerSeeSources      bool `json:"viewerSeeSources"      db:"viewer_see_sources"`
+	ViewerSelectSources   bool `json:"viewerSelectSources"   db:"viewer_select_sources"`
+	ViewerDownloadSources bool `json:"viewerDownloadSources" db:"viewer_download_sources"`
+	ViewerSeeCitations    bool `json:"viewerSeeCitations"    db:"viewer_see_citations"`
+	EditorManageSources   bool `json:"editorManageSources"   db:"editor_manage_sources"`
 
 	// Owner attribution — populated by ListKnowledgeBases so the UI can show
 	// "shared by …" for KBs the current user does not own. Null when the KB
@@ -88,6 +99,16 @@ type KBRow struct {
 	MyRole      *string `json:"myRole"`
 	MemberCount int     `json:"memberCount"`
 
+	// Capabilities is what the caller may do with this KB's sources, resolved
+	// server-side by kbaccess.CapabilitiesFor from the caller's effective role
+	// (kbaccess.EffectiveRole) and the flags above, so the UI reads the
+	// decision instead of re-deriving the ladder — which it could not do for
+	// an implicit viewer anyway, whose MyRole is null. Set by the session
+	// routes (GET /api/kb, GET /api/kb/global, GET/PATCH /api/kb/{id},
+	// POST /api/kb) and by GET /api/v1/kb (for the API key's owner); nil, and
+	// therefore absent, on /openai/v1/models.
+	Capabilities *kbaccess.Capabilities `json:"capabilities,omitempty"`
+
 	// UserFilters carries the caller's own topic filters for the shell's chip
 	// row (migration 0086, owned by internal/kbfilters). Embedded as a
 	// pointer so encoding/json flattens isFavorite/userCategoryIds into the
@@ -101,6 +122,49 @@ type KBRow struct {
 	// /openai/v1/models and the KB router never run the per-user subqueries,
 	// so personal display state does not leak into integrations.
 	*UserFilters
+}
+
+// accessKB is the kbaccess view of the row: the fields EffectiveRole and
+// CapabilitiesFor read, taken from the same columns kbaccess.PGStore.GetKBByID
+// selects (IsGlobal is visibility = 'public' in both).
+func (r *KBRow) accessKB() *kbaccess.KnowledgeBase {
+	return &kbaccess.KnowledgeBase{
+		ID:          r.ID,
+		UserID:      r.UserID,
+		IsGlobal:    r.IsGlobal,
+		IsPublished: r.IsPublished,
+		Sources: kbaccess.SourcePermissions{
+			ViewerSeeSources:      r.ViewerSeeSources,
+			ViewerSelectSources:   r.ViewerSelectSources,
+			ViewerDownloadSources: r.ViewerDownloadSources,
+			ViewerSeeCitations:    r.ViewerSeeCitations,
+			EditorManageSources:   r.EditorManageSources,
+		},
+	}
+}
+
+// ResolveCapabilities sets r.Capabilities for a caller with system role
+// sysRole whose own kb_members role is r.MyRole: the role through
+// kbaccess.EffectiveRole, the capabilities through kbaccess.CapabilitiesFor.
+// Requires a row read with kbMembershipCols (the list queries and
+// GetKnowledgeBase), since a nil MyRole is read as "no kb_members row".
+func (r *KBRow) ResolveCapabilities(sysRole string) {
+	memberRole := ""
+	if r.MyRole != nil {
+		memberRole = *r.MyRole
+	}
+	kb := r.accessKB()
+	caps := kbaccess.CapabilitiesFor(kb, kbaccess.EffectiveRole(kb, sysRole, memberRole))
+	r.Capabilities = &caps
+}
+
+// ResolveAllCapabilities runs ResolveCapabilities over a list response.
+// Shared with internal/publicapi, whose GET /api/v1/kb resolves for the API
+// key's owner.
+func ResolveAllCapabilities(rows []KBRow, sysRole string) {
+	for i := range rows {
+		rows[i].ResolveCapabilities(sysRole)
+	}
 }
 
 // UserFilters is the caller's per-user state on one KB. Both fields are the
@@ -221,6 +285,7 @@ func (h *Handler) ListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
 	if kbs == nil {
 		kbs = []KBRow{}
 	}
+	ResolveAllCapabilities(kbs, user.Role)
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kbs)
 }
 
@@ -252,6 +317,7 @@ func (h *Handler) ListGlobalKnowledgeBases(w http.ResponseWriter, r *http.Reques
 	if kbs == nil {
 		kbs = []KBRow{}
 	}
+	ResolveAllCapabilities(kbs, user.Role)
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kbs)
 }
 
@@ -288,6 +354,7 @@ func (h *Handler) GetKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "knowledge base not found")
 		return
 	}
+	row.ResolveCapabilities(user.Role)
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, row)
 }
 
@@ -336,6 +403,10 @@ func (h *Handler) CreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to create knowledge base")
 		return
 	}
+	// The creator holds the owner row the store wrote in the same
+	// transaction; the RETURNING row carries no MyRole to resolve from.
+	caps := kbaccess.CapabilitiesFor(kb.accessKB(), kbaccess.RoleOwner)
+	kb.Capabilities = &caps
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusCreated, kb)
 }

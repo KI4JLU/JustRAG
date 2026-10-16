@@ -19,6 +19,7 @@ import (
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/usage"
@@ -186,6 +187,11 @@ func writeSSEDone(ctx context.Context, w http.ResponseWriter) {
 // SendMessage handler
 // ---------------------------------------------------------------------------
 
+// MsgSelectSourcesForbidden is the 403 text for a turn that names files the
+// caller may not select on this KB (kbaccess.CapSelectSources). Shared with
+// the public API, which refuses the same field the same way.
+const MsgSelectSourcesForbidden = "selecting sources is not permitted on this knowledge base"
+
 // SendMessage handles POST /api/kb/{id}/chat.
 // It validates the request, resolves or creates a chat, runs the RAG pipeline,
 // and streams the AI response as Server-Sent Events when ?stream=true, or
@@ -229,6 +235,15 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	body, ok := parseAndValidateMessage(w, r, user.ID)
 	if !ok {
+		return
+	}
+
+	// A file selection is the per-request source checkbox, which the KB's
+	// source permissions may withhold from viewers (selectSources). Refused
+	// here, before the KB router, the chat row and the usage record, so a
+	// refusal leaves nothing behind.
+	if len(body.SelectedFileIDs) > 0 && !kbaccess.HasCapability(ctx, kbaccess.CapSelectSources) {
+		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, MsgSelectSourcesForbidden)
 		return
 	}
 
