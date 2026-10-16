@@ -48,7 +48,7 @@ const files = [{ id: 'f1', selected: true }] as FileEntry[];
 
 /** Minimal stand-in for the tree-state slice `useMessageTree` normally owns,
  * so `result.current.messageTree` reflects what `handleSendMessage` wrote. */
-function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string }; webSearchEnabled?: boolean | undefined } = {}) {
+function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string }; webSearchEnabled?: boolean | undefined; kb?: KnowledgeBase; files?: FileEntry[] } = {}) {
   const [messageTree, setMessageTree] = useState<Map<string, Message>>(new Map());
   const messageTreeRef = useRef(messageTree);
   useEffect(() => { messageTreeRef.current = messageTree; }, [messageTree]);
@@ -56,8 +56,8 @@ function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: s
   const setActiveChatId = (id: string | null) => { activeChatIdRef.current = id; };
 
   const stream = useChatStream({
-    currentKb: kb,
-    files,
+    currentKb: overrides.kb ?? kb,
+    files: overrides.files ?? files,
     enhance: null,
     reasoningEnabled: false,
     webSearchEnabled: 'webSearchEnabled' in overrides ? overrides.webSearchEnabled : false,
@@ -436,5 +436,43 @@ describe('useChatStream.handleSendMessage — webSearch field', () => {
     const body = await sentBody(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'webSearch')).toBe(true);
     expect(body.webSearch).toBe(false);
+  });
+});
+
+// Oracle: the backend contract (API.md "Source permissions"): a chat request
+// that names files from a caller without selectSources is refused with 403
+// before anything is written; a request without a selection is unaffected.
+describe('useChatStream.handleSendMessage — source selection right', () => {
+  const caps = (selectSources: boolean, seeSources = selectSources) => ({
+    seeSources, selectSources, downloadSources: false, seeCitations: false, manageSources: false,
+  });
+  const send = async (result: { current: ReturnType<typeof useHarness> }) => {
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Frage', null);
+    });
+  };
+
+  it('sends no selectedFileIds without the select right — and sends at all with an empty list', async () => {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
+    const viewerKb = { ...kb, capabilities: caps(false) } as KnowledgeBase;
+    const { result } = renderHook(() => useHarness({ kb: viewerKb, files: [] }));
+    await send(result);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect('selectedFileIds' in body).toBe(false);
+  });
+
+  it('still sends the selection with the right, and refuses an empty one', async () => {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
+    const editorKb = { ...kb, capabilities: caps(true) } as KnowledgeBase;
+    const { result } = renderHook(() => useHarness({ kb: editorKb }));
+    await send(result);
+    const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.selectedFileIds).toEqual(['f1']);
+
+    authFetchMock.mockClear();
+    const { result: empty } = renderHook(() => useHarness({ kb: editorKb, files: [] }));
+    await send(empty);
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 });

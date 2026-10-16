@@ -31,7 +31,7 @@ import {
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { hasKbAdminRole } from '../utils/kbAccess';
+import { chatSourceSelection, hasKbAdminRole } from '../utils/kbAccess';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
@@ -184,7 +184,12 @@ const ChatViewComp = () => {
   // and dims the composer until the user adds a first source.
   // Only once this KB's file list has arrived: before that it is unknown, and
   // flashing the onboarding for a split second on every KB open was the bug.
-  const noSources = filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // A caller who may not see the source list (capabilities.seeSources off) gets
+  // an empty list from a 403 — that is not "this KB has no sources".
+  const mayListSources = currentKb?.capabilities?.seeSources !== false;
+  const noSources = mayListSources && filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // What a turn sends about the selection, and whether it can go at all.
+  const sourceSelection = chatSourceSelection(currentKb, fileMgmt.files);
   // Starter prompts under the composer of an empty chat: the global KB's own,
   // then the site's, then the built-in pair.
   // Generated from the KB's documents, only while an empty chat can use them.
@@ -475,8 +480,9 @@ const ChatViewComp = () => {
                             ))}
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
-                        {/* N sources active — a label, not a control */}
-                        <span
+                        {/* N sources active — a label, not a control. Absent when the
+                            caller may not select: the answer uses the whole KB. */}
+                        {sourceSelection.selectedFileIds && <span
                           id="chat-composer-sources-count"
                           className="inline-flex items-center gap-1 whitespace-nowrap px-2 text-sm text-on-surface-variant"
                           title={t('activeSources')}
@@ -484,7 +490,7 @@ const ChatViewComp = () => {
                         >
                           <FileText size={16} aria-hidden="true" />
                           <span aria-hidden="true">{selectedFileCount}</span>
-                        </span>
+                        </span>}
                         {noSources ? (
                           // Why sending is off, on the send button. aria-disabled, not
                           // disabled: a disabled button takes no hover or focus, so the
@@ -509,7 +515,7 @@ const ChatViewComp = () => {
                             id="chat-composer-submit"
                             className="size-10"
                             status={chat.loading ? 'submitted' : undefined}
-                            disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()}
+                            disabled={chat.loading || !sourceSelection.canSend || !chat.userMessageInput.trim()}
                             aria-label={t('sendMessage')}
                           >
                             <ArrowUp aria-hidden="true" />
