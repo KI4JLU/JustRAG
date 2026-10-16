@@ -869,6 +869,9 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// kbViewChain as the list above — GetFileTabular's own fileBelongsToKB
 	// guard rejects a fileId that belongs to a different KB.
 	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbViewChain(kbHandler.GetFileTabular))
+	// One page of a file's materialized table for the source preview; the
+	// table must be one of that file's own catalog entries.
+	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular/rows", rc.kbViewChain(kbHandler.GetFileTabularRows))
 
 	// Member management — the four-role successor to the deprecated /share*
 	// surface, removed in Task 9 of the four-role KB permission model (see
