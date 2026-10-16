@@ -313,8 +313,9 @@ describe('SharedTopicsView card actions', () => {
      old file and each had its own `label`: the settings gate is the advanced
      panel, the pencil is rename. Collapsing them to one const made the pencil
      cases assert against the wrong control. */
-  const label = translations.kbAdvancedSettings.en;
-  const renameLabel = translations.renameKb.en;
+  // The settings item carries the DS ActionMenu badge, which is part of its name.
+  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
+  const renameLabel = translations.rename.en;
   it('shows the trigger for a caller whose myRole is admin', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);

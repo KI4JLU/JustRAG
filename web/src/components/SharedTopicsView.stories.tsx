@@ -480,12 +480,10 @@ export const ShareDialogOpensFromASharedKb: Story = {
     await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
     await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
+      await expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
-    await expect(canvas.getByRole('dialog')).toHaveAttribute(
-      'aria-labelledby',
-      'members-modal-title',
-    );
+    // ORACLE: the dialog's accessible name is its DialogTitle (WAI-ARIA dialog).
+    await expect(screen.getByRole('dialog', { name: 'Mitglieder' })).toBeInTheDocument();
 
     // ORACLE: the parent's spy. The share click must not also open the KB —
     // the `e.stopPropagation()` in the production hook is what decides that.
@@ -513,12 +511,12 @@ export const ViewerSeesNoManagementControls: Story = {
   play: async ({ canvas, userEvent }) => {
     const cardMenu = await openKbMenu(canvas, userEvent);
     await expect(cardMenu.queryByRole('menuitem', { name: 'Teilen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base umbenennen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'RAG-Einstellungen und Workflow' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Umbenennen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: /RAG Konfiguration/ })).toBeNull();
     await expect(
       cardMenu.getByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' }),
     ).toBeInTheDocument();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Löschen' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
     /* ORACLE: the fixture's `memberCount: 4` with a private visibility, which

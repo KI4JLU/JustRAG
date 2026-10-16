@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import axios from 'axios';
-import type { KnowledgeBase, FileEntry } from '../types';
+import type { KnowledgeBase } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { parseSseStream } from '../utils/sseParser';
 import { getApiErrorMessage } from '../utils/apiError';
+import { isSpreadsheetFile } from '../utils/fileTypes';
 
 interface UseWebToolsParams {
   currentKb: KnowledgeBase | null;
@@ -306,8 +307,8 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     setShowPdfPreview(true);
   }, []);
 
-  const handleOpenTabular = useCallback((file: FileEntry) => {
-    setTabularFile({ fileId: file.id, fileName: file.name });
+  const handleOpenTabular = useCallback((fileId: string, fileName: string) => {
+    setTabularFile({ fileId, fileName });
     setShowTabularModal(true);
   }, []);
 
@@ -335,6 +336,9 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
 
     if (isPdf) {
       handlePdfSourceOpen(id, name, 1);
+    } else if (isSpreadsheetFile(lowerName)) {
+      // The ingest report in the same preview frame as PDF and text sources.
+      handleOpenTabular(id, name);
     } else if (isTextOrMd) {
       // Markdown by name or type only: „Text einfügen" saves with a `.md`
       // suffix (useFileManagement), so older plain-text sources stay literal.
@@ -343,7 +347,7 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     } else {
       toast.info(t('previewNotSupported'));
     }
-  }, [handlePdfSourceOpen, fetchFileContent, t, toast]);
+  }, [handlePdfSourceOpen, handleOpenTabular, fetchFileContent, t, toast]);
 
   return useMemo(() => ({
     toolTab, setToolTab, toolInput, setToolInput,
@@ -356,7 +360,7 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     webResearchRunning, webResearchStatus, webResearchProgress,
     handleWebResearch, handleCancelWebResearch, handleToolSubmit,
     handleAddSources, handleUpdateWebResult, handleStartEditWebResult,
-    handlePdfSourceOpen, fetchFileContent, handlePreviewSource, handleOpenTabular,
+    handlePdfSourceOpen, fetchFileContent, handlePreviewSource,
   }), [
     toolTab, toolInput, crawlMaxPages, searchResultsCount,
     crawlResults, searchResults, selectedPages, sourcesAddedCount,
@@ -367,6 +371,6 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     webResearchRunning, webResearchStatus, webResearchProgress,
     handleWebResearch, handleCancelWebResearch, handleToolSubmit,
     handleAddSources, handleUpdateWebResult, handleStartEditWebResult,
-    handlePdfSourceOpen, fetchFileContent, handlePreviewSource, handleOpenTabular
+    handlePdfSourceOpen, fetchFileContent, handlePreviewSource
   ]);
 }

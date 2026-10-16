@@ -25,16 +25,6 @@ export function KbWorkspaceModals() {
           show={sharing.showShareModal}
           onClose={() => sharing.setShowShareModal(false)}
           sharingKb={sharing.sharingKb}
-          shareUserId={sharing.shareUserId}
-          setShareUserId={sharing.setShareUserId}
-          shareTargetUser={sharing.shareTargetUser}
-          shareLoading={sharing.shareLoading}
-          sharePermission={sharing.sharePermission}
-          setSharePermission={sharing.setSharePermission}
-          onLookupUser={sharing.lookupUser}
-          onConfirmShare={sharing.confirmShare}
-          notFoundUsername={sharing.notFoundUsername}
-          onPendingInvited={sharing.clearNotFound}
           myRole={currentKb?.myRole ?? 'view'}
         />}
       </Suspense>

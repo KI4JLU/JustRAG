@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, Eye, Edit3, Loader2, Trash2, Clock, Users, Crown, Shield, Link2, Copy } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { AtSign, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
+import {
+    ActionMenu, Avatar, Badge, BreadcrumbBack, Button, Combobox, ComboboxChip, ComboboxChipsInput, ComboboxContent, ComboboxItem,
+    ComboboxList, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label,
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger,
+    type ActionMenuItem, type ComboboxChipTone,
+} from '@ki4jlu/design-system';
 import type { KnowledgeBase, KbMember, KbRole, KbAssignableRole, KbInviteLink } from '../types';
-import { motion } from 'framer-motion';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
-import { useFormValidation } from '../hooks/useFormValidation';
 import { splitUsernames } from '../utils/splitUsernames';
 import { copyToClipboard } from '../utils/clipboard';
 
@@ -25,18 +28,6 @@ interface MembersModalProps {
     show: boolean;
     onClose: () => void;
     sharingKb: KnowledgeBase | null;
-    shareUserId: string;
-    setShareUserId: (id: string) => void;
-    shareTargetUser: { id: string; username: string; firstName?: string; lastName?: string } | null;
-    shareLoading: boolean;
-    sharePermission: KbAssignableRole;
-    setSharePermission: (perm: KbAssignableRole) => void;
-    onLookupUser: () => void;
-    onConfirmShare: () => void;
-    /** Username the lookup could not resolve — offer a pending invite for it. */
-    notFoundUsername: string | null;
-    /** Called after a pending invite is created, so the parent can reset its lookup state. */
-    onPendingInvited: () => void;
     /** Caller's own role on this KB — gates the ownership-transfer action. */
     myRole: string;
 }
@@ -47,7 +38,7 @@ interface MembersModalProps {
 // and POST /members/bulk.
 const ASSIGNABLE_ROLES: KbAssignableRole[] = ['view', 'edit', 'admin'];
 
-// roleLabelKey / roleDescKey map a role onto its translation keys. Kept as
+// ROLE_LABEL_KEY maps a role onto its translation key. Kept as
 // lookup tables so the label of a role is defined once, rather than as a
 // ternary chain repeated at each of the four places a role is rendered.
 const ROLE_LABEL_KEY: Record<KbAssignableRole, string> = {
@@ -56,86 +47,102 @@ const ROLE_LABEL_KEY: Record<KbAssignableRole, string> = {
     admin: 'adminPermission',
 };
 
-const ROLE_DESC_KEY: Record<KbAssignableRole, string> = {
-    view: 'viewPermissionDesc',
-    edit: 'editPermissionDesc',
-    admin: 'adminPermissionDesc',
-};
-
 const ROLE_ICON: Record<KbAssignableRole, typeof Eye> = {
     view: Eye,
     edit: Edit3,
     admin: Shield,
 };
 
-interface RolePickerProps {
+/** Badge tone per role on the invite links: read neutral, edit primary, admin secondary. */
+const ROLE_TONE: Record<KbAssignableRole, 'neutral' | 'primary' | 'secondary'> = {
+    view: 'neutral',
+    edit: 'primary',
+    admin: 'secondary',
+};
+
+interface RoleSelectProps {
+    /** For a visible <Label htmlFor>. */
+    id?: string;
+    /** Full width of its column instead of the compact row width. */
+    wide?: boolean;
     value: KbAssignableRole;
     onChange: (role: KbAssignableRole) => void;
+    /** Accessible name; the trigger shows only the chosen role. */
+    label: string;
     t: (k: string) => string;
-    /** Slightly tighter buttons for the inline pending-invite panel. */
-    compact?: boolean;
+    disabled?: boolean;
 }
 
 /**
- * The three-way role picker shared by the single-user invite, the
- * pending-invite panel and the bulk invite. It always renders the heading and
- * the description of the selected role: the pending-invite panel used to omit
- * both, so a user inviting somebody without an account saw two unlabelled
- * buttons and no explanation of what either grants.
+ * The role picker used by the invite row, the bulk invite, the invite links
+ * and every member row: one DS Select over the three assignable roles. The
+ * options carry no descriptions (developer, 2026-10-12).
  */
-function RolePicker({ value, onChange, t, compact = false }: RolePickerProps) {
-    const pad = compact ? '0.6rem' : '0.75rem';
-    const iconSize = compact ? 16 : 18;
+function RoleSelect({ id, wide, value, onChange, label, t, disabled }: RoleSelectProps) {
     return (
-        <div className="input-group" style={{ marginBottom: compact ? '1rem' : '1.5rem' }}>
-            <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'block' }}>
-                {t('selectPermission')}
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem' }} role="group" aria-label={t('selectPermission')}>
-                {ASSIGNABLE_ROLES.map(role => {
-                    const Icon = ROLE_ICON[role];
-                    return (
-                        <button
-                            key={role}
-                            onClick={() => onChange(role)}
-                            className={value === role ? 'search-button' : 'secondary-button'}
-                            style={{ flex: 1, padding: pad, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                            aria-pressed={value === role}
-                        >
-                            <Icon size={iconSize} aria-hidden="true" />
-                            {t(ROLE_LABEL_KEY[role])}
-                        </button>
-                    );
-                })}
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                {t(ROLE_DESC_KEY[value])}
-            </p>
-        </div>
+        <Select value={value} onValueChange={(v) => onChange(v as KbAssignableRole)} disabled={disabled}>
+            <SelectTrigger id={id} aria-label={label} className={wide ? 'w-full max-w-xs' : 'w-36 shrink-0'}>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+                {ASSIGNABLE_ROLES.map(role => (
+                    <SelectItem key={role} value={role}>{t(ROLE_LABEL_KEY[role])}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     );
 }
 
-export const MembersModal: React.FC<MembersModalProps> = ({
-    show, onClose, sharingKb, shareUserId, setShareUserId, shareTargetUser,
-    shareLoading, sharePermission, setSharePermission, onLookupUser, onConfirmShare,
-    notFoundUsername, onPendingInvited, myRole,
-}) => {
+/** Two initials from the name, else from the username. */
+function initialsOf(firstName: string | null | undefined, lastName: string | null | undefined, username: string): string {
+    const fromName = `${firstName?.trim()[0] ?? ''}${lastName?.trim()[0] ?? ''}`;
+    return (fromName || username.slice(0, 2)).toUpperCase();
+}
+
+function displayName(firstName: string | null | undefined, lastName: string | null | undefined, username: string): string {
+    return [firstName, lastName].filter(Boolean).join(' ').trim() || username;
+}
+
+/** A user as GET /api/users/{username} returns them. */
+interface LookedUpUser { id: string; username: string; firstName?: string | null; lastName?: string | null }
+
+/**
+ * One name in the "Benutzernamen" field. Resolved by an exact username lookup
+ * (no directory search, developer 2026-10-12):
+ * - `found`: an account — a chip with avatar and name, added directly;
+ * - `pending`: no account yet — a warning chip, parked as a pending invite
+ *   and granted at the person's first login (kept, developer 2026-10-12);
+ * - `member` / `invalid` / `failed`: an error chip, skipped when adding.
+ */
+interface Candidate {
+    key: string;
+    typed: string;
+    status: 'resolving' | 'found' | 'pending' | 'member' | 'invalid' | 'failed';
+    user?: LookedUpUser;
+}
+
+/** Names that are sent to the bulk endpoint: accounts and pending invites. */
+const isAddable = (c: Candidate) => c.status === 'found' || c.status === 'pending';
+
+export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, sharingKb, myRole }) => {
     const { t, language } = useTheme();
     const { token } = useAuth();
     const { showConfirm } = useModalContext();
     const toast = useToast();
-    const reducedMotion = useReducedMotion();
-    const { errors, validate, clearError } = useFormValidation({
-        username: (v) => !v.trim() && t('fieldRequired'),
-    });
     const [members, setMembers] = useState<KbMember[]>([]);
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [pendingInvites, setPendingInvites] = useState<PendingMemberInvite[]>([]);
-    const [mode, setMode] = useState<'single' | 'bulk' | 'link'>('single');
-    const [bulkText, setBulkText] = useState('');
+    // Two views in one dialog (mockup, 2026-10-12): the member list, and
+    // "Mitglieder hinzufügen" with its two tabs.
+    const [view, setView] = useState<'members' | 'add'>('members');
+    const [addTab, setAddTab] = useState<'usernames' | 'links'>('usernames');
+    const [candidates, setCandidates] = useState<Candidate[]>([]);
+    const [query, setQuery] = useState('');
+    // The lookup result for one typed string; shown only while it still matches.
+    const [lookedUp, setLookedUp] = useState<{ typed: string; user: LookedUpUser | null } | null>(null);
+    const [suggestionsOpen, setSuggestionsOpen] = useState(false);
     const [bulkPermission, setBulkPermission] = useState<KbAssignableRole>('view');
     const [bulkLoading, setBulkLoading] = useState(false);
-    const [bulkSummary, setBulkSummary] = useState<{ shared: string[]; pending: string[]; alreadyHadAccess: string[] } | null>(null);
 
     const fetchMembers = useCallback(async () => {
         if (!sharingKb) return;
@@ -176,11 +183,6 @@ export const MembersModal: React.FC<MembersModalProps> = ({
         }
     }, [sharingKb, token, toast, t]);
 
-    // Only fetched when the tab is actually opened: most sessions never touch
-    // invite links, and the modal already does one round trip on mount.
-    useEffect(() => {
-        if (show && mode === 'link') void fetchInviteLinks();
-    }, [show, mode, fetchInviteLinks]);
 
     // The full URL is assembled client-side, so the backend never needs to
     // know its own public origin.
@@ -198,6 +200,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({
     const handleCreateInviteLink = async () => {
         if (!sharingKb) return;
         setLinkLoading(true);
+        if (!linkLabel.trim()) return;
         try {
             const res = await axios.post(`${API_BASE_URL}/api/kb/${sharingKb.id}/invite-links`, {
                 role: linkPermission,
@@ -237,14 +240,9 @@ export const MembersModal: React.FC<MembersModalProps> = ({
         }
     };
 
-    // Parent closes the modal on successful share, so the member list refreshes on re-open.
-    const handleConfirmShare = async () => {
-        await onConfirmShare();
-    };
-
-    const handleRemoveMember = async (userId: string) => {
+    const handleRemoveMember = async (userId: string, username: string) => {
         if (!sharingKb) return;
-        if (!await showConfirm(t('confirmRemoveShare') || 'Are you sure you want to remove this user?')) return;
+        if (!await showConfirm(t('confirmRemoveShare').replace('{username}', username))) return;
 
         if (!token) return;
 
@@ -303,7 +301,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({
 
     const handleBulkInvite = async () => {
         if (!sharingKb) return;
-        const usernames = splitUsernames(bulkText);
+        const usernames = candidates.filter(isAddable).map(c => c.user?.username ?? c.typed);
         if (usernames.length === 0) return;
         setBulkLoading(true);
         try {
@@ -311,8 +309,17 @@ export const MembersModal: React.FC<MembersModalProps> = ({
                 usernames,
                 role: bulkPermission,
             });
-            setBulkSummary(res.data);
-            setBulkText('');
+            // Unknown usernames are parked as pending invites and granted at the
+            // person's first login (kept, developer 2026-10-12): the summary says
+            // how many of each.
+            const summary = res.data as { shared: string[]; pending: string[]; alreadyHadAccess: string[] };
+            toast.success(t('bulkInviteSummary')
+                .replace('{shared}', String(summary.shared.length))
+                .replace('{pending}', String(summary.pending.length))
+                .replace('{already}', String(summary.alreadyHadAccess.length)));
+            setCandidates([]);
+            setQuery('');
+            setView('members');
             await fetchMembers(); // refresh members + pending lists
         } catch (err: unknown) {
             console.error('Bulk invite failed:', err);
@@ -322,391 +329,457 @@ export const MembersModal: React.FC<MembersModalProps> = ({
         }
     };
 
-    const [pendingInviteLoading, setPendingInviteLoading] = useState(false);
+    const isMember = useCallback((userId: string) => members.some(m => m.userId === userId), [members]);
 
-    // Invite a username with no account yet. Reuses the bulk endpoint, which
-    // already parks unknown usernames in pending_kb_invites; they are promoted
-    // to a real membership on the user's first login.
-    const handleInviteAnyway = async () => {
-        if (!sharingKb || !notFoundUsername) return;
-        setPendingInviteLoading(true);
+    // GET /api/users/{term} is NOT an exact lookup: with no exact username (or
+    // id) it falls back to a substring search over username, first and last
+    // name and returns the first hit (users.SearchUserByTerm). Fine for the
+    // suggestion row — the owner picks that person explicitly — but a committed
+    // name must never silently become whoever the search hit first.
+    const fetchUser = useCallback(async (term: string): Promise<LookedUpUser | null> => {
         try {
-            await axios.post(`${API_BASE_URL}/api/kb/${sharingKb.id}/members/bulk`, {
-                usernames: [notFoundUsername],
-                role: sharePermission,
-            });
-            await fetchMembers(); // surface the new invite in the pending list below
-            toast.success(t('inviteAnywaySuccess').replace('{username}', notFoundUsername));
-            onPendingInvited();
+            const res = await axios.get(`${API_BASE_URL}/api/users/${encodeURIComponent(term)}`);
+            return res.data as LookedUpUser;
         } catch (err: unknown) {
-            console.error('Pending invite failed:', err);
-            toast.error(t('bulkInviteError'));
-        } finally {
-            setPendingInviteLoading(false);
+            if (axios.isAxiosError(err) && err.response?.status === 404) return null;
+            throw err;
         }
+    }, []);
+
+    // A committed name: an account only on an exact username (or id) match.
+    // Anything else is what the bulk endpoint makes of it too — a pending invite
+    // for exactly the typed name.
+    const lookup = useCallback(async (typed: string): Promise<Pick<Candidate, 'status' | 'user'>> => {
+        if (!typed || /\s/.test(typed)) return { status: 'invalid' };
+        try {
+            const user = await fetchUser(typed);
+            const exact = user && (user.username.toLowerCase() === typed.toLowerCase() || user.id === typed);
+            if (!exact) return { status: 'pending' };
+            return { status: isMember(user.id) ? 'member' : 'found', user };
+        } catch {
+            return { status: 'failed' };
+        }
+    }, [fetchUser, isMember]);
+
+    // Commit names: each becomes a chip at once ("resolving"), then takes the
+    // state its lookup returns. A name already in the field is not added twice.
+    const addNames = useCallback((names: string[]) => {
+        setCandidates(prev => {
+            const seen = new Set(prev.map(c => c.key));
+            const fresh: Candidate[] = [];
+            for (const typed of names) {
+                const key = typed.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                fresh.push({ key, typed, status: 'resolving' });
+            }
+            for (const c of fresh) {
+                void lookup(c.typed).then(result => setCandidates(cur => {
+                    // Two names that resolve to the same account ("Tester",
+                    // "tester", the user's id) are one person: keep the first chip.
+                    if (result.user && cur.some(x => x.key !== c.key && x.user?.id === result.user!.id)) {
+                        return cur.filter(x => x.key !== c.key);
+                    }
+                    return cur.map(x => x.key === c.key ? { ...x, ...result } : x);
+                }));
+            }
+            return [...prev, ...fresh];
+        });
+    }, [lookup]);
+
+    const addSuggestion = (user: LookedUpUser) => {
+        const key = user.username.toLowerCase();
+        setCandidates(prev => prev.some(c => c.key === key || c.user?.id === user.id)
+            ? prev
+            : [...prev, { key, typed: user.username, status: isMember(user.id) ? 'member' : 'found', user }]);
     };
+
+    // The suggestion row: whoever the search finds for the text typed so far
+    // ("tes" → Tessa Beispiel), unless that person is already in the field.
+    const typedQuery = query.trim();
+    const canSuggest = typedQuery.length >= 2 && !/\s/.test(typedQuery);
+    useEffect(() => {
+        if (!canSuggest) return;
+        const timer = setTimeout(() => {
+            void fetchUser(typedQuery)
+                .then(user => setLookedUp({ typed: typedQuery, user }))
+                .catch(() => setLookedUp({ typed: typedQuery, user: null }));
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [typedQuery, canSuggest, fetchUser]);
+    const suggestion = canSuggest && lookedUp?.typed === typedQuery && lookedUp.user
+        && !candidates.some(c => c.key === lookedUp.user!.username.toLowerCase() || c.user?.id === lookedUp.user!.id)
+        ? lookedUp.user : null;
+
+    // "CSV hochladen": the file's names become chips like typed ones. Any
+    // separator splitUsernames knows (comma, whitespace, newline, and ";"); a
+    // header cell "username" is dropped.
+    const csvRef = useRef<HTMLInputElement>(null);
+    const handleCsv = async (file: File | undefined) => {
+        if (!file) return;
+        const names = splitUsernames((await file.text()).replace(/;/g, ','))
+            .filter(n => !/^(username|benutzername|user)$/i.test(n));
+        addNames(names);
+        if (csvRef.current) csvRef.current.value = '';
+    };
+
+    const addableCount = candidates.filter(isAddable).length;
+    const resolving = candidates.some(c => c.status === 'resolving');
+    const pendingNames = candidates.filter(c => c.status === 'pending').map(c => c.typed);
+    const skippedNames = candidates.filter(c => c.status === 'member' || c.status === 'invalid' || c.status === 'failed')
+        .map(c => (c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed));
+
+    const chipTone = (c: Candidate): ComboboxChipTone =>
+        c.status === 'pending' ? 'warning' : c.status === 'member' || c.status === 'invalid' || c.status === 'failed' ? 'error' : 'default';
+    const chipStatusKey: Record<Candidate['status'], string> = {
+        resolving: 'chipResolving', found: '', pending: 'chipPending', member: 'alreadyMember',
+        invalid: 'chipInvalid', failed: 'chipLookupFailed',
+    };
+
+    const usernamesId = useId();
+    const usernamesHintId = useId();
+    const roleId = useId();
+    const linkTitleId = useId();
+    const linkRoleId = useId();
+    const membersHeadingId = useId();
+    const linksHeadingId = useId();
 
     if (!show) return null;
 
+    const memberActions = (m: KbMember): ActionMenuItem[] => {
+        const canTransfer = myRole === 'owner' && m.role === 'admin';
+        return [
+            ...(canTransfer ? [{
+                label: t('makeOwner'),
+                icon: <Crown className="size-4" aria-hidden="true" />,
+                onSelect: () => { void handleMakeOwner(m.userId, m.username); },
+            }] : []),
+            {
+                label: t('removeShare'),
+                icon: <Trash2 className="size-4" aria-hidden="true" />,
+                destructive: true,
+                separatorBefore: canTransfer,
+                onSelect: () => { void handleRemoveMember(m.userId, m.username); },
+            },
+        ];
+    };
+
+    const openAdd = () => { setView('add'); if (addTab === 'links') void fetchInviteLinks(); };
+
     return (
-        <div className="modal-overlay" role="presentation" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="members-modal-title" style={{ maxWidth: '500px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <h3 id="members-modal-title" style={{ margin: 0 }}>&quot;{sharingKb?.name}&quot; &middot; {t('members')}</h3>
-                    <button onClick={onClose} className="icon-button" aria-label={t('close')}><X size={20} /></button>
-                </div>
+        <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
+            <DialogContent closeLabel={t('close')} className="max-w-xl" aria-describedby={undefined}>
+                {view === 'members' ? (
+                    <>
+                        <DialogHeader className="min-w-0 pr-10">
+                            <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
+                            <DialogTitle>{t('members')}</DialogTitle>
+                        </DialogHeader>
 
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }} role="tablist">
-                    <button
-                        role="tab"
-                        aria-selected={mode === 'single'}
-                        onClick={() => { setMode('single'); setBulkSummary(null); }}
-                        className={mode === 'single' ? 'search-button' : 'secondary-button'}
-                        style={{ flex: 1, padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                    >
-                        <User size={16} aria-hidden="true" /> {t('singleShare')}
-                    </button>
-                    <button
-                        role="tab"
-                        aria-selected={mode === 'bulk'}
-                        onClick={() => { setMode('bulk'); setBulkSummary(null); }}
-                        className={mode === 'bulk' ? 'search-button' : 'secondary-button'}
-                        style={{ flex: 1, padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                    >
-                        <Users size={16} aria-hidden="true" /> {t('bulkInvite')}
-                    </button>
-                    <button
-                        role="tab"
-                        aria-selected={mode === 'link'}
-                        onClick={() => { setMode('link'); setBulkSummary(null); }}
-                        className={mode === 'link' ? 'search-button' : 'secondary-button'}
-                        style={{ flex: 1, padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                    >
-                        <Link2 size={16} aria-hidden="true" /> {t('inviteLinks')}
-                    </button>
-                </div>
-
-                {mode === 'single' && (<>
-                <div className="input-group" style={{ marginBottom: '1.5rem' }}>
-                    <label htmlFor="share-username" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'block' }}>{t('enterRecipientUsername')}</label>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <input
-                            id="share-username"
-                            type="text"
-                            value={shareUserId}
-                            onChange={e => { setShareUserId(e.target.value); clearError('username'); }}
-                            placeholder={t('username')}
-                            style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && validate({ username: shareUserId })) onLookupUser(); }}
-                        />
-                        <button
-                            onClick={() => { if (validate({ username: shareUserId })) onLookupUser(); }}
-                            className="secondary-button"
-                            style={{ padding: '0.75rem 1rem' }}
-                            disabled={shareLoading}
-                        >
-                            {t('search')}
-                        </button>
-                    </div>
-                    {errors.username && <span className="field-error" role="alert">{errors.username}</span>}
-                </div>
-
-                {notFoundUsername && !shareTargetUser && (
-                    <div
-                        role="status"
-                        style={{
-                            padding: '1rem',
-                            background: 'var(--warning-bg)',
-                            borderRadius: '12px',
-                            marginBottom: '1.5rem',
-                            border: '1px solid var(--warning-text)',
-                        }}
-                    >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                            <Clock size={18} aria-hidden="true" />
-                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                {t('noAccountYet').replace('{username}', notFoundUsername)}
-                            </span>
-                        </div>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 1rem 0' }}>
-                            {t('pendingInviteHint')}
-                        </p>
-                        <RolePicker value={sharePermission} onChange={setSharePermission} t={t} compact />
-                        <button
-                            onClick={handleInviteAnyway}
-                            className="search-button"
-                            style={{ width: '100%' }}
-                            disabled={pendingInviteLoading}
-                        >
-                            {pendingInviteLoading ? <Loader2 className="animate-spin" size={18} /> : t('inviteAnyway')}
-                        </button>
-                    </div>
-                )}
-
-                {shareTargetUser && (
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        {...getMotionProps(reducedMotion)}
-                        style={{
-                            padding: '1rem',
-                            background: 'var(--tag-bg)',
-                            borderRadius: '12px',
-                            marginBottom: '1.5rem',
-                            border: '1px solid var(--accent-primary)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '1rem'
-                        }}
-                    >
-                        <div style={{ padding: '0.5rem', background: 'var(--accent-primary)', borderRadius: '50%', color: 'white' }}>
-                            <User size={24} aria-hidden="true" />
-                        </div>
-                        <div style={{ textAlign: 'left', flex: 1 }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                {shareTargetUser.firstName} {shareTargetUser.lastName}
+                        <section aria-labelledby={membersHeadingId} className="flex flex-col gap-stack-sm">
+                            <div className="flex items-center gap-2">
+                                <h3 id={membersHeadingId} className="m-0 text-base font-semibold text-on-surface">{t('allMembers')}</h3>
+                                <Badge>{members.length}</Badge>
+                                {loadingMembers && <Loader2 className="size-4 animate-spin text-on-surface-variant" aria-hidden="true" />}
                             </div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                                @{shareTargetUser.username}
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-
-                {shareTargetUser && (
-                    <RolePicker value={sharePermission} onChange={setSharePermission} t={t} />
-                )}
-
-                {shareTargetUser ? (
-                    <div style={{ display: 'flex', gap: '1rem', marginBottom: members.length > 0 ? '2rem' : 0 }}>
-                        <button
-                            onClick={handleConfirmShare}
-                            className="search-button"
-                            style={{ flex: 1 }}
-                            disabled={shareLoading}
-                        >
-                            {shareLoading ? <Loader2 className="animate-spin" size={18} /> : t('confirmShare')}
-                        </button>
-                        <button onClick={() => { setShareUserId(''); onLookupUser(); }} className="secondary-button" style={{ flex: 1 }}>
-                            {t('cancel')}
-                        </button>
-                    </div>
-                ) : null}
-                </>)}
-
-                {mode === 'bulk' && (
-                    <div className="input-group" style={{ marginBottom: '1.5rem' }}>
-                        <label htmlFor="bulk-usernames" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'block' }}>
-                            {t('bulkInvite')}
-                        </label>
-                        <textarea
-                            id="bulk-usernames"
-                            aria-label={t('bulkInvite')}
-                            value={bulkText}
-                            onChange={e => setBulkText(e.target.value)}
-                            placeholder={t('bulkInvitePaste')}
-                            rows={5}
-                            style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', resize: 'vertical' }}
-                        />
-                        <RolePicker value={bulkPermission} onChange={setBulkPermission} t={t} compact />
-                        <button onClick={handleBulkInvite} className="search-button" style={{ width: '100%' }} disabled={bulkLoading || splitUsernames(bulkText).length === 0}>
-                            {bulkLoading ? <Loader2 className="animate-spin" size={18} /> : t('bulkInviteButton')}
-                        </button>
-                        {bulkSummary && (
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.75rem' }}>
-                                {t('bulkInviteSummary')
-                                    .replace('{shared}', String(bulkSummary.shared.length))
-                                    .replace('{pending}', String(bulkSummary.pending.length))
-                                    .replace('{already}', String(bulkSummary.alreadyHadAccess.length))}
-                            </p>
-                        )}
-                    </div>
-                )}
-
-                {mode === 'link' && (
-                    <div>
-                        <div className="input-group" style={{ marginBottom: '1rem' }}>
-                            <label htmlFor="invite-link-label" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'block' }}>
-                                {t('inviteLinkLabel')}
-                            </label>
-                            <input
-                                id="invite-link-label"
-                                value={linkLabel}
-                                onChange={e => setLinkLabel(e.target.value)}
-                                maxLength={100}
-                                placeholder={t('inviteLinkLabelPlaceholder')}
-                            />
-                        </div>
-
-                        <RolePicker value={linkPermission} onChange={setLinkPermission} t={t} compact />
-
-                        <button
-                            onClick={handleCreateInviteLink}
-                            disabled={linkLoading}
-                            className="search-button"
-                            style={{ width: '100%', marginBottom: '1.5rem' }}
-                        >
-                            {linkLoading ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} aria-hidden="true" />}
-                            {t('createInviteLink')}
-                        </button>
-
-                        {inviteLinks.length === 0 ? (
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('noInviteLinks')}</p>
-                        ) : (
-                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                {inviteLinks.map(link => {
-                                    const Icon = ROLE_ICON[link.role];
-                                    return (
-                                        <li key={link.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                                    <Icon size={14} aria-hidden="true" />
-                                                    <span style={{ fontWeight: 500 }}>{link.label || t('inviteLinkUnnamed')}</span>
-                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                        {t(ROLE_LABEL_KEY[link.role])}
-                                                    </span>
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                    {link.redemptionCount === 0
-                                                        ? t('inviteLinkNeverUsed')
-                                                        : `${t('inviteLinkUses')}: ${link.redemptionCount}`}
-                                                    {link.lastUsedAt && (
-                                                        <> · {t('inviteLinkLastUsed')}: {formatInviteLinkLastUsed(link.lastUsedAt)}</>
-                                                    )}
-                                                </div>
+                            {members.length > 0 && (
+                                <ul className="m-0 flex max-h-80 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                    {members.map(m => (
+                                        <li key={m.userId} data-testid={`member-row-${m.userId}`} className="flex items-center gap-3 px-4 py-3">
+                                            <Avatar initials={initialsOf(m.firstName, m.lastName, m.username)} />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="truncate font-medium text-on-surface">{displayName(m.firstName, m.lastName, m.username)}</div>
+                                                <div className="truncate text-sm text-on-surface-variant">@{m.username}</div>
                                             </div>
-                                            <button onClick={() => handleCopyInviteLink(link)} className="icon-button" aria-label={t('copyToClipboard')}>
-                                                <Copy size={16} />
-                                            </button>
-                                            <button onClick={() => handleRevokeInviteLink(link.id)} className="icon-button" aria-label={t('revokeInviteLink')}>
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
-                    </div>
-                )}
-
-                {/* Member list */}
-                {members.length > 0 && (
-                    <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
-                        <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
-                            {t('members')} {loadingMembers && <Loader2 className="animate-spin" size={14} style={{ display: 'inline', marginLeft: '8px' }} />}
-                        </h4>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
-                            {members.map(m => (
-                                <div key={m.userId} data-testid={`member-row-${m.userId}`} style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    padding: '0.75rem',
-                                    background: 'var(--bg-secondary)',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--border-color)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                        <div style={{
-                                            padding: '0.4rem',
-                                            background: 'var(--tag-bg)',
-                                            borderRadius: '50%',
-                                            color: 'var(--accent-primary)',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                        }}>
-                                            <User size={16} aria-hidden="true" />
-                                        </div>
-                                        <div>
-                                            <div style={{ fontWeight: 500, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                                                {m.firstName} {m.lastName}
-                                            </div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                @{m.username}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {m.role === 'owner' ? (
-                                        <span
-                                            aria-label={t('ownerLabel')}
-                                            title={t('ownerLabel')}
-                                            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}
-                                        >
-                                            <Crown size={14} aria-hidden="true" />
-                                            {t('kbRoleOwner')}
-                                        </span>
-                                    ) : (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            {myRole === 'owner' && m.role === 'admin' && (
-                                                <button
-                                                    onClick={() => handleMakeOwner(m.userId, m.username)}
-                                                    className="icon-button"
-                                                    style={{ fontSize: '0.75rem', padding: '4px 8px', width: 'auto' }}
-                                                    title={t('makeOwner')}
-                                                >
-                                                    {t('makeOwner')}
-                                                </button>
+                                            {m.role === 'owner' ? (
+                                                <Badge tone="warning" title={t('ownerLabel')}>
+                                                    <Crown className="size-3" aria-hidden="true" />
+                                                    {t('kbRoleOwner')}
+                                                </Badge>
+                                            ) : (
+                                                <>
+                                                    <RoleSelect
+                                                        value={m.role as KbAssignableRole}
+                                                        onChange={(role) => { void handleRoleChange(m.userId, role); }}
+                                                        label={`${t('selectRole')}: @${m.username}`}
+                                                        t={t}
+                                                    />
+                                                    <ActionMenu
+                                                        label={t('memberActions').replace('{username}', m.username)}
+                                                        actions={memberActions(m)}
+                                                        align="end"
+                                                    />
+                                                </>
                                             )}
-                                            <select
-                                                aria-label={t('selectRole')}
-                                                value={m.role}
-                                                onChange={e => handleRoleChange(m.userId, e.target.value)}
-                                                style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                                            >
-                                                {ASSIGNABLE_ROLES.map(role => (
-                                                    <option key={role} value={role}>
-                                                        {t(ROLE_LABEL_KEY[role])}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <button
-                                                onClick={() => handleRemoveMember(m.userId)}
-                                                className="icon-button"
-                                                style={{ color: 'var(--error-color)', padding: '6px' }}
-                                                title={t('removeShare') || 'Remove access'}
-                                                aria-label={t('removeShare') || 'Remove access'}
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </section>
 
-                {pendingInvites.length > 0 && (
-                    <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
-                        <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
-                            {t('pendingInvites')}
-                        </h4>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 1rem 0' }}>{t('pendingInviteHint')}</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '160px', overflowY: 'auto' }}>
-                            {pendingInvites.map(p => (
-                                <div key={p.username} data-testid={`pending-row-${p.username}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                        <Clock size={14} aria-hidden="true" style={{ color: 'var(--text-secondary)' }} />
-                                        <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-                                            @{p.username} &middot; {t(ROLE_LABEL_KEY[p.role as KbAssignableRole] ?? 'viewPermission')}
-                                        </span>
-                                    </div>
-                                    <button
-                                        onClick={() => handleRevokePending(p.username)}
-                                        className="icon-button"
-                                        style={{ color: 'var(--error-color)', padding: '6px' }}
-                                        title={t('revokeInvite')}
-                                        aria-label={t('revokeInvite')}
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                            ))}
+                        {pendingInvites.length > 0 && (
+                            <section className="flex flex-col gap-stack-sm">
+                                <h3 className="m-0 text-base font-semibold text-on-surface">{t('pendingInvites')}</h3>
+                                <p className="m-0 text-sm text-on-surface-variant">{t('pendingInviteHint')}</p>
+                                <ul className="m-0 flex max-h-48 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                    {pendingInvites.map(p => (
+                                        <li key={p.username} data-testid={`pending-row-${p.username}`} className="flex items-center gap-3 px-4 py-2">
+                                            <Clock className="size-4 shrink-0 text-on-surface-variant" aria-hidden="true" />
+                                            <span className="min-w-0 flex-1 truncate text-on-surface">@{p.username}</span>
+                                            <span className="shrink-0 text-sm text-on-surface-variant">
+                                                {t(ROLE_LABEL_KEY[p.role as KbAssignableRole] ?? 'viewPermission')}
+                                            </span>
+                                            <Button variant="ghost" size="icon" onClick={() => handleRevokePending(p.username)} aria-label={t('revokeInvite')} title={t('revokeInvite')}>
+                                                <Trash2 className="size-4" aria-hidden="true" />
+                                            </Button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </section>
+                        )}
+
+                        {/* A dialog's actions live in its footer — a hard design rule
+                            (developer, 2026-10-13), never in the header. */}
+                        <div className="border-t border-outline-variant pt-4">
+                            <DialogFooter>
+                                <Button onClick={openAdd}>
+                                    <Plus className="size-4" aria-hidden="true" />
+                                    {t('add')}
+                                </Button>
+                            </DialogFooter>
                         </div>
-                    </div>
+                    </>
+                ) : (
+                    <>
+                        {/* Back navigation is a breadcrumb above the title, the default
+                            for every sub-view (developer, 2026-10-13); "Abbrechen" and
+                            "Fertig" also return to the list, only the ✕ closes. */}
+                        <DialogHeader className="min-w-0 pr-10">
+                            <BreadcrumbBack
+                                trail={[sharingKb?.name ?? '', t('members')].filter(Boolean)}
+                                labels={{ nav: t('breadcrumbNav'), back: t('backTo') }}
+                                onClick={() => setView('members')}
+                            />
+                            <DialogTitle>{t('addMembers')}</DialogTitle>
+                        </DialogHeader>
+
+                        <Tabs value={addTab} onValueChange={(v) => {
+                            setAddTab(v as typeof addTab);
+                            // Only fetched when the tab is opened: most sessions never
+                            // touch invite links.
+                            if (v === 'links') void fetchInviteLinks();
+                        }}>
+                            <TabsList variant="segmented" aria-label={t('addMembers')} className="self-start">
+                                <TabsTrigger value="usernames"><AtSign className="size-4" aria-hidden="true" />{t('byUsername')}</TabsTrigger>
+                                <TabsTrigger value="links"><Link2 className="size-4" aria-hidden="true" />{t('inviteLinks')}</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="usernames">
+                                <form
+                                    className="flex flex-col gap-stack-md"
+                                    onSubmit={(e) => { e.preventDefault(); if (!resolving) void handleBulkInvite(); }}
+                                >
+                                    <div className="flex flex-col gap-stack-sm">
+                                        <div className="flex items-center justify-between gap-stack-sm">
+                                            <Label id={usernamesId}>{t('usernamesLabel')}</Label>
+                                            <Button type="button" variant="link" size="sm" onClick={() => csvRef.current?.click()}>
+                                                {t('uploadCsv')}
+                                            </Button>
+                                            <Input
+                                                ref={csvRef}
+                                                type="file"
+                                                accept=".csv,.txt,text/csv,text/plain"
+                                                hidden
+                                                aria-label={t('uploadCsv')}
+                                                onChange={(e) => { void handleCsv(e.target.files?.[0]); }}
+                                            />
+                                        </div>
+                                        <p id={usernamesHintId} className="m-0 text-sm text-on-surface-variant">{t('usernamesHint')}</p>
+                                        <Combobox
+                                            shouldFilter={false}
+                                            open={suggestionsOpen && suggestion !== null}
+                                            onOpenChange={setSuggestionsOpen}
+                                        >
+                                            <ComboboxChipsInput
+                                                aria-labelledby={usernamesId}
+                                                aria-describedby={usernamesHintId}
+                                                chipsLabel={t('selectedPeople')}
+                                                placeholder={candidates.length === 0 ? t('username') : undefined}
+                                                autoComplete="off"
+                                                value={query}
+                                                onValueChange={setQuery}
+                                                onCommit={addNames}
+                                                onRemoveLast={() => setCandidates(prev => prev.slice(0, -1))}
+                                            >
+                                                {candidates.map(c => {
+                                                    const label = c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed;
+                                                    const status = chipStatusKey[c.status] ? t(chipStatusKey[c.status]) : '';
+                                                    return (
+                                                        <ComboboxChip
+                                                            key={c.key}
+                                                            label={label}
+                                                            tone={chipTone(c)}
+                                                            leading={c.status === 'resolving'
+                                                                ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                                                : c.user ? <Avatar size="xs" initials={initialsOf(c.user.firstName, c.user.lastName, c.user.username)} /> : undefined}
+                                                            labels={{
+                                                                remove: (l) => t('removeChip').replace('{label}', l),
+                                                                warning: status,
+                                                                error: status,
+                                                            }}
+                                                            onRemove={() => setCandidates(prev => prev.filter(x => x.key !== c.key))}
+                                                        />
+                                                    );
+                                                })}
+                                            </ComboboxChipsInput>
+                                            <ComboboxContent>
+                                                <ComboboxList label={t('usernamesLabel')}>
+                                                    {suggestion && (
+                                                        <ComboboxItem value={suggestion.username} onSelect={() => addSuggestion(suggestion)}>
+                                                            <Avatar size="xs" initials={initialsOf(suggestion.firstName, suggestion.lastName, suggestion.username)} />
+                                                            <span className="min-w-0">
+                                                                <span className="block truncate">{displayName(suggestion.firstName, suggestion.lastName, suggestion.username)}</span>
+                                                                <span className="block truncate text-sm text-on-surface-variant">@{suggestion.username}</span>
+                                                            </span>
+                                                            <span aria-hidden="true" className="ml-auto shrink-0 text-xs text-primary">
+                                                                {isMember(suggestion.id) ? t('alreadyMember') : t('tabToAdd')}
+                                                            </span>
+                                                        </ComboboxItem>
+                                                    )}
+                                                </ComboboxList>
+                                            </ComboboxContent>
+                                        </Combobox>
+                                        <div role="status" className="flex flex-col gap-1 text-sm">
+                                            {pendingNames.length > 0 && (
+                                                <p className="m-0 text-on-surface-variant">
+                                                    {t('pendingChipsNotice').replace('{names}', pendingNames.map(n => `„${n}“`).join(', '))}
+                                                </p>
+                                            )}
+                                            {skippedNames.length > 0 && (
+                                                <p className="m-0 text-error">
+                                                    {t('skippedChipsNotice').replace('{names}', skippedNames.map(n => `„${n}“`).join(', '))}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-stack-sm">
+                                        <Label htmlFor={roleId}>{t('roleLabel')}</Label>
+                                        <RoleSelect id={roleId} value={bulkPermission} onChange={setBulkPermission} label={t('roleLabel')} t={t} wide />
+                                    </div>
+                                    <div className="border-t border-outline-variant pt-4">
+                                        <DialogFooter>
+                                            <Button type="button" variant="ghost" onClick={() => setView('members')}>{t('cancel')}</Button>
+                                            <Button type="submit" disabled={bulkLoading || resolving || addableCount === 0}>
+                                                {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                                                {(addableCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(addableCount))}
+                                            </Button>
+                                        </DialogFooter>
+                                    </div>
+                                </form>
+                            </TabsContent>
+
+                            <TabsContent value="links">
+                                <div className="flex flex-col gap-stack-md">
+                                    <form
+                                        className="flex flex-col gap-stack-sm"
+                                        onSubmit={(e) => { e.preventDefault(); void handleCreateInviteLink(); }}
+                                    >
+                                        <h3 className="m-0 text-base font-semibold text-on-surface">{t('newInviteLink')}</h3>
+                                        <div className="flex items-end gap-stack-sm">
+                                            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                                                <Label htmlFor={linkTitleId}>{t('inviteLinkTitle')} <span aria-hidden="true" className="text-error">*</span></Label>
+                                                <Input
+                                                    id={linkTitleId}
+                                                    value={linkLabel}
+                                                    onChange={e => setLinkLabel(e.target.value)}
+                                                    maxLength={100}
+                                                    required
+                                                    placeholder={t('inviteLinkLabelPlaceholder')}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <Label htmlFor={linkRoleId}>{t('roleLabel')} <span aria-hidden="true" className="text-error">*</span></Label>
+                                                <RoleSelect id={linkRoleId} value={linkPermission} onChange={setLinkPermission} label={t('roleLabel')} t={t} />
+                                            </div>
+                                            <Button type="submit" size="field" disabled={linkLoading || !linkLabel.trim()}>
+                                                {linkLoading
+                                                    ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                                    : <Plus className="size-4" aria-hidden="true" />}
+                                                {t('create')}
+                                            </Button>
+                                        </div>
+                                        <p className="m-0 text-sm text-on-surface-variant">{t('inviteLinkRoleHint')}</p>
+                                    </form>
+
+                                    <section aria-labelledby={linksHeadingId} className="flex flex-col gap-stack-sm">
+                                        <div className="flex items-center gap-2">
+                                            <h3 id={linksHeadingId} className="m-0 text-base font-semibold text-on-surface">{t('activeInviteLinks')}</h3>
+                                            <Badge>{inviteLinks.length}</Badge>
+                                        </div>
+                                        {inviteLinks.length === 0 ? (
+                                            <p className="m-0 text-sm text-on-surface-variant">{t('noInviteLinks')}</p>
+                                        ) : (
+                                            <ul className="m-0 flex max-h-72 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                                {inviteLinks.map(link => {
+                                                    const Icon = ROLE_ICON[link.role];
+                                                    const title = link.label || t('inviteLinkUnnamed');
+                                                    return (
+                                                        <li key={link.id} className="flex items-center gap-3 px-4 py-3">
+                                                            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-container-high text-on-surface-variant">
+                                                                <Link2 className="size-4" aria-hidden="true" />
+                                                            </span>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex min-w-0 items-center gap-2">
+                                                                    <span className="truncate font-medium text-on-surface">{title}</span>
+                                                                    <Badge tone={ROLE_TONE[link.role]}>
+                                                                        <Icon className="size-3" aria-hidden="true" />
+                                                                        {t(ROLE_LABEL_KEY[link.role])}
+                                                                    </Badge>
+                                                                </div>
+                                                                <div
+                                                                    className="text-sm text-on-surface-variant"
+                                                                    title={link.lastUsedAt ? `${t('inviteLinkLastUsed')}: ${formatInviteLinkLastUsed(link.lastUsedAt)}` : undefined}
+                                                                >
+                                                                    {link.redemptionCount === 0
+                                                                        ? t('inviteLinkNeverUsed')
+                                                                        : link.redemptionCount === 1
+                                                                            ? t('inviteLinkUsedOnce')
+                                                                            // The count is people, not visits (backend: kb_invite_link_redemptions).
+                                                                            : t('inviteLinkUsedTimes').replace('{count}', String(link.redemptionCount))}
+                                                                </div>
+                                                            </div>
+                                                            <Button variant="outline" size="sm" onClick={() => handleCopyInviteLink(link)} aria-label={`${t('copy')}: ${title}`}>
+                                                                <Copy className="size-4" aria-hidden="true" />
+                                                                {t('copy')}
+                                                            </Button>
+                                                            <ActionMenu
+                                                                label={t('inviteLinkActions').replace('{label}', title)}
+                                                                align="end"
+                                                                actions={[{
+                                                                    label: t('revokeInviteLink'),
+                                                                    icon: <Trash2 className="size-4" aria-hidden="true" />,
+                                                                    destructive: true,
+                                                                    onSelect: () => { void handleRevokeInviteLink(link.id); },
+                                                                }]}
+                                                            />
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
+                                    </section>
+
+                                    <div className="border-t border-outline-variant pt-4">
+                                        <DialogFooter>
+                                            <Button variant="outline" onClick={() => setView('members')}>{t('done')}</Button>
+                                        </DialogFooter>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+                    </>
                 )}
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 };

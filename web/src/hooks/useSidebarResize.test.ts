@@ -47,13 +47,13 @@ describe('useSidebarResize — hands the design system two keys and two ranges',
     expect(LEFT_SIDEBAR_WIDTH_KEY).not.toBe(RIGHT_SIDEBAR_WIDTH_KEY);
   });
 
-  it('passes the bounds (right raised to 300) and one shared default', () => {
+  it('passes the bounds and defaults (right 360 for the source tiles)', () => {
     renderHook(() => useSidebarResize());
     const [left, right] = firstRender();
     expect(left.opts).toEqual({ defaultWidth: 320, minWidth: 150, maxWidth: 600 });
-    expect(right.opts).toEqual({ defaultWidth: 320, minWidth: 300, maxWidth: 800 });
+    expect(right.opts).toEqual({ defaultWidth: 360, minWidth: 360, maxWidth: 800 });
     expect(LEFT_SIDEBAR_BOUNDS).toEqual({ min: 150, max: 600 });
-    expect(RIGHT_SIDEBAR_BOUNDS).toEqual({ min: 300, max: 800 });
+    expect(RIGHT_SIDEBAR_BOUNDS).toEqual({ min: 360, max: 800 });
   });
 
   it('returns each column its OWN setter', () => {

@@ -1,4 +1,6 @@
 import { useCallback } from 'react';
+import { Download } from 'lucide-react';
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@ki4jlu/design-system';
 import { exportRowsToXlsx } from '../utils/exportXlsx';
 
 // Minimal hast (HTML AST) node shape — react-markdown passes the parsed node
@@ -60,10 +62,13 @@ function extractRows(table?: HastNode): string[][] {
     return rows;
 }
 
-// MarkdownTable renders a GFM table and, when it has extractable rows, a
-// "Download .xlsx" button. It is wired as the ReactMarkdown `table` component
-// override so EVERY table in an AI answer becomes exportable — not just the
-// corpus-comparison StructuredTable (which has its own dedicated view).
+// MarkdownTable renders a GFM table and, when it has extractable rows, an
+// icon-only "Download .xlsx" button (label as tooltip and accessible name).
+// It is wired as the ReactMarkdown `table` component override so EVERY table
+// in an AI answer becomes exportable — not just the corpus-comparison
+// StructuredTable (which has its own dedicated view). The button is pinned to
+// the visible bottom-right corner of the table and only shows on hover or
+// keyboard focus (index.css, .md-table-frame__action).
 export function MarkdownTable({ node, children, label, filename }: Props) {
     const exportXlsx = useCallback(() => {
         void exportRowsToXlsx(extractRows(node), { filename });
@@ -72,13 +77,22 @@ export function MarkdownTable({ node, children, label, filename }: Props) {
     const hasRows = extractRows(node).length > 0;
 
     return (
-        <div className="md-table">
-            {hasRows && (
-                <div className="md-table__toolbar">
-                    <button type="button" aria-label={label} onClick={exportXlsx}>{label}</button>
-                </div>
-            )}
-            <table>{children}</table>
+        <div className="md-table-frame">
+            <div className="md-table">
+                <table>{children}</table>
+                {hasRows && (
+                    <div className="md-table-frame__action">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" aria-label={label} onClick={exportXlsx}>
+                                    <Download size={16} aria-hidden="true" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{label}</TooltipContent>
+                        </Tooltip>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
