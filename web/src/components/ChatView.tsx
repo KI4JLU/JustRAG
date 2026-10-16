@@ -31,7 +31,7 @@ import {
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { chatSourceSelection, hasKbAdminRole } from '../utils/kbAccess';
+import { chatSourceSelection, hasKbAdminRole, kbSourceRights } from '../utils/kbAccess';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
@@ -178,7 +178,13 @@ const ChatViewComp = () => {
   const {
     hasFiles, filesLoaded, selectedFileCount,
   } = fileMgmt;
-  const { handlePreviewSource, handlePdfSourceOpen } = webTools;
+  // What the caller may do with the KB's sources (backend capabilities).
+  // Opening a source from an answer loads the file, so the two open handlers
+  // go to the answers only with downloadSources; citations need seeCitations.
+  const sourceRights = kbSourceRights(currentKb, user?.role, user?.id);
+  const { handlePreviewSource: previewSource, handlePdfSourceOpen: pdfSourceOpen } = webTools;
+  const handlePreviewSource = sourceRights.downloadSources ? previewSource : undefined;
+  const handlePdfSourceOpen = sourceRights.downloadSources ? pdfSourceOpen : undefined;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
@@ -186,8 +192,7 @@ const ChatViewComp = () => {
   // flashing the onboarding for a split second on every KB open was the bug.
   // A caller who may not see the source list (capabilities.seeSources off) gets
   // an empty list from a 403 — that is not "this KB has no sources".
-  const mayListSources = currentKb?.capabilities?.seeSources !== false;
-  const noSources = mayListSources && filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  const noSources = sourceRights.seeSources && filesLoaded && !hasFiles && !currentKb?.isGlobal;
   // What a turn sends about the selection, and whether it can go at all.
   const sourceSelection = chatSourceSelection(currentKb, fileMgmt.files);
   // Starter prompts under the composer of an empty chat: the global KB's own,
@@ -291,6 +296,7 @@ const ChatViewComp = () => {
                       chat.setComparisonLeafId(null);
                     }}
                     onPdfOpen={handlePdfSourceOpen}
+                    showCitations={sourceRights.seeCitations}
                   />
                 </div>
               </Suspense>
@@ -481,7 +487,8 @@ const ChatViewComp = () => {
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
                         {/* N sources active — a label, not a control. Absent when the
-                            caller may not select: the answer uses the whole KB. */}
+                            caller cannot see the source list (seeSources): the
+                            answer then uses the whole KB. */}
                         {sourceSelection.selectedFileIds && <span
                           id="chat-composer-sources-count"
                           className="inline-flex items-center gap-1 whitespace-nowrap px-2 text-sm text-on-surface-variant"
@@ -571,9 +578,10 @@ const ChatViewComp = () => {
                             {siteConfigs.kb_header}
                           </div>
                         ) : null}
-                        {noSources ? (
+                        {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
-                          // dropzone while the KB is empty — the centre only says so.
+                          // dropzone while the KB is empty — the centre only says so. A
+                          // caller who cannot add is not asked to.
                           <>
                             <h1>{t('emptyAddFirstSourceTitle')}</h1>
                             <p>{t('emptyAddFirstSourceSubtitle')}</p>
@@ -628,6 +636,7 @@ const ChatViewComp = () => {
                                     isEditing={chat.editingMessageId === msg.id}
                                     onEditCancel={handleEditCancel}
                                     onPreviewSource={handlePreviewSource}
+                                    showCitations={sourceRights.seeCitations}
                                     kbId={currentKb?.id}
                                     questionText={questionText}
                                     resolveAttribution={resolveAttribution}
