@@ -775,8 +775,12 @@ button.source-card {
 }
 
 /* Per-table Excel export (generic Markdown tables in AI answers) */
-.md-table {
+.md-table-frame {
+  position: relative;
   margin: 1rem 0;
+}
+
+.md-table {
   /* Wide tables scroll inside the wrapper instead of widening the message. */
   max-width: 100%;
   overflow-x: auto;
@@ -806,25 +810,51 @@ button.source-card {
   max-width: 20rem;
 }
 
-.md-table__toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.35rem;
+/* The xlsx download, pinned to the visible bottom-right corner of the table.
+   It lives INSIDE the scroll container, right after the table, as a sticky
+   zero-height strip: a block child of the scroller is as wide as the visible
+   area, and sticky `left: 0` keeps it there while the table scrolls sideways.
+   So the button is placed against the table's visible edges — not the outer
+   frame, whose bottom also includes the horizontal scrollbar — and sits the
+   same distance from the bottom and the side.
+   Shown only while the table is hovered or the button has keyboard focus;
+   hidden, it takes no clicks. */
+.md-table-frame__action {
+  position: sticky;
+  left: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
 }
 
-.md-table__toolbar button {
-  font-size: 0.78rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-sm, 6px);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  cursor: pointer;
+.md-table-frame__action > * {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
 }
 
-.md-table__toolbar button:hover {
-  color: var(--text-primary);
-  border-color: var(--accent-primary);
+.md-table-frame:hover .md-table-frame__action,
+.md-table-frame__action:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Devices without hover could never reveal it and could not tap the cell it
+   would cover, so there it sits in flow below the table, right-aligned. */
+@media (hover: none) {
+  .md-table-frame__action {
+    display: flex;
+    justify-content: flex-end;
+    height: auto;
+    padding-top: 0.25rem;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .md-table-frame__action > * {
+    position: static;
+  }
 }
 
 /* Dark mode polish — accent glow on interactive elements */
