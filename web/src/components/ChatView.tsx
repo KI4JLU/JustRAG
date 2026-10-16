@@ -32,6 +32,7 @@ import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { hasKbAdminRole } from '../utils/kbAccess';
+import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
@@ -73,7 +74,7 @@ const ChatViewComp = () => {
     webSearchEnabled: webSearch, setWebSearchEnabled: setWebSearch,
     agentSelection, setAgentSelection,
   } = useKbChat();
-  const { fileMgmt, webTools } = useKbData();
+  const { fileMgmt, webTools, sharing } = useKbData();
   // Per-turn web search is offered only when the admin gate is on; a state
   // left over from when it was on shows nothing (and is not sent, see
   // AuthenticatedApp).
@@ -158,6 +159,17 @@ const ChatViewComp = () => {
   if (prevPromptResetKey !== promptResetKey) {
     setPrevPromptResetKey(promptResetKey);
     setSystemPromptDraft(currentKb?.systemPrompt || '');
+  }
+
+  // The "Rollen & Rechte" draft: the KB's source flags, reset the same way
+  // whenever the KB (or its stored flags) changes.
+  const savedFlags = sourceFlagsOf(currentKb);
+  const flagsResetKey = `${currentKb?.id ?? ''}\0${JSON.stringify(savedFlags)}`;
+  const [flagsDraft, setFlagsDraft] = useState(savedFlags);
+  const [prevFlagsResetKey, setPrevFlagsResetKey] = useState(flagsResetKey);
+  if (prevFlagsResetKey !== flagsResetKey) {
+    setPrevFlagsResetKey(flagsResetKey);
+    setFlagsDraft(savedFlags);
   }
 
   // The advanced settings (KbSettingsPanel) trigger. Shares its predicate with
@@ -252,11 +264,15 @@ const ChatViewComp = () => {
               <SystemPromptPanel
                 draft={systemPromptDraft}
                 onDraftChange={setSystemPromptDraft}
+                flags={flagsDraft}
+                onFlagsChange={setFlagsDraft}
+                onAssignPeople={(e) => sharing.handleOpenShare(currentKb, e)}
                 onSave={() => {
+                  // One PATCH for both tabs: only the fields that changed.
+                  const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };
                   const newValue = systemPromptDraft || null;
-                  if (newValue !== (currentKb.systemPrompt || null)) {
-                    handleUpdateKBSettings({ systemPrompt: newValue });
-                  }
+                  if (newValue !== (currentKb.systemPrompt || null)) update.systemPrompt = newValue;
+                  if (Object.keys(update).length) handleUpdateKBSettings(update);
                   setShowSystemPrompt(false);
                 }}
                 onDelete={() => {
@@ -266,6 +282,7 @@ const ChatViewComp = () => {
                 }}
                 onClose={() => {
                   setSystemPromptDraft(currentKb.systemPrompt || '');
+                  setFlagsDraft(savedFlags);
                   setShowSystemPrompt(false);
                 }}
               />
