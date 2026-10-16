@@ -61,8 +61,8 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
  * here this only decides whether to offer a control; the server enforces it.
  *
  * When the backend sends the resolved `capabilities` (per-KB source
- * permissions), `manageSources` is the answer: it already folds in the
- * editorManageSources switch, which the ladder alone cannot see.
+ * permissions), `manageSources` is the answer — the server's own resolution
+ * of the same ladder, so the two cannot drift.
  */
 export function canEditKbSources(
   kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'capabilities'> | null | undefined,

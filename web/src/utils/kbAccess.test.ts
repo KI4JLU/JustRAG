@@ -217,7 +217,7 @@ describe('canEditKbSources', () => {
 
 describe('canEditKbSources with backend capabilities', () => {
   const caps = (manageSources: boolean) => ({ seeSources: true, selectSources: true, downloadSources: true, seeCitations: true, manageSources });
-  it('follows manageSources over the ladder (editorManageSources off for an editor)', () => {
+  it('follows the backend manageSources over its own ladder copy', () => {
     expect(canEditKbSources({ visibility: 'private', isGlobal: false, userId: null, myRole: 'edit', capabilities: caps(false) }, 'user', 'u1')).toBe(false);
     expect(canEditKbSources({ visibility: 'private', isGlobal: false, userId: null, myRole: 'view', capabilities: caps(true) }, 'user', 'u1')).toBe(true);
   });
