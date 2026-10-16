@@ -212,10 +212,11 @@ type floorCandidate struct{ fileID, chunkID string }
 // invokes the floor at the tail of every request, and the maps in particular
 // were rehashing into fresh buckets each time.
 //
-// bm25FileSet, keep, and next are only touched on the rarer displacement
-// branch (len(final)+len(missing) > limit). They live in the same scratch
-// struct so the displacement path also runs allocation-free once the pool
-// has warmed up.
+// bm25FileSet and keep are only touched on the rarer displacement branch
+// (len(final)+len(missing) > limit). They live in the same scratch struct
+// so the displacement path also runs allocation-free once the pool has
+// warmed up. Nothing returned to the caller may alias pooled memory: the
+// next borrower would overwrite it while the caller still reads it.
 type bm25FloorScratch struct {
 	seenFile     map[string]bool
 	candidates   []floorCandidate
@@ -223,7 +224,6 @@ type bm25FloorScratch struct {
 	missing      []RankedDoc
 	bm25FileSet  map[string]bool
 	keep         []bool
-	next         []RankedDoc
 }
 
 var bm25FloorScratchPool = sync.Pool{
@@ -239,7 +239,6 @@ var bm25FloorScratchPool = sync.Pool{
 			missing:      make([]RankedDoc, 0, 16),
 			bm25FileSet:  make(map[string]bool, 64),
 			keep:         make([]bool, 0, 64),
-			next:         make([]RankedDoc, 0, 64),
 		}
 	},
 }
@@ -334,13 +333,11 @@ func ApplyBM25Floor(
 	// write the (possibly grown) backing arrays back regardless.
 	bm25FileSet := scratch.bm25FileSet
 	keep := scratch.keep[:0]
-	next := scratch.next[:0]
 	clear(bm25FileSet)
 	defer func() {
 		scratch.candidates = candidates[:0]
 		scratch.missing = missing[:0]
 		scratch.keep = keep[:0]
-		scratch.next = next[:0]
 		bm25FloorScratchPool.Put(scratch)
 	}()
 
@@ -451,19 +448,17 @@ func ApplyBM25Floor(
 				toDrop--
 			}
 		}
-		// Reset next to a 0-len slice with capacity ≥ limit; the existing
-		// backing array is reused unless limit exceeds the pool's high-
-		// water mark.
-		if cap(next) < limit {
-			next = make([]RankedDoc, 0, limit)
-		}
+		// Compact the survivors in place (the caller's slice, which the
+		// score boost and sort above already mutate) — never into a
+		// pooled buffer, since the result outlives the deferred Put.
+		w := 0
 		for i, d := range final {
 			if keep[i] {
-				next = append(next, d)
+				final[w] = d
+				w++
 			}
 		}
-		next = append(next, missing...)
-		final = next
+		final = append(final[:w], missing...)
 	}
 
 	// Re-sort so reinserted chunks land at their blended-score position
