@@ -343,12 +343,15 @@ export interface KnowledgeBase {
     visibility?: 'private' | 'public';
     // Per-KB source permissions (migration 0089, API.md "Source permissions").
     // Written by a KB admin through PATCH /api/kb/{id}; absent on the API-key
-    // surfaces. viewer* apply to the view role, editorManageSources to edit.
+    // surfaces. viewer* apply to the view role, editor* to the edit role.
     viewerSeeSources?: boolean;
     viewerSelectSources?: boolean;
     viewerDownloadSources?: boolean;
     viewerSeeCitations?: boolean;
-    editorManageSources?: boolean;
+    editorSeeSources?: boolean;
+    editorSelectSources?: boolean;
+    editorDownloadSources?: boolean;
+    editorSeeCitations?: boolean;
     // The caller's own resolved permissions on this KB, computed by the
     // backend from role + flags so the client never re-derives the ladder.
     capabilities?: KbCapabilities;
@@ -360,7 +363,10 @@ export type KbSourceFlag =
     | 'viewerSelectSources'
     | 'viewerDownloadSources'
     | 'viewerSeeCitations'
-    | 'editorManageSources';
+    | 'editorSeeSources'
+    | 'editorSelectSources'
+    | 'editorDownloadSources'
+    | 'editorSeeCitations';
 
 export type KbSourceFlags = Record<KbSourceFlag, boolean>;
 

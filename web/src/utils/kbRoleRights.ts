@@ -11,19 +11,19 @@ import type { KbRole, KbSourceFlag, KbSourceFlags, KnowledgeBase } from '../type
  * model, which does not exist (decided 2026-10-16: show it, don't fake it).
  */
 export type KbRightColumn =
-    | 'read'      // KB view: open the topic and chat in it (kbViewChain)
-    | 'edit'      // add, change, sync, delete, retry sources (kbEditChain + manageSources)
-    | 'members'   // members and invite links (kbAdminChain: /members, /invite-links)
-    | 'rights'    // these switches and member roles (kbAdminChain: PATCH /kb/{id}, PUT /members/{userId})
-    | 'seeSources'
-    | 'selectSources'
-    | 'downloadSources'
-    | 'seeCitations';
+    | 'invite'          // invite people (/members, /invite-links — kbAdminChain today)
+    | 'rights'          // change member roles, remove members (kbAdminChain, kbaccess.Assignable)
+    | 'seeSources'      // the sidebar source list
+    | 'selectSources'   // limit an answer to selected sources (selectedFileIds)
+    | 'downloadSources' // download + in-app preview (PDF, spreadsheet tabs)
+    | 'editSources'     // add, sync, delete, retry sources (kbManageSourcesChain: role ≥ edit)
+    | 'seeCitations';   // citations under answers
 
-/** Column groups as rendered: the topic itself, then its sources. */
-export const KB_RIGHT_GROUPS: readonly { id: 'topic' | 'sources'; columns: readonly KbRightColumn[] }[] = [
-    { id: 'topic', columns: ['read', 'members', 'rights'] },
-    { id: 'sources', columns: ['seeSources', 'selectSources', 'downloadSources', 'seeCitations', 'edit'] },
+/** Column groups as rendered: the topic, the sidebar's sources, the answers. */
+export const KB_RIGHT_GROUPS: readonly { id: 'topic' | 'sidebar' | 'answers'; columns: readonly KbRightColumn[] }[] = [
+    { id: 'topic', columns: ['invite', 'rights'] },
+    { id: 'sidebar', columns: ['seeSources', 'selectSources', 'downloadSources', 'editSources'] },
+    { id: 'answers', columns: ['seeCitations'] },
 ];
 
 export const KB_RIGHT_COLUMNS: readonly KbRightColumn[] = KB_RIGHT_GROUPS.flatMap(g => g.columns);
@@ -31,38 +31,46 @@ export const KB_RIGHT_COLUMNS: readonly KbRightColumn[] = KB_RIGHT_GROUPS.flatMa
 /** Rows top to bottom, as in the mockup: strongest role first. */
 export const KB_ROLE_ROWS: readonly KbRole[] = ['owner', 'admin', 'edit', 'view'];
 
-/** A cell is either fixed by the ladder, or bound to one of the KB's flags. */
+/**
+ * A cell is either fixed by the ladder, or bound to one of the KB's flags.
+ * `scope` is the translation key of the small caption under a granted cell
+ * (which roles the right reaches, e.g. "bis Admin").
+ */
 export type KbRightCell =
-    | { kind: 'fixed'; granted: boolean }
+    | { kind: 'fixed'; granted: boolean; scope?: string }
     | { kind: 'flag'; flag: KbSourceFlag };
 
-const fixed = (granted: boolean): KbRightCell => ({ kind: 'fixed', granted });
+const yes = (scope?: string): KbRightCell => ({ kind: 'fixed', granted: true, scope });
+const no: KbRightCell = { kind: 'fixed', granted: false };
 const flag = (f: KbSourceFlag): KbRightCell => ({ kind: 'flag', flag: f });
 
 /*
  * The table. Owner and KB admin always have every capability (API.md "Source
- * permissions": always granted, whatever the flags say). Editors always see,
- * select and download sources and see citations: the viewer* flags apply to the
- * view role only. An editor's "edit" is editorManageSources. Viewers can never
- * edit, manage members or hand out rights.
+ * permissions": always granted, whatever the flags say); the owner can hand out
+ * every assignable role, an admin view/edit/admin (kbaccess.Assignable — the
+ * owner moves only through the transfer endpoint). Editing sources is fixed by
+ * role (edit and above). What editors and viewers see, select, download and
+ * cite is the KB's flags. Inviting is admin-only until the invite-rights card
+ * lands; those cells are shown with today's state, not as switches.
  */
 const MATRIX: Record<KbRole, Record<KbRightColumn, KbRightCell>> = {
     owner: {
-        read: fixed(true), edit: fixed(true), members: fixed(true), rights: fixed(true),
-        seeSources: fixed(true), selectSources: fixed(true), downloadSources: fixed(true), seeCitations: fixed(true),
+        invite: yes('rrScopeAllRoles'), rights: yes('rrScopeAllRoles'),
+        seeSources: yes(), selectSources: yes(), downloadSources: yes(), editSources: yes(), seeCitations: yes(),
     },
     admin: {
-        read: fixed(true), edit: fixed(true), members: fixed(true), rights: fixed(true),
-        seeSources: fixed(true), selectSources: fixed(true), downloadSources: fixed(true), seeCitations: fixed(true),
+        invite: yes('rrScopeUpToAdmin'), rights: yes('rrScopeUpToAdmin'),
+        seeSources: yes(), selectSources: yes(), downloadSources: yes(), editSources: yes(), seeCitations: yes(),
     },
     edit: {
-        read: fixed(true), edit: flag('editorManageSources'), members: fixed(false), rights: fixed(false),
-        seeSources: fixed(true), selectSources: fixed(true), downloadSources: fixed(true), seeCitations: fixed(true),
+        invite: no, rights: no,
+        seeSources: flag('editorSeeSources'), selectSources: flag('editorSelectSources'),
+        downloadSources: flag('editorDownloadSources'), editSources: yes(), seeCitations: flag('editorSeeCitations'),
     },
     view: {
-        read: fixed(true), edit: fixed(false), members: fixed(false), rights: fixed(false),
+        invite: no, rights: no,
         seeSources: flag('viewerSeeSources'), selectSources: flag('viewerSelectSources'),
-        downloadSources: flag('viewerDownloadSources'), seeCitations: flag('viewerSeeCitations'),
+        downloadSources: flag('viewerDownloadSources'), editSources: no, seeCitations: flag('viewerSeeCitations'),
     },
 };
 
@@ -71,13 +79,15 @@ export function kbRightCell(role: KbRole, column: KbRightColumn): KbRightCell {
 }
 
 /**
- * Flags that only mean something while another one is on: a viewer can only
+ * Flags that only mean something while another one is on: a role can only
  * select or download sources from the sidebar list it can see. Shown disabled
  * (with a hint) while the prerequisite is off.
  */
 export const FLAG_REQUIRES: Partial<Record<KbSourceFlag, KbSourceFlag>> = {
     viewerSelectSources: 'viewerSeeSources',
     viewerDownloadSources: 'viewerSeeSources',
+    editorSelectSources: 'editorSeeSources',
+    editorDownloadSources: 'editorSeeSources',
 };
 
 /** Defaults of migration 0089, used when a KB row predates the fields. */
@@ -86,12 +96,13 @@ export const SOURCE_FLAG_DEFAULTS: KbSourceFlags = {
     viewerSelectSources: false,
     viewerDownloadSources: false,
     viewerSeeCitations: false,
-    editorManageSources: true,
+    editorSeeSources: true,
+    editorSelectSources: true,
+    editorDownloadSources: true,
+    editorSeeCitations: true,
 };
 
-export const SOURCE_FLAGS: readonly KbSourceFlag[] = [
-    'viewerSeeSources', 'viewerSelectSources', 'viewerDownloadSources', 'viewerSeeCitations', 'editorManageSources',
-];
+export const SOURCE_FLAGS = Object.keys(SOURCE_FLAG_DEFAULTS) as readonly KbSourceFlag[];
 
 /** The KB's current flags, falling back to the migration defaults. */
 export function sourceFlagsOf(kb: Partial<Pick<KnowledgeBase, KbSourceFlag>> | null | undefined): KbSourceFlags {
