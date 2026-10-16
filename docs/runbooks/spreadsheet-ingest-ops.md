@@ -52,6 +52,26 @@ A spreadsheet whose on-disk size exceeds `tabular_large_file_bytes` (default 20 
 
 `GET /api/kb/{id}/files/{fileId}/tabular` (view role on the KB) returns the persisted `files.parse_report` plus the file's `tabular_catalog` rows, joined into `tabular.FileTabularDTO` — per-sheet region boundaries, column roles/types, null/distinct counts, coercion failures, and (capped, instruction-filtered) sample/value-set previews. 404 if the file doesn't belong to the KB; a normal `200 {"report":null,"tables":[]}` for a non-spreadsheet file (not an error). The frontend's "Tabellen" modal on the sources list opens this endpoint per file — use it first when a spreadsheet answer looks wrong, before reaching for SQL: it shows exactly what the profiler and materialiser saw.
 
+### Lookup links
+
+After every table of a file is materialised, the ingest links columns to the file's **lookup tables** (code lists, grade tables, dropdown sources — often hidden sheets) and stores the link per column as `lookup` in `tabular_catalog.columns` (`tabular.LookupRef`: `table`, `key`, `label`, `via`, `source`, `compare`). The preview shows a code column as "5 · <name>", and the Text-to-SQL schema summary renders the link as a join hint. Three sources, strongest first:
+
+- `formula` — the column is computed by an **exact** lookup into another sheet: `VLOOKUP(…, FALSE|0)`, `XLOOKUP` without an approximate `match_mode`, `INDEX(…, MATCH(…, 0)[, col])`. The key must be a plain cell of the same table **in the formula's own row** (stored as `via`); approximate, offset (`MATCH(…)+1`) or expression-keyed (`TRIM(A2)`) lookups, a key in another row or with an anchored row (`$B$1`, one parameter cell for every row) and misaligned ranges are skipped.
+- `validation` — a dropdown whose list is another sheet's range (key = label = that column). The column holds the listed value itself, so the schema summary notes the list instead of suggesting a join.
+- `heuristic` — a code column whose name matches a small lookup table (≤ 500 rows; its sheet name or label header, umlaut-folded, equal or a plural — at most 2 extra characters, so "Nutzungsart" ~ "Nutzungsarten" but not "Raum" ~ "Raumgröße") and whose non-empty values — **at least 2 distinct** — **all** occur in that table's integer key column, unique after folding (`1` and `01` are one key). Two matching tables, or any value outside the keys, means no link. A table is only probed once a column name matched it, and the column stats skip key columns with gaps or repeats and code columns with more than 500 distinct values without a query. Marked `heuristic`; the Text-to-SQL hint says "(inferred, verify)".
+
+The ingest may type the two sides of a link differently — a key column of `1`…`5` often stays `text` while the code column is numeric. `compare` then says how a join must compare them: `numeric` (heuristic links, whose values were verified as integers; the hint renders `NULLIF(btrim(x::text), '')::numeric` on both sides) or `text` (formula links, `x::text`). Without it, the plain `key = column` join fails with `operator does not exist: text = numeric`.
+
+Formula and dropdown references are parsed in Excel syntax (`Sheet!$A$2:$B$9`, `,`-separated arguments). ODS stores OpenFormula (`[.A2]`, `;`), which the parser does not read, so `.ods` and `.xls` files get heuristic links only.
+
+The target must be exactly one materialised table covering the referenced rows; an ambiguous or uncovered reference gives no link. The pass is bounded (detection 15 s and at most 60 distinct-value queries; the catalog writes get their own 5 s, so a heuristic that runs out of time still keeps the exact formula and dropdown links) and fail-soft: a write error logs `tabular: lookup links not saved` and leaves that table as it is. Links for already-ingested files appear on the next re-ingest (§5). To see a file's links:
+
+```sql
+SELECT tc.sheet_name, c->>'name' AS column, c->'lookup' AS lookup
+FROM tabular_catalog tc, jsonb_array_elements(tc.columns::jsonb) c
+WHERE tc.file_id = '<file-uuid>' AND c ? 'lookup';
+```
+
 ---
 
 ## 5. Rematerialising after a knob change

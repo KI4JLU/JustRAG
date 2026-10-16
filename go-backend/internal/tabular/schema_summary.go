@@ -140,6 +140,9 @@ func renderColumnLine(col ColumnSpec, stat *ColumnStat) string {
 			parts = append(parts, "numeric shadow: "+stat.ShadowColumn)
 		}
 	}
+	if hint := lookupHint(col); hint != "" {
+		parts = append(parts, hint)
+	}
 
 	if len(parts) > 0 {
 		head.WriteString(": ")
@@ -321,4 +324,44 @@ func CompactSchema(entries []CatalogEntry, hits []ValueHit, query string, maxTok
 		Pruned:        true,
 		AllowedTables: allowed,
 	}
+}
+
+// lookupHint renders a column's lookup link as a join hint, with the table
+// in its executable form (renderTableRef). A heuristic link says so.
+func lookupHint(col ColumnSpec) string {
+	l := col.Lookup
+	if l == nil {
+		return ""
+	}
+	var hint string
+	switch {
+	case l.Source == LookupSourceValidation:
+		// A dropdown: the column already holds the listed value, so there is
+		// nothing to translate and no join to suggest.
+		hint = fmt.Sprintf("values from the list %s.%s", renderTableRef(l.Table), l.Key)
+	case l.Via != "":
+		hint = fmt.Sprintf("looked up from %s: %s where %s = %s", renderTableRef(l.Table), l.Label,
+			LookupJoinExpr(l.Key, l.Compare), LookupJoinExpr(l.Via, l.Compare))
+	default:
+		hint = fmt.Sprintf("code; name via JOIN %s ON %s = %s, name in %s", renderTableRef(l.Table),
+			LookupJoinExpr(l.Key, l.Compare), LookupJoinExpr("this column", l.Compare), l.Label)
+	}
+	if l.Source == LookupSourceHeuristic {
+		hint += " (inferred, verify)"
+	}
+	return hint
+}
+
+// LookupJoinExpr renders one side of a lookup join so both sides have the
+// same
+// type when LookupRef.Compare says they differ: as a number (blank text is
+// NULL, not a cast error) or as text.
+func LookupJoinExpr(col, compare string) string {
+	switch compare {
+	case LookupCompareNumeric:
+		return fmt.Sprintf("NULLIF(btrim(%s::text), '')::numeric", col)
+	case LookupCompareText:
+		return col + "::text"
+	}
+	return col
 }

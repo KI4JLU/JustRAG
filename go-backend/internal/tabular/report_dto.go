@@ -61,6 +61,9 @@ type ColumnDTO struct {
 	CoercionFailed int64    `json:"coercion_failed"`
 	Samples        []string `json:"samples,omitempty"`   // <= maxDTOSamples, instruction-filtered
 	ValueSet       []string `json:"value_set,omitempty"` // <= maxDTOValueSet, instruction-filtered
+	// Lookup is the column's link to a lookup table of the same file (see
+	// LookupRef), nil when it has none.
+	Lookup *LookupRef `json:"lookup,omitempty"`
 }
 
 // BuildFileTabularDTO joins report (the file's persisted ingest report, nil
@@ -129,6 +132,7 @@ func buildTableDTO(e CatalogEntry) TableDTO {
 			Role:        c.Role,
 			Description: filterInstructionString(c.Description),
 			ShadowOf:    c.ShadowOf,
+			Lookup:      c.Lookup,
 		}
 		if stat, ok := statsByName[c.Name]; ok {
 			col.ShadowColumn = stat.ShadowColumn

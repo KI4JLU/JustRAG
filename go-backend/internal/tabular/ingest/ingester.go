@@ -29,6 +29,9 @@ import (
 type RegionMaterializer interface {
 	MaterializeRegion(ctx context.Context, in tabular.RegionInput) (*tabular.RegionResult, error)
 	DropTablesForFile(ctx context.Context, fileID string) error
+	// UpdateColumns and DistinctValues serve the lookup pass (lookups.go).
+	UpdateColumns(ctx context.Context, table string, cols []tabular.ColumnSpec) error
+	DistinctValues(ctx context.Context, table, column string, limit int) ([]string, bool, error)
 }
 
 // Options configures one file's ingest pass. Field comments name the
@@ -71,6 +74,10 @@ type Result struct {
 	Text   string
 	Report tabular.ParseReport
 	Tables []string // materialised table names
+
+	// links is what the lookup pass needs about each table; Ingest clears
+	// it once the pass ran, so the returned Result does not keep it alive.
+	links []*linkTable
 }
 
 // Ingester runs one file's ingest pass. A nil mat means render-only (no
@@ -171,6 +178,12 @@ func (g *Ingester) Ingest(ctx context.Context, in Input) (*Result, error) {
 		return nil, fmt.Errorf("ingest: every sheet in %q failed", in.FileName)
 	}
 
+	if materialise && len(res.links) > 1 {
+		progress("Verknüpfungen")
+		g.linkLookups(ctx, res.links)
+	}
+	res.links = nil
+
 	texts := make([]string, len(pages))
 	for i, p := range pages {
 		texts[i] = p.Text
@@ -256,6 +269,11 @@ func (g *Ingester) ingestSheet(ctx context.Context, src sheetsource.Source, info
 				}
 				cardStats[key] = cardStatsFromResult(rr, *rp)
 				rowCounts[key] = int(rr.RowsMaterialised)
+				res.links = append(res.links, &linkTable{
+					Sheet: info.Name, Region: rp.Region, DataStart: rp.DataStart, TableName: rr.TableName,
+					Columns: rr.Columns, SourceCols: rr.SourceColumns, Formulas: firstLookupFormulas(sample, *rp),
+					Validations: sample.Extras.Validations, RowCount: rr.RowsMaterialised, Stats: statsByName(rr.Stats),
+				})
 			}
 		}
 		// R13/round-1 fix: no ingest-side fallback here. render/kv.go's
@@ -290,4 +308,12 @@ func (g *Ingester) ingestSheet(ctx context.Context, src sheetsource.Source, info
 		rep.RowsRead = rep.RowsEmbedded + rep.RowsPastCap
 	}
 	return Page{Number: sr.Page.PageNumber, Text: sr.Page.Text}, rep, nil
+}
+
+func statsByName(stats []tabular.ColumnStat) map[string]tabular.ColumnStat {
+	m := make(map[string]tabular.ColumnStat, len(stats))
+	for _, st := range stats {
+		m[st.Name] = st
+	}
+	return m
 }
