@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/xuri/excelize/v2"
 )
@@ -108,10 +110,26 @@ func TestIngestLookupLinksEndToEnd(t *testing.T) {
 		t.Errorf("note.lookup = %+v, want %+v", note.Lookup, wantNote)
 	}
 
-	_, art := columnBySheet(t, entries, "Erhebung", "nutzungsart")
-	wantArt := tabular.LookupRef{Table: arten.TableName, Key: "index", Label: "nutzungsart", Source: tabular.LookupSourceHeuristic}
+	// The materializer keeps the "Index" key column as text while the code
+	// column is numeric, so the link says to compare them as numbers.
+	survey, art := columnBySheet(t, entries, "Erhebung", "nutzungsart")
+	wantArt := tabular.LookupRef{Table: arten.TableName, Key: "index", Label: "nutzungsart", Source: tabular.LookupSourceHeuristic, Compare: tabular.LookupCompareNumeric}
 	if art.Lookup == nil || *art.Lookup != wantArt {
 		t.Errorf("nutzungsart.lookup = %+v, want %+v", art.Lookup, wantArt)
+	}
+
+	// The join the schema hint suggests must run on the real tables and
+	// name every survey row (review of #11: a plain index = nutzungsart is
+	// text = numeric, which Postgres rejects).
+	var joined int
+	q := fmt.Sprintf(`SELECT count(a.nutzungsart) FROM %s s JOIN %s a ON %s = %s`,
+		pgx.Identifier{tabular.TabularSchema, survey.TableName}.Sanitize(), pgx.Identifier{tabular.TabularSchema, arten.TableName}.Sanitize(),
+		tabular.LookupJoinExpr("a.index", wantArt.Compare), tabular.LookupJoinExpr("s.nutzungsart", wantArt.Compare))
+	if err := pool.QueryRow(context.Background(), q).Scan(&joined); err != nil {
+		t.Fatalf("hinted join failed: %v\n%s", err, q)
+	}
+	if joined != 5 {
+		t.Errorf("hinted join named %d survey rows, want 5", joined)
 	}
 
 	for _, name := range []string{"nr", "gebaeude", "prozent"} {

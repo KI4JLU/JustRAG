@@ -75,7 +75,9 @@ type Result struct {
 	Report tabular.ParseReport
 	Tables []string // materialised table names
 
-	links []*linkTable // what the lookup pass needs about each table
+	// links is what the lookup pass needs about each table; Ingest clears
+	// it once the pass ran, so the returned Result does not keep it alive.
+	links []*linkTable
 }
 
 // Ingester runs one file's ingest pass. A nil mat means render-only (no
@@ -180,6 +182,7 @@ func (g *Ingester) Ingest(ctx context.Context, in Input) (*Result, error) {
 		progress("Verknüpfungen")
 		g.linkLookups(ctx, res.links)
 	}
+	res.links = nil
 
 	texts := make([]string, len(pages))
 	for i, p := range pages {
@@ -269,7 +272,7 @@ func (g *Ingester) ingestSheet(ctx context.Context, src sheetsource.Source, info
 				res.links = append(res.links, &linkTable{
 					Sheet: info.Name, Region: rp.Region, DataStart: rp.DataStart, TableName: rr.TableName,
 					Columns: rr.Columns, SourceCols: rr.SourceColumns, Formulas: firstLookupFormulas(sample, *rp),
-					Validations: sample.Extras.Validations, RowCount: rr.RowsMaterialised,
+					Validations: sample.Extras.Validations, RowCount: rr.RowsMaterialised, Stats: statsByName(rr.Stats),
 				})
 			}
 		}
@@ -305,4 +308,12 @@ func (g *Ingester) ingestSheet(ctx context.Context, src sheetsource.Source, info
 		rep.RowsRead = rep.RowsEmbedded + rep.RowsPastCap
 	}
 	return Page{Number: sr.Page.PageNumber, Text: sr.Page.Text}, rep, nil
+}
+
+func statsByName(stats []tabular.ColumnStat) map[string]tabular.ColumnStat {
+	m := make(map[string]tabular.ColumnStat, len(stats))
+	for _, st := range stats {
+		m[st.Name] = st
+	}
+	return m
 }

@@ -39,9 +39,18 @@ type linkTable struct {
 	SourceCols map[string]int // primary SQL name → absolute sheet column
 	// Formulas holds, per sheet column, the first lookup formula seen in the
 	// region's sampled data rows (shared-formula followers carry no text).
-	Formulas    map[int]string
+	Formulas    map[int]lookupFormula
 	Validations []sheetsource.Validation // the sheet's list validations
 	RowCount    int64
+	// Stats is the materializer's per-column stats by SQL name; the
+	// heuristic uses it to skip columns without a DISTINCT query.
+	Stats map[string]tabular.ColumnStat
+}
+
+// lookupFormula is a lookup formula and the 0-based sheet row of its cell.
+type lookupFormula struct {
+	Text string
+	Row  int
 }
 
 // colAt returns the SQL name of the primary column at sheet column c.
@@ -75,8 +84,9 @@ var (
 	// A sheet-qualified reference: quoted name (with '' as an escaped quote)
 	// or a bare one, then a cell or a range.
 	qualifiedRefRe = regexp.MustCompile(`^(?:'((?:[^']|'')+)'|([^\s!,()'"]+))!\$?([A-Za-z]{1,3})\$?(\d*)(?::\$?([A-Za-z]{1,3})\$?(\d*))?$`)
-	// A same-sheet cell reference (the lookup key argument).
-	cellRefRe = regexp.MustCompile(`^\$?([A-Za-z]{1,3})\$?(\d+)$`)
+	// A same-sheet cell reference (the lookup key argument); group 2 is the
+	// row's "$" anchor.
+	cellRefRe = regexp.MustCompile(`^\$?([A-Za-z]{1,3})(\$?)(\d+)$`)
 	// The functions the formula pass understands (Excel stores newer ones
 	// with an _xlfn. prefix).
 	lookupFnRe = regexp.MustCompile(`(?i)(?:_xlfn\.)?\b(VLOOKUP|XLOOKUP|INDEX)\(`)
@@ -175,10 +185,12 @@ func callEnd(f string, open int) int {
 }
 
 // lookupCall is one lookup found in a formula: the key argument's
-// same-sheet column (-1 when it is not a plain cell reference), and the
-// target sheet's key and label columns.
+// same-sheet column and 0-based row (-1 when it is not a plain cell
+// reference with a relative row), and the target sheet's key and label
+// columns.
 type lookupCall struct {
 	KeyArgCol int
+	KeyArgRow int
 	Sheet     string
 	KeyCol    int
 	LabelCol  int
@@ -186,11 +198,16 @@ type lookupCall struct {
 	ToRow     int
 }
 
-func keyArgCol(arg string) int {
-	if m := cellRefRe.FindStringSubmatch(arg); m != nil {
-		return colIndex(m[1])
+// keyArg returns the column and 0-based row of a plain cell reference. A
+// row anchored with "$" ($B$1, a parameter cell every row reads) is no
+// per-row key, so it gives -1, -1 like an expression does.
+func keyArg(arg string) (col, row int) {
+	m := cellRefRe.FindStringSubmatch(arg)
+	if m == nil || m[2] == "$" {
+		return -1, -1
 	}
-	return -1
+	r, _ := strconv.Atoi(m[3])
+	return colIndex(m[1]), r - 1
 }
 
 // exactArg reports whether a match-mode argument asks for an exact match:
@@ -246,13 +263,15 @@ func maskStrings(f string) string {
 //   - INDEX(Sheet!values, MATCH(key, Sheet!keys, 0)[, col])
 //     with single-column, row-aligned ranges after applying col
 //
-// The key must be a plain same-sheet cell reference (KeyArgCol >= 0).
+// The key must be a plain same-sheet cell reference with a relative row
+// (KeyArgCol >= 0); formulaLinks also requires it to be in the formula's row.
 func parseLookupFormula(f string) (lookupCall, bool) {
 	masked := maskStrings(f)
 	for _, loc := range lookupFnRe.FindAllStringSubmatchIndex(masked, -1) {
 		fn := strings.ToUpper(f[loc[2]:loc[3]])
 		args := callArgs(f, loc[1]-1)
 		var call lookupCall
+		var keyArgText string // the lookup key argument
 		switch fn {
 		case "VLOOKUP":
 			if len(args) < 4 || !exactArg(args[3]) {
@@ -263,7 +282,8 @@ func parseLookupFormula(f string) (lookupCall, bool) {
 			if !ok || !tbl.isRange || err != nil || n < 1 || tbl.FromCol+n-1 > tbl.ToCol {
 				continue
 			}
-			call = lookupCall{KeyArgCol: keyArgCol(args[0]), Sheet: tbl.Sheet, KeyCol: tbl.FromCol, LabelCol: tbl.FromCol + n - 1, FromRow: tbl.FromRow, ToRow: tbl.ToRow}
+			keyArgText = args[0]
+			call = lookupCall{Sheet: tbl.Sheet, KeyCol: tbl.FromCol, LabelCol: tbl.FromCol + n - 1, FromRow: tbl.FromRow, ToRow: tbl.ToRow}
 		case "XLOOKUP":
 			if len(args) < 3 || (len(args) >= 5 && strings.TrimSpace(args[4]) != "" && strings.TrimSpace(args[4]) != "0") {
 				continue
@@ -273,7 +293,8 @@ func parseLookupFormula(f string) (lookupCall, bool) {
 			if !ok1 || !ok2 || keys.Sheet != vals.Sheet || !singleColumn(keys) || !singleColumn(vals) || !rowsAligned(keys, vals) {
 				continue
 			}
-			call = lookupCall{KeyArgCol: keyArgCol(args[0]), Sheet: keys.Sheet, KeyCol: keys.FromCol, LabelCol: vals.FromCol, FromRow: keys.FromRow, ToRow: keys.ToRow}
+			keyArgText = args[0]
+			call = lookupCall{Sheet: keys.Sheet, KeyCol: keys.FromCol, LabelCol: vals.FromCol, FromRow: keys.FromRow, ToRow: keys.ToRow}
 		case "INDEX":
 			if len(args) < 2 || len(args) > 3 {
 				continue
@@ -303,10 +324,12 @@ func parseLookupFormula(f string) (lookupCall, bool) {
 			if !ok || keys.Sheet != vals.Sheet || !singleColumn(keys) || !rowsAligned(keys, vals) {
 				continue
 			}
-			call = lookupCall{KeyArgCol: keyArgCol(margs[0]), Sheet: keys.Sheet, KeyCol: keys.FromCol, LabelCol: labelCol, FromRow: keys.FromRow, ToRow: keys.ToRow}
+			keyArgText = margs[0]
+			call = lookupCall{Sheet: keys.Sheet, KeyCol: keys.FromCol, LabelCol: labelCol, FromRow: keys.FromRow, ToRow: keys.ToRow}
 		default:
 			continue
 		}
+		call.KeyArgCol, call.KeyArgRow = keyArg(keyArgText)
 		if call.KeyArgCol < 0 {
 			continue // key is an expression (TRIM(A2), A2&"x" …): not representable as a column
 		}
@@ -352,8 +375,10 @@ func formulaLinks(tables []*linkTable, out map[linkKey]tabular.LookupRef) {
 			if !ok {
 				continue
 			}
-			call, ok := parseLookupFormula(f)
-			if !ok || call.Sheet == t.Sheet {
+			call, ok := parseLookupFormula(f.Text)
+			// The key must sit in the formula's own row: anything else is not
+			// a per-row relationship between two columns.
+			if !ok || call.Sheet == t.Sheet || call.KeyArgRow != f.Row {
 				continue
 			}
 			target, key, label, ok := resolveTarget(tables, call.Sheet, call.KeyCol, call.LabelCol, call.FromRow, call.ToRow)
@@ -364,7 +389,11 @@ func formulaLinks(tables []*linkTable, out map[linkKey]tabular.LookupRef) {
 			if !ok {
 				continue // the key cell is not a column of this table
 			}
-			setLink(out, linkKey{t.TableName, col}, tabular.LookupRef{Table: target.TableName, Key: key, Label: label, Via: via, Source: tabular.LookupSourceFormula})
+			// Excel matched these values exactly, but the ingest may have typed
+			// the two columns differently (a key column with one annotated
+			// cell stays text): then the join compares them as text.
+			setLink(out, linkKey{t.TableName, col}, tabular.LookupRef{Table: target.TableName, Key: key, Label: label, Via: via,
+				Source: tabular.LookupSourceFormula, Compare: compareFor(linkColumnType(t, via), linkColumnType(target, key), tabular.LookupCompareText)})
 		}
 	}
 }
@@ -411,17 +440,51 @@ func setLink(out map[linkKey]tabular.LookupRef, k linkKey, ref tabular.LookupRef
 	}
 }
 
+func linkColumnType(t *linkTable, name string) tabular.ColumnType {
+	if c := t.column(name); c != nil {
+		return c.Type
+	}
+	return ""
+}
+
+func isNumberType(ct tabular.ColumnType) bool {
+	return ct == tabular.TypeBigint || ct == tabular.TypeFloat || ct == tabular.TypeNumeric
+}
+
+// compareFor returns "" when a and b compare directly in SQL (same type, or
+// both numbers) and mismatch otherwise: the LookupRef.Compare a join between
+// them needs so Postgres does not reject text = bigint.
+func compareFor(a, b tabular.ColumnType, mismatch string) string {
+	if a == b || (isNumberType(a) && isNumberType(b)) {
+		return ""
+	}
+	return mismatch
+}
+
 // Heuristic bounds: a lookup table is small, only its first two columns are
-// tried as the key, and a code column's values are read only after its name
-// matched one. The whole pass is capped in queries and time (linkLookups).
+// tried as the key, and a table is probed — and a code column's values read —
+// only after a column name matched it. Column stats skip what cannot match
+// without a query. The detection is capped in queries and time (linkLookups).
 const (
 	lookupMaxRows       = 500
 	lookupMaxValues     = 500
 	lookupKeyCandidates = 2
 	lookupMaxQueries    = 60
-	lookupPassTimeout   = 15 * time.Second
 	minNameMatchLen     = 4
+	// maxNameSuffix is how much longer one name may be than the other and
+	// still match by prefix: a plural ("Nutzungsart" ~ "Nutzungsarten"),
+	// not a compound ("Raum" ≁ "Raumgröße").
+	maxNameSuffix = 2
+	// minHeuristicValues: a code column needs this many distinct codes, all
+	// keys of the lookup table, before one value can't decide the link.
+	minHeuristicValues = 2
+	// lookupWriteTimeout bounds the catalog writes, separately from the
+	// detection deadline, so a slow heuristic cannot cost the exact links.
+	lookupWriteTimeout = 5 * time.Second
 )
+
+// lookupPassTimeout bounds the detection (a var so a test can expire it).
+var lookupPassTimeout = 15 * time.Second
 
 // normName folds a header or sheet name for matching: lowercase, umlauts
 // transliterated as the ingest's SQL names do, everything but letters and
@@ -439,7 +502,8 @@ func normName(s string) string {
 }
 
 // namesMatch: equal after folding, or one a prefix of the other when both are
-// long enough ("nutzungsart" ~ "nutzungsarten").
+// long enough and they differ by at most maxNameSuffix characters
+// ("nutzungsart" ~ "nutzungsarten", but not "raum" ~ "raumgroesse").
 func namesMatch(a, b string) bool {
 	a, b = normName(a), normName(b)
 	if a == "" || b == "" {
@@ -448,10 +512,13 @@ func namesMatch(a, b string) bool {
 	if a == b {
 		return true
 	}
-	if len(a) < minNameMatchLen || len(b) < minNameMatchLen {
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	if len(a) < minNameMatchLen || len(b)-len(a) > maxNameSuffix {
 		return false
 	}
-	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+	return strings.HasPrefix(b, a)
 }
 
 // intKey canonicalises an integer-valued text ("5", "5.0") to "5"; ok is
@@ -477,58 +544,81 @@ type lookupCandidate struct {
 	keys       map[string]bool
 }
 
-// lookupCandidates: small tables with an integer key column (unique, every
-// row) and a text label column after it.
-func lookupCandidates(ctx context.Context, tables []*linkTable, values valuesFunc) []lookupCandidate {
-	var out []lookupCandidate
-	for _, t := range tables {
-		if t.RowCount == 0 || t.RowCount > lookupMaxRows || len(t.Columns) < 2 {
+// probeCandidate checks whether t is a lookup table: small, with an integer
+// key column (unique after folding, every row filled) among its first
+// lookupKeyCandidates columns and a text label column after it.
+func probeCandidate(ctx context.Context, t *linkTable, values valuesFunc) *lookupCandidate {
+	if t.RowCount == 0 || t.RowCount > lookupMaxRows || len(t.Columns) < 2 {
+		return nil
+	}
+	tried := 0
+	for ki, kc := range t.Columns {
+		if kc.ShadowOf != "" {
 			continue
 		}
-		tried := 0
-		for ki, kc := range t.Columns {
-			if kc.ShadowOf != "" {
-				continue
-			}
-			if tried == lookupKeyCandidates {
+		if tried == lookupKeyCandidates {
+			break
+		}
+		tried++
+		// The stats already rule out a column with empty cells or repeats.
+		if st, ok := t.Stats[kc.Name]; ok && (st.NullCount > 0 || (st.DistinctCount >= 0 && st.DistinctCount < t.RowCount)) {
+			continue
+		}
+		vals, complete, err := values(ctx, t.TableName, kc.Name)
+		if err != nil || !complete || int64(len(vals)) != t.RowCount {
+			continue
+		}
+		keys := map[string]bool{}
+		for _, v := range vals {
+			k, ok := intKey(v)
+			if !ok {
+				keys = nil
 				break
 			}
-			tried++
-			vals, complete, err := values(ctx, t.TableName, kc.Name)
-			if err != nil || !complete || int64(len(vals)) != t.RowCount {
-				continue
+			keys[k] = true
+		}
+		// "1" and "01" are distinct text but the same key: still unique?
+		if len(keys) == 0 || len(keys) != len(vals) {
+			continue
+		}
+		for _, lc := range t.Columns[ki+1:] {
+			if lc.Type == tabular.TypeText && lc.ShadowOf == "" {
+				return &lookupCandidate{table: t, key: kc.Name, label: lc.Name, keys: keys}
 			}
-			keys := map[string]bool{}
-			for _, v := range vals {
-				k, ok := intKey(v)
-				if !ok {
-					keys = nil
-					break
-				}
-				keys[k] = true
-			}
-			if len(keys) == 0 {
-				continue
-			}
-			for _, lc := range t.Columns[ki+1:] {
-				if lc.Type == tabular.TypeText && lc.ShadowOf == "" {
-					out = append(out, lookupCandidate{table: t, key: kc.Name, label: lc.Name, keys: keys})
-					break
-				}
-			}
-			break // the first integer key column wins
+		}
+		return nil // the first integer key column wins
+	}
+	return nil
+}
+
+// nameMatchesTable: a header matches a possible lookup table by its sheet
+// name or by the header of one of its text columns (the would-be label).
+func nameMatchesTable(header string, t *linkTable) bool {
+	if namesMatch(header, t.Sheet) {
+		return true
+	}
+	for _, c := range t.Columns {
+		if c.Type == tabular.TypeText && c.ShadowOf == "" && namesMatch(header, c.Original) {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 // heuristicLinks: code columns matched to a lookup candidate by name (its
-// sheet name or label header) whose non-blank values all occur in the key
-// column. A column matching two candidates is left alone.
+// sheet name or label header) whose distinct non-blank values — at least
+// minHeuristicValues — all occur in the key column. A column matching two
+// candidates is left alone. Tables are probed lazily, only once a column's
+// name matched them, so the query budget goes to plausible pairs.
 func heuristicLinks(ctx context.Context, tables []*linkTable, values valuesFunc, out map[linkKey]tabular.LookupRef) {
-	cands := lookupCandidates(ctx, tables, values)
-	if len(cands) == 0 {
-		return
+	probed := map[*linkTable]*lookupCandidate{}
+	probe := func(t *linkTable) *lookupCandidate {
+		c, done := probed[t]
+		if !done {
+			c = probeCandidate(ctx, t, values)
+			probed[t] = c
+		}
+		return c
 	}
 	for _, t := range tables {
 		for _, col := range t.Columns {
@@ -536,14 +626,21 @@ func heuristicLinks(ctx context.Context, tables []*linkTable, values valuesFunc,
 			if _, taken := out[k]; taken || col.ShadowOf != "" {
 				continue
 			}
+			if st, ok := t.Stats[col.Name]; ok && (st.HighCardinality || st.DistinctCount > lookupMaxValues) {
+				continue // too many distinct values to be codes we could read
+			}
 			header := col.Original
 			if header == "" {
 				header = col.Name
 			}
 			var match *lookupCandidate
-			for i := range cands {
-				c := &cands[i]
-				if c.table.TableName == t.TableName {
+			ambiguous := false
+			for _, ct := range tables {
+				if ct == t || ct.RowCount > lookupMaxRows || !nameMatchesTable(header, ct) {
+					continue
+				}
+				c := probe(ct)
+				if c == nil {
 					continue
 				}
 				label := c.table.column(c.label)
@@ -551,12 +648,12 @@ func heuristicLinks(ctx context.Context, tables []*linkTable, values valuesFunc,
 					continue
 				}
 				if match != nil {
-					match = nil // ambiguous
+					ambiguous = true
 					break
 				}
 				match = c
 			}
-			if match == nil {
+			if match == nil || ambiguous {
 				continue
 			}
 			vals, complete, err := values(ctx, t.TableName, col.Name)
@@ -565,18 +662,22 @@ func heuristicLinks(ctx context.Context, tables []*linkTable, values valuesFunc,
 			}
 			seen := 0
 			for _, v := range vals {
-				iv, ok := intKey(v)
 				if strings.TrimSpace(v) == "" {
 					continue // an empty text cell carries no code
 				}
+				iv, ok := intKey(v)
 				if !ok || !match.keys[iv] {
 					seen = -1
 					break
 				}
 				seen++
 			}
-			if seen > 0 {
-				out[k] = tabular.LookupRef{Table: match.table.TableName, Key: match.key, Label: match.label, Source: tabular.LookupSourceHeuristic}
+			if seen >= minHeuristicValues {
+				// The values matched as integers; when the two columns are typed
+				// differently (text key "5", numeric code 5) the join must compare
+				// them as numbers.
+				out[k] = tabular.LookupRef{Table: match.table.TableName, Key: match.key, Label: match.label, Source: tabular.LookupSourceHeuristic,
+					Compare: compareFor(col.Type, linkColumnType(match.table, match.key), tabular.LookupCompareNumeric)}
 			}
 		}
 	}
@@ -600,8 +701,8 @@ func detectLookups(ctx context.Context, tables []*linkTable, values valuesFunc) 
 
 // firstLookupFormulas collects, per kept sheet column of a region, the first
 // lookup formula in its sampled data rows.
-func firstLookupFormulas(sample *sheetsource.Sample, rp profile.RegionProfile) map[int]string {
-	out := map[int]string{}
+func firstLookupFormulas(sample *sheetsource.Sample, rp profile.RegionProfile) map[int]lookupFormula {
+	out := map[int]lookupFormula{}
 	for _, cp := range rp.Columns {
 		for r := rp.DataStart; r <= rp.Region.Bottom && r < len(sample.Rows); r++ {
 			if r < 0 || cp.Index >= len(sample.Rows[r]) {
@@ -609,7 +710,7 @@ func firstLookupFormulas(sample *sheetsource.Sample, rp profile.RegionProfile) m
 			}
 			c := sample.Rows[r][cp.Index]
 			if c.IsFormula && c.Formula != "" && c.Formula != "(shared)" && lookupFnRe.MatchString(c.Formula) {
-				out[cp.Index] = c.Formula
+				out[cp.Index] = lookupFormula{Text: c.Formula, Row: r}
 				break
 			}
 		}
@@ -621,7 +722,7 @@ func firstLookupFormulas(sample *sheetsource.Sample, rp profile.RegionProfile) m
 // catalog. Links are an aid, not data: any failure is logged and leaves the
 // tables as they are.
 func (g *Ingester) linkLookups(ctx context.Context, tables []*linkTable) {
-	ctx, cancel := context.WithTimeout(ctx, lookupPassTimeout)
+	detectCtx, cancel := context.WithTimeout(ctx, lookupPassTimeout)
 	defer cancel()
 	queries := 0
 	values := func(ctx context.Context, table, column string) ([]string, bool, error) {
@@ -631,7 +732,12 @@ func (g *Ingester) linkLookups(ctx context.Context, tables []*linkTable) {
 		queries++
 		return g.mat.DistinctValues(ctx, table, column, lookupMaxValues)
 	}
-	all := detectLookups(ctx, tables, values)
+	all := detectLookups(detectCtx, tables, values)
+	// The writes get their own deadline: a detection that ran out of time
+	// (the heuristic degrades to fewer links) must not cost the exact
+	// formula and validation links already found.
+	writeCtx, cancelWrite := context.WithTimeout(ctx, lookupWriteTimeout)
+	defer cancelWrite()
 	for _, t := range tables {
 		found := all[t.TableName]
 		if len(found) == 0 {
@@ -644,10 +750,8 @@ func (g *Ingester) linkLookups(ctx context.Context, tables []*linkTable) {
 				cols[i].Lookup = &ref
 			}
 		}
-		if err := g.mat.UpdateColumns(ctx, t.TableName, cols); err != nil {
+		if err := g.mat.UpdateColumns(writeCtx, t.TableName, cols); err != nil {
 			logctx.From(ctx).Warn("tabular: lookup links not saved", "table", t.TableName, "error", SanitizeNote(err.Error()))
-			continue
 		}
-		t.Columns = cols
 	}
 }

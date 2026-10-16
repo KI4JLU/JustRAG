@@ -159,6 +159,20 @@ func TestLookupHint(t *testing.T) {
 	if got, want := lookupHint(derived), `looked up from "tabular"."t_noten": ganze_note where prozent = prozent`; got != want {
 		t.Errorf("derived link:\n got %s\nwant %s", got, want)
 	}
+	// Review of #11: a dropdown holds the value itself — no join; mismatched
+	// types render a comparison Postgres accepts.
+	list := ColumnSpec{Name: "status", Lookup: &LookupRef{Table: "t_listen", Key: "status", Label: "status", Source: LookupSourceValidation}}
+	if got, want := lookupHint(list), `values from the list "tabular"."t_listen".status`; got != want {
+		t.Errorf("validation link:\n got %s\nwant %s", got, want)
+	}
+	numeric := ColumnSpec{Name: "nutzungsart", Lookup: &LookupRef{Table: "t_arten", Key: "index", Label: "nutzungsart", Source: LookupSourceHeuristic, Compare: LookupCompareNumeric}}
+	if got, want := lookupHint(numeric), `code; name via JOIN "tabular"."t_arten" ON NULLIF(btrim(index::text), '')::numeric = NULLIF(btrim(this column::text), '')::numeric, name in nutzungsart (inferred, verify)`; got != want {
+		t.Errorf("numeric compare:\n got %s\nwant %s", got, want)
+	}
+	text := ColumnSpec{Name: "note", Lookup: &LookupRef{Table: "t_noten", Key: "prozent", Label: "ganze_note", Via: "prozent", Source: LookupSourceFormula, Compare: LookupCompareText}}
+	if got, want := lookupHint(text), `looked up from "tabular"."t_noten": ganze_note where prozent::text = prozent::text`; got != want {
+		t.Errorf("text compare:\n got %s\nwant %s", got, want)
+	}
 	if got := lookupHint(ColumnSpec{Name: "x"}); got != "" {
 		t.Errorf("no link must render nothing, got %q", got)
 	}

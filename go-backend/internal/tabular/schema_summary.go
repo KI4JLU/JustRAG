@@ -334,13 +334,34 @@ func lookupHint(col ColumnSpec) string {
 		return ""
 	}
 	var hint string
-	if l.Via != "" {
-		hint = fmt.Sprintf("looked up from %s: %s where %s = %s", renderTableRef(l.Table), l.Label, l.Key, l.Via)
-	} else {
-		hint = fmt.Sprintf("code; name via JOIN %s ON %s = this column, name in %s", renderTableRef(l.Table), l.Key, l.Label)
+	switch {
+	case l.Source == LookupSourceValidation:
+		// A dropdown: the column already holds the listed value, so there is
+		// nothing to translate and no join to suggest.
+		hint = fmt.Sprintf("values from the list %s.%s", renderTableRef(l.Table), l.Key)
+	case l.Via != "":
+		hint = fmt.Sprintf("looked up from %s: %s where %s = %s", renderTableRef(l.Table), l.Label,
+			LookupJoinExpr(l.Key, l.Compare), LookupJoinExpr(l.Via, l.Compare))
+	default:
+		hint = fmt.Sprintf("code; name via JOIN %s ON %s = %s, name in %s", renderTableRef(l.Table),
+			LookupJoinExpr(l.Key, l.Compare), LookupJoinExpr("this column", l.Compare), l.Label)
 	}
 	if l.Source == LookupSourceHeuristic {
 		hint += " (inferred, verify)"
 	}
 	return hint
+}
+
+// LookupJoinExpr renders one side of a lookup join so both sides have the
+// same
+// type when LookupRef.Compare says they differ: as a number (blank text is
+// NULL, not a cast error) or as text.
+func LookupJoinExpr(col, compare string) string {
+	switch compare {
+	case LookupCompareNumeric:
+		return fmt.Sprintf("NULLIF(btrim(%s::text), '')::numeric", col)
+	case LookupCompareText:
+		return col + "::text"
+	}
+	return col
 }

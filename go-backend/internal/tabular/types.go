@@ -50,6 +50,13 @@ const (
 	LookupSourceHeuristic  = "heuristic"  // a code column matched by name and values; may be wrong
 )
 
+// LookupRef.Compare values: how a join between the two columns must compare
+// them when their SQL types differ ("" = directly).
+const (
+	LookupCompareNumeric = "numeric" // both sides read as numbers (a text key column "5" against a numeric code 5)
+	LookupCompareText    = "text"    // both sides read as text
+)
+
 // LookupRef ties a column to a lookup table of the same file: the value in
 // Table's Key column that corresponds to a row, and the Label column that
 // names it. Two shapes:
@@ -59,13 +66,18 @@ const (
 //   - Via != "": the column holds an already looked-up value; Via is the
 //     column of the same table whose value was the key (a VLOOKUP result).
 //
+// A validation link (a dropdown) has Key == Label: the column holds the
+// listed value itself, not a code. Compare is set when the joined columns
+// have different SQL types (LookupCompareNumeric / LookupCompareText).
+//
 // Table, Key, Label and Via are SQL names.
 type LookupRef struct {
-	Table  string `json:"table"`
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Via    string `json:"via,omitempty"`
-	Source string `json:"source"`
+	Table   string `json:"table"`
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Via     string `json:"via,omitempty"`
+	Source  string `json:"source"`
+	Compare string `json:"compare,omitempty"`
 }
 
 // ColumnStat is the per-column entry of tabular_catalog.column_stats: the
