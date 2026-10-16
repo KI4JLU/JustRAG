@@ -46,8 +46,12 @@ type RegionInput struct {
 // RowsRead lands in exactly one of the other four row buckets:
 // RowsRead == RowsMaterialised + RowsDropped + DerivedRowsSkipped + RowsSkippedEmpty.
 type RegionResult struct {
-	TableName                                                                                       string
-	Columns                                                                                         []ColumnSpec // primaries + shadows in table order (after _rowid)
+	TableName string
+	Columns   []ColumnSpec // primaries + shadows in table order (after _rowid)
+	// SourceColumns maps each primary column's SQL name to its absolute
+	// sheet column (0-based) — what the ingest's lookup pass needs to turn
+	// an A1 reference ("Prozent-Noten!$A$2:$B$102") into SQL columns.
+	SourceColumns                                                                                   map[string]int
 	Stats                                                                                           []ColumnStat
 	RowsRead, RowsMaterialised, RowsDropped, DerivedRowsSkipped, RowsSkippedEmpty, CoercionFailures int64
 }
@@ -105,7 +109,10 @@ func (m *Materializer) MaterializeRegion(ctx context.Context, in RegionInput) (r
 		}
 	}()
 
-	res = &RegionResult{TableName: table}
+	res = &RegionResult{TableName: table, SourceColumns: make(map[string]int, len(accs))}
+	for i := range names {
+		res.SourceColumns[names[i]] = kept[i]
+	}
 	ch := make(chan []any, 256)
 	readErr := make(chan error, 1)
 	derived := map[int]bool{}
@@ -367,4 +374,31 @@ func (m *Materializer) DropTablesForFile(ctx context.Context, fileID string) err
 		}
 	}
 	return m.catalog.DeleteByFile(ctx, fileID)
+}
+
+// UpdateColumns rewrites a materialized table's catalog column list — the
+// ingest's lookup pass uses it to add LookupRef links once every table of
+// the file exists.
+func (m *Materializer) UpdateColumns(ctx context.Context, table string, cols []ColumnSpec) error {
+	return m.catalog.UpdateColumns(ctx, table, cols)
+}
+
+// DistinctValues returns up to limit distinct non-NULL values of one column
+// of a materialized table as text, and whether that is all of them (false
+// when the column has more than limit distinct values). table and column
+// come from the catalog and go through q; limit is a bound parameter.
+func (m *Materializer) DistinctValues(ctx context.Context, table, column string, limit int) ([]string, bool, error) {
+	rows, err := m.pool.Query(ctx, fmt.Sprintf(`SELECT DISTINCT %s::text FROM %s.%s WHERE %s IS NOT NULL LIMIT $1`,
+		q(column), q(TabularSchema), q(table), q(column)), limit+1)
+	if err != nil {
+		return nil, false, fmt.Errorf("tabular: distinct values %s.%s: %w", table, column, err)
+	}
+	vals, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, false, fmt.Errorf("tabular: distinct values %s.%s: %w", table, column, err)
+	}
+	if len(vals) > limit {
+		return vals[:limit], false, nil
+	}
+	return vals, true, nil
 }

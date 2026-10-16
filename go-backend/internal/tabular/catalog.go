@@ -3,6 +3,7 @@ package tabular
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -228,4 +229,17 @@ func (c *Catalog) ReplaceColumnValues(ctx context.Context, tableName, columnName
 func (c *Catalog) DeleteValuesForTables(ctx context.Context, tables []string) error {
 	_, err := c.pool.Exec(ctx, `DELETE FROM tabular_column_values WHERE table_name = ANY($1)`, tables)
 	return err
+}
+
+// UpdateColumns replaces one table's catalog column list (the ingest's
+// lookup pass adds LookupRef links after all of a file's tables exist).
+func (c *Catalog) UpdateColumns(ctx context.Context, tableName string, cols []ColumnSpec) error {
+	colsJSON, err := json.Marshal(cols)
+	if err != nil {
+		return fmt.Errorf("tabular: marshal columns: %w", err)
+	}
+	if _, err := c.pool.Exec(ctx, `UPDATE tabular_catalog SET columns = $1 WHERE table_name = $2`, colsJSON, tableName); err != nil {
+		return fmt.Errorf("tabular: update columns of %s: %w", tableName, err)
+	}
+	return nil
 }
