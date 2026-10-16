@@ -5,6 +5,7 @@ import {
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFormValidation } from '../../hooks/useFormValidation';
+import { PreviewHeader } from '../PreviewHeader';
 
 /**
  * Text sources in the DS `RichTextEditor` (Tiptap, markdown in and out), in a
@@ -59,11 +60,16 @@ interface TextSourceModalProps {
     setTextSourceContent: (v: string) => void;
 }
 
-/** The PDF preview's frame: same dialog size, same header row (title + room for the close button). */
-function EditorDialog({ open, onClose, header, children }: {
+/**
+ * The PDF preview's frame: same dialog size, same header. A preview passes
+ * the shared `PreviewHeader` as `preview`; the editor passes its own 56px
+ * `header` row (title field + action).
+ */
+function EditorDialog({ open, onClose, header, preview, children }: {
     open: boolean;
     onClose: () => void;
-    header: React.ReactNode;
+    header?: React.ReactNode;
+    preview?: React.ReactNode;
     children: React.ReactNode;
 }) {
     const { t } = useTheme();
@@ -72,11 +78,15 @@ function EditorDialog({ open, onClose, header, children }: {
             <DialogContent
                 closeLabel={t('close')}
                 className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
-                aria-describedby={undefined}
+                // A preview header brings a DialogDescription (Radix links it);
+                // the editor has none, so it opts out of the description.
+                {...(preview ? {} : { 'aria-describedby': undefined })}
             >
-                <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
-                    {header}
-                </div>
+                {preview ?? (
+                    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
+                        {header}
+                    </div>
+                )}
                 {children}
             </DialogContent>
         </Dialog>
@@ -181,10 +191,12 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
         <EditorDialog
             open={show}
             onClose={onClose}
-            header={(
-                <DialogTitle className="min-w-0 flex-1 truncate text-base font-semibold" title={fileName}>
-                    {fileName}
-                </DialogTitle>
+            preview={(
+                <PreviewHeader
+                    kind="text"
+                    title={fileName}
+                    subtitle={t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')}
+                />
             )}
         >
             <RichTextEditor
