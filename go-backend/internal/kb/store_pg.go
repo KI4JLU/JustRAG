@@ -766,6 +766,11 @@ func (s *PGStore) ListTabularCatalogByFile(ctx context.Context, fileID string) (
 	return tabular.NewCatalog(s.pool).ListByFile(ctx, fileID)
 }
 
+// PreviewTabularRows reads one page of entry's materialized table.
+func (s *PGStore) PreviewTabularRows(ctx context.Context, entry tabular.CatalogEntry, pq tabular.PreviewQuery) (*tabular.PreviewPage, error) {
+	return tabular.NewCatalog(s.pool).PreviewRows(ctx, entry, pq)
+}
+
 // ---------------------------------------------------------------------------
 // Pending KB invites — backs kbmembers.PendingInviteStore (via
 // internal/app/routes.go's pendingInviteAdapter) for the four-role /members
