@@ -88,8 +88,9 @@ var topicsSQL = `WITH ` + visibleKBsCTE + `
 // sourcesSQL matches files by name in every visible KB whose source list the
 // caller may see, both ways. "May see" is kbaccess.SeeSourcesSQL, the SQL
 // mirror of CapabilitiesFor(...).SeeSources: a viewer of a KB with
-// viewer_see_sources off gets no file hits from it (the KB itself, and the
-// caller's chats and messages in it, are still found).
+// viewer_see_sources off, or an editor of one with editor_see_sources off,
+// gets no file hits from it (the KB itself, and the caller's chats and
+// messages in it, are still found).
 //
 // Rank: 0 prefix, 1 substring, 2 fuzzy (by similarity desc); ties by
 // case-folded name, then id. Both arms of the WHERE are served by

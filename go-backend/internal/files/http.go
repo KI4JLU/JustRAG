@@ -361,8 +361,9 @@ func (h *Handler) sourceAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, 
 }
 
 // canDownload reports whether the caller may download kb's source files:
-// at least view, plus the downloadSources capability (for a viewer, the
-// KB's viewer_download_sources flag).
+// at least view, plus the downloadSources capability (the KB's
+// viewer_download_sources flag for a viewer, editor_download_sources for an
+// editor).
 func (h *Handler) canDownload(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
 	role, caps, err := h.sourceAccess(ctx, kb, user)
 	if err != nil {
@@ -371,15 +372,15 @@ func (h *Handler) canDownload(ctx context.Context, kb *kbaccess.KnowledgeBase, u
 	return kbaccess.AtLeast(role, kbaccess.RoleView) && caps.DownloadSources, nil
 }
 
-// canManage reports whether the caller may delete or retry kb's files: at
-// least edit, plus the manageSources capability (for an editor, the KB's
-// editor_manage_sources flag). A viewer never passes, whatever the flags say.
+// canManage reports whether the caller may delete or retry kb's files: the
+// manageSources capability, which is role only — edit and above, never a
+// viewer, whatever the flags say.
 func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
-	role, caps, err := h.sourceAccess(ctx, kb, user)
+	_, caps, err := h.sourceAccess(ctx, kb, user)
 	if err != nil {
 		return false, err
 	}
-	return kbaccess.AtLeast(role, kbaccess.RoleEdit) && caps.ManageSources, nil
+	return caps.ManageSources, nil
 }
 
 // ---------------------------------------------------------------------------

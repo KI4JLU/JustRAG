@@ -80,7 +80,7 @@ func TestExecuteActionDispatchErrorIsOpaque(t *testing.T) {
 
 func TestArgsWhitelist(t *testing.T) {
 	var got map[string]any
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit", ManageSources: true})
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
 	_, err := ExecuteAction(ctx, offered(), ActionChoice{ActionID: "upload", Args: map[string]any{"userFileIds": []any{"f1"}, "sql": "drop"}},
 		map[string]DispatchFunc{"library_add_to_kb": capture(&got)})
 	if err != nil {
@@ -109,7 +109,7 @@ func TestDecodeChoice(t *testing.T) {
 
 func TestServerArgsOverrideWhitelistedClientArgs(t *testing.T) {
 	var got map[string]any
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit", ManageSources: true})
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
 	acts := []Action{{ID: "conf", Tool: "confluence_import", Args: map[string]any{"spaceKey": "SERVER"}}}
 	_, err := ExecuteAction(ctx, acts, ActionChoice{ActionID: "conf", Args: map[string]any{"spaceKey": "CLIENT", "rootPageId": "7"}},
 		map[string]DispatchFunc{"confluence_import": capture(&got)})
@@ -124,55 +124,5 @@ func TestServerArgsOverrideWhitelistedClientArgs(t *testing.T) {
 func TestDecodeChoiceRejectsNonMapArgs(t *testing.T) {
 	if _, ok := DecodeChoice(map[string]any{"actionId": "web", "args": "x"}); ok {
 		t.Fatal("non-map args decoded")
-	}
-}
-
-// TestKBWriteNeedsManageSources pins the source-permission term of the
-// dispatch policy: a KB-write action (library_add_to_kb, confluence_import)
-// needs Scope.ManageSources on top of its role, even for an owner, while a
-// non-write action (web_search) is unaffected by it. Both the offer
-// (VisibleActions) and the execution (ExecuteAction) apply it.
-//
-// Oracle: the dispatch counter — a refused action never reaches its
-// DispatchFunc — and the offered-ids list, both written out by hand from
-// the rule "KB writes need the manage-sources capability".
-func TestKBWriteNeedsManageSources(t *testing.T) {
-	n := 0
-	d := func(context.Context, string, string, json.RawMessage) (mcp.ToolResult, error) {
-		n++
-		return mcp.ToolResult{Text: "ok"}, nil
-	}
-	dispatch := map[string]DispatchFunc{"library_add_to_kb": d, "web_search": d}
-	allowed := []string{"library_add_to_kb", "web_search"}
-	acts := []Action{{ID: "web", Tool: "web_search"}, {ID: "upload", Tool: "library_add_to_kb"}}
-
-	locked := Scope{UserID: "u", KBID: "kb", Role: "owner", ManageSources: false}
-	ctx := WithScope(context.Background(), locked)
-	if _, err := ExecuteAction(ctx, acts, ActionChoice{ActionID: "upload"}, dispatch); !errors.Is(err, ErrForbiddenTool) {
-		t.Fatalf("KB write without ManageSources: err = %v, want ErrForbiddenTool", err)
-	}
-	if n != 0 {
-		t.Fatal("dispatched a KB write without ManageSources")
-	}
-	if got := VisibleActions(locked, acts, allowed); len(got) != 1 || got[0].ID != "web" {
-		t.Fatalf("offered without ManageSources = %+v, want only web", got)
-	}
-	if _, err := ExecuteAction(ctx, acts, ActionChoice{ActionID: "web"}, dispatch); err != nil {
-		t.Fatalf("web_search without ManageSources: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("web_search dispatches = %d, want 1", n)
-	}
-
-	open := locked
-	open.ManageSources = true
-	if got := VisibleActions(open, acts, allowed); len(got) != 2 {
-		t.Fatalf("offered with ManageSources = %+v, want web and upload", got)
-	}
-	if _, err := ExecuteAction(WithScope(context.Background(), open), acts, ActionChoice{ActionID: "upload"}, dispatch); err != nil {
-		t.Fatalf("KB write with ManageSources: %v", err)
-	}
-	if n != 2 {
-		t.Fatalf("dispatches = %d, want 2", n)
 	}
 }

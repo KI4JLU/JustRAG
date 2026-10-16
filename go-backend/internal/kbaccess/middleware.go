@@ -26,16 +26,21 @@ type KnowledgeBase struct {
 }
 
 // SourcePermissions are the per-KB flags a KB admin sets to decide what
-// viewers (and editors) may do with the KB's sources. The zero value is the
-// most restrictive setting, so a KnowledgeBase built without loading the
-// flags fails closed — editors included. The database defaults differ
-// (editor_manage_sources is true there); PGStore.GetKBByID always loads them.
+// viewers and editors may do with the KB's sources: the Viewer* flags apply
+// to the view role, the Editor* flags to the edit role, one pair per
+// capability. The zero value is the most restrictive setting, so a
+// KnowledgeBase built without loading the flags fails closed — editors
+// included. The database defaults differ (the editor_* columns default to
+// true there); PGStore.GetKBByID always loads them.
 type SourcePermissions struct {
 	ViewerSeeSources      bool
 	ViewerSelectSources   bool
 	ViewerDownloadSources bool
 	ViewerSeeCitations    bool
-	EditorManageSources   bool
+	EditorSeeSources      bool
+	EditorSelectSources   bool
+	EditorDownloadSources bool
+	EditorSeeCitations    bool
 }
 
 // KBAccessResult holds the resolved access information for a request.
@@ -130,7 +135,8 @@ type Capabilities struct {
 	DownloadSources bool `json:"downloadSources"`
 	// SeeCitations: see an answer's citations.
 	SeeCitations bool `json:"seeCitations"`
-	// ManageSources: add, change, sync, delete and retry sources.
+	// ManageSources: add, change, sync, delete and retry sources. Role
+	// only (edit and above), never a flag.
 	ManageSources bool `json:"manageSources"`
 }
 
@@ -173,15 +179,19 @@ func (c Capabilities) Has(capability Capability) bool {
 //     owner) and a system admin on a public KB (resolves to admin). An
 //     api-user system role resolves through the same ladder and has no
 //     admin rung of its own, so it never gains admin capability from it.
-//   - edit: sees, selects, downloads and sees citations; manages sources
-//     only while EditorManageSources is on.
-//   - view: each viewer capability follows its flag; never manages sources,
-//     whatever the flags say.
+//   - edit: each of the four flag-governed capabilities follows its editor_*
+//     flag; always manages sources.
+//   - view: each of the four follows its viewer_* flag; never manages
+//     sources, whatever the flags say.
 //   - anything else (no access): nothing.
 //
+// ManageSources is therefore exactly "role edit or above"; it is a
+// capability anyway so the route gates and the UI read one object.
+//
 // Every caller of this function — the route gates (RequireCapability), the
-// handler-internal checks in internal/files and internal/academic, the KB
-// list and detail responses — goes through here; none restates the table.
+// handler-internal checks in internal/files, the selection refusals in
+// internal/chat, internal/publicapi and internal/research, the KB list and
+// detail responses — goes through here; none restates the table.
 //
 // KEEP IN SYNC WITH SeeSourcesSQL (visible_sql.go), the SQL rendering of the
 // seeSources rule that the header search (internal/globalsearch) filters file
@@ -199,8 +209,11 @@ func CapabilitiesFor(kb *KnowledgeBase, role string) Capabilities {
 		}
 	case role == RoleEdit:
 		return Capabilities{
-			SeeSources: true, SelectSources: true, DownloadSources: true,
-			SeeCitations: true, ManageSources: kb.Sources.EditorManageSources,
+			SeeSources:      kb.Sources.EditorSeeSources,
+			SelectSources:   kb.Sources.EditorSelectSources,
+			DownloadSources: kb.Sources.EditorDownloadSources,
+			SeeCitations:    kb.Sources.EditorSeeCitations,
+			ManageSources:   true,
 		}
 	case role == RoleView:
 		return Capabilities{

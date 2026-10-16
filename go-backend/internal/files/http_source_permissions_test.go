@@ -20,10 +20,11 @@ import (
 //
 // Oracle: the expected status per (route, role, flag), written by hand from
 // the spec —
-//   - download (GET /api/files/{id}/download, viewer_download_sources): a
-//     viewer only with the flag on; an editor regardless of viewer flags.
-//   - delete / retry (editor_manage_sources): an editor only with the flag
-//     on; a viewer never, even with every flag on.
+//   - download (GET /api/files/{id}/download): a viewer only with
+//     viewer_download_sources on, an editor only with
+//     editor_download_sources on; the other role's flag never helps.
+//   - delete / retry (role only): an editor always, even with every flag
+//     off; a viewer never, even with every flag on.
 //
 // plus a side-effect check that is independent of the status code: a refused
 // download streams no bytes, a refused delete removes nothing, a refused
@@ -38,7 +39,8 @@ func sourcePermFile() *files.FileInfo {
 
 var everyFlag = kbaccess.SourcePermissions{
 	ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true,
-	ViewerSeeCitations: true, EditorManageSources: true,
+	ViewerSeeCitations: true, EditorSeeSources: true, EditorSelectSources: true,
+	EditorDownloadSources: true, EditorSeeCitations: true,
 }
 
 // allBut returns every flag on except the one cleared by clear, so an "off"
@@ -49,10 +51,10 @@ func allBut(clear func(*kbaccess.SourcePermissions)) kbaccess.SourcePermissions 
 	return p
 }
 
-func onlyDownload(p *kbaccess.SourcePermissions) { p.ViewerDownloadSources = false }
-func onlyManage(p *kbaccess.SourcePermissions)   { p.EditorManageSources = false }
+func viewerDownload(p *kbaccess.SourcePermissions) { p.ViewerDownloadSources = false }
+func editorDownload(p *kbaccess.SourcePermissions) { p.EditorDownloadSources = false }
 
-func TestDownloadFollowsViewerDownloadSources(t *testing.T) {
+func TestDownloadFollowsDownloadSourcesFlags(t *testing.T) {
 	cases := []struct {
 		name  string
 		role  string
@@ -60,9 +62,9 @@ func TestDownloadFollowsViewerDownloadSources(t *testing.T) {
 		want  int
 	}{
 		{"viewer_flag_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerDownloadSources: true}, http.StatusOK},
-		{"viewer_flag_off", kbaccess.RoleView, allBut(onlyDownload), http.StatusForbidden},
-		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{ViewerDownloadSources: true}, http.StatusOK},
-		{"editor_flag_off", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, http.StatusOK},
+		{"viewer_flag_off", kbaccess.RoleView, allBut(viewerDownload), http.StatusForbidden},
+		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorDownloadSources: true}, http.StatusOK},
+		{"editor_flag_off", kbaccess.RoleEdit, allBut(editorDownload), http.StatusForbidden},
 		{"kb_admin_flag_off", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusOK},
 	}
 	for _, tc := range cases {
@@ -92,18 +94,18 @@ func TestDownloadFollowsViewerDownloadSources(t *testing.T) {
 	}
 }
 
-func TestDeleteFollowsEditorManageSources(t *testing.T) {
+func TestDeleteIsEditRoleOnly(t *testing.T) {
 	cases := []struct {
 		name  string
 		role  string
 		flags kbaccess.SourcePermissions
 		want  int
 	}{
-		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorManageSources: true}, http.StatusNoContent},
-		{"editor_flag_off", kbaccess.RoleEdit, allBut(onlyManage), http.StatusForbidden},
+		{"editor_every_flag_on", kbaccess.RoleEdit, everyFlag, http.StatusNoContent},
+		{"editor_no_flags", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, http.StatusNoContent},
 		{"viewer_every_flag_on", kbaccess.RoleView, everyFlag, http.StatusForbidden},
-		{"viewer_flag_off", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
-		{"kb_admin_flag_off", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusNoContent},
+		{"viewer_no_flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
+		{"kb_admin_no_flags", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusNoContent},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -131,17 +133,17 @@ func TestDeleteFollowsEditorManageSources(t *testing.T) {
 	}
 }
 
-func TestRetryFollowsEditorManageSources(t *testing.T) {
+func TestRetryIsEditRoleOnly(t *testing.T) {
 	cases := []struct {
 		name  string
 		role  string
 		flags kbaccess.SourcePermissions
 		want  int
 	}{
-		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorManageSources: true}, http.StatusOK},
-		{"editor_flag_off", kbaccess.RoleEdit, allBut(onlyManage), http.StatusForbidden},
+		{"editor_every_flag_on", kbaccess.RoleEdit, everyFlag, http.StatusOK},
+		{"editor_no_flags", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, http.StatusOK},
 		{"viewer_every_flag_on", kbaccess.RoleView, everyFlag, http.StatusForbidden},
-		{"viewer_flag_off", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
+		{"viewer_no_flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

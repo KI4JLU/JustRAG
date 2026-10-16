@@ -239,9 +239,9 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// A file selection is the per-request source checkbox, which the KB's
-	// source permissions may withhold from viewers (selectSources). Refused
-	// here, before the KB router, the chat row and the usage record, so a
-	// refusal leaves nothing behind.
+	// source permissions may withhold from viewers and editors
+	// (selectSources). Refused here, before the KB router, the chat row and
+	// the usage record, so a refusal leaves nothing behind.
 	if len(body.SelectedFileIDs) > 0 && !kbaccess.HasCapability(ctx, kbaccess.CapSelectSources) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, MsgSelectSourcesForbidden)
 		return

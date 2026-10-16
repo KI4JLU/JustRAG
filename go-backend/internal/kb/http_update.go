@@ -52,7 +52,10 @@ type KBUpdate struct {
 	ViewerSelectSources   *bool `json:"viewerSelectSources"`
 	ViewerDownloadSources *bool `json:"viewerDownloadSources"`
 	ViewerSeeCitations    *bool `json:"viewerSeeCitations"`
-	EditorManageSources   *bool `json:"editorManageSources"`
+	EditorSeeSources      *bool `json:"editorSeeSources"`
+	EditorSelectSources   *bool `json:"editorSelectSources"`
+	EditorDownloadSources *bool `json:"editorDownloadSources"`
+	EditorSeeCitations    *bool `json:"editorSeeCitations"`
 }
 
 // UnmarshalJSON detects explicit nulls so the store can clear nullable columns.

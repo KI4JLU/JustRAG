@@ -44,14 +44,17 @@ type KBRow struct {
 	CreatedAt      time.Time `json:"createdAt"      db:"created_at"`
 
 	// Source permissions (migration 0089): the flags a KB admin sets through
-	// PATCH /api/kb/{id} to decide what viewers — and, for
-	// editorManageSources, editors — may do with the KB's sources. They are
-	// the stored settings; what the CALLER may do is Capabilities below.
+	// PATCH /api/kb/{id} to decide what viewers (viewer*) and editors
+	// (editor*) may do with the KB's sources. They are the stored settings;
+	// what the CALLER may do is Capabilities below.
 	ViewerSeeSources      bool `json:"viewerSeeSources"      db:"viewer_see_sources"`
 	ViewerSelectSources   bool `json:"viewerSelectSources"   db:"viewer_select_sources"`
 	ViewerDownloadSources bool `json:"viewerDownloadSources" db:"viewer_download_sources"`
 	ViewerSeeCitations    bool `json:"viewerSeeCitations"    db:"viewer_see_citations"`
-	EditorManageSources   bool `json:"editorManageSources"   db:"editor_manage_sources"`
+	EditorSeeSources      bool `json:"editorSeeSources"      db:"editor_see_sources"`
+	EditorSelectSources   bool `json:"editorSelectSources"   db:"editor_select_sources"`
+	EditorDownloadSources bool `json:"editorDownloadSources" db:"editor_download_sources"`
+	EditorSeeCitations    bool `json:"editorSeeCitations"    db:"editor_see_citations"`
 
 	// Owner attribution — populated by ListKnowledgeBases so the UI can show
 	// "shared by …" for KBs the current user does not own. Null when the KB
@@ -138,7 +141,10 @@ func (r *KBRow) accessKB() *kbaccess.KnowledgeBase {
 			ViewerSelectSources:   r.ViewerSelectSources,
 			ViewerDownloadSources: r.ViewerDownloadSources,
 			ViewerSeeCitations:    r.ViewerSeeCitations,
-			EditorManageSources:   r.EditorManageSources,
+			EditorSeeSources:      r.EditorSeeSources,
+			EditorSelectSources:   r.EditorSelectSources,
+			EditorDownloadSources: r.EditorDownloadSources,
+			EditorSeeCitations:    r.EditorSeeCitations,
 		},
 	}
 }

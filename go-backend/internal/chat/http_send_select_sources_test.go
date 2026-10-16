@@ -13,7 +13,7 @@ import (
 // on POST /api/kb/{id}/chat: a turn carrying selectedFileIds from a caller
 // whose capabilities withhold source selection is refused with 403 before
 // any chat row or usage event is written; the same turn without a
-// selection, from an editor, or with the viewer flag on, is accepted.
+// selection, or from a caller whose own role's flag is on, is accepted.
 //
 // Oracles, both independent of the gate's own code:
 //   - the mock store's chats map — a refused turn must leave it empty, an
@@ -25,10 +25,18 @@ import (
 // established way (TestSendMessage_AcceptedTurnRecordsOneUsageEventEvenOnLaterFailure)
 // to prove a turn got past every up-front check without a live AI backend.
 // Expected statuses are written by hand from the spec: viewers follow
-// viewer_select_sources, editors and above always select.
+// viewer_select_sources, editors editor_select_sources (the other role's
+// flag never helps), KB admins always select.
 func TestSendMessage_SelectedFilesNeedSelectSources(t *testing.T) {
-	everyOtherFlag := kbaccess.SourcePermissions{
-		ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true, EditorManageSources: true,
+	// Every flag on except the select flag of the role under test, so a
+	// refusal cannot come from some other flag being off.
+	viewerSelectOff := kbaccess.SourcePermissions{
+		ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+		EditorSeeSources: true, EditorSelectSources: true, EditorDownloadSources: true, EditorSeeCitations: true,
+	}
+	editorSelectOff := kbaccess.SourcePermissions{
+		ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+		EditorSeeSources: true, EditorDownloadSources: true, EditorSeeCitations: true,
 	}
 	cases := []struct {
 		name     string
@@ -37,12 +45,14 @@ func TestSendMessage_SelectedFilesNeedSelectSources(t *testing.T) {
 		body     string
 		accepted bool
 	}{
-		{"viewer_flag_off_with_selection", kbaccess.RoleView, everyOtherFlag, `{"message":"hi","selectedFileIds":["f1"]}`, false},
+		{"viewer_flag_off_with_selection", kbaccess.RoleView, viewerSelectOff, `{"message":"hi","selectedFileIds":["f1"]}`, false},
 		{"viewer_flag_on_with_selection", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSelectSources: true}, `{"message":"hi","selectedFileIds":["f1"]}`, true},
 		{"viewer_flag_off_without_selection", kbaccess.RoleView, kbaccess.SourcePermissions{}, `{"message":"hi"}`, true},
 		{"viewer_flag_off_empty_selection", kbaccess.RoleView, kbaccess.SourcePermissions{}, `{"message":"hi","selectedFileIds":[]}`, true},
-		{"editor_flag_off_with_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, `{"message":"hi","selectedFileIds":["f1"]}`, true},
-		{"editor_flag_on_with_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{ViewerSelectSources: true}, `{"message":"hi","selectedFileIds":["f1"]}`, true},
+		{"editor_flag_off_with_selection", kbaccess.RoleEdit, editorSelectOff, `{"message":"hi","selectedFileIds":["f1"]}`, false},
+		{"editor_flag_on_with_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSelectSources: true}, `{"message":"hi","selectedFileIds":["f1"]}`, true},
+		{"editor_flag_off_without_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, `{"message":"hi"}`, true},
+		{"kb_admin_no_flags_with_selection", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, `{"message":"hi","selectedFileIds":["f1"]}`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

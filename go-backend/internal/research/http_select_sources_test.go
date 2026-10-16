@@ -33,7 +33,8 @@ func (s *countingStore) CreateResearchSession(context.Context, string, string, s
 // Oracle: the CreateResearchSession call counter — a refused request must
 // not create a research session (no side effect before the 403); an
 // accepted one reaches it exactly once. Expected outcomes written by hand
-// from the spec: viewers follow viewer_select_sources, editors always pass.
+// from the spec: viewers follow viewer_select_sources, editors
+// editor_select_sources.
 func TestStartResearch_FileIDsNeedSelectSources(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -45,7 +46,8 @@ func TestStartResearch_FileIDsNeedSelectSources(t *testing.T) {
 		{"viewer_flag_off_with_files", kbaccess.RoleView, kbaccess.SourcePermissions{}, `{"goal":"g","fileIds":["f1"]}`, false},
 		{"viewer_flag_on_with_files", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSelectSources: true}, `{"goal":"g","fileIds":["f1"]}`, true},
 		{"viewer_flag_off_without_files", kbaccess.RoleView, kbaccess.SourcePermissions{}, `{"goal":"g"}`, true},
-		{"editor_flag_off_with_files", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, `{"goal":"g","fileIds":["f1"]}`, true},
+		{"editor_flag_off_with_files", kbaccess.RoleEdit, kbaccess.SourcePermissions{ViewerSelectSources: true}, `{"goal":"g","fileIds":["f1"]}`, false},
+		{"editor_flag_on_with_files", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSelectSources: true}, `{"goal":"g","fileIds":["f1"]}`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

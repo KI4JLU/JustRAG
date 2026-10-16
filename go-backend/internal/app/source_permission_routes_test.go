@@ -14,10 +14,11 @@ import (
 // written out by hand from the spec: which {id} route sits behind which
 // capability. It is the oracle for the mount points below.
 //
-//   - kbSourceListChain (viewer_see_sources): the sidebar source lists.
-//   - kbSourceDownloadChain (viewer_download_sources): the spreadsheet
-//     source preview, both routes.
-//   - kbManageSourcesChain (editor_manage_sources): every add / change /
+//   - kbSourceListChain (viewer_/editor_see_sources): the sidebar source
+//     lists.
+//   - kbSourceDownloadChain (viewer_/editor_download_sources): the
+//     spreadsheet source preview, both routes.
+//   - kbManageSourcesChain (role only, edit and above): every add / change /
 //     sync / delete / retry route, plus from-library (it adds sources).
 //
 // GET /api/files/{id}/download, DELETE /api/files/{id} and
@@ -88,53 +89,60 @@ var gateInner = map[string]func(*kbaccess.Middleware) func(http.HandlerFunc) htt
 	"kbManageSourcesChain":  manageSourcesInner,
 }
 
+// allFlagsOn turns every source flag on.
+var allFlagsOn = kbaccess.SourcePermissions{
+	ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true,
+	ViewerSeeCitations: true, EditorSeeSources: true, EditorSelectSources: true,
+	EditorDownloadSources: true, EditorSeeCitations: true,
+}
+
 // governingFlag returns a SourcePermissions with only the flag that governs
-// chain switched to on — or every flag on except that one when on is false,
-// so a test of "flag off" cannot pass because some other flag happened to be
-// off too.
-func governingFlag(chain string, on bool) kbaccess.SourcePermissions {
-	p := kbaccess.SourcePermissions{
-		ViewerSeeSources: !on, ViewerSelectSources: !on, ViewerDownloadSources: !on,
-		ViewerSeeCitations: !on, EditorManageSources: !on,
+// chain for role switched to on — or every flag on except that one when on
+// is false, so a test of "flag off" cannot pass because some other flag
+// happened to be off too. In particular "off" leaves the OTHER role's flag
+// for the same capability on, so a gate that read the wrong role's column
+// fails.
+func governingFlag(chain, role string, on bool) kbaccess.SourcePermissions {
+	p := allFlagsOn
+	if on {
+		p = kbaccess.SourcePermissions{}
 	}
-	switch chain {
-	case "kbSourceListChain":
+	switch chain + "/" + role {
+	case "kbSourceListChain/view":
 		p.ViewerSeeSources = on
-	case "kbSourceDownloadChain":
+	case "kbSourceListChain/edit":
+		p.EditorSeeSources = on
+	case "kbSourceDownloadChain/view":
 		p.ViewerDownloadSources = on
-	case "kbManageSourcesChain":
-		p.EditorManageSources = on
+	case "kbSourceDownloadChain/edit":
+		p.EditorDownloadSources = on
 	}
 	return p
 }
 
 // TestSourceGatePerRoute is the route test per gate: for every gated route,
 // the chain routes.go mounts it on is run with a viewer and an editor, each
-// with the governing flag on and off — the TestRetryForbiddenWithoutEdit
+// with its governing flag on and off — the TestRetryForbiddenWithoutEdit
 // pattern lifted to the middleware level. The caller's role comes from a
 // kb_members row through the real RequireKBRole/EffectiveRole.
 //
 // Oracle: the expected status per (gate, caller, flag), written by hand from
 // the spec:
-//   - list/download gates: a viewer passes only with the flag on; an editor
-//     passes either way (the viewer flags do not apply to editors).
-//   - manage gate: a viewer never passes, even with every flag on; an editor
-//     passes only with editor_manage_sources on.
+//   - list/download gates: a viewer passes only with its viewer_* flag on,
+//     an editor only with its editor_* flag on.
+//   - manage gate: no flag applies. A viewer never passes, even with every
+//     flag on; an editor always passes, even with every flag off.
 func TestSourceGatePerRoute(t *testing.T) {
-	want := map[string]map[string]int{ // chain -> "role/flag" -> status
+	want := map[string]map[string]int{ // chain -> "role/flags" -> status
 		"kbSourceListChain": {
-			"view/on": 200, "view/off": 403, "edit/on": 200, "edit/off": 200,
+			"view/on": 200, "view/off": 403, "edit/on": 200, "edit/off": 403,
 		},
 		"kbSourceDownloadChain": {
-			"view/on": 200, "view/off": 403, "edit/on": 200, "edit/off": 200,
+			"view/on": 200, "view/off": 403, "edit/on": 200, "edit/off": 403,
 		},
 		"kbManageSourcesChain": {
-			"view/on": 403, "view/off": 403, "view/all-flags": 403, "edit/on": 200, "edit/off": 403,
+			"view/all-flags": 403, "view/no-flags": 403, "edit/all-flags": 200, "edit/no-flags": 200,
 		},
-	}
-	allOn := kbaccess.SourcePermissions{
-		ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true,
-		ViewerSeeCitations: true, EditorManageSources: true,
 	}
 	chains := routeChains(t)
 	for pattern, chain := range sourceGateRoutes {
@@ -144,9 +152,14 @@ func TestSourceGatePerRoute(t *testing.T) {
 		method, path, _ := strings.Cut(pattern, " ")
 		for key, wantCode := range want[chain] {
 			role, flagState, _ := strings.Cut(key, "/")
-			flags := governingFlag(chain, flagState == "on")
-			if flagState == "all-flags" {
-				flags = allOn
+			var flags kbaccess.SourcePermissions
+			switch flagState {
+			case "all-flags":
+				flags = allFlagsOn
+			case "no-flags":
+				flags = kbaccess.SourcePermissions{}
+			default:
+				flags = governingFlag(chain, role, flagState == "on")
 			}
 			t.Run(pattern+"/"+key, func(t *testing.T) {
 				kbMw := kbaccess.NewMiddleware(kbStoreStub{

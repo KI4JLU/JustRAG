@@ -153,7 +153,8 @@ type routeCtx struct {
 	apiKeyChain     func(http.HandlerFunc) http.Handler
 
 	// The three source-permission chains (migration 0089): a KB role plus
-	// a kbaccess capability the KB's flags may withhold from that role.
+	// a kbaccess capability (for list/download one the KB's flags may
+	// withhold from viewers and editors).
 	// See sourceListInner / sourceDownloadInner / manageSourcesInner.
 	kbSourceListChain     func(http.HandlerFunc) http.Handler
 	kbSourceDownloadChain func(http.HandlerFunc) http.Handler
@@ -880,13 +881,13 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// middleware chain any tighter than edit would be redundant.
 	rc.mux.Handle("DELETE /api/kb/{id}", rc.kbEditChain(kbDeleteHandler.DeleteKB))
 	// The source list is the sidebar's file list, so it needs the
-	// seeSources capability on top of view (viewer_see_sources).
+	// seeSources capability on top of view (viewer_/editor_see_sources).
 	rc.mux.Handle("GET /api/kb/{id}/files", rc.kbSourceListChain(kbUpdateHandler.ListFiles))
 	// The "Tabellen" file-detail panel: the persisted spreadsheet ingest
 	// report plus the tabular_catalog projection for one file. It and the
 	// rows route below are the spreadsheet source preview, which shows
 	// source content the way a download does, so both sit on
-	// kbSourceDownloadChain (viewer_download_sources), like
+	// kbSourceDownloadChain (viewer_/editor_download_sources), like
 	// GET /api/files/{id}/download. GetFileTabular's own fileBelongsToKB
 	// guard rejects a fileId that belongs to a different KB.
 	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbSourceDownloadChain(kbHandler.GetFileTabular))
@@ -1818,16 +1819,16 @@ func (a *kbRouterCandidateAdapter) ListKBRouterCandidates(ctx context.Context, u
 // outer Authenticate wrapper. Named functions for the reason kbAdvancedInner
 // is: the chain tests exercise the composition this file installs, not a
 // copy. Each is a KB role (kbaccess.RequireKBRole) followed by a capability
-// the KB's flags may withhold from that role (kbaccess.RequireCapability),
-// resolved by kbaccess.CapabilitiesFor:
+// (kbaccess.RequireCapability), resolved by kbaccess.CapabilitiesFor:
 //
 //   - sourceListInner: view + seeSources — the sidebar source lists
 //     (files, RSS feeds, Confluence and git sources, crawl status).
 //   - sourceDownloadInner: view + downloadSources — the spreadsheet source
 //     preview, the in-KB twin of GET /api/files/{id}/download.
 //   - manageSourcesInner: edit + manageSources — every route that adds,
-//     changes, syncs, deletes or retries a source. Viewers never reach the
-//     capability check: the edit role already refuses them.
+//     changes, syncs, deletes or retries a source. manageSources is role
+//     only (edit and above), so the capability check repeats the role
+//     check; it is kept so every source gate reads the same object.
 func sourceListInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
 	return func(h http.HandlerFunc) http.Handler {
 		return kbMw.RequireKBCapability(kbaccess.RoleView, kbaccess.CapSeeSources)(h)

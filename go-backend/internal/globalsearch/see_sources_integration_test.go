@@ -16,9 +16,13 @@ import (
 // parity matrix checks exhaustively: the header search hides file hits from
 // a KB where the caller may not see sources, and only those.
 //
-//   - a viewer (kb_members role view) gets no file from the KB whose
-//     viewer_see_sources is off, but still gets that KB as a topic hit, and
-//     gets the file from the KB where the flag is on;
+// Two private KBs whose flags disagree: "off" has viewer_see_sources off and
+// editor_see_sources on (its default), "on" the reverse.
+//
+//   - a viewer (kb_members role view) gets no file from "off", but still gets
+//     that KB as a topic hit, and gets the file from "on";
+//   - an editor (role edit) gets exactly the opposite files — the file from
+//     "off" and none from "on" — and still both topics;
 //   - the KB owner and a KB admin get both files;
 //   - a system admin gets the file of a public KB with the flag off (rule 3,
 //     KB admin capabilities).
@@ -33,12 +37,14 @@ func TestFileHitsFollowSeeSources(t *testing.T) {
 	// Users first: t.Cleanup runs in reverse, so the KBs (and with them the
 	// kb_members rows) are gone before their users are deleted.
 	viewer := insertUser(t, pool, m+"-viewer", auth.RoleUser)
+	editor := insertUser(t, pool, m+"-editor", auth.RoleUser)
 	owner := insertUser(t, pool, m+"-owner", auth.RoleUser)
 	kbAdmin := insertUser(t, pool, m+"-kbadmin", auth.RoleUser)
 	sysAdmin := insertUser(t, pool, m+"-sysadmin", auth.RoleAdmin)
 
 	off := insertKB(t, pool, kbSpec{name: m + "-off", visibility: "private"})
-	on := insertKB(t, pool, kbSpec{name: m + "-on", visibility: "private", viewerSeeSources: true})
+	on := insertKB(t, pool, kbSpec{name: m + "-on", visibility: "private", viewerSeeSources: true,
+		editorSeeSourcesOff: true})
 	pub := insertKB(t, pool, kbSpec{name: m + "-pub", visibility: "public", published: true})
 	offFile := insertFile(t, pool, off, m+"-off.pdf")
 	onFile := insertFile(t, pool, on, m+"-on.pdf")
@@ -46,6 +52,7 @@ func TestFileHitsFollowSeeSources(t *testing.T) {
 
 	for _, kb := range []string{off, on} {
 		insertMember(t, pool, kb, viewer, kbaccess.RoleView)
+		insertMember(t, pool, kb, editor, kbaccess.RoleEdit)
 		insertMember(t, pool, kb, owner, kbaccess.RoleOwner)
 		insertMember(t, pool, kb, kbAdmin, kbaccess.RoleAdmin)
 	}
@@ -60,6 +67,10 @@ func TestFileHitsFollowSeeSources(t *testing.T) {
 		// (flag off), so its file is hidden as well — the topic is not.
 		{"viewer", globalsearch.Caller{UserID: viewer, SysRole: auth.RoleUser},
 			[]string{onFile}, []string{off, on, pub}},
+		// The editor is an implicit VIEWER of the public KB, so the viewer
+		// flag (off) decides there.
+		{"editor", globalsearch.Caller{UserID: editor, SysRole: auth.RoleUser},
+			[]string{offFile}, []string{off, on, pub}},
 		{"owner", globalsearch.Caller{UserID: owner, SysRole: auth.RoleUser},
 			[]string{offFile, onFile}, []string{off, on, pub}},
 		{"kb_admin", globalsearch.Caller{UserID: kbAdmin, SysRole: auth.RoleUser},

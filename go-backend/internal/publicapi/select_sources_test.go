@@ -46,7 +46,8 @@ func TestSendMessage_SelectedFilesNeedSelectSources(t *testing.T) {
 		{"viewer_flag_off_with_selection", kbaccess.RoleView, kbaccess.SourcePermissions{}, `{"message":"hallo","selectedFileIds":["f1"]}`, false},
 		{"viewer_flag_on_with_selection", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSelectSources: true}, `{"message":"hallo","selectedFileIds":["f1"]}`, true},
 		{"viewer_flag_off_without_selection", kbaccess.RoleView, kbaccess.SourcePermissions{}, `{"message":"hallo"}`, true},
-		{"editor_flag_off_with_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, `{"message":"hallo","selectedFileIds":["f1"]}`, true},
+		{"editor_flag_off_with_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{ViewerSelectSources: true}, `{"message":"hallo","selectedFileIds":["f1"]}`, false},
+		{"editor_flag_on_with_selection", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSelectSources: true}, `{"message":"hallo","selectedFileIds":["f1"]}`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -86,7 +87,8 @@ func TestSendMessage_SelectedFilesNeedSelectSources(t *testing.T) {
 //
 // Oracle: expected capabilities written by hand from the spec per row —
 // owner: everything; view member: exactly the viewer flags that are on;
-// edit member with editor_manage_sources off: everything but manage. The
+// edit member with editor see/download on and select/citations off: exactly
+// those two plus manage (role only). The
 // response is decoded as raw JSON so a missing key fails.
 func TestListKBs_CarryCapabilities(t *testing.T) {
 	role := func(r string) *string { return &r }
@@ -97,7 +99,7 @@ func TestListKBs_CarryCapabilities(t *testing.T) {
 	viewer.ViewerSeeSources, viewer.ViewerDownloadSources = true, true
 	editor := makeKB("kb-edit", "Edited")
 	editor.MyRole = role(kbaccess.RoleEdit)
-	editor.EditorManageSources = false
+	editor.EditorSeeSources, editor.EditorDownloadSources = true, true
 
 	h := publicapi.NewHandler(&mockStore{kbs: []kb.KBRow{owner, viewer, editor}}, nil, nil)
 	req := withUser(newRequest(http.MethodGet, "/api/v1/kb"), &auth.Claims{ID: "svc", Role: auth.RoleAPIUser})
@@ -113,7 +115,7 @@ func TestListKBs_CarryCapabilities(t *testing.T) {
 	want := []kbaccess.Capabilities{
 		{SeeSources: true, SelectSources: true, DownloadSources: true, SeeCitations: true, ManageSources: true},
 		{SeeSources: true, DownloadSources: true},
-		{SeeSources: true, SelectSources: true, DownloadSources: true, SeeCitations: true},
+		{SeeSources: true, DownloadSources: true, ManageSources: true},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("rows %d, want %d", len(rows), len(want))

@@ -31,7 +31,10 @@ type kbRow struct {
 	ViewerSelectSources   bool    `db:"viewer_select_sources"`
 	ViewerDownloadSources bool    `db:"viewer_download_sources"`
 	ViewerSeeCitations    bool    `db:"viewer_see_citations"`
-	EditorManageSources   bool    `db:"editor_manage_sources"`
+	EditorSeeSources      bool    `db:"editor_see_sources"`
+	EditorSelectSources   bool    `db:"editor_select_sources"`
+	EditorDownloadSources bool    `db:"editor_download_sources"`
+	EditorSeeCitations    bool    `db:"editor_see_citations"`
 }
 
 // GetKBByID returns the knowledge base with the given ID, or nil if not found.
@@ -44,7 +47,8 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 	// that share it — sees the same flags CapabilitiesFor resolves.
 	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published,
 	                    viewer_see_sources, viewer_select_sources, viewer_download_sources,
-	                    viewer_see_citations, editor_manage_sources
+	                    viewer_see_citations, editor_see_sources, editor_select_sources,
+	                    editor_download_sources, editor_see_citations
 	             FROM knowledge_bases WHERE id = $1`
 
 	rows, err := pgxutil.QueryRows[kbRow](ctx, s.pool, sql, id)
@@ -66,7 +70,10 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 			ViewerSelectSources:   r.ViewerSelectSources,
 			ViewerDownloadSources: r.ViewerDownloadSources,
 			ViewerSeeCitations:    r.ViewerSeeCitations,
-			EditorManageSources:   r.EditorManageSources,
+			EditorSeeSources:      r.EditorSeeSources,
+			EditorSelectSources:   r.EditorSelectSources,
+			EditorDownloadSources: r.EditorDownloadSources,
+			EditorSeeCitations:    r.EditorSeeCitations,
 		},
 	}, nil
 }

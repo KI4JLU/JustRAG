@@ -44,7 +44,8 @@ func decodeCaps(t *testing.T, raw json.RawMessage) kbaccess.Capabilities {
 // Oracle: expected capabilities written by hand from the spec for each
 // (caller, row) — owner: everything; implicit viewer on a published public
 // KB: exactly the viewer flags that are on; system admin on the same KB:
-// everything; editor with editor_manage_sources off: everything but manage.
+// everything; editor with only editor_see_sources and editor_select_sources
+// on: those two plus manageSources (role only).
 func TestListKnowledgeBases_CarryResolvedCapabilities(t *testing.T) {
 	owner := makeKB("kb-own", "Mine")
 	owner.MyRole = strp(kbaccess.RoleOwner)
@@ -52,11 +53,15 @@ func TestListKnowledgeBases_CarryResolvedCapabilities(t *testing.T) {
 	public := makeKB("kb-pub", "Public")
 	public.IsGlobal, public.IsPublished = true, true
 	public.ViewerSeeSources, public.ViewerSeeCitations = true, true
-	public.EditorManageSources = true
+	// Editor flags on, so an implicit viewer that read them would be caught.
+	public.EditorSeeSources, public.EditorSelectSources = true, true
+	public.EditorDownloadSources, public.EditorSeeCitations = true, true
 
 	editor := makeKB("kb-edit", "Shared")
 	editor.MyRole = strp(kbaccess.RoleEdit)
-	editor.EditorManageSources = false
+	editor.EditorSeeSources, editor.EditorSelectSources = true, true
+	// Viewer flags on, so an editor that read them would be caught.
+	editor.ViewerDownloadSources, editor.ViewerSeeCitations = true, true
 
 	cases := []struct {
 		name   string
@@ -67,7 +72,7 @@ func TestListKnowledgeBases_CarryResolvedCapabilities(t *testing.T) {
 	}{
 		{"private_list_user", func(h *kb.Handler) http.HandlerFunc { return h.ListKnowledgeBases }, testUser(),
 			[]kb.KBRow{owner, editor},
-			[]kbaccess.Capabilities{capsAll, {SeeSources: true, SelectSources: true, DownloadSources: true, SeeCitations: true}}},
+			[]kbaccess.Capabilities{capsAll, {SeeSources: true, SelectSources: true, ManageSources: true}}},
 		{"global_list_implicit_viewer", func(h *kb.Handler) http.HandlerFunc { return h.ListGlobalKnowledgeBases }, testUser(),
 			[]kb.KBRow{public},
 			[]kbaccess.Capabilities{{SeeSources: true, SeeCitations: true}}},
@@ -138,26 +143,26 @@ func TestGetAndCreateKnowledgeBase_CarryCapabilities(t *testing.T) {
 	}
 }
 
-// TestUpdateKB_SourcePermissionFields pins the PATCH surface: the five flag
+// TestUpdateKB_SourcePermissionFields pins the PATCH surface: the eight flag
 // fields reach the store exactly as sent (absent → nil, i.e. unchanged), and
 // the response's capabilities are resolved from the RE-READ row, not from
 // the request's KBAccessResult, whose flags this very PATCH may have changed.
 //
 // Oracle: the KBUpdate the mock store captured, compared to the request
 // body by hand; and capabilities derived by hand from the re-read row (an
-// editor whose editor_manage_sources was just switched off loses manage,
+// editor whose editor_see_sources was just switched off loses seeSources,
 // although the stale access result still had it on).
 func TestUpdateKB_SourcePermissionFields(t *testing.T) {
 	reread := makeKBRow("kb-1", "KB")
 	reread.MyRole = strp(kbaccess.RoleEdit)
-	reread.EditorManageSources = false
 	reread.ViewerSeeSources = true
+	reread.EditorSelectSources, reread.EditorDownloadSources, reread.EditorSeeCitations = true, true, true
 	store := &mockUpdateStore{kb: makeKBRow("kb-1", "KB"), reread: reread}
 	h := kb.NewUpdateHandler(store, nil)
 
-	body := []byte(`{"viewerSeeSources":true,"editorManageSources":false,"viewerSeeCitations":null}`)
+	body := []byte(`{"viewerSeeSources":true,"editorSeeSources":false,"editorSeeCitations":true,"viewerSeeCitations":null}`)
 	r := httptest.NewRequest(http.MethodPatch, "/api/kb/kb-1", bytes.NewReader(body))
-	staleKB := &kbaccess.KnowledgeBase{ID: "kb-1", Sources: kbaccess.SourcePermissions{EditorManageSources: true}}
+	staleKB := &kbaccess.KnowledgeBase{ID: "kb-1", Sources: kbaccess.SourcePermissions{EditorSeeSources: true}}
 	r = injectKBAccessAs(r, staleKB, kbaccess.RoleAdmin, auth.RoleUser)
 	rr := httptest.NewRecorder()
 	h.UpdateKB(rr, r)
@@ -169,20 +174,33 @@ func TestUpdateKB_SourcePermissionFields(t *testing.T) {
 	if u.ViewerSeeSources == nil || !*u.ViewerSeeSources {
 		t.Errorf("viewerSeeSources = %v, want true", u.ViewerSeeSources)
 	}
-	if u.EditorManageSources == nil || *u.EditorManageSources {
-		t.Errorf("editorManageSources = %v, want false", u.EditorManageSources)
+	if u.EditorSeeSources == nil || *u.EditorSeeSources {
+		t.Errorf("editorSeeSources = %v, want false", u.EditorSeeSources)
 	}
-	if u.ViewerSeeCitations != nil || u.ViewerSelectSources != nil || u.ViewerDownloadSources != nil {
-		t.Errorf("absent/null flags must stay nil: %+v %+v %+v", u.ViewerSeeCitations, u.ViewerSelectSources, u.ViewerDownloadSources)
+	if u.EditorSeeCitations == nil || !*u.EditorSeeCitations {
+		t.Errorf("editorSeeCitations = %v, want true", u.EditorSeeCitations)
+	}
+	for name, f := range map[string]*bool{
+		"viewerSeeCitations": u.ViewerSeeCitations, "viewerSelectSources": u.ViewerSelectSources,
+		"viewerDownloadSources": u.ViewerDownloadSources, "editorSelectSources": u.EditorSelectSources,
+		"editorDownloadSources": u.EditorDownloadSources,
+	} {
+		if f != nil {
+			t.Errorf("absent/null flag %s must stay nil, got %v", name, *f)
+		}
 	}
 
-	want := kbaccess.Capabilities{SeeSources: true, SelectSources: true, DownloadSources: true, SeeCitations: true}
+	want := kbaccess.Capabilities{SelectSources: true, DownloadSources: true, SeeCitations: true, ManageSources: true}
 	if got := decodeCaps(t, rr.Body.Bytes()); got != want {
 		t.Errorf("capabilities %+v, want %+v (resolved from the re-read row)", got, want)
 	}
 	var obj map[string]any
 	_ = json.Unmarshal(rr.Body.Bytes(), &obj)
-	if obj["editorManageSources"] != false || obj["viewerSeeSources"] != true {
-		t.Errorf("flag fields in response: editorManageSources=%v viewerSeeSources=%v", obj["editorManageSources"], obj["viewerSeeSources"])
+	if obj["editorSeeSources"] != false || obj["viewerSeeSources"] != true || obj["editorSelectSources"] != true {
+		t.Errorf("flag fields in response: editorSeeSources=%v viewerSeeSources=%v editorSelectSources=%v",
+			obj["editorSeeSources"], obj["viewerSeeSources"], obj["editorSelectSources"])
+	}
+	if _, ok := obj["editorManageSources"]; ok {
+		t.Error("response still carries editorManageSources")
 	}
 }

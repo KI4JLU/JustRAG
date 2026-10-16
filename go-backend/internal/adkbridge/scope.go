@@ -19,12 +19,6 @@ type Scope struct {
 	LibraryFileIDs []string
 	// IsGlobal: the KB is public (kbaccess); KB-write actions need it.
 	IsGlobal bool
-	// ManageSources is the caller's kbaccess manageSources capability on
-	// the KB (kbaccess.CapabilitiesFor). A KB-write tool needs it on top of
-	// its RequiresRole, so a KB that withholds source management from its
-	// editors cannot be written through an agent action either. False when
-	// unset, so a scope built without it refuses KB writes.
-	ManageSources bool
 	// AllowPrivileged mirrors site_config agents_allow_privileged_tools.
 	AllowPrivileged bool
 }

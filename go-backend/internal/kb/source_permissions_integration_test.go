@@ -13,17 +13,19 @@ import (
 	"github.com/justrag/go-backend/internal/kbaccess"
 )
 
-// readFlags reads the five source-permission columns with plain SQL — the
+// readFlags reads the eight source-permission columns with plain SQL — the
 // oracle for every store method below, independent of their column lists.
 func readFlags(t *testing.T, pool *pgxpool.Pool, kbID string) kbaccess.SourcePermissions {
 	t.Helper()
 	var p kbaccess.SourcePermissions
 	if err := pool.QueryRow(context.Background(), `
 		SELECT viewer_see_sources, viewer_select_sources, viewer_download_sources,
-		       viewer_see_citations, editor_manage_sources
+		       viewer_see_citations, editor_see_sources, editor_select_sources,
+		       editor_download_sources, editor_see_citations
 		FROM knowledge_bases WHERE id = $1::uuid`, kbID).Scan(
 		&p.ViewerSeeSources, &p.ViewerSelectSources, &p.ViewerDownloadSources,
-		&p.ViewerSeeCitations, &p.EditorManageSources); err != nil {
+		&p.ViewerSeeCitations, &p.EditorSeeSources, &p.EditorSelectSources,
+		&p.EditorDownloadSources, &p.EditorSeeCitations); err != nil {
 		t.Fatalf("read flags: %v", err)
 	}
 	return p
@@ -33,7 +35,7 @@ func readFlags(t *testing.T, pool *pgxpool.Pool, kbID string) kbaccess.SourcePer
 // and every store path that carries the flags, against a live database:
 //
 //  1. a new KB gets the migration's defaults — every viewer flag false,
-//     editor_manage_sources true (the spec's decided defaults);
+//     every editor flag true (the spec's decided defaults);
 //  2. UpdateKnowledgeBase writes exactly the flags it was given and leaves
 //     the others alone;
 //  3. GetKnowledgeBase and kbaccess.PGStore.GetKBByID (the lookup
@@ -56,22 +58,28 @@ func TestSourcePermissions_DefaultsAndPatchRoundTrip(t *testing.T) {
 		pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, created.ID) //nolint:errcheck
 	})
 
-	wantDefaults := kbaccess.SourcePermissions{EditorManageSources: true}
+	wantDefaults := kbaccess.SourcePermissions{
+		EditorSeeSources: true, EditorSelectSources: true, EditorDownloadSources: true, EditorSeeCitations: true,
+	}
 	if got := readFlags(t, pool, created.ID); got != wantDefaults {
 		t.Fatalf("defaults in the database = %+v, want %+v", got, wantDefaults)
 	}
 	if created.ViewerSeeSources || created.ViewerSelectSources || created.ViewerDownloadSources ||
-		created.ViewerSeeCitations || !created.EditorManageSources {
+		created.ViewerSeeCitations || !created.EditorSeeSources || !created.EditorSelectSources ||
+		!created.EditorDownloadSources || !created.EditorSeeCitations {
 		t.Errorf("CreateKnowledgeBase RETURNING row does not carry the defaults: %+v", created)
 	}
 
 	on, off := true, false
 	if _, err := s.UpdateKnowledgeBase(ctx, created.ID, kb.KBUpdate{
-		ViewerSeeSources: &on, ViewerDownloadSources: &on, EditorManageSources: &off,
+		ViewerSeeSources: &on, ViewerDownloadSources: &on, EditorSeeSources: &off, EditorSeeCitations: &off,
 	}); err != nil {
 		t.Fatalf("UpdateKnowledgeBase: %v", err)
 	}
-	want := kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true}
+	want := kbaccess.SourcePermissions{
+		ViewerSeeSources: true, ViewerDownloadSources: true,
+		EditorSelectSources: true, EditorDownloadSources: true,
+	}
 	if got := readFlags(t, pool, created.ID); got != want {
 		t.Fatalf("after PATCH = %+v, want %+v", got, want)
 	}
@@ -83,7 +91,8 @@ func TestSourcePermissions_DefaultsAndPatchRoundTrip(t *testing.T) {
 	gotRow := kbaccess.SourcePermissions{
 		ViewerSeeSources: row.ViewerSeeSources, ViewerSelectSources: row.ViewerSelectSources,
 		ViewerDownloadSources: row.ViewerDownloadSources, ViewerSeeCitations: row.ViewerSeeCitations,
-		EditorManageSources: row.EditorManageSources,
+		EditorSeeSources: row.EditorSeeSources, EditorSelectSources: row.EditorSelectSources,
+		EditorDownloadSources: row.EditorDownloadSources, EditorSeeCitations: row.EditorSeeCitations,
 	}
 	if gotRow != want {
 		t.Errorf("GetKnowledgeBase flags = %+v, want %+v", gotRow, want)

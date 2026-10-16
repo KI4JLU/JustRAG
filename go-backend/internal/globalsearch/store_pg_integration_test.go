@@ -115,6 +115,10 @@ type kbSpec struct {
 	// viewerSeeSources sets knowledge_bases.viewer_see_sources (migration
 	// 0089, default false). Only viewers are affected by it.
 	viewerSeeSources bool
+	// editorSeeSourcesOff clears knowledge_bases.editor_see_sources
+	// (migration 0089, default true), so the zero kbSpec keeps the column
+	// default. Only editors are affected by it.
+	editorSeeSourcesOff bool
 }
 
 func insertKB(t *testing.T, pool *pgxpool.Pool, s kbSpec) string {
@@ -122,9 +126,11 @@ func insertKB(t *testing.T, pool *pgxpool.Pool, s kbSpec) string {
 	ctx := context.Background()
 	var id string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO knowledge_bases (name, visibility, is_published, description, header_text, viewer_see_sources)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6) RETURNING id::text`,
-		s.name, s.visibility, s.published, s.description, s.headerText, s.viewerSeeSources).Scan(&id); err != nil {
+		INSERT INTO knowledge_bases (name, visibility, is_published, description, header_text,
+		                             viewer_see_sources, editor_see_sources)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7) RETURNING id::text`,
+		s.name, s.visibility, s.published, s.description, s.headerText,
+		s.viewerSeeSources, !s.editorSeeSourcesOff).Scan(&id); err != nil {
 		t.Fatalf("insert kb %s: %v", s.name, err)
 	}
 	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, id) }) //nolint:errcheck
@@ -188,12 +194,23 @@ func ladderRule(kb *kbaccess.KnowledgeBase, sysRole, memberRole string) string {
 
 // TestVisibilityAgreesWithEffectiveRole builds, for each of four callers (one
 // per system role), 40 topics: {private, public} x {published, staged} x
-// {viewer_see_sources off, on} x {no row, view, edit, admin, owner} on that
-// caller. Every caller is then checked against all 160 topics, so each also
-// sees the 120 topics on which it has no row but somebody else does (owner
-// included). That is 640 pairs, each asserted twice. The expected role is
+// {see-sources flags} x {no row, view, edit, admin, owner} on that caller.
+// Every caller is then checked against all 160 topics, so each also sees the
+// 120 topics on which it has no row but somebody else does (owner included).
+// That is 640 pairs, each asserted twice. The expected role is
 // EffectiveRole's; whether the topic's file may appear is
-// CapabilitiesFor(kb, role).SeeSources on top of it:
+// CapabilitiesFor(kb, role).SeeSources on top of it.
+//
+// The see-sources dimension is a covering subset of the four combinations of
+// (viewer_see_sources, editor_see_sources): {(on, off), (off, on)}. A caller
+// has one role per topic, and seeSources depends on at most one of the two
+// columns for that role (view → viewer, edit → editor, admin/owner →
+// neither), so each role still meets both values of its own column; and
+// because the two columns always disagree, a SeeSourcesSQL that read the
+// other role's column gets every view and edit pair wrong. The coverage
+// check below fails if any of those cells goes unexercised.
+//
+// Two checks per pair:
 //
 //   - Unscoped, with the topic's own key as q. Search is fuzzy, and the keys
 //     share a long per-run marker, that query also returns many
@@ -225,14 +242,16 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 		})
 		for _, vis := range []string{"private", "public"} {
 			for _, published := range []bool{true, false} {
-				for _, seeSources := range []bool{false, true} {
+				for _, viewerSee := range []bool{true, false} {
 					for _, mr := range memberRoles {
 						n++
 						// Zero-padded and hyphen-terminated, so the key of k001
 						// is not a substring of k0010's.
 						key := fmt.Sprintf("%s-k%03d-", m, n)
+						// editor_see_sources is always the opposite of
+						// viewer_see_sources (see the doc comment).
 						id := insertKB(t, pool, kbSpec{name: key + "topic", visibility: vis, published: published,
-							viewerSeeSources: seeSources})
+							viewerSeeSources: viewerSee, editorSeeSourcesOff: viewerSee})
 						if mr != "" {
 							insertMember(t, pool, id, uid, mr)
 						}
@@ -288,11 +307,13 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 			coverage[ladderRule(kb, c.caller.SysRole, memberRole)]++
 			if want != "" {
 				visible++
-				seeCoverage[fmt.Sprintf("%s flag=%v see=%v", want, kb.Sources.ViewerSeeSources, wantSee)]++
+				seeCoverage[fmt.Sprintf("%s viewer=%v editor=%v see=%v", want,
+					kb.Sources.ViewerSeeSources, kb.Sources.EditorSeeSources, wantSee)]++
 			}
 
-			pair := fmt.Sprintf("caller=%s kb=%s (public=%v published=%v member=%q seeFlag=%v) want role %q see %v",
-				c.label, k.key, kb.IsGlobal, kb.IsPublished, memberRole, kb.Sources.ViewerSeeSources, want, wantSee)
+			pair := fmt.Sprintf("caller=%s kb=%s (public=%v published=%v member=%q viewerSee=%v editorSee=%v) want role %q see %v",
+				c.label, k.key, kb.IsGlobal, kb.IsPublished, memberRole,
+				kb.Sources.ViewerSeeSources, kb.Sources.EditorSeeSources, want, wantSee)
 
 			// --- unscoped: the key finds this topic and file exactly (as a
 			// prefix), plus fuzzy hits on other topics; every hit is judged ---
@@ -343,12 +364,15 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 			t.Errorf("fixture matrix never exercised ladder rule %q", rule)
 		}
 	}
-	// The seeSources half must not be vacuous either: a viewer has to have
-	// been checked with the flag off (files hidden) and on (files shown), and
-	// an editor with the flag off (files shown regardless).
+	// The seeSources half must not be vacuous either: viewers and editors
+	// each with their own flag on (files shown) and off (files hidden) while
+	// the other role's flag says the opposite, and admins/owners with each
+	// flag off (files shown regardless).
 	for _, cell := range []string{
-		"view flag=false see=false", "view flag=true see=true", "edit flag=false see=true",
-		"admin flag=false see=true", "owner flag=false see=true",
+		"view viewer=true editor=false see=true", "view viewer=false editor=true see=false",
+		"edit viewer=false editor=true see=true", "edit viewer=true editor=false see=false",
+		"admin viewer=true editor=false see=true", "admin viewer=false editor=true see=true",
+		"owner viewer=true editor=false see=true", "owner viewer=false editor=true see=true",
 	} {
 		if seeCoverage[cell] == 0 {
 			t.Errorf("fixture matrix never exercised the seeSources case %q", cell)

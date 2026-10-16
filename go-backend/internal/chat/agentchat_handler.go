@@ -274,7 +274,6 @@ func (h *AgentChatHandler) scope(access *kbaccess.KBAccessResult) agui.ScopeFunc
 			KBID:            access.KB.ID,
 			Role:            access.Role,
 			IsGlobal:        access.KB.IsGlobal,
-			ManageSources:   access.Capabilities().ManageSources,
 			AllowPrivileged: AgentsAllowPrivilegedTools(r.Context(), h.d.SiteConfig),
 		}, nil
 	}

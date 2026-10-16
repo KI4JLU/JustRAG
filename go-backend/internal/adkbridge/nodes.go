@@ -108,7 +108,6 @@ func VisibleActions(sc Scope, actions []Action, allowed []string) []Action {
 		}
 		p := PolicyFor(a.Tool)
 		if !slices.Contains(allowed, a.Tool) || !RoleAtLeast(sc.Role, p.RequiresRole) ||
-			!sourceWriteAllowed(sc, p) ||
 			(privilegedInBridge(a.Tool) && !sc.AllowPrivileged) {
 			continue
 		}

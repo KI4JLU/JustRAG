@@ -28,9 +28,9 @@ import "github.com/justrag/go-backend/internal/auth"
 // every (caller, KB) pair. It lives in that package because
 // internal/globalsearch is in CI's integration package list.
 //
-// Columns: id, name, description, header_text, visibility, role, and
-// viewer_see_sources (the raw flag, read by SeeSourcesSQL below — the CTE
-// itself never filters on it).
+// Columns: id, name, description, header_text, visibility, role, and the
+// raw flags viewer_see_sources and editor_see_sources (read by SeeSourcesSQL
+// below — the CTE itself never filters on them).
 //
 // Parameters: $1 caller user id, $2 caller system role (from the auth claims,
 // as RequireKBRole passes it), $3 scoping kb id or NULL for all KBs. A
@@ -59,7 +59,8 @@ import "github.com/justrag/go-backend/internal/auth"
 // isolation.
 const VisibleKBsCTE = `
 	visible_kbs AS (
-		SELECT kb.id, kb.name, kb.description, kb.header_text, kb.visibility, kb.viewer_see_sources,
+		SELECT kb.id, kb.name, kb.description, kb.header_text, kb.visibility,
+		       kb.viewer_see_sources, kb.editor_see_sources,
 		       CASE
 		         WHEN $2 = '` + auth.RoleSuperAdmin + `' THEN '` + RoleOwner + `'
 		         WHEN m.role IN ('` + RoleView + `', '` + RoleEdit + `', '` +
@@ -81,7 +82,7 @@ const VisibleKBsCTE = `
 // KEEP IN SYNC WITH CapabilitiesFor (middleware.go), case for case:
 //
 //   - admin, owner -> true, whatever the flags say
-//   - edit         -> true (the viewer flags do not apply to editors)
+//   - edit         -> editor_see_sources
 //   - view         -> viewer_see_sources
 //   - no role      -> false (NULL IN (...) is NULL; callers already filter
 //     on role IS NOT NULL, and a NULL predicate drops the row like false)
@@ -89,12 +90,14 @@ const VisibleKBsCTE = `
 // A change to CapabilitiesFor's seeSources rule must be made here in the
 // same commit. The parity test is TestVisibilityAgreesWithEffectiveRole in
 // internal/globalsearch/store_pg_integration_test.go: for every (caller, KB)
-// pair of its fixture matrix — both values of viewer_see_sources included —
+// pair of its fixture matrix — which flips viewer_see_sources and
+// editor_see_sources against each other, so a swapped column fails it —
 // it requires the KB's file to appear in the search exactly when the real
 // EffectiveRole plus the real CapabilitiesFor grant seeSources.
 //
 // Role literals are spliced in from the Go constants, as in VisibleKBsCTE.
 func SeeSourcesSQL(alias string) string {
-	return `(` + alias + `.role IN ('` + RoleEdit + `', '` + RoleAdmin + `', '` + RoleOwner + `')
+	return `(` + alias + `.role IN ('` + RoleAdmin + `', '` + RoleOwner + `')
+	        OR (` + alias + `.role = '` + RoleEdit + `' AND ` + alias + `.editor_see_sources)
 	        OR (` + alias + `.role = '` + RoleView + `' AND ` + alias + `.viewer_see_sources))`
 }

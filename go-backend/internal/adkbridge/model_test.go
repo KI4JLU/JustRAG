@@ -199,7 +199,7 @@ func fakeSearch(calls *int) DispatchFunc {
 func run(t *testing.T, r *runner.Runner, sid string, msg *genai.Content) []*session.Event {
 	t.Helper()
 	var evs []*session.Event
-	for ev, err := range r.Run(WithScope(context.Background(), Scope{UserID: "u1", KBID: "kb", Role: "edit", ManageSources: true}), "u1", sid, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+	for ev, err := range r.Run(WithScope(context.Background(), Scope{UserID: "u1", KBID: "kb", Role: "edit"}), "u1", sid, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if err != nil {
 			t.Fatalf("run: %v", err)
 		}
