@@ -351,3 +351,36 @@ describe('GlobalSearch', () => {
     expect(field()).not.toHaveFocus();
   });
 });
+
+// ORACLE: the UI rule of 2026-10-16 — a row that opens nothing is not offered.
+// The caller decides which source hits can be opened (WorkspaceSearch: hits
+// of its own topic only with downloadSources); rejected hits are not listed.
+describe('GlobalSearch canOpenSource', () => {
+  const OTHER = { ...SOURCE, id: 'f-2', name: 'Andere.pdf', kbId: 'kb-2', kbName: 'Andere' };
+
+  it('lists only the source hits the caller can open', async () => {
+    mockedGet.mockResolvedValueOnce(response({ sources: [SOURCE, OTHER] }));
+    render(<Harness canOpenSource={(hit) => hit.kbId !== 'kb-1'} />);
+    await userEvent.type(field(), 'PO-');
+    const listbox = await screen.findByRole('listbox');
+    expect(within(listbox).queryByRole('option', { name: /PO-2024\.pdf/ })).toBeNull();
+    expect(within(listbox).getByRole('option', { name: /Andere\.pdf/ })).toBeInTheDocument();
+  });
+
+  it('drops the sources group when no hit can be opened', async () => {
+    mockedGet.mockResolvedValueOnce(response({ sources: [SOURCE], chats: [CHAT] }));
+    render(<Harness canOpenSource={() => false} />);
+    await userEvent.type(field(), 'PO-');
+    const listbox = await screen.findByRole('listbox');
+    expect(within(listbox).queryByRole('group', { name: de('globalSearchGroupSources') })).toBeNull();
+    expect(within(listbox).getByRole('group', { name: de('globalSearchGroupChats') })).toBeInTheDocument();
+  });
+
+  it('lists every source hit when the caller sets no filter', async () => {
+    mockedGet.mockResolvedValueOnce(response({ sources: [SOURCE, OTHER] }));
+    render(<Harness />);
+    await userEvent.type(field(), 'PO-');
+    const listbox = await screen.findByRole('listbox');
+    expect(within(listbox).getAllByRole('option', { name: /\.pdf/ })).toHaveLength(2);
+  });
+});

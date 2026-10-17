@@ -1,0 +1,106 @@
+name: Cut Release Candidate
+
+# Tags the tip of `main` as the next release candidate `vYY.M.N-rc.K` and
+# starts its image build. Next steps: Deploy to Staging with that RC, test,
+# then Promote Release Candidate. See docs/runbooks/release.md.
+#
+# The version is NOT an input: it is read from package.json on main, which
+# the release-prep commit (changelog section + package.json, made on
+# `development` with scripts/next-version.sh) brought in through the
+# development → main PR. One source, so the tag, the changelog heading and
+# package.json cannot disagree. K counts up per version: an RC that failed on
+# staging is never moved, the fix gets the next K.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: promote-release # never interleave with a promotion or rollback
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the RC tag
+      actions: write # dispatch the image build on it
+
+    steps:
+      - name: Refuse anything but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::release candidates are cut from main only (run the workflow with 'Use workflow from: main')"
+          exit 1
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # all tags, for the checks below
+
+      - name: Work out the release candidate
+        id: v
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          version=$(jq -r .version package.json)
+          [[ "$version" =~ ^[0-9]{2}\.([1-9]|1[0-2])\.[0-9]+$ ]] \
+            || fail "package.json version '$version' is not CalVer YY.M.N — make the release-prep commit on development first (scripts/next-version.sh)"
+          release="v$version"
+
+          git rev-parse -q --verify "refs/tags/$release" >/dev/null \
+            && fail "$release is already released — bump package.json with scripts/next-version.sh"
+          highest=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          if [[ -n "$highest" && "$(printf '%s\n%s\n' "$highest" "$release" | sort -V | tail -1)" != "$release" ]]; then
+            fail "$release is not newer than the latest release $highest"
+          fi
+
+          # `grep >/dev/null`, never `grep -q`, after a pipe under pipefail
+          # (see promote-release.yml).
+          grep "^## $release " CHANGELOG.md >/dev/null \
+            || fail "CHANGELOG.md on main has no '## $release' section — make the release-prep commit on development first"
+
+          month=$(TZ=Europe/Berlin date +%y.%-m)
+          [[ "$version" == "$month".* ]] \
+            || echo "::warning::$release is not a $month version — fine if the prep commit was made last month, otherwise re-run scripts/next-version.sh"
+
+          head=$(git rev-parse HEAD)
+          last=0
+          for t in $(git tag -l "$release-rc.*"); do
+            [[ "$t" =~ -rc\.([0-9]+)$ ]] || continue
+            n=${BASH_REMATCH[1]}
+            (( n > last )) && last=$n
+            [[ "$(git rev-parse "$t^{commit}")" == "$head" ]] \
+              && fail "$t already points at main's tip ($head) — deploy that RC instead of cutting a new one"
+          done
+          rc="$release-rc.$((last + 1))"
+
+          {
+            echo "release=$release"
+            echo "rc=$rc"
+            echo "commit=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Tag and build
+        env:
+          RC: ${{ steps.v.outputs.rc }}
+          COMMIT: ${{ steps.v.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Annotated: `git describe` prefers annotated tags, and GET /version
+          # reports exactly this name.
+          git tag -a "$RC" "$COMMIT" -m "$RC"
+          git push origin "refs/tags/$RC"
+
+          # A tag pushed with GITHUB_TOKEN triggers no workflow, so the build
+          # is dispatched explicitly, on the tag.
+          gh workflow run docker-image.yml --ref "$RC"
+
+          {
+            echo "### Cut $RC on \`${COMMIT:0:7}\`"
+            echo ""
+            echo "The image build is running (Actions → Build and Push Docker Image)."
+            echo "When it is green: Actions → **Deploy to Staging** with image \`$RC\`."
+          } >> "$GITHUB_STEP_SUMMARY"

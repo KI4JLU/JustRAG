@@ -115,15 +115,17 @@ export function useKnowledgeBases({
   // Resolves to whether the KB was opened (card KI-837): the global search
   // opens a source or a chat INSIDE the topic, and must not do so when the
   // topic could not be opened — the error has already been toasted here.
-  const handleOpenKbById = useCallback(async (id: string): Promise<boolean> => {
+  // Resolves to the opened KB (its caller-aware row, capabilities included),
+  // or null when it could not be opened.
+  const handleOpenKbById = useCallback(async (id: string): Promise<KnowledgeBase | null> => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/kb/${id}`);
+      const res = await axios.get<KnowledgeBase>(`${API_BASE_URL}/api/kb/${id}`);
       handleSelectKB(res.data);
-      return true;
+      return res.data;
     } catch (err: unknown) {
       console.error('Failed to open KB:', err);
       toast.error(t('kbFetchError'));
-      return false;
+      return null;
     }
   }, [handleSelectKB, toast, t]);
 

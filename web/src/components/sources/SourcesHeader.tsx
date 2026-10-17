@@ -3,6 +3,7 @@ import { Button } from '@ki4jlu/design-system';
 import { RefreshCw, ShieldAlert } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKbData } from '../../contexts/KbDataContext';
+import { useKbSourceRights } from '../../hooks/useKbSourceRights';
 import '../sidebar-primitives.css';
 import './SourcesPanel.css';
 
@@ -38,8 +39,13 @@ const SourcesHeaderComp: React.FC = () => {
     const { t } = useTheme();
     const { fileMgmt } = useKbData();
     const { files, retryAllFailed } = fileMgmt;
+    // Retrying changes existing sources (capabilities.manageSources); a caller
+    // without that right is not offered it. The injection summary is read-only
+    // and stays visible to everyone — for rss/confluence/git files it is the
+    // only place the flag shows.
+    const { manageSources: canManage } = useKbSourceRights();
 
-    const failedCount = files.filter(f => f.status === 'error').length;
+    const failedCount = canManage ? files.filter(f => f.status === 'error').length : 0;
     // The ingest prompt-injection screen only ever runs on external origins
     // (rss/confluence/git/crawl), and three of those four are NOT rows in the
     // list below — their files are folded into the feed/source rows. So the

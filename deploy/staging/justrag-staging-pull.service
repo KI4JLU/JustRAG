@@ -1,0 +1,14 @@
+[Unit]
+Description=Pull the JustRAG :staging image and restart changed containers
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=JUSTRAG_DIR=/opt/justrag
+Environment=COMPOSE_FILE=docker-compose.yml:docker-compose.production.yml
+ExecStart=/opt/justrag/deploy/staging/justrag-staging-pull.sh
+# A first pull plus migrations can take a while; never let a hung pull
+# block the timer forever.
+TimeoutStartSec=30min

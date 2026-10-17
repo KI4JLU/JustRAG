@@ -5,7 +5,8 @@ import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage } from '../utils/apiError';
+import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseConfluenceSourcesParams {
     currentKb: KnowledgeBase | null;
@@ -59,17 +60,28 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
         }
     }, [confluenceConnection, t, toast]);
 
+    // No seeSources on the open KB: its Confluence sources are never requested.
+    const unlistable = unlistableKbId(currentKb);
     const fetchSources = useCallback(async (kbId?: string, signal?: AbortSignal) => {
         const id = kbId || currentKb?.id;
         if (!id) return;
+        if (id === unlistable) {
+            setConfluenceSources([]);
+            return;
+        }
         try {
             const res = await axios.get(`${API_BASE_URL}/api/kb/${id}/confluence-sources`, { signal });
             setConfluenceSources(Array.isArray(res.data) ? res.data : []);
         } catch (err: unknown) {
             if (axios.isCancel(err)) return;
+            // No seeSources on this KB: no list (and not the previous KB's).
+            if (isForbidden(err)) {
+                setConfluenceSources([]);
+                return;
+            }
             console.error('Failed to fetch Confluence sources:', err);
         }
-    }, [currentKb?.id]);
+    }, [currentKb?.id, unlistable]);
 
     // Poll while any source is syncing or recently added (waiting for worker to start)
     useEffect(() => {

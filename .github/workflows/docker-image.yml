@@ -2,12 +2,20 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: ["main"]
-    # Only release candidates are built. A release (`vX.Y.Z`) is never
+    # `main` → `:edge`, `development` → `:development`, both plus `:<sha>`.
+    # Neither deploys anything: staging follows `:staging`, which only
+    # deploy-staging.yml moves, and prod follows `:stable`, which only
+    # promote-release.yml moves.
+    branches: ["main", "development"]
+    # Only release candidates are built. A release (`vYY.M.N`) is never
     # rebuilt: promote-release.yml gives the tested RC image its release
     # tags by digest, so prod runs exactly the bits staging tested. A plain
-    # `vX.Y.Z` tag pushed by hand therefore builds nothing.
+    # `vYY.M.N` tag pushed by hand therefore builds nothing.
     tags: ["v*-rc.*"]
+  # cut-release.yml pushes the RC tag with GITHUB_TOKEN, and a push made with
+  # GITHUB_TOKEN triggers no workflow — so it dispatches this one on the tag
+  # instead (workflow_dispatch is the documented exception).
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -33,8 +41,8 @@ jobs:
           # a hash from GET /version with no error anywhere in the log.
           fetch-depth: 0
 
-      # `git describe` gives a human-legible build id: exactly `v0.1.0-rc.1`
-      # on a release-candidate tag, `v0.1.0-12-gabc1234` on main. A promoted
+      # `git describe` gives a human-legible build id: exactly `v26.11.0-rc.1`
+      # on a release-candidate tag, `v26.11.0-12-gabc1234` on a branch. A promoted
       # release keeps reporting the RC it was promoted from — it is the same
       # binary. Still unique per commit, so the frontend's useVersionCheck
       # (which only compares for inequality) keeps working unchanged. `--always` covers the pre-first-tag case.
@@ -66,16 +74,21 @@ jobs:
           # restart. `:edge` replaces it for tip-of-main.
           flavor: |
             latest=false
-          # `type=ref,event=tag` publishes the git tag name verbatim, so an
-          # RC image is `:v0.2.0-rc.1` — image tag == git tag, and the prune
-          # step below protects it via `v*`. (`type=semver` would drop the
-          # `v` for any prerelease, whatever `pattern=` says.) `:vX.Y.Z`,
-          # `:vX.Y` and `:stable` are deliberately absent: only
-          # promote-release.yml writes them.
+          # The last rule publishes the git tag name verbatim, so an RC image
+          # is `:v26.11.0-rc.1` — image tag == git tag, and the prune step
+          # below protects it via `v*`. (`type=semver` would drop the `v` for
+          # any prerelease, whatever `pattern=` says.) It is `type=raw` on
+          # `github.ref_name` rather than `type=ref,event=tag` so it holds for
+          # both triggers of an RC build — the tag push and cut-release.yml's
+          # dispatch on the tag; the `-rc.` guard keeps a dispatch on any other
+          # ref from publishing its name. `:vYY.M.N`, `:vYY.M`, `:staging` and
+          # `:stable` are deliberately absent: only deploy-staging.yml and
+          # promote-release.yml write them.
           tags: |
-            type=sha,prefix=,enable={{is_default_branch}}
-            type=raw,value=edge,enable={{is_default_branch}}
-            type=ref,event=tag
+            type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development' }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=development,enable=${{ github.ref == 'refs/heads/development' }}
+            type=raw,value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-rc.') }}
 
       # Buildx is required for the SBOM/provenance attestations below — the
       # default docker driver silently ignores them.
@@ -95,7 +108,7 @@ jobs:
           # reports. The frontend polls that endpoint to notice a deployment;
           # without this the ARG keeps its "unknown" default, /version returns
           # the same string for every release, and update detection can never
-          # fire. On an RC tag this is exactly the tag (`v0.1.0-rc.1`).
+          # fire. On an RC tag this is exactly the tag (`v26.11.0-rc.1`).
           # The Dockerfile defaults GOPROXY to goproxy.cn because the local
           # build network blocks Go's default module CDN. GitHub's runners are
           # not blocked, and that mirror is flaky from them (HTTP/2
@@ -155,6 +168,8 @@ jobs:
           # versioning exists to create. `exclude-tags` supports wildcards and
           # is applied BEFORE keep-n-tagged, so releases and release
           # candidates (both `v*`) are never considered.
-          exclude-tags: stable,edge,v*
-          keep-n-tagged: 10 # applies only to main's SHA-tagged images now
+          # `staging` keeps whatever staging currently runs, even a SHA image
+          # that has aged out of the window below.
+          exclude-tags: stable,edge,development,staging,v*
+          keep-n-tagged: 20 # applies only to main's and development's SHA images
           token: ${{ secrets.GITHUB_TOKEN }}

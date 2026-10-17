@@ -8,7 +8,8 @@ import './RssFeedEntriesModal.css';
 interface RssFeedEntriesModalProps {
     feed: RssFeed;
     files: FileEntry[];
-    onDeleteFile: (fileId: string, e: React.MouseEvent) => void;
+    /** Absent for a caller without capabilities.manageSources: no delete button. */
+    onDeleteFile?: (fileId: string, e: React.MouseEvent) => void;
     onClose: () => void;
 }
 
@@ -57,14 +58,16 @@ export const RssFeedEntriesModal: React.FC<RssFeedEntriesModalProps> = ({ feed, 
                                     />
                                 )}
                             </div>
-                            <button
-                                onClick={(e) => onDeleteFile(file.id, e)}
-                                className="rss-entries-modal__delete-btn"
-                                title={t('delete')}
-                                aria-label={`${t('delete')} ${file.name}`}
-                            >
-                                <Trash2 size={14} />
-                            </button>
+                            {onDeleteFile && (
+                                <button
+                                    onClick={(e) => onDeleteFile(file.id, e)}
+                                    className="rss-entries-modal__delete-btn"
+                                    title={t('delete')}
+                                    aria-label={`${t('delete')} ${file.name}`}
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
                         </li>
                     ))}
                 </ul>

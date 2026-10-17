@@ -6,6 +6,7 @@ import { useTheme } from '../contexts/ThemeContext';
 
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
+import { chatSourceSelection } from '../utils/kbAccess';
 import { buildMessageMap, findDefaultLeaf, isTempMessageId, nearestPersistedAncestorId } from '../utils/messageTree';
 import { useMessageTree } from './useMessageTree';
 import { useChatStream } from './useChatStream';
@@ -366,9 +367,9 @@ export function useChat({
     // comparison while the attachment is still uploading.
     if (!userMessageInput.trim()) return;
 
-    // Guard: require at least one selected file before clearing input
-    const selectedFiles = files.filter(f => f.selected !== false);
-    if (selectedFiles.length === 0) return;
+    // Guard: require a sendable source selection before clearing input
+    // (at least one selected file — unless the caller may not select at all).
+    if (!chatSourceSelection(currentKb, files).canSend) return;
 
     const userMessage = userMessageInput.trim();
 

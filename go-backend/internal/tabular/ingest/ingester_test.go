@@ -44,6 +44,15 @@ func (f *fakeMat) DropTablesForFile(_ context.Context, id string) error {
 	return nil
 }
 
+// The lookup pass's two calls: nothing to link in these fixtures, so no
+// values and no column updates.
+func (f *fakeMat) UpdateColumns(_ context.Context, _ string, _ []tabular.ColumnSpec) error {
+	return nil
+}
+func (f *fakeMat) DistinctValues(_ context.Context, _, _ string, _ int) ([]string, bool, error) {
+	return nil, true, nil
+}
+
 type fakeLLM struct {
 	calls int
 	fail  bool
