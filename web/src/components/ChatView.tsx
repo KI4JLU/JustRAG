@@ -267,6 +267,8 @@ const ChatViewComp = () => {
                 flags={flagsDraft}
                 onFlagsChange={setFlagsDraft}
                 onAssignPeople={(e) => sharing.handleOpenShare(currentKb, e)}
+                dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
+                  || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
                 onSave={() => {
                   // One PATCH for both tabs: only the fields that changed.
                   const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };

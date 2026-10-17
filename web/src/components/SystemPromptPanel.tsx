@@ -20,6 +20,8 @@ interface SystemPromptPanelProps {
     onFlagsChange: (next: KbSourceFlags) => void;
     /** Opens the members dialog from the "Rollen & Rechte" tab. */
     onAssignPeople: (e: React.MouseEvent) => void;
+    /** Something changed on either tab (prompt draft or flags): enables Speichern. */
+    dirty: boolean;
 }
 
 type SettingsTab = 'behavior' | 'roles';
@@ -29,14 +31,16 @@ type SettingsTab = 'behavior' | 'roles';
  *   - Verhalten: the KB's own system prompt, plus the fixed RAG instructions
  *     it is combined with (read-only).
  *   - Rollen & Rechte: the KB's role × right matrix (KbRolesRightsTab).
- * One footer for both: Speichern saves what changed on either tab; Löschen
- * (the system prompt) only shows on Verhalten.
+ * One footer for both: Speichern saves what changed on either tab and stays
+ * disabled until something did ("Keine Änderungen" on the left); Löschen (the
+ * system prompt) only shows on Verhalten. The panel is as tall as its content
+ * (up to the content area), so a short tab does not push the footer down.
  * It takes the whole chat content area while open — the conversation and
  * composer step aside — so the prompt gets a real editor instead of a
  * three-line box squeezed above the input.
  */
 export function SystemPromptPanel({
-    draft, onDraftChange, onSave, onDelete, onClose, flags, onFlagsChange, onAssignPeople,
+    draft, onDraftChange, onSave, onDelete, onClose, flags, onFlagsChange, onAssignPeople, dirty,
 }: SystemPromptPanelProps) {
     const { t, language } = useTheme();
     const [tab, setTab] = useState<SettingsTab>('behavior');
@@ -59,17 +63,23 @@ export function SystemPromptPanel({
             titleId="kb-system-prompt-title"
             onClose={onClose}
             closeLabel={t('close')}
+            // Height follows the content: flex-initial instead of the panel's
+            // flex-1 (still shrinks and scrolls when the content is taller).
+            className="flex-initial"
             footer={(
                 <>
-                    {tab === 'behavior' ? (
-                        <Button variant="ghost" onClick={onDelete}>
-                            <Trash2 size={16} aria-hidden="true" />
-                            {t('delete')}
-                        </Button>
-                    ) : <span />}
+                    <div className="flex items-center gap-3">
+                        {tab === 'behavior' && (
+                            <Button variant="ghost" onClick={onDelete}>
+                                <Trash2 size={16} aria-hidden="true" />
+                                {t('delete')}
+                            </Button>
+                        )}
+                        {!dirty && <span className="text-sm text-on-surface-variant" aria-live="polite">{t('kbSettingsNoChanges')}</span>}
+                    </div>
                     <div className="flex gap-2">
                         <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
-                        <Button onClick={onSave}>
+                        <Button onClick={onSave} disabled={!dirty}>
                             <Check size={16} aria-hidden="true" />
                             {t('save')}
                         </Button>
