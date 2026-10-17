@@ -4,8 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/justrag/go-backend/internal/kbaccess"
 )
+
+// accessCtx is the context RequireKBRole hands the handler: the key owner's
+// resolved role on a KB with the given source flags.
+func accessCtx(role string, flags kbaccess.SourcePermissions) context.Context {
+	return kbaccess.WithAccess(context.Background(), &kbaccess.KBAccessResult{
+		KB: &kbaccess.KnowledgeBase{ID: "kb-123", Sources: flags}, Role: role,
+	})
+}
 
 type fakeAnswerer struct {
 	gotKB, gotQuestion, gotLang string
@@ -23,7 +34,7 @@ func TestRunAskKB_Success(t *testing.T) {
 		Answer:  "the answer",
 		Sources: []Source{{Index: 1, FileID: "f1", FileName: "doc.pdf", Score: 0.9}},
 	}}
-	res, err := runAskKB(context.Background(), fa, "kb-123", json.RawMessage(`{"question":"q?","language":"en"}`))
+	res, err := runAskKB(accessCtx(kbaccess.RoleAdmin, kbaccess.SourcePermissions{}), fa, "kb-123", json.RawMessage(`{"question":"q?","language":"en"}`))
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -78,5 +89,41 @@ func TestRunAskKB_DefaultLanguage(t *testing.T) {
 	}
 	if fa.gotLang != "de" {
 		t.Errorf("default lang = %q, want de", fa.gotLang)
+	}
+}
+
+// A key owner without seeCitations gets ask_kb's answer without sources and
+// without [n] markers; with the flag, or as KB admin, both stay. Oracle: the
+// tool result's JSON, searched for the file name and the marker.
+func TestRunAskKB_CitationVisibility(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		visible bool
+	}{
+		{"viewer, flag off", accessCtx(kbaccess.RoleView, kbaccess.SourcePermissions{}), false},
+		{"viewer, flag on", accessCtx(kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeCitations: true}), true},
+		{"admin, flags off", accessCtx(kbaccess.RoleAdmin, kbaccess.SourcePermissions{}), true},
+		{"no access result", context.Background(), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fa := &fakeAnswerer{result: AnswerResult{
+				Answer:  "Die Frist beträgt 3 Tage [1].",
+				Sources: []Source{{Index: 1, FileID: "f1", FileName: "geheim.pdf"}},
+			}}
+			res, err := runAskKB(c.ctx, fa, "kb-123", json.RawMessage(`{"question":"q?"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, _ := json.Marshal(res)
+			leaks := strings.Contains(string(wire), "geheim.pdf") || strings.Contains(res.Content[0].Text, "[1]")
+			if leaks != c.visible {
+				t.Fatalf("visible = %v, want %v: %s", leaks, c.visible, wire)
+			}
+			if !c.visible && (res.Content[0].Text != "Die Frist beträgt 3 Tage." || !strings.Contains(string(res.StructuredContent), `"sources":[]`)) {
+				t.Fatalf("hidden result = %s", wire)
+			}
+		})
 	}
 }

@@ -249,27 +249,29 @@ func extractKBID(model string) (string, error) {
 // checkKBAccess verifies that the authenticated user has at least view access
 // to kbID, using the same role ladder (kbaccess.EffectiveRole) the in-app
 // kbaccess middleware enforces. Returns a non-nil error string when access
-// should be denied, along with the appropriate HTTP status code.
-func (h *Handler) checkKBAccess(ctx context.Context, kbID, userID, userRole string) (int, string) {
+// should be denied, along with the appropriate HTTP status code. On success
+// it also returns the user's capabilities on the KB (kbaccess.CapabilitiesFor
+// on that role), which decide whether the response carries citations.
+func (h *Handler) checkKBAccess(ctx context.Context, kbID, userID, userRole string) (int, string, kbaccess.Capabilities) {
 	kbRow, err := h.store.GetKBByID(ctx, kbID)
 	if err != nil {
-		return http.StatusInternalServerError, "internal server error"
+		return http.StatusInternalServerError, "internal server error", kbaccess.Capabilities{}
 	}
 	if kbRow == nil {
-		return http.StatusNotFound, "knowledge base not found"
+		return http.StatusNotFound, "knowledge base not found", kbaccess.Capabilities{}
 	}
 
 	memberRole, err := h.store.GetKBRole(ctx, kbID, userID)
 	if err != nil {
-		return http.StatusInternalServerError, "internal server error"
+		return http.StatusInternalServerError, "internal server error", kbaccess.Capabilities{}
 	}
 
 	role := kbaccess.EffectiveRole(kbRow, userRole, memberRole)
 	if !kbaccess.AtLeast(role, kbaccess.RoleView) {
-		return http.StatusForbidden, "access denied"
+		return http.StatusForbidden, "access denied", kbaccess.Capabilities{}
 	}
 
-	return 0, ""
+	return 0, "", kbaccess.CapabilitiesFor(kbRow, role)
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +401,8 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// ------------------------------------------------------------------
 	// 4. Check user has access to the KB.
 	// ------------------------------------------------------------------
-	if status, msg := h.checkKBAccess(ctx, kbID, user.ID, user.Role); status != 0 {
+	status, msg, caps := h.checkKBAccess(ctx, kbID, user.ID, user.Role)
+	if status != 0 {
 		writeAPIError(ctx, w, status, msg)
 		return
 	}
@@ -495,12 +498,23 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// claim it had no previous conversation on follow-ups.
 	answerHistory := CapAnswerHistory(history)
 
+	// A key owner without seeCitations on this KB gets no source attribution:
+	// no context.citations, no annotations (both are omitted for an empty
+	// source list) and no [n] markers in the content. The model still
+	// answers from the same sources.
+	sources := chatCtx.Sources
+	var markers *chat.CitationMarkerStream
+	if !caps.SeeCitations {
+		sources = nil
+		markers = &chat.CitationMarkerStream{}
+	}
+
 	if body.Stream {
-		h.streamResponse(w, ctx, answerHistory, lastUserMessage, chatCtx.SystemPrompt, kbID, body.Model, completionID, created, chatCtx.Sources)
+		h.streamResponse(w, ctx, answerHistory, lastUserMessage, chatCtx.SystemPrompt, kbID, body.Model, completionID, created, sources, markers)
 		return
 	}
 
-	h.nonStreamResponse(w, ctx, answerHistory, lastUserMessage, chatCtx.SystemPrompt, kbID, body.Model, completionID, created, chatCtx.Sources)
+	h.nonStreamResponse(w, ctx, answerHistory, lastUserMessage, chatCtx.SystemPrompt, kbID, body.Model, completionID, created, sources, markers != nil)
 }
 
 // CapAnswerHistory bounds the client-supplied history before it reaches the
@@ -537,6 +551,7 @@ func (h *Handler) nonStreamResponse(
 	prompt, systemPrompt, kbID, model, completionID string,
 	created int64,
 	sources []chat.ChatSource,
+	stripMarkers bool,
 ) {
 	result, err := ai.GenerateCompletionWithHistory(ctx, h.aiResolver, history, prompt, systemPrompt, kbID, false)
 	if err != nil {
@@ -551,6 +566,10 @@ func (h *Handler) nonStreamResponse(
 	if guarded, appended := chat.GuardAnswerText(ctx, h.siteConfig, result.Content, "en", "openai_compat"); appended != "" {
 		logctx.From(ctx).Warn("openaicompat: degenerate answer run stripped (non-streaming)", "kbId", kbID)
 		result.Content = guarded
+	}
+
+	if stripMarkers {
+		result.Content = chat.StripCitationMarkers(result.Content)
 	}
 
 	resp := buildCompletionResponse(completionID, model, created, result.Content, sources)
@@ -588,8 +607,27 @@ func (h *Handler) streamResponse(
 	prompt, systemPrompt, kbID, model, completionID string,
 	created int64,
 	sources []chat.ChatSource,
+	markers *chat.CitationMarkerStream,
 ) {
 	httputil.EnableSSE(w)
+	// contentChunk writes one content delta; with markers set (citations
+	// hidden) the delta loses its citation markers first, possibly being
+	// held back until the next one shows whether a "[" starts a marker.
+	contentChunk := func(text string) {
+		if markers != nil {
+			text = markers.Feed(text)
+		}
+		if text == "" {
+			return
+		}
+		writeSSEChunk(w, completionChunk{
+			ID:      completionID,
+			Object:  "chat.completion.chunk",
+			Created: created,
+			Model:   model,
+			Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{Content: text}, FinishReason: nil}},
+		})
+	}
 
 	// Initial chunk with role, plus the retrieved sources: retrieval has
 	// already finished, so clients can render source cards before the first
@@ -649,19 +687,7 @@ func (h *Handler) streamResponse(
 				cancelGen()
 				break
 			}
-			writeSSEChunk(w, completionChunk{
-				ID:      completionID,
-				Object:  "chat.completion.chunk",
-				Created: created,
-				Model:   model,
-				Choices: []chunkChoice{
-					{
-						Index:        0,
-						Delta:        chunkDelta{Content: event.Content},
-						FinishReason: nil,
-					},
-				},
-			})
+			contentChunk(event.Content)
 			sentLen = fullResponse.Len()
 		}
 	}
@@ -675,13 +701,7 @@ func (h *Handler) streamResponse(
 		guarded, appended := chat.GuardStreamedAnswer(answerText, answerText[:sentLen], tracker.Limit(), "en", "openai_compat")
 		answerText = guarded
 		if appended != "" {
-			writeSSEChunk(w, completionChunk{
-				ID:      completionID,
-				Object:  "chat.completion.chunk",
-				Created: created,
-				Model:   model,
-				Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{Content: appended}, FinishReason: nil}},
-			})
+			contentChunk(appended)
 		}
 		logctx.From(ctx).Warn("openaicompat: degenerate answer run truncated",
 			"kbId", kbID, "limit", tracker.Limit(), "run_length", tracker.RunLength())
@@ -710,9 +730,23 @@ func (h *Handler) streamResponse(
 		return
 	}
 
+	// Text the marker stream still holds goes out before the final chunk.
+	if markers != nil {
+		if rest := markers.Flush(); rest != "" {
+			writeSSEChunk(w, completionChunk{
+				ID:      completionID,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []chunkChoice{{Index: 0, Delta: chunkDelta{Content: rest}, FinishReason: nil}},
+			})
+		}
+	}
+
 	// Final chunk with finish_reason and the citation annotations. The
 	// annotation offsets are computed over the guarded text, so a truncated
-	// answer's markers still line up with what the client holds.
+	// answer's markers still line up with what the client holds. (Without
+	// sources — citations hidden — there are no annotations.)
 	writeSSEChunk(w, finalChunk(completionID, model, created, answerText, sources))
 
 	writeSSEDone(w)

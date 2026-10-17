@@ -45,7 +45,17 @@ type Config struct {
 	Hooks TurnHooks
 	// RunTimeout, when > 0, bounds a run's wall-clock time.
 	RunTimeout time.Duration
+	// NewEventFilter, when set, gives each run a filter that every event
+	// passes on its way to the client (the embedding application's
+	// redaction, e.g. hiding citations from a reader). It acts on the wire
+	// only: TurnOutput, the session and the hooks see the run unfiltered.
+	NewEventFilter func() EventFilter
 }
+
+// EventFilter maps one outgoing event to the events actually written: none,
+// the event (possibly changed), or several. One filter serves one run and
+// may keep state across its events.
+type EventFilter func(events.Event) []events.Event
 
 type handler struct{ cfg Config }
 
@@ -378,7 +388,21 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	enc := sse.NewSSEWriter()
-	emit := func(ev events.Event) error { return enc.WriteEvent(ctx, w, ev) }
+	var filter EventFilter
+	if h.cfg.NewEventFilter != nil {
+		filter = h.cfg.NewEventFilter()
+	}
+	emit := func(ev events.Event) error {
+		if filter == nil {
+			return enc.WriteEvent(ctx, w, ev)
+		}
+		for _, out := range filter(ev) {
+			if err := enc.WriteEvent(ctx, w, out); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	tr, err := NewTranslator(in.ThreadID, in.RunID, emit)
 	if err != nil {
