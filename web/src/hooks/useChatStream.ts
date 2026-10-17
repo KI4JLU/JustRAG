@@ -74,8 +74,8 @@ export function useChatStream({
       regenerateOf?: { aiMessageId: string; userMessageId: string };
     },
   ) => {
-    // Without the select right no selectedFileIds go out (the backend would
-    // answer 403); see chatSourceSelection.
+    // A caller who cannot see the source list sends no selectedFileIds (the
+    // turn uses the whole KB); see chatSourceSelection.
     const selection = chatSourceSelection(currentKb, files);
     if (!userMessage.trim() || !currentKb || loading || !selection.canSend) return;
     triggerHaptic(HAPTIC_PATTERNS.send);

@@ -17,12 +17,12 @@ import { TextSourceModal } from '../sidebar/TextSourceModal';
 import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
 import { ACCEPTED_FILE_TYPES } from '../../constants';
-import { useCanEditKbSources } from '../../hooks/useCanEditKbSources';
+import { useKbSourceRights } from '../../hooks/useKbSourceRights';
 import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
     const { t } = useTheme();
-    const { currentKb, setKbView } = useKbCore();
+    const { setKbView } = useKbCore();
     const {
         fileMgmt, webTools,
         rssFeeds, rssLoading, addRssFeed, updateRssFeed, deleteRssFeed, pollFeedNow,
@@ -53,14 +53,17 @@ const SourcesPanelComp: React.FC = () => {
         setShowWebWorkspace, sourcesAddedCount,
     } = webTools;
 
-    const isGlobal = currentKb?.isGlobal;
-    // A viewer may not add, delete, retry or sync sources (the backend's edit
-    // chain answers 403), so none of those controls is offered to them.
-    const canEdit = useCanEditKbSources();
-    // Adding sources happens here only on a non-global KB the caller may edit.
-    const canAdd = canEdit && !isGlobal;
+    // What the caller may do with the sources (backend capabilities, see
+    // kbSourceRights). A control they cannot use is not rendered at all. The
+    // panel itself is mounted only with seeSources (KbWorkspaceLayout).
+    //  - addSources: the add grid, the upload dropzone, the window drag. The
+    //    backend's add routes take a global KB like any other (only its file
+    //    limit differs), so the KB kind is no extra condition.
+    //  - manageSources: delete, retry, sync, pause, schedule.
+    //  - downloadSources: download, the preview on click and on hover.
+    const { addSources: canAdd, manageSources: canManage, downloadSources: canDownload } = useKbSourceRights();
     // Files dragged anywhere over the workspace turn the source list into a
-    // dropzone (not for the global KB, which takes no uploads here).
+    // dropzone.
     const fileDragActive = useWindowFileDrag(canAdd);
     // A KB with no sources at all keeps the dropzone as its list (the empty
     // workspace placeholder); it opens the file picker on click / Enter too.
@@ -150,7 +153,8 @@ const SourcesPanelComp: React.FC = () => {
                     onToggleFilesSelection={handleToggleFilesSelection}
                     onDownloadFile={handleDownloadFile}
                     onDeleteFile={handleDeleteFile}
-                    canEdit={canEdit}
+                    canManage={canManage}
+                    canDownload={canDownload}
                     rssFeeds={rssFeeds}
                     onUpdateRssFeed={updateRssFeed}
                     onDeleteRssFeed={deleteRssFeed}
@@ -182,7 +186,7 @@ const SourcesPanelComp: React.FC = () => {
                 <RssFeedEntriesModal
                     feed={viewingFeed}
                     files={rssFeedFiles(viewingFeed.id)}
-                    onDeleteFile={canEdit ? handleDeleteFile : undefined}
+                    onDeleteFile={canManage ? handleDeleteFile : undefined}
                     onClose={() => setViewingFeed(null)}
                 />
             )}

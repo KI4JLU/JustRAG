@@ -12,14 +12,16 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   HoverCard: ({ children }: { children: React.ReactNode }) => children,
   HoverCardTrigger: ({ children }: { children: React.ReactNode }) => children,
-  HoverCardContent: () => null,
+  // A marker per hover preview, so a test can tell whether a card has one.
+  HoverCardContent: () => <span data-testid="hover-preview" />,
   FilePreview: () => null,
   preloadPdfjs: () => undefined,
   renderPdfFirstPage: () => Promise.resolve(''),
 }));
 // No preview fetches in a unit test: the cache would hit the network.
+const useSourcePreviews = vi.fn();
 vi.mock('../../hooks/sourcePreviews', () => ({
-  useSourcePreviews: () => undefined,
+  useSourcePreviews: (files: unknown) => useSourcePreviews(files),
   useSourcePreview: () => ({ image: undefined, pending: false }),
   preloadSourcePreview: () => Promise.resolve(null),
   canPreviewSource: () => false,
@@ -84,7 +86,8 @@ const baseProps = {
   onDeleteGitRepoSource: vi.fn(),
   onSyncGitRepoNow: vi.fn(),
   onRetryFile: vi.fn(),
-  canEdit: true,
+  canManage: true,
+  canDownload: true,
 };
 
 describe('SourcesSection error display + retry', () => {
@@ -363,13 +366,14 @@ describe('SourcesSection injection screening badge', () => {
   });
 });
 
-// A viewer may not edit sources: the backend's edit chain refuses delete,
-// retry, sync, pause and reschedule with a 403 (oracle: RequireKBRole("edit")
-// on those routes in internal/app/routes.go). So none of those controls may
-// render, while what a viewer CAN do — open, download, select, read an RSS
-// feed's entries — stays.
-describe('SourcesSection for a viewer (canEdit=false)', () => {
-  const viewer = { ...baseProps, canEdit: false };
+// Without capabilities.manageSources (backend contract 2026-10-16: changing
+// existing sources is fixed at edit and above) the backend refuses delete,
+// retry, sync, pause and reschedule with a 403. So none of those controls may
+// render, while what the caller CAN do — open, download, select, read an RSS
+// feed's entries — stays. Adding sources is a separate right and not this
+// component's concern (SourcesPanel / SourcesRail).
+describe('SourcesSection without the manage right (canManage=false)', () => {
+  const viewer = { ...baseProps, canManage: false };
 
   it('offers no retry button and no delete action on a file, but keeps download and select', async () => {
     render(<SourcesSection {...viewer} files={[makeFile({ status: 'error', errorMessage: 'x' })]} />);
@@ -398,10 +402,63 @@ describe('SourcesSection for a viewer (canEdit=false)', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('an editor still gets every control (the same rows with canEdit=true)', () => {
+  it('an editor still gets every control (the same rows with canManage=true)', () => {
     render(<SourcesSection {...baseProps} files={[]}
       rssFeeds={[makeRssFeed()]} confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
     expect(screen.getAllByRole('button', { name: /pollNow/ })).toHaveLength(3);
     expect(screen.getAllByRole('button', { name: /^delete/ })).toHaveLength(3);
+  });
+});
+
+// Oracle: backend contract 2026-10-16 — downloadSources gates the download
+// route, which is also what the in-app preview and the hover preview load. So
+// without it neither the Download action nor either preview is rendered, and
+// the card is display-only (DS SidebarCard without onOpen: the title is plain
+// text, a click does nothing; the checkbox still selects). The UI rule: what
+// cannot be used is not rendered at all.
+describe('SourcesSection download right (canDownload)', () => {
+  it('with the right: Download in the menu, a hover preview, preloading, click previews', async () => {
+    useSourcePreviews.mockClear();
+    const onPreviewSource = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onPreviewSource={onPreviewSource} />);
+    expect(screen.getByTestId('hover-preview')).toBeInTheDocument();
+    expect(useSourcePreviews).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'f-1' })]);
+    await userEvent.click(screen.getByRole('button', { name: 'doc.pdf' }));
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(await screen.findByRole('menuitem', { name: /download/ })).toBeInTheDocument();
+  });
+
+  it('without it: no Download, no hover preview, no preloading, the title is not a button', async () => {
+    useSourcePreviews.mockClear();
+    const onPreviewSource = vi.fn();
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]}
+      onPreviewSource={onPreviewSource} onToggleFilesSelection={onToggleFilesSelection} />);
+    expect(screen.queryByTestId('hover-preview')).not.toBeInTheDocument();
+    expect(useSourcePreviews).toHaveBeenLastCalledWith([]);
+    expect(screen.queryByRole('button', { name: 'doc.pdf' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('doc.pdf'));
+    expect(onPreviewSource).not.toHaveBeenCalled();
+    expect(onToggleFilesSelection).not.toHaveBeenCalled();
+    // The manager still has Delete in the menu — just no Download.
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(await screen.findByRole('menuitem', { name: /delete/ })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /download/ })).not.toBeInTheDocument();
+  });
+
+  it('renders no actions menu at all when neither download nor manage is allowed', () => {
+    render(<SourcesSection {...baseProps} canDownload={false} canManage={false} files={[makeFile({})]} />);
+    expect(screen.queryByRole('button', { name: /sourceActions/ })).not.toBeInTheDocument();
+    // The selection stays for whoever sees the list.
+    expect(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' })).toBeInTheDocument();
+  });
+
+  it('without it the checkbox still selects an excluded source again', async () => {
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({ selected: false })]}
+      onToggleFilesSelection={onToggleFilesSelection} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
+    expect(onToggleFilesSelection).toHaveBeenCalledWith(['f-1'], true);
   });
 });

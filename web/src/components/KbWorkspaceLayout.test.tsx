@@ -263,3 +263,39 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     expect(handleGoHome).toHaveBeenCalledTimes(1);
   });
 });
+
+// Oracle: backend contract 2026-10-16 — seeSources is the base of every
+// source right (add, download and manage all require it), so without it the
+// sources column has nothing usable to show. The UI rule: what cannot be used
+// is not rendered — no column, no rail, no mobile tab.
+describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
+  const caps = (seeSources: boolean) => ({
+    seeSources, addSources: false, downloadSources: false, seeCitations: true, manageSources: false,
+  });
+
+  it('hands the shell a sources column and a files tab with seeSources', () => {
+    kbExtra = { capabilities: caps(true) };
+    renderLayout();
+    expect(shellProps.rightPanel).toBeDefined();
+    expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat', 'files']);
+  });
+
+  it('hands the shell no sources column and no files tab without seeSources', () => {
+    kbExtra = { capabilities: caps(false) };
+    renderLayout();
+    expect(shellProps.rightPanel).toBeUndefined();
+    expect(screen.queryByTestId('sources-panel')).not.toBeInTheDocument();
+    expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat']);
+  });
+
+  it('shows the chat when a swipe left the mobile tab on files without seeSources', () => {
+    kbExtra = { capabilities: caps(false) };
+    renderLayout('files');
+    expect(shellProps.activeMobileTab).toBe('chat');
+  });
+
+  it('keeps the column for a backend without capabilities', () => {
+    renderLayout();
+    expect(shellProps.rightPanel).toBeDefined();
+  });
+});

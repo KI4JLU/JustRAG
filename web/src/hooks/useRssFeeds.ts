@@ -5,7 +5,8 @@ import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage } from '../utils/apiError';
+import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseRssFeedsParams {
     currentKb: KnowledgeBase | null;
@@ -19,18 +20,29 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
     const [rssFeeds, setRssFeeds] = useState<RssFeed[]>([]);
     const [rssLoading, setRssLoading] = useState(false);
 
+    // No seeSources on the open KB: its feed list is never requested.
+    const unlistable = unlistableKbId(currentKb);
     const fetchRssFeeds = useCallback(async (kbId?: string, signal?: AbortSignal) => {
         const id = kbId || currentKb?.id;
         if (!id) return;
+        if (id === unlistable) {
+            setRssFeeds([]);
+            return;
+        }
         try {
             const res = await axios.get(`${API_BASE_URL}/api/kb/${id}/rss`, { signal });
             setRssFeeds(Array.isArray(res.data) ? res.data : []);
         } catch (err: unknown) {
             if (axios.isCancel(err)) return;
+            // No seeSources on this KB: no list, and nothing to report.
+            if (isForbidden(err)) {
+                setRssFeeds([]);
+                return;
+            }
             console.error('Failed to fetch RSS feeds:', err);
             toast.error(t('rssFetchError'));
         }
-    }, [currentKb?.id, t, toast]);
+    }, [currentKb?.id, t, toast, unlistable]);
 
     const addRssFeed = useCallback(async (url: string, syncSchedule: SyncSchedule, fetchFullText: boolean) => {
         if (!currentKb) return;

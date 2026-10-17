@@ -8,7 +8,7 @@ import './RssFeedEntriesModal.css';
 interface RssFeedEntriesModalProps {
     feed: RssFeed;
     files: FileEntry[];
-    /** Absent for a caller who may not edit the KB's sources: no delete button. */
+    /** Absent for a caller without capabilities.manageSources: no delete button. */
     onDeleteFile?: (fileId: string, e: React.MouseEvent) => void;
     onClose: () => void;
 }

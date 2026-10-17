@@ -439,12 +439,13 @@ describe('useChatStream.handleSendMessage — webSearch field', () => {
   });
 });
 
-// Oracle: the backend contract (API.md "Source permissions"): a chat request
-// that names files from a caller without selectSources is refused with 403
-// before anything is written; a request without a selection is unaffected.
-describe('useChatStream.handleSendMessage — source selection right', () => {
-  const caps = (selectSources: boolean, seeSources = selectSources) => ({
-    seeSources, selectSources, downloadSources: false, seeCitations: false, manageSources: false,
+// Oracle: the backend contract of 2026-10-16: selection is no permission of
+// its own. A caller who sees the source list (capabilities.seeSources) narrows
+// the turn to the selection; one who does not sends no selectedFileIds and is
+// answered from the whole KB, whatever the (unloadable) list holds.
+describe('useChatStream.handleSendMessage — source selection follows seeSources', () => {
+  const caps = (seeSources: boolean) => ({
+    seeSources, addSources: false, downloadSources: false, seeCitations: false, manageSources: false,
   });
   const send = async (result: { current: ReturnType<typeof useHarness> }) => {
     await act(async () => {
@@ -452,7 +453,7 @@ describe('useChatStream.handleSendMessage — source selection right', () => {
     });
   };
 
-  it('sends no selectedFileIds without the select right — and sends at all with an empty list', async () => {
+  it('sends no selectedFileIds without the source list — and sends at all with an empty list', async () => {
     authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
     const viewerKb = { ...kb, capabilities: caps(false) } as KnowledgeBase;
     const { result } = renderHook(() => useHarness({ kb: viewerKb, files: [] }));
@@ -462,7 +463,7 @@ describe('useChatStream.handleSendMessage — source selection right', () => {
     expect('selectedFileIds' in body).toBe(false);
   });
 
-  it('still sends the selection with the right, and refuses an empty one', async () => {
+  it('still sends the selection with the source list, and refuses an empty one', async () => {
     authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
     const editorKb = { ...kb, capabilities: caps(true) } as KnowledgeBase;
     const { result } = renderHook(() => useHarness({ kb: editorKb }));

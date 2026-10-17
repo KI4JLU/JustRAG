@@ -1,3 +1,6 @@
+import type { Message } from '../types';
+import { MATH_SPAN_RE } from './markdownMath';
+
 // Extracts 1-based source indices that appear as [N] or [N, M, ...] markers
 // in the answer text. The regex is intentionally slightly more lenient than
 // the Go-side `citationMarkerRe` in
@@ -57,4 +60,48 @@ export function extractCitedSourceIndices(
     }
   }
   return out;
+}
+
+// Code and math spans keep their brackets: `arr[1]` is not a citation. The
+// same cut-out MessageContent makes before it renders citation pills.
+const CODE_OR_MATH_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source, 'g');
+// The marker shapes MessageContent renders as pills (its addCitationRefs
+// regex), plus the blank in front of one, so "Text [1]." becomes "Text.".
+const CITATION_MARKER_RE = /[ \t]*(?<![`[])\\?\[\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\\?\](?!\()/g;
+
+/**
+ * stripCitationMarkers removes every inline citation marker ([1], [1, 2],
+ * escaped \[1\]) from an answer's markdown, outside code and math spans.
+ */
+export function stripCitationMarkers(content: string): string {
+  let out = '';
+  let last = 0;
+  for (const m of content.matchAll(CODE_OR_MATH_RE)) {
+    out += content.slice(last, m.index).replace(CITATION_MARKER_RE, '') + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + content.slice(last).replace(CITATION_MARKER_RE, '');
+}
+
+/**
+ * withoutCitations is an answer as a caller without `seeCitations` sees it:
+ * no inline markers, no source list, and nothing else that names or quotes
+ * the KB's sources — the conflict report (it names two files), the citation
+ * validator's per-citation results, the trajectory's retrieved-file lists and
+ * a comparison finding's KB quote and files. The rest of the answer, the
+ * fact-check verdict included, is unchanged.
+ *
+ * The copy/export actions read the same object, so they cannot leak what the
+ * screen hides.
+ */
+export function withoutCitations(message: Message): Message {
+  return {
+    ...message,
+    content: stripCitationMarkers(message.content),
+    sources: undefined,
+    conflicts: undefined,
+    verification: message.verification ? { ...message.verification, citations: undefined } : message.verification,
+    trajectory: message.trajectory?.map(e => (e.chunks ? { ...e, chunks: undefined } : e)),
+    comparisonFindings: message.comparisonFindings?.map(f => ({ ...f, citedQuote: '', citedFileIds: [] })),
+  };
 }

@@ -88,6 +88,12 @@ export interface GlobalSearchProps {
   contentAlign?: 'start' | 'center' | 'end';
   onOpenTopic: (hit: SearchTopicHit) => void;
   onOpenSource: (hit: SearchSourceHit) => void;
+  /**
+   * Whether a source hit can be opened by this caller. A hit it rejects is not
+   * listed at all — a row that opens nothing is not offered. Omitted → every
+   * source hit is listed.
+   */
+  canOpenSource?: (hit: SearchSourceHit) => boolean;
   onOpenChat: (hit: SearchChatHit) => void;
   onOpenMessage: (hit: SearchMessageHit) => void;
   /**
@@ -152,7 +158,7 @@ function HitText({ primary, secondary }: { primary: ReactNode; secondary?: React
 export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(function GlobalSearch(
   {
     query, onQueryChange, scopeKbId, scopeLabel, contentClassName = DEFAULT_LIST_CLASS, contentAlign = 'center',
-    onOpenTopic, onOpenSource, onOpenChat, onOpenMessage, onShowAllTopics, defaultGroups,
+    onOpenTopic, onOpenSource, canOpenSource, onOpenChat, onOpenMessage, onShowAllTopics, defaultGroups,
   },
   ref,
 ) {
@@ -252,7 +258,8 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
   const results = !showDefaults && state.status === 'done' ? state.results : null;
   // Scoped mode drops the Topics group: every hit is in the one topic anyway.
   const topics = results && !scoped ? results.topics : [];
-  const nothingFound = !!results && topics.length + results.sources.length
+  const sources = results ? (canOpenSource ? results.sources.filter(canOpenSource) : results.sources) : [];
+  const nothingFound = !!results && topics.length + sources.length
     + results.chats.length + results.messages.length === 0;
   // The row is offered once a scoped request has settled, found or not —
   // an empty topic and a vanished one are exactly when it helps most.
@@ -349,9 +356,9 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
                   ) : null}
                 </ComboboxGroup>
               ) : null}
-              {results.sources.length > 0 ? (
+              {sources.length > 0 ? (
                 <ComboboxGroup heading={t('globalSearchGroupSources')}>
-                  {results.sources.map((hit) => (
+                  {sources.map((hit) => (
                     <ComboboxItem
                       key={hit.id}
                       value={`source:${hit.id}`}

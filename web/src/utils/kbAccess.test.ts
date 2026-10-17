@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { KnowledgeBase } from '../types';
-import { canEditKbSources, chatSourceSelection, canOpenKbAdvancedSettings, canRenameKb, hasAdvancedSystemRole, hasKbAdminRole, splitKbsByOwnership } from './kbAccess';
+import { kbSourceRights, chatSourceSelection, canOpenKbAdvancedSettings, canRenameKb, hasAdvancedSystemRole, hasKbAdminRole, splitKbsByOwnership } from './kbAccess';
 
 type KbShape = Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'>;
 
@@ -182,15 +182,18 @@ describe('splitKbsByOwnership', () => {
   });
 });
 
-// Oracle: the backend ladder kbaccess.EffectiveRole (internal/kbaccess/
-// middleware.go) followed by the edit chain's RequireKBRole("edit") threshold
-// (internal/app/routes.go). Each expected value below is read off those two by
-// hand — not produced by the helper — so a drift in either direction fails.
-describe('canEditKbSources', () => {
+// Oracle for the FALLBACK (backend sends no `capabilities`): the backend ladder
+// kbaccess.EffectiveRole (internal/kbaccess/middleware.go) followed by the
+// edit chain's RequireKBRole("edit") threshold (internal/app/routes.go), which
+// an older backend applies to adding and changing sources alike. Each expected
+// value below is read off those two by hand — not produced by the helper — so
+// a drift in either direction fails. The list, downloads and citations were
+// open to every reader before capabilities existed, so they stay on.
+describe('kbSourceRights without capabilities (role-ladder fallback)', () => {
   const priv = { visibility: 'private' as const, isGlobal: false, userId: null };
   const pub = { visibility: 'public' as const, isGlobal: true, userId: null };
-  const cases: Array<[string, Parameters<typeof canEditKbSources>[0], string | undefined, string | undefined, boolean]> = [
-    // [name, kb, systemRole, userId, expected]
+  const cases: Array<[string, Parameters<typeof kbSourceRights>[0], string | undefined, string | undefined, boolean]> = [
+    // [name, kb, systemRole, userId, expected add/manage]
     ['view row on a private KB (rule 2 -> view)', { ...priv, myRole: 'view' }, 'user', 'u1', false],
     ['edit row (rule 2 -> edit)', { ...priv, myRole: 'edit' }, 'user', 'u1', true],
     ['admin row (rule 2 -> admin)', { ...priv, myRole: 'admin' }, 'user', 'u1', true],
@@ -205,36 +208,60 @@ describe('canEditKbSources', () => {
     ['api-user with no row (not an admin of anything)', { ...priv }, 'api-user', 'u1', false],
     ['api-user with a view row', { ...pub, myRole: 'view' }, 'api-user', 'u1', false],
     ['no user at all', { ...pub }, undefined, undefined, false],
+    ['no KB at all (a library chat)', null, 'superadmin', 'u1', false],
   ];
-  it.each(cases)('%s', (_name, kb, systemRole, userId, expected) => {
-    expect(canEditKbSources(kb, systemRole, userId)).toBe(expected);
-  });
-
-  it('refuses when there is no KB', () => {
-    expect(canEditKbSources(null, 'superadmin', 'u1')).toBe(false);
+  it.each(cases)('%s', (_name, kb, systemRole, userId, edit) => {
+    expect(kbSourceRights(kb, systemRole, userId)).toEqual({
+      seeSources: true, addSources: edit, downloadSources: true, seeCitations: true, manageSources: edit,
+    });
   });
 });
 
-describe('canEditKbSources with backend capabilities', () => {
-  const caps = (manageSources: boolean) => ({ seeSources: true, selectSources: true, downloadSources: true, seeCitations: true, manageSources });
-  it('follows the backend manageSources over its own ladder copy', () => {
-    expect(canEditKbSources({ visibility: 'private', isGlobal: false, userId: null, myRole: 'edit', capabilities: caps(false) }, 'user', 'u1')).toBe(false);
-    expect(canEditKbSources({ visibility: 'private', isGlobal: false, userId: null, myRole: 'view', capabilities: caps(true) }, 'user', 'u1')).toBe(true);
+// Oracle: the backend contract of 2026-10-16 — `capabilities` is the server's
+// resolution (kbaccess.CapabilitiesFor) and wins over the client's own ladder,
+// field by field: addSources (switchable for viewers and editors) and
+// manageSources (fixed: edit and above) are independent of each other.
+describe('kbSourceRights with backend capabilities', () => {
+  const priv = { visibility: 'private' as const, isGlobal: false, userId: null };
+  const caps = (over: Partial<Record<'seeSources' | 'addSources' | 'downloadSources' | 'seeCitations' | 'manageSources', boolean>>) => ({
+    seeSources: true, addSources: false, downloadSources: false, seeCitations: false, manageSources: false, ...over,
+  });
+  it('a viewer allowed to add may add but not manage', () => {
+    const r = kbSourceRights({ ...priv, myRole: 'view' as const, capabilities: caps({ addSources: true }) }, 'user', 'u1');
+    expect(r.addSources).toBe(true);
+    expect(r.manageSources).toBe(false);
+  });
+  it('an editor denied adding may still manage', () => {
+    const r = kbSourceRights({ ...priv, myRole: 'edit' as const, capabilities: caps({ manageSources: true }) }, 'user', 'u1');
+    expect(r.addSources).toBe(false);
+    expect(r.manageSources).toBe(true);
+  });
+  it('is not re-derived for a superadmin either', () => {
+    expect(kbSourceRights({ ...priv, capabilities: caps({}) }, 'superadmin', 'u1')).toEqual(caps({}));
+  });
+  it('passes every field through unchanged', () => {
+    const c = caps({ seeSources: true, downloadSources: true, seeCitations: true });
+    expect(kbSourceRights({ ...priv, capabilities: c })).toEqual(c);
   });
 });
 
-// Oracle: API.md "Source permissions" — selectedFileIds without selectSources is a 403.
+// Oracle: the backend contract of 2026-10-16 — selection is no permission of
+// its own; whoever sees the source list (capabilities.seeSources) may send a
+// selection, whoever does not sends none and is answered from the whole KB.
 describe('chatSourceSelection', () => {
   const files = [{ id: 'a', selected: true }, { id: 'b', selected: false }, { id: 'c' }];
-  const caps = (selectSources: boolean) => ({ seeSources: true, selectSources, downloadSources: true, seeCitations: true, manageSources: false });
-  it('sends the selected ids (selected !== false) when the caller may select', () => {
+  const caps = (seeSources: boolean) => ({ seeSources, addSources: false, downloadSources: true, seeCitations: true, manageSources: false });
+  it('sends the selected ids (selected !== false) when the caller sees the list', () => {
     expect(chatSourceSelection({ capabilities: caps(true) }, files)).toEqual({ canSend: true, selectedFileIds: ['a', 'c'] });
+  });
+  it('refuses an empty selection when the caller sees the list', () => {
+    expect(chatSourceSelection({ capabilities: caps(true) }, [{ id: 'a', selected: false }]).canSend).toBe(false);
   });
   it('keeps the old rule against a backend without capabilities', () => {
     expect(chatSourceSelection({}, files).selectedFileIds).toEqual(['a', 'c']);
     expect(chatSourceSelection({}, []).canSend).toBe(false);
   });
-  it('sends no ids, but can send, without the select right — even with no list at all', () => {
+  it('sends no ids, but can send, without the source list — even with no list at all', () => {
     expect(chatSourceSelection({ capabilities: caps(false) }, files)).toEqual({ canSend: true });
     expect(chatSourceSelection({ capabilities: caps(false) }, [])).toEqual({ canSend: true });
   });

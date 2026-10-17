@@ -13,9 +13,11 @@ interface ComparisonViewProps {
     onUseBranch: (leafId: string) => void;
     onClose: () => void;
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
+    /** capabilities.seeCitations, passed through to each MessageBubble. */
+    showCitations?: boolean;
 }
 
-export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onClose, onPdfOpen }: ComparisonViewProps) {
+export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onClose, onPdfOpen, showCitations = true }: ComparisonViewProps) {
     // This view isn't virtualized, but MessageBubble's expand state is owned by
     // the caller now, so it needs its own store or the toggles would be dead.
     const messageSections = useMessageSections();
@@ -93,6 +95,7 @@ export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onC
                                 key={msg.id || i}
                                 message={msg}
                                 onPdfOpen={onPdfOpen}
+                                showCitations={showCitations}
                                 reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
                                 sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
                                 confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
@@ -146,6 +149,7 @@ export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onC
                                 key={msg.id || `a-${i}`}
                                 message={msg}
                                 onPdfOpen={onPdfOpen}
+                                showCitations={showCitations}
                                 reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
                                 sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
                                 confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
@@ -187,6 +191,7 @@ export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onC
                                 key={msg.id || `b-${i}`}
                                 message={msg}
                                 onPdfOpen={onPdfOpen}
+                                showCitations={showCitations}
                                 reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
                                 sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
                                 confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}

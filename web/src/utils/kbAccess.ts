@@ -1,4 +1,4 @@
-import type { FileEntry, KnowledgeBase } from '../types';
+import type { FileEntry, KbCapabilities, KnowledgeBase } from '../types';
 
 /**
  * The system roles that may operate the KB "advanced settings" surface
@@ -43,11 +43,11 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
 }
 
 /**
- * canEditKbSources: whether the caller's EFFECTIVE role on `kb` is edit or
- * better — the threshold of the backend's edit chain (RequireKBRole("edit") in
- * internal/app/routes.go), which gates upload, add-sources, delete, retry and
- * every rss/confluence/git create/patch/delete/sync/poll route. A viewer who
- * is offered those controls only ever gets a 403, so the sidebar hides them.
+ * hasKbEditRole: whether the caller's EFFECTIVE role on `kb` is edit or better
+ * — the threshold of the backend's edit chain (RequireKBRole("edit") in
+ * internal/app/routes.go). It is only the FALLBACK of kbSourceRights' add and
+ * manage rights, for a backend that sends no `capabilities` yet; there the
+ * edit chain still gates adding and changing sources alike.
  *
  * Same ladder as hasKbAdminRole, truncated at edit instead of admin:
  *
@@ -57,20 +57,13 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
  *   4. anything else (implicit viewer of a published KB, no row) -> false
  *
  * `userId` covers the legacy owner-mirror column (`kb.userId`), the same
- * owner check ChatView makes next to hasKbAdminRole. Like the other helpers
- * here this only decides whether to offer a control; the server enforces it.
- *
- * When the backend sends the resolved `capabilities` (per-KB source
- * permissions), `manageSources` is the answer — the server's own resolution
- * of the same ladder, so the two cannot drift.
+ * owner check ChatView makes next to hasKbAdminRole.
  */
-export function canEditKbSources(
-  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'capabilities'> | null | undefined,
+function hasKbEditRole(
+  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId'>,
   systemRole?: string,
   userId?: string,
 ): boolean {
-  if (kb == null) return false;
-  if (kb.capabilities) return kb.capabilities.manageSources;
   if (systemRole === 'superadmin') return true;
   if (userId != null && kb.userId === userId) return true;
   if (kb.myRole) return kb.myRole !== 'view';
@@ -79,24 +72,69 @@ export function canEditKbSources(
 }
 
 /**
+ * kbSourceRights: what the caller may do with `kb`'s sources — the single
+ * answer every source control in the UI reads (sidebar, rail, chat answers,
+ * search). The UI rule (2026-10-16): a control the caller cannot use is not
+ * rendered at all, never shown disabled.
+ *
+ * The answer is the backend's `capabilities` — its own resolution of role +
+ * the KB's viewer/editor flags (kbaccess.CapabilitiesFor), so the two cannot
+ * drift. It is a pyramid the backend already resolves; the UI only reads it:
+ *
+ *   level 1, independent:  seeSources (the source list, and with it the
+ *                          selection), seeCitations (an answer's citations)
+ *   level 2, need the list: downloadSources (download + preview),
+ *                          addSources (create a source of any kind),
+ *                          manageSources (change, sync, pause, delete, retry)
+ *
+ * Against a backend that predates capabilities, today's behaviour: list,
+ * downloads and citations for everyone, adding and managing on the edit-role
+ * ladder. Without a KB (a library chat has none) the same fallback, minus
+ * add/manage. Like the other helpers here this only decides whether to offer
+ * a control; the server enforces it.
+ */
+export function kbSourceRights(
+  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'capabilities'> | null | undefined,
+  systemRole?: string,
+  userId?: string,
+): KbCapabilities {
+  if (kb?.capabilities) return kb.capabilities;
+  const edit = kb != null && hasKbEditRole(kb, systemRole, userId);
+  return { seeSources: true, addSources: edit, downloadSources: true, seeCitations: true, manageSources: edit };
+}
+
+/**
+ * unlistableKbId: the id of `kb` when the caller may not see its source lists
+ * (capabilities.seeSources off), else null. The list fetchers (files, RSS,
+ * Confluence, git) and every poll built on them skip the request for that id
+ * and hold an empty list instead — the backend would answer 403 and the UI
+ * shows no list there anyway. Without capabilities (an older backend) nothing
+ * is skipped. A primitive on purpose, so it can sit in a hook's deps.
+ */
+export function unlistableKbId(kb: Pick<KnowledgeBase, 'id' | 'capabilities'> | null | undefined): string | null {
+  return kb?.capabilities && !kb.capabilities.seeSources ? kb.id : null;
+}
+
+/**
  * chatSourceSelection decides what a chat turn sends about the source
  * selection, and whether it can be sent at all.
  *
- * A caller without `capabilities.selectSources` (a viewer of a KB whose admin
- * keeps the per-request selection off) must not send `selectedFileIds`: the
- * backend refuses such a request with 403 before anything is written. Without
- * the right the turn goes out without a selection and the answer uses the
- * whole KB — it also cannot depend on the sidebar list, which such a viewer
- * may not be allowed to load at all (an empty list is not "nothing selected").
+ * Selecting sources is not a permission of its own: whoever sees the source
+ * list may narrow the turn to a selection, whoever does not see it cannot
+ * (backend contract 2026-10-16 — `capabilities.selectSources` is gone). So a
+ * caller without `capabilities.seeSources` sends no `selectedFileIds` and the
+ * turn always goes out, answered from the whole KB — it cannot depend on the
+ * sidebar list, which such a caller cannot load (an empty list is not "nothing
+ * selected").
  *
- * With the right (or from a backend that predates capabilities) the old rule
+ * With the list (or from a backend that predates capabilities) the old rule
  * holds: at least one selected source, and their ids are sent.
  */
 export function chatSourceSelection(
   kb: Pick<KnowledgeBase, 'capabilities'> | null | undefined,
   files: readonly Pick<FileEntry, 'id' | 'selected'>[],
 ): { canSend: boolean; selectedFileIds?: string[] } {
-  if (kb?.capabilities && !kb.capabilities.selectSources) return { canSend: true };
+  if (kb?.capabilities && !kb.capabilities.seeSources) return { canSend: true };
   const selectedFileIds = files.filter(f => f.selected !== false).map(f => f.id);
   return { canSend: selectedFileIds.length > 0, selectedFileIds };
 }

@@ -6,8 +6,9 @@ import { MAX_FILES_PER_KB, MAX_FILES_PER_GLOBAL_KB } from '../constants';
 import { useModalContext } from '../contexts/ModalContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage } from '../utils/apiError';
+import { getApiErrorMessage, isForbidden } from '../utils/apiError';
 import { markdownSourceTitle } from '../utils/textSourceTitle';
+import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseFileManagementParams {
   currentKb: KnowledgeBase | null;
@@ -32,7 +33,15 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const filesLoaded = !!currentKb && filesKbId === currentKb.id;
   const selectedFileCount = useMemo(() => files.filter(f => f.selected !== false).length, [files]);
 
+  // No seeSources on the open KB: its file list is never requested.
+  const unlistable = unlistableKbId(currentKb);
   const fetchFiles = useCallback(async (kbId: string, signal?: AbortSignal) => {
+    if (kbId === unlistable) {
+      // Known-empty rather than unknown, and not the previous KB's list.
+      setFiles([]);
+      setFilesKbId(kbId);
+      return;
+    }
     try {
       // Request a high limit — the chat UI needs the full file list to show
       // accurate counts and let users select files. The backend defaults to
@@ -47,10 +56,16 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     } catch (err: unknown) {
       if (axios.isCancel(err)) return;
       setFilesKbId(kbId);
+      // No seeSources on this KB: no list, and nothing to report. Clearing
+      // also drops the previous KB's list.
+      if (isForbidden(err)) {
+        setFiles([]);
+        return;
+      }
       console.error('Failed to fetch files:', err);
       toast.error(t('filesFetchError'));
     }
-  }, [t, toast]);
+  }, [t, toast, unlistable]);
 
   // Polling for processing files
   const hasProcessingFiles = files.some(
