@@ -63,8 +63,12 @@ export function extractCitedSourceIndices(
 }
 
 // Code and math spans keep their brackets: `arr[1]` is not a citation. The
-// same cut-out MessageContent makes before it renders citation pills.
-const CODE_OR_MATH_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source, 'g');
+// same cut-out MessageContent makes before it renders citation pills, plus the
+// LaTeX delimiters \( … \) and \[ … \] that MessageContent first rewrites to
+// dollars (normalizeMathDelimiters). \[1\] with a citation body stays a marker.
+const LATEX_MATH_RE = /\\\[(?!\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\\\])[\s\S]+?\\\]|\\\([^\n]+?\\\)/;
+const CODE_OR_MATH_RE = new RegExp(
+  '```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source + '|' + LATEX_MATH_RE.source, 'g');
 // The marker shapes MessageContent renders as pills (its addCitationRefs
 // regex), plus the blank in front of one, so "Text [1]." becomes "Text.".
 const CITATION_MARKER_RE = /[ \t]*(?<![`[])\\?\[\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\\?\](?!\()/g;

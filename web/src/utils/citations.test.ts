@@ -83,6 +83,8 @@ describe('stripCitationMarkers', () => {
     ['Link [1](https://x) stays', 'Link [1](https://x) stays'],
     ['Code `arr[1]` stays [2]', 'Code `arr[1]` stays'],
     ['Math $a[1]$ stays', 'Math $a[1]$ stays'],
+    ['Inline \\(a[1] + b[2]\\) stays [3]', 'Inline \\(a[1] + b[2]\\) stays'],
+    ['Display \\[v[1]\\] stays [2]', 'Display \\[v[1]\\] stays'],
     ['Not a citation [abc] or [1234]', 'Not a citation [abc] or [1234]'],
   ])('%s', (input, expected) => {
     expect(stripCitationMarkers(input)).toBe(expected);
