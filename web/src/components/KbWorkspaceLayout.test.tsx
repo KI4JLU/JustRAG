@@ -134,7 +134,7 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
     expect(shellProps.leftResize).toMatchObject({ minWidth: 150, maxWidth: 600 });
     expect(shellProps.leftResize?.onWidthChange).toBe(setLeftSidebarWidth);
     expect(shellProps.rightPanel?.width).toBe(500);
-    expect(shellProps.rightPanel?.resize).toMatchObject({ minWidth: 300, maxWidth: 800 });
+    expect(shellProps.rightPanel?.resize).toMatchObject({ minWidth: 360, maxWidth: 800 });
     expect(shellProps.rightPanel?.resize?.onWidthChange).toBe(setRightSidebarWidth);
   });
 
@@ -215,7 +215,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
     const actions = screen.getByTestId('actions');
     // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
-    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'systemPromptLabel' })]);
+    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'kbSettingsTitle' })]);
     expect(within(actions).queryByTestId('workspace-search')).toBeNull();
     // Back + title stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
@@ -228,7 +228,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     kbExtra = { userId: 'u1' };
     renderLayout();
     render(<div>{shellProps.headerActions}</div>);
-    const gear = screen.getByRole('button', { name: 'systemPromptLabel' });
+    const gear = screen.getByRole('button', { name: 'kbSettingsTitle' });
     expect(gear).toHaveAttribute('aria-pressed', 'false');
     await userEvent.click(gear);
     expect(setSystemPromptOpen).toHaveBeenCalledWith(true);
@@ -239,7 +239,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     kbExtra = { userId: 'u1', myRole: 'admin' };
     renderLayout();
     render(<div>{shellProps.headerActions}</div>);
-    expect(screen.getByRole('button', { name: 'systemPromptLabel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'kbSettingsTitle' })).toBeInTheDocument();
   });
 
   it('verbirgt das Zahnrad vor einem Nutzer, dessen id nur zufällig fehlt (kein Eigentum aus undefined === undefined)', () => {
@@ -261,5 +261,41 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     render(<div>{shellProps.pageLabel}</div>);
     await userEvent.click(screen.getByRole('button', { name: 'backToOverview' }));
     expect(handleGoHome).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Oracle: backend contract 2026-10-16 — seeSources is the base of every
+// source right (add, download and manage all require it), so without it the
+// sources column has nothing usable to show. The UI rule: what cannot be used
+// is not rendered — no column, no rail, no mobile tab.
+describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
+  const caps = (seeSources: boolean) => ({
+    seeSources, addSources: false, downloadSources: false, seeCitations: true, manageSources: false,
+  });
+
+  it('hands the shell a sources column and a files tab with seeSources', () => {
+    kbExtra = { capabilities: caps(true) };
+    renderLayout();
+    expect(shellProps.rightPanel).toBeDefined();
+    expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat', 'files']);
+  });
+
+  it('hands the shell no sources column and no files tab without seeSources', () => {
+    kbExtra = { capabilities: caps(false) };
+    renderLayout();
+    expect(shellProps.rightPanel).toBeUndefined();
+    expect(screen.queryByTestId('sources-panel')).not.toBeInTheDocument();
+    expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat']);
+  });
+
+  it('shows the chat when a swipe left the mobile tab on files without seeSources', () => {
+    kbExtra = { capabilities: caps(false) };
+    renderLayout('files');
+    expect(shellProps.activeMobileTab).toBe('chat');
+  });
+
+  it('keeps the column for a backend without capabilities', () => {
+    renderLayout();
+    expect(shellProps.rightPanel).toBeDefined();
   });
 });

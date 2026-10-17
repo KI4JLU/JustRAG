@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import {
-    Button, Dialog, DialogContent, DialogTitle, PdfViewer,
+    Button, Dialog, DialogContent, PdfViewer,
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
+import { PreviewHeader } from './PreviewHeader';
 
 interface PdfPreviewModalProps {
     show: boolean;
@@ -30,6 +31,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
     const toast = useToast();
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [pageCount, setPageCount] = useState<number | null>(null);
 
     useEffect(() => {
         if (!fileId) return;
@@ -58,13 +60,14 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
             <DialogContent
                 closeLabel={t('close')}
                 className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
-                aria-describedby={undefined}
             >
-                <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
-                    <DialogTitle className="min-w-0 flex-1 truncate text-base font-semibold" title={fileName}>
-                        {fileName}
-                    </DialogTitle>
-                </div>
+                <PreviewHeader
+                    kind="pdf"
+                    title={fileName}
+                    subtitle={pageCount === null
+                        ? t('previewPdfSubtitle')
+                        : t('previewPdfSubtitlePages').replace('{pages}', pageCount === 1 ? t('previewPageOne') : t('previewPagesMany').replace('{count}', String(pageCount)))}
+                />
                 {error ? (
                     <div className="flex flex-1 items-center justify-center p-8 text-error">{error}</div>
                 ) : !blobUrl ? (
@@ -76,6 +79,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                     <PdfViewer
                         src={blobUrl}
                         initialPage={page}
+                        onLoad={setPageCount}
                         className="min-h-0 flex-1"
                         labels={{
                             zoomIn: t('zoomIn'),

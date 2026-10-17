@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, ComparisonFinding, MessageConflict } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
+import { chatSourceSelection } from '../utils/kbAccess';
 import {
   addMessageToTree, updateMessageInTree, remapMessageId, nearestPersistedAncestorId,
 } from '../utils/messageTree';
@@ -73,8 +74,10 @@ export function useChatStream({
       regenerateOf?: { aiMessageId: string; userMessageId: string };
     },
   ) => {
-    const selectedFiles = files.filter(f => f.selected !== false);
-    if (!userMessage.trim() || !currentKb || loading || selectedFiles.length === 0) return;
+    // A caller who cannot see the source list sends no selectedFileIds (the
+    // turn uses the whole KB); see chatSourceSelection.
+    const selection = chatSourceSelection(currentKb, files);
+    if (!userMessage.trim() || !currentKb || loading || !selection.canSend) return;
     triggerHaptic(HAPTIC_PATTERNS.send);
 
     // Die Auswahl aus den Sende-Optionen schlägt den Hook-State: setAgentSelection
@@ -153,7 +156,7 @@ export function useChatStream({
           // tools behave as upstream (API.md: absent ≠ false).
           ...(webSearchEnabled === undefined ? {} : { webSearch: webSearchEnabled }),
           language,
-          selectedFileIds: selectedFiles.map(f => f.id),
+          ...(selection.selectedFileIds ? { selectedFileIds: selection.selectedFileIds } : {}),
           // Sticky agent/team selection for this chat session (Standard omits
           // both). Sent with every chat POST when set. `effectiveSelection`
           // prefers `opts.agentSelection` over the hook-state closure — see

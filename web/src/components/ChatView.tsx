@@ -31,7 +31,8 @@ import {
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { hasKbAdminRole } from '../utils/kbAccess';
+import { chatSourceSelection, hasKbAdminRole, kbSourceRights } from '../utils/kbAccess';
+import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
@@ -73,7 +74,7 @@ const ChatViewComp = () => {
     webSearchEnabled: webSearch, setWebSearchEnabled: setWebSearch,
     agentSelection, setAgentSelection,
   } = useKbChat();
-  const { fileMgmt, webTools } = useKbData();
+  const { fileMgmt, webTools, sharing } = useKbData();
   // Per-turn web search is offered only when the admin gate is on; a state
   // left over from when it was on shows nothing (and is not sent, see
   // AuthenticatedApp).
@@ -160,6 +161,17 @@ const ChatViewComp = () => {
     setSystemPromptDraft(currentKb?.systemPrompt || '');
   }
 
+  // The "Rollen & Rechte" draft: the KB's source flags, reset the same way
+  // whenever the KB (or its stored flags) changes.
+  const savedFlags = sourceFlagsOf(currentKb);
+  const flagsResetKey = `${currentKb?.id ?? ''}\0${JSON.stringify(savedFlags)}`;
+  const [flagsDraft, setFlagsDraft] = useState(savedFlags);
+  const [prevFlagsResetKey, setPrevFlagsResetKey] = useState(flagsResetKey);
+  if (prevFlagsResetKey !== flagsResetKey) {
+    setPrevFlagsResetKey(flagsResetKey);
+    setFlagsDraft(savedFlags);
+  }
+
   // The advanced settings (KbSettingsPanel) trigger. Shares its predicate with
   // HomeView's sliders icon so the two entry points cannot drift: system role
   // in {api-user, admin, superadmin} AND effective KB role admin or better.
@@ -178,13 +190,23 @@ const ChatViewComp = () => {
   const {
     hasFiles, filesLoaded, selectedFileCount,
   } = fileMgmt;
-  const { handlePreviewSource, handlePdfSourceOpen } = webTools;
+  // What the caller may do with the KB's sources (backend capabilities).
+  // Opening a source from an answer loads the file, so the two open handlers
+  // go to the answers only with downloadSources; citations need seeCitations.
+  const sourceRights = kbSourceRights(currentKb, user?.role, user?.id);
+  const { handlePreviewSource: previewSource, handlePdfSourceOpen: pdfSourceOpen } = webTools;
+  const handlePreviewSource = sourceRights.downloadSources ? previewSource : undefined;
+  const handlePdfSourceOpen = sourceRights.downloadSources ? pdfSourceOpen : undefined;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
   // Only once this KB's file list has arrived: before that it is unknown, and
   // flashing the onboarding for a split second on every KB open was the bug.
-  const noSources = filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // A caller who may not see the source list (capabilities.seeSources off) gets
+  // an empty list from a 403 — that is not "this KB has no sources".
+  const noSources = sourceRights.seeSources && filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // What a turn sends about the selection, and whether it can go at all.
+  const sourceSelection = chatSourceSelection(currentKb, fileMgmt.files);
   // Starter prompts under the composer of an empty chat: the global KB's own,
   // then the site's, then the built-in pair.
   // Generated from the KB's documents, only while an empty chat can use them.
@@ -252,11 +274,17 @@ const ChatViewComp = () => {
               <SystemPromptPanel
                 draft={systemPromptDraft}
                 onDraftChange={setSystemPromptDraft}
+                flags={flagsDraft}
+                onFlagsChange={setFlagsDraft}
+                onAssignPeople={(e) => sharing.handleOpenShare(currentKb, e)}
+                dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
+                  || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
                 onSave={() => {
+                  // One PATCH for both tabs: only the fields that changed.
+                  const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };
                   const newValue = systemPromptDraft || null;
-                  if (newValue !== (currentKb.systemPrompt || null)) {
-                    handleUpdateKBSettings({ systemPrompt: newValue });
-                  }
+                  if (newValue !== (currentKb.systemPrompt || null)) update.systemPrompt = newValue;
+                  if (Object.keys(update).length) handleUpdateKBSettings(update);
                   setShowSystemPrompt(false);
                 }}
                 onDelete={() => {
@@ -266,6 +294,7 @@ const ChatViewComp = () => {
                 }}
                 onClose={() => {
                   setSystemPromptDraft(currentKb.systemPrompt || '');
+                  setFlagsDraft(savedFlags);
                   setShowSystemPrompt(false);
                 }}
               />
@@ -286,6 +315,7 @@ const ChatViewComp = () => {
                       chat.setComparisonLeafId(null);
                     }}
                     onPdfOpen={handlePdfSourceOpen}
+                    showCitations={sourceRights.seeCitations}
                   />
                 </div>
               </Suspense>
@@ -475,8 +505,10 @@ const ChatViewComp = () => {
                             ))}
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
-                        {/* N sources active — a label, not a control */}
-                        <span
+                        {/* N sources active — a label, not a control. Absent when the
+                            caller cannot see the source list (seeSources): the
+                            answer then uses the whole KB. */}
+                        {sourceSelection.selectedFileIds && <span
                           id="chat-composer-sources-count"
                           className="inline-flex items-center gap-1 whitespace-nowrap px-2 text-sm text-on-surface-variant"
                           title={t('activeSources')}
@@ -484,7 +516,7 @@ const ChatViewComp = () => {
                         >
                           <FileText size={16} aria-hidden="true" />
                           <span aria-hidden="true">{selectedFileCount}</span>
-                        </span>
+                        </span>}
                         {noSources ? (
                           // Why sending is off, on the send button. aria-disabled, not
                           // disabled: a disabled button takes no hover or focus, so the
@@ -509,7 +541,7 @@ const ChatViewComp = () => {
                             id="chat-composer-submit"
                             className="size-10"
                             status={chat.loading ? 'submitted' : undefined}
-                            disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()}
+                            disabled={chat.loading || !sourceSelection.canSend || !chat.userMessageInput.trim()}
                             aria-label={t('sendMessage')}
                           >
                             <ArrowUp aria-hidden="true" />
@@ -565,9 +597,10 @@ const ChatViewComp = () => {
                             {siteConfigs.kb_header}
                           </div>
                         ) : null}
-                        {noSources ? (
+                        {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
-                          // dropzone while the KB is empty — the centre only says so.
+                          // dropzone while the KB is empty — the centre only says so. A
+                          // caller who cannot add is not asked to.
                           <>
                             <h1>{t('emptyAddFirstSourceTitle')}</h1>
                             <p>{t('emptyAddFirstSourceSubtitle')}</p>
@@ -622,6 +655,7 @@ const ChatViewComp = () => {
                                     isEditing={chat.editingMessageId === msg.id}
                                     onEditCancel={handleEditCancel}
                                     onPreviewSource={handlePreviewSource}
+                                    showCitations={sourceRights.seeCitations}
                                     kbId={currentKb?.id}
                                     questionText={questionText}
                                     resolveAttribution={resolveAttribution}

@@ -10,7 +10,7 @@ const ChartModal = lazy(() => import('./ChartModal').then(module => ({ default: 
 const AbstractGenerationModal = lazy(() => import('./AbstractGenerationModal').then(module => ({ default: module.AbstractGenerationModal })));
 const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(module => ({ default: module.TextSourceViewer })));
 const PdfPreviewModal = lazy(() => import('./PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
-const TabularDetailModal = lazy(() => import('./TabularDetailModal').then(module => ({ default: module.TabularDetailModal })));
+const TablePreviewDialog = lazy(() => import('./tablePreview/TablePreviewDialog').then(module => ({ default: module.TablePreviewDialog })));
 const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ default: module.WebWorkspace })));
 
 export function KbWorkspaceModals() {
@@ -25,16 +25,6 @@ export function KbWorkspaceModals() {
           show={sharing.showShareModal}
           onClose={() => sharing.setShowShareModal(false)}
           sharingKb={sharing.sharingKb}
-          shareUserId={sharing.shareUserId}
-          setShareUserId={sharing.setShareUserId}
-          shareTargetUser={sharing.shareTargetUser}
-          shareLoading={sharing.shareLoading}
-          sharePermission={sharing.sharePermission}
-          setSharePermission={sharing.setSharePermission}
-          onLookupUser={sharing.lookupUser}
-          onConfirmShare={sharing.confirmShare}
-          notFoundUsername={sharing.notFoundUsername}
-          onPendingInvited={sharing.clearNotFound}
           myRole={currentKb?.myRole ?? 'view'}
         />}
       </Suspense>
@@ -126,12 +116,15 @@ export function KbWorkspaceModals() {
       </Suspense>
 
       <Suspense fallback={null}>
-        {webTools.showTabularModal && currentKb && <TabularDetailModal
+        {webTools.showTabularModal && currentKb && <TablePreviewDialog
           show={webTools.showTabularModal}
           onClose={() => webTools.setShowTabularModal(false)}
           kbId={currentKb.id}
           fileId={webTools.tabularFile?.fileId || ''}
           fileName={webTools.tabularFile?.fileName || ''}
+          // Live from the polled file list, so the preview loads by itself
+          // once an ingest that was still running finishes.
+          status={fileMgmt.files.find(f => f.id === webTools.tabularFile?.fileId)?.status}
         />}
       </Suspense>
     </>

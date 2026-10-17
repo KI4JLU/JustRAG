@@ -1,7 +1,7 @@
 import React, { createElement, memo } from 'react';
 import {
     Download, Trash2,
-    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, Table as TableIcon, ShieldAlert
+    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, ShieldAlert
 } from 'lucide-react';
 import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
@@ -18,6 +18,19 @@ interface SourcesSectionProps {
     onToggleFilesSelection: (fileIds: string[], selected: boolean) => void;
     onDownloadFile: (id: string) => void;
     onDeleteFile: (id: string, e: React.MouseEvent) => void;
+    /** Whether the caller may change the KB's existing sources
+     *  (capabilities.manageSources — role edit or better). false hides delete,
+     *  retry, sync, pause and the schedule picker: the backend would refuse
+     *  each of them with a 403. Required, so a new call site cannot forget it
+     *  and show a viewer dead controls. */
+    canManage: boolean;
+    /** Whether the caller may download the KB's sources
+     *  (capabilities.downloadSources). false drops the Download action, the
+     *  hover preview (it is built from the downloaded file) and the preview on
+     *  click — the card is then display-only (DS SidebarCard without onOpen:
+     *  the title is plain text); its checkbox still selects it. Required for
+     *  the same reason as canManage. */
+    canDownload: boolean;
     rssFeeds: RssFeed[];
     onUpdateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
     onDeleteRssFeed: (feedId: string) => void;
@@ -32,12 +45,14 @@ interface SourcesSectionProps {
     onDeleteGitRepoSource: (sourceId: string) => void;
     onSyncGitRepoNow: (sourceId: string) => void;
     onRetryFile: (id: string) => void;
-    onOpenTabular: (file: FileEntry) => void;
 }
 
 // Maps files.error_stage values (backend vocabulary, see
 // files.PGStore.MarkFileError) to translation keys. Unknown stages fall
 // back to the raw errorMessage, then to fileErrorUnknown.
+// Stable empty list for useSourcePreviews when nothing may be previewed.
+const NO_FILES: FileEntry[] = [];
+
 const ERROR_STAGE_KEYS: Record<string, string> = {
     unsupported_type: 'fileErrorUnsupportedType',
     parse: 'fileErrorParse',
@@ -51,26 +66,21 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // Extensions the spreadsheet parser handles (parser.SpreadsheetParser),
 // deliberately excluding .xlsm (macro-enabled workbooks, out of scope) — the
 // "Tabellen" file-detail button only makes sense for these.
-const SPREADSHEET_EXTENSIONS = ['.xlsx', '.xls', '.ods', '.csv', '.tsv'];
-const isSpreadsheetFile = (name: string): boolean => {
-    const lower = name.toLowerCase();
-    return SPREADSHEET_EXTENSIONS.some(ext => lower.endsWith(ext));
-};
-
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     files, onPreviewSource, onToggleFilesSelection,
-    onDownloadFile, onDeleteFile,
+    onDownloadFile, onDeleteFile, canManage, canDownload,
     rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
-    onRetryFile, onOpenTabular
+    onRetryFile
 }) => {
     const { t } = useTheme();
 
 
     const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
-    // Hover previews are prepared ahead of the hover (see sourcePreviews.ts).
-    useSourcePreviews(nonRssFiles);
+    // Hover previews are prepared ahead of the hover (see sourcePreviews.ts) —
+    // only for a caller who may download, since the preview IS the download.
+    useSourcePreviews(canDownload ? nonRssFiles : NO_FILES);
     const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
     // Untrusted, document-derived text: it goes into title/aria-label as a
@@ -87,13 +97,14 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 
     return (
         <SidebarCardList className="sidebar-left__files-section">
-                {nonRssFiles.map(file => (
-                    <SourceHoverPreview key={file.id} file={file}>
+                {nonRssFiles.map(file => {
+                    const card = (
                         <SidebarCard
+                            key={file.id}
                             icon={createElement(sourceIconFor(file), { 'aria-hidden': true })}
                             iconText={sourceTypeLabel(file) ?? undefined}
                             title={file.name}
-                            onOpen={() => onPreviewSource(file)}
+                            onOpen={canDownload ? () => onPreviewSource(file) : undefined}
                             meta={<>
                                 {/* Status only when it is news: queued or failed. A finished
                                     upload says nothing — the card being there is the status. */}
@@ -126,7 +137,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 )}
                             </>}
                             extra={<>
-                                {file.status === 'error' && (
+                                {canManage && file.status === 'error' && (
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -137,31 +148,27 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <RefreshCw size={16} aria-hidden="true" />
                                     </Button>
                                 )}
-                                {file.status === 'completed' && isSpreadsheetFile(file.name) && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => { e.stopPropagation(); onOpenTabular(file); }}
-                                        title={t('tabularPanelOpen')}
-                                        aria-label={`${t('tabularPanelOpen')} ${file.name}`}
-                                    >
-                                        <TableIcon size={16} aria-hidden="true" />
-                                    </Button>
-                                )}
                             </>}
                             actionsLabel={t('sourceActions')}
                             actions={[
-                                { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
-                                { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
-                                  onSelect: (e) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                                ...(canDownload ? [
+                                    { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
+                                ] : []),
+                                ...(canManage ? [
+                                    { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: canDownload,
+                                      onSelect: (e: Event) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                                ] : []),
                             ]}
                             selectable
                             selected={file.selected !== false}
                             onSelectedChange={(sel) => onToggleFilesSelection([file.id], sel)}
                             selectLabel={t('selectSource')}
                         />
-                    </SourceHoverPreview>
-                ))}
+                    );
+                    return canDownload
+                        ? <SourceHoverPreview key={file.id} file={file}>{card}</SourceHoverPreview>
+                        : card;
+                })}
 
                 {rssFeeds.map(feed => (
                     <li key={`rss-${feed.id}`} className="source-card sidebar-left__file-card">
@@ -190,26 +197,32 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 {feed.status === 'error' && feed.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{feed.errorMessage}</div>
                                 )}
-                                <SyncScheduleSelect
-                                    id={`rss-row-schedule-${feed.id}`}
-                                    value={feed.syncSchedule}
-                                    onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
-                                />
+                                {canManage && (
+                                    <SyncScheduleSelect
+                                        id={`rss-row-schedule-${feed.id}`}
+                                        value={feed.syncSchedule}
+                                        onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
+                                    />
+                                )}
                                 <div className="sidebar-left__rss-feed-actions">
-                                    <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
-                                        <RefreshCw size={14} />
-                                    </button>
-                                    <button onClick={() => onUpdateRssFeed(feed.id, {
-                                        status: feed.status === 'active' ? 'paused' : 'active'
-                                    })} title={feed.status === 'active' ? t('pause') : t('resume')} aria-label={feed.status === 'active' ? t('pause') : t('resume')}>
-                                        {feed.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-                                    </button>
+                                    {canManage && (<>
+                                        <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
+                                            <RefreshCw size={14} />
+                                        </button>
+                                        <button onClick={() => onUpdateRssFeed(feed.id, {
+                                            status: feed.status === 'active' ? 'paused' : 'active'
+                                        })} title={feed.status === 'active' ? t('pause') : t('resume')} aria-label={feed.status === 'active' ? t('pause') : t('resume')}>
+                                            {feed.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
+                                        </button>
+                                    </>)}
                                     <button onClick={() => onViewFeed(feed)} title={t('rssViewEntries')} aria-label={t('rssViewEntries')}>
                                         <Eye size={14} />
                                     </button>
-                                    <button onClick={() => onDeleteRssFeed(feed.id)} title={t('delete')} aria-label={`${t('delete')} ${feed.title || feed.url}`}>
-                                        <Trash2 size={14} />
-                                    </button>
+                                    {canManage && (
+                                        <button onClick={() => onDeleteRssFeed(feed.id)} title={t('delete')} aria-label={`${t('delete')} ${feed.title || feed.url}`}>
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <Checkbox
@@ -268,11 +281,14 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 {source.status === 'error' && source.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
                                 )}
+                                {canManage && (
                                 <SyncScheduleSelect
                                     id={`confluence-row-schedule-${source.id}`}
                                     value={source.syncSchedule}
                                     onChange={(syncSchedule) => onUpdateConfluenceSource(source.id, { syncSchedule })}
                                 />
+                                )}
+                                {canManage && (
                                 <div className="sidebar-left__rss-feed-actions">
                                     <button onClick={() => onSyncConfluenceNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                         <RefreshCw size={14} />
@@ -286,6 +302,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
+                                )}
                             </div>
                         </div>
                     </li>
@@ -330,11 +347,14 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     {source.status === 'error' && source.errorMessage && (
                                         <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
                                     )}
+                                    {canManage && (
                                     <SyncScheduleSelect
                                         id={`gitrepo-row-schedule-${source.id}`}
                                         value={source.syncSchedule}
                                         onChange={(syncSchedule) => onUpdateGitRepoSource(source.id, { syncSchedule })}
                                     />
+                                    )}
+                                    {canManage && (
                                     <div className="sidebar-left__rss-feed-actions">
                                         <button onClick={() => onSyncGitRepoNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                             <RefreshCw size={14} />
@@ -346,6 +366,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                             <Trash2 size={14} />
                                         </button>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                         </li>

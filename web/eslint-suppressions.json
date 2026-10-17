@@ -124,16 +124,6 @@
       "count": 1
     }
   },
-  "src/components/MarkdownTable.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/MembersModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 18
-    }
-  },
   "src/components/Memory/MemoryManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
@@ -177,11 +167,6 @@
   "src/components/MobileTabBar.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
-    }
-  },
-  "src/components/Modal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
     }
   },
   "src/components/OnboardingTour.tsx": {
@@ -252,11 +237,6 @@
   "src/components/Studio/WorkspacePromptDialog.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
-    }
-  },
-  "src/components/TabularDetailModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/ToastContainer.tsx": {

@@ -15,6 +15,7 @@ import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { hasKbAdminRole } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
+import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
 
 interface KbWorkspaceLayoutProps {
@@ -73,8 +74,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       variant="ghost"
       size="icon"
       onClick={() => setSystemPromptOpen(!systemPromptOpen)}
-      title={t('systemPromptLabel')}
-      aria-label={t('systemPromptLabel')}
+      title={t('kbSettingsTitle')}
+      aria-label={t('kbSettingsTitle')}
       aria-pressed={systemPromptOpen || Boolean(currentKb.systemPrompt)}
     >
       <Settings size={20} aria-hidden="true" />
@@ -92,7 +93,12 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   // 'history' und 'files' zeigen ein eigenes Panel, alles andere ist der
   // Chat — seit dem 22.09.2026 die einzige Ansicht des Hauptbereichs.
   // `useViewState` leitet für den Swipe-Start über denselben Helfer ab.
-  const activeMobileTab: MobileTab = deriveActiveMobileTab(mobileTab);
+  //
+  // Without seeSources there is no sources column (below), so a swipe that
+  // lands on 'files' shows the chat.
+  const { seeSources } = useKbSourceRights();
+  const derivedMobileTab: MobileTab = deriveActiveMobileTab(mobileTab);
+  const activeMobileTab: MobileTab = !seeSources && derivedMobileTab === 'files' ? 'chat' : derivedMobileTab;
 
 
   /* Welcher Reiter welchen Bereich zeigt, ist Daten — die Shell leitet nichts
@@ -101,8 +107,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   const mobileTabs: MobilePaneTab[] = useMemo(() => [
     { id: 'history', icon: <History aria-hidden="true" />, label: t('tabHistory'), pane: 'left' },
     { id: 'chat', icon: <MessageSquare aria-hidden="true" />, label: t('tabChat'), pane: 'main' },
-    { id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' },
-  ], [t]);
+    ...(seeSources ? [{ id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' as const }] : []),
+  ], [t, seeSources]);
 
   /* Was vom `chat-header` übrig ist: der Zurück-Knopf und der KB-Name.
    *
@@ -179,7 +185,12 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       }}
       collapseLabel={t('collapseHistorySidebar')}
       expandLabel={t('expandHistorySidebar')}
-      rightPanel={{
+      /* The sources column only for a caller who may see the source list
+         (capabilities.seeSources). Without it nothing in the column could be
+         used — no list, and every other source right (add, download, manage)
+         sits on top of seeSources — so there is no column, no rail, no
+         toggle and no mobile tab rather than an empty one. */
+      rightPanel={seeSources ? {
         content: <SourcesPanel />,
         // Collapsed: one icon per source with the hover preview, like the history rail.
         collapsedPreview: <SourcesRail />,
@@ -198,7 +209,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
         },
         expandLabel: t('expandSourcesSidebar'),
         collapseLabel: t('collapseSourcesSidebar'),
-      }}
+      } : undefined}
       mobileTabs={mobileTabs}
       activeMobileTab={activeMobileTab}
       onMobileTabChange={handleMobileTabChange}

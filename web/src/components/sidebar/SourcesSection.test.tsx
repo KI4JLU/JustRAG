@@ -12,14 +12,16 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   HoverCard: ({ children }: { children: React.ReactNode }) => children,
   HoverCardTrigger: ({ children }: { children: React.ReactNode }) => children,
-  HoverCardContent: () => null,
+  // A marker per hover preview, so a test can tell whether a card has one.
+  HoverCardContent: () => <span data-testid="hover-preview" />,
   FilePreview: () => null,
   preloadPdfjs: () => undefined,
   renderPdfFirstPage: () => Promise.resolve(''),
 }));
 // No preview fetches in a unit test: the cache would hit the network.
+const useSourcePreviews = vi.fn();
 vi.mock('../../hooks/sourcePreviews', () => ({
-  useSourcePreviews: () => undefined,
+  useSourcePreviews: (files: unknown) => useSourcePreviews(files),
   useSourcePreview: () => ({ image: undefined, pending: false }),
   preloadSourcePreview: () => Promise.resolve(null),
   canPreviewSource: () => false,
@@ -84,7 +86,8 @@ const baseProps = {
   onDeleteGitRepoSource: vi.fn(),
   onSyncGitRepoNow: vi.fn(),
   onRetryFile: vi.fn(),
-  onOpenTabular: vi.fn(),
+  canManage: true,
+  canDownload: true,
 };
 
 describe('SourcesSection error display + retry', () => {
@@ -284,42 +287,25 @@ describe('SourcesSection per-row schedule control', () => {
   });
 });
 
-// Phase 4: the "Tabellen" file-detail button — only for completed
-// spreadsheet files, calling onOpenTabular(file) when clicked.
-describe('SourcesSection tabular detail button', () => {
-  it('shows the button for a completed spreadsheet file and calls onOpenTabular with it', async () => {
-    const onOpenTabular = vi.fn();
+// Spreadsheets open like every other source: a row click hands the file to
+// onPreviewSource (useWebTools routes it to the tabular preview). There is no
+// separate table-structure button any more.
+describe('SourcesSection spreadsheet sources', () => {
+  it('renders no extra action button for a completed spreadsheet file', () => {
     const file = makeFile({ name: 'a.xlsx', status: 'completed' });
-    render(<SourcesSection {...baseProps} files={[file]} onOpenTabular={onOpenTabular} />);
-
-    const btn = screen.getByRole('button', { name: 'tabularPanelOpen a.xlsx' });
-    await userEvent.click(btn);
-    expect(onOpenTabular).toHaveBeenCalledWith(file);
+    const other = makeFile({ id: 'f-pdf', name: 'a.pdf', status: 'completed' });
+    const { rerender } = render(<SourcesSection {...baseProps} files={[other]} />);
+    const pdfButtons = screen.getAllByRole('button').length;
+    rerender(<SourcesSection {...baseProps} files={[file]} />);
+    expect(screen.getAllByRole('button')).toHaveLength(pdfButtons);
   });
 
-  it('hides the button for a non-spreadsheet completed file', () => {
-    const file = makeFile({ name: 'a.pdf', status: 'completed' });
-    render(<SourcesSection {...baseProps} files={[file]} />);
-    expect(screen.queryByRole('button', { name: /tabularPanelOpen/ })).not.toBeInTheDocument();
-  });
-
-  it('hides the button for a spreadsheet file that is still processing', () => {
-    const file = makeFile({ name: 'a.xlsx', status: 'processing' });
-    render(<SourcesSection {...baseProps} files={[file]} />);
-    expect(screen.queryByRole('button', { name: /tabularPanelOpen/ })).not.toBeInTheDocument();
-  });
-
-  it('shows the button for every other supported spreadsheet extension, case-insensitively', () => {
-    const files = ['b.XLS', 'c.ods', 'd.csv', 'e.tsv'].map((name, i) =>
-      makeFile({ id: `f-ext-${i}`, name, status: 'completed' }));
-    render(<SourcesSection {...baseProps} files={files} />);
-    expect(screen.getAllByRole('button', { name: /tabularPanelOpen/ })).toHaveLength(files.length);
-  });
-
-  it('hides the button for a completed .xlsm file (macro workbooks are out of scope)', () => {
-    const file = makeFile({ name: 'a.xlsm', status: 'completed' });
-    render(<SourcesSection {...baseProps} files={[file]} />);
-    expect(screen.queryByRole('button', { name: /tabularPanelOpen/ })).not.toBeInTheDocument();
+  it('opens a spreadsheet via onPreviewSource on row click', async () => {
+    const onPreviewSource = vi.fn();
+    const file = makeFile({ name: 'a.xlsx', status: 'completed' });
+    render(<SourcesSection {...baseProps} files={[file]} onPreviewSource={onPreviewSource} />);
+    await userEvent.click(screen.getByRole('listitem'));
+    expect(onPreviewSource).toHaveBeenCalledWith(file);
   });
 });
 
@@ -377,5 +363,102 @@ describe('SourcesSection injection screening badge', () => {
     expect(screen.getAllByLabelText('fileInjectionFlagged')).toHaveLength(2);
     // No second copy of the header summary inside the list.
     expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
+  });
+});
+
+// Without capabilities.manageSources (backend contract 2026-10-16: changing
+// existing sources is fixed at edit and above) the backend refuses delete,
+// retry, sync, pause and reschedule with a 403. So none of those controls may
+// render, while what the caller CAN do — open, download, select, read an RSS
+// feed's entries — stays. Adding sources is a separate right and not this
+// component's concern (SourcesPanel / SourcesRail).
+describe('SourcesSection without the manage right (canManage=false)', () => {
+  const viewer = { ...baseProps, canManage: false };
+
+  it('offers no retry button and no delete action on a file, but keeps download and select', async () => {
+    render(<SourcesSection {...viewer} files={[makeFile({ status: 'error', errorMessage: 'x' })]} />);
+    expect(screen.queryByRole('button', { name: /retrySource/ })).not.toBeInTheDocument();
+    // Before opening the menu: an open (modal) menu hides the rest from the a11y tree.
+    expect(screen.getByRole('checkbox', { name: /selectSource/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /sourceActions/ }));
+    expect(await screen.findByRole('menuitem', { name: /download/ })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /delete/ })).not.toBeInTheDocument();
+  });
+
+  it('shows an RSS feed without sync, pause, delete or schedule, but with its entries', () => {
+    render(<SourcesSection {...viewer} files={[]} rssFeeds={[makeRssFeed()]} />);
+    for (const name of [/pollNow/, /^pause$/, /delete/]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /rssViewEntries/ })).toBeInTheDocument();
+  });
+
+  it('shows Confluence and git sources without any edit control', () => {
+    render(<SourcesSection {...viewer} files={[]}
+      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
+    expect(screen.getByText('ENG')).toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: /pollNow|pause|delete/ })).toHaveLength(0);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('an editor still gets every control (the same rows with canManage=true)', () => {
+    render(<SourcesSection {...baseProps} files={[]}
+      rssFeeds={[makeRssFeed()]} confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
+    expect(screen.getAllByRole('button', { name: /pollNow/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /^delete/ })).toHaveLength(3);
+  });
+});
+
+// Oracle: backend contract 2026-10-16 — downloadSources gates the download
+// route, which is also what the in-app preview and the hover preview load. So
+// without it neither the Download action nor either preview is rendered, and
+// the card is display-only (DS SidebarCard without onOpen: the title is plain
+// text, a click does nothing; the checkbox still selects). The UI rule: what
+// cannot be used is not rendered at all.
+describe('SourcesSection download right (canDownload)', () => {
+  it('with the right: Download in the menu, a hover preview, preloading, click previews', async () => {
+    useSourcePreviews.mockClear();
+    const onPreviewSource = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onPreviewSource={onPreviewSource} />);
+    expect(screen.getByTestId('hover-preview')).toBeInTheDocument();
+    expect(useSourcePreviews).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'f-1' })]);
+    await userEvent.click(screen.getByRole('button', { name: 'doc.pdf' }));
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(await screen.findByRole('menuitem', { name: /download/ })).toBeInTheDocument();
+  });
+
+  it('without it: no Download, no hover preview, no preloading, the title is not a button', async () => {
+    useSourcePreviews.mockClear();
+    const onPreviewSource = vi.fn();
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]}
+      onPreviewSource={onPreviewSource} onToggleFilesSelection={onToggleFilesSelection} />);
+    expect(screen.queryByTestId('hover-preview')).not.toBeInTheDocument();
+    expect(useSourcePreviews).toHaveBeenLastCalledWith([]);
+    expect(screen.queryByRole('button', { name: 'doc.pdf' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('doc.pdf'));
+    expect(onPreviewSource).not.toHaveBeenCalled();
+    expect(onToggleFilesSelection).not.toHaveBeenCalled();
+    // The manager still has Delete in the menu — just no Download.
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(await screen.findByRole('menuitem', { name: /delete/ })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /download/ })).not.toBeInTheDocument();
+  });
+
+  it('renders no actions menu at all when neither download nor manage is allowed', () => {
+    render(<SourcesSection {...baseProps} canDownload={false} canManage={false} files={[makeFile({})]} />);
+    expect(screen.queryByRole('button', { name: /sourceActions/ })).not.toBeInTheDocument();
+    // The selection stays for whoever sees the list.
+    expect(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' })).toBeInTheDocument();
+  });
+
+  it('without it the checkbox still selects an excluded source again', async () => {
+    const onToggleFilesSelection = vi.fn();
+    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({ selected: false })]}
+      onToggleFilesSelection={onToggleFilesSelection} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
+    expect(onToggleFilesSelection).toHaveBeenCalledWith(['f-1'], true);
   });
 });

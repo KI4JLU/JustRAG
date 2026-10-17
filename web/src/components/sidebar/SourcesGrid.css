@@ -181,14 +181,19 @@
     color: var(--error-text);
 }
 
-/* Grid buttons */
+/* Grid buttons. `minmax(0, 1fr)`, not `1fr` (= `minmax(auto, 1fr)`): with
+   `auto` a column cannot shrink below its longest nowrap label, so in the
+   narrow right panel the tiles ran past the container and out of line with
+   the search box above. The panel's minimum width (useSidebarResize,
+   360px) keeps every label whole; below it a label would ellipsize. */
 .sources-grid__grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
 }
 
 .sources-grid__item {
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -210,7 +215,12 @@
     border-color: var(--accent-primary);
 }
 
+.sources-grid__item > svg {
+    flex-shrink: 0;
+}
+
 .sources-grid__label {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

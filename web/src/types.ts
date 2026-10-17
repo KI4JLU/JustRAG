@@ -341,6 +341,40 @@ export interface KnowledgeBase {
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
     visibility?: 'private' | 'public';
+    // Per-KB source permissions (migration 0089, API.md "Source permissions").
+    // Written by a KB admin through PATCH /api/kb/{id}; absent on the API-key
+    // surfaces. viewer* apply to the view role, editor* to the edit role.
+    viewerSeeSources?: boolean;
+    viewerDownloadSources?: boolean;
+    viewerSeeCitations?: boolean;
+    editorSeeSources?: boolean;
+    editorAddSources?: boolean;
+    editorDownloadSources?: boolean;
+    editorSeeCitations?: boolean;
+    // The caller's own resolved permissions on this KB, computed by the
+    // backend from role + flags so the client never re-derives the ladder.
+    capabilities?: KbCapabilities;
+}
+
+/** The per-KB source flags a KB admin can switch (PATCH /api/kb/{id}). */
+export type KbSourceFlag =
+    | 'viewerSeeSources'
+    | 'viewerDownloadSources'
+    | 'viewerSeeCitations'
+    | 'editorSeeSources'
+    | 'editorAddSources'
+    | 'editorDownloadSources'
+    | 'editorSeeCitations';
+
+export type KbSourceFlags = Record<KbSourceFlag, boolean>;
+
+/** GET /api/kb… `capabilities`: what the CALLER may do with this KB's sources. */
+export interface KbCapabilities {
+    seeSources: boolean;
+    addSources: boolean;
+    downloadSources: boolean;
+    seeCitations: boolean;
+    manageSources: boolean;
 }
 
 // A curator of a global KB: a kb_members row with role='admin'. `id` is the
@@ -421,6 +455,19 @@ export interface TabularColumn {
     coercion_failed: number;
     samples?: string[];
     value_set?: string[];
+    lookup?: TabularLookup;
+}
+
+// A column's link to a lookup table of the same file (tabular.LookupRef):
+// without `via` the column holds codes whose name is `label` where `key`
+// equals the code; with `via` it holds an already looked-up value keyed by
+// that column. `source` says how the ingest found it ("heuristic" = inferred).
+export interface TabularLookup {
+    table: string;
+    key: string;
+    label: string;
+    via?: string;
+    source: 'formula' | 'validation' | 'heuristic';
 }
 
 export interface TabularTable {
@@ -433,6 +480,30 @@ export interface TabularTable {
     header_row: number; // -1 = none
     row_count: number;
     columns: TabularColumn[];
+}
+
+// One page of a materialized table — GET
+// /api/kb/{id}/files/{fileId}/tabular/rows (kb.TabularRowsDTO). Columns by SQL
+// name, cells as SQL text (null for NULL). `id` is the _rowid (ingest order,
+// not the Excel row). `matched` counts the rows passing search and the
+// empty-row filter; empty_rows / empty_columns come with offset 0 only.
+export interface TabularRow {
+    id: number;
+    empty: boolean;
+    cells: (string | null)[];
+}
+
+export interface TabularRows {
+    table_name: string;
+    sheet_name: string;
+    columns: string[];
+    rows: TabularRow[];
+    row_count: number;
+    matched: number;
+    empty_rows?: number;
+    empty_columns?: string[];
+    offset: number;
+    limit: number;
 }
 
 // TabularSheetReport mirrors tabular.SheetReport. Note: dropped_columns is an

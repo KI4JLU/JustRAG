@@ -327,17 +327,25 @@ function kbCardActions({
   // Rename: owner-only (superadmin resolves to owner), mirroring
   // kbaccess.CanRename on the server — a KB admin edits everything but the name.
   if (canRenameKb(kb, systemRole)) {
-    items.push({ label: t('renameKb'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
+    items.push({ label: t('rename'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
   }
   // RAG settings: kbAdvancedChain needs a system role in {api-user, admin,
-  // superadmin} on top of the KB admin role — not the members gate.
-  if (canOpenKbAdvancedSettings(kb, systemRole)) {
-    items.push({ label: t('kbAdvancedSettings'), icon: <SlidersHorizontal size={16} aria-hidden="true" />, onSelect: e => onOpenKbSettings(kb, asMouse(e)) });
+  // superadmin} on top of the KB admin role — not the members gate. The card
+  // offers it to system admins only (developer, 2026-10-13), badged as such;
+  // an api-user still passes the server gate but gets no entry here.
+  const isSystemAdmin = systemRole === 'admin' || systemRole === 'superadmin';
+  if (isSystemAdmin && canOpenKbAdvancedSettings(kb, systemRole)) {
+    items.push({
+      label: t('kbAdvancedSettings'),
+      badge: t('roleAdmin'),
+      icon: <SlidersHorizontal size={16} aria-hidden="true" />,
+      onSelect: e => onOpenKbSettings(kb, asMouse(e)),
+    });
   }
   // Owners delete the KB, everyone else only leaves it (useKbRemoval decides
   // the request). Disabled while any removal is in flight.
   items.push({
-    label: kb.myRole === 'owner' ? t('deleteKb') : t('removeFromMyView'),
+    label: kb.myRole === 'owner' ? t('delete') : t('removeFromMyView'),
     icon: <Trash2 size={16} aria-hidden="true" />,
     destructive: true,
     disabled: removingKb,
