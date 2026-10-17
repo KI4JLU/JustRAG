@@ -27,18 +27,18 @@ type KnowledgeBase struct {
 
 // SourcePermissions are the per-KB flags a KB admin sets to decide what
 // viewers and editors may do with the KB's sources: the Viewer* flags apply
-// to the view role, the Editor* flags to the edit role, one pair per
-// capability. The zero value is the most restrictive setting, so a
+// to the view role, the Editor* flags to the edit role. There is no viewer
+// add flag: adding sources would promote a viewer to an editor, so a viewer
+// never adds. The zero value is the most restrictive setting, so a
 // KnowledgeBase built without loading the flags fails closed — editors
 // included. The database defaults differ (the editor_* columns default to
 // true there); PGStore.GetKBByID always loads them.
 type SourcePermissions struct {
 	ViewerSeeSources      bool
-	ViewerSelectSources   bool
 	ViewerDownloadSources bool
 	ViewerSeeCitations    bool
 	EditorSeeSources      bool
-	EditorSelectSources   bool
+	EditorAddSources      bool
 	EditorDownloadSources bool
 	EditorSeeCitations    bool
 }
@@ -128,15 +128,19 @@ type Capabilities struct {
 	// SeeSources: read the source lists (files, RSS feeds, Confluence and
 	// git sources, crawl status).
 	SeeSources bool `json:"seeSources"`
-	// SelectSources: restrict a chat or research turn to chosen files.
-	SelectSources bool `json:"selectSources"`
+	// AddSources: add sources — upload, text, URL, crawl, add from the
+	// library, create an RSS feed / Confluence source / git repository,
+	// add academic papers, and the agent chat's KB-writing actions. Edit
+	// role and above only (a viewer never adds); requires SeeSources.
+	AddSources bool `json:"addSources"`
 	// DownloadSources: download a source file and open the spreadsheet
-	// source preview.
+	// source preview. Requires SeeSources.
 	DownloadSources bool `json:"downloadSources"`
 	// SeeCitations: see an answer's citations.
 	SeeCitations bool `json:"seeCitations"`
-	// ManageSources: add, change, sync, delete and retry sources. Role
-	// only (edit and above), never a flag.
+	// ManageSources: change, sync, poll, delete and retry sources. No flag
+	// of its own: edit and above, and (below KB admin) only together with
+	// SeeSources. Adding is AddSources.
 	ManageSources bool `json:"manageSources"`
 }
 
@@ -146,7 +150,7 @@ type Capability string
 // The five source capabilities; the values match the JSON keys.
 const (
 	CapSeeSources      Capability = "seeSources"
-	CapSelectSources   Capability = "selectSources"
+	CapAddSources      Capability = "addSources"
 	CapDownloadSources Capability = "downloadSources"
 	CapSeeCitations    Capability = "seeCitations"
 	CapManageSources   Capability = "manageSources"
@@ -157,8 +161,8 @@ func (c Capabilities) Has(capability Capability) bool {
 	switch capability {
 	case CapSeeSources:
 		return c.SeeSources
-	case CapSelectSources:
-		return c.SelectSources
+	case CapAddSources:
+		return c.AddSources
 	case CapDownloadSources:
 		return c.DownloadSources
 	case CapSeeCitations:
@@ -174,24 +178,38 @@ func (c Capabilities) Has(capability Capability) bool {
 // inputs on purpose: the role ladder lives in EffectiveRole alone, and this
 // adds only the per-KB flags on top of its result.
 //
+// The capabilities form a pyramid:
+//
+//   - level 0, using the KB's sources in a chat: every caller with KB
+//     access. Not a capability; restricting a turn to chosen files
+//     (selectedFileIds / fileIds) is part of it and not gated either.
+//   - level 1, independent of each other: seeSources (the source lists) and
+//     seeCitations (an answer's citations).
+//   - level 2, each requiring seeSources: downloadSources, addSources and
+//     manageSources. A flag on level 2 grants nothing while seeSources is
+//     off — an editor with editor_add_sources but not editor_see_sources
+//     can neither add nor manage.
+//
+// Per role:
+//
 //   - admin, owner: every capability, whatever the flags say. This covers a
 //     KB admin (kb_members role admin), the owner, a superadmin (resolves to
 //     owner) and a system admin on a public KB (resolves to admin). An
 //     api-user system role resolves through the same ladder and has no
 //     admin rung of its own, so it never gains admin capability from it.
-//   - edit: each of the four flag-governed capabilities follows its editor_*
-//     flag; always manages sources.
-//   - view: each of the four follows its viewer_* flag; never manages
-//     sources, whatever the flags say.
+//   - edit: seeSources and seeCitations follow their editor_* flags;
+//     downloadSources and addSources follow theirs AND seeSources;
+//     manageSources is seeSources (the role grants it, the pyramid
+//     requires the list).
+//   - view: seeSources, seeCitations and downloadSources as for edit with
+//     the viewer_* flags; never addSources or manageSources, whatever the
+//     flags say (adding or deleting would make the viewer an editor).
 //   - anything else (no access): nothing.
 //
-// ManageSources is therefore exactly "role edit or above"; it is a
-// capability anyway so the route gates and the UI read one object.
-//
 // Every caller of this function — the route gates (RequireCapability), the
-// handler-internal checks in internal/files, the selection refusals in
-// internal/chat, internal/publicapi and internal/research, the KB list and
-// detail responses — goes through here; none restates the table.
+// handler-internal checks in internal/files and internal/academic, the agent
+// chat's run scope (adkbridge.Scope.Capabilities), the KB list and detail
+// responses — goes through here; none restates the table or the pyramid.
 //
 // KEEP IN SYNC WITH SeeSourcesSQL (visible_sql.go), the SQL rendering of the
 // seeSources rule that the header search (internal/globalsearch) filters file
@@ -201,36 +219,29 @@ func CapabilitiesFor(kb *KnowledgeBase, role string) Capabilities {
 	if kb == nil {
 		return Capabilities{}
 	}
+	var see, add, download, citations bool
 	switch {
 	case AtLeast(role, RoleAdmin):
 		return Capabilities{
-			SeeSources: true, SelectSources: true, DownloadSources: true,
+			SeeSources: true, AddSources: true, DownloadSources: true,
 			SeeCitations: true, ManageSources: true,
 		}
 	case role == RoleEdit:
-		return Capabilities{
-			SeeSources:      kb.Sources.EditorSeeSources,
-			SelectSources:   kb.Sources.EditorSelectSources,
-			DownloadSources: kb.Sources.EditorDownloadSources,
-			SeeCitations:    kb.Sources.EditorSeeCitations,
-			ManageSources:   true,
-		}
+		see, add = kb.Sources.EditorSeeSources, kb.Sources.EditorAddSources
+		download, citations = kb.Sources.EditorDownloadSources, kb.Sources.EditorSeeCitations
 	case role == RoleView:
-		return Capabilities{
-			SeeSources:      kb.Sources.ViewerSeeSources,
-			SelectSources:   kb.Sources.ViewerSelectSources,
-			DownloadSources: kb.Sources.ViewerDownloadSources,
-			SeeCitations:    kb.Sources.ViewerSeeCitations,
-		}
+		see = kb.Sources.ViewerSeeSources
+		download, citations = kb.Sources.ViewerDownloadSources, kb.Sources.ViewerSeeCitations
+	default:
+		return Capabilities{}
 	}
-	return Capabilities{}
-}
-
-// HasCapability reports whether the KBAccessResult in ctx grants c. False
-// when the request carries no access result, so a handler reached without
-// RequireKBRole fails closed.
-func HasCapability(ctx context.Context, c Capability) bool {
-	return AccessFromContext(ctx).Capabilities().Has(c)
+	return Capabilities{
+		SeeSources:      see,
+		SeeCitations:    citations,
+		DownloadSources: see && download,
+		AddSources:      see && add && role == RoleEdit,
+		ManageSources:   see && role == RoleEdit,
+	}
 }
 
 // RequireKBRole returns middleware that resolves the caller's effective role on

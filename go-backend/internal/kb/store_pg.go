@@ -71,11 +71,10 @@ type kbFullRow struct {
 	CreatedAt      time.Time `db:"created_at"`
 	// Source permissions (migration 0089).
 	ViewerSeeSources      bool `db:"viewer_see_sources"`
-	ViewerSelectSources   bool `db:"viewer_select_sources"`
 	ViewerDownloadSources bool `db:"viewer_download_sources"`
 	ViewerSeeCitations    bool `db:"viewer_see_citations"`
 	EditorSeeSources      bool `db:"editor_see_sources"`
-	EditorSelectSources   bool `db:"editor_select_sources"`
+	EditorAddSources      bool `db:"editor_add_sources"`
 	EditorDownloadSources bool `db:"editor_download_sources"`
 	EditorSeeCitations    bool `db:"editor_see_citations"`
 	// Optional owner attribution — only populated by queries that LEFT JOIN
@@ -90,8 +89,8 @@ const kbSelectCols = `kb.id, kb.name, kb.user_id, kb.description,
        kb.language, kb.ai_config_id, kb.chat_model, kb.embedding_model, kb.rerank_model, kb.tts_model, kb.stt_model,
        kb.system_prompt, kb.header_text, kb.example_prompts,
        kb.chunk_size, kb.chunk_overlap, kb.created_at,
-       kb.viewer_see_sources, kb.viewer_select_sources, kb.viewer_download_sources,
-       kb.viewer_see_citations, kb.editor_see_sources, kb.editor_select_sources,
+       kb.viewer_see_sources, kb.viewer_download_sources,
+       kb.viewer_see_citations, kb.editor_see_sources, kb.editor_add_sources,
        kb.editor_download_sources, kb.editor_see_citations`
 
 // kbStatsCols / kbStatsJoins add per-KB card metadata (file counts, turn
@@ -136,8 +135,8 @@ const kbSelectColsNoAlias = `id, name, user_id, description,
        (visibility = 'public') AS is_global, visibility, is_published,
        language, ai_config_id, chat_model, embedding_model, rerank_model, tts_model, stt_model,
        system_prompt, header_text, example_prompts, chunk_size, chunk_overlap, created_at,
-       viewer_see_sources, viewer_select_sources, viewer_download_sources,
-       viewer_see_citations, editor_see_sources, editor_select_sources,
+       viewer_see_sources, viewer_download_sources,
+       viewer_see_citations, editor_see_sources, editor_add_sources,
        editor_download_sources, editor_see_citations,
        NULL::text AS owner_first_name, NULL::text AS owner_last_name, NULL::text AS owner_username`
 
@@ -219,11 +218,10 @@ func toKBRow(r kbFullRow) KBRow {
 		OwnerUsername:  r.OwnerUsername,
 
 		ViewerSeeSources:      r.ViewerSeeSources,
-		ViewerSelectSources:   r.ViewerSelectSources,
 		ViewerDownloadSources: r.ViewerDownloadSources,
 		ViewerSeeCitations:    r.ViewerSeeCitations,
 		EditorSeeSources:      r.EditorSeeSources,
-		EditorSelectSources:   r.EditorSelectSources,
+		EditorAddSources:      r.EditorAddSources,
 		EditorDownloadSources: r.EditorDownloadSources,
 		EditorSeeCitations:    r.EditorSeeCitations,
 	}
@@ -606,9 +604,6 @@ func (s *PGStore) UpdateKnowledgeBase(ctx context.Context, id string, data KBUpd
 	if data.ViewerSeeSources != nil {
 		b.Add("viewer_see_sources = $%d", *data.ViewerSeeSources)
 	}
-	if data.ViewerSelectSources != nil {
-		b.Add("viewer_select_sources = $%d", *data.ViewerSelectSources)
-	}
 	if data.ViewerDownloadSources != nil {
 		b.Add("viewer_download_sources = $%d", *data.ViewerDownloadSources)
 	}
@@ -618,8 +613,8 @@ func (s *PGStore) UpdateKnowledgeBase(ctx context.Context, id string, data KBUpd
 	if data.EditorSeeSources != nil {
 		b.Add("editor_see_sources = $%d", *data.EditorSeeSources)
 	}
-	if data.EditorSelectSources != nil {
-		b.Add("editor_select_sources = $%d", *data.EditorSelectSources)
+	if data.EditorAddSources != nil {
+		b.Add("editor_add_sources = $%d", *data.EditorAddSources)
 	}
 	if data.EditorDownloadSources != nil {
 		b.Add("editor_download_sources = $%d", *data.EditorDownloadSources)

@@ -28,11 +28,10 @@ type kbRow struct {
 	IsGlobal              bool    `db:"is_global"`
 	IsPublished           bool    `db:"is_published"`
 	ViewerSeeSources      bool    `db:"viewer_see_sources"`
-	ViewerSelectSources   bool    `db:"viewer_select_sources"`
 	ViewerDownloadSources bool    `db:"viewer_download_sources"`
 	ViewerSeeCitations    bool    `db:"viewer_see_citations"`
 	EditorSeeSources      bool    `db:"editor_see_sources"`
-	EditorSelectSources   bool    `db:"editor_select_sources"`
+	EditorAddSources      bool    `db:"editor_add_sources"`
 	EditorDownloadSources bool    `db:"editor_download_sources"`
 	EditorSeeCitations    bool    `db:"editor_see_citations"`
 }
@@ -46,8 +45,8 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 	// consumer of this lookup — RequireKBRole and the handler-internal checks
 	// that share it — sees the same flags CapabilitiesFor resolves.
 	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published,
-	                    viewer_see_sources, viewer_select_sources, viewer_download_sources,
-	                    viewer_see_citations, editor_see_sources, editor_select_sources,
+	                    viewer_see_sources, viewer_download_sources,
+	                    viewer_see_citations, editor_see_sources, editor_add_sources,
 	                    editor_download_sources, editor_see_citations
 	             FROM knowledge_bases WHERE id = $1`
 
@@ -67,11 +66,10 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 		IsPublished: r.IsPublished,
 		Sources: SourcePermissions{
 			ViewerSeeSources:      r.ViewerSeeSources,
-			ViewerSelectSources:   r.ViewerSelectSources,
 			ViewerDownloadSources: r.ViewerDownloadSources,
 			ViewerSeeCitations:    r.ViewerSeeCitations,
 			EditorSeeSources:      r.EditorSeeSources,
-			EditorSelectSources:   r.EditorSelectSources,
+			EditorAddSources:      r.EditorAddSources,
 			EditorDownloadSources: r.EditorDownloadSources,
 			EditorSeeCitations:    r.EditorSeeCitations,
 		},

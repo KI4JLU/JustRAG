@@ -18,7 +18,6 @@ import (
 	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/kb"
-	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/research"
 	"github.com/justrag/go-backend/internal/usage"
@@ -259,7 +258,7 @@ func (h *Handler) ListKBs(w http.ResponseWriter, r *http.Request) {
 	}
 	// The same capabilities object the session list carries, resolved for
 	// the API key's owner, so an integration can tell which sources it may
-	// list, select or download before it gets a 403.
+	// list, add or download before it gets a 403.
 	kb.ResolveAllCapabilities(kbs, user.Role)
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kbs)
@@ -393,12 +392,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if len([]rune(body.Message)) > 32_000 {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "message exceeds maximum length of 32,000 characters")
-		return
-	}
-	// Same rule as the web chat: a file selection needs the selectSources
-	// capability, refused before the chat row and the usage record.
-	if len(body.SelectedFileIDs) > 0 && !kbaccess.HasCapability(ctx, kbaccess.CapSelectSources) {
-		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, chat.MsgSelectSourcesForbidden)
 		return
 	}
 
@@ -726,12 +719,6 @@ func (h *Handler) Research(w http.ResponseWriter, r *http.Request) {
 	}
 	if len([]rune(body.Goal)) > 32_000 {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "goal exceeds maximum length of 32,000 characters")
-		return
-	}
-	// fileIds is the same per-request source selection as a chat turn's
-	// selectedFileIds, so it needs the same selectSources capability.
-	if len(body.FileIDs) > 0 && !kbaccess.HasCapability(ctx, kbaccess.CapSelectSources) {
-		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, chat.MsgSelectSourcesForbidden)
 		return
 	}
 

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -199,7 +200,7 @@ func fakeSearch(calls *int) DispatchFunc {
 func run(t *testing.T, r *runner.Runner, sid string, msg *genai.Content) []*session.Event {
 	t.Helper()
 	var evs []*session.Event
-	for ev, err := range r.Run(WithScope(context.Background(), Scope{UserID: "u1", KBID: "kb", Role: "edit"}), "u1", sid, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+	for ev, err := range r.Run(WithScope(context.Background(), Scope{UserID: "u1", KBID: "kb", Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, AddSources: true}}), "u1", sid, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if err != nil {
 			t.Fatalf("run: %v", err)
 		}

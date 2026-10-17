@@ -373,8 +373,8 @@ func (h *Handler) canDownload(ctx context.Context, kb *kbaccess.KnowledgeBase, u
 }
 
 // canManage reports whether the caller may delete or retry kb's files: the
-// manageSources capability, which is role only — edit and above, never a
-// viewer, whatever the flags say.
+// manageSources capability — edit and above, never a viewer, and below KB
+// admin only together with seeSources (kbaccess.CapabilitiesFor decides).
 func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
 	_, caps, err := h.sourceAccess(ctx, kb, user)
 	if err != nil {
@@ -557,7 +557,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // Upload handles POST /api/kb/{id}/files.
-// Requires authentication and KB edit permission (enforced by kbaccess middleware).
+// Requires authentication and the addSources capability (kbAddSourcesChain).
 // Accepts a multipart/form-data request with a "file" field; max 500 MB.
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())

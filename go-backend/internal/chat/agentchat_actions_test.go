@@ -20,6 +20,7 @@ import (
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/confluence"
 	"github.com/justrag/go-backend/internal/files"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -172,7 +173,10 @@ func deadEndDeps(fc *agentFakeClient, dispatch map[string]adkbridge.DispatchFunc
 	}
 }
 
-var editScope = adkbridge.Scope{UserID: "u1", KBID: "kb1", Role: "edit", IsGlobal: true}
+// editScope is an editor on a KB with the default editor flags (see + add
+// on), i.e. holding the addSources capability the KB-writing actions need.
+var editScope = adkbridge.Scope{UserID: "u1", KBID: "kb1", Role: "edit", IsGlobal: true,
+	Capabilities: kbaccess.CapabilitiesFor(&kbaccess.KnowledgeBase{Sources: kbaccess.SourcePermissions{EditorSeeSources: true, EditorAddSources: true}}, kbaccess.RoleEdit)}
 
 func TestDeadEndActionsOrder(t *testing.T) {
 	ids := func(as []adkbridge.Action) []string {
@@ -196,8 +200,9 @@ func TestDeadEndActionsOrder(t *testing.T) {
 	}
 }
 
-// library_add_to_kb and confluence_import need edit (adkbridge policy), so
-// a view user on an empty KB is offered nothing and gets a plain answer.
+// library_add_to_kb and confluence_import need the edit role and the
+// addSources capability (adkbridge policy), so a view user on an empty KB is
+// offered nothing and gets a plain answer.
 func TestEmptyKBOffersNoFilesActions(t *testing.T) {
 	deps := deadEndDeps(&agentFakeClient{}, allDispatchers())
 	deps.FileCounter = func(context.Context, string) (int, error) { return 0, nil }
@@ -227,6 +232,29 @@ func TestNoEvidenceOffersWebFirst(t *testing.T) {
 	}
 	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, viewScope).ask("Budget?"))); !slices.Equal(got, []string{"web"}) {
 		t.Fatalf("view: offered = %v", got)
+	}
+	// Adding is a per-KB flag for editors: an editor on a KB whose
+	// editor_add_sources is off loses the KB-writing actions. A viewer never
+	// gains them, even on a KB with every flag on.
+	lockedEdit := editScope
+	lockedEdit.Capabilities = kbaccess.CapabilitiesFor(&kbaccess.KnowledgeBase{Sources: kbaccess.SourcePermissions{EditorSeeSources: true}}, kbaccess.RoleEdit)
+	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, lockedEdit).ask("Budget?"))); !slices.Equal(got, []string{"web"}) {
+		t.Fatalf("edit without addSources: offered = %v", got)
+	}
+	// The pyramid: editor_add_sources alone, without editor_see_sources,
+	// grants no add either.
+	blindEdit := editScope
+	blindEdit.Capabilities = kbaccess.CapabilitiesFor(&kbaccess.KnowledgeBase{Sources: kbaccess.SourcePermissions{EditorAddSources: true}}, kbaccess.RoleEdit)
+	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, blindEdit).ask("Budget?"))); !slices.Equal(got, []string{"web"}) {
+		t.Fatalf("edit with add but without see: offered = %v", got)
+	}
+	openView := viewScope
+	openView.Capabilities = kbaccess.CapabilitiesFor(&kbaccess.KnowledgeBase{Sources: kbaccess.SourcePermissions{
+		ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+		EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true, EditorSeeCitations: true,
+	}}, kbaccess.RoleView)
+	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, openView).ask("Budget?"))); !slices.Equal(got, []string{"web"}) {
+		t.Fatalf("view on a KB with every flag on: offered = %v", got)
 	}
 }
 

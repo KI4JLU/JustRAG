@@ -72,7 +72,7 @@ type crawlRequest struct {
 // Crawl handles POST /api/kb/{id}/crawl. It validates the seed URL,
 // enqueues a TypeCrawl job to rag-quick, and returns 202 with the job ID.
 // The client then polls GetCrawlStatus until the job reaches a terminal
-// state. KB edit permission is enforced by middleware.
+// state. The addSources capability is enforced by middleware (kbAddSourcesChain).
 func (h *Handler) Crawl(w http.ResponseWriter, r *http.Request) {
 	kbID := r.PathValue("id")
 	if kbID == "" {

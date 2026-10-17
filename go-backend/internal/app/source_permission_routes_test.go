@@ -14,16 +14,19 @@ import (
 // written out by hand from the spec: which {id} route sits behind which
 // capability. It is the oracle for the mount points below.
 //
-//   - kbSourceListChain (viewer_/editor_see_sources): the sidebar source
-//     lists.
-//   - kbSourceDownloadChain (viewer_/editor_download_sources): the
-//     spreadsheet source preview, both routes.
-//   - kbManageSourcesChain (role only, edit and above): every add / change /
-//     sync / delete / retry route, plus from-library (it adds sources).
+//   - kbSourceListChain (seeSources): the sidebar source lists.
+//   - kbSourceDownloadChain (downloadSources): the spreadsheet source
+//     preview, both routes.
+//   - kbAddSourcesChain (addSources, gated at edit): every route that
+//     creates a source.
+//   - kbManageSourcesChain (manageSources, gated at edit): every change /
+//     sync / poll / delete / retry route.
 //
 // GET /api/files/{id}/download, DELETE /api/files/{id} and
 // POST /api/files/{id}/retry have no {id} KB in the path; their gates are
-// handler-internal and pinned in internal/files.
+// handler-internal and pinned in internal/files. POST
+// /api/academic-research/{researchId}/papers/add carries its KB in the body
+// and is pinned in internal/academic.
 var sourceGateRoutes = map[string]string{
 	"GET /api/kb/{id}/files":                "kbSourceListChain",
 	"GET /api/kb/{id}/rss":                  "kbSourceListChain",
@@ -34,22 +37,23 @@ var sourceGateRoutes = map[string]string{
 	"GET /api/kb/{id}/files/{fileId}/tabular":      "kbSourceDownloadChain",
 	"GET /api/kb/{id}/files/{fileId}/tabular/rows": "kbSourceDownloadChain",
 
-	"POST /api/kb/{id}/files":                              "kbManageSourcesChain",
-	"POST /api/kb/{id}/files/from-library":                 "kbManageSourcesChain",
+	"POST /api/kb/{id}/files":              "kbAddSourcesChain",
+	"POST /api/kb/{id}/files/from-library": "kbAddSourcesChain",
+	"POST /api/kb/{id}/add-sources":        "kbAddSourcesChain",
+	"POST /api/kb/{id}/fetch-url":          "kbAddSourcesChain",
+	"POST /api/kb/{id}/text":               "kbAddSourcesChain",
+	"POST /api/kb/{id}/crawl":              "kbAddSourcesChain",
+	"POST /api/kb/{id}/rss":                "kbAddSourcesChain",
+	"POST /api/kb/{id}/confluence-sources": "kbAddSourcesChain",
+	"POST /api/kb/{id}/git-repos":          "kbAddSourcesChain",
+
 	"POST /api/kb/{id}/files/retry-failed":                 "kbManageSourcesChain",
-	"POST /api/kb/{id}/add-sources":                        "kbManageSourcesChain",
-	"POST /api/kb/{id}/fetch-url":                          "kbManageSourcesChain",
-	"POST /api/kb/{id}/text":                               "kbManageSourcesChain",
-	"POST /api/kb/{id}/crawl":                              "kbManageSourcesChain",
-	"POST /api/kb/{id}/rss":                                "kbManageSourcesChain",
 	"PATCH /api/kb/{id}/rss/{feedId}":                      "kbManageSourcesChain",
 	"DELETE /api/kb/{id}/rss/{feedId}":                     "kbManageSourcesChain",
 	"POST /api/kb/{id}/rss/{feedId}/poll":                  "kbManageSourcesChain",
-	"POST /api/kb/{id}/confluence-sources":                 "kbManageSourcesChain",
 	"PATCH /api/kb/{id}/confluence-sources/{sourceId}":     "kbManageSourcesChain",
 	"DELETE /api/kb/{id}/confluence-sources/{sourceId}":    "kbManageSourcesChain",
 	"POST /api/kb/{id}/confluence-sources/{sourceId}/sync": "kbManageSourcesChain",
-	"POST /api/kb/{id}/git-repos":                          "kbManageSourcesChain",
 	"PATCH /api/kb/{id}/git-repos/{sourceId}":              "kbManageSourcesChain",
 	"DELETE /api/kb/{id}/git-repos/{sourceId}":             "kbManageSourcesChain",
 	"POST /api/kb/{id}/git-repos/{sourceId}/sync":          "kbManageSourcesChain",
@@ -57,7 +61,7 @@ var sourceGateRoutes = map[string]string{
 
 // TestSourceRoutesAreOnTheirGateChain reads routes.go's actual registrations
 // (routeChains) and compares each against sourceGateRoutes. It also fails
-// when a route not in the table lands on one of the three chains, so the
+// when a route not in the table lands on one of the four chains, so the
 // table and routes.go cannot drift apart in either direction.
 func TestSourceRoutesAreOnTheirGateChain(t *testing.T) {
 	chains := routeChains(t)
@@ -72,7 +76,7 @@ func TestSourceRoutesAreOnTheirGateChain(t *testing.T) {
 		}
 	}
 	for pattern, chain := range chains {
-		if strings.HasPrefix(chain, "kbSource") || chain == "kbManageSourcesChain" {
+		if strings.HasPrefix(chain, "kbSource") || chain == "kbAddSourcesChain" || chain == "kbManageSourcesChain" {
 			if _, ok := sourceGateRoutes[pattern]; !ok {
 				t.Errorf("%s is on rc.%s but not in sourceGateRoutes — add it to the gate table (and API.md)", pattern, chain)
 			}
@@ -86,85 +90,105 @@ func TestSourceRoutesAreOnTheirGateChain(t *testing.T) {
 var gateInner = map[string]func(*kbaccess.Middleware) func(http.HandlerFunc) http.Handler{
 	"kbSourceListChain":     sourceListInner,
 	"kbSourceDownloadChain": sourceDownloadInner,
+	"kbAddSourcesChain":     addSourcesInner,
 	"kbManageSourcesChain":  manageSourcesInner,
 }
 
 // allFlagsOn turns every source flag on.
 var allFlagsOn = kbaccess.SourcePermissions{
-	ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true,
-	ViewerSeeCitations: true, EditorSeeSources: true, EditorSelectSources: true,
-	EditorDownloadSources: true, EditorSeeCitations: true,
+	ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+	EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true,
+	EditorSeeCitations: true,
 }
 
-// governingFlag returns a SourcePermissions with only the flag that governs
-// chain for role switched to on — or every flag on except that one when on
-// is false, so a test of "flag off" cannot pass because some other flag
-// happened to be off too. In particular "off" leaves the OTHER role's flag
-// for the same capability on, so a gate that read the wrong role's column
-// fails.
-func governingFlag(chain, role string, on bool) kbaccess.SourcePermissions {
-	p := allFlagsOn
-	if on {
-		p = kbaccess.SourcePermissions{}
-	}
-	switch chain + "/" + role {
-	case "kbSourceListChain/view":
-		p.ViewerSeeSources = on
-	case "kbSourceListChain/edit":
-		p.EditorSeeSources = on
-	case "kbSourceDownloadChain/view":
-		p.ViewerDownloadSources = on
-	case "kbSourceDownloadChain/edit":
-		p.EditorDownloadSources = on
-	}
+// only returns a SourcePermissions with exactly the named flags on; allBut
+// returns every flag on except the named ones, so a "flag off" case cannot
+// pass because some unrelated flag happened to be off too — in particular
+// it leaves the OTHER role's flags on, so a gate that read the wrong role's
+// column fails.
+func only(set func(*kbaccess.SourcePermissions)) kbaccess.SourcePermissions {
+	var p kbaccess.SourcePermissions
+	set(&p)
 	return p
 }
 
+func allBut(clear func(*kbaccess.SourcePermissions)) kbaccess.SourcePermissions {
+	p := allFlagsOn
+	clear(&p)
+	return p
+}
+
+// gateCase is one row of the per-route spec table.
+type gateCase struct {
+	label string
+	role  string
+	flags kbaccess.SourcePermissions
+	want  int
+}
+
+// gateSpec is the expected status per (gate, caller, flags), written by
+// hand from the spec (Sten, 2026-10-16):
+//   - list: a viewer passes only with viewer_see_sources, an editor only
+//     with editor_see_sources.
+//   - download (level 2 of the pyramid): the role's own flag AND its see
+//     flag; either off refuses.
+//   - add: a viewer never, even with every flag on ("that would be a
+//     promotion to editor"); an editor with editor_see_sources AND
+//     editor_add_sources.
+//   - manage ("edit sources", fixed by role): a viewer never, even with
+//     every flag on; an editor exactly when editor_see_sources is on.
+var gateSpec = map[string][]gateCase{
+	"kbSourceListChain": {
+		{"view/see-on", kbaccess.RoleView, only(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = true }), 200},
+		{"view/see-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), 403},
+		{"edit/see-on", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = true }), 200},
+		{"edit/see-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
+	},
+	"kbSourceDownloadChain": {
+		{"view/see+download", kbaccess.RoleView, only(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources, p.ViewerDownloadSources = true, true }), 200},
+		{"view/download-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerDownloadSources = false }), 403},
+		{"view/download-on-see-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), 403},
+		{"edit/see+download", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources, p.EditorDownloadSources = true, true }), 200},
+		{"edit/download-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorDownloadSources = false }), 403},
+		{"edit/download-on-see-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
+	},
+	"kbAddSourcesChain": {
+		{"view/all-flags", kbaccess.RoleView, allFlagsOn, 403},
+		{"view/no-flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, 403},
+		{"edit/see+add", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources, p.EditorAddSources = true, true }), 200},
+		{"edit/add-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorAddSources = false }), 403},
+		{"edit/add-on-see-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
+	},
+	"kbManageSourcesChain": {
+		{"view/all-flags", kbaccess.RoleView, allFlagsOn, 403},
+		{"view/no-flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, 403},
+		{"edit/see-only", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = true }), 200},
+		{"edit/see-off-add-on", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
+		{"edit/no-flags", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, 403},
+	},
+}
+
 // TestSourceGatePerRoute is the route test per gate: for every gated route,
-// the chain routes.go mounts it on is run with a viewer and an editor, each
-// with its governing flag on and off — the TestRetryForbiddenWithoutEdit
-// pattern lifted to the middleware level. The caller's role comes from a
-// kb_members row through the real RequireKBRole/EffectiveRole.
+// the chain routes.go mounts it on is run with every gateSpec case — the
+// TestRetryForbiddenWithoutEdit pattern lifted to the middleware level. The
+// caller's role comes from a kb_members row through the real
+// RequireKBRole/EffectiveRole.
 //
-// Oracle: the expected status per (gate, caller, flag), written by hand from
-// the spec:
-//   - list/download gates: a viewer passes only with its viewer_* flag on,
-//     an editor only with its editor_* flag on.
-//   - manage gate: no flag applies. A viewer never passes, even with every
-//     flag on; an editor always passes, even with every flag off.
+// Oracle: gateSpec (hand-written from the spec) and a handler-called flag,
+// so a refusal provably never reaches the handler — no add route can run
+// its side effects behind a 403.
 func TestSourceGatePerRoute(t *testing.T) {
-	want := map[string]map[string]int{ // chain -> "role/flags" -> status
-		"kbSourceListChain": {
-			"view/on": 200, "view/off": 403, "edit/on": 200, "edit/off": 403,
-		},
-		"kbSourceDownloadChain": {
-			"view/on": 200, "view/off": 403, "edit/on": 200, "edit/off": 403,
-		},
-		"kbManageSourcesChain": {
-			"view/all-flags": 403, "view/no-flags": 403, "edit/all-flags": 200, "edit/no-flags": 200,
-		},
-	}
 	chains := routeChains(t)
 	for pattern, chain := range sourceGateRoutes {
 		if chains[pattern] != chain {
 			continue // reported by TestSourceRoutesAreOnTheirGateChain
 		}
 		method, path, _ := strings.Cut(pattern, " ")
-		for key, wantCode := range want[chain] {
-			role, flagState, _ := strings.Cut(key, "/")
-			var flags kbaccess.SourcePermissions
-			switch flagState {
-			case "all-flags":
-				flags = allFlagsOn
-			case "no-flags":
-				flags = kbaccess.SourcePermissions{}
-			default:
-				flags = governingFlag(chain, role, flagState == "on")
-			}
-			t.Run(pattern+"/"+key, func(t *testing.T) {
+		for _, tc := range gateSpec[chain] {
+			t.Run(pattern+"/"+tc.label, func(t *testing.T) {
 				kbMw := kbaccess.NewMiddleware(kbStoreStub{
-					kb:   &kbaccess.KnowledgeBase{ID: "kb1", Sources: flags},
-					role: role,
+					kb:   &kbaccess.KnowledgeBase{ID: "kb1", Sources: tc.flags},
+					role: tc.role,
 				})
 				called := false
 				h := gateInner[chain](kbMw)(func(w http.ResponseWriter, _ *http.Request) {
@@ -176,10 +200,10 @@ func TestSourceGatePerRoute(t *testing.T) {
 				req = req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "u1", Role: auth.RoleUser}))
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, req)
-				if rec.Code != wantCode {
-					t.Fatalf("status %d, want %d", rec.Code, wantCode)
+				if rec.Code != tc.want {
+					t.Fatalf("status %d, want %d", rec.Code, tc.want)
 				}
-				if called != (wantCode == http.StatusOK) {
+				if called != (tc.want == http.StatusOK) {
 					t.Fatalf("handler called = %v with status %d", called, rec.Code)
 				}
 			})

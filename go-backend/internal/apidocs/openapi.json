@@ -1579,7 +1579,7 @@
               "type": "string",
               "format": "uuid"
             },
-            "description": "Restrict context to specific files. Needs the selectSources permission on the knowledge base (for a viewer or editor, the KB's viewerSelectSources or editorSelectSources setting); otherwise the request is refused with 403 before a chat is created."
+            "description": "Restrict context to specific files. Not gated by the knowledge base's source permissions: any caller with view access may send a selection."
           }
         }
       },

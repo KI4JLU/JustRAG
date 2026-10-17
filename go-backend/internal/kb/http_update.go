@@ -49,11 +49,10 @@ type KBUpdate struct {
 	// route's kbAdminChain is the whole gate, like systemPrompt. Not
 	// nullable: a JSON null leaves the column unchanged.
 	ViewerSeeSources      *bool `json:"viewerSeeSources"`
-	ViewerSelectSources   *bool `json:"viewerSelectSources"`
 	ViewerDownloadSources *bool `json:"viewerDownloadSources"`
 	ViewerSeeCitations    *bool `json:"viewerSeeCitations"`
 	EditorSeeSources      *bool `json:"editorSeeSources"`
-	EditorSelectSources   *bool `json:"editorSelectSources"`
+	EditorAddSources      *bool `json:"editorAddSources"`
 	EditorDownloadSources *bool `json:"editorDownloadSources"`
 	EditorSeeCitations    *bool `json:"editorSeeCitations"`
 }

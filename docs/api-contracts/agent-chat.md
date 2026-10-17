@@ -158,11 +158,11 @@ The `RUN_FINISHED` in full:
         "query": "Was steht im Handbuch zur Urlaubsregelung?",
         "actions": [
           {"id": "library", "tool": "library_add_to_kb", "frontendTool": "pick_library_file",
-           "label": "Datei aus meiner Bibliothek hinzufügen", "sideEffect": "kb_write", "requiresRole": "edit"},
+           "label": "Datei aus meiner Bibliothek hinzufügen", "sideEffect": "kb_write", "requiresRole": "edit", "requiresCapability": "addSources"},
           {"id": "upload", "tool": "library_add_to_kb", "frontendTool": "upload_file",
-           "label": "Datei hochladen", "sideEffect": "kb_write", "requiresRole": "edit"},
+           "label": "Datei hochladen", "sideEffect": "kb_write", "requiresRole": "edit", "requiresCapability": "addSources"},
           {"id": "confluence", "tool": "confluence_import", "frontendTool": "choose_confluence_space",
-           "label": "Confluence-Bereich importieren", "sideEffect": "kb_write", "requiresRole": "edit"}
+           "label": "Confluence-Bereich importieren", "sideEffect": "kb_write", "requiresRole": "edit", "requiresCapability": "addSources"}
         ]
       }
     }]
@@ -188,6 +188,7 @@ Action = {
   label: string,           // German button label
   sideEffect: "external_read" | "kb_write",
   requiresRole: "view" | "edit",
+  requiresCapability?: "addSources",   // present on the KB-writing actions
   args?: object            // server-set (web: {query}); never needs to be sent back
 }
 ```
@@ -199,8 +200,8 @@ Which actions are offered (display them in this order):
 | Action | `no_evidence` | `no_files` | Who sees it |
 |---|---|---|---|
 | `web` | yes | never (an empty KB is a setup problem, not a missing fact) | `view` and up, only if the deployment has the built-in `web_search` tool **and** web search is switched on and configured (`web_search_enabled` plus both Google search keys) |
-| `library`, `upload` | yes | yes | KB role `edit` and up (they write to the KB) |
-| `confluence` | yes | yes | KB role `edit` and up, only if Confluence is switched on (`confluence_enabled`) **and** the user has a Confluence connection |
+| `library`, `upload` | yes | yes | KB role `edit` and up holding `addSources` (they write to the KB; for an editor the KB's `editorAddSources` and `editorSeeSources`, KB admin and above always, a viewer never — see API.md § Source permissions) |
+| `confluence` | yes | yes | KB role `edit` and up holding `addSources`, only if Confluence is switched on (`confluence_enabled`) **and** the user has a Confluence connection |
 
 The server checks availability when it pauses and again when the resume arrives. If an action stopped being available in between (web search switched off, connection deleted), choosing it answers "Diese Aktion kann ich hier leider nicht ausführen." like any action that was not offered.
 

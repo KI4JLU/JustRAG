@@ -48,11 +48,10 @@ type KBRow struct {
 	// (editor*) may do with the KB's sources. They are the stored settings;
 	// what the CALLER may do is Capabilities below.
 	ViewerSeeSources      bool `json:"viewerSeeSources"      db:"viewer_see_sources"`
-	ViewerSelectSources   bool `json:"viewerSelectSources"   db:"viewer_select_sources"`
 	ViewerDownloadSources bool `json:"viewerDownloadSources" db:"viewer_download_sources"`
 	ViewerSeeCitations    bool `json:"viewerSeeCitations"    db:"viewer_see_citations"`
 	EditorSeeSources      bool `json:"editorSeeSources"      db:"editor_see_sources"`
-	EditorSelectSources   bool `json:"editorSelectSources"   db:"editor_select_sources"`
+	EditorAddSources      bool `json:"editorAddSources"   db:"editor_add_sources"`
 	EditorDownloadSources bool `json:"editorDownloadSources" db:"editor_download_sources"`
 	EditorSeeCitations    bool `json:"editorSeeCitations"    db:"editor_see_citations"`
 
@@ -138,11 +137,10 @@ func (r *KBRow) accessKB() *kbaccess.KnowledgeBase {
 		IsPublished: r.IsPublished,
 		Sources: kbaccess.SourcePermissions{
 			ViewerSeeSources:      r.ViewerSeeSources,
-			ViewerSelectSources:   r.ViewerSelectSources,
 			ViewerDownloadSources: r.ViewerDownloadSources,
 			ViewerSeeCitations:    r.ViewerSeeCitations,
 			EditorSeeSources:      r.EditorSeeSources,
-			EditorSelectSources:   r.EditorSelectSources,
+			EditorAddSources:      r.EditorAddSources,
 			EditorDownloadSources: r.EditorDownloadSources,
 			EditorSeeCitations:    r.EditorSeeCitations,
 		},

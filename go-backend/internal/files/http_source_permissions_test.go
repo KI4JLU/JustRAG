@@ -21,10 +21,13 @@ import (
 // Oracle: the expected status per (route, role, flag), written by hand from
 // the spec —
 //   - download (GET /api/files/{id}/download): a viewer only with
-//     viewer_download_sources on, an editor only with
-//     editor_download_sources on; the other role's flag never helps.
-//   - delete / retry (role only): an editor always, even with every flag
-//     off; a viewer never, even with every flag on.
+//     viewer_see_sources AND viewer_download_sources on, an editor only
+//     with editor_see_sources AND editor_download_sources on (the pyramid:
+//     download requires seeing the sources); the other role's flags never
+//     help.
+//   - delete / retry ("edit sources", fixed by role): an editor whenever
+//     editor_see_sources is on (the pyramid), whatever the other flags; a
+//     viewer never, even with every flag on.
 //
 // plus a side-effect check that is independent of the status code: a refused
 // download streams no bytes, a refused delete removes nothing, a refused
@@ -38,9 +41,9 @@ func sourcePermFile() *files.FileInfo {
 }
 
 var everyFlag = kbaccess.SourcePermissions{
-	ViewerSeeSources: true, ViewerSelectSources: true, ViewerDownloadSources: true,
-	ViewerSeeCitations: true, EditorSeeSources: true, EditorSelectSources: true,
-	EditorDownloadSources: true, EditorSeeCitations: true,
+	ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+	EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true,
+	EditorSeeCitations: true,
 }
 
 // allBut returns every flag on except the one cleared by clear, so an "off"
@@ -61,9 +64,11 @@ func TestDownloadFollowsDownloadSourcesFlags(t *testing.T) {
 		flags kbaccess.SourcePermissions
 		want  int
 	}{
-		{"viewer_flag_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerDownloadSources: true}, http.StatusOK},
+		{"viewer_flag_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true}, http.StatusOK},
+		{"viewer_flag_on_see_off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), http.StatusForbidden},
 		{"viewer_flag_off", kbaccess.RoleView, allBut(viewerDownload), http.StatusForbidden},
-		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorDownloadSources: true}, http.StatusOK},
+		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, EditorDownloadSources: true}, http.StatusOK},
+		{"editor_flag_on_see_off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), http.StatusForbidden},
 		{"editor_flag_off", kbaccess.RoleEdit, allBut(editorDownload), http.StatusForbidden},
 		{"kb_admin_flag_off", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusOK},
 	}
@@ -94,7 +99,7 @@ func TestDownloadFollowsDownloadSourcesFlags(t *testing.T) {
 	}
 }
 
-func TestDeleteIsEditRoleOnly(t *testing.T) {
+func TestDeleteNeedsManageSources(t *testing.T) {
 	cases := []struct {
 		name  string
 		role  string
@@ -102,7 +107,8 @@ func TestDeleteIsEditRoleOnly(t *testing.T) {
 		want  int
 	}{
 		{"editor_every_flag_on", kbaccess.RoleEdit, everyFlag, http.StatusNoContent},
-		{"editor_no_flags", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, http.StatusNoContent},
+		{"editor_see_only", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true}, http.StatusNoContent},
+		{"editor_see_off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), http.StatusForbidden},
 		{"viewer_every_flag_on", kbaccess.RoleView, everyFlag, http.StatusForbidden},
 		{"viewer_no_flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
 		{"kb_admin_no_flags", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusNoContent},
@@ -133,7 +139,7 @@ func TestDeleteIsEditRoleOnly(t *testing.T) {
 	}
 }
 
-func TestRetryIsEditRoleOnly(t *testing.T) {
+func TestRetryNeedsManageSources(t *testing.T) {
 	cases := []struct {
 		name  string
 		role  string
@@ -141,7 +147,8 @@ func TestRetryIsEditRoleOnly(t *testing.T) {
 		want  int
 	}{
 		{"editor_every_flag_on", kbaccess.RoleEdit, everyFlag, http.StatusOK},
-		{"editor_no_flags", kbaccess.RoleEdit, kbaccess.SourcePermissions{}, http.StatusOK},
+		{"editor_see_only", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true}, http.StatusOK},
+		{"editor_see_off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), http.StatusForbidden},
 		{"viewer_every_flag_on", kbaccess.RoleView, everyFlag, http.StatusForbidden},
 		{"viewer_no_flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
 	}

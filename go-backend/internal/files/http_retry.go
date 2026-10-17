@@ -122,7 +122,7 @@ func (h *Handler) Retry(w http.ResponseWriter, r *http.Request) {
 }
 
 // RetryFailed handles POST /api/kb/{id}/files/retry-failed.
-// KB edit permission is enforced by the kbEditChain middleware. Resets and
+// The manageSources capability is enforced by kbManageSourcesChain. Resets and
 // re-enqueues every status='error' file in the KB; files without a storage
 // path (nothing to reprocess) and rows that lose the conditional-reset race
 // are skipped. Response: {"retried": N}.
