@@ -69,6 +69,14 @@ type kbFullRow struct {
 	ChunkSize      *int      `db:"chunk_size"`
 	ChunkOverlap   *int      `db:"chunk_overlap"`
 	CreatedAt      time.Time `db:"created_at"`
+	// Source permissions (migration 0089).
+	ViewerSeeSources      bool `db:"viewer_see_sources"`
+	ViewerDownloadSources bool `db:"viewer_download_sources"`
+	ViewerSeeCitations    bool `db:"viewer_see_citations"`
+	EditorSeeSources      bool `db:"editor_see_sources"`
+	EditorAddSources      bool `db:"editor_add_sources"`
+	EditorDownloadSources bool `db:"editor_download_sources"`
+	EditorSeeCitations    bool `db:"editor_see_citations"`
 	// Optional owner attribution — only populated by queries that LEFT JOIN
 	// the users table (e.g. ListKnowledgeBases). Other queries leave these nil.
 	OwnerFirstName *string `db:"owner_first_name"`
@@ -80,7 +88,10 @@ const kbSelectCols = `kb.id, kb.name, kb.user_id, kb.description,
        (kb.visibility = 'public') AS is_global, kb.visibility, kb.is_published,
        kb.language, kb.ai_config_id, kb.chat_model, kb.embedding_model, kb.rerank_model, kb.tts_model, kb.stt_model,
        kb.system_prompt, kb.header_text, kb.example_prompts,
-       kb.chunk_size, kb.chunk_overlap, kb.created_at`
+       kb.chunk_size, kb.chunk_overlap, kb.created_at,
+       kb.viewer_see_sources, kb.viewer_download_sources,
+       kb.viewer_see_citations, kb.editor_see_sources, kb.editor_add_sources,
+       kb.editor_download_sources, kb.editor_see_citations`
 
 // kbStatsCols / kbStatsJoins add per-KB card metadata (file counts, turn
 // count + last activity from the usage_events ledger) for the list
@@ -124,6 +135,9 @@ const kbSelectColsNoAlias = `id, name, user_id, description,
        (visibility = 'public') AS is_global, visibility, is_published,
        language, ai_config_id, chat_model, embedding_model, rerank_model, tts_model, stt_model,
        system_prompt, header_text, example_prompts, chunk_size, chunk_overlap, created_at,
+       viewer_see_sources, viewer_download_sources,
+       viewer_see_citations, editor_see_sources, editor_add_sources,
+       editor_download_sources, editor_see_citations,
        NULL::text AS owner_first_name, NULL::text AS owner_last_name, NULL::text AS owner_username`
 
 // kbMembershipCols surfaces the caller's own role (my_role) and the KB's
@@ -202,6 +216,14 @@ func toKBRow(r kbFullRow) KBRow {
 		OwnerFirstName: r.OwnerFirstName,
 		OwnerLastName:  r.OwnerLastName,
 		OwnerUsername:  r.OwnerUsername,
+
+		ViewerSeeSources:      r.ViewerSeeSources,
+		ViewerDownloadSources: r.ViewerDownloadSources,
+		ViewerSeeCitations:    r.ViewerSeeCitations,
+		EditorSeeSources:      r.EditorSeeSources,
+		EditorAddSources:      r.EditorAddSources,
+		EditorDownloadSources: r.EditorDownloadSources,
+		EditorSeeCitations:    r.EditorSeeCitations,
 	}
 }
 
@@ -578,6 +600,27 @@ func (s *PGStore) UpdateKnowledgeBase(ctx context.Context, id string, data KBUpd
 	}
 	if data.IsPublished != nil {
 		b.Add("is_published = $%d", *data.IsPublished)
+	}
+	if data.ViewerSeeSources != nil {
+		b.Add("viewer_see_sources = $%d", *data.ViewerSeeSources)
+	}
+	if data.ViewerDownloadSources != nil {
+		b.Add("viewer_download_sources = $%d", *data.ViewerDownloadSources)
+	}
+	if data.ViewerSeeCitations != nil {
+		b.Add("viewer_see_citations = $%d", *data.ViewerSeeCitations)
+	}
+	if data.EditorSeeSources != nil {
+		b.Add("editor_see_sources = $%d", *data.EditorSeeSources)
+	}
+	if data.EditorAddSources != nil {
+		b.Add("editor_add_sources = $%d", *data.EditorAddSources)
+	}
+	if data.EditorDownloadSources != nil {
+		b.Add("editor_download_sources = $%d", *data.EditorDownloadSources)
+	}
+	if data.EditorSeeCitations != nil {
+		b.Add("editor_see_citations = $%d", *data.EditorSeeCitations)
 	}
 
 	if b.Len() == 0 {

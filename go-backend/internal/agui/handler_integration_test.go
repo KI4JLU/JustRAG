@@ -31,6 +31,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/adkbridge"
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -288,7 +289,10 @@ func newFixtureFull(t *testing.T, ttl time.Duration, hooks TurnHooks, runTimeout
 			if u == "" {
 				return adkbridge.Scope{}, ErrUnauthorized
 			}
-			return adkbridge.Scope{UserID: u, KBID: r.Header.Get("X-Test-KB"), Role: "edit"}, nil
+			// An editor holding addSources (the DB default for editors), so
+			// the KB-write tool passes the policy and pauses for approval.
+			return adkbridge.Scope{UserID: u, KBID: r.Header.Get("X-Test-KB"), Role: "edit",
+				Capabilities: kbaccess.Capabilities{SeeSources: true, AddSources: true, ManageSources: true}}, nil
 		},
 	}))
 	t.Cleanup(f.srv.Close)

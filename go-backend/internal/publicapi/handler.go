@@ -256,6 +256,10 @@ func (h *Handler) ListKBs(w http.ResponseWriter, r *http.Request) {
 	if kbs == nil {
 		kbs = []kb.KBRow{}
 	}
+	// The same capabilities object the session list carries, resolved for
+	// the API key's owner, so an integration can tell which sources it may
+	// list, add or download before it gets a 403.
+	kb.ResolveAllCapabilities(kbs, user.Role)
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kbs)
 }

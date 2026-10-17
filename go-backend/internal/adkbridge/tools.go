@@ -149,6 +149,9 @@ func checkScopePolicy(ctx context.Context, name string, pol ToolPolicy) (Scope, 
 	if !RoleAtLeast(sc.Role, pol.RequiresRole) {
 		return Scope{}, fmt.Errorf("%w: %s requires role %s", ErrForbiddenTool, name, pol.RequiresRole)
 	}
+	if !capabilityAllowed(sc, pol) {
+		return Scope{}, fmt.Errorf("%w: %s requires the %s permission on this knowledge base", ErrForbiddenTool, name, pol.RequiresCapability)
+	}
 	if privilegedInBridge(name) && !sc.AllowPrivileged {
 		return Scope{}, fmt.Errorf("%w: %s is privileged", ErrForbiddenTool, name)
 	}

@@ -23,10 +23,17 @@ var _ KBStore = (*PGStore)(nil)
 
 // kbRow is an internal struct with db tags for scanning knowledge_bases.
 type kbRow struct {
-	ID          string  `db:"id"`
-	UserID      *string `db:"user_id"`
-	IsGlobal    bool    `db:"is_global"`
-	IsPublished bool    `db:"is_published"`
+	ID                    string  `db:"id"`
+	UserID                *string `db:"user_id"`
+	IsGlobal              bool    `db:"is_global"`
+	IsPublished           bool    `db:"is_published"`
+	ViewerSeeSources      bool    `db:"viewer_see_sources"`
+	ViewerDownloadSources bool    `db:"viewer_download_sources"`
+	ViewerSeeCitations    bool    `db:"viewer_see_citations"`
+	EditorSeeSources      bool    `db:"editor_see_sources"`
+	EditorAddSources      bool    `db:"editor_add_sources"`
+	EditorDownloadSources bool    `db:"editor_download_sources"`
+	EditorSeeCitations    bool    `db:"editor_see_citations"`
 }
 
 // GetKBByID returns the knowledge base with the given ID, or nil if not found.
@@ -34,7 +41,13 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 	// visibility ist seit Migration 0065 die Schreibwahrheit; is_global ist nur
 	// noch eine generierte Spiegelspalte und faellt im Cleanup-Release. Der
 	// Alias haelt kbRow.IsGlobal und damit EffectiveRole unveraendert.
-	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published
+	// The source-permission flags (migration 0089) ride along, so every
+	// consumer of this lookup — RequireKBRole and the handler-internal checks
+	// that share it — sees the same flags CapabilitiesFor resolves.
+	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published,
+	                    viewer_see_sources, viewer_download_sources,
+	                    viewer_see_citations, editor_see_sources, editor_add_sources,
+	                    editor_download_sources, editor_see_citations
 	             FROM knowledge_bases WHERE id = $1`
 
 	rows, err := pgxutil.QueryRows[kbRow](ctx, s.pool, sql, id)
@@ -51,6 +64,15 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 		UserID:      r.UserID,
 		IsGlobal:    r.IsGlobal,
 		IsPublished: r.IsPublished,
+		Sources: SourcePermissions{
+			ViewerSeeSources:      r.ViewerSeeSources,
+			ViewerDownloadSources: r.ViewerDownloadSources,
+			ViewerSeeCitations:    r.ViewerSeeCitations,
+			EditorSeeSources:      r.EditorSeeSources,
+			EditorAddSources:      r.EditorAddSources,
+			EditorDownloadSources: r.EditorDownloadSources,
+			EditorSeeCitations:    r.EditorSeeCitations,
+		},
 	}, nil
 }
 

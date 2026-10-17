@@ -239,7 +239,7 @@ func filenameFromURL(rawURL string) string {
 // ---------------------------------------------------------------------------
 
 // AddTextSource handles POST /api/kb/{id}/text.
-// Requires authentication and KB edit permission (enforced by kbaccess middleware).
+// Requires authentication and the addSources capability (kbAddSourcesChain).
 // Accepts {"title": "...", "content": "..."} and stores the content as a text file.
 func (h *Handler) AddTextSource(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
@@ -439,7 +439,7 @@ func (h *Handler) fetchContentForIngest(ctx context.Context, req fetchURLRequest
 }
 
 // FetchURL handles POST /api/kb/{id}/fetch-url.
-// Requires authentication and KB edit permission (enforced by kbaccess middleware).
+// Requires authentication and the addSources capability (kbAddSourcesChain).
 // Accepts {"url": "https://...", "previewOnly": bool, "title": "..."}.
 // When previewOnly is true it returns the extracted content as JSON
 // without storing a file. Otherwise it stores the fetched content and
@@ -588,7 +588,7 @@ type addSourcesResponse struct {
 }
 
 // AddSources handles POST /api/kb/{id}/add-sources.
-// Requires authentication and KB edit permission (enforced by kbaccess middleware).
+// Requires authentication and the addSources capability (kbAddSourcesChain).
 // Accepts {"pages": [{"title": "...", "url": "...", "content": "..."}]} (max 20 pages)
 // and stores each page as a markdown file, creating file records and enqueuing
 // processing jobs.

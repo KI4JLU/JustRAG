@@ -44,6 +44,17 @@ type KBUpdate struct {
 	ChunkOverlap   *int            `json:"chunkOverlap"`
 	IsPublished    *bool           `json:"isPublished"`
 	NullFields     map[string]bool `json:"-"` // set of field names explicitly sent as null
+
+	// Source permissions (migration 0089). Any KB admin may set them — the
+	// route's kbAdminChain is the whole gate, like systemPrompt. Not
+	// nullable: a JSON null leaves the column unchanged.
+	ViewerSeeSources      *bool `json:"viewerSeeSources"`
+	ViewerDownloadSources *bool `json:"viewerDownloadSources"`
+	ViewerSeeCitations    *bool `json:"viewerSeeCitations"`
+	EditorSeeSources      *bool `json:"editorSeeSources"`
+	EditorAddSources      *bool `json:"editorAddSources"`
+	EditorDownloadSources *bool `json:"editorDownloadSources"`
+	EditorSeeCitations    *bool `json:"editorSeeCitations"`
 }
 
 // UnmarshalJSON detects explicit nulls so the store can clear nullable columns.
@@ -293,6 +304,9 @@ func (h *UpdateHandler) UpdateKB(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "knowledge base not found")
 		return
 	}
+	// Resolved from the re-read row, not from the request's KBAccessResult:
+	// this PATCH may just have changed the flags that result was built from.
+	kb.ResolveCapabilities(user.Role)
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kb)
 }
 
