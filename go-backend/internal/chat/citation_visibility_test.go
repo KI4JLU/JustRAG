@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -120,6 +121,101 @@ func TestCitationMarkerStream_AnySplit(t *testing.T) {
 	// A "[" that turns out not to be a marker is released unchanged.
 	if got := run([]string{"siehe [", "Link](x) und [", "a]"}); got != "siehe [Link](x) und [a]" {
 		t.Fatalf("non-marker bracket: got %q", got)
+	}
+}
+
+// Long markers: one listing sources 1–25 (within the hold bound) and one
+// listing 1–150 (beyond it, so the stream drops it while it grows) must
+// leave no number behind at any split, byte by byte included. Oracle: the
+// text without the marker, written by hand.
+func TestCitationMarkerStream_LongMarkers(t *testing.T) {
+	run := func(chunks []string) string {
+		var s CitationMarkerStream
+		var b strings.Builder
+		for _, c := range chunks {
+			b.WriteString(s.Feed(c))
+		}
+		b.WriteString(s.Flush())
+		return b.String()
+	}
+	list := func(n int) string {
+		nums := make([]string, n)
+		for i := range nums {
+			nums[i] = strconv.Itoa(i + 1)
+		}
+		return "[" + strings.Join(nums, ", ") + "]"
+	}
+	for _, n := range []int{25, 150} {
+		full := "Alles belegt " + list(n) + ". Danach Text."
+		const want = "Alles belegt. Danach Text."
+		if len(list(n)) <= maxCitationHold == (n == 150) {
+			t.Fatalf("list(%d) is %d bytes; the case no longer tests its side of maxCitationHold", n, len(list(n)))
+		}
+		for i := 0; i <= len(full); i++ {
+			if got := run([]string{full[:i], full[i:]}); got != want {
+				t.Fatalf("n=%d split at %d: got %q, want %q", n, i, got, want)
+			}
+		}
+		var bytes []string
+		for i := 0; i < len(full); i++ {
+			bytes = append(bytes, full[i:i+1])
+		}
+		if got := run(bytes); got != want {
+			t.Fatalf("n=%d byte by byte: got %q, want %q", n, got, want)
+		}
+	}
+	// Fail closed: an oversized "[<digits…>" that is still open at the end
+	// of a chunk is dropped even if it turns out not to be a marker, up to
+	// the character that ends it; the text after it survives. (Arriving in
+	// one chunk, it is released whole: the stream can see it is no marker.)
+	notMarker := "Zahlen [" + strings.Repeat("1 ", 300) + "x und weiter"
+	var bytes []string
+	for i := 0; i < len(notMarker); i++ {
+		bytes = append(bytes, notMarker[i:i+1])
+	}
+	if got := run(bytes); got != "Zahlenx und weiter" {
+		t.Fatalf("oversized non-marker, byte by byte: got %q", got)
+	}
+	if got := run([]string{notMarker}); got != notMarker {
+		t.Fatalf("oversized non-marker, one chunk: got %q", got)
+	}
+}
+
+// A refine diff can split one marker across chunks; the redacted diff must
+// carry no marker digits and still rebuild both texts without markers.
+// Oracle: the marker-free texts, written by hand.
+func TestRedactTrajectory_RefineDiffAcrossMarker(t *testing.T) {
+	diff := computeRefineDiff("Text [1, 3]. Rest [2] bleibt.", "Text [1, 2]. Rest [2] bleibt.")
+	split := false
+	for _, d := range diff {
+		if strings.Contains(d.Text, "[") && !strings.Contains(d.Text, "]") {
+			split = true
+		}
+	}
+	if !split {
+		t.Fatalf("fixture no longer splits a marker across chunks: %q", diff)
+	}
+	got := redactTrajectory(TrajectoryEvent{RefinedText: "Text [1, 2]. Rest [2] bleibt.", Diff: diff})
+	var original, refined strings.Builder
+	for _, d := range got.Diff {
+		if strings.ContainsAny(d.Text, "[]0123456789") {
+			t.Fatalf("diff chunk keeps citation residue: %q", got.Diff)
+		}
+		if d.Kind != "added" {
+			original.WriteString(d.Text)
+		}
+		if d.Kind != "removed" {
+			refined.WriteString(d.Text)
+		}
+	}
+	if o := strings.TrimSpace(original.String()); o != "Text. Rest bleibt." {
+		t.Fatalf("original from redacted diff = %q", o)
+	}
+	if r := strings.TrimSpace(refined.String()); r != "Text. Rest bleibt." {
+		t.Fatalf("refined from redacted diff = %q", r)
+	}
+	if got.RefinedText != "Text. Rest bleibt." {
+		t.Fatalf("RefinedText = %q", got.RefinedText)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/kbaccess"
@@ -44,8 +45,10 @@ var citationStripRe = regexp.MustCompile(`[ \t]*` + citationMarkerRe.String())
 var citationHoldRe = regexp.MustCompile(`[ \t]*(?:\[(?:\d[\d,\s]*)?)?$`)
 
 // maxCitationHold bounds how much text a CitationMarkerStream holds back. A
-// real marker ("[1, 2, 5]") is far shorter; a longer tail is released as is.
-const maxCitationHold = 64
+// real marker is far shorter ("[1, 2, 5]"; even one listing sources 1–100 is
+// under 400 bytes). A longer run of blanks is released as is; a longer
+// unfinished "[<digits, commas, spaces>" is dropped instead (see Feed).
+const maxCitationHold = 512
 
 // StripCitationMarkers removes every citation marker ([3], [1, 2, 5]) from
 // text. Markers whose numbers are all non-positive are not citations
@@ -70,15 +73,40 @@ func StripCitationMarkers(text string) string {
 // for concurrent use.
 type CitationMarkerStream struct {
 	pending string
+	// dropping is set while the stream discards a possible marker that
+	// outgrew maxCitationHold: its prefix cannot be sent (the closing "]"
+	// would make it a marker nobody can take back), so it is discarded up
+	// to and including that "]", or up to the first character that ends it
+	// otherwise. Fail closed: such a run is dropped even if it turns out not
+	// to be a marker.
+	dropping bool
 }
 
 // Feed adds a chunk and returns the text that can be sent now, markers
 // removed. The result may be empty while a possible marker is held back.
 func (s *CitationMarkerStream) Feed(chunk string) string {
+	if s.dropping {
+		i := strings.IndexFunc(chunk, func(r rune) bool {
+			return !(r == ',' || (r >= '0' && r <= '9') || unicode.IsSpace(r))
+		})
+		if i < 0 {
+			return ""
+		}
+		s.dropping = false
+		chunk = strings.TrimPrefix(chunk[i:], "]")
+	}
 	buf := s.pending + chunk
 	cut := len(buf)
-	if loc := citationHoldRe.FindStringIndex(buf); loc != nil && len(buf)-loc[0] <= maxCitationHold {
-		cut = loc[0]
+	if loc := citationHoldRe.FindStringIndex(buf); loc != nil {
+		switch {
+		case len(buf)-loc[0] <= maxCitationHold:
+			cut = loc[0]
+		case strings.Contains(buf[loc[0]:], "["):
+			// An oversized possible marker: drop it, with the blanks before
+			// it (as the marker strip would), and keep dropping.
+			s.pending, s.dropping = "", true
+			return StripCitationMarkers(buf[:loc[0]])
+		}
 	}
 	s.pending = buf[cut:]
 	return StripCitationMarkers(buf[:cut])
@@ -87,7 +115,7 @@ func (s *CitationMarkerStream) Feed(chunk string) string {
 // Flush returns the held-back tail, markers removed, and resets the stream.
 func (s *CitationMarkerStream) Flush() string {
 	out := StripCitationMarkers(s.pending)
-	s.pending = ""
+	s.pending, s.dropping = "", false
 	return out
 }
 
@@ -294,13 +322,32 @@ func redactTrajectory(e TrajectoryEvent) TrajectoryEvent {
 	e.Chunks = nil
 	e.RefinedText = StripCitationMarkers(e.RefinedText)
 	if e.Diff != nil {
-		diff := make([]DiffChunk, len(e.Diff))
-		for i, d := range e.Diff {
-			diff[i] = DiffChunk{Kind: d.Kind, Text: StripCitationMarkers(d.Text)}
-		}
-		e.Diff = diff
+		e.Diff = redactRefineDiff(e.Diff)
 	}
 	return e
+}
+
+// redactRefineDiff recomputes a refine diff over the marker-free texts. A
+// word-level diff can split one marker across chunks ("Text [1, " kept,
+// "3]. " removed, "2]. " added), so stripping each chunk on its own would
+// leave its numbers behind. Both texts are rebuilt from the chunks — kept +
+// removed is the original, kept + added the refined answer; every chunk
+// ends in the word separator computeRefineDiff puts back — stripped, and
+// diffed again.
+func redactRefineDiff(in []DiffChunk) []DiffChunk {
+	var original, refined strings.Builder
+	for _, d := range in {
+		switch d.Kind {
+		case "kept":
+			original.WriteString(d.Text)
+			refined.WriteString(d.Text)
+		case "removed":
+			original.WriteString(d.Text)
+		case "added":
+			refined.WriteString(d.Text)
+		}
+	}
+	return computeRefineDiff(StripCitationMarkers(original.String()), StripCitationMarkers(refined.String()))
 }
 
 // corpusTableProvenanceKeys are TableRow's reserved provenance keys
