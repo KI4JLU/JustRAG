@@ -215,7 +215,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
     const actions = screen.getByTestId('actions');
     // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
-    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'systemPromptLabel' })]);
+    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'kbSettingsTitle' })]);
     expect(within(actions).queryByTestId('workspace-search')).toBeNull();
     // Back + title stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
@@ -228,7 +228,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     kbExtra = { userId: 'u1' };
     renderLayout();
     render(<div>{shellProps.headerActions}</div>);
-    const gear = screen.getByRole('button', { name: 'systemPromptLabel' });
+    const gear = screen.getByRole('button', { name: 'kbSettingsTitle' });
     expect(gear).toHaveAttribute('aria-pressed', 'false');
     await userEvent.click(gear);
     expect(setSystemPromptOpen).toHaveBeenCalledWith(true);
@@ -239,7 +239,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     kbExtra = { userId: 'u1', myRole: 'admin' };
     renderLayout();
     render(<div>{shellProps.headerActions}</div>);
-    expect(screen.getByRole('button', { name: 'systemPromptLabel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'kbSettingsTitle' })).toBeInTheDocument();
   });
 
   it('verbirgt das Zahnrad vor einem Nutzer, dessen id nur zufällig fehlt (kein Eigentum aus undefined === undefined)', () => {

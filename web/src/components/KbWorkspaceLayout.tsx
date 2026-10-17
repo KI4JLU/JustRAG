@@ -74,8 +74,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       variant="ghost"
       size="icon"
       onClick={() => setSystemPromptOpen(!systemPromptOpen)}
-      title={t('systemPromptLabel')}
-      aria-label={t('systemPromptLabel')}
+      title={t('kbSettingsTitle')}
+      aria-label={t('kbSettingsTitle')}
       aria-pressed={systemPromptOpen || Boolean(currentKb.systemPrompt)}
     >
       <Settings size={20} aria-hidden="true" />
