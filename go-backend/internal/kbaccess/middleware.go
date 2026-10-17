@@ -2,6 +2,7 @@ package kbaccess
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/justrag/go-backend/internal/auth"
@@ -242,6 +243,34 @@ func CapabilitiesFor(kb *KnowledgeBase, role string) Capabilities {
 		AddSources:      see && add && role == RoleEdit,
 		ManageSources:   see && role == RoleEdit,
 	}
+}
+
+// ResolveCapabilities resolves a user's capabilities on kbID for a request
+// that does not pass through RequireKBRole for that KB — a chat's stored
+// messages (GET /api/chats/{id}/messages is not KB-scoped) or a turn the KB
+// router moved to another KB. Same two steps as the middleware:
+// EffectiveRole, then CapabilitiesFor; no ladder of its own. A KB that does
+// not exist, or one the user has no role on, grants nothing.
+func ResolveCapabilities(ctx context.Context, store KBStore, kbID, userID, sysRole string) (Capabilities, error) {
+	kb, err := store.GetKBByID(ctx, kbID)
+	if err != nil {
+		return Capabilities{}, fmt.Errorf("kbaccess: load kb: %w", err)
+	}
+	if kb == nil {
+		return Capabilities{}, nil
+	}
+	memberRole, err := store.GetKBRole(ctx, kbID, userID)
+	if err != nil {
+		return Capabilities{}, fmt.Errorf("kbaccess: load kb role: %w", err)
+	}
+	return CapabilitiesFor(kb, EffectiveRole(kb, sysRole, memberRole)), nil
+}
+
+// HasCapability reports whether the KBAccessResult in ctx grants c. False
+// when the request carries no access result, so a handler reached without
+// RequireKBRole fails closed.
+func HasCapability(ctx context.Context, c Capability) bool {
+	return AccessFromContext(ctx).Capabilities().Has(c)
 }
 
 // RequireKBRole returns middleware that resolves the caller's effective role on

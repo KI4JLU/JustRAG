@@ -1242,6 +1242,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 		chat.WithRedis(rc.infra.rdb.Client),
 		chat.WithSiteConfigReader(rc.chatStore),
 		chat.WithKBConfigStore(rc.kbConfigStore),
+		chat.WithKBAccess(rc.kbAccessStore),
 		chat.WithAsynqClient(rc.infra.asynqClient),
 		chat.WithToolDispatcher(chat.NewMCPDispatcher(mcpRegistry)),
 		chat.WithSessionMemory(sessionMemoryStore),

@@ -157,7 +157,7 @@ The seven fields:
 | `viewerSeeSources`, `editorSeeSources` | `false` / `true` | 403 on the source lists: `GET /kb/{id}/files`, `GET /kb/{id}/rss`, `GET /kb/{id}/confluence-sources`, `GET /kb/{id}/git-repos`, `GET /kb/{id}/crawl/status/{jobId}`; no file hits from that KB in the header search (`GET /search`). By the pyramid also no `downloadSources`, `addSources` or `manageSources`, whatever their flags say. |
 | `editorAddSources` (editors only) | `true` | 403 on every route that creates a source: `POST /kb/{id}/files`, `/files/from-library`, `/text`, `/add-sources` (also where the web search's "add to KB" lands), `/fetch-url`, `/crawl`, `/rss`, `/confluence-sources`, `/git-repos`, and `POST /academic-research/{researchId}/papers/add`; the agent chat (`POST /kb/{id}/agui/chat`) does not offer or execute its KB-writing dead-end actions (`library`, `upload`, `confluence`). Refused before anything is fetched, stored or written. A viewer gets the same 403 whatever the flags say. |
 | `viewerDownloadSources`, `editorDownloadSources` | `false` / `true` | 403 on `GET /files/{id}/download` (also the in-app PDF preview) and on the spreadsheet source preview, `GET /kb/{id}/files/{fileId}/tabular` and `GET /kb/{id}/files/{fileId}/tabular/rows` |
-| `viewerSeeCitations`, `editorSeeCitations` | `false` / `true` | stored and reported in `capabilities.seeCitations`; not enforced by the API yet |
+| `viewerSeeCitations`, `editorSeeCitations` | `false` / `true` | answers carry no source attribution on any chat surface — see [Citations](#citations) below; nothing is refused |
 
 Editing sources (`manageSources`) has no flag: `PATCH`/`DELETE` and
 `…/sync`/`…/poll` on RSS feeds, Confluence sources and git repositories,
@@ -198,6 +198,41 @@ applied, so a client never re-derives the role ladder (an implicit viewer's
   "manageSources": false
 }
 ```
+
+#### Citations
+
+A caller without `seeCitations` on a KB gets that KB's answers **without
+source attribution**. Nothing is refused and the answer itself is generated
+exactly as for everyone else (same retrieval, same prompt); only what leaves
+the server changes. The capability is resolved per request for the current
+reader — for an API key, the key owner's role on the KB.
+
+**Stored in full, stripped on the way out.** `messages.sources`,
+`messages.conflicts`, `messages.verification` and the answer text with its
+`[n]` markers are always written complete, whoever asked. Reads strip them
+for the current reader, so when a KB admin turns `viewerSeeCitations` on,
+the existing history shows its citations again, and turning it off hides
+them on the next read.
+
+What is withheld, per surface:
+
+| Surface | Without `seeCitations` |
+|---|---|
+| `POST /kb/{id}/chat`, SSE | the opening frame keeps `chatId`/`userMessageId`/`enhancedQuery` but has `"sources": []`; no `conflicts` frame; `verification` without `citations`, without `cited_n` on flagged claims and with `self_rag.isrel` empty; `agentTrajectory` frames without `chunks` (file names); the answer-tool trace frames without `args` and `preview`; a corpus table without its `_file_id`/`_file_name`/`_source_idx` row keys and file-name-derived columns; comparison findings without `citedFileIds`/`citedQuote`; `[n]` markers removed from `content`, `reasoning`, `refined_text` and follow-up questions (a marker split across two `content` frames is held back until it is complete) |
+| `POST /kb/{id}/chat`, JSON | the same keys of the response body (`answer` without markers, `"sources": []`, no `conflicts`, `verification` as above) |
+| `GET /chats/{id}/messages` | per AI message: `"sources": []` (a stored `null` stays `null`), no `conflicts`, `verification` and `structured_table` as above, markers removed from `content` and `reasoning`; user messages unchanged. A library chat (no KB) is never stripped. |
+| `POST /kb/{id}/agui/chat` | `justrag.sources.v1` with an empty list; `justrag.tool_chunks.v1` with `chunks: []`; every `TOOL_CALL_RESULT` with content `{}`; markers removed from `TEXT_MESSAGE_CONTENT` / `REASONING_MESSAGE_CONTENT` deltas (see [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md)) |
+| `POST /api/v1/kb/{id}/chat`, `GET /api/v1/kb/{id}/chats/{chatId}/messages` | as the web chat and `GET /chats/{id}/messages` |
+| `POST /api/v1/kb/{id}/mcp` (`ask_kb`) | `structuredContent.sources` is `[]`; markers removed from the answer text |
+| `POST /openai/v1/chat/completions` | no `context.citations`, no `annotations`, markers removed from the content (streaming and not) |
+
+Always visible: KB owner, KB admin, superadmin, system admin on a public KB
+(they always hold `seeCitations`). Not covered: the research endpoints
+(`/kb/{id}/research`, `/api/v1/kb/{id}/research`, research reports) and the
+generated-content (`generate/*`) routes, which still name their sources, and
+the Open WebUI surface (`/owui`), whose collections belong to the key's own
+service user. The model may still name a document in the prose of its
+answer; only markers are removed, prose is not rewritten.
 
 `GET /api/v1/kb` (API key) carries the same `capabilities` object, resolved
 for the key's owner; the public API has no single-KB read route.
@@ -883,6 +918,7 @@ Notes:
 - KB permissions are still enforced. A file selection (`selectedFileIds` on `POST /kb/{id}/chat`, `fileIds` on `POST /kb/{id}/research`) is not gated by the per-KB source permissions: any caller with KB view access may restrict a turn to chosen files.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
 - `POST /api/v1/kb/{id}/mcp` exposes the KB as an MCP server with the single tool `ask_kb` (KB view); `404` unless `mcp_server_enabled` is on.
+- Citations follow the key owner's `seeCitations` on the KB: without it, `POST /kb/{id}/chat`, `GET /kb/{id}/chats/{chatId}/messages` and `ask_kb` return no sources and no `[n]` markers (see the web API's [Citations](#citations)).
 
 ## OpenAI-Compatible API
 
@@ -951,6 +987,10 @@ annotation offsets only exist once the full text is assembled.
 post-response task on the in-app chat path), so annotations reflect what the
 model claimed, not what was verified. Markers referencing a source that was
 never retrieved are dropped rather than emitted as dangling annotations.
+
+**Citation visibility.** When the key owner lacks `seeCitations` on the KB
+(the per-KB source permissions, see [Citations](#citations)), both keys are
+omitted and the `[n]` markers are removed from the content, in both modes.
 
 ## Open WebUI-Compatible API (ILIAS LfAssistant)
 

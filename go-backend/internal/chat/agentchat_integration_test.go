@@ -163,13 +163,20 @@ type agentChatFixture struct {
 	client  *agentFakeClient
 	library *fakeLibrary
 	chunks  []vector.SearchChunk // what every retrieval returns
+	// role / flags are the caller's resolved KB role and the KB's source
+	// flags, as RequireKBRole would put them on the request. Default: an
+	// editor under the editor_* column defaults (sources, adding and
+	// citations on), so the KB-writing actions are offered.
+	role  string
+	flags kbaccess.SourcePermissions
 }
 
 func newAgentChatFixture(t *testing.T, flagOn bool, opts ...func(*AgentChatDeps)) *agentChatFixture {
 	t.Helper()
 	pool := agentChatPool(t)
 	f := &agentChatFixture{pool: pool, store: NewStore(pool), client: &agentFakeClient{}, library: &fakeLibrary{},
-		userA: agentChatUser(t, pool), userB: agentChatUser(t, pool)}
+		userA: agentChatUser(t, pool), userB: agentChatUser(t, pool),
+		role: kbaccess.RoleEdit, flags: kbaccess.SourcePermissions{EditorSeeSources: true, EditorAddSources: true, EditorSeeCitations: true}}
 	if err := pool.QueryRow(context.Background(),
 		`INSERT INTO knowledge_bases (name) VALUES ('agentchat') RETURNING id::text`).Scan(&f.kbID); err != nil {
 		t.Fatalf("seed kb: %v", err)
@@ -202,10 +209,7 @@ func newAgentChatFixture(t *testing.T, flagOn bool, opts ...func(*AgentChatDeps)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Stands in for authMw + kbaccess.RequireKBRole(view).
 		ctx := auth.WithUser(r.Context(), &auth.Claims{ID: r.Header.Get("X-Test-User")})
-		// The DB defaults for an editor (editor_see_sources and
-		// editor_add_sources on), so the KB-writing actions are offered.
-		ctx = kbaccess.WithAccess(ctx, &kbaccess.KBAccessResult{KB: &kbaccess.KnowledgeBase{ID: f.kbID,
-			Sources: kbaccess.SourcePermissions{EditorSeeSources: true, EditorAddSources: true}}, Role: "edit"})
+		ctx = kbaccess.WithAccess(ctx, &kbaccess.KBAccessResult{KB: &kbaccess.KnowledgeBase{ID: f.kbID, Sources: f.flags}, Role: f.role})
 		h.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(f.srv.Close)
@@ -398,6 +402,60 @@ func TestNewThreadCreatesChatAndPersistsBothMessages(t *testing.T) {
 	if n := f.count(t, `SELECT count(*) FROM chats`); n != 1 {
 		t.Fatalf("chats = %d, want 1", n)
 	}
+}
+
+// A viewer without seeCitations: the stream carries no source data and no
+// [n] markers, while the stored answer and its sources are complete. Oracle:
+// the raw SSE events searched for the file name, file id and chunk text, the
+// joined content deltas against the hand-written stripped answer, and the
+// messages row read back with plain SQL. The second turn is the control: the
+// same viewer once viewer_see_citations is on sees all of it.
+func TestAgentChatHidesCitationsFromViewer(t *testing.T) {
+	f := newAgentChatFixture(t, true)
+	f.role, f.flags = kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true}
+	f.chunks = agentChunk
+	f.client.turns = [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1].")}
+	code, evs := f.post(t, f.userA, agentUserMsg("", "Wann öffnet die Mensa?"))
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	wire, _ := json.Marshal(evs)
+	for _, leak := range []string{"mensa.pdf", "Die Mensa öffnet", `"fileId"`} {
+		if strings.Contains(string(wire), leak) {
+			t.Errorf("stream carries %q: %s", leak, wire)
+		}
+	}
+	if got := streamedText(evs); got != "Um 11 Uhr." {
+		t.Errorf("streamed answer = %q, want %q", got, "Um 11 Uhr.")
+	}
+	thread, _ := eventOf(evs, "RUN_STARTED")["threadId"].(string)
+	msgs := f.messages(t, thread)
+	if len(msgs) != 2 || msgs[1].content != "Um 11 Uhr [1]." || !strings.Contains(string(msgs[1].sources), "mensa.pdf") {
+		t.Fatalf("stored = %+v, want the full answer and its source", msgs)
+	}
+
+	f.flags.ViewerSeeCitations = true
+	f.client.turns = [][]ai.StreamChunk{agentTextTurn("Um 11 Uhr [1].")}
+	code, evs = f.post(t, f.userA, agentUserMsg(thread, "Und morgen?"))
+	if code != http.StatusOK {
+		t.Fatalf("control status = %d", code)
+	}
+	wire, _ = json.Marshal(evs)
+	if !strings.Contains(string(wire), "mensa.pdf") || streamedText(evs) != "Um 11 Uhr [1]." {
+		t.Fatalf("control: citations missing: %s", wire)
+	}
+}
+
+// streamedText joins the TEXT_MESSAGE_CONTENT deltas of a run.
+func streamedText(evs []map[string]any) string {
+	var b strings.Builder
+	for _, ev := range evs {
+		if ev["type"] == "TEXT_MESSAGE_CONTENT" {
+			s, _ := ev["delta"].(string)
+			b.WriteString(s)
+		}
+	}
+	return b.String()
 }
 
 func TestThreadOfOtherUserIs404(t *testing.T) {

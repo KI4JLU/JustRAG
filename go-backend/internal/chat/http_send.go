@@ -104,7 +104,21 @@ func SanitizeParentMessageID(id string) *string {
 // per-frame allocation a fresh json.Marshal would incur on a long stream.
 var sseBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
-// writeSSE encodes data as JSON and writes a Server-Sent Events data frame,
+// writeSSE writes data as one Server-Sent Events frame — or, when the
+// request carries a CitationFilter (the caller may not see citations on the
+// KB), the frames that filter turns data into. Every frame of a KB chat turn
+// is written here, so the filter sees all of them.
+func writeSSE(ctx context.Context, w http.ResponseWriter, data any) {
+	if f := citationFilterFrom(ctx); f != nil {
+		for _, frame := range f.Frames(data) {
+			writeSSEFrame(ctx, w, frame)
+		}
+		return
+	}
+	writeSSEFrame(ctx, w, data)
+}
+
+// writeSSEFrame encodes data as JSON and writes a Server-Sent Events data frame,
 // flushing the response writer if it supports http.Flusher. Marshal can only
 // fail for structurally invalid Go values (channels, functions, cyclic data),
 // so an error here means a programming bug — log it instead of silently
@@ -115,7 +129,7 @@ var sseBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 // Long-running orchestrators should check ctx.Done() between iterations to
 // stop work when the client has gone away; this log is observability, not
 // flow control.
-func writeSSE(ctx context.Context, w http.ResponseWriter, data any) {
+func writeSSEFrame(ctx context.Context, w http.ResponseWriter, data any) {
 	// json.Marshal reuses an internal encodeState pool, so it avoids the
 	// per-frame json.Encoder struct allocation a fresh NewEncoder incurs on
 	// long streams (chat responses emit hundreds of frames). It HTML-escapes
@@ -172,6 +186,10 @@ func writeOpeningFrames(ctx context.Context, w http.ResponseWriter, sources []Ch
 // writeSSEDone writes the SSE stream terminator and flushes. Write errors
 // are observed at debug level — see writeSSE for the rationale.
 func writeSSEDone(ctx context.Context, w http.ResponseWriter) {
+	// Answer text a CitationFilter still holds back goes out before [DONE].
+	for _, frame := range citationFilterFrom(ctx).Flush() {
+		writeSSEFrame(ctx, w, frame)
+	}
 	httputil.RearmSSEWriteDeadline(w)
 	if _, werr := fmt.Fprint(w, "data: [DONE]\n\n"); werr != nil {
 		logctx.From(ctx).Debug("chat: writeSSEDone write failed (likely client disconnect)", "error", werr)
@@ -253,6 +271,11 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// reader + SearchService overlay this KB's kb_site_configs overrides. No-op
 	// (returns h) when the KB has no overrides.
 	h = h.forKB(ctx, kbID)
+
+	// Citation visibility is decided once the KB is final: a reader without
+	// seeCitations gets every frame and body of this turn through a
+	// CitationFilter (citation_visibility.go). Nothing stored changes.
+	ctx = h.withCitationVisibility(ctx, kbID, user)
 
 	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message)
 	if !ok {
