@@ -81,7 +81,7 @@ function renderTab(initial: Record<string, string> = {}) {
 /** Every section id in SECTION_CONFIGS, so localStorage can expand them all. */
 const SECTION_IDS = [
     'general', 'hybrid', 'reranker', 'topn', 'compression', 'queryEnh', 'crag',
-    'graph', 'multistep', 'conversation', 'corpusTable', 'compare', 'teams',
+    'graph', 'multistep', 'conversation', 'attachments', 'corpusTable', 'compare', 'teams',
     'longmem', 'validation', 'ingestion', 'observability', 'tools', 'tabular',
     'dateAware', 'syncWindow', 'evalSchedule',
 ];
@@ -189,6 +189,9 @@ describe('AdminAgentTab — control census', () => {
         // chat_web_search_enabled checkbox (the admin gate for the composer's
         // web-search toggle; upstream ships the backend key without a UI row).
         // So 62 = upstream's 61 + 1; every other count is still upstream's.
+        //
+        // +3 number rows for the chat-attachments section (context share,
+        // fallback context window, max attachments per message): 95.
         const { container } = renderTab();
 
         // Radix Checkbox renders role="checkbox" on a <button>, plus a hidden
@@ -198,7 +201,7 @@ describe('AdminAgentTab — control census', () => {
         // Radix Select's trigger is role="combobox".
         expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(5);
 
-        expect(container.querySelectorAll('input[type="number"]')).toHaveLength(92);
+        expect(container.querySelectorAll('input[type="number"]')).toHaveLength(95);
         expect(container.querySelectorAll('input[type="text"]')).toHaveLength(18);
         expect(container.querySelectorAll('textarea')).toHaveLength(3);
     });
@@ -476,7 +479,7 @@ describe('AdminAgentTab — submit', () => {
         const { container } = renderTab();
 
         const numbers = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-        expect(numbers).toHaveLength(92); // same census as the control-census test above
+        expect(numbers).toHaveLength(95); // same census as the control-census test above
 
         const withDefault = numbers.filter(i => i.getAttribute('value') !== '');
         // 80 of the 92 rows ship a default (60 before the upstream merge, -2
@@ -485,7 +488,8 @@ describe('AdminAgentTab — submit', () => {
         // rerank_blend_alpha_* overrides, the three top_n_* overrides, the four
         // query_cache_similarity_threshold* rows and query_cache_ttl_hours),
         // and an empty value is exempt from range/step validation by the spec.
-        expect(withDefault).toHaveLength(80);
+        // +3 chat-attachment rows, all with a default: 83.
+        expect(withDefault).toHaveLength(83);
 
         const offenders = withDefault
             .filter(input => {

@@ -1,9 +1,13 @@
+import { useState } from 'react';
+import axios from 'axios';
 import { Plus, Trash2, CheckCircle2, Settings, Save, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Badge, Button, Input } from '@ki4jlu/design-system';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { parseDimensionsInput, formatDimensionsValue } from '../../utils/embeddingDimensions';
+import { API_BASE_URL } from '../../api';
+import { getApiErrorMessage } from '../../utils/apiError';
 import {
     CheckboxFieldRow,
     FieldRow,
@@ -21,6 +25,9 @@ interface AIModel {
     isTts: boolean;
     isStt: boolean;
     dimensions?: number;
+    // Chat models: the context window in tokens (0/absent = unknown). Sizes the
+    // budget for chat attachments.
+    contextWindow?: number;
 }
 
 interface AIConfig {
@@ -104,6 +111,30 @@ export default function AdminConfigsTab({
 }: AdminConfigsTabProps) {
     const reducedMotion = useReducedMotion();
     const { t } = useTheme();
+    // "Detect" fills the context windows the provider reports (vLLM:
+    // max_model_len) into chat models that have none yet; the admin saves.
+    const [windowDetect, setWindowDetect] = useState<{ status: 'idle' | 'running' | 'done' | 'error'; message?: string }>({ status: 'idle' });
+    const detectContextWindows = async () => {
+        if (!editingId) return;
+        setWindowDetect({ status: 'running' });
+        try {
+            const res = await axios.get<{ models: { id: string; contextWindow?: number }[] }>(`${API_BASE_URL}/api/admin/configs/${editingId}/model-info`);
+            const reported = new Map(res.data.models.filter(m => (m.contextWindow ?? 0) > 0).map(m => [m.id, m.contextWindow as number]));
+            let filled = 0;
+            const models = (configFormData.chat_models || []).map(m => {
+                const w = reported.get(m.name.trim());
+                if (w && !m.contextWindow) {
+                    filled++;
+                    return { ...m, contextWindow: w };
+                }
+                return m;
+            });
+            setConfigFormData({ ...configFormData, chat_models: models });
+            setWindowDetect({ status: 'done', message: filled > 0 ? t('contextWindowDetected').replace('{n}', String(filled)) : t('contextWindowNoneDetected') });
+        } catch (err) {
+            setWindowDetect({ status: 'error', message: getApiErrorMessage(err, t('contextWindowDetectFailed')) });
+        }
+    };
 
     /**
      * Option list for a per-job model select.
@@ -262,6 +293,21 @@ export default function AdminConfigsTab({
                                                 }}
                                                 placeholder="e.g. gpt-4o"
                                             />
+                                            <Input
+                                                aria-label={t('contextWindowFor').replace('{name}', model.name || String(idx + 1))}
+                                                type="number"
+                                                min={0}
+                                                className="w-[140px]"
+                                                value={model.contextWindow ? String(model.contextWindow) : ''}
+                                                onChange={e => {
+                                                    const n = Number.parseInt(e.target.value, 10);
+                                                    const models = [...(configFormData.chat_models || [])];
+                                                    models[idx] = { ...models[idx], contextWindow: Number.isFinite(n) && n > 0 ? n : 0 };
+                                                    setConfigFormData({ ...configFormData, chat_models: models });
+                                                }}
+                                                placeholder={t('contextWindowPlaceholder')}
+                                                title={t('contextWindowHelp')}
+                                            />
                                             <CheckboxFieldRow
                                                 label={t('reasoning')}
                                                 checked={model.isReasoning}
@@ -299,6 +345,23 @@ export default function AdminConfigsTab({
                                     >
                                         <Plus size={16} /> {t('addModel')}
                                     </Button>
+                                    {editingId && (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="w-fit"
+                                                disabled={windowDetect.status === 'running'}
+                                                onClick={detectContextWindows}
+                                            >
+                                                <RefreshCw size={16} className={windowDetect.status === 'running' ? 'animate-spin' : undefined} /> {t('detectContextWindows')}
+                                            </Button>
+                                            {windowDetect.message && (
+                                                <span role="status" className="font-body-sm text-body-sm text-on-surface-variant">{windowDetect.message}</span>
+                                            )}
+                                        </div>
+                                    )}
                                 </fieldset>
 
                                 {/* Embedding Models */}

@@ -249,7 +249,8 @@ describe('AdminConfigsTab — control census', () => {
         // With this fixture (2 chat models, 1 each of the other four lists) the
         // rendered instances are:
         //   password  : api key                                          = 1
-        //   number    : dimensions, one per embedding model              = 1
+        //   number    : dimensions, one per embedding model, and the
+        //               context window, one per chat model (1 + 2)        = 3
         //   text      : name + base url (2) and one field per model name
         //               (2 chat + embedding + rerank + tts + stt = 6)      = 8
         //   checkbox  : "Reasoning", one per chat model                   = 2
@@ -257,7 +258,7 @@ describe('AdminConfigsTab — control census', () => {
         const { container } = renderTab();
 
         expect(container.querySelectorAll('input[type="password"]')).toHaveLength(1);
-        expect(container.querySelectorAll('input[type="number"]')).toHaveLength(1);
+        expect(container.querySelectorAll('input[type="number"]')).toHaveLength(3);
         // The DS Input renders no `type` attribute when none is passed, exactly
         // as the pre-migration `<input id="config-name" …>` did.
         expect(container.querySelectorAll('input:not([type])')).toHaveLength(8);
@@ -515,7 +516,7 @@ describe('AdminConfigsTab — numeric field constraints', () => {
         const { container } = renderTab();
 
         const numbers = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="number"]'));
-        expect(numbers.length).toBe(1);
+        expect(numbers.length).toBe(3); // 1 embedding dimensions + 2 chat context windows
 
         const offenders = numbers
             .filter(input => input.getAttribute('value') !== '')
