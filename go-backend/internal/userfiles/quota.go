@@ -61,6 +61,14 @@ func NewIngester(store Store, stor storage.Storage, quota QuotaReader) *Ingester
 // Ingest stores up as a library file of ownerID. The caller still owns (and
 // closes) up.File.
 func (in *Ingester) Ingest(ctx context.Context, ownerID string, up *uploadcheck.Upload) (*UserFile, bool, error) {
+	return in.IngestScoped(ctx, ownerID, up, ScopeLibrary)
+}
+
+// IngestScoped is Ingest with an explicit scope: ScopeChat stores a chat
+// attachment. Quota and dedup are shared by both scopes; a dedup hit returns
+// the existing row whatever its scope (a library upload promotes a chat row,
+// see PGStore.Insert).
+func (in *Ingester) IngestScoped(ctx context.Context, ownerID string, up *uploadcheck.Upload, scope string) (*UserFile, bool, error) {
 	size := up.Header.Size
 
 	quota, err := EffectiveQuota(ctx, in.store, in.quota, ownerID)
@@ -94,6 +102,7 @@ func (in *Ingester) Ingest(ctx context.Context, ownerID string, up *uploadcheck.
 		Size:        size,
 		SHA256:      hex.EncodeToString(h.Sum(nil)),
 		StoragePath: path,
+		Scope:       scope,
 	})
 	if err != nil {
 		if delErr := in.stor.DeleteFile(ctx, path); delErr != nil {

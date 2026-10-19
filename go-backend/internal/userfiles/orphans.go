@@ -53,6 +53,36 @@ type OrphanSweeper struct {
 	store OrphanStore
 	stor  storage.Storage
 	now   func() time.Time
+
+	// pending / deleter remove chat attachments nothing references any more
+	// (WithPendingChatFiles). Optional.
+	pending PendingChatStore
+	deleter FileDeleter
+}
+
+// PendingFile is a chat-scoped user file (migration 0090) that no message,
+// KB file or library chat references.
+type PendingFile struct {
+	ID      string
+	OwnerID string
+}
+
+// PendingChatStore lists unreferenced chat attachments.
+type PendingChatStore interface {
+	// PendingChatFiles returns up to limit chat-scoped user files created
+	// before olderThan that nothing references.
+	PendingChatFiles(ctx context.Context, olderThan time.Time, limit int) ([]PendingFile, error)
+}
+
+// WithPendingChatFiles makes every sweep also delete chat attachments that
+// were uploaded but never sent, or whose chats are gone (a chat delete
+// removes its own attachments right away; a KB or account delete leaves them
+// to this). The OrphanGrace applies: an upload is kept for 24 h, long enough
+// for the message it was uploaded for.
+func (s *OrphanSweeper) WithPendingChatFiles(store PendingChatStore, deleter FileDeleter) *OrphanSweeper {
+	s.pending = store
+	s.deleter = deleter
+	return s
 }
 
 func NewOrphanSweeper(store OrphanStore, stor storage.Storage) *OrphanSweeper {
@@ -69,6 +99,19 @@ func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 	}
 	deleted := 0
 	cutoff := s.now().Add(-OrphanGrace)
+	if s.pending != nil && s.deleter != nil {
+		files, err := s.pending.PendingChatFiles(ctx, cutoff, OrphanMaxPerRun)
+		if err != nil {
+			return 0, fmt.Errorf("userfiles: sweep: list pending chat files: %w", err)
+		}
+		for _, f := range files {
+			if err := s.deleter.DeleteUserFile(ctx, f.OwnerID, f.ID); err != nil {
+				return deleted, fmt.Errorf("userfiles: sweep: delete chat attachment %s: %w", f.ID, err)
+			}
+			deleted++
+			observability.RecordUserFileOrphanDeleted("chat_attachment")
+		}
+	}
 	for _, owner := range owners {
 		if !canonicalID(owner) {
 			continue
@@ -167,6 +210,36 @@ func (s *OrphanSweeper) Run(ctx context.Context) {
 
 // PGOrphanStore is the Postgres-backed OrphanStore (and LibraryTotals source).
 type PGOrphanStore struct{ pool *pgxpool.Pool }
+
+var _ PendingChatStore = (*PGOrphanStore)(nil)
+
+func (s *PGOrphanStore) PendingChatFiles(ctx context.Context, olderThan time.Time, limit int) ([]PendingFile, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT uf.id::text, uf.owner_user_id::text
+		  FROM user_files uf
+		 WHERE uf.scope = 'chat' AND uf.created_at < $1
+		   AND NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.user_file_id = uf.id)
+		   AND NOT EXISTS (SELECT 1 FROM files f WHERE f.user_file_id = uf.id)
+		   AND NOT EXISTS (SELECT 1 FROM chat_file_refs r WHERE r.user_file_id = uf.id)
+		 ORDER BY uf.created_at
+		 LIMIT $2`, olderThan, limit)
+	if err != nil {
+		return nil, fmt.Errorf("pending chat files: %w", err)
+	}
+	defer rows.Close()
+	var out []PendingFile
+	for rows.Next() {
+		var f PendingFile
+		if err := rows.Scan(&f.ID, &f.OwnerID); err != nil {
+			return nil, fmt.Errorf("pending chat files: scan: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pending chat files: rows: %w", err)
+	}
+	return out, nil
+}
 
 func NewOrphanStore(pool *pgxpool.Pool) *PGOrphanStore { return &PGOrphanStore{pool: pool} }
 
