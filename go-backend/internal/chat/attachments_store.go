@@ -36,9 +36,6 @@ type AttachmentStore interface {
 	// ChatScopedAttachments returns the chat-scoped user_files ids (with
 	// owner) attached anywhere in chatID, for cleanup after the chat goes.
 	ChatScopedAttachments(ctx context.Context, chatID string) ([]userFileRef, error)
-	// UnreferencedChatFile reports whether a chat-scoped user file is no
-	// longer referenced by any message, KB file or library chat.
-	UnreferencedChatFile(ctx context.Context, ownerID, userFileID string) (bool, error)
 }
 
 // userFileRef names a user file together with its owner.
@@ -129,20 +126,4 @@ func (s *PGStore) ChatScopedAttachments(ctx context.Context, chatID string) ([]u
 		return nil, fmt.Errorf("ChatScopedAttachments rows: %w", err)
 	}
 	return out, nil
-}
-
-func (s *PGStore) UnreferencedChatFile(ctx context.Context, ownerID, userFileID string) (bool, error) {
-	var ok bool
-	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS (
-		    SELECT 1 FROM user_files uf
-		     WHERE uf.id = $1::uuid AND uf.owner_user_id = $2::uuid AND uf.scope = 'chat'
-		       AND NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.user_file_id = uf.id)
-		       AND NOT EXISTS (SELECT 1 FROM files f WHERE f.user_file_id = uf.id)
-		       AND NOT EXISTS (SELECT 1 FROM chat_file_refs r WHERE r.user_file_id = uf.id))`,
-		userFileID, ownerID).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("UnreferencedChatFile: %w", err)
-	}
-	return ok, nil
 }

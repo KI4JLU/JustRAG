@@ -138,6 +138,26 @@ func (s *PGStore) Insert(ctx context.Context, f NewUserFile) (*UserFile, bool, e
 	if scope == "" {
 		scope = ScopeLibrary
 	}
+	// A second pass covers a dedup hit whose chat-scoped row the pending sweep
+	// deleted between the lookup and the refresh/promotion below: the INSERT
+	// then succeeds with the caller's freshly stored blob.
+	for attempt := 0; ; attempt++ {
+		row, created, err := s.insertOnce(ctx, f, scope)
+		if errors.Is(err, errDedupRowVanished) && attempt == 0 {
+			continue
+		}
+		if errors.Is(err, errDedupRowVanished) {
+			return nil, false, ErrNotFound
+		}
+		return row, created, err
+	}
+}
+
+// errDedupRowVanished means the existing row of a dedup hit was deleted (or
+// changed scope) before Insert could refresh or promote it.
+var errDedupRowVanished = errors.New("user file dedup row vanished")
+
+func (s *PGStore) insertOnce(ctx context.Context, f NewUserFile, scope string) (*UserFile, bool, error) {
 	row, err := scanFile(s.pool.QueryRow(ctx, `
 		INSERT INTO user_files (id, owner_user_id, name, mime, size, sha256, storage_path, scope)
 		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)
@@ -153,18 +173,42 @@ func (s *PGStore) Insert(ctx context.Context, f NewUserFile) (*UserFile, bool, e
 	row, err = scanFile(s.pool.QueryRow(ctx,
 		`SELECT `+fileCols+` FROM user_files WHERE owner_user_id = $1::uuid AND sha256 = $2`,
 		f.OwnerUserID, f.SHA256))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, errDedupRowVanished
+	}
 	if err != nil {
 		return nil, false, err
 	}
-	// Uploading bytes to the library that the user already attached in a chat
-	// makes that attachment a library file (one row per owner and hash).
-	if scope == ScopeLibrary && row.Scope == ScopeChat {
+	switch {
+	case scope == ScopeLibrary && row.Scope == ScopeChat:
+		// Uploading bytes to the library that the user already attached in a
+		// chat makes that attachment a library file (one row per owner and hash).
 		if err := s.Promote(ctx, f.OwnerUserID, row.ID); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, false, errDedupRowVanished
+			}
 			return nil, false, err
+		}
+	case scope == ScopeChat && row.Scope == ScopeChat:
+		// Attaching the same bytes again restarts the pending sweep's grace
+		// (it keys on updated_at): otherwise a re-attached copy of a file
+		// first attached more than OrphanGrace ago could be swept before the
+		// message it is attached to is sent.
+		tag, err := s.pool.Exec(ctx,
+			`UPDATE user_files SET updated_at = now() WHERE id = $1::uuid AND owner_user_id = $2::uuid AND scope = 'chat'`,
+			row.ID, f.OwnerUserID)
+		if err != nil {
+			return nil, false, fmt.Errorf("refresh chat attachment: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, false, errDedupRowVanished
 		}
 	}
 	// The dedup hit may already be linked into KBs; report them like Get does.
 	row, err = s.Get(ctx, f.OwnerUserID, row.ID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, false, errDedupRowVanished
+	}
 	if err != nil {
 		return nil, false, err
 	}

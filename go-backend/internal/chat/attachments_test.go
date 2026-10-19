@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/parser"
@@ -21,7 +22,9 @@ func (fakeIngester) IngestScoped(context.Context, string, *uploadcheck.Upload, s
 
 type fakeDeleter struct{}
 
-func (fakeDeleter) DeleteUserFile(context.Context, string, string) error { return nil }
+func (fakeDeleter) DeleteChatAttachment(context.Context, string, string, time.Time) (bool, error) {
+	return true, nil
+}
 
 type fakeAttachLimits struct{}
 

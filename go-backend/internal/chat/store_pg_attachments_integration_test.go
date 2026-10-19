@@ -54,19 +54,12 @@ func TestPGStore_MessageAttachmentsRoundTrip(t *testing.T) {
 	if len(refs) != 2 {
 		t.Fatalf("chat-scoped refs %+v, want a and b only (lib is a library file)", refs)
 	}
-	if unref, _ := store.UnreferencedChatFile(ctx, userID, a); unref {
-		t.Fatal("a file linked to a message reported unreferenced")
-	}
 
 	if err := store.DeleteChat(ctx, chatID); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{a, b} {
-		if unref, err := store.UnreferencedChatFile(ctx, userID, id); err != nil || !unref {
-			t.Fatalf("%s after chat delete: unref=%v err=%v, want unreferenced", id, unref, err)
-		}
-	}
-	if unref, _ := store.UnreferencedChatFile(ctx, userID, lib); unref {
-		t.Fatal("a library file must never be reported as an unreferenced chat file")
+	var links int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM message_attachments WHERE user_file_id = ANY($1::uuid[])`, []string{a, b, lib}).Scan(&links); err != nil || links != 0 {
+		t.Fatalf("message links after chat delete: %d (err %v), want 0", links, err)
 	}
 }

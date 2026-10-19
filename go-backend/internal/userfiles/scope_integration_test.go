@@ -83,7 +83,7 @@ func TestPendingChatFiles(t *testing.T) {
 	inKB := mk("g", userfiles.ScopeChat)
 	library := mk("h", userfiles.ScopeLibrary)
 	for _, id := range []string{old.ID, inKB.ID, library.ID} {
-		if _, err := pool.Exec(ctx, `UPDATE user_files SET created_at = now() - interval '2 days' WHERE id = $1::uuid`, id); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE user_files SET created_at = now() - interval '2 days', updated_at = now() - interval '2 days' WHERE id = $1::uuid`, id); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -104,5 +104,71 @@ func TestPendingChatFiles(t *testing.T) {
 		if found[id] {
 			t.Errorf("%s file listed as pending", name)
 		}
+	}
+}
+
+// Attaching the same bytes again restarts the pending sweep's grace: the
+// sweep keys on updated_at, which a chat dedup hit refreshes. Without it a
+// re-attached copy of a file first attached days ago is swept before the
+// message is sent.
+func TestReattachRefreshesPendingGrace(t *testing.T) {
+	pool := openMainPool(t)
+	st := userfiles.NewStore(pool)
+	orphans := userfiles.NewOrphanStore(pool)
+	ctx := context.Background()
+	owner := seedUser(t, pool)
+
+	f := newFile(owner, sha("r"), 1)
+	f.Scope = userfiles.ScopeChat
+	first := mustInsert(t, st, f)
+	if _, err := pool.Exec(ctx, `UPDATE user_files SET created_at = now() - interval '2 days', updated_at = now() - interval '2 days' WHERE id = $1::uuid`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	listed := func() bool {
+		got, err := orphans.PendingChatFiles(ctx, time.Now().Add(-userfiles.OrphanGrace), 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range got {
+			if p.ID == first.ID {
+				return true
+			}
+		}
+		return false
+	}
+	if !listed() {
+		t.Fatal("precondition: the old attachment is not pending")
+	}
+
+	again := newFile(owner, sha("r"), 1)
+	again.Scope = userfiles.ScopeChat
+	row, created, err := st.Insert(ctx, again)
+	if err != nil || created || row.ID != first.ID {
+		t.Fatalf("re-attach: row=%v created=%v err=%v, want the existing row", row, created, err)
+	}
+	if listed() {
+		t.Fatal("re-attached file is still pending: the dedup hit did not refresh its grace")
+	}
+}
+
+// A dedup hit whose row the sweep deleted meanwhile falls back to a fresh
+// insert with the caller's own blob instead of returning a deleted id.
+func TestReattachAfterSweepDeletedRowInsertsAgain(t *testing.T) {
+	pool := openMainPool(t)
+	st := userfiles.NewStore(pool)
+	ctx := context.Background()
+	owner := seedUser(t, pool)
+
+	f := newFile(owner, sha("s"), 1)
+	f.Scope = userfiles.ScopeChat
+	first := mustInsert(t, st, f)
+	if _, err := pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1::uuid`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	again := newFile(owner, sha("s"), 1)
+	again.Scope = userfiles.ScopeChat
+	row := mustInsert(t, st, again)
+	if row.ID != again.ID {
+		t.Fatalf("got row %s, want the new insert %s", row.ID, again.ID)
 	}
 }

@@ -22,10 +22,12 @@ type AttachmentIngester interface {
 	IngestScoped(ctx context.Context, ownerID string, up *uploadcheck.Upload, scope string) (*userfiles.UserFile, bool, error)
 }
 
-// UserFileDeleter removes a user file with its blob and caches. Satisfied by
+// UserFileDeleter removes a chat attachment with its blob and caches, but
+// only if nothing references it any more; the check and the delete share one
+// transaction (a zero staleBefore skips the age check). Satisfied by
 // *cascade.Deleter.
 type UserFileDeleter interface {
-	DeleteUserFile(ctx context.Context, ownerID, userFileID string) error
+	DeleteChatAttachment(ctx context.Context, ownerID, userFileID string, staleBefore time.Time) (bool, error)
 }
 
 // WithChatAttachments wires chat attachments (migration 0090). They also
@@ -165,13 +167,15 @@ func writeTooLargeForContext(ctx context.Context, w http.ResponseWriter, tokens,
 	})
 }
 
-// deleteAttachmentFile removes a chat attachment, detached from the request
-// so a client disconnect cannot leave it behind. Best effort: the userfiles
-// pending sweep removes what this misses.
+// deleteAttachmentFile removes a chat attachment that nothing references,
+// detached from the request so a client disconnect cannot leave it behind.
+// A file that was sent, added to a KB or promoted to the library in the
+// meantime stays. Best effort: the userfiles pending sweep removes what this
+// misses.
 func (h *Handler) deleteAttachmentFile(ctx context.Context, ownerID, userFileID string) {
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), attachmentCleanupTimeout)
 	defer cancel()
-	if err := h.attachDeleter.DeleteUserFile(dctx, ownerID, userFileID); err != nil {
+	if _, err := h.attachDeleter.DeleteChatAttachment(dctx, ownerID, userFileID, time.Time{}); err != nil {
 		logctx.From(ctx).Warn("chat.attachments: delete attachment (best effort)", "user_file_id", userFileID, "error", err)
 	}
 }
@@ -314,14 +318,7 @@ func (h *Handler) cleanupChatAttachments(ctx context.Context, refs []userFileRef
 		return
 	}
 	for _, ref := range refs {
-		unref, err := h.attachmentFiles.UnreferencedChatFile(ctx, ref.OwnerID, ref.ID)
-		if err != nil {
-			logctx.From(ctx).Warn("chat.attachments: check attachment after chat delete", "user_file_id", ref.ID, "error", err)
-			continue
-		}
-		if unref {
-			h.deleteAttachmentFile(ctx, ref.OwnerID, ref.ID)
-		}
+		h.deleteAttachmentFile(ctx, ref.OwnerID, ref.ID)
 	}
 }
 
