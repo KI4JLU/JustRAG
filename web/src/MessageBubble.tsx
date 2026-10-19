@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, ChevronDown, Check, ArrowRight, Network, Users, Bot, AlertTriangle } from 'lucide-react';
+import { FileText, ChevronDown, Check, ArrowRight, Network, Users, Bot, AlertTriangle, Paperclip } from 'lucide-react';
 import type { Message, BranchInfo, MessageVerification, MessageSource, MessageConflict } from './types';
 import { flaggedClaimsFor } from './utils/verification';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
@@ -13,7 +13,7 @@ import type { MessageSection } from './hooks/useMessageSections';
 import { useIsMobileContext } from './contexts/MobileContext';
 import { useTheme } from './contexts/ThemeContext';
 import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
-import { extractCitedSourceIndices, formatPageRanges, withoutCitations } from './utils/citations';
+import { extractCitedSourceIndices, formatPageRanges, maxCitationNumber, withoutCitations } from './utils/citations';
 import { formatDate } from './utils/dates';
 
 interface MessageBubbleProps {
@@ -313,9 +313,9 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     const sourceGroups = useMemo(() => {
         if (!message.sources || message.sources.length === 0) return [];
 
-        const cited = extractCitedSourceIndices(message.content, message.sources.length);
+        const cited = extractCitedSourceIndices(message.content, maxCitationNumber(message.sources));
         const visibleSources = cited.size > 0
-            ? message.sources.filter((_, i) => cited.has(i + 1))
+            ? message.sources.filter((s, i) => cited.has(s.index ?? i + 1))
             : message.sources;
 
         if (visibleSources.length === 0) return [];
@@ -432,7 +432,28 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                     />
                 </div>
             ) : (
-                message.content
+                <>
+                    {/* Files attached to this question (chat attachments as context),
+                        styled like the answer's attribution chip. */}
+                    {message.attachments && message.attachments.length > 0 && (
+                        <ul
+                            aria-label={t('chatAttachmentsLabel')}
+                            style={{ listStyle: 'none', margin: '0 0 0.5rem', padding: 0, display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem' }}
+                        >
+                            {message.attachments.map(a => (
+                                <li
+                                    key={a.userFileId}
+                                    title={a.name}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', minWidth: 0, maxWidth: '100%', fontSize: '0.75rem', opacity: 0.85 }}
+                                >
+                                    <Paperclip size={12} aria-hidden="true" style={{ flexShrink: 0 }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {message.content}
+                </>
             )}
 
             {message.role === 'ai' && message.comparisonFindings && message.comparisonFindings.length > 0 && (

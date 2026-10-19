@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, MessageConflict } from '../types';
+import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, MessageConflict, MessageAttachment } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -55,6 +55,7 @@ interface RawChatMessage {
   teamId?: string | null;
   agentId?: string | null;
   conflicts?: MessageConflict[];
+  attachments?: MessageAttachment[];
 }
 
 interface UseChatParams {
@@ -147,6 +148,9 @@ export function useChat({
   // it on the previous chat's rows, before the fetch returns.
   const [transcriptKey, setTranscriptKey] = useState(0);
   const pendingEditRef = useRef<string | null | undefined>(undefined);
+  // The edited question's attachments: an edit is a new question that keeps
+  // the files the original was asked about.
+  const pendingEditAttachmentsRef = useRef<MessageAttachment[]>([]);
   const pendingFollowUpRef = useRef<string | null>(null);
   const fetchChatsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const forkFocusTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -266,6 +270,7 @@ export function useChat({
         teamId: m.teamId ?? null,
         agentId: m.agentId ?? null,
         conflicts: m.conflicts,
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       }));
       const newTree = buildMessageMap(rawMessages);
       setMessageTree(newTree);
@@ -356,29 +361,34 @@ export function useChat({
     }
   }, [showPrompt, t, toast]);
 
-  // Orchestrating send: clears input, resets UI state, delegates to stream hook
-  const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null) => {
+  // Orchestrating send: clears input, resets UI state, delegates to stream
+  // hook. `attachments` are files already on the server: the composer's
+  // uploads (useComposerUploads) or an edited question's attachments. Resolves to whether the turn was sent, so the
+  // composer keeps its files when it was not (PromptInput clears them only
+  // after a send that did not throw).
+  const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null, attachments: MessageAttachment[] = []): Promise<boolean> => {
     e.preventDefault();
-    if (!currentKb || loading || chatSwitchingRef.current) return;
+    if (!currentKb || loading || chatSwitchingRef.current) return false;
 
     // A comparison send (attachment + ≥1 mode) is allowed with an empty input —
     // we substitute a localized default message because the backend rejects an
     // empty message with 400 before running the comparison. Don't start a
     // comparison while the attachment is still uploading.
-    if (!userMessageInput.trim()) return;
+    if (!userMessageInput.trim()) return false;
 
     // Guard: require a sendable source selection before clearing input
     // (at least one selected file — unless the caller may not select at all).
-    if (!chatSourceSelection(currentKb, files).canSend) return;
+    if (!chatSourceSelection(currentKb, files).canSend) return false;
 
     const userMessage = userMessageInput.trim();
 
-    const sendOpts = attachmentState.attachment
+    const sendOpts = {
       // Empty modes deliberately: a follow-up turn must carry the uploaded
       // document as context (buildFollowUpContext) without re-running the
       // per-section comparison. willRunComparison requires non-empty modes.
-      ? { attachmentId: attachmentState.attachment.attachmentId, comparisonModes: [] }
-      : undefined;
+      ...(attachmentState.attachment ? { attachmentId: attachmentState.attachment.attachmentId, comparisonModes: [] } : {}),
+      ...(attachments.length > 0 ? { attachmentIds: attachments.map(a => a.userFileId), attachments } : {}),
+    };
 
     setUserMessageInput('');
     setEditingMessageId(null);
@@ -387,9 +397,14 @@ export function useChat({
       textareaRef.current.style.height = 'auto';
     }
 
-    // Delegate actual streaming to useChatStream
-    await stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, sendOpts);
-  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment, t]);
+    // Delegate actual streaming to useChatStream. A turn the server refused
+    // (e.g. the attachments together exceed the budget) reports false, so the
+    // composer keeps its attachments for a retry.
+    const accepted = await stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, sendOpts);
+    // The question was not stored: give the user their text back too.
+    if (!accepted) setUserMessageInput(prev => prev || userMessage);
+    return accepted;
+  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment]);
 
   /**
    * Starts a document comparison from the Workspace tile.
@@ -474,6 +489,7 @@ export function useChat({
     setEditingMessageId(null);
     setUserMessageInput(newContent);
     pendingEditRef.current = parentId || null;
+    pendingEditAttachmentsRef.current = msg.attachments ?? [];
   }, [messageTreeRef]);
 
   const handleForkFromMessage = useCallback((messageId: string) => {
@@ -552,13 +568,15 @@ export function useChat({
       handleSendMessage(syntheticEvent);
     } else if (pendingEditRef.current !== undefined && userMessageInput) {
       const parentId = pendingEditRef.current;
+      const attachments = pendingEditAttachmentsRef.current;
       pendingEditRef.current = undefined;
+      pendingEditAttachmentsRef.current = [];
       const syntheticEvent = { preventDefault: () => { } } as React.FormEvent;
       // `null` is passed through, not collapsed to undefined: editing the
       // first question of a chat has no parent, and "no parent" must not be
       // read as "no opinion" — that fell back to the active leaf and appended
       // the edited question to the answer it was replacing.
-      handleSendMessage(syntheticEvent, parentId);
+      handleSendMessage(syntheticEvent, parentId, attachments);
     }
   }, [userMessageInput, handleSendMessage]);
 

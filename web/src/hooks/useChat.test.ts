@@ -400,6 +400,27 @@ describe('useChat.handleEditSubmit', () => {
     expect(message).toBe('Neu formulierte Frage');
     expect(editParentId).toBeNull();
   });
+
+  // Oracle: an edit is a new question about the same files — the original's
+  // attachments go with it, as ids for the request and chips for the bubble.
+  it('nimmt die Anhänge der bearbeiteten Frage mit', async () => {
+    const { result } = renderUseChat();
+    const attachments = [{ userFileId: 'uf-1', name: 'ordnung.pdf', mime: 'application/pdf', size: 3 }];
+    act(() => {
+      result.current.setMessageTree(new Map([
+        [U1, { id: U1, role: 'user', content: 'Alte Frage', childIds: [], attachments }],
+      ]));
+      result.current.setActiveLeafId(U1);
+    });
+
+    await act(async () => {
+      result.current.handleEditSubmit(U1, 'Neu formulierte Frage');
+    });
+
+    expect(streamSend).toHaveBeenCalledTimes(1);
+    const [, , , , opts] = streamSend.mock.calls[0];
+    expect(opts).toMatchObject({ attachmentIds: ['uf-1'], attachments });
+  });
 });
 
 describe('buildComparisonSend', () => {

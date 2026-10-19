@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractCitedSourceIndices, stripCitationMarkers, withoutCitations } from './citations';
+import { extractCitedSourceIndices, maxCitationNumber, sourceForCitation, stripCitationMarkers, withoutCitations } from './citations';
 import type { Message } from '../types';
 
 describe('extractCitedSourceIndices', () => {
@@ -117,5 +117,40 @@ describe('withoutCitations', () => {
     const out = withoutCitations(message);
     expect(out.verification).toMatchObject({ verified: true, score: 80, issues: ['i'] });
     expect(out.trajectory?.[0]).toMatchObject({ stage: 'hop', findings: 2 });
+  });
+  // Oracle: the reader's own chat attachments (userFileId) are no KB sources —
+  // they, their markers and their citation results stay; KB ones go.
+  it('keeps the reader\'s own attachments', () => {
+    const out = withoutCitations({
+      id: 'ai2', role: 'ai', content: 'KB [1], doc [2], both [1, 2].',
+      sources: [
+        { index: 1, fileName: 'kb.pdf', content: 'k', score: 1 },
+        { index: 2, fileName: 'mine.pdf', userFileId: 'u1', content: 'd', score: 0 },
+      ],
+      verification: { verified: true, score: 80, issues: [], citations: [{ n: 1 } as never, { n: 2 } as never] },
+    });
+    expect(out.content).toBe('KB, doc [2], both [2].');
+    expect(out.sources?.map(s => s.userFileId)).toEqual(['u1']);
+    expect(out.verification?.citations?.map(c => c.n)).toEqual([2]);
+  });
+});
+
+// Oracle: a citation number names the source carrying that index; only
+// sources without an index (old messages) are numbered by position.
+describe('sourceForCitation', () => {
+  const src = (index: number | undefined, fileName: string) => ({ index, fileName, content: '', score: 0 });
+
+  it('finds a filtered source by its own index, not its position', () => {
+    const sources = [src(5, 'mine.pdf')];
+    expect(sourceForCitation(sources, 5)?.fileName).toBe('mine.pdf');
+    expect(sourceForCitation(sources, 1)).toBeUndefined();
+    expect(maxCitationNumber(sources)).toBe(5);
+  });
+
+  it('numbers index-less sources by position', () => {
+    const sources = [src(undefined, 'a.pdf'), src(undefined, 'b.pdf')];
+    expect(sourceForCitation(sources, 2)?.fileName).toBe('b.pdf');
+    expect(sourceForCitation(sources, 3)).toBeUndefined();
+    expect(maxCitationNumber(sources)).toBe(2);
   });
 });

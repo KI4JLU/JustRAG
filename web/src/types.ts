@@ -6,6 +6,9 @@ export interface MessageSource {
     score: number;
     pages?: number[];
     nodeKind?: string;
+    // A chat attachment (or library file) cited as a source: set instead of
+    // fileId. Its content is a 600-character snippet.
+    userFileId?: string;
     // Freshness (Wave-3 Task 5/6): the underlying file's created_at, and — RSS
     // origins only — its published_at. Both omitted on the wire when unset:
     // old messages predate this enrichment, and non-RSS files have no
@@ -155,6 +158,14 @@ export interface StructuredTable {
     totalFiles: number;
 }
 
+/** A file attached to a user message (chat attachments as context). */
+export interface MessageAttachment {
+    userFileId: string;
+    name: string;
+    mime: string;
+    size: number;
+}
+
 export interface Message {
     id?: string;              // DB UUID, undefined during streaming
     /** Client-side render key: the temp id a streamed message was created
@@ -165,6 +176,8 @@ export interface Message {
     role: 'user' | 'ai';
     content: string;
     sources?: MessageSource[];
+    // User messages: the files attached to them (GET /api/chats/{id}/messages).
+    attachments?: MessageAttachment[];
     structured_table?: StructuredTable | null;
     isEnhanced?: boolean;
     reasoning?: string;

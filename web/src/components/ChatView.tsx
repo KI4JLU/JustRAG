@@ -19,6 +19,9 @@ import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled 
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { useMessageSections } from '../hooks/useMessageSections';
+import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
+import { toMessageAttachments } from '../utils/chatAttachments';
+import { useToast } from '../contexts/ToastContext';
 import {
   InputGroupAddon,
   ChatStage, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
@@ -75,6 +78,9 @@ const ChatViewComp = () => {
     agentSelection, setAgentSelection,
   } = useKbChat();
   const { fileMgmt, webTools, sharing } = useKbData();
+  const toast = useToast();
+  // Composer files are uploaded as chat attachments as soon as they are attached.
+  const composerUploads = useComposerUploads(currentKb?.id, t);
   // Per-turn web search is offered only when the admin gate is on; a state
   // left over from when it was on shows nothing (and is not sent, see
   // AuthenticatedApp).
@@ -375,13 +381,39 @@ const ChatViewComp = () => {
                     <PromptInput
                       id="chat-composer"
                       multiple
-                      onSubmit={(_message, e) => chat.handleSendMessage(e)}
+                      // The composer's files go with the message as chat
+                      // attachments, uploaded when they were attached. A send
+                      // that does not happen throws, so PromptInput keeps the
+                      // files (it clears them only after a submit that
+                      // resolved): one still uploading or refused holds it.
+                      onSubmit={async (_message, e) => {
+                        const ready = composerUploads.readiness();
+                        if (ready.uploading || ready.failed) {
+                          toast.error(t(ready.uploading ? 'chatAttachmentsStillUploading' : 'chatAttachmentsRemoveFailed'));
+                          throw new Error('attachments not ready');
+                        }
+                        if (!(await chat.handleSendMessage(e, undefined, toMessageAttachments(ready.uploaded)))) {
+                          throw new Error('message not sent');
+                        }
+                      }}
                       className={noSources ? 'pointer-events-none opacity-55' : undefined}
                       aria-disabled={noSources || undefined}
                     >
-                      {/* Attached files: a header row above the input line, present only while files are attached */}
+                      {/* Attached files: a header row above the input line, present only while files are attached.
+                          Each is uploaded as it is attached; the chip shows the upload and a refusal. */}
+                      <ComposerUploadSync onFiles={composerUploads.sync} />
                       <PromptInputAttachments id="chat-composer-attachments" className="order-first basis-full flex-nowrap overflow-x-auto border-b border-outline-variant px-3 pt-3 pb-2">
-                        {(file) => <PromptInputAttachment data={file} className="shrink-0" />}
+                        {(file) => {
+                          const upload = composerUploads.uploads[file.id];
+                          return (
+                            <PromptInputAttachment
+                              data={file}
+                              className="shrink-0"
+                              status={upload?.status === 'uploading' || upload?.status === 'error' ? upload.status : undefined}
+                              statusMessage={upload?.status === 'error' ? upload.message : upload?.status === 'uploading' ? t('chatAttachmentUploading') : undefined}
+                            />
+                          );
+                        }}
                       </PromptInputAttachments>
                       <InputGroupAddon id="chat-composer-actions" align="inline-start" ref={observeNotch('left')} className="absolute bottom-1 left-3 p-0">
                         {/* + — attach photos or files (menu grows with further actions) */}
