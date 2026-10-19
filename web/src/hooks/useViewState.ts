@@ -27,14 +27,23 @@ interface UseViewStateParams {
   setView: React.Dispatch<React.SetStateAction<ViewType>>;
   setKbView: React.Dispatch<React.SetStateAction<KbViewType>>;
   setShowSettings: (val: boolean) => void;
+  /**
+   * Whether the 'files' tab exists (capabilities.seeSources). Without it the
+   * swipe order is history ↔ chat, the same tabs KbWorkspaceLayout renders,
+   * so a swipe never lands on a tab that is not there. Default true.
+   */
+  showFilesTab?: boolean;
 }
 
 export type { ViewType, KbViewType };
 
-export function useViewState({ setView, setKbView, setShowSettings }: UseViewStateParams) {
+export function useViewState({ setView, setKbView, setShowSettings, showFilesTab = true }: UseViewStateParams) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
 
-  const TAB_ORDER: MobileTab[] = useMemo(() => ['history', 'chat', 'files'], []);
+  const TAB_ORDER: MobileTab[] = useMemo(
+    () => (showFilesTab ? ['history', 'chat', 'files'] : ['history', 'chat']),
+    [showFilesTab],
+  );
 
   // Der Reiter „chat" setzt kbView explizit zurück; ein anderer Wert als
   // 'chat' existiert seit dem 22.09.2026 nicht mehr (siehe KbViewType).
@@ -44,8 +53,10 @@ export function useViewState({ setView, setKbView, setShowSettings }: UseViewSta
   }, [setKbView]);
 
   // Derselbe Ableitungsweg wie in KbWorkspaceLayout, damit Swipe-Start und
-  // gerenderter Reiter nicht auseinanderlaufen.
-  const activeTab = deriveActiveMobileTab(mobileTab);
+  // gerenderter Reiter nicht auseinanderlaufen ('files' ohne Reiter ist der
+  // Chat, wie dort).
+  const derivedTab = deriveActiveMobileTab(mobileTab);
+  const activeTab: MobileTab = !showFilesTab && derivedTab === 'files' ? 'chat' : derivedTab;
 
   const swipeLeft = useCallback(() => {
     const i = TAB_ORDER.indexOf(activeTab);

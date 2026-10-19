@@ -49,6 +49,7 @@ import { OnboardingTour } from './components/OnboardingTour';
 import { LegalPage } from './components/LegalPage';
 import { viewportHeight } from './utils/viewport';
 import { chatWebSearchRequestField } from './utils/chatWebSearch';
+import { kbSourceRights } from './utils/kbAccess';
 
 // Lazy Loaded Components
 const AdminUI = lazy(() => import('./AdminUI'));
@@ -152,7 +153,12 @@ function AuthenticatedAppInner() {
 
   // New extracted hooks
   const kbSettings = useKbSettings();
-  const viewState = useViewState({ setView, setKbView, setShowSettings: kbSettings.setShowSettings });
+  const viewState = useViewState({
+    setView, setKbView, setShowSettings: kbSettings.setShowSettings,
+    // The swipe follows the tabs KbWorkspaceLayout renders (no 'files'
+    // without seeSources).
+    showFilesTab: kbSourceRights(currentKb, user?.role, user?.id).seeSources,
+  });
 
   // TEMPORARY (2026-10-12): the onboarding tour opens only from its help
   // button; the automatic tour on first login is switched off for now. To bring

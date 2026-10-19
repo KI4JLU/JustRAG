@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
-import type { ChatEntry, SearchChatType } from '../types';
+import type { ChatEntry, KnowledgeBase, SearchChatType } from '../types';
+import { kbSourceRights } from '../utils/kbAccess';
 
 /**
  * Where a global-search hit takes you (card KI-837). The app has no router —
@@ -50,8 +51,8 @@ export interface SearchSourceTarget {
 }
 
 interface UseSearchNavigationParams {
-  /** `useKnowledgeBases.handleOpenKbById` — resolves to whether it opened. */
-  openKbById: (id: string) => Promise<boolean>;
+  /** `useKnowledgeBases.handleOpenKbById` — resolves to the opened KB, or null. */
+  openKbById: (id: string) => Promise<KnowledgeBase | null>;
   /** `useWebTools.handlePreviewSource`. */
   previewSource: (id: string, name: string) => void;
   /** `useChat.handleSelectChat`. */
@@ -93,7 +94,12 @@ export function useSearchNavigation({ openKbById, previewSource, selectChat }: U
   }, [openKbById]);
 
   const openSource = useCallback(async (source: SearchSourceTarget) => {
-    if (!(await openKbById(source.kbId))) return;
+    const kb = await openKbById(source.kbId);
+    if (!kb) return;
+    // The preview loads the file: without downloadSources the hit only opens
+    // its topic. (The fallback ladder of kbSourceRights needs no role here —
+    // without capabilities downloads are open to everyone.)
+    if (!kbSourceRights(kb).downloadSources) return;
     previewSource(source.id, source.name);
   }, [openKbById, previewSource]);
 

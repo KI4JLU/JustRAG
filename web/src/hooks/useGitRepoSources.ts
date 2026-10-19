@@ -5,7 +5,8 @@ import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage } from '../utils/apiError';
+import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseGitRepoSourcesParams {
     currentKb: KnowledgeBase | null;
@@ -23,17 +24,28 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const wasSyncingRef = useRef(false);
 
+    // No seeSources on the open KB: its git sources are never requested.
+    const unlistable = unlistableKbId(currentKb);
     const fetchGitRepoSources = useCallback(async (kbId?: string) => {
         const id = kbId || currentKb?.id;
         if (!id) return;
+        if (id === unlistable) {
+            setGitRepoSources([]);
+            return;
+        }
         try {
             const res = await axios.get(`${API_BASE_URL}/api/kb/${id}/git-repos`);
             setGitRepoSources(Array.isArray(res.data) ? res.data : []);
         } catch (err: unknown) {
             if (axios.isCancel(err)) return;
+            // No seeSources on this KB: no list (and not the previous KB's).
+            if (isForbidden(err)) {
+                setGitRepoSources([]);
+                return;
+            }
             console.error('Failed to fetch git repo sources:', err);
         }
-    }, [currentKb?.id]);
+    }, [currentKb?.id, unlistable]);
 
     // Poll while any source is syncing
     useEffect(() => {

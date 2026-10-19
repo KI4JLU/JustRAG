@@ -13,7 +13,7 @@ import type { MessageSection } from './hooks/useMessageSections';
 import { useIsMobileContext } from './contexts/MobileContext';
 import { useTheme } from './contexts/ThemeContext';
 import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
-import { extractCitedSourceIndices, formatPageRanges } from './utils/citations';
+import { extractCitedSourceIndices, formatPageRanges, withoutCitations } from './utils/citations';
 import { formatDate } from './utils/dates';
 
 interface MessageBubbleProps {
@@ -50,6 +50,14 @@ interface MessageBubbleProps {
     // agent was later deleted) — the chip then renders nothing rather than
     // an empty label.
     resolveAttribution?: (message: Message) => string | undefined;
+    /**
+     * Whether the caller may see an answer's citations
+     * (capabilities.seeCitations; default true, as from a backend without
+     * capabilities). false renders the answer without them — no inline
+     * markers or source popover, no source list, no conflict report — see
+     * withoutCitations.
+     */
+    showCitations?: boolean;
 }
 
 interface ConfidenceProps {
@@ -236,8 +244,14 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
     );
 }
 
-function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
     const { t, language } = useTheme();
+    // An answer without its citations for a caller who may not see them.
+    // Everything below — rendering, copy and export — reads this one object.
+    const message = useMemo(
+        () => (showCitations || rawMessage.role !== 'ai' ? rawMessage : withoutCitations(rawMessage)),
+        [rawMessage, showCitations],
+    );
     const isThinking = Boolean(isStreaming && message.reasoning && !message.content);
     const isMobile = useIsMobileContext();
     const reducedMotion = useReducedMotion();
@@ -283,6 +297,10 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
         if (isPdf && onPdfOpen) onPdfOpen(fileId, fileName, firstPage);
         else if (onPreviewSource) onPreviewSource(fileId, fileName);
     }, [onPdfOpen, onPreviewSource]);
+
+    // Opening a source needs a handler, and ChatView passes one only with
+    // downloadSources (the PDF viewer and the preview load the file).
+    const canOpenSources = !!onPdfOpen || !!onPreviewSource;
 
     // handleOpenSource powers the §8 citation-preview "Im Dokument öffnen" link.
     const handleOpenSource = useCallback((source: MessageSource) => {
@@ -408,7 +426,7 @@ function MessageBubble({ message, isStreaming, onPdfOpen, onFollowUpClick, showF
                         citationSpans={citationSpanMap(message.verification)}
                         trajectory={message.trajectory}
                         flaggedClaims={flaggedClaimsFor(message.verification)}
-                        onOpenSource={handleOpenSource}
+                        onOpenSource={canOpenSources ? handleOpenSource : undefined}
                         reasoningOpen={reasoningOpen}
                         onToggleReasoning={() => toggleSection('reasoning')}
                     />
