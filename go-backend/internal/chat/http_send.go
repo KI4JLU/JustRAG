@@ -79,6 +79,10 @@ type sendMessageRequest struct {
 	// FileIDs selects the user-library files of a KB-less library chat turn
 	// (POST /api/library/chat, P3-R4). The KB send path ignores it.
 	FileIDs []string `json:"fileIds"`
+	// AttachmentIDs are files uploaded through POST /api/kb/{id}/chat/attachments
+	// and attached to this question (migration 0090). Their text is context
+	// for this and every later turn of the chat. See attachments.go.
+	AttachmentIDs []string `json:"attachmentIds"`
 }
 
 // SanitizeParentMessageID returns a pointer to id when it is a valid UUID, and
@@ -277,6 +281,14 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// CitationFilter (citation_visibility.go). Nothing stored changes.
 	ctx = h.withCitationVisibility(ctx, kbID, user)
 
+	// Attachments are checked before the chat row and the usage record, so a
+	// refused file leaves nothing behind (attachments_http.go).
+	newAttachments, attachLimits, attErr := h.validateTurnAttachments(ctx, body, user.ID, kbID)
+	if attErr != nil {
+		attErr.write(ctx, w)
+		return
+	}
+
 	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message)
 	if !ok {
 		return
@@ -350,12 +362,22 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// corpus-table map-reduce. Route the turn to a retrieval-free completion
 	// over the previous answer instead. Checked before CondenseFollowUp so a
 	// positive saves the condense LLM call.
-	if body.Enhance == "" && ChatTransformFollowupEnabled(ctx, h.siteConfigReader) && IsTransformFollowUpQuery(body.Message) {
+	// A question that brings new attachments is never a reformat of the
+	// previous answer.
+	if body.Enhance == "" && len(newAttachments) == 0 && ChatTransformFollowupEnabled(ctx, h.siteConfigReader) && IsTransformFollowUpQuery(body.Message) {
 		if prev := lastAIMessage(convRows); prev != nil {
 			h.handleTransformFollowUp(ctx, w, span, body, chatID, kbID, lang, user.ID, anchor, prev, convRows, streamMode)
 			return
 		}
 	}
+
+	// Attached documents of the conversation (and of this question) ride on
+	// ctx, so every answer path below reads the same set (attachments.go).
+	var regenQuestion []string
+	if anchor.Regenerate != nil {
+		regenQuestion = []string{anchor.Regenerate.UserMsg.ID}
+	}
+	ctx = withTurnDocuments(ctx, h.prepareTurnDocuments(ctx, kbID, lang, attachLimits, convRows, regenQuestion, newAttachments))
 
 	// chat_sse_early_open_enabled: headers + a heartbeat go out now, so the
 	// client sees bytes during condense/classify/retrieval, and progress
@@ -561,6 +583,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		Content:       body.Message,
 		IsEnhanced:    hasEnhanced,
 		EnhancedQuery: enhancedQueryPtr,
+		AttachmentIDs: newAttachmentIDs(ctx),
 	}, anchor)
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save user message", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
@@ -1299,6 +1322,7 @@ func (h *Handler) tryDeepChat(
 		Content:       body.Message,
 		IsEnhanced:    hasEnhanced,
 		EnhancedQuery: enhancedQueryPtr,
+		AttachmentIDs: newAttachmentIDs(ctx),
 	}, anchor)
 	if err != nil {
 		// Can't save user message — fall through to standard path which
@@ -1331,8 +1355,18 @@ func (h *Handler) tryDeepChat(
 		}
 	}
 
+	// Attached documents join the sources before they are streamed and
+	// persisted (attachments.go); the content of those entries is capped on
+	// the wire.
+	var attachmentEvents []map[string]any
+	turnDocumentsFrom(ctx).ensureSources(ctx, chatCtx, answerHistory, body.Message,
+		func(d map[string]any) { attachmentEvents = append(attachmentEvents, d) })
+
 	// Send initial metadata.
-	writeOpeningFrames(ctx, w, chatCtx.Sources, enhancedQuery, chatID, userMsg.ID, chatCtx.Conflicts)
+	writeOpeningFrames(ctx, w, capWireSources(chatCtx.Sources), enhancedQuery, chatID, userMsg.ID, chatCtx.Conflicts)
+	for _, evt := range attachmentEvents {
+		writeSSE(ctx, w, evt)
+	}
 
 	// Stream AI completion. When chat_answer_tools_enabled is on AND a
 	// tool dispatcher is wired, route through RunAnswerWithTools so the
@@ -1394,13 +1428,14 @@ func (h *Handler) tryDeepChat(
 			}
 			writeSSE(ctx, w, payload)
 		}
+		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, chatCtx, answerTools.systemPrompt(chatCtx.SystemPrompt), answerHistory, body.Message)
 		err = RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
 			KbID:            kbID,
 			ChatID:          chatID,
-			SystemPrompt:    answerTools.systemPrompt(chatCtx.SystemPrompt),
-			UserPrompt:      body.Message,
-			History:         answerHistory,
+			SystemPrompt:    shapedSystem,
+			UserPrompt:      shapedQuestion,
+			History:         shapedHistory,
 			Tools:           catalog,
 			Dispatcher:      answerTools.dispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
@@ -1417,7 +1452,8 @@ func (h *Handler) tryDeepChat(
 			return true
 		}
 	} else {
-		events, sErr := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, answerHistory, body.Message, chatCtx.SystemPrompt, kbID, reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
+		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, chatCtx, chatCtx.SystemPrompt, answerHistory, body.Message)
+		events, sErr := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, shapedHistory, shapedQuestion, shapedSystem, kbID, reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
 		if sErr != nil {
 			writeSSE(ctx, w, map[string]string{"error": "failed to start AI stream"})
 			writeSSEDone(ctx, w)
@@ -1542,7 +1578,7 @@ func (h *Handler) finishDeepChatAnswer(
 		ChatID:          chatID,
 		Role:            "ai",
 		Content:         fullResponse,
-		Sources:         chatCtx.Sources,
+		Sources:         capWireSources(chatCtx.Sources),
 		Reasoning:       reasoningPtr,
 		ParentMessageID: &userMsgID,
 		StructuredTable: chatCtx.StructuredTable,

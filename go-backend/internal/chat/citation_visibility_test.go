@@ -195,7 +195,7 @@ func TestRedactTrajectory_RefineDiffAcrossMarker(t *testing.T) {
 	if !split {
 		t.Fatalf("fixture no longer splits a marker across chunks: %q", diff)
 	}
-	got := redactTrajectory(TrajectoryEvent{RefinedText: "Text [1, 2]. Rest [2] bleibt.", Diff: diff})
+	got := redactTrajectory(TrajectoryEvent{RefinedText: "Text [1, 2]. Rest [2] bleibt.", Diff: diff}, nil)
 	var original, refined strings.Builder
 	for _, d := range got.Diff {
 		if strings.ContainsAny(d.Text, "[]0123456789") {

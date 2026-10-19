@@ -166,9 +166,12 @@ type MessageRow struct {
 	// `omitempty` keeps the key absent for the overwhelming majority of
 	// turns, which is what makes "absent means not run" hold.
 	Conflicts []MessageConflict `json:"conflicts,omitempty" db:"conflicts"`
-	TeamID    *string           `json:"teamId,omitempty" db:"team_id"`
-	AgentID   *string           `json:"agentId,omitempty" db:"agent_id"`
-	CreatedAt time.Time         `json:"createdAt" db:"created_at"`
+	// Attachments are the files attached to a user message (migration 0090),
+	// filled by GetMessages; omitted when there are none.
+	Attachments []MessageAttachment `json:"attachments,omitempty" db:"-"`
+	TeamID      *string             `json:"teamId,omitempty" db:"team_id"`
+	AgentID     *string             `json:"agentId,omitempty" db:"agent_id"`
+	CreatedAt   time.Time           `json:"createdAt" db:"created_at"`
 }
 
 // DecodedSources returns Sources as typed chat sources for the few callers
@@ -210,6 +213,11 @@ type AddMessageParams struct {
 	// agent that produced it (nil on user messages and non-team turns).
 	TeamID  *string
 	AgentID *string
+	// AttachmentIDs are the user_files ids attached to a user message, in the
+	// order the user attached them (message_attachments, migration 0090).
+	// Written in the same transaction as the message. Every id must already
+	// have been checked to belong to the message's author.
+	AttachmentIDs []string
 }
 
 // Store is the interface for chat-related database operations.

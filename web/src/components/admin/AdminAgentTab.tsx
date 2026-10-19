@@ -29,6 +29,7 @@ const SECTION_CONFIGS = [
     { id: 'graph', titleKey: 'agentSectionGraph', i18nKeys: ['kgExtractionEnabled', 'chatGraphRoutingEnabled', 'chatGraphRoutingInjectChunks', 'chatGraphRoutingMaxChunks', 'chatGraphRoutingPathMode', 'chatGraphRoutingPPRDamping', 'chatGraphRoutingPPRMaxIter', 'chatGraphRoutingPPRTopEntities', 'chatGraphRoutingPathsMaxLen', 'chatGraphRoutingPathsMaxPaths'], settingKeys: ['kg_extraction_enabled', 'chat_graph_routing_enabled', 'chat_graph_routing_inject_chunks', 'chat_graph_routing_max_chunks', 'chat_graph_routing_path_mode', 'chat_graph_routing_ppr_damping', 'chat_graph_routing_ppr_max_iter', 'chat_graph_routing_ppr_top_entities', 'chat_graph_routing_paths_max_len', 'chat_graph_routing_paths_max_paths'] },
     { id: 'multistep', titleKey: 'agentSectionMultiStep', i18nKeys: ['chatKBRouterEnabled', 'chatKBRouterMinConfidence', 'chatTurnBudgetSeconds', 'chatTurnBudgetTokens', 'chatTurnBudgetToolCalls', 'chatAgenticEnabled', 'chatAgenticMaxHops', 'chatPlanExecuteEnabled', 'chatPlanExecuteMaxSubQueries', 'chatPlanExecuteMaxIterations', 'chatPlanExecuteTokenBudget', 'chatPlanExecuteToolAware', 'chatPlanExecuteDAGIterative', 'chatAnswerToolsEnabled', 'chatWebSearchEnabled', 'chatAnswerToolsMaxRounds', 'chatOrchestratorPolicy', 'chatOrchestratorPolicyHelp', 'chatOrchestratorPolicyPreview', 'chatOrchestratorPolicyNoRule', 'chatOrchestratorPolicyFlagOff', 'chatAnswerToolsByRoute', 'chatAnswerToolsByRouteHelp', 'chatSupervisorEnabled', 'chatSupervisorMultiSpecialist', 'chatDriftEnabled', 'chatCommunitySearchEnabled'], settingKeys: ['chat_kb_router_enabled', 'chat_kb_router_min_confidence', 'chat_turn_budget_seconds', 'chat_turn_budget_tokens', 'chat_turn_budget_tool_calls', 'chat_agentic_enabled', 'chat_agentic_max_hops', 'chat_plan_execute_enabled', 'chat_plan_execute_max_sub_queries', 'chat_plan_execute_max_iterations', 'chat_plan_execute_token_budget', 'chat_plan_execute_tool_aware', 'chat_plan_execute_dag_iterative', 'chat_answer_tools_enabled', 'chat_web_search_enabled', 'chat_answer_tools_max_rounds', 'chat_orchestrator_policy', 'chat_answer_tools_by_route', 'chat_supervisor_enabled', 'chat_supervisor_multi_specialist', 'chat_drift_enabled', 'chat_community_search_enabled'] },
     { id: 'conversation', titleKey: 'agentSectionConversation', i18nKeys: ['chatAnswerHistoryEnabled', 'chatAnswerHistoryMessages', 'chatAnswerHistoryMaxChars', 'chatTransformFollowupEnabled'], settingKeys: ['chat_answer_history_enabled', 'chat_answer_history_messages', 'chat_answer_history_max_chars', 'chat_transform_followup_enabled'] },
+    { id: 'attachments', titleKey: 'agentSectionAttachments', i18nKeys: ['chatAttachmentsContextShare', 'chatAttachmentsFallbackContextWindow', 'chatAttachmentsMaxPerMessage'], settingKeys: ['chat_attachments_context_share', 'chat_attachments_fallback_context_window', 'chat_attachments_max_per_message'] },
     { id: 'corpusTable', titleKey: 'agentSectionCorpusTable', i18nKeys: ['chatCorpusTableEnabled', 'chatCorpusTableModel', 'chatCorpusTableMaxFiles', 'chatCorpusTableConcurrency', 'chatCorpusTableRouterLlmEnabled'], settingKeys: ['chat_corpus_table_enabled', 'chat_corpus_table_model', 'chat_corpus_table_max_files', 'chat_corpus_table_concurrency', 'chat_corpus_table_router_llm_enabled'] },
     { id: 'compare', titleKey: 'agentSectionCompare', i18nKeys: ['chatCompareEnabled', 'chatCompareModel', 'chatCompareMaxSections', 'chatCompareConcurrency', 'chatComparePeersPerSection', 'chatCompareAttachmentTtlHours', 'chatCompareMaxFileBytes'], settingKeys: ['chat_compare_enabled', 'chat_compare_model', 'chat_compare_max_sections', 'chat_compare_concurrency', 'chat_compare_peers_per_section', 'chat_compare_attachment_ttl_hours', 'chat_compare_max_file_bytes'] },
     { id: 'teams', titleKey: 'agentSectionTeams', i18nKeys: ['agentTeamRouterModel', 'agentsAllowPrivilegedTools'], settingKeys: ['agent_team_router_model', 'agents_allow_privileged_tools'] },
@@ -1145,6 +1146,41 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         help={t('chatTransformFollowupEnabledHelp')}
                         checked={siteConfigs.chat_transform_followup_enabled !== 'false' && siteConfigs.chat_transform_followup_enabled !== '0'}
                         onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_transform_followup_enabled: checked ? 'true' : 'false' }))}
+                    />
+                </Section>
+
+                <Section title={t('agentSectionAttachments')} {...sectionState('attachments')}>
+                    <FieldRow
+                        label={t('chatAttachmentsContextShare')}
+                        help={t('chatAttachmentsContextShareHelp')}
+                        type="number"
+                        min={0.1}
+                        max={0.9}
+                        step={0.05}
+                        value={siteConfigs.chat_attachments_context_share || '0.5'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_context_share: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatAttachmentsFallbackContextWindow')}
+                        help={t('chatAttachmentsFallbackContextWindowHelp')}
+                        type="number"
+                        min={4096}
+                        max={10000000}
+                        step={1}
+                        value={siteConfigs.chat_attachments_fallback_context_window || '32768'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_fallback_context_window: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatAttachmentsMaxPerMessage')}
+                        help={t('chatAttachmentsMaxPerMessageHelp')}
+                        type="number"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={siteConfigs.chat_attachments_max_per_message || '10'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_max_per_message: e.target.value }))}
                     />
                 </Section>
 

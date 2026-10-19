@@ -266,6 +266,10 @@ func (h *Handler) resolveLibraryFiles(ctx context.Context, w http.ResponseWriter
 		}
 		seen[id] = true
 		uf, err := h.libraryFiles.Get(ctx, userID, id)
+		if err == nil && !uf.IsLibrary() {
+			// A chat attachment is not a library file (migration 0090).
+			err = userfiles.ErrNotFound
+		}
 		switch {
 		case errors.Is(err, userfiles.ErrNotFound) && fromBody:
 			httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "file not found")

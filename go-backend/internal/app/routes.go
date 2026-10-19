@@ -560,6 +560,7 @@ func registerAdminRoutes(rc *routeCtx) {
 	rc.mux.Handle("DELETE /api/admin/configs/{id}", rc.adminChain(adminConfigsHandler.DeleteConfig))
 	rc.mux.Handle("POST /api/admin/configs/{id}/activate", rc.adminChain(adminConfigsHandler.ActivateConfig))
 	rc.mux.Handle("POST /api/admin/configs/{id}/test", rc.adminChain(adminConfigsHandler.TestConfig))
+	rc.mux.Handle("GET /api/admin/configs/{id}/model-info", rc.adminChain(adminConfigsHandler.ModelInfo))
 
 	// Admin Auth Providers — OIDC hooks live in authhandler so the wrap +
 	// invalidate functions are passed in here.
@@ -1302,6 +1303,15 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 			userfiles.NewStore(rc.infra.db.Main),
 			chat.NewLibraryTextSource(rc.infra.stor, parser.DefaultFactoryWith(nil)),
 		),
+		// Chat attachments (migration 0090): chat-scoped user files stored
+		// through the library ingester (shared quota and dedup), read with the
+		// library text source above, removed through the cascade deleter.
+		chat.WithChatAttachments(
+			rc.chatStore,
+			userfiles.NewIngester(userfiles.NewStore(rc.infra.db.Main), rc.infra.stor, userFileQuota{reader: rc.chatStore}),
+			rc.cascadeDeleter,
+			tabularUploadLimits{reader: rc.chatStore},
+		),
 	}
 	if rc.agentDecisionStore != nil {
 		chatOpts = append(chatOpts, chat.WithDecisionRecorder(&decisionRecorderAdapter{store: rc.agentDecisionStore}))
@@ -1374,6 +1384,14 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 	// Same auth + KB-view ACL chain and "chat" rate limiter as the chat send route —
 	// the upload triggers synchronous parsing + a Redis write, so it must be metered.
 	rc.mux.Handle("POST /api/kb/{id}/chat/attachment", chatRL.Middleware(rc.kbViewChain(chatHandler.UploadAttachment)))
+	// Chat attachments as context: own budget, counted per user after
+	// authentication (the composer uploads several files at once, which would
+	// drain the per-IP chat budget the message itself needs).
+	attachRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 60, Window: time.Minute, Category: "chat_attachments", Key: userRateKey,
+	})
+	rc.mux.Handle("POST /api/kb/{id}/chat/attachments",
+		rc.kbViewChain(attachRL.Middleware(http.HandlerFunc(chatHandler.UploadChatAttachment)).ServeHTTP))
 
 	// KB-less library chat (owner-only; ownership checked in the handler).
 	// The send route shares the KB chat rate limiter, wrapped outside auth.

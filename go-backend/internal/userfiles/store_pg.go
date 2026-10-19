@@ -3,6 +3,7 @@ package userfiles
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,18 +26,33 @@ var ErrInvalidName = errors.New("invalid file name")
 
 const maxNameBytes = 255
 
+// Scopes of a user_files row (migration 0090).
+const (
+	// ScopeLibrary is a library file: listed, usable in KBs and library chats.
+	ScopeLibrary = "library"
+	// ScopeChat is a chat attachment: owner-only, not listed in the library,
+	// deleted with the chats that reference it.
+	ScopeChat = "chat"
+)
+
 // UserFile is one library file.
 type UserFile struct {
-	ID          string    `json:"id"`
-	OwnerUserID string    `json:"-"`
-	Name        string    `json:"name"`
-	Mime        string    `json:"mime"`
-	Size        int64     `json:"size"`
-	SHA256      string    `json:"-"`
-	StoragePath string    `json:"-"`
-	CreatedAt   time.Time `json:"createdAt"`
-	KBs         []KBLink  `json:"kbs"` // always non-nil ([]), filled by Get/List
+	ID          string `json:"id"`
+	OwnerUserID string `json:"-"`
+	Name        string `json:"name"`
+	Mime        string `json:"mime"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"-"`
+	StoragePath string `json:"-"`
+	// Scope is ScopeLibrary or ScopeChat. Not serialised: the library API only
+	// ever lists library files.
+	Scope     string    `json:"-"`
+	CreatedAt time.Time `json:"createdAt"`
+	KBs       []KBLink  `json:"kbs"` // always non-nil ([]), filled by Get/List
 }
+
+// IsLibrary reports whether f is a library file (not a chat attachment).
+func (f *UserFile) IsLibrary() bool { return f.Scope != ScopeChat }
 
 // KBLink is one KB copy of a library file.
 type KBLink struct {
@@ -61,23 +77,32 @@ type NewUserFile struct {
 	Size        int64
 	SHA256      string
 	StoragePath string
+	// Scope is ScopeLibrary (the default when empty) or ScopeChat.
+	Scope string
 }
 
 // Store is the library data layer. PGStore is its only implementation.
 type Store interface {
 	// Insert inserts f. If (owner, sha256) already exists it inserts nothing
-	// and returns the EXISTING row with created=false.
+	// and returns the EXISTING row with created=false; a library insert that
+	// hits a chat attachment promotes it to the library first.
 	Insert(ctx context.Context, f NewUserFile) (row *UserFile, created bool, err error)
-	// Get returns the owner's file (ErrNotFound for a missing id OR another owner's id).
+	// Get returns the owner's file (ErrNotFound for a missing id OR another
+	// owner's id), library file or chat attachment alike.
 	Get(ctx context.Context, ownerID, id string) (*UserFile, error)
+	// List returns the owner's library files; chat attachments are not listed.
 	List(ctx context.Context, ownerID string, limit, offset int) ([]UserFile, int, error)
 	Rename(ctx context.Context, ownerID, id, name string) (*UserFile, error)
 	Usage(ctx context.Context, ownerID, id string) ([]KBUsage, error)
 	UsedBytes(ctx context.Context, ownerID string) (int64, error)
 	// QuotaOverride returns users.file_quota_bytes (nil = not set).
 	QuotaOverride(ctx context.Context, ownerID string) (*int64, error)
-	// ListIDsByOwner returns every user_files id of ownerID (user-delete fan-out).
+	// ListIDsByOwner returns every user_files id of ownerID, both scopes
+	// (user-delete fan-out).
 	ListIDsByOwner(ctx context.Context, ownerID string) ([]string, error)
+	// Promote turns the owner's chat attachment into a library file. A no-op
+	// for a library file; ErrNotFound for a missing or foreign id.
+	Promote(ctx context.Context, ownerID, id string) error
 }
 
 // PGStore is the Postgres-backed Store.
@@ -90,11 +115,11 @@ func NewStore(pool *pgxpool.Pool) *PGStore { return &PGStore{pool: pool} }
 
 var _ Store = (*PGStore)(nil)
 
-const fileCols = `id::text, owner_user_id::text, name, mime, size, sha256::text, storage_path, created_at`
+const fileCols = `id::text, owner_user_id::text, name, mime, size, sha256::text, storage_path, scope, created_at`
 
 func scanFile(row pgx.Row) (*UserFile, error) {
 	var f UserFile
-	if err := row.Scan(&f.ID, &f.OwnerUserID, &f.Name, &f.Mime, &f.Size, &f.SHA256, &f.StoragePath, &f.CreatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.OwnerUserID, &f.Name, &f.Mime, &f.Size, &f.SHA256, &f.StoragePath, &f.Scope, &f.CreatedAt); err != nil {
 		return nil, err
 	}
 	f.KBs = []KBLink{}
@@ -109,12 +134,16 @@ func validID(s string) bool {
 }
 
 func (s *PGStore) Insert(ctx context.Context, f NewUserFile) (*UserFile, bool, error) {
+	scope := f.Scope
+	if scope == "" {
+		scope = ScopeLibrary
+	}
 	row, err := scanFile(s.pool.QueryRow(ctx, `
-		INSERT INTO user_files (id, owner_user_id, name, mime, size, sha256, storage_path)
-		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+		INSERT INTO user_files (id, owner_user_id, name, mime, size, sha256, storage_path, scope)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT ON CONSTRAINT user_files_owner_sha256_key DO NOTHING
 		RETURNING `+fileCols,
-		f.ID, f.OwnerUserID, f.Name, f.Mime, f.Size, f.SHA256, f.StoragePath))
+		f.ID, f.OwnerUserID, f.Name, f.Mime, f.Size, f.SHA256, f.StoragePath, scope))
 	if err == nil {
 		return row, true, nil
 	}
@@ -126,6 +155,13 @@ func (s *PGStore) Insert(ctx context.Context, f NewUserFile) (*UserFile, bool, e
 		f.OwnerUserID, f.SHA256))
 	if err != nil {
 		return nil, false, err
+	}
+	// Uploading bytes to the library that the user already attached in a chat
+	// makes that attachment a library file (one row per owner and hash).
+	if scope == ScopeLibrary && row.Scope == ScopeChat {
+		if err := s.Promote(ctx, f.OwnerUserID, row.ID); err != nil {
+			return nil, false, err
+		}
 	}
 	// The dedup hit may already be linked into KBs; report them like Get does.
 	row, err = s.Get(ctx, f.OwnerUserID, row.ID)
@@ -156,11 +192,12 @@ func (s *PGStore) Get(ctx context.Context, ownerID, id string) (*UserFile, error
 func (s *PGStore) List(ctx context.Context, ownerID string, limit, offset int) ([]UserFile, int, error) {
 	var total int
 	if err := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*)::int FROM user_files WHERE owner_user_id = $1::uuid`, ownerID).Scan(&total); err != nil {
+		`SELECT COUNT(*)::int FROM user_files WHERE owner_user_id = $1::uuid AND scope = 'library'`, ownerID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT `+fileCols+` FROM user_files
-		WHERE owner_user_id = $1::uuid ORDER BY created_at DESC, id LIMIT $2 OFFSET $3`, ownerID, limit, offset)
+		WHERE owner_user_id = $1::uuid AND scope = 'library'
+		ORDER BY created_at DESC, id LIMIT $2 OFFSET $3`, ownerID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -308,4 +345,20 @@ func (s *PGStore) ListIDsByOwner(ctx context.Context, ownerID string) ([]string,
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (s *PGStore) Promote(ctx context.Context, ownerID, id string) error {
+	if !validID(id) {
+		return ErrNotFound
+	}
+	// updated_at is left alone: the file's content and name did not change.
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE user_files SET scope = 'library' WHERE id = $1::uuid AND owner_user_id = $2::uuid`, id, ownerID)
+	if err != nil {
+		return fmt.Errorf("promote user file: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

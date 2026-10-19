@@ -697,6 +697,31 @@ func ChatLibraryFulltextMaxTokens(ctx context.Context, reader SiteConfigReader) 
 	return readInt(ctx, reader, "chat_library_fulltext_max_tokens", 60_000, 4_000, 200_000)
 }
 
+// ChatAttachmentsContextShare is the share of the answer model's context
+// window that a turn's chat attachments may fill together (migration 0090);
+// the rest stays for the system prompt, KB sources, history and the answer.
+// Global-only ("chat_attachments_context_share"), default 0.5, range
+// [0.1, 0.9].
+func ChatAttachmentsContextShare(ctx context.Context, reader SiteConfigReader) float64 {
+	return readFloat(ctx, reader, "chat_attachments_context_share", 0.5, 0.1, 0.9)
+}
+
+// ChatAttachmentsFallbackContextWindow is the context window, in tokens,
+// assumed for an answer model whose ai_models.context_window is not set.
+// Deliberately low, so an unconfigured model is never overrun. Global-only
+// ("chat_attachments_fallback_context_window"), default 32768, range
+// [4096, 10000000].
+func ChatAttachmentsFallbackContextWindow(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_attachments_fallback_context_window", 32_768, 4_096, 10_000_000)
+}
+
+// ChatAttachmentsMaxPerMessage caps the attachments of one chat message.
+// Global-only ("chat_attachments_max_per_message"), default 10, range
+// [1, 50].
+func ChatAttachmentsMaxPerMessage(ctx context.Context, reader SiteConfigReader) int {
+	return readInt(ctx, reader, "chat_attachments_max_per_message", 10, 1, 50)
+}
+
 // ChatLongContextTopK is the chunk-pool size Search() returns on the
 // long-context route. Default 200 (the historical constant), range [50, 500].
 // Wave-3's map-reduce consumer tunes this against the token budget. Tunable

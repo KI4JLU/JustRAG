@@ -24,6 +24,39 @@ var globalValidators = map[string]func(string) error{
 	"user_file_quota_bytes":      validateUserFileQuotaBytes,
 
 	"chat_library_fulltext_max_tokens": validateLibraryFulltextMaxTokens,
+
+	"chat_attachments_context_share":           validateFloatRange(0.1, 0.9),
+	"chat_attachments_fallback_context_window": validateIntRange(4096, 10_000_000),
+	"chat_attachments_max_per_message":         validateIntRange(1, 50),
+}
+
+// validateIntRange / validateFloatRange mirror the chat readers' clamps for
+// keys whose out-of-range value would otherwise silently read as the
+// default.
+func validateIntRange(lo, hi int) func(string) error {
+	return func(v string) error {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("must be an integer")
+		}
+		if n < lo || n > hi {
+			return fmt.Errorf("must be between %d and %d", lo, hi)
+		}
+		return nil
+	}
+}
+
+func validateFloatRange(lo, hi float64) func(string) error {
+	return func(v string) error {
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil {
+			return fmt.Errorf("must be a number")
+		}
+		if f < lo || f > hi {
+			return fmt.Errorf("must be between %g and %g", lo, hi)
+		}
+		return nil
+	}
 }
 
 // Mirrors chat.ChatLibraryFulltextMaxTokens' clamp; out-of-range values would

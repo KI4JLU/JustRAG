@@ -202,6 +202,13 @@ func (a *Adopter) adoptOne(ctx context.Context, kbID, callerID, fileID string) (
 	}
 	if existing != nil {
 		// Same bytes already in the library: link, no copy, no quota change.
+		// A chat attachment with these bytes becomes a library file, since a
+		// KB file now depends on it.
+		if !existing.IsLibrary() {
+			if err := a.lib.Promote(ctx, target, existing.ID); err != nil {
+				return "", "", err
+			}
+		}
 		uf = existing
 	} else {
 		over, err := a.overQuota(ctx, target, size)

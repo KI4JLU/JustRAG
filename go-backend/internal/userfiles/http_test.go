@@ -179,6 +179,7 @@ func (s *fakeStore) QuotaOverride(_ context.Context, owner string) (*int64, erro
 }
 
 func (s *fakeStore) ListIDsByOwner(context.Context, string) ([]string, error) { return nil, nil }
+func (s *fakeStore) Promote(context.Context, string, string) error            { return nil }
 
 type fakeStorage struct {
 	mu      sync.Mutex

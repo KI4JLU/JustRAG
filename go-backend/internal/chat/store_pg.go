@@ -568,6 +568,9 @@ func (s *PGStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageR
 		if _, err := tx.Exec(ctx, updateChatSQL, p.ChatID); err != nil {
 			return fmt.Errorf("AddMessage update chat: %w", err)
 		}
+		if err := insertMessageAttachments(ctx, tx, row.ID, p.AttachmentIDs); err != nil {
+			return err
+		}
 		// Persist the chunk -> message links used by the online feedback loop.
 		// kb_id is resolved from the chat in the same tx. ChunkID is in-memory
 		// only (json:"-"), so this is the sole place the link can be recorded.

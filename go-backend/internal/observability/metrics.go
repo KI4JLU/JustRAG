@@ -2763,16 +2763,16 @@ func UserFileAdoptTotalForTest() *prometheus.CounterVec {
 var userFileOrphansDeletedTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name:        "rag_user_file_orphans_deleted_total",
-		Help:        "Orphaned library objects deleted by the userfiles orphan sweep, by kind (blob or cache).",
+		Help:        "Orphaned library objects deleted by the userfiles orphan sweep, by kind (blob, cache, or chat_attachment: an unreferenced chat attachment removed with its blob and caches).",
 		ConstLabels: commonLabels,
 	},
 	[]string{"kind"},
 )
 
 // RecordUserFileOrphanDeleted counts one swept object; any kind other than
-// cache normalises to blob.
+// cache or chat_attachment normalises to blob.
 func RecordUserFileOrphanDeleted(kind string) {
-	if kind != "cache" {
+	if kind != "cache" && kind != "chat_attachment" {
 		kind = "blob"
 	}
 	userFileOrphansDeletedTotal.WithLabelValues(kind).Inc()

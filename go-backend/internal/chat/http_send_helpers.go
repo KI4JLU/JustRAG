@@ -671,18 +671,45 @@ func (p chatResponseParams) lowConfidence(sourceCount int) bool {
 // messages.sources and every message reload.
 const librarySourceSnippetRunes = 600
 
-// wireSources returns the sources to stream and persist: the turn's own slice
-// on a KB turn (byte-identical), or a copy with each Content capped to
-// librarySourceSnippetRunes on a library turn. Citation validation keeps
-// reading the full in-memory p.chatCtx.Sources.
+// wireSources returns the sources to stream and persist: on a library turn a
+// copy with every Content capped to librarySourceSnippetRunes, on a KB turn
+// capWireSources (only chat attachments are capped; a turn without any keeps
+// its own slice). Citation validation keeps reading the full in-memory
+// p.chatCtx.Sources.
 func (p chatResponseParams) wireSources() []ChatSource {
 	if !p.library {
-		return p.chatCtx.Sources
+		return capWireSources(p.chatCtx.Sources)
 	}
 	out := make([]ChatSource, len(p.chatCtx.Sources))
 	copy(out, p.chatCtx.Sources)
 	for i := range out {
 		out[i].Content = truncateRunes(out[i].Content, librarySourceSnippetRunes)
+	}
+	return out
+}
+
+// capWireSources returns sources with the Content of every user-file source
+// (a KB turn's chat attachments) capped to
+// librarySourceSnippetRunes: those carry whole documents, which would
+// otherwise go into the opening SSE frame, messages.sources and every reload.
+// A slice without such a source is returned as is (byte-identical KB turns).
+func capWireSources(sources []ChatSource) []ChatSource {
+	capped := false
+	for _, s := range sources {
+		if s.UserFileID != "" {
+			capped = true
+			break
+		}
+	}
+	if !capped {
+		return sources
+	}
+	out := make([]ChatSource, len(sources))
+	copy(out, sources)
+	for i := range out {
+		if out[i].UserFileID != "" {
+			out[i].Content = truncateRunes(out[i].Content, librarySourceSnippetRunes)
+		}
 	}
 	return out
 }
@@ -723,6 +750,10 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// Runs before the `sources` frame below AND before the AddMessage that
 	// persists the same slice, so the SSE payload and messages.sources agree.
 	h.enrichResponseSources(ctx, p)
+	// Attached documents join the sources before they go out (attachments.go).
+	var attachmentEvents []map[string]any
+	turnDocumentsFrom(ctx).ensureSources(ctx, p.chatCtx, p.history, p.userMessage,
+		func(d map[string]any) { attachmentEvents = append(attachmentEvents, d) })
 	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
@@ -737,6 +768,9 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	}()
 
 	writeOpeningFrames(ctx, w, sources, enhancedQuery, p.chatID, p.userMsgID, p.chatCtx.Conflicts)
+	for _, evt := range attachmentEvents {
+		writeSSE(ctx, w, evt)
+	}
 
 	// Replay any trajectory events that were buffered during
 	// PrepareChatContext (CRAG branch decisions, etc.) so the
@@ -797,13 +831,14 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			}
 			writeSSE(ctx, w, payload)
 		}
+		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, p.chatCtx, answerTools.systemPrompt(systemPrompt), p.history, p.userMessage)
 		err := RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
 			KbID:            p.kbID,
 			ChatID:          p.chatID,
-			SystemPrompt:    answerTools.systemPrompt(systemPrompt),
-			UserPrompt:      p.userMessage,
-			History:         p.history,
+			SystemPrompt:    shapedSystem,
+			UserPrompt:      shapedQuestion,
+			History:         shapedHistory,
 			Tools:           catalog,
 			Dispatcher:      answerTools.dispatcher,
 			MaxRounds:       ChatAnswerToolsMaxRounds(ctx, h.siteConfigReader),
@@ -821,7 +856,8 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 			return
 		}
 	} else {
-		events, err := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, p.history, p.userMessage, systemPrompt, p.kbID, p.reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
+		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, p.chatCtx, systemPrompt, p.history, p.userMessage)
+		events, err := ai.StreamCompletionWithHistory(genCtx, h.aiResolver, shapedHistory, shapedQuestion, shapedSystem, p.kbID, p.reasoningLevel, ChatAnswerTemperature(ctx, h.siteConfigReader))
 		if err != nil {
 			logctx.From(ctx).Error("chat.send: start AI stream", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
 			writeSSE(ctx, w, map[string]string{"error": "failed to start AI stream"})
@@ -968,12 +1004,14 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
 	// Same one-shot enrichment as the streaming branch — see there.
 	h.enrichResponseSources(ctx, p)
+	turnDocumentsFrom(ctx).ensureSources(ctx, p.chatCtx, p.history, p.userMessage, nil)
 	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
 
 	nonStreamStart := time.Now()
-	result, err := ai.GenerateCompletionWithHistory(ctx, h.aiResolver, p.history, p.userMessage, systemPrompt, p.kbID, p.reasoningLevel != "")
+	shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, p.chatCtx, systemPrompt, p.history, p.userMessage)
+	result, err := ai.GenerateCompletionWithHistory(ctx, h.aiResolver, shapedHistory, shapedQuestion, shapedSystem, p.kbID, p.reasoningLevel != "")
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: generate completion", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to generate response")

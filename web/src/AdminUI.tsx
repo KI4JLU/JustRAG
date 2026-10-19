@@ -28,6 +28,7 @@ interface AIModel {
     isTts: boolean;
     isStt: boolean;
     dimensions?: number;
+    contextWindow?: number;
 }
 
 interface AIConfig {

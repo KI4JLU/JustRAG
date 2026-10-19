@@ -214,6 +214,13 @@ for the current reader, so when a KB admin turns `viewerSeeCitations` on,
 the existing history shows its citations again, and turning it off hides
 them on the next read.
 
+**The reader's own chat attachments stay.** A source with a `userFileId` is a
+file the reader attached to the chat themselves (§ Chat, chat attachments),
+not a KB source: it stays in `sources`, its `[n]` markers stay (a marker citing
+KB sources too keeps only the attachment numbers, `[1, 5]` → `[5]`), and its
+`verification.citations` entries stay. Everything below applies to the KB
+sources only.
+
 What is withheld, per surface:
 
 | Surface | Without `seeCitations` |
@@ -603,9 +610,63 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | POST | `/kb/{id}/chats/{chatId}/messages/{messageId}/feedback` |
 | POST | `/kb/{id}/agui/chat` |
 | POST | `/kb/{id}/chat/attachment` |
+| POST | `/kb/{id}/chat/attachments` |
 
 - `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
 - `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`.
+
+**Chat attachments as context.** `POST /kb/{id}/chat/attachments` (KB view, `chat_attachments`
+rate limit) uploads one file (multipart field `file`) that the user attaches in the composer. The
+file is stored as one of the user's own files — hidden from the library list, owner-only, counted
+against the library quota, deduplicated by content — and never indexed. It is parsed and counted
+now, so a file the chat cannot use is refused before the message is sent. `{id}` decides the token
+budget (the KB's answer model); nothing about the KB is stored with the file.
+
+| Status | When |
+|---|---|
+| `201` | `{"id", "name", "mime", "size", "tokens"}`; `id` goes into `attachmentIds` of the send |
+| `400` / `413` | Invalid upload (name, missing field) / file over the upload size limit |
+| `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes"}` — the library quota is full |
+| `415` | Unsupported file type (no parser; audio is not transcribed here) |
+| `422` | The file has no extractable text, took too long to read, or `{"error": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |
+| `503` | Chat attachments are not wired on this server |
+
+The budget is `chat_attachments_context_share` (default 0.5) of the KB answer model's context
+window: `ai_models.context_window` (set per model in the admin provider panel), else the window the
+provider reports (vLLM `max_model_len` in `GET /models`, a LiteLLM proxy's `GET /model/info`
+`max_input_tokens`; looked up once an hour per provider), else
+`chat_attachments_fallback_context_window` (default 32 768 tokens). Tokens are counted
+with the model's own tokenizer where the provider has vLLM's `/tokenize`, else with the cl100k
+estimate.
+
+`POST /kb/{id}/chat` takes `attachmentIds` (strings, at most `chat_attachments_max_per_message`,
+default 10): files from the upload above (or any of the caller's own files). They are checked before
+a chat is created or usage is recorded:
+
+| Status | When |
+|---|---|
+| `400` | More ids than allowed; combined with a comparison run (`comparisonModes`); on a regenerate (it keeps its question's attachments) |
+| `404` | An id is not a UUID, does not exist, or belongs to another user |
+| `415` / `422` | A file cannot be read (as on upload), or `too_large_for_context`: the new files together exceed the budget |
+
+The files are linked to the user message and stay context for every later turn of the chat. Their
+text goes into the conversation's first user turn as `<document>` blocks; the current turn's numbered
+source list keeps the KB sources as `[1]…[N]` and adds one entry per document after them, so the
+answer can cite a document like a KB source. Each such entry in `sources` carries `userFileId`
+(no `fileId`) and its `content` is capped to 600 characters on the wire. The documents come before
+the KB sources: when the window is tight, the lowest-ranked KB sources are left out first
+(`{"agentTrajectory": {"stage": "attachments", "decision": "attachments_kb_trimmed", …}}`), and a
+document is left out only when it does not fit even without them — older documents first, with
+`"decision": "attachments_dropped"`. A turn with
+documents skips factcheck, the factuality verifier / Self-RAG, the refine gate and RAGAS sampling
+(they would judge the answer against KB sources that do not contain the documents); the citation
+validator still runs. A reader without the citation right on the KB (`seeCitations`) still sees
+their own attachments among the sources, with their `[n]` markers and citation results; only the KB
+attribution is removed (§ Citations). `GET /chats/{id}/messages` returns `attachments: [{userFileId,
+name, mime, size}]` on user messages that have any. `DELETE /chats/{id}` also deletes the chat's own attachments
+that nothing else references; attachments left by a KB or account deletion and uploads never sent
+are removed by the worker's `userfiles_orphan_sweep` after 24 h. The file itself downloads through
+`GET /library/files/{id}/download`.
 
 `POST /kb/{id}/chat` takes an optional boolean `webSearch` (per-turn web search):
 
@@ -809,6 +870,7 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 | DELETE | `/admin/configs/{id}` |
 | POST | `/admin/configs/{id}/activate` |
 | POST | `/admin/configs/{id}/test` |
+| GET | `/admin/configs/{id}/model-info` |
 | GET | `/admin/auth-providers` |
 | POST | `/admin/auth-providers` |
 | PATCH | `/admin/auth-providers/{id}` |
@@ -844,6 +906,7 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 
 All admin routes need a system role of `admin` or `superadmin`; these are **superadmin only**: `/admin/reembed-all`, `/admin/reembed-user-memory`, `/admin/agent/template`, `DELETE /admin/kbs/{id}` and `PATCH /admin/kbs/{id}/owner`.
 
+- `GET /admin/configs/{id}/model-info` lists the provider's models (`GET /models`) as `{"models": [{"id", "contextWindow"}]}`, with the context window where the server reports one (vLLM: `max_model_len`); `502` when the provider cannot be reached. The admin saves a window per chat model as `contextWindow` in the `chat_models` entries of `POST`/`PATCH /admin/configs` (0 or absent = unknown, at most 10 000 000).
 - `GET /admin/kb-overview` is the KB-Übersicht (activity, freshness, sync status, RAGAS, injection flags per KB).
 - `POST /admin/kb/{id}/publish` makes a KB public but staged (`is_published = false`); `unpublish` needs a new owner, and `unpublish-impact` returns the numbers and owner candidates for its confirmation dialog.
 - `GET /admin/feedback/chunks?kb_id=&limit=` lists the most net-negatively rated chunks; `GET /admin/agent-metrics` the orchestrator outcome distributions.
@@ -1038,9 +1101,10 @@ The Go server applies per-category Redis-backed rate limits:
 | starter_questions | 30 / min | `GET /api/kb/{id}/starter-questions` |
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
 | search | 60 / min **per user** | `GET /api/search` |
+| chat_attachments | 60 / min **per user** | `POST /api/kb/{id}/chat/attachments` |
 | owui_chat | 600 / min **per API key** | `POST /owui/api/chat/completions` |
 | owui_data | 300 / min **per API key** | every other `/owui/*` route |
 
-Limits are counted per client IP, except `search`, which runs after
-authentication and is counted per user, and the two `owui_*` categories, which
+Limits are counted per client IP, except `search` and `chat_attachments`, which run after
+authentication and are counted per user, and the two `owui_*` categories, which
 are counted per API key because one ILIAS server carries every student.

@@ -333,6 +333,13 @@ func (d *Deleter) DeleteUserFile(ctx context.Context, ownerID, userFileID string
 		}
 	}
 
+	// Links to chat messages first (migration 0090; the FK cascades too, but
+	// the delete does not lean on it). A message keeps its text; the file
+	// just stops being its attachment.
+	if _, err := d.mainDB.Exec(ctx,
+		`DELETE FROM message_attachments WHERE user_file_id = $1::uuid`, userFileID); err != nil {
+		return fmt.Errorf("cascade DeleteUserFile: delete message links: %w", err)
+	}
 	if _, err := d.mainDB.Exec(ctx,
 		`DELETE FROM user_files WHERE id = $1::uuid AND owner_user_id = $2::uuid`, userFileID, ownerID); err != nil {
 		return fmt.Errorf("cascade DeleteUserFile: delete row: %w", err)
@@ -525,6 +532,14 @@ const (
 	agentRunsOfKBChats    = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
 	adkSessionsOfKBsChats = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
 	agentRunsOfKBsChats   = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
+
+	// Chat attachment links (migration 0090) of the KB's chats. They would
+	// also go with the messages (ON DELETE CASCADE); listed so the delete
+	// does not lean on it. The chat-scoped user files they pointed at are
+	// left for the userfiles pending sweep, which removes them with blob and
+	// caches.
+	attachmentsOfKBChats  = `DELETE FROM message_attachments WHERE message_id IN (SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.kb_id = $1)`
+	attachmentsOfKBsChats = `DELETE FROM message_attachments WHERE message_id IN (SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.kb_id = ANY($1::uuid[]))`
 )
 
 // txStep is one parameterised statement run inside a cascade transaction.
@@ -560,6 +575,7 @@ func kbDeleteSteps(kbID string) []txStep {
 		// Neither has a chats FK, so they go before the chats.
 		{adkSessionsOfKBChats, []any{kbID}},
 		{agentRunsOfKBChats, []any{kbID}},
+		{attachmentsOfKBChats, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_base_shares WHERE kb_id = $1`, []any{kbID}},
@@ -588,6 +604,7 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 			txStep{`DELETE FROM files WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{adkSessionsOfKBsChats, []any{kbIDs}},
 			txStep{agentRunsOfKBsChats, []any{kbIDs}},
+			txStep{attachmentsOfKBsChats, []any{kbIDs}},
 			txStep{`DELETE FROM chats WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM generated_content WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM knowledge_base_shares WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -648,6 +665,7 @@ func globalKBDeleteSteps(kbID string) []txStep {
 		// Neither has a chats FK, so they go before the chats.
 		{adkSessionsOfKBChats, []any{kbID}},
 		{agentRunsOfKBChats, []any{kbID}},
+		{attachmentsOfKBChats, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_bases WHERE id = $1 AND visibility = 'public'`, []any{kbID}},

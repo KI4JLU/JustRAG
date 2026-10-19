@@ -28,6 +28,7 @@ import (
 	"github.com/justrag/go-backend/internal/sessionmem"
 	"github.com/justrag/go-backend/internal/store"
 	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/uploadcheck"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -105,6 +106,16 @@ type Handler struct {
 	libraryChats LibraryChatStore
 	libraryFiles LibraryFileGetter
 	libraryText  LibraryTextProvider
+	// Chat attachments (attachments_http.go, WithChatAttachments): the
+	// message links, the scoped ingest, the file deleter and the upload
+	// limits. They also need libraryFiles + libraryText (WithLibraryChat).
+	// Optional — without them POST /api/kb/{id}/chat/attachments answers 503
+	// and a send carrying attachmentIds is refused.
+	attachmentFiles AttachmentStore
+	attachIngester  AttachmentIngester
+	attachDeleter   UserFileDeleter
+	attachLimits    uploadcheck.Limits
+	attachTokens    *attachmentTokenCounter
 	// kbAccess resolves a reader's KB capabilities where the request did
 	// not pass RequireKBRole for that KB (citation visibility on stored
 	// messages and on KB-router turns, citation_visibility.go). Optional —
@@ -405,6 +416,7 @@ func NewHandler(store Store, aiResolver *ai.ConfigResolver, searchService vector
 		aiResolver:    aiResolver,
 		searchService: searchService,
 		starterCache:  newStarterCache(starterCacheMaxEntries, starterCacheTTL, starterFailureTTL, starterGenerateTimeout),
+		attachTokens:  newAttachmentTokenCounter(),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -487,6 +499,7 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	if messages == nil {
 		messages = []MessageRow{}
 	}
+	h.fillMessageAttachments(r.Context(), messages)
 	// Stored messages keep their sources; they are stripped here, for this
 	// reader and the KB's current flags (a library chat has no KB and keeps
 	// them — they are the reader's own files).
@@ -530,11 +543,23 @@ func (h *Handler) DeleteChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The chat's own attachments are collected before the delete, while the
+	// message links still exist, and removed after it (attachments_http.go).
+	var attachmentRefs []userFileRef
+	if h.attachmentFiles != nil {
+		refs, err := h.attachmentFiles.ChatScopedAttachments(r.Context(), chatID)
+		if err != nil {
+			logctx.From(r.Context()).Warn("chat.delete: list attachments; the pending sweep removes them later", "error", err, "chat_id", chatID)
+		}
+		attachmentRefs = refs
+	}
+
 	if err := h.store.DeleteChat(r.Context(), chatID); err != nil {
 		logctx.From(r.Context()).Error("chat.delete: delete chat", "error", err, "chat_id", chatID, "user_id", user.ID)
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to delete chat")
 		return
 	}
+	h.cleanupChatAttachments(r.Context(), attachmentRefs)
 
 	w.WriteHeader(http.StatusNoContent)
 }

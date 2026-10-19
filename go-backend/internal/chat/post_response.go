@@ -143,7 +143,15 @@ func (h *Handler) runPostResponseTasks(
 		}
 	})
 
-	if FactcheckEnabled(ctx, h.siteConfigReader) {
+	// A turn with attached documents skips every check that judges the answer
+	// against the KB context alone (factcheck, verifier / Self-RAG, refine,
+	// RAGAS): the answer may rest on the user's documents, which that context
+	// does not contain, so those checks would flag correct answers. The
+	// citation validator still runs — it reads every source, documents
+	// included.
+	attTurn := attachmentTurn(ctx)
+
+	if FactcheckEnabled(ctx, h.siteConfigReader) && !attTurn {
 		wg.Add(1)
 		safego.GoCtx(ctx, func() {
 			defer wg.Done()
@@ -225,9 +233,9 @@ func (h *Handler) runPostResponseTasks(
 	// verifier runs regardless of validator output. Intended for
 	// high-stakes deployments that prefer the cost.
 	validatorEnabled := CitationValidationEnabled(ctx, h.siteConfigReader)
-	verifierEnabled := ChatFactualityVerifierEnabled(ctx, h.siteConfigReader)
+	verifierEnabled := ChatFactualityVerifierEnabled(ctx, h.siteConfigReader) && !attTurn
 	verifierAlwaysRun := ChatFactualityVerifierAlwaysRun(ctx, h.siteConfigReader)
-	gateEnabled := ChatFactualityGateEnabled(ctx, h.siteConfigReader)
+	gateEnabled := ChatFactualityGateEnabled(ctx, h.siteConfigReader) && !attTurn
 	gateMaxRefines := ChatFactualityGateMaxRefines(ctx, h.siteConfigReader)
 	// AP-D2: when chat_self_rag_enabled is on, Self-RAG REPLACES the
 	// legacy factuality verifier in the goroutine below. Mutually
@@ -235,7 +243,7 @@ func (h *Handler) runPostResponseTasks(
 	// ISSUP output feeds factualityClaims unchanged so the existing
 	// AP-A1 refine gate works without modification; ISUSE drives an
 	// extra "force holistic" trigger documented near runRefineGate.
-	selfRAGEnabled := ChatSelfRAGEnabled(ctx, h.siteConfigReader)
+	selfRAGEnabled := ChatSelfRAGEnabled(ctx, h.siteConfigReader) && !attTurn
 	var (
 		refineStatus *RefineStatus
 		// refinedAnswer carries the post-refine text out to the caller
@@ -436,7 +444,7 @@ func (h *Handler) runPostResponseTasks(
 	// calls happen in the worker on QueueBatch. Defaults make this a no-op:
 	// rate=0.0 means no enqueue, master switch ragas_sampling_enabled=false
 	// short-circuits before the dice roll.
-	if h.asynqClient != nil && RAGASSamplingEnabled(ctx, h.siteConfigReader) {
+	if h.asynqClient != nil && !attTurn && RAGASSamplingEnabled(ctx, h.siteConfigReader) {
 		rate := RAGASSamplingRate(ctx, h.siteConfigReader)
 		if rate > 0 && rand.Float64() < rate {
 			h.enqueueRAGASSample(ctx, kbID, lang, aiMsgID, userMessage, aiResponse, sources)

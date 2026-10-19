@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, ComparisonFinding, MessageConflict } from '../types';
+import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, ComparisonFinding, MessageConflict, MessageAttachment } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { chatSourceSelection } from '../utils/kbAccess';
@@ -66,6 +66,13 @@ export function useChatStream({
     opts?: {
       attachmentId?: string;
       comparisonModes?: string[];
+      // Chat attachments of this question: ids for the request, chip data for
+      // the optimistic message.
+      attachmentIds?: string[];
+      attachments?: MessageAttachment[];
+      // Called once the server accepted the turn (the question is stored),
+      // before the answer streams — the composer clears its files then.
+      onAccepted?: () => void;
       agentSelection?: AgentSelection;
       // "Antwort neu generieren": no new question is written. The answer
       // hangs under the named, already-persisted question as a sibling of
@@ -73,11 +80,11 @@ export function useChatStream({
       // switcher lands on the answers.
       regenerateOf?: { aiMessageId: string; userMessageId: string };
     },
-  ) => {
+  ): Promise<boolean> => {
     // A caller who cannot see the source list sends no selectedFileIds (the
     // turn uses the whole KB); see chatSourceSelection.
     const selection = chatSourceSelection(currentKb, files);
-    if (!userMessage.trim() || !currentKb || loading || !selection.canSend) return;
+    if (!userMessage.trim() || !currentKb || loading || !selection.canSend) return false;
     triggerHaptic(HAPTIC_PATTERNS.send);
 
     // Die Auswahl aus den Sende-Optionen schlägt den Hook-State: setAgentSelection
@@ -109,6 +116,7 @@ export function useChatStream({
           parentMessageId: parentId,
           role: 'user',
           content: userMessage,
+          ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         });
       }
       const aiMsg: Message = {
@@ -123,6 +131,12 @@ export function useChatStream({
     setActiveLeafId(tempAiMsgId);
     const thisRequestId = ++requestIdRef.current;
     setLoading(true);
+    // Whether the server took the turn (the question is stored from then on).
+    // The composer keeps its attachments when it did not, for a retry.
+    let accepted = false;
+    // The reason shown in the error bubble when the server refused the turn
+    // for a cause the user can fix; anything else shows the generic error.
+    let refusal: string | null = null;
 
     try {
       // Abort any previous in-flight SSE request BEFORE updating the shared ref,
@@ -167,6 +181,9 @@ export function useChatStream({
           // backend injects it; non-empty `comparisonModes` makes the turn a
           // comparison (otherwise it's a normal follow-up over the attachment).
           ...(opts?.attachmentId ? { attachmentId: opts.attachmentId } : {}),
+          // Chat attachments as context (API.md § Chat): files uploaded for
+          // this question.
+          ...(opts?.attachmentIds?.length ? { attachmentIds: opts.attachmentIds } : {}),
           ...(opts?.comparisonModes && opts.comparisonModes.length > 0
             ? { comparisonModes: opts.comparisonModes }
             : {}),
@@ -176,6 +193,9 @@ export function useChatStream({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        if (response.status === 422 && errorData.error === 'too_large_for_context') {
+          refusal = t('chatAttachmentsTooLongTogether');
+        }
         let errorMsg = errorData.error || t('chatSendError');
         if (errorData.details && Array.isArray(errorData.details)) {
           errorMsg += ': ' + errorData.details.map((d: { field: string; message: string }) => `${d.field}: ${d.message}`).join(', ');
@@ -183,6 +203,8 @@ export function useChatStream({
         throw new Error(errorMsg);
       }
 
+      accepted = true;
+      opts?.onAccepted?.();
       const reader = response.body?.getReader();
       if (!reader) throw new Error(t('noReaderError'));
 
@@ -375,14 +397,14 @@ export function useChatStream({
 
     } catch (err: unknown) {
       // Ignore abort errors (user navigated away or sent a new message)
-      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (err instanceof DOMException && err.name === 'AbortError') return accepted;
       console.error('Chat failed:', err);
       const errorMsgId = `temp-error-${Date.now()}`;
       setMessageTree(prev => addMessageToTree(prev, {
         id: errorMsgId,
         parentMessageId: userNodeId,
         role: 'ai',
-        content: t('aiGenericError'),
+        content: refusal ?? t('aiGenericError'),
       }));
       setActiveLeafId(errorMsgId);
     } finally {
@@ -393,6 +415,7 @@ export function useChatStream({
         setLoading(false);
       }
     }
+    return accepted;
   }, [currentKb, loading, files, enhance, reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language, fetchChats, t, activeChatIdRef, fetchChatsTimerRef, messageTreeRef, setActiveChatId, setActiveLeafId, setChats, setMessageTree]);
 
   const cancelStream = useCallback(() => {

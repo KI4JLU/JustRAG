@@ -10,7 +10,7 @@ import { MATH_SPAN_RE, normalizeMathDelimiters } from '../utils/markdownMath';
 import { Brain, Loader2, FileText, ArrowRight } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import type { MessageSource, TrajectoryEvent, FlaggedClaimStatus } from '../types';
-import { formatPageRanges } from '../utils/citations';
+import { formatPageRanges, sourceForCitation } from '../utils/citations';
 import { formatDate } from '../utils/dates';
 import { excerptAroundSpan, isValidSpan } from '../utils/verification';
 import { AnchoredPopover } from './AnchoredPopover';
@@ -220,7 +220,7 @@ function addCitationRefs(content: string, sources?: MessageSource[], suspect?: M
             group.split(',').forEach((part, i) => {
                 const num = parseInt(part.trim(), 10);
                 if (isNaN(num)) return;
-                const src = sources?.[num - 1];
+                const src = sourceForCitation(sources, num);
                 // Unknown sources get a per-occurrence key so they're never merged.
                 const key = src ? (src.fileId || src.fileName) : `\x00idx-${num}-${i}`;
                 let entry = byFile.get(key);
@@ -460,7 +460,7 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
         const sup = (target as HTMLElement | null)?.closest?.('.source-ref') as HTMLElement | null;
         if (!sup || !sources?.length) return false;
         const idx = parseInt(sup.dataset.sourceIndex || '', 10);
-        if (Number.isNaN(idx) || idx < 1 || idx > sources.length) return false;
+        if (Number.isNaN(idx) || !sourceForCitation(sources, idx)) return false;
 
         // Clicking the open pill closes it; clicking another switches to it.
         const sameTrigger = citationTriggerRef.current === sup;
@@ -516,7 +516,7 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
         onOpenSource?.(source);
     }, [onOpenSource]);
 
-    const openSource = openCitation != null ? sources?.[openCitation - 1] : undefined;
+    const openSource = openCitation != null ? sourceForCitation(sources, openCitation) : undefined;
     const openSpan = openCitation != null ? citationSpans?.get(openCitation) : undefined;
 
     return (

@@ -82,6 +82,10 @@ func (h *Handler) AddLibraryFiles(ctx context.Context, userID, kbID string, isGl
 
 	for _, id := range userFileIDs {
 		uf, err := h.library.Get(ctx, userID, id)
+		if err == nil && !uf.IsLibrary() {
+			// A chat attachment is not a library file (migration 0090).
+			err = userfiles.ErrNotFound
+		}
 		if errors.Is(err, userfiles.ErrNotFound) {
 			fail(id, skipNotFound)
 			continue
