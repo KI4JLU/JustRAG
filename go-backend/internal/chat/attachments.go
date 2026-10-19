@@ -2,7 +2,9 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync"
@@ -98,13 +100,24 @@ func turnDocumentsFrom(ctx context.Context) *turnDocuments {
 	return td
 }
 
-// attachmentTurn reports whether ctx carries attached documents. Post-response
-// checks that read only the KB context (factcheck, verifier, refine, RAGAS)
-// are skipped on such a turn: they would judge an answer grounded in the
-// user's documents against sources that do not contain them.
+// attachmentTurn reports whether the answer of this turn reads attached
+// documents. Post-response checks that read only the KB context (factcheck,
+// verifier, refine, RAGAS) are skipped on such a turn: they would judge an
+// answer grounded in the user's documents against sources that do not
+// contain them. Once ensureSources has run, only the documents it selected
+// count: a turn whose documents were all dropped for the budget is answered
+// from the KB alone and keeps every check.
 func attachmentTurn(ctx context.Context) bool {
 	td := turnDocumentsFrom(ctx)
-	return td != nil && len(td.all) > 0
+	if td == nil || len(td.all) == 0 {
+		return false
+	}
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	if td.appliedTo != nil {
+		return len(td.selected) > 0
+	}
+	return true
 }
 
 // newAttachmentIDs returns this turn's attachment ids (nil without any).
@@ -201,7 +214,7 @@ func (td *turnDocuments) ensureSources(ctx context.Context, chatCtx *ChatContext
 						kept = append(kept, c)
 					}
 				}
-				chatCtx.Conflicts = &ConflictReport{Conflicts: kept}
+				td.retrimConflictAddendum(ctx, chatCtx, &ConflictReport{Conflicts: kept})
 			}
 			logctx.From(ctx).Info("chat.attachments: KB sources trimmed for the attached documents",
 				"kept", n, "of", total, "window", td.window)
@@ -225,6 +238,29 @@ func (td *turnDocuments) ensureSources(ctx context.Context, chatCtx *ChatContext
 	}
 	td.selected = selected
 	td.appliedTo = chatCtx
+}
+
+// retrimConflictAddendum replaces the conflict report after KB sources were
+// trimmed, and the conflict block the system prompt already carries with it.
+// The old block names sources by number; after the trim the numbers past the
+// kept KB sources belong to the attached documents, so leaving it would tell
+// the model that a user's document contradicts a source that is gone. When
+// the old block cannot be found (it was rendered differently), no conflict
+// is reported at all rather than a stale one.
+func (td *turnDocuments) retrimConflictAddendum(ctx context.Context, chatCtx *ChatContext, kept *ConflictReport) {
+	old := ConflictAddendumText(td.lang, chatCtx.Conflicts)
+	if len(kept.Conflicts) == 0 {
+		kept = nil
+	}
+	if old != "" {
+		if !strings.Contains(chatCtx.SystemPrompt, old) {
+			logctx.From(ctx).Warn("chat.attachments: conflict block not found in the system prompt; dropping the conflict report")
+			chatCtx.Conflicts = nil
+			return
+		}
+		chatCtx.SystemPrompt = strings.Replace(chatCtx.SystemPrompt, old, ConflictAddendumText(td.lang, kept), 1)
+	}
+	chatCtx.Conflicts = kept
 }
 
 // kbContext is a turn's KB context split into its per-source blocks.
@@ -536,6 +572,20 @@ type cachedWindows struct {
 // /tokenize). A test seam; production uses ai.CachedClient.
 type tokenCountFunc func(ctx context.Context, cfg *ai.ResolvedConfig, model, text string) (int, error)
 
+// tokenizeUnsupported reports whether err says the provider has no /tokenize
+// endpoint (404 / 405 / 501), as opposed to a failure of this one call.
+func tokenizeUnsupported(err error) bool {
+	var apiErr *ai.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch apiErr.StatusCode {
+	case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusNotImplemented:
+		return true
+	}
+	return false
+}
+
 func providerCountTokens(ctx context.Context, cfg *ai.ResolvedConfig, model, text string) (int, error) {
 	return ai.CachedClient(cfg.BaseURL, cfg.APIKey).CountTokens(ctx, model, text)
 }
@@ -597,9 +647,16 @@ func (c *attachmentTokenCounter) count(ctx context.Context, lim attachmentLimits
 		} else {
 			logctx.From(ctx).Info("chat.attachments: provider token count unavailable; using the cl100k estimate",
 				"model", lim.model, "error", err)
-			c.mu.Lock()
-			c.unsupported[lim.cfg.BaseURL] = c.now().Add(tokenizeRetryAfter)
-			c.mu.Unlock()
+			// Only a server without the endpoint is remembered. A cancelled
+			// request, a timeout or a 5xx is this call's problem: remembering
+			// it would count every user's documents with cl100k for the next
+			// tokenizeRetryAfter, which undercounts on models whose tokenizer
+			// needs more tokens (Gemma on German text).
+			if tokenizeUnsupported(err) {
+				c.mu.Lock()
+				c.unsupported[lim.cfg.BaseURL] = c.now().Add(tokenizeRetryAfter)
+				c.mu.Unlock()
+			}
 		}
 	}
 	if n == 0 {

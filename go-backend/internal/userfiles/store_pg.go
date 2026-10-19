@@ -95,6 +95,9 @@ type Store interface {
 	Rename(ctx context.Context, ownerID, id, name string) (*UserFile, error)
 	Usage(ctx context.Context, ownerID, id string) ([]KBUsage, error)
 	UsedBytes(ctx context.Context, ownerID string) (int64, error)
+	// ChatAttachmentBytes is the part of UsedBytes held by chat attachments,
+	// which the library list does not show.
+	ChatAttachmentBytes(ctx context.Context, ownerID string) (int64, error)
 	// QuotaOverride returns users.file_quota_bytes (nil = not set).
 	QuotaOverride(ctx context.Context, ownerID string) (*int64, error)
 	// ListIDsByOwner returns every user_files id of ownerID, both scopes
@@ -362,6 +365,13 @@ func (s *PGStore) UsedBytes(ctx context.Context, ownerID string) (int64, error) 
 	var n int64
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(size), 0)::bigint FROM user_files WHERE owner_user_id = $1::uuid`, ownerID).Scan(&n)
+	return n, err
+}
+
+func (s *PGStore) ChatAttachmentBytes(ctx context.Context, ownerID string) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(size), 0)::bigint FROM user_files WHERE owner_user_id = $1::uuid AND scope = 'chat'`, ownerID).Scan(&n)
 	return n, err
 }
 

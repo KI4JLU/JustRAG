@@ -85,9 +85,10 @@ func userID(w http.ResponseWriter, r *http.Request) (string, bool) {
 // can grow a user's library (library upload, KB upload).
 func WriteQuotaExceeded(ctx context.Context, w http.ResponseWriter, qe *QuotaError) {
 	httputil.WriteJSONCtx(ctx, w, http.StatusRequestEntityTooLarge, map[string]any{
-		"error":      "quota_exceeded",
-		"usedBytes":  qe.UsedBytes,
-		"quotaBytes": qe.QuotaBytes,
+		"error":               "quota_exceeded",
+		"usedBytes":           qe.UsedBytes,
+		"quotaBytes":          qe.QuotaBytes,
+		"chatAttachmentBytes": qe.ChatAttachmentBytes,
 	})
 }
 
@@ -281,6 +282,7 @@ func (h *Handler) Usage(w http.ResponseWriter, r *http.Request) {
 }
 
 // Quota handles GET /api/library/quota (quotaBytes 0 = unlimited).
+// chatAttachmentBytes is the part of usedBytes the library list does not show.
 func (h *Handler) Quota(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userID(w, r)
 	if !ok {
@@ -291,10 +293,15 @@ func (h *Handler) Quota(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	chatBytes, err := h.store.ChatAttachmentBytes(r.Context(), uid)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	q, err := EffectiveQuota(r.Context(), h.store, h.quota, uid)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{"usedBytes": used, "quotaBytes": q})
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{"usedBytes": used, "quotaBytes": q, "chatAttachmentBytes": chatBytes})
 }

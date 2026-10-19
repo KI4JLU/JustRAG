@@ -37,7 +37,10 @@ func EffectiveQuota(ctx context.Context, store Store, reader QuotaReader, ownerI
 }
 
 // QuotaError is returned by Ingest when the upload would exceed the quota.
-type QuotaError struct{ UsedBytes, QuotaBytes int64 }
+// ChatAttachmentBytes is the part of UsedBytes held by chat attachments: the
+// library list does not show them, so without it a user at quota could find
+// nothing to delete there.
+type QuotaError struct{ UsedBytes, QuotaBytes, ChatAttachmentBytes int64 }
 
 func (e *QuotaError) Error() string {
 	return fmt.Sprintf("library quota exceeded: %d of %d bytes used", e.UsedBytes, e.QuotaBytes)
@@ -81,7 +84,13 @@ func (in *Ingester) IngestScoped(ctx context.Context, ownerID string, up *upload
 			return nil, false, err
 		}
 		if used+size > quota {
-			return nil, false, &QuotaError{UsedBytes: used, QuotaBytes: quota}
+			qe := &QuotaError{UsedBytes: used, QuotaBytes: quota}
+			// Best effort: a failed breakdown must not turn the 413 into a 500.
+			if qe.ChatAttachmentBytes, err = in.store.ChatAttachmentBytes(ctx, ownerID); err != nil {
+				logctx.From(ctx).Warn("userfiles: read chat attachment bytes for the quota error", "error", err)
+				qe.ChatAttachmentBytes = 0
+			}
+			return nil, false, qe
 		}
 	}
 

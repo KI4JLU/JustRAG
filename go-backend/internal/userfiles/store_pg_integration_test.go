@@ -235,6 +235,15 @@ func TestStoreUsedBytes(t *testing.T) {
 	if n, err := st.UsedBytes(ctx, o1); err != nil || n != 120 {
 		t.Fatalf("used=%d err=%v want 120", n, err)
 	}
+	chat := newFile(o1, sha("g"), 7)
+	chat.Scope = userfiles.ScopeChat
+	mustInsert(t, st, chat)
+	if n, err := st.UsedBytes(ctx, o1); err != nil || n != 127 {
+		t.Fatalf("used=%d err=%v want 127 (chat attachments count)", n, err)
+	}
+	if n, err := st.ChatAttachmentBytes(ctx, o1); err != nil || n != 7 {
+		t.Fatalf("chat bytes=%d err=%v want 7", n, err)
+	}
 }
 
 func TestStoreQuotaOverride(t *testing.T) {
