@@ -377,6 +377,29 @@ The chunk keys are **snake_case** (the MCP tool-result shape). These are raw hit
 
 Once per completed turn whose answer was stored, right before `RUN_FINISHED`: `{"aiMessageId":"<uuid>","chatId":"<uuid>"}`. `aiMessageId` is the stored AI message (use it for feedback via the existing `POST /api/kb/{id}/chats/{chatId}/messages/{messageId}/feedback`). Not sent for a dead-end pause (nothing stored), a cancelled or failed run.
 
+## Citation visibility (`seeCitations`)
+
+A caller without `capabilities.seeCitations` on the KB (a viewer while the
+KB's `viewerSeeCitations` is off, an editor while `editorSeeCitations` is off)
+gets the same run with the source attribution taken out of the stream:
+
+- `justrag.sources.v1` is sent with value `[]`;
+- `justrag.tool_chunks.v1` is sent as `{"toolCallId": "…", "chunks": []}`;
+- a `TOOL_CALL_RESULT` keeps only its `error` key (`{}` when there is none),
+  except for the `memory_*` tools, whose results are unchanged;
+- `[n]` markers are removed from `TEXT_MESSAGE_CONTENT` and
+  `REASONING_MESSAGE_CONTENT` deltas. A delta that could still turn into a
+  marker (`"… ["`) is held back until the next one; a delta that is held back
+  completely is not sent at all, and the rest goes out before
+  `TEXT_MESSAGE_END`.
+
+Everything else (steps, interrupts, `justrag.message.v1`, `RUN_FINISHED`) is
+unchanged. The stored answer keeps its markers and its sources; a reload
+through `GET /api/chats/{id}/messages` strips them for the same reader, and
+returns them once the KB admin turns the flag on. The UI should hide its
+citation chips from `capabilities.seeCitations` rather than from an empty
+source list.
+
 ## Open interrupts after a reload
 
 An open interrupt cannot be fetched again: there is no endpoint that lists a thread's open interrupts, and `GET /api/chats/{id}/messages` shows only the question. A thread whose pause is lost to the client (reload, lost `RUN_FINISHED`) answers `409 thread_has_open_interrupt` to new messages until the interrupt expires (24 h). Until that escape exists, keep the last `RUN_FINISHED` interrupt of a thread client-side (for example in `sessionStorage`, keyed by chat id) so the suggestions can be shown again or cancelled, and offer "start a new chat" on `409 thread_has_open_interrupt`.

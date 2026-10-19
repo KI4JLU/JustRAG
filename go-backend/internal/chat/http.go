@@ -19,6 +19,7 @@ import (
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatattach"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/kg"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/longmem"
@@ -104,6 +105,11 @@ type Handler struct {
 	libraryChats LibraryChatStore
 	libraryFiles LibraryFileGetter
 	libraryText  LibraryTextProvider
+	// kbAccess resolves a reader's KB capabilities where the request did
+	// not pass RequireKBRole for that KB (citation visibility on stored
+	// messages and on KB-router turns, citation_visibility.go). Optional —
+	// when nil, citations are hidden on exactly those reads (fail closed).
+	kbAccess kbaccess.KBStore
 }
 
 // TabularQueryLogger is the persistence surface the chat handler uses to
@@ -175,6 +181,12 @@ type TabularCatalogSummariser interface {
 
 // HandlerOption is a functional option for NewHandler.
 type HandlerOption func(*Handler)
+
+// WithKBAccess sets the store citation visibility resolves capabilities
+// through outside the KB route chain (see Handler.kbAccess).
+func WithKBAccess(s kbaccess.KBStore) HandlerOption {
+	return func(h *Handler) { h.kbAccess = s }
+}
 
 // WithRedis attaches a Redis client to the Handler (used for deep chat relay).
 func WithRedis(rdb *redis.Client) HandlerOption {
@@ -474,6 +486,12 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if messages == nil {
 		messages = []MessageRow{}
+	}
+	// Stored messages keep their sources; they are stripped here, for this
+	// reader and the KB's current flags (a library chat has no KB and keeps
+	// them — they are the reader's own files).
+	if chat.KbID != "" && !h.citationsVisible(r.Context(), chat.KbID, user) {
+		RedactMessagesForReader(messages)
 	}
 
 	w.Header().Set("Cache-Control", "no-cache")

@@ -1474,6 +1474,7 @@
           "sources": {
             "type": "array",
             "nullable": true,
+            "description": "Empty when the API key's owner lacks the seeCitations capability on the KB; the answer text then carries no [n] markers either.",
             "items": {
               "$ref": "#/components/schemas/Source"
             }
@@ -1596,6 +1597,7 @@
           "sources": {
             "type": "array",
             "nullable": true,
+            "description": "Empty when the API key's owner lacks the seeCitations capability on the KB; the answer text then carries no [n] markers either.",
             "items": {
               "$ref": "#/components/schemas/Source"
             }

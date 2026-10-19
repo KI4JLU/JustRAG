@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
@@ -59,6 +60,8 @@ func streamTurn(t *testing.T, earlyOpen bool, store Store, extra map[string]stri
 	r := httptest.NewRequest(http.MethodPost, "/api/kb/kb1/chat?stream=true", strings.NewReader(`{"message": "hello"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r = injectUser(r, "user1")
+	// The KB owner: these tests pin the stream's bytes, citations included.
+	r = withKBAccess(r, "kb1", kbaccess.RoleOwner, kbaccess.SourcePermissions{})
 	r.SetPathValue("id", "kb1")
 	w := httptest.NewRecorder()
 	h.SendMessage(w, r)

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/justrag/go-backend/internal/chat"
+	"github.com/justrag/go-backend/internal/kbaccess"
 )
 
 const askKBToolName = "ask_kb"
@@ -107,6 +110,14 @@ func runAskKB(ctx context.Context, a Answerer, kbID string, arguments json.RawMe
 			Content: []contentBlock{{Type: "text", Text: "ask_kb failed to produce an answer"}},
 			IsError: true,
 		}, nil
+	}
+
+	// A key owner without seeCitations on this KB gets the answer without
+	// source attribution: no sources, no [n] markers. The route's
+	// RequireKBRole put the owner's access on ctx.
+	if !kbaccess.HasCapability(ctx, kbaccess.CapSeeCitations) {
+		out.Sources = []Source{}
+		out.Answer = chat.StripCitationMarkers(out.Answer)
 	}
 
 	// cannot fail: Source is all scalar fields, no unsupported types.

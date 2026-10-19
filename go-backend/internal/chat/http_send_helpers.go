@@ -1062,5 +1062,5 @@ func (h *Handler) writeJSONResponse(ctx context.Context, w http.ResponseWriter, 
 	if cs := ConflictsForWire(p.chatCtx.Conflicts); cs != nil {
 		payload["conflicts"] = cs
 	}
-	httputil.WriteJSONCtx(ctx, w, http.StatusOK, payload)
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, citationFilterFrom(ctx).Payload(payload))
 }
