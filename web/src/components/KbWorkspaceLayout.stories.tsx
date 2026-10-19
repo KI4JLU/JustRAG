@@ -319,7 +319,7 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
     ]);
 
     // Open: still 64px; the list is outside the bar, BELOW the field, centred
-    // under it (`align="center"`), and stays in the viewport.
+    // under it, and stays in the viewport.
     await expect(bar.getBoundingClientRect().height).toBe(64);
     await expect(bar.contains(listbox)).toBe(false);
     const inputBox = input.getBoundingClientRect();
@@ -329,8 +329,11 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
     await expect(Math.abs((popupBox.left + popupBox.right) / 2 - (inputBox.left + inputBox.right) / 2)).toBeLessThanOrEqual(1);
     await expect(popupBox.left).toBeGreaterThanOrEqual(0);
     await expect(popupBox.right).toBeLessThanOrEqual(doc.documentElement.clientWidth);
-    // …and wider than the (at this width 128px) field, so a row is readable.
-    await expect(popupBox.width).toBeGreaterThan(inputBox.width);
+    // …one panel with the field, which widens while open (DS palette width):
+    // the list is as wide as the grown field and wider than the closed field
+    // (at this width 128px), so a row is readable.
+    await expect(Math.abs(popupBox.width - inputBox.width)).toBeLessThanOrEqual(1);
+    await expect(popupBox.width).toBeGreaterThan(field.width);
 
     // Not clipped or covered: the browser hit-tests the last option.
     const last = options[options.length - 1];
