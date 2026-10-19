@@ -627,6 +627,15 @@ button.source-card {
   line-height: 1.6;
 }
 
+/* The bubble is focusable (tabIndex 0) only so keyboard users reach its
+   action row, which focus reveals — that row is the focus cue. The generic
+   :focus-visible ring would frame the whole answer, and browsers also match
+   it on a click after keyboard input (Enter to send), so it showed up as a
+   blue box around answers. data-contrast="more" still forces a ring. */
+.message-bubble:focus-visible {
+  outline: none;
+}
+
 .message-user {
   align-self: flex-end;
   margin-left: auto;
