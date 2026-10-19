@@ -2,21 +2,28 @@ package app
 
 import "testing"
 
-// TestFileTabularIsOnKbViewChain pins the mount point for the "Tabellen"
-// file-detail endpoint: it must sit on kbViewChain (like its sibling
-// GET /api/kb/{id}/files), not on a stricter chain — any KB viewer may open
-// the panel, and GetFileTabular's own fileBelongsToKB guard is what rejects
-// a fileId belonging to a different KB. Reads routes.go's actual
-// registration via the routeChains helper in advanced_routes_test.go, so
-// moving the route to a different chain in routes.go turns this test red.
-func TestFileTabularIsOnKbViewChain(t *testing.T) {
+// TestFileTabularIsOnKbSourceDownloadChain pins the mount point for the
+// spreadsheet source preview: the "Tabellen" file-detail endpoint (the table
+// list behind the sheet tabs) and its rows endpoint (the table contents).
+// Both show source content the way GET /api/files/{id}/download does, so
+// both sit on kbSourceDownloadChain — KB view plus the downloadSources
+// capability (viewer_download_sources) — rather than plain kbViewChain.
+// GetFileTabular's own fileBelongsToKB guard still rejects a fileId that
+// belongs to a different KB. Reads routes.go's actual registration via the
+// routeChains helper in advanced_routes_test.go, so moving either route to a
+// different chain in routes.go turns this test red.
+func TestFileTabularIsOnKbSourceDownloadChain(t *testing.T) {
 	chains := routeChains(t)
-	const pattern = "GET /api/kb/{id}/files/{fileId}/tabular"
-	got, ok := chains[pattern]
-	if !ok {
-		t.Fatalf("%s is not registered in routes.go", pattern)
-	}
-	if got != "kbViewChain" {
-		t.Errorf("%s is on rc.%s, want rc.kbViewChain", pattern, got)
+	for _, pattern := range []string{
+		"GET /api/kb/{id}/files/{fileId}/tabular",
+		"GET /api/kb/{id}/files/{fileId}/tabular/rows",
+	} {
+		got, ok := chains[pattern]
+		if !ok {
+			t.Fatalf("%s is not registered in routes.go", pattern)
+		}
+		if got != "kbSourceDownloadChain" {
+			t.Errorf("%s is on rc.%s, want rc.kbSourceDownloadChain", pattern, got)
+		}
 	}
 }

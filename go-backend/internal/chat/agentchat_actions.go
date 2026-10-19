@@ -80,14 +80,15 @@ func DeadEndActions(question, reason string) []adkbridge.Action {
 }
 
 // LibraryAdder adds files from the user's library to a KB
-// (files.Handler.AddLibraryFiles). It checks no KB role: reach it only
-// through adkbridge.ExecuteAction, whose policy requires edit.
+// (files.Handler.AddLibraryFiles). It checks no KB permission: reach it only
+// through adkbridge.ExecuteAction, whose policy requires the edit role and
+// the addSources capability.
 type LibraryAdder interface {
 	AddLibraryFiles(ctx context.Context, userID, kbID string, isGlobal bool, ids []string) ([]files.AddResult, error)
 }
 
 // confluenceImporter is confluence.Importer.Import. Like LibraryAdder it
-// checks no KB role.
+// checks no KB permission.
 type confluenceImporter interface {
 	Import(ctx context.Context, userID, kbID, spaceKey string, rootPageID *string) (string, error)
 }

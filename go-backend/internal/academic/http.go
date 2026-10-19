@@ -302,8 +302,12 @@ func (h *Handler) AddPapers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the caller has edit access to the target KB before writing files
-	// into it, via the same role ladder the kbaccess middleware enforces.
+	// Verify the caller may add sources to the target KB before fetching or
+	// writing anything: the role through the one ladder
+	// (kbaccess.EffectiveRole), the addSources capability through
+	// kbaccess.CapabilitiesFor (never for a viewer) — the same decision the
+	// kbAddSourcesChain route gate makes for the other add routes. This route carries the KB
+	// in the body, not the path, so the middleware cannot gate it.
 	kb, err := h.store.GetKBByID(r.Context(), body.KbID)
 	if err != nil || kb == nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "knowledge base not found")
@@ -315,8 +319,8 @@ func (h *Handler) AddPapers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := kbaccess.EffectiveRole(kb, user.Role, memberRole)
-	if !kbaccess.AtLeast(role, kbaccess.RoleEdit) {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "you do not have edit access to this knowledge base")
+	if !kbaccess.CapabilitiesFor(kb, role).AddSources {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "you may not add sources to this knowledge base")
 		return
 	}
 

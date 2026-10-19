@@ -35,9 +35,13 @@ type mockUpdateStore struct {
 	rereadErr                      error
 	rereadCalls                    int
 	gotRereadKBID, gotRereadUserID string
+
+	// gotUpdate is the last KBUpdate UpdateKnowledgeBase received.
+	gotUpdate kb.KBUpdate
 }
 
-func (m *mockUpdateStore) UpdateKnowledgeBase(_ context.Context, _ string, _ kb.KBUpdate) (*kb.KBRow, error) {
+func (m *mockUpdateStore) UpdateKnowledgeBase(_ context.Context, _ string, data kb.KBUpdate) (*kb.KBRow, error) {
+	m.gotUpdate = data
 	return m.kb, m.err
 }
 

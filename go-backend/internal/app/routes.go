@@ -152,6 +152,15 @@ type routeCtx struct {
 	analyticsChain  func(http.HandlerFunc) http.Handler
 	apiKeyChain     func(http.HandlerFunc) http.Handler
 
+	// The four source-permission chains (migration 0089): a KB role plus
+	// a kbaccess capability (for list/add/download one the KB's flags may
+	// withhold from viewers and editors). See sourceListInner /
+	// sourceDownloadInner / addSourcesInner / manageSourcesInner.
+	kbSourceListChain     func(http.HandlerFunc) http.Handler
+	kbSourceDownloadChain func(http.HandlerFunc) http.Handler
+	kbAddSourcesChain     func(http.HandlerFunc) http.Handler
+	kbManageSourcesChain  func(http.HandlerFunc) http.Handler
+
 	// Per-KB settings
 	kbConfigStore   *kbconfig.Store
 	kbConfigHandler *kbconfig.Handler
@@ -347,6 +356,18 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		// to KB role 'owner', so it reaches everything as before.
 		kbAdvancedChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(kbAdvancedInner(authMiddleware, kbMw)(h))
+		},
+		kbSourceListChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(sourceListInner(kbMw)(h))
+		},
+		kbSourceDownloadChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(sourceDownloadInner(kbMw)(h))
+		},
+		kbAddSourcesChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(addSourcesInner(kbMw)(h))
+		},
+		kbManageSourcesChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(manageSourcesInner(kbMw)(h))
 		},
 		kbConfigStore:   kbConfigStore,
 		kbConfigHandler: kbConfigHandler,
@@ -863,15 +884,20 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// deletion to owner-or-superadmin (see http_delete.go), so gating the
 	// middleware chain any tighter than edit would be redundant.
 	rc.mux.Handle("DELETE /api/kb/{id}", rc.kbEditChain(kbDeleteHandler.DeleteKB))
-	rc.mux.Handle("GET /api/kb/{id}/files", rc.kbViewChain(kbUpdateHandler.ListFiles))
+	// The source list is the sidebar's file list, so it needs the
+	// seeSources capability on top of view (viewer_/editor_see_sources).
+	rc.mux.Handle("GET /api/kb/{id}/files", rc.kbSourceListChain(kbUpdateHandler.ListFiles))
 	// The "Tabellen" file-detail panel: the persisted spreadsheet ingest
-	// report plus the tabular_catalog projection for one file. Same
-	// kbViewChain as the list above — GetFileTabular's own fileBelongsToKB
+	// report plus the tabular_catalog projection for one file. It and the
+	// rows route below are the spreadsheet source preview, which shows
+	// source content the way a download does, so both sit on
+	// kbSourceDownloadChain (viewer_/editor_download_sources), like
+	// GET /api/files/{id}/download. GetFileTabular's own fileBelongsToKB
 	// guard rejects a fileId that belongs to a different KB.
-	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbViewChain(kbHandler.GetFileTabular))
+	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbSourceDownloadChain(kbHandler.GetFileTabular))
 	// One page of a file's materialized table for the source preview; the
 	// table must be one of that file's own catalog entries.
-	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular/rows", rc.kbViewChain(kbHandler.GetFileTabularRows))
+	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular/rows", rc.kbSourceDownloadChain(kbHandler.GetFileTabularRows))
 
 	// Member management — the four-role successor to the deprecated /share*
 	// surface, removed in Task 9 of the four-role KB permission model (see
@@ -974,11 +1000,11 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// relies on files.rss_feed_id ON DELETE CASCADE, which removes the
 	// files rows but never drops the physical tables (C1/R20, R60).
 	rssHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
-	rc.mux.Handle("POST /api/kb/{id}/rss", rc.kbEditChain(rssHandler.CreateRSSFeed))
-	rc.mux.Handle("GET /api/kb/{id}/rss", rc.kbViewChain(rssHandler.ListRSSFeeds))
-	rc.mux.Handle("PATCH /api/kb/{id}/rss/{feedId}", rc.kbEditChain(rssHandler.UpdateRSSFeed))
-	rc.mux.Handle("DELETE /api/kb/{id}/rss/{feedId}", rc.kbEditChain(rssHandler.DeleteRSSFeed))
-	rc.mux.Handle("POST /api/kb/{id}/rss/{feedId}/poll", rc.kbEditChain(rssHandler.TriggerPoll))
+	rc.mux.Handle("POST /api/kb/{id}/rss", rc.kbAddSourcesChain(rssHandler.CreateRSSFeed))
+	rc.mux.Handle("GET /api/kb/{id}/rss", rc.kbSourceListChain(rssHandler.ListRSSFeeds))
+	rc.mux.Handle("PATCH /api/kb/{id}/rss/{feedId}", rc.kbManageSourcesChain(rssHandler.UpdateRSSFeed))
+	rc.mux.Handle("DELETE /api/kb/{id}/rss/{feedId}", rc.kbManageSourcesChain(rssHandler.DeleteRSSFeed))
+	rc.mux.Handle("POST /api/kb/{id}/rss/{feedId}/poll", rc.kbManageSourcesChain(rssHandler.TriggerPoll))
 
 	// Confluence connections (auth only, user-level)
 	confluenceHandler := confluence.NewHandler(confluence.NewStore(rc.infra.db.Main), rc.cfg.JWTSecret, rc.infra.asynqClient)
@@ -999,11 +1025,11 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/confluence/pages/{pageId}/children", rc.authMw.Authenticate(http.HandlerFunc(confluenceHandler.ListPageChildren)))
 
 	// Confluence sources (KB-level)
-	rc.mux.Handle("POST /api/kb/{id}/confluence-sources", rc.kbEditChain(confluenceHandler.CreateSource))
-	rc.mux.Handle("GET /api/kb/{id}/confluence-sources", rc.kbViewChain(confluenceHandler.ListSources))
-	rc.mux.Handle("PATCH /api/kb/{id}/confluence-sources/{sourceId}", rc.kbEditChain(confluenceHandler.UpdateSource))
-	rc.mux.Handle("DELETE /api/kb/{id}/confluence-sources/{sourceId}", rc.kbEditChain(confluenceHandler.DeleteSource))
-	rc.mux.Handle("POST /api/kb/{id}/confluence-sources/{sourceId}/sync", rc.kbEditChain(confluenceHandler.TriggerSync))
+	rc.mux.Handle("POST /api/kb/{id}/confluence-sources", rc.kbAddSourcesChain(confluenceHandler.CreateSource))
+	rc.mux.Handle("GET /api/kb/{id}/confluence-sources", rc.kbSourceListChain(confluenceHandler.ListSources))
+	rc.mux.Handle("PATCH /api/kb/{id}/confluence-sources/{sourceId}", rc.kbManageSourcesChain(confluenceHandler.UpdateSource))
+	rc.mux.Handle("DELETE /api/kb/{id}/confluence-sources/{sourceId}", rc.kbManageSourcesChain(confluenceHandler.DeleteSource))
+	rc.mux.Handle("POST /api/kb/{id}/confluence-sources/{sourceId}/sync", rc.kbManageSourcesChain(confluenceHandler.TriggerSync))
 
 	// Git repo sources (KB-level)
 	gitRepoHandler := gitrepo.NewHandler(gitrepo.NewStore(rc.infra.db.Main), rc.cfg.JWTSecret, rc.infra.asynqClient)
@@ -1013,11 +1039,11 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// CASCADE, which removes the files rows but never drops the physical
 	// tables (C1/R20, R60).
 	gitRepoHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
-	rc.mux.Handle("POST /api/kb/{id}/git-repos", rc.kbEditChain(gitRepoHandler.CreateSource))
-	rc.mux.Handle("GET /api/kb/{id}/git-repos", rc.kbViewChain(gitRepoHandler.ListSources))
-	rc.mux.Handle("PATCH /api/kb/{id}/git-repos/{sourceId}", rc.kbEditChain(gitRepoHandler.UpdateSource))
-	rc.mux.Handle("DELETE /api/kb/{id}/git-repos/{sourceId}", rc.kbEditChain(gitRepoHandler.DeleteSource))
-	rc.mux.Handle("POST /api/kb/{id}/git-repos/{sourceId}/sync", rc.kbEditChain(gitRepoHandler.TriggerSync))
+	rc.mux.Handle("POST /api/kb/{id}/git-repos", rc.kbAddSourcesChain(gitRepoHandler.CreateSource))
+	rc.mux.Handle("GET /api/kb/{id}/git-repos", rc.kbSourceListChain(gitRepoHandler.ListSources))
+	rc.mux.Handle("PATCH /api/kb/{id}/git-repos/{sourceId}", rc.kbManageSourcesChain(gitRepoHandler.UpdateSource))
+	rc.mux.Handle("DELETE /api/kb/{id}/git-repos/{sourceId}", rc.kbManageSourcesChain(gitRepoHandler.DeleteSource))
+	rc.mux.Handle("POST /api/kb/{id}/git-repos/{sourceId}/sync", rc.kbManageSourcesChain(gitRepoHandler.TriggerSync))
 
 	// Web search (KB view permission)
 	webSearchHandler := websearch.NewHandler(rc.chatStore)
@@ -1033,13 +1059,16 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/graph/stream", rc.kbViewChain(rc.kgGraphHandler.StreamGraph))
 	rc.mux.Handle("GET /api/kb/{id}/graph/entity/{entityId}", rc.kbViewChain(rc.kgGraphHandler.GetEntity))
 
-	// Add sources (KB edit permission)
-	rc.mux.Handle("POST /api/kb/{id}/add-sources", rc.kbEditChain(rc.filesHandler.AddSources))
+	// Adding sources needs the addSources capability (edit role plus
+	// editor_add_sources and editor_see_sources; KB admin and above always;
+	// a viewer never). add-sources is also where the web search's
+	// "add to KB" lands.
+	rc.mux.Handle("POST /api/kb/{id}/add-sources", rc.kbAddSourcesChain(rc.filesHandler.AddSources))
 	// Fetch a URL and either preview its extracted content (previewOnly=true)
 	// or ingest it into the KB via the URL-processing pipeline. Uses the
 	// shared Fetcher when available (browser fallback + readability).
-	rc.mux.Handle("POST /api/kb/{id}/fetch-url", rc.kbEditChain(rc.filesHandler.FetchURL))
-	rc.mux.Handle("POST /api/kb/{id}/text", rc.kbEditChain(rc.filesHandler.AddTextSource))
+	rc.mux.Handle("POST /api/kb/{id}/fetch-url", rc.kbAddSourcesChain(rc.filesHandler.FetchURL))
+	rc.mux.Handle("POST /api/kb/{id}/text", rc.kbAddSourcesChain(rc.filesHandler.AddTextSource))
 
 	// Crawl is async: the POST enqueues a TypeCrawl job onto rag-quick and
 	// returns a jobId immediately; the BFS crawl itself runs in a worker
@@ -1047,8 +1076,8 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// HTTP server process. The client polls the status endpoint until the
 	// job reaches a terminal state and the pages list is in Redis.
 	crawlerHandler := crawler.NewHandler(rc.infra.asynqClient, rc.asynqInspector, rc.infra.rdb.Client)
-	rc.mux.Handle("POST /api/kb/{id}/crawl", rc.kbEditChain(crawlerHandler.Crawl))
-	rc.mux.Handle("GET /api/kb/{id}/crawl/status/{jobId}", rc.kbViewChain(crawlerHandler.GetCrawlStatus))
+	rc.mux.Handle("POST /api/kb/{id}/crawl", rc.kbAddSourcesChain(crawlerHandler.Crawl))
+	rc.mux.Handle("GET /api/kb/{id}/crawl/status/{jobId}", rc.kbSourceListChain(crawlerHandler.GetCrawlStatus))
 }
 
 func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *middleware.RedisRateLimiter) {
@@ -1392,9 +1421,9 @@ func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/files/{id}/download", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Download)))
 	rc.mux.Handle("DELETE /api/files/{id}", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Delete)))
 	rc.mux.Handle("POST /api/files/{id}/retry", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Retry)))
-	rc.mux.Handle("POST /api/kb/{id}/files", rc.kbEditChain(rc.filesHandler.Upload))
-	rc.mux.Handle("POST /api/kb/{id}/files/from-library", rc.kbEditChain(rc.filesHandler.AddFromLibrary))
-	rc.mux.Handle("POST /api/kb/{id}/files/retry-failed", rc.kbEditChain(rc.filesHandler.RetryFailed))
+	rc.mux.Handle("POST /api/kb/{id}/files", rc.kbAddSourcesChain(rc.filesHandler.Upload))
+	rc.mux.Handle("POST /api/kb/{id}/files/from-library", rc.kbAddSourcesChain(rc.filesHandler.AddFromLibrary))
+	rc.mux.Handle("POST /api/kb/{id}/files/retry-failed", rc.kbManageSourcesChain(rc.filesHandler.RetryFailed))
 	// Owner/system-admin check is stricter than the chain; done in the handler.
 	rc.mux.Handle("POST /api/kb/{id}/files/adopt", rc.kbAdminChain(rc.filesHandler.AdoptLegacy))
 
@@ -1790,6 +1819,49 @@ func (a *kbRouterCandidateAdapter) ListKBRouterCandidates(ctx context.Context, u
 		})
 	}
 	return out, nil
+}
+
+// sourceListInner, sourceDownloadInner and manageSourcesInner are the
+// authorization cores of the three source-permission chains, without the
+// outer Authenticate wrapper. Named functions for the reason kbAdvancedInner
+// is: the chain tests exercise the composition this file installs, not a
+// copy. Each is a KB role (kbaccess.RequireKBRole) followed by a capability
+// (kbaccess.RequireCapability), resolved by kbaccess.CapabilitiesFor:
+//
+//   - sourceListInner: view + seeSources — the sidebar source lists
+//     (files, RSS feeds, Confluence and git sources, crawl status).
+//   - sourceDownloadInner: view + downloadSources — the spreadsheet source
+//     preview, the in-KB twin of GET /api/files/{id}/download.
+//   - addSourcesInner: edit + addSources — every route that creates a
+//     source (upload, text, URL, crawl, add from the library, add-sources,
+//     and creating an RSS feed / Confluence source / git repository). A
+//     viewer never adds; editor_add_sources = false keeps an editor out.
+//   - manageSourcesInner: edit + manageSources — every route that changes,
+//     syncs, polls, deletes or retries a source. manageSources is role
+//     only (edit and above), so the capability check repeats the role
+//     check; it is kept so every source gate reads the same object.
+func sourceListInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+	return func(h http.HandlerFunc) http.Handler {
+		return kbMw.RequireKBCapability(kbaccess.RoleView, kbaccess.CapSeeSources)(h)
+	}
+}
+
+func sourceDownloadInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+	return func(h http.HandlerFunc) http.Handler {
+		return kbMw.RequireKBCapability(kbaccess.RoleView, kbaccess.CapDownloadSources)(h)
+	}
+}
+
+func addSourcesInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+	return func(h http.HandlerFunc) http.Handler {
+		return kbMw.RequireKBCapability(kbaccess.RoleEdit, kbaccess.CapAddSources)(h)
+	}
+}
+
+func manageSourcesInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+	return func(h http.HandlerFunc) http.Handler {
+		return kbMw.RequireKBCapability(kbaccess.RoleEdit, kbaccess.CapManageSources)(h)
+	}
 }
 
 // kbAdvancedInner is the authorization core of kbAdvancedChain: the system-role

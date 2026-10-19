@@ -125,8 +125,85 @@ Card fields on the KB rows of `GET /kb`, `GET /kb/global` and `GET /kb/{id}`:
   file has been ingested.
 
 `PATCH /kb/{id}` returns the KB in the same caller-aware shape as
-`GET /kb/{id}` (card fields, `myRole`, and the per-user filter fields below),
-so a client can replace its copy with the response.
+`GET /kb/{id}` (card fields, `myRole`, `capabilities`, and the per-user filter
+fields below), so a client can replace its copy with the response.
+
+#### Source permissions
+
+Per KB, its admins decide what viewers and editors may do with the KB's
+sources (migration 0089). Seven boolean fields on every KB row, writable
+through `PATCH /kb/{id}` (KB admin — the same gate as `systemPrompt`; a JSON
+`null` leaves a field unchanged). The `viewer*` fields apply to the `view`
+role, the `editor*` fields to the `edit` role; the other role's fields never
+apply. There is no `viewerAddSources`: a viewer who could add (or delete)
+sources would be an editor, so viewers never do either.
+
+The rights form a pyramid. A right on a higher level is only granted together
+with the level-1 right it rests on:
+
+| Level | Right | Needs |
+|---|---|---|
+| 0 | Use the KB's sources in a chat answer; restrict a chat or research turn to chosen files (`selectedFileIds`, `fileIds`) | KB access only — not a permission |
+| 1 | `seeSources` — the source lists | its flag |
+| 1 | `seeCitations` — an answer's citations | its flag (independent of `seeSources`) |
+| 2 | `downloadSources` — download and preview a source | its flag **and** `seeSources` |
+| 2 | `addSources` — add sources ("Hinzufügen") | role `edit` **and** `editorAddSources` **and** `seeSources`; never `view` |
+| 2 | `manageSources` — change, sync, poll, delete, retry sources ("Bearbeiten") | role `edit` (no flag) **and** `seeSources`; never `view` |
+
+The seven fields:
+
+| Fields | Defaults (viewer / editor) | Off means (for that role) |
+|---|---|---|
+| `viewerSeeSources`, `editorSeeSources` | `false` / `true` | 403 on the source lists: `GET /kb/{id}/files`, `GET /kb/{id}/rss`, `GET /kb/{id}/confluence-sources`, `GET /kb/{id}/git-repos`, `GET /kb/{id}/crawl/status/{jobId}`; no file hits from that KB in the header search (`GET /search`). By the pyramid also no `downloadSources`, `addSources` or `manageSources`, whatever their flags say. |
+| `editorAddSources` (editors only) | `true` | 403 on every route that creates a source: `POST /kb/{id}/files`, `/files/from-library`, `/text`, `/add-sources` (also where the web search's "add to KB" lands), `/fetch-url`, `/crawl`, `/rss`, `/confluence-sources`, `/git-repos`, and `POST /academic-research/{researchId}/papers/add`; the agent chat (`POST /kb/{id}/agui/chat`) does not offer or execute its KB-writing dead-end actions (`library`, `upload`, `confluence`). Refused before anything is fetched, stored or written. A viewer gets the same 403 whatever the flags say. |
+| `viewerDownloadSources`, `editorDownloadSources` | `false` / `true` | 403 on `GET /files/{id}/download` (also the in-app PDF preview) and on the spreadsheet source preview, `GET /kb/{id}/files/{fileId}/tabular` and `GET /kb/{id}/files/{fileId}/tabular/rows` |
+| `viewerSeeCitations`, `editorSeeCitations` | `false` / `true` | stored and reported in `capabilities.seeCitations`; not enforced by the API yet |
+
+Editing sources (`manageSources`) has no flag: `PATCH`/`DELETE` and
+`…/sync`/`…/poll` on RSS feeds, Confluence sources and git repositories,
+`DELETE /files/{id}`, `POST /files/{id}/retry` and
+`POST /kb/{id}/files/retry-failed`. The `edit` role and above have it (an
+editor only while `editorSeeSources` is on), `view` never does. An editor
+without `editorSeeSources` can do nothing with sources: no list, download,
+add or edit.
+
+Selecting files for a chat or research turn is not gated by any of this: the
+UI offers it where the user sees the source list, and the API accepts a
+selection from every caller with KB view access.
+
+The defaults apply to existing KBs too: after the upgrade, viewers of a
+published global KB lose the source list, downloads and citations until a KB
+admin turns them back on; editors keep everything.
+
+Always granted, whatever the flags say: every capability for the KB owner, a
+KB admin (`kb_members` role `admin`), a superadmin, and a system admin on a
+global KB. The `api-user` system role only governs use of the outgoing API and
+grants no KB rights of its own: on a published global KB it is an implicit
+viewer like any other user, and an explicit `kb_members` role (admin
+included) counts for it as for anyone else. Tables in chat answers (AI-written
+markdown tables and their xlsx download) are answer content, not sources, and
+are never gated.
+
+`GET /kb`, `GET /kb/global`, `GET /kb/{id}`, `PATCH /kb/{id}` and `POST /kb`
+return the caller's resolved permissions on each KB, with the pyramid already
+applied, so a client never re-derives the role ladder (an implicit viewer's
+`myRole` is `null`):
+
+```json
+"capabilities": {
+  "seeSources": true,
+  "addSources": false,
+  "downloadSources": false,
+  "seeCitations": true,
+  "manageSources": false
+}
+```
+
+`GET /api/v1/kb` (API key) carries the same `capabilities` object, resolved
+for the key's owner; the public API has no single-KB read route.
+`capabilities` is absent on `GET /openai/v1/models`. The header search
+(`GET /search`) returns file hits only from topics where the caller holds
+`seeSources`. A refused request is `403 {"error": …}`.
 
 ### Catalog, subscriptions and categories
 
@@ -319,6 +396,13 @@ admin; public + published → view; otherwise invisible). That is a superset of
 included. Superadmins and system admins therefore see many results; that is
 intended, not a leak.
 
+**Sources follow the source permissions.** `sources` additionally contains only
+files from topics where the caller holds `seeSources` (see Knowledge bases →
+Source permissions): a viewer of a topic whose `viewerSeeSources` is off gets
+no file hits from it, while the topic itself and the caller's own chats and
+messages in it are still found. Owners, KB admins, editors, superadmins and
+system admins on public topics always get file hits.
+
 **Chats are private.** `chats` and `messages` contain **only the caller's own
 chats**, and only in topics the caller can still open under the rule above — a
 chat in a topic the caller has lost access to is not returned. No role widens
@@ -444,9 +528,10 @@ redemption.
 | GET | `/kb/{id}/files/{fileId}/tabular/rows` |
 | POST | `/kb/{id}/tabular/rematerialize` |
 
-- `POST /files/{id}/retry` (KB edit on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (KB edit) does it for every failed file: `{"retried": N}`.
-- `POST /kb/{id}/files/from-library` (KB edit) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
-- `GET /kb/{id}/files/{fileId}/tabular` (KB view) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
+- Source permissions (see Knowledge bases): every adding route here — `POST /kb/{id}/files`, `/text`, `/add-sources`, `/fetch-url`, `/crawl`, `/files/from-library` — needs KB edit and `addSources` (`editorAddSources` plus `editorSeeSources`; never a viewer). Deleting and retrying — `DELETE /files/{id}`, `POST /files/{id}/retry`, `POST /kb/{id}/files/retry-failed` — needs `manageSources` (edit role and above with `seeSources`, never a viewer). `GET /kb/{id}/crawl/status/{jobId}` needs KB view and `seeSources`; `GET /files/{id}/download` and both `…/tabular` routes need KB view and `downloadSources`. `POST /kb/{id}/websearch` only searches (KB view); adding a hit goes through `/add-sources`. The `/files/{id}` routes check this in the handler (their path has no KB), the others in the route's middleware.
+- `POST /files/{id}/retry` (`manageSources` on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (`manageSources`) does it for every failed file: `{"retried": N}`.
+- `POST /kb/{id}/files/from-library` (KB edit + `addSources`) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
+- `GET /kb/{id}/files/{fileId}/tabular` (KB view + `downloadSources`) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view + `downloadSources`) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
 
 ### User file library
 
@@ -601,6 +686,8 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 | POST | `/kb/{id}/export/academic-bibtex` |
 | POST | `/academic-research/{sessionId}/bibtex` |
 
+`POST /academic-research/{researchId}/papers/add` names its target KB in the body (`kbId`) and needs `addSources` on it (see Source permissions), checked in the handler before any PDF is fetched; `403` otherwise.
+
 ### RSS
 
 | Method | Path |
@@ -610,6 +697,8 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 | PATCH | `/kb/{id}/rss/{feedId}` |
 | DELETE | `/kb/{id}/rss/{feedId}` |
 | POST | `/kb/{id}/rss/{feedId}/poll` |
+
+`GET` needs KB view and `seeSources`; `POST` (create a feed) needs KB edit and `addSources`; `PATCH`, `DELETE` and `…/poll` need `manageSources` (see Source permissions).
 
 ### Confluence
 
@@ -632,17 +721,19 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 
 `GET /confluence/spaces/{spaceKey}/pages/all` returns every page of a space with its ancestor titles, for the import dialog's client-side search.
 
+`GET /kb/{id}/confluence-sources` needs KB view and `seeSources`; `POST /kb/{id}/confluence-sources` (create) needs KB edit and `addSources`; `PATCH`, `DELETE` and `…/sync` need `manageSources` (see Source permissions).
+
 ### Git repositories
 
 Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 
 | Method | Path | Access |
 |---|---|---|
-| GET | `/kb/{id}/git-repos` | KB view |
-| POST | `/kb/{id}/git-repos` | KB edit |
-| PATCH | `/kb/{id}/git-repos/{sourceId}` | KB edit |
-| DELETE | `/kb/{id}/git-repos/{sourceId}` | KB edit |
-| POST | `/kb/{id}/git-repos/{sourceId}/sync` | KB edit |
+| GET | `/kb/{id}/git-repos` | KB view + `seeSources` |
+| POST | `/kb/{id}/git-repos` | KB edit + `addSources` |
+| PATCH | `/kb/{id}/git-repos/{sourceId}` | KB edit + `manageSources` |
+| DELETE | `/kb/{id}/git-repos/{sourceId}` | KB edit + `manageSources` |
+| POST | `/kb/{id}/git-repos/{sourceId}/sync` | KB edit + `manageSources` |
 
 ### Knowledge graph
 
@@ -788,7 +879,8 @@ All routes below are under `/api/v1` and require `Authorization: Bearer <api-key
 
 Notes:
 
-- KB permissions are still enforced.
+- `GET /api/v1/kb` rows carry the `capabilities` object (`seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources`) resolved for the API key's owner, the same shape as the web API's KB list. The `api-user` system role adds no KB rights of its own; only the owner's KB roles count.
+- KB permissions are still enforced. A file selection (`selectedFileIds` on `POST /kb/{id}/chat`, `fileIds` on `POST /kb/{id}/research`) is not gated by the per-KB source permissions: any caller with KB view access may restrict a turn to chosen files.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
 - `POST /api/v1/kb/{id}/mcp` exposes the KB as an MCP server with the single tool `ask_kb` (KB view); `404` unless `mcp_server_enabled` is on.
 

@@ -27,16 +27,33 @@ const (
 type ToolPolicy struct {
 	SideEffect   SideEffect
 	RequiresRole string // minimum KB role of the RUNNING user
-	Approval     Approval
+	// RequiresCapability, when set, is a kbaccess source capability the
+	// RUNNING user needs on the KB on top of RequiresRole
+	// (Scope.Capabilities). The KB-write tools need addSources, so the
+	// KB's editor_add_sources flag decides who may add through an agent
+	// action exactly as it does on the add routes.
+	RequiresCapability kbaccess.Capability
+	Approval           Approval
 }
 
 var readOnly = ToolPolicy{SideEffect: SideEffectNone, RequiresRole: kbaccess.RoleView, Approval: ApprovalNever}
 
+// kbWrite is the policy of a tool that adds sources to the run's KB: the
+// edit role (a viewer never adds) plus the addSources capability, which the
+// KB's editor_add_sources / editor_see_sources flags decide for editors.
+var kbWrite = ToolPolicy{
+	SideEffect:         SideEffectKBWrite,
+	RequiresRole:       kbaccess.RoleEdit,
+	RequiresCapability: kbaccess.CapAddSources,
+	Approval:           ApprovalAlways,
+}
+
 // builtinPolicies covers every built-in tool (pinned by TestBuiltinPoliciesCoverKnownTools)
 // plus the planned KB-write tools that are not yet registered. Decisions (plan §0, §6b):
 // web_search is approval-always (the query leaves the house) and, unlike in
-// the legacy paths, needs no AllowPrivileged in the bridge; every write
-// is approval-always and needs edit.
+// the legacy paths, needs no AllowPrivileged in the bridge; every KB write
+// is approval-always and needs the edit role plus the addSources
+// capability (the KB's editor_add_sources and editor_see_sources flags).
 var builtinPolicies = map[string]ToolPolicy{
 	"kb_search":        readOnly,
 	"keyword_search":   readOnly,
@@ -54,8 +71,8 @@ var builtinPolicies = map[string]ToolPolicy{
 	"sql_query":         readOnly, // privileged; gated separately
 	"code_exec":         readOnly, // privileged; gated separately
 	"web_search":        {SideEffect: SideEffectExternalRead, RequiresRole: kbaccess.RoleView, Approval: ApprovalAlways},
-	"confluence_import": {SideEffect: SideEffectKBWrite, RequiresRole: kbaccess.RoleEdit, Approval: ApprovalAlways},
-	"library_add_to_kb": {SideEffect: SideEffectKBWrite, RequiresRole: kbaccess.RoleEdit, Approval: ApprovalAlways},
+	"confluence_import": kbWrite,
+	"library_add_to_kb": kbWrite,
 }
 
 // PolicyFor returns the policy for a tool name. Unknown tools (remote MCP
@@ -75,6 +92,13 @@ func RoleAtLeast(have, need string) bool {
 	h, ok := roleRank[have]
 	n, nok := roleRank[need]
 	return ok && nok && h >= n
+}
+
+// capabilityAllowed reports whether sc holds pol's RequiresCapability. A
+// policy without one is unaffected; a scope built without capabilities
+// holds none, so it fails closed on every policy that names one.
+func capabilityAllowed(sc Scope, pol ToolPolicy) bool {
+	return pol.RequiresCapability == "" || sc.Capabilities.Has(pol.RequiresCapability)
 }
 
 // privilegedInBridge reports whether a tool needs Scope.AllowPrivileged in

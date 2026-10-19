@@ -202,7 +202,10 @@ func newAgentChatFixture(t *testing.T, flagOn bool, opts ...func(*AgentChatDeps)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Stands in for authMw + kbaccess.RequireKBRole(view).
 		ctx := auth.WithUser(r.Context(), &auth.Claims{ID: r.Header.Get("X-Test-User")})
-		ctx = kbaccess.WithAccess(ctx, &kbaccess.KBAccessResult{KB: &kbaccess.KnowledgeBase{ID: f.kbID}, Role: "edit"})
+		// The DB defaults for an editor (editor_see_sources and
+		// editor_add_sources on), so the KB-writing actions are offered.
+		ctx = kbaccess.WithAccess(ctx, &kbaccess.KBAccessResult{KB: &kbaccess.KnowledgeBase{ID: f.kbID,
+			Sources: kbaccess.SourcePermissions{EditorSeeSources: true, EditorAddSources: true}}, Role: "edit"})
 		h.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(f.srv.Close)

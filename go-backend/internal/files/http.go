@@ -345,28 +345,42 @@ func SanitizeFilename(name string) string {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// hasViewAccess returns true when the user has at least view access to the
-// given KB, per the same role ladder the kbaccess middleware enforces
-// (superadmin, kb_members row, or view on a published global KB).
-func (h *Handler) hasViewAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+// sourceAccess resolves the caller's effective role on kb through the one
+// ladder (kbaccess.EffectiveRole) and the source capabilities that role has
+// under the KB's flags (kbaccess.CapabilitiesFor). The handlers behind the
+// file-id routes (/api/files/{id}…) have no {id} KB in the path, so the
+// kbaccess middleware cannot gate them; this is their second check, built
+// from the same two functions rather than a copy of either.
+func (h *Handler) sourceAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (string, kbaccess.Capabilities, error) {
 	memberRole, err := h.store.GetKBRole(ctx, kb.ID, user.ID)
 	if err != nil {
-		return false, fmt.Errorf("get kb role: %w", err)
+		return "", kbaccess.Capabilities{}, fmt.Errorf("get kb role: %w", err)
 	}
 	role := kbaccess.EffectiveRole(kb, user.Role, memberRole)
-	return kbaccess.AtLeast(role, kbaccess.RoleView), nil
+	return role, kbaccess.CapabilitiesFor(kb, role), nil
 }
 
-// hasEditAccess returns true when the user has at least edit access
-// (can delete files from) the given KB, per the same role ladder the
-// kbaccess middleware enforces.
-func (h *Handler) hasEditAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
-	memberRole, err := h.store.GetKBRole(ctx, kb.ID, user.ID)
+// canDownload reports whether the caller may download kb's source files:
+// at least view, plus the downloadSources capability (the KB's
+// viewer_download_sources flag for a viewer, editor_download_sources for an
+// editor).
+func (h *Handler) canDownload(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+	role, caps, err := h.sourceAccess(ctx, kb, user)
 	if err != nil {
-		return false, fmt.Errorf("get kb role: %w", err)
+		return false, err
 	}
-	role := kbaccess.EffectiveRole(kb, user.Role, memberRole)
-	return kbaccess.AtLeast(role, kbaccess.RoleEdit), nil
+	return kbaccess.AtLeast(role, kbaccess.RoleView) && caps.DownloadSources, nil
+}
+
+// canManage reports whether the caller may delete or retry kb's files: the
+// manageSources capability — edit and above, never a viewer, and below KB
+// admin only together with seeSources (kbaccess.CapabilitiesFor decides).
+func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+	_, caps, err := h.sourceAccess(ctx, kb, user)
+	if err != nil {
+		return false, err
+	}
+	return caps.ManageSources, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +388,9 @@ func (h *Handler) hasEditAccess(ctx context.Context, kb *kbaccess.KnowledgeBase,
 // ---------------------------------------------------------------------------
 
 // Download handles GET /api/files/{id}/download.
-// Requires authentication; the user must have at least view access to the file's KB.
+// Requires authentication; the user must have at least view access to the
+// file's KB and the downloadSources capability on it (canDownload). The
+// in-app PDF preview reads through this route, so it follows the same gate.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
@@ -408,7 +424,7 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.hasViewAccess(r.Context(), kb, user)
+	ok, err := h.canDownload(r.Context(), kb, user)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -451,7 +467,8 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete handles DELETE /api/files/{id}.
-// Requires authentication; the user must have edit access to the file's KB.
+// Requires authentication; the user must have edit access to the file's KB
+// and the manageSources capability on it (canManage).
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
@@ -485,7 +502,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.hasEditAccess(r.Context(), kb, user)
+	ok, err := h.canManage(r.Context(), kb, user)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -540,7 +557,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // Upload handles POST /api/kb/{id}/files.
-// Requires authentication and KB edit permission (enforced by kbaccess middleware).
+// Requires authentication and the addSources capability (kbAddSourcesChain).
 // Accepts a multipart/form-data request with a "file" field; max 500 MB.
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())

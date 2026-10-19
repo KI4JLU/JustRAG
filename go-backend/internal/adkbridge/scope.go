@@ -3,6 +3,8 @@ package adkbridge
 import (
 	"context"
 	"errors"
+
+	"github.com/justrag/go-backend/internal/kbaccess"
 )
 
 // Scope is the server-side truth about who runs an agent turn and against
@@ -19,6 +21,11 @@ type Scope struct {
 	LibraryFileIDs []string
 	// IsGlobal: the KB is public (kbaccess); KB-write actions need it.
 	IsGlobal bool
+	// Capabilities are the caller's kbaccess source capabilities on the KB
+	// (kbaccess.CapabilitiesFor). A tool whose policy names a
+	// RequiresCapability needs it here; the zero value holds none, so a
+	// scope built without it refuses every KB write.
+	Capabilities kbaccess.Capabilities
 	// AllowPrivileged mirrors site_config agents_allow_privileged_tools.
 	AllowPrivileged bool
 }
