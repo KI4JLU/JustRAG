@@ -768,6 +768,10 @@ export const translations = {
      * trimmed search text. */
     globalSearchPlaceholder: { de: 'Themen, Quellen und Chats durchsuchen…', en: 'Search topics, sources and chats…' },
     kbdCtrl: { de: 'Strg', en: 'Ctrl' },
+    searchFooterAllTopics: { de: 'Alle Themen', en: 'All topics' },
+    searchFooterOpen: { de: 'Öffnen', en: 'Open' },
+    searchFooterNavigate: { de: 'Navigieren', en: 'Navigate' },
+    searchFooterClose: { de: 'Schließen', en: 'Close' },
     searchDefaultsNavigation: { de: 'Navigation', en: 'Navigation' },
     searchDefaultsAccount: { de: 'Konto', en: 'Account' },
     searchDefaultsChat: { de: 'Chat', en: 'Chat' },
