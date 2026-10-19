@@ -36,7 +36,11 @@ func newSearchRateLimiter(rdb redis.Cmdable) *middleware.RedisRateLimiter {
 // only known after Authenticate, which is why the limiter sits inside it
 // (registerSearchRoutes). Without a user the limiter falls back to the IP;
 // on this route that cannot happen, since Authenticate answers 401 first.
-func searchRateKey(r *http.Request) string {
+func searchRateKey(r *http.Request) string { return userRateKey(r) }
+
+// userRateKey keys a limiter that sits inside Authenticate on the user
+// ("user:<id>"); "" (no user) falls back to the client IP.
+func userRateKey(r *http.Request) string {
 	if u := auth.UserFromContext(r.Context()); u != nil && u.ID != "" {
 		return "user:" + u.ID
 	}

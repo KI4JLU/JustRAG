@@ -301,7 +301,10 @@ var ignoredKeys = map[string]string{
 
 	// KB-less library chat (user file library, phase 3): global-only budget
 	// of POST /api/library/chat, which has no KB and so no per-KB canvas.
-	"chat_library_fulltext_max_tokens": "global-only full-text budget of the KB-less library chat; no KB, so no per-KB pipeline stage",
+	"chat_library_fulltext_max_tokens":         "global-only full-text budget of the KB-less library chat; no KB, so no per-KB pipeline stage",
+	"chat_attachments_context_share":           "global-only share of the answer model's window for chat attachments; sizes the user's own documents, not a retrieval stage",
+	"chat_attachments_fallback_context_window": "global-only window assumed for an answer model without ai_models.context_window; attachment budgeting, not a retrieval stage",
+	"chat_attachments_max_per_message":         "global-only cap on attachments per chat message; a request bound, not a retrieval stage",
 
 	// Operational budget siblings of the already-ignored chat_turn_budget_seconds.
 	"chat_turn_budget_tokens":     "operational budget, sibling of chat_turn_budget_seconds",
