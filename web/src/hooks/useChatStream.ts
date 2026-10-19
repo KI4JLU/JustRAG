@@ -4,7 +4,7 @@ import { API_BASE_URL, authFetch } from '../api';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { chatSourceSelection } from '../utils/kbAccess';
 import {
-  addMessageToTree, updateMessageInTree, remapMessageId, nearestPersistedAncestorId,
+  addMessageToTree, updateMessageInTree, remapMessageId, nearestPersistedAncestorId, removeSubtree,
 } from '../utils/messageTree';
 import { parseSseStream } from '../utils/sseParser';
 import type { AgentSelection } from './useKbSettings';
@@ -53,6 +53,10 @@ export function useChatStream({
   const chatAbortRef = useRef<AbortController | null>(null);
   const currentAiTempIdRef = useRef<string>('');
   const requestIdRef = useRef(0);
+  // Optimistic questions of sends the server refused before storing them.
+  // They stay on screen with their error bubble; the next send from below one
+  // replaces it (removeSubtree), since the composer got its text back.
+  const refusedQuestionIdsRef = useRef<Set<string>>(new Set());
 
   const handleSendMessage = useCallback(async (
     _e: React.FormEvent | React.KeyboardEvent,
@@ -100,6 +104,11 @@ export function useChatStream({
     // and drops the whole conversation history (SQLSTATE 22P02).
     const rawParentId = editParentId !== undefined ? editParentId : activeLeafId;
     const parentId = nearestPersistedAncestorId(messageTreeRef.current, rawParentId) ?? undefined;
+    // A retry from below a refused question replaces it: it was never stored.
+    let refusedQuestionId: string | undefined;
+    for (let cur = rawParentId ?? undefined; cur && cur !== parentId; cur = messageTreeRef.current.get(cur)?.parentMessageId ?? undefined) {
+      if (refusedQuestionIdsRef.current.has(cur)) refusedQuestionId = cur;
+    }
     const tempUserMsgId = `temp-user-${Date.now()}`;
     const tempAiMsgId = `temp-ai-${Date.now()}`;
 
@@ -108,8 +117,9 @@ export function useChatStream({
     // are about to insert.
     const userNodeId = regenerateOf?.userMessageId ?? tempUserMsgId;
 
+    if (refusedQuestionId) refusedQuestionIdsRef.current.delete(refusedQuestionId);
     setMessageTree(prev => {
-      let tree = prev;
+      let tree = refusedQuestionId ? removeSubtree(prev, refusedQuestionId) : prev;
       if (!regenerateOf) {
         tree = addMessageToTree(tree, {
           id: tempUserMsgId,
@@ -399,6 +409,7 @@ export function useChatStream({
       // Ignore abort errors (user navigated away or sent a new message)
       if (err instanceof DOMException && err.name === 'AbortError') return accepted;
       console.error('Chat failed:', err);
+      if (!accepted && !regenerateOf) refusedQuestionIdsRef.current.add(tempUserMsgId);
       const errorMsgId = `temp-error-${Date.now()}`;
       setMessageTree(prev => addMessageToTree(prev, {
         id: errorMsgId,

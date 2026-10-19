@@ -477,3 +477,50 @@ describe('useChatStream.handleSendMessage — source selection follows seeSource
     expect(authFetchMock).not.toHaveBeenCalled();
   });
 });
+
+// A refused send (the server answered 4xx before storing the question) gives
+// the text and files back to the composer. The optimistic question and its
+// error bubble stay visible so the user sees why, but a retry must replace
+// them: left in the tree they were a second, never-stored copy of the
+// question in a sibling branch that vanished on reload.
+describe('useChatStream.handleSendMessage — retry after a refused send', () => {
+  it('ersetzt die abgelehnte Frage beim erneuten Senden, statt eine Kopie daneben zu legen', async () => {
+    authFetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ error: 'too_large_for_context' }),
+    } as unknown as Response);
+    authFetchMock.mockResolvedValueOnce(okResponse([{ userMessageId: 'u-real', aiMessageId: 'a-real' }]));
+    const { result } = renderHook(() => useHarness());
+    const send = (leaf: string | null) => result.current.stream.handleSendMessage(
+      { preventDefault: () => {} } as React.FormEvent, 'Fasse die Datei zusammen.', leaf, undefined, {});
+
+    let accepted: boolean | undefined;
+    await act(async () => { accepted = await send(null); });
+    expect(accepted).toBe(false);
+    const errorNode = [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'));
+    expect(errorNode?.content).toBe('chatAttachmentsTooLongTogether');
+
+    await act(async () => { await send(errorNode?.id ?? null); });
+    const questions = [...result.current.messageTree.values()].filter(m => m.role === 'user');
+    expect(questions.map(q => q.id)).toEqual(['u-real']);
+    expect([...result.current.messageTree.keys()].some(id => id.startsWith('temp-error-'))).toBe(false);
+  });
+
+  it('lässt eine angenommene Frage stehen, auch wenn ihr Stream danach abbricht', async () => {
+    // Accepted, then the stream fails before the userMessageId frame: the
+    // question IS stored server-side, so a retry must not hide it.
+    authFetchMock.mockResolvedValueOnce({ ok: true, body: { getReader: () => ({
+      read: async () => { throw new Error('network'); }, releaseLock: () => {}, cancel: async () => {},
+    }) } } as unknown as Response);
+    authFetchMock.mockResolvedValueOnce(okResponse([{ userMessageId: 'u-2', aiMessageId: 'a-2' }]));
+    const { result } = renderHook(() => useHarness());
+    const send = (leaf: string | null) => result.current.stream.handleSendMessage(
+      { preventDefault: () => {} } as React.FormEvent, 'Frage', leaf, undefined, {});
+
+    await act(async () => { await send(null); });
+    const errorNode = [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'));
+    await act(async () => { await send(errorNode?.id ?? null); });
+    expect([...result.current.messageTree.values()].filter(m => m.role === 'user')).toHaveLength(2);
+  });
+});
