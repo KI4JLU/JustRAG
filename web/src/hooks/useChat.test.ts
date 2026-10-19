@@ -401,6 +401,25 @@ describe('useChat.handleEditSubmit', () => {
     expect(editParentId).toBeNull();
   });
 
+  // Oracle: the send resolves when the server accepted the turn, not when
+  // the answer has finished streaming — PromptInput clears its attachment
+  // chips on that resolution.
+  it('meldet die Annahme, bevor die Antwort fertig gestreamt ist', async () => {
+    const { result } = renderUseChat();
+    streamSend.mockImplementationOnce((_e: unknown, _m: unknown, _l: unknown, _p: unknown, opts?: { onAccepted?: () => void }) => {
+      opts?.onAccepted?.();
+      return new Promise(() => {}); // the answer never finishes in this test
+    });
+    act(() => {
+      result.current.setUserMessageInput('Frage');
+    });
+    let sent: boolean | undefined;
+    await act(async () => {
+      sent = await result.current.handleSendMessage({ preventDefault: () => {} } as React.FormEvent);
+    });
+    expect(sent).toBe(true);
+  });
+
   // Oracle: an edit is a new question about the same files — the original's
   // attachments go with it, as ids for the request and chips for the bubble.
   it('nimmt die Anhänge der bearbeiteten Frage mit', async () => {

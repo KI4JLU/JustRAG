@@ -400,10 +400,16 @@ export function useChat({
     // Delegate actual streaming to useChatStream. A turn the server refused
     // (e.g. the attachments together exceed the budget) reports false, so the
     // composer keeps its attachments for a retry.
-    const accepted = await stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, sendOpts);
-    // The question was not stored: give the user their text back too.
-    if (!accepted) setUserMessageInput(prev => prev || userMessage);
-    return accepted;
+    // Resolves as soon as the server accepted the turn, not when the answer
+    // has finished streaming: the composer clears its attachments on that.
+    return new Promise<boolean>(resolve => {
+      Promise.resolve(stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, { ...sendOpts, onAccepted: () => resolve(true) }))
+        .then(accepted => {
+          // The question was not stored: give the user their text back too.
+          if (!accepted) setUserMessageInput(prev => prev || userMessage);
+          resolve(accepted);
+        }, () => resolve(false));
+    });
   }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment]);
 
   /**

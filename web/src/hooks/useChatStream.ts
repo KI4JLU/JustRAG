@@ -70,6 +70,9 @@ export function useChatStream({
       // the optimistic message.
       attachmentIds?: string[];
       attachments?: MessageAttachment[];
+      // Called once the server accepted the turn (the question is stored),
+      // before the answer streams — the composer clears its files then.
+      onAccepted?: () => void;
       agentSelection?: AgentSelection;
       // "Antwort neu generieren": no new question is written. The answer
       // hangs under the named, already-persisted question as a sibling of
@@ -201,6 +204,7 @@ export function useChatStream({
       }
 
       accepted = true;
+      opts?.onAccepted?.();
       const reader = response.body?.getReader();
       if (!reader) throw new Error(t('noReaderError'));
 
