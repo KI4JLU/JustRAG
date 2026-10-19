@@ -626,7 +626,7 @@ budget (the KB's answer model); nothing about the KB is stored with the file.
 |---|---|
 | `201` | `{"id", "name", "mime", "size", "tokens"}`; `id` goes into `attachmentIds` of the send |
 | `400` / `413` | Invalid upload (name, missing field) / file over the upload size limit |
-| `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes"}` — the library quota is full |
+| `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes", "chatAttachmentBytes"}` — the library quota is full; `chatAttachmentBytes` is the part of `usedBytes` held by chat attachments, which the library list does not show |
 | `415` | Unsupported file type (no parser; audio is not transcribed here) |
 | `422` | The file has no extractable text, took too long to read, or `{"error": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |
 | `503` | Chat attachments are not wired on this server |

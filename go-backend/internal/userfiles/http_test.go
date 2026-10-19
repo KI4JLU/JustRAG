@@ -174,6 +174,18 @@ func (s *fakeStore) UsedBytes(_ context.Context, owner string) (int64, error) {
 	return n, nil
 }
 
+func (s *fakeStore) ChatAttachmentBytes(_ context.Context, owner string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for _, r := range s.rows {
+		if r.OwnerUserID == owner && r.Scope == ScopeChat {
+			n += r.Size
+		}
+	}
+	return n, nil
+}
+
 func (s *fakeStore) QuotaOverride(_ context.Context, owner string) (*int64, error) {
 	return s.override[owner], nil
 }
@@ -510,5 +522,27 @@ func TestUsageAndQuotaEndpoints(t *testing.T) {
 	m := decode(t, rec)
 	if m["usedBytes"] != float64(5) || m["quotaBytes"] != float64(100) {
 		t.Fatalf("quota: %v", m)
+	}
+}
+
+// Chat attachments count toward the quota but are not in the library list,
+// so the quota endpoint and the 413 body say how much of usedBytes they hold.
+func TestQuotaReportsChatAttachmentBytes(t *testing.T) {
+	h := newHarness(10)
+	seed(t, h, userA(), "12345")
+	h.store.mu.Lock()
+	h.store.rows["chat-1"] = &UserFile{ID: "chat-1", OwnerUserID: userA(), Size: 4, Scope: ScopeChat}
+	h.store.mu.Unlock()
+
+	m := decode(t, h.do(userA(), httptest.NewRequest(http.MethodGet, "/api/library/quota", nil)))
+	if m["usedBytes"] != float64(9) || m["chatAttachmentBytes"] != float64(4) {
+		t.Fatalf("quota: %v, want usedBytes 9 with chatAttachmentBytes 4", m)
+	}
+	rec := h.do(userA(), uploadReq(t, "more.txt", []byte("abc")))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("upload over quota: %d %s", rec.Code, rec.Body)
+	}
+	if m := decode(t, rec); m["chatAttachmentBytes"] != float64(4) {
+		t.Fatalf("413 body %v, want chatAttachmentBytes 4", m)
 	}
 }

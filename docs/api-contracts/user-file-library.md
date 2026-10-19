@@ -60,7 +60,7 @@ Query: `limit` (default 50, clamped 1..500), `offset` (default 0, negatives igno
 | 200 | `UserFile` plus `"deduplicated": true`: this user already holds identical bytes; the existing file is returned, nothing is stored or charged to quota |
 | 400 | `{"error":"Invalid multipart form"}`, `"File field is required"`, `"File must not be empty"`, `"File type not allowed"`, `"File type not supported (.ext)"`, `"Filename must not exceed 255 bytes"` |
 | 413 | transport cap: `{"error":"File too large: the upload limit is 500 MiB"}`; spreadsheet gate: `{"error":"Spreadsheet too large (X): the limit is Y (tabular_max_file_bytes)"}` |
-| 413 | quota: `{"error":"quota_exceeded","usedBytes":1048576000,"quotaBytes":1073741824}` |
+| 413 | quota: `{"error":"quota_exceeded","usedBytes":1048576000,"quotaBytes":1073741824,"chatAttachmentBytes":0}` |
 
 201 example:
 ```json
@@ -103,7 +103,7 @@ KBs currently holding a copy (impact preview for the delete dialog). `memberCoun
 
 ### GET /api/library/quota
 
-200: `{"usedBytes":1048576,"quotaBytes":0}`. `quotaBytes: 0` means **unlimited**. `usedBytes` sums the library files' sizes; a file added to N KBs counts once.
+200: `{"usedBytes":1048576,"quotaBytes":0,"chatAttachmentBytes":0}`. `quotaBytes: 0` means **unlimited**. `usedBytes` sums the user's files' sizes; a file added to N KBs counts once. Chat attachments count too, but the library list does not show them: `chatAttachmentBytes` is their part of `usedBytes`, and it is freed by deleting the chats they were sent in. The `413 quota_exceeded` body carries the same `chatAttachmentBytes`.
 
 ## KB endpoints
 

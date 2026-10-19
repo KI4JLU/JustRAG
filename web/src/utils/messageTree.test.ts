@@ -10,6 +10,7 @@ import {
   updateMessageInTree,
   remapMessageId,
   nearestPersistedAncestorId,
+  removeSubtree,
 } from './messageTree';
 
 // ---------------------------------------------------------------------------
@@ -322,5 +323,19 @@ describe('nearestPersistedAncestorId', () => {
   it('returns null for null/undefined input', () => {
     expect(nearestPersistedAncestorId(map, undefined)).toBeNull();
     expect(nearestPersistedAncestorId(map, null)).toBeNull();
+  });
+});
+
+describe('removeSubtree', () => {
+  it('removes the node with its descendants and unlinks it from its parent', () => {
+    let m = new Map<string, Message>();
+    m = addMessageToTree(m, { id: 'p', role: 'ai', content: '' });
+    m = addMessageToTree(m, { id: 'q', role: 'user', content: '', parentMessageId: 'p' });
+    m = addMessageToTree(m, { id: 'e', role: 'ai', content: '', parentMessageId: 'q' });
+    m = addMessageToTree(m, { id: 's', role: 'user', content: '', parentMessageId: 'p' });
+    const out = removeSubtree(m, 'q');
+    expect([...out.keys()].sort()).toEqual(['p', 's']);
+    expect(out.get('p')?.childIds).toEqual(['s']);
+    expect(removeSubtree(m, 'missing')).toBe(m);
   });
 });

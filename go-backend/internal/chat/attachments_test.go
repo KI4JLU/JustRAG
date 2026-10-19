@@ -3,12 +3,15 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/prompts"
+	"github.com/justrag/go-backend/internal/splitter"
 	"github.com/justrag/go-backend/internal/uploadcheck"
 	"github.com/justrag/go-backend/internal/userfiles"
 )
@@ -21,7 +24,9 @@ func (fakeIngester) IngestScoped(context.Context, string, *uploadcheck.Upload, s
 
 type fakeDeleter struct{}
 
-func (fakeDeleter) DeleteUserFile(context.Context, string, string) error { return nil }
+func (fakeDeleter) DeleteChatAttachment(context.Context, string, string, time.Time) (bool, error) {
+	return true, nil
+}
 
 type fakeAttachLimits struct{}
 
@@ -237,7 +242,7 @@ func TestAttachmentTokenCounter(t *testing.T) {
 
 	c.countFn = func(context.Context, *ai.ResolvedConfig, string, string) (int, error) {
 		calls++
-		return 0, errors.New("404")
+		return 0, fmt.Errorf("ai: tokenize: %w", &ai.APIError{StatusCode: 404})
 	}
 	if n := c.count(context.Background(), lim, "f2", "some text"); n <= 0 {
 		t.Fatalf("fallback estimate missing, got %d", n)
@@ -343,5 +348,121 @@ func TestAttachmentTokenCounter_ProviderWindow(t *testing.T) {
 	failing.providerWindow(context.Background(), cfg, "gemma")
 	if w := failing.providerWindow(context.Background(), cfg, "gemma"); w != 0 || calls != 1 {
 		t.Fatalf("failed lookup: w=%d calls=%d, want 0 and no retry", w, calls)
+	}
+}
+
+// Oracle: only a provider without /tokenize is remembered. A cancelled
+// request, a timeout or a 5xx falls back for that one count and asks the
+// provider again next time.
+func TestAttachmentTokenCounter_TransientFailureIsNotRemembered(t *testing.T) {
+	for name, failure := range map[string]error{
+		"cancelled": context.Canceled,
+		"timeout":   context.DeadlineExceeded,
+		"5xx":       &ai.APIError{StatusCode: 503},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			c := newAttachmentTokenCounter()
+			c.countFn = func(context.Context, *ai.ResolvedConfig, string, string) (int, error) {
+				calls++
+				if calls == 1 {
+					return 0, fmt.Errorf("ai: tokenize: %w", failure)
+				}
+				return 42, nil
+			}
+			lim := attachmentLimits{model: "m", cfg: &ai.ResolvedConfig{BaseURL: "http://p/v1/"}}
+			if n := c.count(context.Background(), lim, "f1", "some text"); n <= 0 {
+				t.Fatalf("fallback estimate missing, got %d", n)
+			}
+			if n := c.count(context.Background(), lim, "f2", "other text"); n != 42 || calls != 2 {
+				t.Fatalf("second count %d after %d calls, want the provider's 42 on call 2", n, calls)
+			}
+		})
+	}
+}
+
+// trimFixture is three KB sources in the standard CONTEXT layout with a
+// conflict block between the rules and the context, and a window with room
+// for one 50-token document plus keepBlocks KB blocks and a half.
+func trimFixture(t *testing.T, conflicts []MessageConflict, keepBlocks int) (*ChatContext, *turnDocuments, string) {
+	t.Helper()
+	blocks := []string{"[1] [Source: a.pdf]\n" + strings.Repeat("alpha ", 60), "[2] [Source: b.pdf]\n" + strings.Repeat("beta ", 60), "[3] [Source: c.pdf]\n" + strings.Repeat("gamma ", 60)}
+	contextText := strings.Join(blocks, chunkBlockSeparator)
+	report := &ConflictReport{Conflicts: conflicts}
+	addendum := ConflictAddendumText("en", report)
+	chatCtx := &ChatContext{
+		SystemPrompt: "rules" + addendum + "\n\nCONTEXT:\n" + contextText,
+		Context:      contextText,
+		Sources:      []ChatSource{{Index: 1, FileName: "a.pdf"}, {Index: 2, FileName: "b.pdf"}, {Index: 3, FileName: "c.pdf"}},
+		Conflicts:    report,
+	}
+	kb := splitKBContext(chatCtx)
+	one := kb.blockTokens[0]
+	rest := splitter.CountTokens(kb.systemWithout(chatCtx)) + splitter.CountTokens("q")
+	window := attachmentOutputReserveTokens + rest + 50 + keepBlocks*one + one/2
+	return chatCtx, testTurnDocs(1_000_000, window, doc("A1", "mine.txt", "doc", 50)), addendum
+}
+
+// Oracle: after a trim the system prompt's conflict block names only kept KB
+// sources. Source [3] is gone and its number now belongs to nothing (or to
+// the attached document), so the conflict that named it must leave the
+// prompt as well as the wire report.
+func TestEnsureSources_TrimRewritesConflictBlock(t *testing.T) {
+	keep := MessageConflict{Claim: "date differs", SourceA: 1, SourceB: 2, Kind: "contradiction", Newer: "b", FileA: "a.pdf", FileB: "b.pdf"}
+	gone := MessageConflict{Claim: "price differs", SourceA: 1, SourceB: 3, Kind: "contradiction", Newer: "unknown", FileA: "a.pdf", FileB: "c.pdf"}
+	chatCtx, td, oldBlock := trimFixture(t, []MessageConflict{keep, gone}, 2)
+	td.ensureSources(withTurnDocuments(context.Background(), td), chatCtx, nil, "q", nil)
+
+	if len(chatCtx.Sources) != 3 || chatCtx.Sources[2].UserFileID != "uf-A1" {
+		t.Fatalf("sources %+v, want a.pdf, b.pdf, then the document as [3]", chatCtx.Sources)
+	}
+	want := ConflictAddendumText("en", &ConflictReport{Conflicts: []MessageConflict{keep}})
+	if strings.Contains(chatCtx.SystemPrompt, oldBlock) || !strings.Contains(chatCtx.SystemPrompt, want) {
+		t.Fatalf("system prompt keeps the stale conflict block:\n%s", chatCtx.SystemPrompt)
+	}
+	if strings.Contains(chatCtx.SystemPrompt, "price differs") {
+		t.Fatalf("conflict with the trimmed source [3] still in the prompt:\n%s", chatCtx.SystemPrompt)
+	}
+	if chatCtx.Conflicts == nil || len(chatCtx.Conflicts.Conflicts) != 1 || chatCtx.Conflicts.Conflicts[0] != keep {
+		t.Fatalf("report %+v, want only the kept conflict", chatCtx.Conflicts)
+	}
+}
+
+// Oracle: when no conflict survives the trim, the block leaves the prompt and
+// the report is nil ("absent means nothing to report").
+func TestEnsureSources_TrimRemovesConflictBlockWithoutSurvivors(t *testing.T) {
+	gone := MessageConflict{Claim: "price differs", SourceA: 2, SourceB: 3, Kind: "superseded", Newer: "a", FileA: "b.pdf", FileB: "c.pdf"}
+	chatCtx, td, oldBlock := trimFixture(t, []MessageConflict{gone}, 1)
+	td.ensureSources(withTurnDocuments(context.Background(), td), chatCtx, nil, "q", nil)
+	if strings.Contains(chatCtx.SystemPrompt, oldBlock) || strings.Contains(chatCtx.SystemPrompt, "price differs") {
+		t.Fatalf("conflict block left after every conflict was trimmed:\n%s", chatCtx.SystemPrompt)
+	}
+	if chatCtx.Conflicts != nil {
+		t.Fatalf("report %+v, want nil", chatCtx.Conflicts)
+	}
+}
+
+// Oracle: a turn whose documents were all dropped for the budget is a KB-only
+// turn and keeps the post-response checks; before selection, and with a
+// selected document, it is an attachment turn.
+func TestAttachmentTurn_FollowsSelection(t *testing.T) {
+	big := testTurnDocs(1_000_000, attachmentOutputReserveTokens+10, doc("A1", "big.txt", "x", 500))
+	ctx := withTurnDocuments(context.Background(), big)
+	if !attachmentTurn(ctx) {
+		t.Fatal("before selection: want an attachment turn")
+	}
+	big.ensureSources(ctx, &ChatContext{SystemPrompt: "s"}, nil, "q", nil)
+	if attachmentTurn(ctx) {
+		t.Fatal("every document dropped: want a KB-only turn")
+	}
+
+	small := testTurnDocs(1_000_000, 1_000_000, doc("A1", "small.txt", "x", 5))
+	sctx := withTurnDocuments(context.Background(), small)
+	small.ensureSources(sctx, &ChatContext{SystemPrompt: "s"}, nil, "q", nil)
+	if !attachmentTurn(sctx) {
+		t.Fatal("document selected: want an attachment turn")
+	}
+	if attachmentTurn(context.Background()) {
+		t.Fatal("no documents: want false")
 	}
 }

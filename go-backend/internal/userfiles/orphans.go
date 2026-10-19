@@ -57,7 +57,16 @@ type OrphanSweeper struct {
 	// pending / deleter remove chat attachments nothing references any more
 	// (WithPendingChatFiles). Optional.
 	pending PendingChatStore
-	deleter FileDeleter
+	deleter ChatAttachmentDeleter
+}
+
+// ChatAttachmentDeleter deletes a chat attachment only if, inside its own
+// transaction, nothing references it and it was last uploaded before
+// staleBefore (implemented by *cascade.Deleter). The sweep's listing is a
+// candidate list, never the decision: a file can be sent, promoted or
+// uploaded again between the listing and the delete.
+type ChatAttachmentDeleter interface {
+	DeleteChatAttachment(ctx context.Context, ownerID, userFileID string, staleBefore time.Time) (bool, error)
 }
 
 // PendingFile is a chat-scoped user file (migration 0090) that no message,
@@ -69,8 +78,8 @@ type PendingFile struct {
 
 // PendingChatStore lists unreferenced chat attachments.
 type PendingChatStore interface {
-	// PendingChatFiles returns up to limit chat-scoped user files created
-	// before olderThan that nothing references.
+	// PendingChatFiles returns up to limit chat-scoped user files last
+	// uploaded (updated_at) before olderThan that nothing references.
 	PendingChatFiles(ctx context.Context, olderThan time.Time, limit int) ([]PendingFile, error)
 }
 
@@ -78,8 +87,9 @@ type PendingChatStore interface {
 // were uploaded but never sent, or whose chats are gone (a chat delete
 // removes its own attachments right away; a KB or account delete leaves them
 // to this). The OrphanGrace applies: an upload is kept for 24 h, long enough
-// for the message it was uploaded for.
-func (s *OrphanSweeper) WithPendingChatFiles(store PendingChatStore, deleter FileDeleter) *OrphanSweeper {
+// for the message it was uploaded for, counted from the latest upload of the
+// same bytes (PGStore.Insert refreshes updated_at on a chat dedup hit).
+func (s *OrphanSweeper) WithPendingChatFiles(store PendingChatStore, deleter ChatAttachmentDeleter) *OrphanSweeper {
 	s.pending = store
 	s.deleter = deleter
 	return s
@@ -90,28 +100,18 @@ func NewOrphanSweeper(store OrphanStore, stor storage.Storage) *OrphanSweeper {
 }
 
 // RunOnce performs one sweep and returns the number of deleted objects. Any
-// storage or database error aborts the tick; nothing is ever deleted on a
-// failed check.
+// storage or database error in the blob/cache sweep aborts the tick; nothing
+// is ever deleted on a failed check. The chat-attachment step runs first with
+// its own OrphanMaxPerRun budget and only logs its errors, so a file that
+// keeps failing cannot stop the blob/cache sweep on every tick.
 func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 	owners, err := s.store.OwnerIDs(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("userfiles: sweep: list owners: %w", err)
 	}
-	deleted := 0
 	cutoff := s.now().Add(-OrphanGrace)
-	if s.pending != nil && s.deleter != nil {
-		files, err := s.pending.PendingChatFiles(ctx, cutoff, OrphanMaxPerRun)
-		if err != nil {
-			return 0, fmt.Errorf("userfiles: sweep: list pending chat files: %w", err)
-		}
-		for _, f := range files {
-			if err := s.deleter.DeleteUserFile(ctx, f.OwnerID, f.ID); err != nil {
-				return deleted, fmt.Errorf("userfiles: sweep: delete chat attachment %s: %w", f.ID, err)
-			}
-			deleted++
-			observability.RecordUserFileOrphanDeleted("chat_attachment")
-		}
-	}
+	chatDeleted := s.sweepChatAttachments(ctx, cutoff)
+	deleted := 0
 	for _, owner := range owners {
 		if !canonicalID(owner) {
 			continue
@@ -161,7 +161,38 @@ func (s *OrphanSweeper) RunOnce(ctx context.Context) (int, error) {
 			observability.RecordUserFileOrphanDeleted(kind)
 		}
 	}
-	return deleted, nil
+	return chatDeleted + deleted, nil
+}
+
+// sweepChatAttachments deletes up to OrphanMaxPerRun chat attachments that
+// were never sent or whose chats are gone, and returns how many it deleted.
+// Errors are logged, never returned (see RunOnce).
+func (s *OrphanSweeper) sweepChatAttachments(ctx context.Context, cutoff time.Time) int {
+	if s.pending == nil || s.deleter == nil {
+		return 0
+	}
+	log := logctx.From(ctx)
+	files, err := s.pending.PendingChatFiles(ctx, cutoff, OrphanMaxPerRun)
+	if err != nil {
+		log.Warn("userfiles: sweep: list pending chat files", "error", err)
+		return 0
+	}
+	deleted := 0
+	for _, f := range files {
+		if ctx.Err() != nil {
+			break
+		}
+		ok, err := s.deleter.DeleteChatAttachment(ctx, f.OwnerID, f.ID, cutoff)
+		if err != nil {
+			log.Warn("userfiles: sweep: delete chat attachment", "user_file_id", f.ID, "error", err)
+			continue
+		}
+		if ok {
+			deleted++
+			observability.RecordUserFileOrphanDeleted("chat_attachment")
+		}
+	}
+	return deleted
 }
 
 // classifyKey returns ("blob", "") for prefix+<id>, ("cache", ufid) for
@@ -217,11 +248,11 @@ func (s *PGOrphanStore) PendingChatFiles(ctx context.Context, olderThan time.Tim
 	rows, err := s.pool.Query(ctx, `
 		SELECT uf.id::text, uf.owner_user_id::text
 		  FROM user_files uf
-		 WHERE uf.scope = 'chat' AND uf.created_at < $1
+		 WHERE uf.scope = 'chat' AND uf.updated_at < $1
 		   AND NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.user_file_id = uf.id)
 		   AND NOT EXISTS (SELECT 1 FROM files f WHERE f.user_file_id = uf.id)
 		   AND NOT EXISTS (SELECT 1 FROM chat_file_refs r WHERE r.user_file_id = uf.id)
-		 ORDER BY uf.created_at
+		 ORDER BY uf.updated_at
 		 LIMIT $2`, olderThan, limit)
 	if err != nil {
 		return nil, fmt.Errorf("pending chat files: %w", err)

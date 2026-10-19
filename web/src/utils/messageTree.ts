@@ -190,6 +190,28 @@ export function nearestPersistedAncestorId(map: Map<string, Message>, id: string
 }
 
 /**
+ * Remove a message and everything below it, and unlink it from its parent.
+ */
+export function removeSubtree(map: Map<string, Message>, id: string): Map<string, Message> {
+    const root = map.get(id);
+    if (!root) return map;
+    const newMap = new Map(map);
+    const stack = [id];
+    while (stack.length > 0) {
+        const cur = stack.pop()!;
+        const msg = newMap.get(cur);
+        if (!msg) continue;
+        stack.push(...(msg.childIds || []));
+        newMap.delete(cur);
+    }
+    if (root.parentMessageId && newMap.has(root.parentMessageId)) {
+        const parent = newMap.get(root.parentMessageId)!;
+        newMap.set(root.parentMessageId, { ...parent, childIds: (parent.childIds || []).filter(c => c !== id) });
+    }
+    return newMap;
+}
+
+/**
  * Update a message in the tree by ID, preserving childIds.
  */
 export function updateMessageInTree(map: Map<string, Message>, msgId: string, updates: Partial<Message>): Map<string, Message> {
