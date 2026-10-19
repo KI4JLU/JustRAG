@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -32,6 +33,12 @@ import (
 // The answer prompt is unchanged too, so the model still cites with [n]
 // markers and may, in prose, still name a document it read; the markers are
 // stripped here, prose is not rewritten.
+//
+// Exception: a source with a userFileId is a document the reader attached
+// to the chat themselves (chat attachments, migration 0090). It is no KB
+// source, so it, its [n] markers and its per-citation verification stay;
+// only the KB attribution goes. The kept numbers come from the response's
+// own sources (the opening frame, the JSON body, the stored message).
 
 // citationStripRe matches one citation marker in the single format
 // citationMarkerRe defines, plus the horizontal whitespace before it, so
@@ -54,16 +61,66 @@ const maxCitationHold = 512
 // text. Markers whose numbers are all non-positive are not citations
 // (ExtractCitationSpans skips them too) and stay.
 func StripCitationMarkers(text string) string {
+	return stripCitationMarkersExcept(text, nil)
+}
+
+// stripCitationMarkersExcept is StripCitationMarkers that keeps the numbers
+// in keep: a marker citing only kept numbers stays as it is, one citing only
+// others goes, and a mixed one is rewritten to its kept numbers ("[1, 5]"
+// with 5 kept becomes "[5]").
+func stripCitationMarkersExcept(text string, keep map[int]bool) string {
 	if !strings.Contains(text, "[") {
 		return text
 	}
 	return citationStripRe.ReplaceAllStringFunc(text, func(m string) string {
-		inner := m[strings.IndexByte(m, '[')+1 : len(m)-1]
-		if len(parseCitationNumbers(inner)) == 0 {
+		open := strings.IndexByte(m, '[')
+		nums := parseCitationNumbers(m[open+1 : len(m)-1])
+		if len(nums) == 0 {
 			return m
 		}
-		return ""
+		kept := make([]string, 0, len(nums))
+		for _, n := range nums {
+			if keep[n] {
+				kept = append(kept, strconv.Itoa(n))
+			}
+		}
+		switch len(kept) {
+		case 0:
+			return ""
+		case len(nums):
+			return m
+		default:
+			return m[:open] + "[" + strings.Join(kept, ", ") + "]"
+		}
 	})
+}
+
+// keptCitationNumbers returns the citation numbers of the sources that stay
+// visible to a reader without seeCitations: the user's own attachments.
+func keptCitationNumbers(sources []ChatSource) map[int]bool {
+	var keep map[int]bool
+	for _, s := range sources {
+		if s.UserFileID == "" || s.Index <= 0 {
+			continue
+		}
+		if keep == nil {
+			keep = make(map[int]bool)
+		}
+		keep[s.Index] = true
+	}
+	return keep
+}
+
+// ownSources returns the sources that stay visible: the user's attachments.
+// Never nil, so the opening frame keeps its empty list.
+func ownSources(sources []ChatSource) []ChatSource {
+	out := []ChatSource{}
+	for _, s := range sources {
+		if s.UserFileID != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // CitationMarkerStream strips citation markers from text that arrives in
@@ -72,6 +129,9 @@ func StripCitationMarkers(text string) string {
 // into a marker; Flush releases that tail at the end of the text. Not safe
 // for concurrent use.
 type CitationMarkerStream struct {
+	// keep lists citation numbers that are not stripped (see
+	// stripCitationMarkersExcept). nil strips every marker.
+	keep    map[int]bool
 	pending string
 	// dropping is set while the stream discards a possible marker that
 	// outgrew maxCitationHold: its prefix cannot be sent (the closing "]"
@@ -105,16 +165,16 @@ func (s *CitationMarkerStream) Feed(chunk string) string {
 			// An oversized possible marker: drop it, with the blanks before
 			// it (as the marker strip would), and keep dropping.
 			s.pending, s.dropping = "", true
-			return StripCitationMarkers(buf[:loc[0]])
+			return stripCitationMarkersExcept(buf[:loc[0]], s.keep)
 		}
 	}
 	s.pending = buf[cut:]
-	return StripCitationMarkers(buf[:cut])
+	return stripCitationMarkersExcept(buf[:cut], s.keep)
 }
 
 // Flush returns the held-back tail, markers removed, and resets the stream.
 func (s *CitationMarkerStream) Flush() string {
-	out := StripCitationMarkers(s.pending)
+	out := stripCitationMarkersExcept(s.pending, s.keep)
 	s.pending, s.dropping = "", false
 	return out
 }
@@ -129,6 +189,9 @@ type CitationFilter struct {
 	mu        sync.Mutex
 	content   CitationMarkerStream
 	reasoning CitationMarkerStream
+	// keep is set from the response's sources frame: the citation numbers of
+	// the reader's own attachments, which are not stripped.
+	keep map[int]bool
 }
 
 // NewCitationFilter returns a filter that strips source attribution.
@@ -160,7 +223,11 @@ func (f *CitationFilter) Frames(data any) []any {
 		// error / aiMessageId: plain status frames, no attribution.
 		out = append(out, v)
 	case map[string]any:
-		if r := redactCitationFields(v); len(r) > 0 {
+		if src, ok := v["sources"].([]ChatSource); ok {
+			f.keep = keptCitationNumbers(src)
+			f.content.keep, f.reasoning.keep = f.keep, f.keep
+		}
+		if r := redactCitationFields(v, f.keep); len(r) > 0 {
 			out = append(out, r)
 		}
 	}
@@ -183,7 +250,11 @@ func (f *CitationFilter) Payload(m map[string]any) map[string]any {
 	if f == nil {
 		return m
 	}
-	return redactCitationFields(m)
+	var keep map[int]bool
+	if src, ok := m["sources"].([]ChatSource); ok {
+		keep = keptCitationNumbers(src)
+	}
+	return redactCitationFields(m, keep)
 }
 
 func (f *CitationFilter) flushLocked() []any {
@@ -204,8 +275,9 @@ func textFrame(key, s string) []any {
 // source-attributing key removed or emptied. The keys are the chat wire
 // format's (web SSE frames, the web and public-API JSON bodies):
 //
-//   - sources: kept as an empty list, so a client still recognises the
-//     opening frame (it carries chatId / userMessageId too)
+//   - sources: only the reader's own attachments stay (an empty list when
+//     there are none), so a client still recognises the opening frame (it
+//     carries chatId / userMessageId too)
 //   - conflicts: removed ("absent means nothing to report")
 //   - verification: see redactVerification
 //   - agentTrajectory: retrieved-chunk previews removed, markers stripped
@@ -216,26 +288,28 @@ func textFrame(key, s string) []any {
 //   - answer / content / reasoning / refinedAnswer / followUpQuestions:
 //     citation markers stripped
 //
-// A value of an unexpected type under one of these keys is dropped.
-func redactCitationFields(m map[string]any) map[string]any {
+// A value of an unexpected type under one of these keys is dropped. Markers
+// citing a number in keep stay (stripCitationMarkersExcept).
+func redactCitationFields(m map[string]any, keep map[int]bool) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
 		switch k {
 		case "sources":
-			out[k] = []ChatSource{}
+			src, _ := v.([]ChatSource)
+			out[k] = ownSources(src)
 		case "conflicts", "args", "preview":
 			// dropped
 		case "verification":
-			if r, ok := redactVerificationValue(v); ok {
+			if r, ok := redactVerificationValue(v, keep); ok {
 				out[k] = r
 			}
 		case "agentTrajectory":
 			switch e := v.(type) {
 			case TrajectoryEvent:
-				out[k] = redactTrajectory(e)
+				out[k] = redactTrajectory(e, keep)
 			case *TrajectoryEvent:
 				if e != nil {
-					out[k] = redactTrajectory(*e)
+					out[k] = redactTrajectory(*e, keep)
 				}
 			}
 		case "structuredTable":
@@ -249,13 +323,13 @@ func redactCitationFields(m map[string]any) map[string]any {
 		case "answer", "content", "reasoning", "refinedAnswer":
 			switch s := v.(type) {
 			case string:
-				out[k] = StripCitationMarkers(s)
+				out[k] = stripCitationMarkersExcept(s, keep)
 			case nil:
 				out[k] = nil
 			}
 		case "followUpQuestions":
 			if qs, ok := v.([]string); ok {
-				out[k] = stripMarkersAll(qs)
+				out[k] = stripMarkersAll(qs, keep)
 			}
 		default:
 			out[k] = v
@@ -264,65 +338,70 @@ func redactCitationFields(m map[string]any) map[string]any {
 	return out
 }
 
-func redactVerificationValue(v any) (any, bool) {
+func redactVerificationValue(v any, keep map[int]bool) (any, bool) {
 	switch mv := v.(type) {
 	case nil:
 		return nil, true
 	case *MessageVerification:
-		return redactVerification(mv), true
+		return redactVerification(mv, keep), true
 	case MessageVerification:
-		return redactVerification(&mv), true
+		return redactVerification(&mv, keep), true
 	}
 	return nil, false
 }
 
 // redactVerification keeps the verdicts a reader can act on (verified,
 // score, refine status, the flagged claims' text) and drops what points
-// into the sources: the per-citation entries (incl. their quote spans into
-// a source's text), the cited source number of a flagged claim, and the
-// Self-RAG per-source relevance list.
-func redactVerification(v *MessageVerification) *MessageVerification {
+// into the KB sources: the per-citation entries (incl. their quote spans
+// into a source's text) except those of kept numbers, the cited source
+// number of a flagged claim, and the Self-RAG per-source relevance list.
+func redactVerification(v *MessageVerification, keep map[int]bool) *MessageVerification {
 	if v == nil {
 		return nil
 	}
 	out := &MessageVerification{
 		Verified: v.Verified,
 		Score:    v.Score,
-		Issues:   stripMarkersAll(v.Issues),
+		Issues:   stripMarkersAll(v.Issues, keep),
 		Refine:   v.Refine,
 	}
+	for _, c := range v.Citations {
+		if keep[c.N] {
+			out.Citations = append(out.Citations, c)
+		}
+	}
 	if v.Factuality != nil {
-		out.Factuality = &FactualityVerification{FlaggedClaims: redactFlaggedClaims(v.Factuality.FlaggedClaims)}
+		out.Factuality = &FactualityVerification{FlaggedClaims: redactFlaggedClaims(v.Factuality.FlaggedClaims, keep)}
 	}
 	if v.SelfRAG != nil {
 		out.SelfRAG = &SelfRAGVerification{
 			Relevance:     []ChunkRelevanceStatus{},
-			FlaggedClaims: redactFlaggedClaims(v.SelfRAG.FlaggedClaims),
+			FlaggedClaims: redactFlaggedClaims(v.SelfRAG.FlaggedClaims, keep),
 			Usefulness: UsefulnessStatus{
 				Verdict: v.SelfRAG.Usefulness.Verdict,
-				Reason:  StripCitationMarkers(v.SelfRAG.Usefulness.Reason),
+				Reason:  stripCitationMarkersExcept(v.SelfRAG.Usefulness.Reason, keep),
 			},
 		}
 	}
 	return out
 }
 
-func redactFlaggedClaims(in []FlaggedClaimStatus) []FlaggedClaimStatus {
+func redactFlaggedClaims(in []FlaggedClaimStatus, keep map[int]bool) []FlaggedClaimStatus {
 	if in == nil {
 		return nil
 	}
 	out := make([]FlaggedClaimStatus, len(in))
 	for i, c := range in {
-		out[i] = FlaggedClaimStatus{ClaimText: StripCitationMarkers(c.ClaimText), Reason: c.Reason}
+		out[i] = FlaggedClaimStatus{ClaimText: stripCitationMarkersExcept(c.ClaimText, keep), Reason: c.Reason}
 	}
 	return out
 }
 
-func redactTrajectory(e TrajectoryEvent) TrajectoryEvent {
+func redactTrajectory(e TrajectoryEvent, keep map[int]bool) TrajectoryEvent {
 	e.Chunks = nil
-	e.RefinedText = StripCitationMarkers(e.RefinedText)
+	e.RefinedText = stripCitationMarkersExcept(e.RefinedText, keep)
 	if e.Diff != nil {
-		e.Diff = redactRefineDiff(e.Diff)
+		e.Diff = redactRefineDiff(e.Diff, keep)
 	}
 	return e
 }
@@ -334,7 +413,7 @@ func redactTrajectory(e TrajectoryEvent) TrajectoryEvent {
 // removed is the original, kept + added the refined answer; every chunk
 // ends in the word separator computeRefineDiff puts back — stripped, and
 // diffed again.
-func redactRefineDiff(in []DiffChunk) []DiffChunk {
+func redactRefineDiff(in []DiffChunk, keep map[int]bool) []DiffChunk {
 	var original, refined strings.Builder
 	for _, d := range in {
 		switch d.Kind {
@@ -347,7 +426,7 @@ func redactRefineDiff(in []DiffChunk) []DiffChunk {
 			refined.WriteString(d.Text)
 		}
 	}
-	return computeRefineDiff(StripCitationMarkers(original.String()), StripCitationMarkers(refined.String()))
+	return computeRefineDiff(stripCitationMarkersExcept(original.String(), keep), stripCitationMarkersExcept(refined.String(), keep))
 }
 
 // corpusTableProvenanceKeys are TableRow's reserved provenance keys
@@ -396,13 +475,13 @@ func redactFindings(in []Finding) []Finding {
 	return out
 }
 
-func stripMarkersAll(in []string) []string {
+func stripMarkersAll(in []string, keep map[int]bool) []string {
 	if in == nil {
 		return nil
 	}
 	out := make([]string, len(in))
 	for i, s := range in {
-		out[i] = StripCitationMarkers(s)
+		out[i] = stripCitationMarkersExcept(s, keep)
 	}
 	return out
 }
@@ -410,22 +489,34 @@ func stripMarkersAll(in []string) []string {
 // RedactMessagesForReader strips source attribution from stored messages
 // before they are returned to a reader without seeCitations. The rows are
 // modified in place; what is stored is untouched. Only AI messages carry
-// attribution — a user's own question is returned as typed.
+// attribution — a user's own question is returned as typed. The reader's
+// own attachments among the sources stay, with their markers.
 func RedactMessagesForReader(msgs []MessageRow) {
 	for i := range msgs {
 		m := &msgs[i]
 		if m.Role != "ai" {
 			continue
 		}
-		m.Content = StripCitationMarkers(m.Content)
+		var keep map[int]bool
+		if len(m.Sources) > 0 && string(m.Sources) != "null" {
+			var src []ChatSource
+			own := []ChatSource{}
+			if json.Unmarshal(m.Sources, &src) == nil {
+				own = ownSources(src)
+				keep = keptCitationNumbers(own)
+			}
+			raw, err := json.Marshal(own)
+			if err != nil {
+				raw = []byte("[]")
+			}
+			m.Sources = raw
+		}
+		m.Content = stripCitationMarkersExcept(m.Content, keep)
 		if m.Reasoning != nil {
-			r := StripCitationMarkers(*m.Reasoning)
+			r := stripCitationMarkersExcept(*m.Reasoning, keep)
 			m.Reasoning = &r
 		}
-		if len(m.Sources) > 0 && string(m.Sources) != "null" {
-			m.Sources = json.RawMessage("[]")
-		}
-		m.Verification = redactVerification(m.Verification)
+		m.Verification = redactVerification(m.Verification, keep)
 		m.Conflicts = nil
 		m.StructuredTable = redactStructuredTable(m.StructuredTable)
 	}
