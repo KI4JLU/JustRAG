@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { AtSign, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
 import {
-    ActionMenu, Avatar, Badge, BreadcrumbBack, Button, Combobox, ComboboxChip, ComboboxChipsInput, ComboboxContent, ComboboxItem,
+    ActionMenu, Avatar, Badge, BreadcrumbBack, Button, ComboboxItem,
     ComboboxList, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger,
-    type ActionMenuItem, type ComboboxChipTone,
+    TokenInput, TokenInputChip,
+    type ActionMenuItem, type TokenInputChipTone,
 } from '@ki4jlu/design-system';
 import type { KnowledgeBase, KbMember, KbRole, KbAssignableRole, KbInviteLink } from '../types';
 import axios from 'axios';
@@ -429,7 +430,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     const skippedNames = candidates.filter(c => c.status === 'member' || c.status === 'invalid' || c.status === 'failed')
         .map(c => (c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed));
 
-    const chipTone = (c: Candidate): ComboboxChipTone =>
+    const chipTone = (c: Candidate): TokenInputChipTone =>
         c.status === 'pending' ? 'warning' : c.status === 'member' || c.status === 'invalid' || c.status === 'failed' ? 'error' : 'default';
     const chipStatusKey: Record<Candidate['status'], string> = {
         resolving: 'chipResolving', found: '', pending: 'chipPending', member: 'alreadyMember',
@@ -595,44 +596,20 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                             />
                                         </div>
                                         <p id={usernamesHintId} className="m-0 text-sm text-on-surface-variant">{t('usernamesHint')}</p>
-                                        <Combobox
+                                        <TokenInput
                                             shouldFilter={false}
                                             open={suggestionsOpen && suggestion !== null}
                                             onOpenChange={setSuggestionsOpen}
-                                        >
-                                            <ComboboxChipsInput
-                                                aria-labelledby={usernamesId}
-                                                aria-describedby={usernamesHintId}
-                                                chipsLabel={t('selectedPeople')}
-                                                placeholder={candidates.length === 0 ? t('username') : undefined}
-                                                autoComplete="off"
-                                                value={query}
-                                                onValueChange={setQuery}
-                                                onCommit={addNames}
-                                                onRemoveLast={() => setCandidates(prev => prev.slice(0, -1))}
-                                            >
-                                                {candidates.map(c => {
-                                                    const label = c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed;
-                                                    const status = chipStatusKey[c.status] ? t(chipStatusKey[c.status]) : '';
-                                                    return (
-                                                        <ComboboxChip
-                                                            key={c.key}
-                                                            label={label}
-                                                            tone={chipTone(c)}
-                                                            leading={c.status === 'resolving'
-                                                                ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                                                                : c.user ? <Avatar size="xs" initials={initialsOf(c.user.firstName, c.user.lastName, c.user.username)} /> : undefined}
-                                                            labels={{
-                                                                remove: (l) => t('removeChip').replace('{label}', l),
-                                                                warning: status,
-                                                                error: status,
-                                                            }}
-                                                            onRemove={() => setCandidates(prev => prev.filter(x => x.key !== c.key))}
-                                                        />
-                                                    );
-                                                })}
-                                            </ComboboxChipsInput>
-                                            <ComboboxContent>
+                                            aria-labelledby={usernamesId}
+                                            aria-describedby={usernamesHintId}
+                                            chipsLabel={t('selectedPeople')}
+                                            placeholder={candidates.length === 0 ? t('username') : undefined}
+                                            autoComplete="off"
+                                            value={query}
+                                            onValueChange={setQuery}
+                                            onCommit={addNames}
+                                            onRemoveLast={() => setCandidates(prev => prev.slice(0, -1))}
+                                            suggestions={
                                                 <ComboboxList label={t('usernamesLabel')}>
                                                     {suggestion && (
                                                         <ComboboxItem value={suggestion.username} onSelect={() => addSuggestion(suggestion)}>
@@ -647,8 +624,29 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                                         </ComboboxItem>
                                                     )}
                                                 </ComboboxList>
-                                            </ComboboxContent>
-                                        </Combobox>
+                                            }
+                                        >
+                                            {candidates.map(c => {
+                                                const label = c.user ? displayName(c.user.firstName, c.user.lastName, c.user.username) : c.typed;
+                                                const status = chipStatusKey[c.status] ? t(chipStatusKey[c.status]) : '';
+                                                return (
+                                                    <TokenInputChip
+                                                        key={c.key}
+                                                        label={label}
+                                                        tone={chipTone(c)}
+                                                        leading={c.status === 'resolving'
+                                                            ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                                            : c.user ? <Avatar size="xs" initials={initialsOf(c.user.firstName, c.user.lastName, c.user.username)} /> : undefined}
+                                                        labels={{
+                                                            remove: (l) => t('removeChip').replace('{label}', l),
+                                                            warning: status,
+                                                            error: status,
+                                                        }}
+                                                        onRemove={() => setCandidates(prev => prev.filter(x => x.key !== c.key))}
+                                                    />
+                                                );
+                                            })}
+                                        </TokenInput>
                                         <div role="status" className="flex flex-col gap-1 text-sm">
                                             {pendingNames.length > 0 && (
                                                 <p className="m-0 text-on-surface-variant">
