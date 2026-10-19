@@ -54,6 +54,8 @@ type aiConfigModelRow struct {
 	IsTts       bool   `db:"is_tts"`
 	IsStt       bool   `db:"is_stt"`
 	Dimensions  int    `db:"dimensions"`
+	// ContextWindow is COALESCE(context_window, 0): 0 = unknown.
+	ContextWindow int `db:"context_window"`
 }
 
 // buildAIConfigResponse assembles an AIConfigResponse from a provider row and its model rows.
@@ -92,6 +94,7 @@ func buildAIConfigResponse(p aiConfigProviderRow, models []aiConfigModelRow) AIC
 		case m.IsStt:
 			stt = append(stt, row)
 		default:
+			row.ContextWindow = m.ContextWindow
 			chat = append(chat, row)
 			if m.IsReasoning {
 				reasoning = append(reasoning, row)
@@ -127,7 +130,8 @@ func fetchModelsForProviders(ctx context.Context, q pgxutil.Querier, ids []strin
 		return []aiConfigModelRow{}, nil
 	}
 	return pgxutil.QueryRows[aiConfigModelRow](ctx, q,
-		`SELECT id, provider_id, name, is_reasoning, is_embedding, is_rerank, is_tts, is_stt, dimensions
+		`SELECT id, provider_id, name, is_reasoning, is_embedding, is_rerank, is_tts, is_stt, dimensions,
+		        COALESCE(context_window, 0) AS context_window
 		 FROM ai_models WHERE provider_id = ANY($1) ORDER BY name`, ids)
 }
 
@@ -143,6 +147,8 @@ type aiModelInsert struct {
 	isTts       bool
 	isStt       bool
 	dims        int
+	// contextWindow is stored as NULL when 0 (unknown); chat models only.
+	contextWindow int
 }
 
 // batchInsertModels executes a single multi-row INSERT for all models, or a
@@ -154,16 +160,21 @@ func batchInsertModels(ctx context.Context, tx pgx.Tx, providerID string, models
 		return nil
 	}
 	var sb strings.Builder
-	sb.WriteString(`INSERT INTO ai_models (provider_id, name, is_reasoning, is_embedding, is_rerank, is_tts, is_stt, dimensions) VALUES `)
-	args := make([]any, 0, len(models)*8)
+	sb.WriteString(`INSERT INTO ai_models (provider_id, name, is_reasoning, is_embedding, is_rerank, is_tts, is_stt, dimensions, context_window) VALUES `)
+	args := make([]any, 0, len(models)*9)
 	for i, m := range models {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
-		base := i * 8
-		fmt.Fprintf(&sb, "($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8)
-		args = append(args, providerID, m.name, m.isReasoning, m.isEmbedding, m.isRerank, m.isTts, m.isStt, m.dims)
+		base := i * 9
+		fmt.Fprintf(&sb, "($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9)
+		var window *int
+		if m.contextWindow > 0 {
+			w := m.contextWindow
+			window = &w
+		}
+		args = append(args, providerID, m.name, m.isReasoning, m.isEmbedding, m.isRerank, m.isTts, m.isStt, m.dims, window)
 	}
 	_, err := tx.Exec(ctx, sb.String(), args...)
 	return err
@@ -278,12 +289,12 @@ func collectModelInserts(input CreateAIConfigInput) []aiModelInsert {
 	var out []aiModelInsert
 	for _, m := range input.ChatModels {
 		if name := strings.TrimSpace(m.Name); name != "" {
-			out = append(out, aiModelInsert{name: name, isReasoning: m.IsReasoning, dims: 0})
+			out = append(out, aiModelInsert{name: name, isReasoning: m.IsReasoning, dims: 0, contextWindow: m.ContextWindow})
 		}
 	}
 	for _, m := range input.ReasoningModels {
 		if name := strings.TrimSpace(m.Name); name != "" {
-			out = append(out, aiModelInsert{name: name, isReasoning: true, dims: 0})
+			out = append(out, aiModelInsert{name: name, isReasoning: true, dims: 0, contextWindow: m.ContextWindow})
 		}
 	}
 	for _, m := range input.EmbeddingModels {
@@ -386,7 +397,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 			rows := make([]aiModelInsert, 0, len(input.ChatModels))
 			for _, m := range input.ChatModels {
 				if name := strings.TrimSpace(m.Name); name != "" {
-					rows = append(rows, aiModelInsert{name: name, isReasoning: m.IsReasoning, dims: 0})
+					rows = append(rows, aiModelInsert{name: name, isReasoning: m.IsReasoning, dims: 0, contextWindow: m.ContextWindow})
 				}
 			}
 			if err := replaceModels(categoryChat, rows); err != nil {
@@ -403,7 +414,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 			rows := make([]aiModelInsert, 0, len(input.ReasoningModels))
 			for _, m := range input.ReasoningModels {
 				if name := strings.TrimSpace(m.Name); name != "" {
-					rows = append(rows, aiModelInsert{name: name, isReasoning: true, dims: 0})
+					rows = append(rows, aiModelInsert{name: name, isReasoning: true, dims: 0, contextWindow: m.ContextWindow})
 				}
 			}
 			if err := replaceModels(categoryReasoning, rows); err != nil {
