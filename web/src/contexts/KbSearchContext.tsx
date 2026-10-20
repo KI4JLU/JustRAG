@@ -10,7 +10,7 @@ import { createContext, useContext, type ReactNode } from 'react';
  * control from needing a new prop on every page component). The catalog
  * panel that reads the Discover query sits in the page. A context mounted by
  * the route is the only shape that satisfies both, and it is the shape
- * `AppNavContext` / `SharingContext` already established here.
+ * `AppNavContext` already established here.
  *
  * TWO QUERIES SINCE KI-837, and they are different things on purpose.
  *  - `query` is the header field's text. It drives the global search

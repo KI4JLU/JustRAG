@@ -13,7 +13,7 @@ import { KbHeaderTitle } from './KbHeaderTitle';
 import { type MobileTab } from './MobileTabBar';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
-import { hasKbAdminRole } from '../utils/kbAccess';
+import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
 import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
@@ -66,14 +66,14 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
 
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
-  const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
+  const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
   const headerActions = canEditSystemPrompt ? (
     <Button
       id="kb-header-system-prompt-toggle"
       type="button"
       variant="ghost"
       size="icon"
-      onClick={() => setSystemPromptOpen(!systemPromptOpen)}
+      onClick={() => setSystemPromptOpen(true)}
       title={t('kbSettingsTitle')}
       aria-label={t('kbSettingsTitle')}
       aria-pressed={systemPromptOpen || Boolean(currentKb.systemPrompt)}

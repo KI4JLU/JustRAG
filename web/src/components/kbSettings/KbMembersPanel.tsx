@@ -1,21 +1,22 @@
-import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { AtSign, Clock, Copy, Crown, Edit3, Eye, Link2, Loader2, Plus, Shield, Trash2 } from 'lucide-react';
 import {
     ActionMenu, Avatar, Badge, BreadcrumbBack, Button, ComboboxItem,
-    ComboboxList, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label,
+    ComboboxList, Input, Label,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger,
     TokenInput, TokenInputChip,
     type ActionMenuItem, type TokenInputChipTone,
 } from '@ki4jlu/design-system';
-import type { KnowledgeBase, KbMember, KbRole, KbAssignableRole, KbInviteLink } from '../types';
+import type { KnowledgeBase, KbMember, KbAssignableRole, KbInviteLink } from '../../types';
 import axios from 'axios';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
-import { useModalContext } from '../contexts/ModalContext';
-import { useToast } from '../contexts/ToastContext';
-import { splitUsernames } from '../utils/splitUsernames';
-import { copyToClipboard } from '../utils/clipboard';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { useModalContext } from '../../contexts/ModalContext';
+import { useToast } from '../../contexts/ToastContext';
+import { splitUsernames } from '../../utils/splitUsernames';
+import { copyToClipboard } from '../../utils/clipboard';
 
 // PendingInvite mirrors GET /api/kb/{id}/members' `pending` array
 // (kbmembers.PendingInvite: username/role/createdAt).
@@ -25,12 +26,32 @@ interface PendingMemberInvite {
     createdAt: string;
 }
 
-interface MembersModalProps {
-    show: boolean;
-    onClose: () => void;
-    sharingKb: KnowledgeBase | null;
+interface KbMembersPanelProps {
+    kb: KnowledgeBase;
     /** Caller's own role on this KB — gates the ownership-transfer action. */
     myRole: string;
+    /**
+     * Role changes not saved yet, by user id. A role change is a draft like
+     * every other edit in the settings window: the dialog saves it with
+     * „Speichern" and asks before discarding it.
+     */
+    roleDrafts: Record<string, KbAssignableRole>;
+    /** Sets (or, with null, drops) a member's role draft. */
+    onRoleDraftChange: (userId: string, role: KbAssignableRole | null) => void;
+    /** Bumped by the dialog after it saved roles: the list is read again. */
+    revision: number;
+    /**
+     * The member list or „Mitglieder hinzufügen". Held by the dialog, because
+     * the add view takes over the dialog's footer (see footerSlot).
+     */
+    view: 'members' | 'add';
+    onViewChange: (view: 'members' | 'add') => void;
+    /**
+     * The dialog's footer, handed over while the add view is open: one row of
+     * actions per screen, never the add view's own buttons stacked above the
+     * window's Abbrechen/Speichern. Without a slot the actions render inline.
+     */
+    footerSlot?: HTMLElement | null;
 }
 
 // Assignable roles for the per-member <select> and the invite pickers. Never
@@ -125,7 +146,15 @@ interface Candidate {
 /** Names that are sent to the bulk endpoint: accounts and pending invites. */
 const isAddable = (c: Candidate) => c.status === 'found' || c.status === 'pending';
 
-export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, sharingKb, myRole }) => {
+/**
+ * The members of a KB and adding new ones (by username or invite link): the
+ * „Mitglieder" section of the Thema-Einstellungen window (KbSettingsDialog),
+ * which „Teilen" on a topic card opens directly. Every change applies at
+ * once. The window's h2 is the section title, so the panel's titles are h3s.
+ */
+export function KbMembersPanel({
+    kb: sharingKb, myRole, roleDrafts, onRoleDraftChange, revision, view, onViewChange: setView, footerSlot,
+}: KbMembersPanelProps) {
     const { t, language } = useTheme();
     const { token } = useAuth();
     const { showConfirm } = useModalContext();
@@ -133,9 +162,8 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     const [members, setMembers] = useState<KbMember[]>([]);
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [pendingInvites, setPendingInvites] = useState<PendingMemberInvite[]>([]);
-    // Two views in one dialog (mockup, 2026-10-12): the member list, and
-    // "Mitglieder hinzufügen" with its two tabs.
-    const [view, setView] = useState<'members' | 'add'>('members');
+    // The add view's two tabs (mockup, 2026-10-12); which of the two views
+    // shows is the dialog's `view`.
     const [addTab, setAddTab] = useState<'usernames' | 'links'>('usernames');
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const [query, setQuery] = useState('');
@@ -163,10 +191,8 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     }, [sharingKb, token, toast, t]);
 
     useEffect(() => {
-        if (show && sharingKb) {
-            fetchMembers();
-        }
-    }, [show, sharingKb, fetchMembers]);
+        if (sharingKb) fetchMembers();
+    }, [sharingKb, fetchMembers, revision]);
 
     const [inviteLinks, setInviteLinks] = useState<KbInviteLink[]>([]);
     const [linkLabel, setLinkLabel] = useState('');
@@ -230,7 +256,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     // invite this destroys something people already hold, so it confirms.
     const handleRevokeInviteLink = async (linkId: string) => {
         if (!sharingKb) return;
-        if (!await showConfirm(t('confirmRevokeInviteLink'))) return;
+        if (!await showConfirm(t('revokeInviteLinkMessage'), t('revokeInviteLinkTitle'), { tone: 'destructive', confirmLabel: t('revokeInviteLink') })) return;
         const prev = inviteLinks;
         setInviteLinks(inviteLinks.filter(l => l.id !== linkId));
         try {
@@ -243,7 +269,11 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
 
     const handleRemoveMember = async (userId: string, username: string) => {
         if (!sharingKb) return;
-        if (!await showConfirm(t('confirmRemoveShare').replace('{username}', username))) return;
+        if (!await showConfirm(
+            t('removeMemberMessage').replace('{username}', username),
+            t('removeMemberTitle'),
+            { tone: 'destructive', confirmLabel: t('removeMemberConfirm') },
+        )) return;
 
         if (!token) return;
 
@@ -251,6 +281,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
         setMembers(members.filter(m => m.userId !== userId));
         try {
             await axios.delete(`${API_BASE_URL}/api/kb/${sharingKb.id}/members/${userId}`);
+            onRoleDraftChange(userId, null);
         } catch {
             setMembers(prev);
             toast.error(t('removeShareError'));
@@ -277,23 +308,22 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
 
     // Optimistic role change with rollback on failure — mirrors
     // handleRemoveMember above.
-    const handleRoleChange = async (userId: string, role: string) => {
-        if (!sharingKb) return;
-        const prev = members;
-        setMembers(members.map(m => m.userId === userId ? { ...m, role: role as KbRole } : m));
-        try {
-            await axios.put(`${API_BASE_URL}/api/kb/${sharingKb.id}/members/${userId}`, { role });
-        } catch {
-            setMembers(prev);
-            toast.error(t('roleChangeError'));
-        }
+    // Picking the stored role again drops the draft, so Speichern goes back
+    // to disabled when nothing is left to save.
+    const handleRoleChange = (m: KbMember, role: KbAssignableRole) => {
+        onRoleDraftChange(m.userId, role === m.role ? null : role);
     };
 
     const handleMakeOwner = async (userId: string, username: string) => {
         if (!sharingKb) return;
-        if (!await showConfirm(t('confirmMakeOwner').replace('{username}', username))) return;
+        if (!await showConfirm(
+            t('makeOwnerMessage').replace('{username}', username),
+            t('makeOwnerTitle'),
+            { confirmLabel: t('makeOwnerConfirm') },
+        )) return;
         try {
             await axios.post(`${API_BASE_URL}/api/kb/${sharingKb.id}/transfer-owner`, { userId });
+            onRoleDraftChange(userId, null);
             await fetchMembers();
         } catch {
             toast.error(t('roleChangeError'));
@@ -438,6 +468,10 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     };
 
     const usernamesId = useId();
+    const bulkFormId = useId();
+    const renderActions = (actions: ReactNode) => footerSlot
+        ? createPortal(actions, footerSlot)
+        : <div className="flex flex-col-reverse gap-2 border-t border-outline-variant pt-4 sm:flex-row sm:justify-end">{actions}</div>;
     const usernamesHintId = useId();
     const roleId = useId();
     const linkTitleId = useId();
@@ -445,7 +479,6 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     const membersHeadingId = useId();
     const linksHeadingId = useId();
 
-    if (!show) return null;
 
     const memberActions = (m: KbMember): ActionMenuItem[] => {
         const canTransfer = myRole === 'owner' && m.role === 'admin';
@@ -468,14 +501,19 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
     const openAdd = () => { setView('add'); if (addTab === 'links') void fetchInviteLinks(); };
 
     return (
-        <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent closeLabel={t('close')} className="max-w-xl" aria-describedby={undefined}>
+        <>
                 {view === 'members' ? (
                     <>
-                        <DialogHeader className="min-w-0 pr-10">
-                            <p className="m-0 truncate text-sm text-on-surface-variant">{sharingKb?.name}</p>
-                            <DialogTitle>{t('members')}</DialogTitle>
-                        </DialogHeader>
+                        {/* Intro and action on one row, like the „Personen zuweisen"
+                            row of Rollen & Rechte: the settings window's footer is
+                            taken by Speichern/Abbrechen. */}
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="m-0 text-sm text-on-surface-variant">{t('membersIntro')}</p>
+                            <Button variant="outline" onClick={openAdd}>
+                                <Plus className="size-4" aria-hidden="true" />
+                                {t('addMembers')}
+                            </Button>
+                        </div>
 
                         <section aria-labelledby={membersHeadingId} className="flex flex-col gap-stack-sm">
                             <div className="flex items-center gap-2">
@@ -500,8 +538,8 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                             ) : (
                                                 <>
                                                     <RoleSelect
-                                                        value={m.role as KbAssignableRole}
-                                                        onChange={(role) => { void handleRoleChange(m.userId, role); }}
+                                                        value={roleDrafts[m.userId] ?? m.role as KbAssignableRole}
+                                                        onChange={(role) => handleRoleChange(m, role)}
                                                         label={`${t('selectRole')}: @${m.username}`}
                                                         t={t}
                                                     />
@@ -538,31 +576,20 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                 </ul>
                             </section>
                         )}
-
-                        {/* A dialog's actions live in its footer — a hard design rule
-                            (developer, 2026-10-13), never in the header. */}
-                        <div className="border-t border-outline-variant pt-4">
-                            <DialogFooter>
-                                <Button onClick={openAdd}>
-                                    <Plus className="size-4" aria-hidden="true" />
-                                    {t('add')}
-                                </Button>
-                            </DialogFooter>
-                        </div>
                     </>
                 ) : (
                     <>
                         {/* Back navigation is a breadcrumb above the title, the default
                             for every sub-view (developer, 2026-10-13); "Abbrechen" and
-                            "Fertig" also return to the list, only the ✕ closes. */}
-                        <DialogHeader className="min-w-0 pr-10">
+                            "Fertig" also return to the list. */}
+                        <div className="flex min-w-0 flex-col gap-1.5">
                             <BreadcrumbBack
-                                trail={[sharingKb?.name ?? '', t('members')].filter(Boolean)}
+                                trail={[t('members')]}
                                 labels={{ nav: t('breadcrumbNav'), back: t('backTo') }}
                                 onClick={() => setView('members')}
                             />
-                            <DialogTitle>{t('addMembers')}</DialogTitle>
-                        </DialogHeader>
+                            <h3 className="m-0 text-lg font-semibold text-on-surface">{t('addMembers')}</h3>
+                        </div>
 
                         <Tabs value={addTab} onValueChange={(v) => {
                             setAddTab(v as typeof addTab);
@@ -577,6 +604,7 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
 
                             <TabsContent value="usernames">
                                 <form
+                                    id={bulkFormId}
                                     className="flex flex-col gap-stack-md"
                                     onSubmit={(e) => { e.preventDefault(); if (!resolving) void handleBulkInvite(); }}
                                 >
@@ -663,15 +691,6 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                     <div className="flex flex-col gap-stack-sm">
                                         <Label htmlFor={roleId}>{t('roleLabel')}</Label>
                                         <RoleSelect id={roleId} value={bulkPermission} onChange={setBulkPermission} label={t('roleLabel')} t={t} wide />
-                                    </div>
-                                    <div className="border-t border-outline-variant pt-4">
-                                        <DialogFooter>
-                                            <Button type="button" variant="ghost" onClick={() => setView('members')}>{t('cancel')}</Button>
-                                            <Button type="submit" disabled={bulkLoading || resolving || addableCount === 0}>
-                                                {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                                                {(addableCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(addableCount))}
-                                            </Button>
-                                        </DialogFooter>
                                     </div>
                                 </form>
                             </TabsContent>
@@ -767,17 +786,25 @@ export const MembersModal: React.FC<MembersModalProps> = ({ show, onClose, shari
                                         )}
                                     </section>
 
-                                    <div className="border-t border-outline-variant pt-4">
-                                        <DialogFooter>
-                                            <Button variant="outline" onClick={() => setView('members')}>{t('done')}</Button>
-                                        </DialogFooter>
-                                    </div>
                                 </div>
                             </TabsContent>
                         </Tabs>
+                        {/* „Abbrechen" and „Fertig" return to the list (developer,
+                            2026-10-13). The submit sits outside its form when it
+                            is in the dialog's footer, hence `form`. */}
+                        {renderActions(addTab === 'usernames' ? (
+                            <>
+                                <Button type="button" variant="outline" onClick={() => setView('members')}>{t('cancel')}</Button>
+                                <Button type="submit" form={bulkFormId} disabled={bulkLoading || resolving || addableCount === 0}>
+                                    {bulkLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                                    {(addableCount === 1 ? t('addOnePerson') : t('addNPeople')).replace('{count}', String(addableCount))}
+                                </Button>
+                            </>
+                        ) : (
+                            <Button variant="outline" onClick={() => setView('members')}>{t('done')}</Button>
+                        ))}
                     </>
                 )}
-            </DialogContent>
-        </Dialog>
+        </>
     );
-};
+}

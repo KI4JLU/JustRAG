@@ -3,13 +3,11 @@ import type { RssFeed, GeneratedContent, ConfluenceSource, ConfluenceConnectionI
 import type { useFileManagement } from '../hooks/useFileManagement';
 import type { useWebTools } from '../hooks/useWebTools';
 import type { useGeneratedContent } from '../hooks/useGeneratedContent';
-import type { useSharing } from '../hooks/useSharing';
 
 export interface KbDataContextValue {
   fileMgmt: ReturnType<typeof useFileManagement>;
   webTools: ReturnType<typeof useWebTools>;
   content: ReturnType<typeof useGeneratedContent>;
-  sharing: ReturnType<typeof useSharing>;
   // RSS
   rssFeeds: RssFeed[];
   rssLoading: boolean;

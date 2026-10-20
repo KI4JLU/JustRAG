@@ -1,12 +1,16 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { useSidebarResize } from '../hooks/useSidebarResize';
+import type { KbSettingsSection } from '../types';
 
 export interface KbLayoutContextValue {
   sidebar: ReturnType<typeof useSidebarResize>;
-  /** The system-prompt editor above the composer: toggled from the chrome bar
-   *  (KbWorkspaceLayout), rendered by ChatView — hence shared here. */
+  /** The Thema-Einstellungen dialog: opened from the chrome bar
+   *  (KbWorkspaceLayout), rendered by ChatView — hence shared here. Closed
+   *  whenever the open topic changes (AuthenticatedApp). */
   systemPromptOpen: boolean;
   setSystemPromptOpen: (open: boolean) => void;
+  /** The section it opens on: Verhalten from the gear, Mitglieder from „Teilen". */
+  systemPromptSection: KbSettingsSection;
 }
 
 const KbLayoutContext = createContext<KbLayoutContextValue | null>(null);

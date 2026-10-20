@@ -4,7 +4,6 @@ import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
 
-const MembersModal = lazy(() => import('./MembersModal').then(module => ({ default: module.MembersModal })));
 const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
 const ChartModal = lazy(() => import('./ChartModal').then(module => ({ default: module.ChartModal })));
 const AbstractGenerationModal = lazy(() => import('./AbstractGenerationModal').then(module => ({ default: module.AbstractGenerationModal })));
@@ -16,19 +15,10 @@ const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ defau
 export function KbWorkspaceModals() {
   const { currentKb, availableConfigs, handleUpdateKBSettings } = useKbCore();
   const { showSettings, setShowSettings } = useKbChat();
-  const { sharing, content, fileMgmt, webTools } = useKbData();
+  const { content, fileMgmt, webTools } = useKbData();
 
   return (
     <>
-      <Suspense fallback={null}>
-        {sharing.showShareModal && <MembersModal
-          show={sharing.showShareModal}
-          onClose={() => sharing.setShowShareModal(false)}
-          sharingKb={sharing.sharingKb}
-          myRole={currentKb?.myRole ?? 'view'}
-        />}
-      </Suspense>
-
       <Suspense fallback={null}>
         {showSettings && <SettingsModal
           show={showSettings}

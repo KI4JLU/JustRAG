@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import type { KnowledgeBase } from '../types';
-import { MembersModal } from './MembersModal';
-import { copyToClipboard } from '../utils/clipboard';
+import type { KbAssignableRole, KnowledgeBase } from '../../types';
+import { KbMembersPanel } from './KbMembersPanel';
+import { copyToClipboard } from '../../utils/clipboard';
 
-vi.mock('../utils/clipboard', () => ({ copyToClipboard: vi.fn() }));
+vi.mock('../../utils/clipboard', () => ({ copyToClipboard: vi.fn() }));
 
-// Automocks every axios method to a vi.fn() (repo convention — see
-// hooks/useSharing.test.tsx). The pre-existing tests below still use
+// Automocks every axios method to a vi.fn() (repo convention). The
+// pre-existing tests below still use
 // vi.spyOn(axios, 'get') etc. per-test, which works identically whether the
 // underlying property started as the real axios method or an automocked
 // vi.fn(). The new invite-links tests use vi.mocked(...) directly instead,
@@ -20,7 +21,7 @@ vi.mock('axios');
 // per-tag component cache — no per-file override needed here (see that
 // file's comment for the CI-only remount flake a fresh-stub mock causes).
 
-vi.mock('../hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
@@ -43,10 +44,10 @@ const authMock = { token: 'tok' };
 const showConfirm = vi.fn();
 const modalMock = { showConfirm };
 const toastMock = { success: vi.fn(), error: vi.fn(), warning: vi.fn() };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => authMock }));
-vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
-vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => authMock }));
+vi.mock('../../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
+vi.mock('../../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 
 const kb = { id: 'kb-1', name: 'Test KB' } as KnowledgeBase;
 
@@ -74,8 +75,19 @@ function mockGets(opts: { members?: unknown[]; pending?: unknown[]; links?: unkn
       : { data: { members: opts.members ?? members, pending: opts.pending ?? [] } }));
 }
 
-const renderModal = (myRole = 'owner') =>
-  render(<MembersModal show onClose={vi.fn()} sharingKb={kb} myRole={myRole} />);
+const onRoleDraftChange = vi.fn();
+/** The dialog holds the panel's view; this harness plays that part. */
+function Harness({ myRole, roleDrafts }: { myRole: string; roleDrafts: Record<string, KbAssignableRole> }) {
+  const [view, setView] = useState<'members' | 'add'>('members');
+  return (
+    <KbMembersPanel
+      kb={kb} myRole={myRole} roleDrafts={roleDrafts} onRoleDraftChange={onRoleDraftChange}
+      revision={0} view={view} onViewChange={setView}
+    />
+  );
+}
+const renderPanel = (myRole = 'owner', roleDrafts: Record<string, KbAssignableRole> = {}) =>
+  render(<Harness myRole={myRole} roleDrafts={roleDrafts} />);
 
 // Radix Select and DropdownMenu (behind the DS Select / ActionMenu) measure,
 // scroll and capture the pointer; jsdom implements none of it.
@@ -92,6 +104,7 @@ beforeEach(() => {
   vi.mocked(copyToClipboard).mockReset();
   showConfirm.mockReset();
   toastMock.success.mockReset();
+  onRoleDraftChange.mockReset();
   toastMock.error.mockReset();
 });
 
@@ -109,23 +122,22 @@ async function openMenu(row: HTMLElement, name: string | RegExp) {
 }
 
 async function openAddView() {
-  await userEvent.click(await screen.findByRole('button', { name: 'add' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'addMembers' }));
   await screen.findByRole('heading', { name: 'addMembers' });
 }
 
-describe('MembersModal — member list', () => {
+describe('KbMembersPanel — member list', () => {
   it('opens on the member list with an add button, no invite form', async () => {
     mockGets();
-    renderModal();
-    expect(await screen.findByRole('heading', { name: 'members' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'add' })).toBeInTheDocument();
+    renderPanel();
+    expect(await screen.findByRole('button', { name: 'addMembers' })).toBeInTheDocument();
     expect(screen.queryByRole('tab')).toBeNull();
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
   });
 
   it('renders the owner row with a badge, without role select or actions menu', async () => {
     mockGets();
-    renderModal();
+    renderPanel();
     const row = await screen.findByTestId('member-row-u1');
     expect(within(row).getByText('kbRoleOwner')).toBeInTheDocument();
     expect(within(row).queryByRole('combobox')).toBeNull();
@@ -135,7 +147,7 @@ describe('MembersModal — member list', () => {
   // ORACLE: kbaccess.Assignable — view, edit, admin; never owner.
   it('offers exactly view, edit and admin in the role select', async () => {
     mockGets();
-    renderModal();
+    renderPanel();
     const listbox = await openRoleSelect(await screen.findByTestId('member-row-u3'));
     expect(within(listbox).getAllByRole('option').map(o => o.textContent))
       .toEqual(['viewPermission', 'editPermission', 'adminPermission']);
@@ -143,7 +155,7 @@ describe('MembersModal — member list', () => {
 
   it('hides the ownership transfer for a non-owner', async () => {
     mockGets();
-    renderModal('admin');
+    renderPanel('admin');
     const menu = await openMenu(await screen.findByTestId('member-row-u2'), 'memberActions');
     expect(within(menu).queryByRole('menuitem', { name: /make owner/i })).toBeNull();
     expect(within(menu).getByRole('menuitem', { name: 'removeShare' })).toBeInTheDocument();
@@ -153,40 +165,55 @@ describe('MembersModal — member list', () => {
     mockGets();
     vi.mocked(axios.post).mockResolvedValue({ status: 204 });
     showConfirm.mockResolvedValue(true);
-    renderModal();
+    renderPanel();
     const menu = await openMenu(await screen.findByTestId('member-row-u2'), 'memberActions');
     await userEvent.click(within(menu).getByRole('menuitem', { name: /make owner/i }));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       expect.stringContaining('/transfer-owner'), { userId: 'u2' }));
+    // A pending role draft for the new owner would be stale.
+    await waitFor(() => expect(onRoleDraftChange).toHaveBeenCalledWith('u2', null));
   });
 
   it('removes a member after confirming', async () => {
     mockGets();
     vi.mocked(axios.delete).mockResolvedValue({ status: 204 });
     showConfirm.mockResolvedValue(true);
-    renderModal();
+    renderPanel();
     const menu = await openMenu(await screen.findByTestId('member-row-u3'), 'memberActions');
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'removeShare' }));
     await waitFor(() => expect(axios.delete).toHaveBeenCalledWith(expect.stringContaining('/members/u3')));
     await waitFor(() => expect(screen.queryByTestId('member-row-u3')).toBeNull());
+    // …and so would a draft for the removed member.
+    expect(onRoleDraftChange).toHaveBeenCalledWith('u3', null);
   });
 
-  it('rolls the role select back when the request fails', async () => {
+  // ORACLE: the developer's ask of 2026-10-20 — a role change is a draft that
+  // „Speichern" applies, like every other edit in the settings window.
+  it('drafts a role change instead of saving it', async () => {
     mockGets();
-    vi.mocked(axios.put).mockRejectedValue(new Error('boom'));
-    renderModal();
+    renderPanel();
     const row = await screen.findByTestId('member-row-u3');
     const listbox = await openRoleSelect(row);
     await userEvent.click(within(listbox).getByRole('option', { name: 'editPermission' }));
-    expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('/members/u3'), { role: 'edit' });
-    // Optimistically 'edit', back to 'view' after the failure.
-    await waitFor(() => expect(within(row).getByRole('combobox')).toHaveTextContent('viewPermission'));
+    expect(onRoleDraftChange).toHaveBeenCalledWith('u3', 'edit');
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it('drops the draft when the stored role is picked again', async () => {
+    mockGets();
+    renderPanel('owner', { u3: 'edit' });
+    const row = await screen.findByTestId('member-row-u3');
+    // The select shows the draft, not the stored role.
+    expect(within(row).getByRole('combobox')).toHaveTextContent('editPermission');
+    const listbox = await openRoleSelect(row);
+    await userEvent.click(within(listbox).getByRole('option', { name: 'viewPermission' }));
+    expect(onRoleDraftChange).toHaveBeenCalledWith('u3', null);
   });
 
   it('revokes a pending invite, and rolls it back when the request fails', async () => {
     mockGets({ members: [], pending: pendingInvites });
     vi.mocked(axios.delete).mockRejectedValue(new Error('boom'));
-    renderModal();
+    renderPanel();
     const row = await screen.findByTestId('pending-row-bob');
     await userEvent.click(within(row).getByRole('button', { name: 'revokeInvite' }));
     expect(axios.delete).toHaveBeenCalledWith(expect.stringContaining('/members/pending/bob'));
@@ -195,7 +222,7 @@ describe('MembersModal — member list', () => {
   });
 });
 
-describe('MembersModal — add by username', () => {
+describe('KbMembersPanel — add by username', () => {
   // GET /api/users/{term}, as users.GetUser answers it: an exact id or username
   // first, else the FIRST substring hit over username / first / last name, else
   // 404. carl and grace have accounts (grace is already a member, u2).
@@ -225,33 +252,31 @@ describe('MembersModal — add by username', () => {
     .getAllByRole('listitem').map(li => li.textContent);
 
   it('goes to the add view and back through the breadcrumb', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     expect(screen.getByRole('tab', { name: 'byUsername' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('member-row-u1')).toBeNull();
-    // ORACLE: the breadcrumb names the parent level — the KB, then the member list.
+    // ORACLE: the breadcrumb names the parent level — the member list. Not the
+    // topic: the settings window around the panel is already that topic's.
     const back = within(screen.getByRole('navigation', { name: 'breadcrumbNav' }))
-      .getByRole('button', { name: 'backTo Test KB, members' });
+      .getByRole('button', { name: 'backTo members' });
     await userEvent.click(back);
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
   });
 
-  // ORACLE: the developer's rule (2026-10-13) — "Abbrechen" returns to the list,
-  // it does not close the dialog; only the ✕ does.
-  it('returns to the member list with Abbrechen, without closing the dialog', async () => {
-    const onClose = vi.fn();
-    render(<MembersModal show onClose={onClose} sharingKb={kb} myRole="owner" />);
+  // ORACLE: the developer's rule (2026-10-13) — "Abbrechen" returns to the list.
+  it('returns to the member list with Abbrechen', async () => {
+    renderPanel();
     await openAddView();
     await userEvent.click(screen.getByRole('button', { name: 'cancel' }));
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
   });
 
   // ORACLE: the directory fixture above — which names have accounts, which is a
   // member — and the bulk endpoint's request shape (kbmembers bulk handler).
   it('resolves each name into a chip and adds only accounts and pending invites', async () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { shared: ['carl'], pending: ['dora'], alreadyHadAccess: [] } });
-    renderModal();
+    renderPanel();
     await openAddView();
 
     await userEvent.type(field(), 'carl, dora, grace, max mustermann,');
@@ -271,11 +296,12 @@ describe('MembersModal — add by username', () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       expect.stringContaining('/members/bulk'), { usernames: ['carl', 'dora'], role: 'view' }));
     expect(toastMock.success).toHaveBeenCalledWith('bulkInviteSummary');
-    expect(await screen.findByRole('heading', { name: 'members' })).toBeInTheDocument();
+    // Back on the member list.
+    expect(await screen.findByRole('button', { name: 'addMembers' })).toBeInTheDocument();
   });
 
   it('suggests the exact username and adds it with Tab', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     await userEvent.type(field(), 'carl');
     const option = await screen.findByRole('option', { name: /Carl Zeiss/ });
@@ -288,7 +314,7 @@ describe('MembersModal — add by username', () => {
   // ORACLE: the fixture's search fallback — "car" finds Carl only by substring,
   // so as a committed name it is not Carl's username.
   it('does not turn a committed partial name into whoever the search finds first', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     await userEvent.type(field(), 'car,');
     await waitFor(() => expect(chipTexts()[0]).toContain('chipPending'));
@@ -297,7 +323,7 @@ describe('MembersModal — add by username', () => {
   });
 
   it('keeps one chip per person, however the name was entered', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     // username, other case, and the user's id: one person.
     await userEvent.type(field(), 'carl, CARL, u9,');
@@ -309,7 +335,7 @@ describe('MembersModal — add by username', () => {
   });
 
   it('suggests by partial name and adds the chosen person with Tab', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     await userEvent.type(field(), 'zei');
     // ORACLE: the fixture's search — "zei" matches only Carl's last name.
@@ -321,7 +347,7 @@ describe('MembersModal — add by username', () => {
   });
 
   it('removes a chip with its button', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     await userEvent.type(field(), 'dora,');
     await waitFor(() => expect(chipTexts()[0]).toContain('chipPending'));
@@ -331,7 +357,7 @@ describe('MembersModal — add by username', () => {
   });
 
   it('turns the names of an uploaded CSV into chips, without its header', async () => {
-    renderModal();
+    renderPanel();
     await openAddView();
     const csv = new File(['username\ncarl;bob\nkai\n'], 'people.csv', { type: 'text/csv' });
     await userEvent.upload(screen.getByLabelText('uploadCsv', { selector: 'input' }), csv);
@@ -342,7 +368,7 @@ describe('MembersModal — add by username', () => {
   });
 });
 
-describe('MembersModal — invite links', () => {
+describe('KbMembersPanel — invite links', () => {
   async function openLinks() {
     await openAddView();
     await userEvent.click(screen.getByRole('tab', { name: 'inviteLinks' }));
@@ -351,7 +377,7 @@ describe('MembersModal — invite links', () => {
 
   it('does not fetch invite links until the tab is opened', async () => {
     mockGets();
-    renderModal();
+    renderPanel();
     await openAddView();
     expect(linkFetches()).toBe(0);
     await userEvent.click(screen.getByRole('tab', { name: 'inviteLinks' }));
@@ -361,7 +387,7 @@ describe('MembersModal — invite links', () => {
   it('needs a title, then creates the link and lists it', async () => {
     mockGets();
     vi.mocked(axios.post).mockResolvedValue({ data: { ...aLink, role: 'view', label: 'Fall26', redemptionCount: 0, lastUsedAt: null } });
-    renderModal();
+    renderPanel();
     await openLinks();
 
     const create = screen.getByRole('button', { name: 'create' });
@@ -376,7 +402,7 @@ describe('MembersModal — invite links', () => {
 
   it('shows a link with its role and uses', async () => {
     mockGets({ links: [aLink] });
-    renderModal();
+    renderPanel();
     await openLinks();
     const row = (await screen.findByText('WS26')).closest('li')!;
     expect(within(row).getByText('editPermission')).toBeInTheDocument();
@@ -386,7 +412,7 @@ describe('MembersModal — invite links', () => {
   it('revokes a link from its menu after confirmation, and not when declined', async () => {
     mockGets({ links: [aLink] });
     vi.mocked(axios.delete).mockResolvedValue({ data: {} });
-    renderModal();
+    renderPanel();
     await openLinks();
     const row = (await screen.findByText('WS26')).closest('li')!;
 
@@ -404,7 +430,7 @@ describe('MembersModal — invite links', () => {
 
   it('copies the link and toasts the outcome', async () => {
     mockGets({ links: [aLink] });
-    renderModal();
+    renderPanel();
     await openLinks();
     const copy = await screen.findByRole('button', { name: 'copy: WS26' });
 
@@ -418,13 +444,60 @@ describe('MembersModal — invite links', () => {
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith('clipboardCopyFailed'));
   });
 
-  it('returns to the member list with Done, without closing the dialog', async () => {
+  it('returns to the member list with Done', async () => {
     mockGets();
-    const onClose = vi.fn();
-    render(<MembersModal show onClose={onClose} sharingKb={kb} myRole="owner" />);
+    renderPanel();
     await openLinks();
     await userEvent.click(screen.getByRole('button', { name: 'done' }));
     expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+// Oracle: the developer's ask of 2026-10-20 — in the Thema-Einstellungen
+// section the add action sits at the top, like "Personen zuweisen" in Rollen &
+// Rechte, because the window's footer belongs to Speichern/Abbrechen.
+describe('KbMembersPanel — settings section', () => {
+  it('puts "Mitglieder hinzufügen" above the list instead of in a footer', async () => {
+    mockGets();
+    renderPanel();
+    const row = await screen.findByTestId('member-row-u1');
+    const add = screen.getByRole('button', { name: 'addMembers' });
+    expect(add.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'add' })).toBeNull();
+  });
+
+  it('opens the add view from that button', async () => {
+    mockGets();
+    renderPanel();
+    await userEvent.click(await screen.findByRole('button', { name: 'addMembers' }));
+    expect(screen.getByRole('heading', { level: 3, name: 'addMembers' })).toBeInTheDocument();
+  });
+});
+
+// Oracle: the developer's report of 2026-10-20 — no second row of actions
+// above the window's own: inside the dialog, the add view's actions go into
+// the footer slot the dialog hands over.
+describe('KbMembersPanel — footer slot', () => {
+  it('renders the add view\'s actions into the slot, and the submit still submits', async () => {
+    mockGets();
+    const slot = document.createElement('div');
+    document.body.appendChild(slot);
+    function SlotHarness() {
+      const [view, setView] = useState<'members' | 'add'>('add');
+      return (
+        <KbMembersPanel
+          kb={kb} myRole="owner" roleDrafts={{}} onRoleDraftChange={onRoleDraftChange}
+          revision={0} view={view} onViewChange={setView} footerSlot={slot}
+        />
+      );
+    }
+    render(<SlotHarness />);
+    const cancel = await within(slot).findByRole('button', { name: 'cancel' });
+    const submit = within(slot).getByRole('button', { name: 'addNPeople' });
+    // Tied to its form by `form`, which jsdom resolves like a browser.
+    expect((submit as HTMLButtonElement).form).not.toBeNull();
+    await userEvent.click(cancel);
+    expect(await screen.findByTestId('member-row-u1')).toBeInTheDocument();
+    slot.remove();
   });
 });

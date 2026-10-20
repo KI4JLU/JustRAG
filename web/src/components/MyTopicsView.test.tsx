@@ -10,10 +10,8 @@ import { translations } from '../translations';
 import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
-import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbRemoval } from '../hooks/useKbRemoval';
-import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 
 /** Opens the topic card's ⋮ menu; the card actions live there. */
@@ -91,6 +89,9 @@ const NAV = {
   onOpenTopic: vi.fn(),
   onOpenSource: vi.fn(),
   onOpenChat: vi.fn(),
+  // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
+  // Mitglieder through this jump.
+  onOpenTopicSettings: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
@@ -103,24 +104,14 @@ beforeEach(() => {
   NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
   NAV.onViewAdmin.mockClear();
+  NAV.onOpenTopicSettings.mockClear();
 });
-
-// The REAL useSharing hook, published on the context HomeView now reads. It
-// runs in its own component because it calls useToast() and therefore has to
-// sit under ToastProvider, and it is the real hook rather than a stub because
-// the share button's "don't also open the KB" behaviour lives inside it
-// (useSharing.ts:27) — a stub would make every share assertion in this file a
-// statement about the stub.
-function SharingHarness({ children }: { children: React.ReactNode }) {
-  const sharing = useSharing({ username: 'grace' });
-  return <SharingProvider value={sharing}>{children}</SharingProvider>;
-}
 
 /**
  * The REAL `useKbSearchState`, published on the context the chrome's search
  * field reads (cards KI-787, KI-837).
  *
- * Real, not a stub, for the same reason `SharingHarness` is: the field's text
+ * Real, not a stub: the field's text
  * and the caret handoff live INSIDE the hook, and a stubbed
  * `{ query, setQuery }` would turn every assertion that touches the header
  * into a statement about the stub. (KI-837 removed the „KBs entdecken"
@@ -155,11 +146,9 @@ function renderView(ui: React.ReactElement) {
     <DesignSystemThemeProvider>
       <ToastProvider>
         <ModalProvider>
-          <SharingHarness>
-            <AppNavProvider value={NAV}>
-              <KbSearchHarness>{ui}</KbSearchHarness>
-            </AppNavProvider>
-          </SharingHarness>
+          <AppNavProvider value={NAV}>
+            <KbSearchHarness>{ui}</KbSearchHarness>
+          </AppNavProvider>
         </ModalProvider>
       </ToastProvider>
     </DesignSystemThemeProvider>
@@ -545,28 +534,44 @@ describe('AppChrome, through the view that mounts it', () => {
   });
 });
 
-// The members-dialog trigger used to be gated on kb.userId === user.id
-// (owner-only), which made the whole `admin` tier unreachable from the UI —
-// a KB admin who isn't the owner could never open the dialog to manage
-// members or hand out roles. It must key on myRole instead.
-describe('MyTopicsView members-dialog trigger', () => {
-
+// „Teilen" opens the topic's Thema-Einstellungen on Mitglieder, so the card
+// offers it exactly to the callers who may open that window: KB admin and
+// owner (the routes behind it sit on kbAdminChain), and a superadmin, whom
+// kbaccess.EffectiveRole resolves to owner on every KB. This page lists only
+// topics whose myRole is owner (splitKbsByOwnership), so the owner case is the
+// only one it can render; the admin / edit / view / superadmin cases live in
+// SharedTopicsView.test.tsx, which renders the rest.
+//
+// ORACLE: that role ladder (go-backend/internal/kbaccess/middleware.go) and
+// translations.ts for the item's name — not the predicate under test.
+describe('MyTopicsView share trigger', () => {
   it('shows the trigger for a caller whose myRole is owner', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
     expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
-
+  /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
+     destination — this topic, Mitglieder — and the click must not also reach
+     the card it sits in — the settings jump opens the topic itself. */
+  it('opens the topic settings on Mitglieder without also opening the card', async () => {
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
 });
 
 // KbSettingsPanel (RAG settings / evals / workflow) is the KB "advanced
 // settings" surface, and its endpoints sit on kbAdvancedChain: a system role in
 // {api-user, admin, superadmin} AND KB role admin or better. The trigger must
 // therefore be hidden in exactly the cases the server refuses — both terms, not
-// the members button's KB-role-only gate, which is what it wrongly shared
-// before. The share button beside it deliberately keeps that looser gate, and
-// the last case here pins the two apart.
+// the share item's KB-role gate, which is what it wrongly shared before.
+// The share item beside it deliberately keeps that looser gate, and the
+// plain-owner case here pins the two apart.
 //
 // On top of that the card offers it to system admins only, badged "Admin"
 // (developer, 2026-10-13): an api-user passes the server gate but gets no entry.
@@ -581,7 +586,7 @@ describe('MyTopicsView KB-settings trigger', () => {
     expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
   });
 
-  it('still offers the plain owner the members dialog — only the advanced surface is gated', async () => {
+  it('still offers the plain owner „Teilen" — only the advanced surface is gated', async () => {
     authState.role = 'user';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);

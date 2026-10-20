@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNavigation';
+import type { KbSettingsSection, KnowledgeBase } from '../types';
 
 /**
  * Top-level navigation destinations that are reachable from a chrome element
@@ -55,6 +56,12 @@ export interface AppNavContextValue {
   onOpenSource: (source: SearchSourceTarget) => void;
   /** Open a chat or message hit: its topic, then that chat. */
   onOpenChat: (chat: SearchChatTarget) => void;
+  /**
+   * Open a topic with its „Thema-Einstellungen" on `section` — „Teilen" on the
+   * topic cards opens Mitglieder. The caller gates the entry point with
+   * canOpenKbTopicSettings; the workspace applies the same gate again.
+   */
+  onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
 }
 
 const AppNavContext = createContext<AppNavContextValue | null>(null);

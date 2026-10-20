@@ -12,8 +12,6 @@ interface UseKbLifecycleParams {
   fetchRssFeeds: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceSources: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceConnectionInfo: () => void;
-  showShareModal: boolean;
-  setShowShareModal: (val: boolean) => void;
   showSettings: boolean;
   setShowSettings: (val: boolean) => void;
 }
@@ -23,7 +21,6 @@ export function useKbLifecycle({
   fetchKBs, fetchAvailableConfigs,
   fetchFiles, fetchChats, fetchGeneratedContent,
   fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo,
-  showShareModal, setShowShareModal,
   showSettings, setShowSettings,
 }: UseKbLifecycleParams) {
   // Fetch KBs and configs on auth
@@ -54,11 +51,10 @@ export function useKbLifecycle({
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (showShareModal) setShowShareModal(false);
         if (showSettings) setShowSettings(false);
       }
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [showShareModal, showSettings, setShowShareModal, setShowSettings]);
+  }, [showSettings, setShowSettings]);
 }

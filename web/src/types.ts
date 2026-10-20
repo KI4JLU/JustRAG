@@ -1147,3 +1147,6 @@ export interface SearchResponse {
   chats: SearchChatHit[];
   messages: SearchMessageHit[];
 }
+
+/** A section of the „Thema-Einstellungen" window (KbSettingsDialog). */
+export type KbSettingsSection = 'behavior' | 'roles' | 'members';

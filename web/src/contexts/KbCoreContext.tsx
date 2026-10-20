@@ -14,7 +14,7 @@ export interface KbCoreContextValue {
   handleViewHome: () => void;
   /** Navigate to the My Agents screen (linked from KB settings). */
   onViewAgents: () => void;
-  handleUpdateKBSettings: (data: Record<string, unknown>) => Promise<void>;
+  handleUpdateKBSettings: (data: Record<string, unknown>) => Promise<boolean>;
 }
 
 const KbCoreContext = createContext<KbCoreContextValue | null>(null);

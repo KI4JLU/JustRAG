@@ -39,7 +39,7 @@ beforeEach(() => {
   // vi.mock('axios') automocks every export, including isAxiosError, into a
   // vi.fn() that returns undefined. Reimplement it the same way the real
   // axios does — checking the `isAxiosError` marker — so errors built with
-  // that marker in these tests are recognized correctly (see useSharing.test.tsx).
+  // that marker in these tests are recognized correctly.
   mockedAxios.isAxiosError = (err: unknown) => !!(err as { isAxiosError?: boolean } | null)?.isAxiosError;
 });
 
