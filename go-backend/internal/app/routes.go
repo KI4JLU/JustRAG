@@ -1250,7 +1250,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 		chat.WithKBConfigStore(rc.kbConfigStore),
 		chat.WithKBAccess(rc.kbAccessStore),
 		chat.WithAsynqClient(rc.infra.asynqClient),
-		chat.WithToolDispatcher(chat.NewMCPDispatcher(mcpRegistry)),
+		chat.WithToolDispatcher(&chat.MCPDispatcher{Registry: mcpRegistry, SiteConfig: rc.chatStore}),
 		chat.WithSessionMemory(sessionMemoryStore),
 		chat.WithKBRouterCandidates(kbRouterLister),
 		chat.WithKGStore(rc.kgStore),

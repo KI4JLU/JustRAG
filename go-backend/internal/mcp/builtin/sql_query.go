@@ -3,12 +3,14 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/tabular/sqlcheck"
 )
@@ -150,6 +152,9 @@ func NewSQLQueryUnconfigured() mcp.Tool {
 	}
 }
 
+// errSQLQueryUnavailable is the model-facing refusal while the gate is off.
+var errSQLQueryUnavailable = errors.New("sql_query: this tool is not available")
+
 // newSQLQueryWithExecutor is the test seam. Production callers use
 // NewSQLQuery; tests inject a fake SQLExecutor.
 func newSQLQueryWithExecutor(exec SQLExecutor, enabled func(ctx context.Context) bool) mcp.Tool {
@@ -167,7 +172,13 @@ func newSQLQueryWithExecutor(exec SQLExecutor, enabled func(ctx context.Context)
 func sqlQueryHandler(exec SQLExecutor, enabled func(ctx context.Context) bool) mcp.ToolHandlerFunc {
 	return func(ctx context.Context, raw json.RawMessage) (mcp.ToolResult, error) {
 		if !enabled(ctx) {
-			return mcp.ToolResult{}, fmt.Errorf("sql_query: disabled (site_config chat_sql_query_enabled=false)")
+			// The catalogs hide the tool while the gate is off, so a call
+			// here came from a model that was not offered it — worth a Warn.
+			// The returned text stays generic: the model may repeat it to
+			// the user, and the key names a switch documented as a
+			// cross-user read.
+			logctx.From(ctx).Warn("sql_query: called while chat_sql_query_enabled is off")
+			return mcp.ToolResult{}, errSQLQueryUnavailable
 		}
 		var args SQLQueryArgs
 		if err := json.Unmarshal(raw, &args); err != nil {

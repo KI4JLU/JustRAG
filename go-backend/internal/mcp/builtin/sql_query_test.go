@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -296,8 +297,11 @@ func TestSQLQueryHandler_DisabledByDefault(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected a disabled sql_query to refuse a valid SELECT")
 			}
-			if !strings.Contains(err.Error(), "chat_sql_query_enabled") {
-				t.Errorf("error should name the gate, got: %v", err)
+			if !errors.Is(err, errSQLQueryUnavailable) {
+				t.Errorf("want the generic unavailable error, got: %v", err)
+			}
+			if strings.Contains(err.Error(), "chat_sql_query_enabled") {
+				t.Errorf("model-facing error must not name the site_config key: %v", err)
 			}
 			if exec.gotQuery != "" {
 				t.Errorf("disabled tool reached the executor with %q", exec.gotQuery)
@@ -315,7 +319,7 @@ func TestNewSQLQuery_DisabledByDefault(t *testing.T) {
 	_, err := tool.Handler.Invoke(context.Background(),
 		json.RawMessage(`{"query":"SELECT id FROM files"}`),
 	)
-	if err == nil || !strings.Contains(err.Error(), "chat_sql_query_enabled") {
+	if !errors.Is(err, errSQLQueryUnavailable) {
 		t.Fatalf("expected the gate error, got: %v", err)
 	}
 }

@@ -45,11 +45,11 @@ Regeln:
 - Nodes: maximal 6, jedes "query" 5–25 Wörter.
 - Tiefe (längste Kette) maximal 3.
 - IDs: kurze Kennungen ("n1", "n2", …), eindeutig im Plan.
-- "tool": NAME aus dem Katalog (z.B. "kb_search", "keyword_search", "sql_query"). Wenn unsicher: "kb_search".
+- "tool": NAME aus dem Katalog (z.B. "kb_search", "keyword_search"). Wenn unsicher: "kb_search".
 - "args": JSON-Objekt mit den vom Werkzeug-Schema verlangten Feldern. "kb_id" wird automatisch ergänzt — NICHT angeben.
 - depends_on: IDs anderer Knoten, deren Antwort vorausgesetzt wird; bei unabhängigen Knoten leer.
 - KEINE Zyklen. Selbstreferenz ist verboten.
-- Wähle "calculator" für reine Arithmetik, "sql_query" für Meta-Fragen ("wie viele Nachrichten letzte Woche"), "keyword_search" für exakte Phrasen, "kb_search" für inhaltliche Suche, "document_outline" zum Navigieren in langen Dokumenten, "chunk_read" zum Erweitern eines bekannten Chunks.
+- Wähle "calculator" für reine Arithmetik, "keyword_search" für exakte Phrasen, "kb_search" für inhaltliche Suche, "document_outline" zum Navigieren in langen Dokumenten, "chunk_read" zum Erweitern eines bekannten Chunks.
 - rationale: ein Satz, max. 200 Zeichen.`
 	}
 	return `You are a search planner that picks tools per step. Decompose the user question into a directed acyclic graph (DAG) of 1–6 nodes. For each node, pick the right tool from the catalog.
@@ -65,11 +65,11 @@ Rules:
 - Nodes: at most 6, each "query" 5–25 words.
 - Maximum depth (longest chain) is 3.
 - IDs: short identifiers ("n1", "n2", …), unique within the plan.
-- "tool": NAME from the catalog (e.g. "kb_search", "keyword_search", "sql_query"). When unsure: "kb_search".
+- "tool": NAME from the catalog (e.g. "kb_search", "keyword_search"). When unsure: "kb_search".
 - "args": JSON object matching the tool's input schema. "kb_id" is injected automatically — do NOT include it.
 - depends_on: ids whose answers this node needs; empty for independent nodes.
 - NO cycles. Self-references are forbidden.
-- Pick "calculator" for pure arithmetic, "sql_query" for meta-questions ("how many messages last week"), "keyword_search" for exact phrases, "kb_search" for content search, "document_outline" to navigate long documents, "chunk_read" to expand context around a known chunk.
+- Pick "calculator" for pure arithmetic, "keyword_search" for exact phrases, "kb_search" for content search, "document_outline" to navigate long documents, "chunk_read" to expand context around a known chunk.
 - rationale: one sentence, max 200 characters.`
 }
 
