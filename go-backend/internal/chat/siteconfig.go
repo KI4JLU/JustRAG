@@ -1083,6 +1083,18 @@ func ChatCodeExecEnabled(ctx context.Context, reader SiteConfigReader) bool {
 	return readBool(ctx, reader, "chat_code_exec_enabled", false)
 }
 
+// ChatSQLQueryEnabled gates the sql_query MCP tool. GLOBAL-ONLY (no
+// kbConfigRegistry row, so no KB or agent overlay can switch it on), default
+// off, evaluated at every invocation like chat_code_exec_enabled. The tool's
+// validator is a regex with no function allowlist, so an LLM-authored query
+// can reach any table the JUSTRAG_DB_URL_READONLY role can read
+// (query_to_xml over a concatenated string) — across users and KBs. Only
+// enable it on a deployment where every user may see everything that role
+// can SELECT.
+func ChatSQLQueryEnabled(ctx context.Context, reader SiteConfigReader) bool {
+	return readBool(ctx, reader, "chat_sql_query_enabled", false)
+}
+
 // ChatAnswerHistoryEnabled gates passing recent conversation turns to the
 // answer LLM (all paths: standard stream/JSON, orchestrators, answer-tools).
 // Default TRUE — this is a correctness fix, not an opt-in feature: without

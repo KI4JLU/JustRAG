@@ -19,6 +19,18 @@ import (
 // chat. The conversion is small enough to inline.
 type MCPDispatcher struct {
 	Registry *mcp.Registry
+	// SiteConfig gates tools whose availability is a global-only flag.
+	// Today that is sql_query (chat_sql_query_enabled): the tool refuses
+	// every call while the flag is off, so it is kept out of both
+	// catalogs rather than offered and then refused. nil reads as off.
+	SiteConfig SiteConfigReader
+}
+
+// gatedOff reports whether a registered tool is switched off by a
+// global-only flag and must not appear in a catalog. The catalogs take no
+// context; the flag has no per-KB overlay, so a background read is exact.
+func (d *MCPDispatcher) gatedOff(name string) bool {
+	return name == "sql_query" && !ChatSQLQueryEnabled(context.Background(), d.SiteConfig)
 }
 
 // NewMCPDispatcher builds a dispatcher around the given registry. nil
@@ -72,7 +84,7 @@ func (d *MCPDispatcher) PlanToolCatalog(kbID string) []prompts.PlanToolEntry {
 		// for the iterate loop to consult mid-conversation. Filter
 		// them out here so the catalog stays focused on retrieval
 		// + computation tools.
-		if t.Name == "memory_read" || t.Name == "memory_write" {
+		if t.Name == "memory_read" || t.Name == "memory_write" || d.gatedOff(t.Name) {
 			continue
 		}
 		out = append(out, prompts.PlanToolEntry{
@@ -109,7 +121,7 @@ func (d *MCPDispatcher) AnswerToolCatalog(kbID string) []ai.ChatTool {
 	tools := d.Registry.List(kbID)
 	out := make([]ai.ChatTool, 0, len(tools))
 	for _, t := range tools {
-		if t.Name == "code_exec" {
+		if t.Name == "code_exec" || d.gatedOff(t.Name) {
 			continue
 		}
 		out = append(out, ai.ChatTool{

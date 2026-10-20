@@ -191,3 +191,75 @@ func TestApplyPendingInvites_PromotesViewAndEditRoles(t *testing.T) {
 		t.Fatalf("editor role = %q, want edit", editRole)
 	}
 }
+
+// TestLinkUserExternalID_Guard pins the SQL gate behind OIDC username
+// linking: only an unlinked ldap/oidc row with role user/api-user is linked.
+// Every other row comes back (nil, nil) and is left untouched, so a
+// preferred_username chosen at the IdP can never take over a local account,
+// an admin/superadmin, or an account already bound to another subject.
+func TestLinkUserExternalID_Guard(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := authhandler.NewStore(pool)
+
+	mk := func(t *testing.T, authMethod, role string, externalID *string) string {
+		t.Helper()
+		var id string
+		err := pool.QueryRow(ctx, `
+			INSERT INTO users (username, password_hash, auth_method, role, external_id)
+			VALUES ($1, 'x-not-a-real-hash', $2, $3, $4)
+			RETURNING id::text`,
+			fmt.Sprintf("link-guard-%s-%s-%d", authMethod, role, len(t.Name())), authMethod, role, externalID).Scan(&id)
+		if err != nil {
+			t.Fatalf("insert user: %v", err)
+		}
+		t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, id) }) //nolint:errcheck
+		return id
+	}
+	read := func(t *testing.T, id string) (authMethod string, externalID *string) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT auth_method, external_id FROM users WHERE id = $1::uuid`, id).
+			Scan(&authMethod, &externalID); err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		return authMethod, externalID
+	}
+	prior := "sub-prior"
+
+	for _, tc := range []struct {
+		name       string
+		authMethod string
+		role       string
+		externalID *string
+		linkable   bool
+	}{
+		{"ldap user", "ldap", "user", nil, true},
+		{"ldap api-user", "ldap", "api-user", nil, true},
+		{"unlinked oidc user", "oidc", "user", nil, true},
+		{"local user", "local", "user", nil, false},
+		{"ldap admin", "ldap", "admin", nil, false},
+		{"ldap superadmin", "ldap", "superadmin", nil, false},
+		{"already linked", "oidc", "user", &prior, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := mk(t, tc.authMethod, tc.role, tc.externalID)
+			got, err := store.LinkUserExternalID(ctx, id, "sub-new-"+tc.name)
+			if err != nil {
+				t.Fatalf("LinkUserExternalID: %v", err)
+			}
+			method, ext := read(t, id)
+			if tc.linkable {
+				if got == nil || ext == nil || *ext != "sub-new-"+tc.name || method != "oidc" {
+					t.Fatalf("want linked row, got row=%v auth_method=%s external_id=%v", got, method, ext)
+				}
+				return
+			}
+			if got != nil {
+				t.Fatalf("guard must refuse, got row %+v", got)
+			}
+			if method != tc.authMethod || (tc.externalID == nil) != (ext == nil) || (ext != nil && *ext != *tc.externalID) {
+				t.Fatalf("refused row was modified: auth_method=%s external_id=%v", method, ext)
+			}
+		})
+	}
+}

@@ -491,7 +491,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                     <div className="admin-nav-group">
                         <div className="admin-nav-group-heading">{t('adminNavGroupConfig')}</div>
                         {navItem('configs', Cpu, t('adminTabAiModels'))}
-                        {navItem('auth', ShieldCheck, t('adminTabAuth'))}
+                        {user.role === 'superadmin' && navItem('auth', ShieldCheck, t('adminTabAuth'))}
                         {user.role === 'superadmin' && navItem('search', Search, t('adminTabSearch'))}
                         {user.role === 'superadmin' && navItem('agent', FileText, t('adminTabAgents'))}
                         {navItem('global-kbs', Globe, t('adminTabGlobalKbs'))}
