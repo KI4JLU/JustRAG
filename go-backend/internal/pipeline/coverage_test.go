@@ -205,6 +205,7 @@ var ignoredKeys = map[string]string{
 	// Admin gate for the per-turn web-search opt-in (privileged web_search
 	// tool): a security gate on the answer node's tool catalog, global-only.
 	"chat_web_search_enabled": "security gate for the per-turn web_search opt-in, global-only",
+	"chat_sql_query_enabled":  "security gate for the sql_query tool (unscoped cross-user reads), global-only",
 
 	// Observability / sampling — no user-visible pipeline stage.
 	"ragas_sampling_enabled":       "background eval sampling",
