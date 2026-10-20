@@ -103,6 +103,9 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
     const [configs, setConfigs] = useState<AIConfig[]>([]);
     const [providers, setProviders] = useState<AuthProvider[]>([]);
     const [usersList, setUsersList] = useState<User[]>([]);
+    // Set when the last users fetch failed, so the Rollen tab shows no counts
+    // instead of reading the empty list as "0 users" per role.
+    const [usersFetchFailed, setUsersFetchFailed] = useState(false);
     const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -234,11 +237,13 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
 
     const fetchUsers = useCallback(async () => {
         setLoading(true);
+        setUsersFetchFailed(false);
         try {
             const res = await axios.get(`${API_BASE_URL}/api/admin/users`);
             setUsersList(res.data);
         } catch (error: unknown) {
             console.error('Failed to fetch users:', error);
+            setUsersFetchFailed(true);
             toast.error(t('usersFetchError'));
         } finally {
             setLoading(false);
@@ -582,7 +587,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                         />
                     )}
 
-                    {activeTab === 'roles' && <AdminRolesTab users={loading ? null : usersList} />}
+                    {activeTab === 'roles' && <AdminRolesTab users={loading || usersFetchFailed ? null : usersList} />}
 
                     {activeTab === 'site' && (
                         <AdminSiteTab

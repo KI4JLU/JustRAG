@@ -33,6 +33,22 @@ describe('AdminRolesTab', () => {
         expect(headers[2]).toHaveTextContent('arUserCountOther');
         expect(headers[3]).toHaveTextContent('arUserCountOther');
         expect(headers[4]).toHaveTextContent('arUserCountOther');
+        // The header's aria-label replaces its content for assistive tech, so
+        // the count has to be part of that name, not only of the badge.
+        expect(headers[1]).toHaveAccessibleName(/arUserCountOne/);
+        expect(headers[2]).toHaveAccessibleName(/arUserCountOther/);
+    });
+
+    it('gives each right its explanation as an accessible description', () => {
+        render(<AdminRolesTab users={USERS} />);
+        const sys = screen.getByRole('table', { name: 'arSystemRolesTitle' });
+        // The row header's title is its accessible description (HTML-AAM), so
+        // the explanation and the routes reach screen readers as well as the
+        // hover tooltip. Pins that the hint stays attached to the header.
+        const auth = within(sys).getByRole('rowheader', { name: 'arRightAuthProviders' });
+        expect(auth).toHaveAccessibleDescription(/arRightAuthProvidersHint\s+arRoutes: \/api\/admin\/auth-providers/);
+        const kb = screen.getByRole('table', { name: 'arKbRolesTitle' });
+        expect(within(kb).getByRole('rowheader', { name: 'rrRightInvite' })).toHaveAccessibleDescription('rrRightInviteHint');
     });
 
     it('omits the count badges while the users are not loaded', () => {
@@ -43,8 +59,8 @@ describe('AdminRolesTab', () => {
     it('renders the system and the topic matrix', () => {
         render(<AdminRolesTab users={USERS} />);
         const sys = screen.getByRole('table', { name: 'arSystemRolesTitle' });
-        // 12 rights + 3 group headings (scope="rowgroup" is a row header too).
-        expect(within(sys).getAllByRole('rowheader')).toHaveLength(15);
+        // 13 rights + 3 group headings (scope="rowgroup" is a row header too).
+        expect(within(sys).getAllByRole('rowheader')).toHaveLength(16);
         const kb = screen.getByRole('table', { name: 'arKbRolesTitle' });
         // 6 rights + 3 group headings.
         expect(within(kb).getAllByRole('rowheader')).toHaveLength(9);

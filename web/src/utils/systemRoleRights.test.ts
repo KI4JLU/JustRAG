@@ -12,8 +12,10 @@ import {
 //     POST /api/site-config(/logo), POST /api/admin/reembed-*;
 //   - adminChain (admin + superadmin): /api/admin/users (list, role change),
 //     /api/admin/global-kbs…, /api/admin/kb/{id}/publish|unpublish,
-//     /api/admin/kb-categories…, /api/admin/configs…, /api/admin/auth-providers…,
+//     /api/admin/kb-categories…, /api/admin/configs…,
 //     kb-overview, system-health, /metrics, agent-metrics;
+//   - superadminChain also: /api/admin/auth-providers… (registerAuthProviderRoutes,
+//     moved off adminChain on 2026-10-20 — a provider vouches for usernames);
 //   - apiKeyChain: admin, superadmin, api-user;
 //   - kbAdvancedChain: api-user or admin (superadmin bypasses) AND KB admin;
 //   - POST /api/kb: Authenticate only;
@@ -26,22 +28,22 @@ const SPEC: Record<string, Record<string, string>> = {
     superadmin: {
         manageUsers: 'Y', appointAdmins: 'Y', deleteUsers: 'Y',
         createPrivateTopic: 'Y', manageGlobalTopics: 'Y', advancedTopicSettings: 'Y', manageAnyTopic: 'Y',
-        apiAccess: 'Y', aiModelsAuth: 'Y', monitoring: 'Y', systemSettings: 'Y', auditLogs: 'Y',
+        apiAccess: 'Y', aiModels: 'Y', authProviders: 'Y', monitoring: 'Y', systemSettings: 'Y', auditLogs: 'Y',
     },
     admin: {
         manageUsers: 'Y:arScopeUpToApiUser', appointAdmins: '-', deleteUsers: '-',
         createPrivateTopic: 'Y', manageGlobalTopics: 'Y', advancedTopicSettings: 'Y:arScopeAsTopicAdmin', manageAnyTopic: '-',
-        apiAccess: 'Y', aiModelsAuth: 'Y', monitoring: 'Y', systemSettings: '-', auditLogs: '-',
+        apiAccess: 'Y', aiModels: 'Y', authProviders: '-', monitoring: 'Y', systemSettings: '-', auditLogs: '-',
     },
     'api-user': {
         manageUsers: '-', appointAdmins: '-', deleteUsers: '-',
         createPrivateTopic: 'Y', manageGlobalTopics: '-', advancedTopicSettings: 'Y:arScopeAsTopicAdmin', manageAnyTopic: '-',
-        apiAccess: 'Y', aiModelsAuth: '-', monitoring: '-', systemSettings: '-', auditLogs: '-',
+        apiAccess: 'Y', aiModels: '-', authProviders: '-', monitoring: '-', systemSettings: '-', auditLogs: '-',
     },
     user: {
         manageUsers: '-', appointAdmins: '-', deleteUsers: '-',
         createPrivateTopic: 'Y', manageGlobalTopics: '-', advancedTopicSettings: '-', manageAnyTopic: '-',
-        apiAccess: '-', aiModelsAuth: '-', monitoring: '-', systemSettings: '-', auditLogs: '-',
+        apiAccess: '-', aiModels: '-', authProviders: '-', monitoring: '-', systemSettings: '-', auditLogs: '-',
     },
 };
 
@@ -54,7 +56,7 @@ describe('layout model', () => {
         expect(SYSTEM_RIGHT_GROUPS.map(g => [g.id, [...g.rights]])).toEqual([
             ['users', ['manageUsers', 'appointAdmins', 'deleteUsers']],
             ['topics', ['createPrivateTopic', 'manageGlobalTopics', 'advancedTopicSettings', 'manageAnyTopic']],
-            ['system', ['apiAccess', 'aiModelsAuth', 'monitoring', 'systemSettings', 'auditLogs']],
+            ['system', ['apiAccess', 'aiModels', 'authProviders', 'monitoring', 'systemSettings', 'auditLogs']],
         ]);
     });
 

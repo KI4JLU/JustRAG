@@ -31,14 +31,16 @@ const SYSTEM_RIGHT_LABEL_KEY: Record<SystemRight, string> = {
     manageUsers: 'arRightManageUsers', appointAdmins: 'arRightAppointAdmins', deleteUsers: 'arRightDeleteUsers',
     createPrivateTopic: 'arRightCreatePrivateTopic', manageGlobalTopics: 'arRightManageGlobalTopics',
     advancedTopicSettings: 'arRightAdvancedTopicSettings', manageAnyTopic: 'arRightManageAnyTopic',
-    apiAccess: 'arRightApiAccess', aiModelsAuth: 'arRightAiModelsAuth', monitoring: 'arRightMonitoring',
+    apiAccess: 'arRightApiAccess', aiModels: 'arRightAiModels', authProviders: 'arRightAuthProviders',
+    monitoring: 'arRightMonitoring',
     systemSettings: 'arRightSystemSettings', auditLogs: 'arRightAuditLogs',
 };
 const SYSTEM_RIGHT_HINT_KEY: Record<SystemRight, string> = {
     manageUsers: 'arRightManageUsersHint', appointAdmins: 'arRightAppointAdminsHint', deleteUsers: 'arRightDeleteUsersHint',
     createPrivateTopic: 'arRightCreatePrivateTopicHint', manageGlobalTopics: 'arRightManageGlobalTopicsHint',
     advancedTopicSettings: 'arRightAdvancedTopicSettingsHint', manageAnyTopic: 'arRightManageAnyTopicHint',
-    apiAccess: 'arRightApiAccessHint', aiModelsAuth: 'arRightAiModelsAuthHint', monitoring: 'arRightMonitoringHint',
+    apiAccess: 'arRightApiAccessHint', aiModels: 'arRightAiModelsHint', authProviders: 'arRightAuthProvidersHint',
+    monitoring: 'arRightMonitoringHint',
     systemSettings: 'arRightSystemSettingsHint', auditLogs: 'arRightAuditLogsHint',
 };
 const SYSTEM_GROUP_LABEL_KEY: Record<SystemRightGroupId, string> = {
@@ -134,6 +136,9 @@ function SystemRolesTable({ counts, t }: { counts: Record<SystemRole, number> | 
                     {SYSTEM_ROLE_COLUMNS.map(role => {
                         const muted = role === SYSTEM_ALWAYS_ALL_ROLE;
                         const tip = SYSTEM_ROLE_TIP[role];
+                        // aria-label replaces the cell's content for assistive
+                        // tech, so the count badge has to be named here too.
+                        const badge = counts ? userCount(counts[role], t) : undefined;
                         return (
                             <TableHead
                                 key={role}
@@ -141,14 +146,14 @@ function SystemRolesTable({ counts, t }: { counts: Record<SystemRole, number> | 
                                 muted={muted}
                                 mutedEdge={muted ? 'top' : undefined}
                                 className="h-auto py-2 text-center align-top"
-                                aria-label={label(role)}
+                                aria-label={badge ? `${label(role)}, ${badge}` : label(role)}
                             >
                                 <RoleHeader
                                     id={`ar-sys-${role}`}
                                     Icon={SYSTEM_ROLE_ICON[role]}
                                     label={label(role)}
                                     tip={{ lead: t(tip.lead), bullets: tip.bullets.map(b => t(b)) }}
-                                    badge={counts ? userCount(counts[role], t) : undefined}
+                                    badge={badge}
                                     t={t}
                                 />
                             </TableHead>

@@ -42,8 +42,12 @@ export type SystemRight =
     | 'manageAnyTopic'
     // POST/GET/DELETE /api/api-keys (apiKeyChain).
     | 'apiAccess'
-    // /api/admin/configs…, /api/admin/auth-providers… (adminChain).
-    | 'aiModelsAuth'
+    // /api/admin/configs… (adminChain).
+    | 'aiModels'
+    // /api/admin/auth-providers… (superadminChain, registerAuthProviderRoutes):
+    // a login provider vouches for usernames, so configuring one is not an
+    // admin right.
+    | 'authProviders'
     // GET /api/admin/kb-overview, /api/system-health/…, GET /metrics,
     // GET /api/admin/agent-metrics, GET /api/admin/feedback/chunks,
     // /api/admin/mcp/… (adminChain).
@@ -61,7 +65,7 @@ export type SystemRightGroupId = 'users' | 'topics' | 'system';
 export const SYSTEM_RIGHT_GROUPS: readonly { id: SystemRightGroupId; rights: readonly SystemRight[] }[] = [
     { id: 'users', rights: ['manageUsers', 'appointAdmins', 'deleteUsers'] },
     { id: 'topics', rights: ['createPrivateTopic', 'manageGlobalTopics', 'advancedTopicSettings', 'manageAnyTopic'] },
-    { id: 'system', rights: ['apiAccess', 'aiModelsAuth', 'monitoring', 'systemSettings', 'auditLogs'] },
+    { id: 'system', rights: ['apiAccess', 'aiModels', 'authProviders', 'monitoring', 'systemSettings', 'auditLogs'] },
 ];
 
 export const SYSTEM_RIGHTS: readonly SystemRight[] = SYSTEM_RIGHT_GROUPS.flatMap(g => g.rights);
@@ -85,7 +89,8 @@ export const SYSTEM_RIGHT_ROUTES: Record<SystemRight, readonly string[]> = {
     advancedTopicSettings: ['/api/kb/{id}/settings', '/api/kb/{id}/agents/{agentId}', '/api/kb/{id}/teams/{teamId}', '/api/kb/{id}/eval', '/api/kb/{id}/workflow', 'POST /api/kb/{id}/reembed'],
     manageAnyTopic: ['DELETE /api/admin/kbs/{id}', 'PATCH /api/admin/kbs/{id}/owner'],
     apiAccess: ['/api/api-keys'],
-    aiModelsAuth: ['/api/admin/configs', '/api/admin/auth-providers'],
+    aiModels: ['/api/admin/configs'],
+    authProviders: ['/api/admin/auth-providers'],
     monitoring: ['/api/admin/kb-overview', '/api/system-health', '/metrics', '/api/admin/agent-metrics'],
     systemSettings: ['POST /api/site-config', 'POST /api/site-config/logo', '/api/admin/reembed-all'],
     auditLogs: ['GET /api/admin/audit-logs'],
@@ -108,22 +113,22 @@ const MATRIX: Record<SystemRole, Record<SystemRight, SystemRightCell>> = {
     superadmin: {
         manageUsers: yes(), appointAdmins: yes(), deleteUsers: yes(),
         createPrivateTopic: yes(), manageGlobalTopics: yes(), advancedTopicSettings: yes(), manageAnyTopic: yes(),
-        apiAccess: yes(), aiModelsAuth: yes(), monitoring: yes(), systemSettings: yes(), auditLogs: yes(),
+        apiAccess: yes(), aiModels: yes(), authProviders: yes(), monitoring: yes(), systemSettings: yes(), auditLogs: yes(),
     },
     admin: {
         manageUsers: yes('arScopeUpToApiUser'), appointAdmins: no, deleteUsers: no,
         createPrivateTopic: yes(), manageGlobalTopics: yes(), advancedTopicSettings: yes('arScopeAsTopicAdmin'), manageAnyTopic: no,
-        apiAccess: yes(), aiModelsAuth: yes(), monitoring: yes(), systemSettings: no, auditLogs: no,
+        apiAccess: yes(), aiModels: yes(), authProviders: no, monitoring: yes(), systemSettings: no, auditLogs: no,
     },
     'api-user': {
         manageUsers: no, appointAdmins: no, deleteUsers: no,
         createPrivateTopic: yes(), manageGlobalTopics: no, advancedTopicSettings: yes('arScopeAsTopicAdmin'), manageAnyTopic: no,
-        apiAccess: yes(), aiModelsAuth: no, monitoring: no, systemSettings: no, auditLogs: no,
+        apiAccess: yes(), aiModels: no, authProviders: no, monitoring: no, systemSettings: no, auditLogs: no,
     },
     user: {
         manageUsers: no, appointAdmins: no, deleteUsers: no,
         createPrivateTopic: yes(), manageGlobalTopics: no, advancedTopicSettings: no, manageAnyTopic: no,
-        apiAccess: no, aiModelsAuth: no, monitoring: no, systemSettings: no, auditLogs: no,
+        apiAccess: no, aiModels: no, authProviders: no, monitoring: no, systemSettings: no, auditLogs: no,
     },
 };
 
