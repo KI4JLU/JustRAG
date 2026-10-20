@@ -562,18 +562,7 @@ func registerAdminRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/admin/configs/{id}/test", rc.adminChain(adminConfigsHandler.TestConfig))
 	rc.mux.Handle("GET /api/admin/configs/{id}/model-info", rc.adminChain(adminConfigsHandler.ModelInfo))
 
-	// Admin Auth Providers — OIDC hooks live in authhandler so the wrap +
-	// invalidate functions are passed in here.
-	adminProvidersStore := adminproviders.NewStore(rc.infra.db.Main)
-	adminProvidersHandler := adminproviders.NewHandler(adminProvidersStore).WithOIDCHooks(
-		authhandler.EncryptProviderSecret,
-		adminProvidersStore.HasActiveOIDCProviderOtherThan,
-		authhandler.InvalidateOIDCProviderCache,
-	)
-	rc.mux.Handle("GET /api/admin/auth-providers", rc.adminChain(adminProvidersHandler.ListAuthProviders))
-	rc.mux.Handle("POST /api/admin/auth-providers", rc.adminChain(adminProvidersHandler.CreateAuthProvider))
-	rc.mux.Handle("PATCH /api/admin/auth-providers/{id}", rc.adminChain(adminProvidersHandler.UpdateAuthProvider))
-	rc.mux.Handle("DELETE /api/admin/auth-providers/{id}", rc.adminChain(adminProvidersHandler.DeleteAuthProvider))
+	registerAuthProviderRoutes(rc)
 
 	// Admin Users
 	adminUsersHandler := adminusers.NewHandler(adminusers.NewStore(rc.infra.db.Main), rc.infra.blacklist, rc.cascadeDeleter)
@@ -683,6 +672,27 @@ func registerAdminRoutes(rc *routeCtx) {
 // requires a server restart — moving the guard into per-request handler
 // logic would add a DB lookup to every admin call without enough payoff
 // for an admin-only kill switch.
+// registerAuthProviderRoutes wires the login-provider admin API. Superadmin
+// only: whoever configures a provider decides which identities the app
+// trusts — an OIDC issuer or LDAP server the caller runs can vouch for any
+// username — so on adminChain a plain admin could sign in as a superadmin
+// through a provider of their own. Its own function so a test can drive the
+// real registration without the rest of registerAdminRoutes' dependencies.
+// OIDC hooks live in authhandler, so the wrap + invalidate functions are
+// passed in here.
+func registerAuthProviderRoutes(rc *routeCtx) {
+	adminProvidersStore := adminproviders.NewStore(rc.infra.db.Main)
+	adminProvidersHandler := adminproviders.NewHandler(adminProvidersStore).WithOIDCHooks(
+		authhandler.EncryptProviderSecret,
+		adminProvidersStore.HasActiveOIDCProviderOtherThan,
+		authhandler.InvalidateOIDCProviderCache,
+	)
+	rc.mux.Handle("GET /api/admin/auth-providers", rc.superadminChain(adminProvidersHandler.ListAuthProviders))
+	rc.mux.Handle("POST /api/admin/auth-providers", rc.superadminChain(adminProvidersHandler.CreateAuthProvider))
+	rc.mux.Handle("PATCH /api/admin/auth-providers/{id}", rc.superadminChain(adminProvidersHandler.UpdateAuthProvider))
+	rc.mux.Handle("DELETE /api/admin/auth-providers/{id}", rc.superadminChain(adminProvidersHandler.DeleteAuthProvider))
+}
+
 func evalUIEnabled(reader interface {
 	GetSiteConfigValue(ctx context.Context, key string) (*string, error)
 }) bool {

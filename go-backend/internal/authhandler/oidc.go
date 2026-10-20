@@ -145,6 +145,7 @@ type OIDCStore interface {
 	GetActiveOIDCProvider(ctx context.Context) (*adminproviders.AuthProviderRow, error)
 	GetUserByExternalID(ctx context.Context, externalID string) (*users.UserRow, error)
 	GetUsersByUsername(ctx context.Context, username string) ([]*users.UserRow, error)
+	// LinkUserExternalID returns (nil, nil) when its guard refuses the row.
 	LinkUserExternalID(ctx context.Context, userID, externalID string) (*users.UserRow, error)
 	ApplyPendingInvites(ctx context.Context, userID, username string) error
 }
@@ -649,11 +650,44 @@ func appendAuthFragment(target, token string, user *users.UserRow) string {
 	return u.String()
 }
 
+// ErrOIDCLinkRefused marks a preferred_username match that branch 2 of
+// resolveOIDCUser will not link. The callback treats it like any other
+// resolution failure; the wrapped reason is for the log.
+var ErrOIDCLinkRefused = errors.New("oidc_link_refused")
+
+// oidcLinkRefusal returns why an existing row may not be linked to a new
+// OIDC subject by username, or "" when it may. preferred_username is chosen
+// by whoever runs the IdP — and, where the IdP allows self-service renames,
+// by its users — so a username match proves nothing about who owns the row.
+// Branch 2 exists for the LDAP→OIDC migration, so it is limited to that:
+//   - only ldap/oidc rows (a local password account is never taken over; the
+//     LDAP login path refuses the same thing),
+//   - never a row already linked to another sub (that would silently move
+//     the account to a different IdP identity),
+//   - never an admin or superadmin row (taking one over is a privilege
+//     escalation; an operator links those by hand).
+//
+// LinkUserExternalID repeats these conditions in its UPDATE, which is the
+// actual gate; this pre-check only names the reason.
+func oidcLinkRefusal(u *users.UserRow) string {
+	switch {
+	case u.AuthMethod != "ldap" && u.AuthMethod != "oidc":
+		return "auth_method " + u.AuthMethod + " is not linkable"
+	case u.ExternalID != nil:
+		return "already linked to another subject"
+	case u.Role != auth.RoleUser && u.Role != auth.RoleAPIUser:
+		return "role " + u.Role + " is not linkable"
+	}
+	return ""
+}
+
 // resolveOIDCUser implements the three-branch match:
 //  1. external_id match → existing OIDC user.
 //  2. case-insensitive single preferred_username match → link + return
 //     (LDAP→OIDC migration). Keyed on username (not email) because usernames
-//     are stable across an employee's lifecycle; emails change.
+//     are stable across an employee's lifecycle; emails change. Only rows
+//     oidcLinkRefusal accepts are linked; any other match fails the login
+//     (ErrOIDCLinkRefused) rather than falling through to create.
 //  3. no match → create new OIDC-provisioned user.
 //
 // Fails closed if the username matches >1 rows. users.username has a unique
@@ -682,7 +716,18 @@ func resolveOIDCUser(ctx context.Context, store OIDCStore, claims oidcClaims) (*
 			return nil, fmt.Errorf("oidc_username_conflict: %d users share username %q", len(matches), preferredUN)
 		}
 		if len(matches) == 1 {
-			return store.LinkUserExternalID(ctx, matches[0].ID, claims.Sub)
+			m := matches[0]
+			if reason := oidcLinkRefusal(m); reason != "" {
+				return nil, fmt.Errorf("%w: %s (user %s)", ErrOIDCLinkRefused, reason, m.ID)
+			}
+			linked, err := store.LinkUserExternalID(ctx, m.ID, claims.Sub)
+			if err != nil {
+				return nil, err
+			}
+			if linked == nil {
+				return nil, fmt.Errorf("%w: account changed before the link (user %s)", ErrOIDCLinkRefused, m.ID)
+			}
+			return linked, nil
 		}
 	}
 
