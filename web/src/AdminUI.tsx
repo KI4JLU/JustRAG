@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { Plus, ChevronLeft, ShieldCheck, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
+import { Plus, ChevronLeft, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
 import { useToast } from './contexts/ToastContext';
@@ -12,6 +12,7 @@ import KBOverviewDashboard from './KBOverviewDashboard';
 import AdminConfigsTab from './components/admin/AdminConfigsTab';
 import AdminAuthTab from './components/admin/AdminAuthTab';
 import AdminUsersTab from './components/admin/AdminUsersTab';
+import AdminRolesTab from './components/admin/AdminRolesTab';
 import AdminSiteTab from './components/admin/AdminSiteTab';
 import AdminSearchTab from './components/admin/AdminSearchTab';
 import AdminAgentTab from './components/admin/AdminAgentTab';
@@ -92,7 +93,7 @@ interface AdminUIProps {
     onEditGlobalKb?: (kb: { id: string; name: string }) => void;
 }
 
-type AdminTab = 'configs' | 'auth' | 'users' | 'site' | 'search' | 'agent' | 'health' | 'kb-overview' | 'global-kbs' | 'eval';
+type AdminTab = 'configs' | 'auth' | 'users' | 'roles' | 'site' | 'search' | 'agent' | 'health' | 'kb-overview' | 'global-kbs' | 'eval';
 
 export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) {
     const toast = useToast();
@@ -102,6 +103,9 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
     const [configs, setConfigs] = useState<AIConfig[]>([]);
     const [providers, setProviders] = useState<AuthProvider[]>([]);
     const [usersList, setUsersList] = useState<User[]>([]);
+    // Set when the last users fetch failed, so the Rollen tab shows no counts
+    // instead of reading the empty list as "0 users" per role.
+    const [usersFetchFailed, setUsersFetchFailed] = useState(false);
     const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -233,11 +237,13 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
 
     const fetchUsers = useCallback(async () => {
         setLoading(true);
+        setUsersFetchFailed(false);
         try {
             const res = await axios.get(`${API_BASE_URL}/api/admin/users`);
             setUsersList(res.data);
         } catch (error: unknown) {
             console.error('Failed to fetch users:', error);
+            setUsersFetchFailed(true);
             toast.error(t('usersFetchError'));
         } finally {
             setLoading(false);
@@ -249,7 +255,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
             fetchConfigs();
             fetchSiteConfigs();
         } else if (activeTab === 'auth') fetchAuthProviders();
-        else if (activeTab === 'users') fetchUsers();
+        else if (activeTab === 'users' || activeTab === 'roles') fetchUsers();
         else if (activeTab === 'site' || activeTab === 'search' || activeTab === 'agent') fetchSiteConfigs();
     }, [activeTab, fetchConfigs, fetchSiteConfigs, fetchAuthProviders, fetchUsers]);
 
@@ -448,6 +454,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
         : activeTab === 'search' ? t('searchProviderConfig')
         : activeTab === 'agent' ? t('agentConfig')
         : activeTab === 'eval' ? t('evalRunner')
+        : activeTab === 'roles' ? t('adminTabRoles')
         : t('userManagement');
 
     const isDataTab = activeTab === 'health' || activeTab === 'kb-overview' || activeTab === 'users';
@@ -494,6 +501,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                         <div className="admin-nav-group">
                             <div className="admin-nav-group-heading">{t('adminNavGroupUsers')}</div>
                             {navItem('users', UserPlus, t('adminTabUsers'))}
+                            {navItem('roles', ShieldUser, t('adminTabRoles'))}
                         </div>
                     )}
                     {(user.role === 'superadmin' || user.role === 'admin') && (
@@ -522,7 +530,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                         <h2 style={{ color: 'var(--text-primary)', margin: 0 }}>
                             {sectionTitle}
                         </h2>
-                        {activeTab !== 'users' && activeTab !== 'site' && activeTab !== 'search' && activeTab !== 'agent' && (
+                        {activeTab !== 'users' && activeTab !== 'roles' && activeTab !== 'site' && activeTab !== 'search' && activeTab !== 'agent' && (
                             <button className="search-button" onClick={() => { setShowForm(true); setEditingId(null); }} style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                                 <Plus size={18} />
                                 {activeTab === 'configs' ? t('addConfig') : t('addProvider')}
@@ -578,6 +586,8 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                             loading={loading}
                         />
                     )}
+
+                    {activeTab === 'roles' && <AdminRolesTab users={loading || usersFetchFailed ? null : usersList} />}
 
                     {activeTab === 'site' && (
                         <AdminSiteTab
