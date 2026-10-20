@@ -175,7 +175,9 @@ Registered alongside `kb_search` in the MCP registry. **Why:** the dense+sparse+
 
 ### Non-retrieval tools (`calculator`, `sql_query`, `code_exec`)
 
-`code_exec` is gated behind `chat_code_exec_enabled` and requires gVisor; `calculator` and `sql_query` are always-available. **Why:** numeric or tabular queries should not be answered by an LLM doing mental arithmetic over retrieved text. The calculator is cheap insurance; `sql_query` lets the model run aggregations over structured KB metadata; `code_exec` is the escape hatch for queries needing arbitrary computation.
+`code_exec` is gated behind `chat_code_exec_enabled` and requires gVisor; `sql_query` is gated behind the **global-only** `chat_sql_query_enabled` (default off) and needs `JUSTRAG_DB_URL_READONLY`; `calculator` is always available. **Why:** numeric or tabular queries should not be answered by an LLM doing mental arithmetic over retrieved text. The calculator is cheap insurance; `sql_query` lets the model run aggregations over structured KB metadata; `code_exec` is the escape hatch for queries needing arbitrary computation.
+
+**`sql_query` is not scoped per user or KB.** Its validator is a regex over `FROM`/`JOIN` names with no function allowlist, so `SELECT query_to_xml('sel'||'ect …', …) FROM files` runs arbitrary SQL with the read-only role's grants — other users' `messages`/`chats`, every KB's `files`, and every KB's spreadsheet tables in `tabular` (which the Structured spreadsheet Q&A recipe grants). The table allowlist is not a boundary; a prompt-injected chunk can steer the call. Enable the flag only where every user may see everything that role can SELECT. (`table_query` and the tabular router are not affected: they go through the AST validator in `internal/tabular/sqlcheck`, which has a function allowlist.)
 
 ### Tool-aware DAG planner (`chat_plan_execute_tool_aware`)
 

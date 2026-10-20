@@ -1121,10 +1121,15 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 	// than falling through to the read/write main pool, so flipping
 	// chat_use_mcp_tools on without provisioning the role cannot expose
 	// the RW pool to LLM-authored SQL. The tool's string validator is
-	// defence-in-depth only; the role's GRANTs are the real boundary.
+	// defence-in-depth only; the role's GRANTs are the real boundary, and
+	// they are not scoped per user or KB — hence the global-only
+	// chat_sql_query_enabled gate (default off), checked per call.
 	mcpRegistry.RegisterBuiltin(builtin.NewCalculator())
 	if rc.infra.sqlToolDB != nil {
-		mcpRegistry.RegisterBuiltin(builtin.NewSQLQuery(rc.infra.sqlToolDB))
+		sqlQueryEnabled := func(ctx context.Context) bool {
+			return chat.ChatSQLQueryEnabled(ctx, rc.chatStore)
+		}
+		mcpRegistry.RegisterBuiltin(builtin.NewSQLQuery(rc.infra.sqlToolDB, sqlQueryEnabled))
 	} else {
 		slog.Warn("sql_query tool registered in disabled state; set JUSTRAG_DB_URL_READONLY to a SELECT-only role to enable it")
 		mcpRegistry.RegisterBuiltin(builtin.NewSQLQueryUnconfigured())

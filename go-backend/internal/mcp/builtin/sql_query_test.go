@@ -197,7 +197,7 @@ func TestSQLQueryHandler_HappyPath(t *testing.T) {
 			{"id": "2", "name": "beta"},
 		},
 	}
-	tool := newSQLQueryWithExecutor(exec)
+	tool := newSQLQueryWithExecutor(exec, alwaysEnabled)
 	got, err := tool.Handler.Invoke(context.Background(),
 		json.RawMessage(`{"query":"SELECT id, name FROM files"}`),
 	)
@@ -246,7 +246,7 @@ func TestSQLQueryUnconfigured_AlwaysErrors(t *testing.T) {
 func TestSQLQueryHandler_RejectsBeforeExecutor(t *testing.T) {
 	t.Parallel()
 	exec := &fakeSQLExecutor{}
-	tool := newSQLQueryWithExecutor(exec)
+	tool := newSQLQueryWithExecutor(exec, alwaysEnabled)
 	_, err := tool.Handler.Invoke(context.Background(),
 		json.RawMessage(`{"query":"DROP TABLE messages"}`),
 	)
@@ -271,5 +271,51 @@ func BenchmarkValidateReadOnlyShape(b *testing.B) {
 	for b.Loop() {
 		_ = validateReadOnlyShape(accepted)
 		_ = validateReadOnlyShape(rejected)
+	}
+}
+
+// TestSQLQueryHandler_DisabledByDefault: the regex validator has no function
+// allowlist (query_to_xml over a concatenated string runs arbitrary SQL with
+// the read-only role's grants), so the chat_sql_query_enabled gate is the
+// only thing between an LLM-authored query and every table that role can
+// read. A nil gate and a false gate must both refuse a perfectly valid
+// SELECT without reaching the executor.
+func TestSQLQueryHandler_DisabledByDefault(t *testing.T) {
+	t.Parallel()
+	for name, enabled := range map[string]func(context.Context) bool{
+		"nil gate":   nil,
+		"gate false": func(context.Context) bool { return false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			exec := &fakeSQLExecutor{}
+			tool := newSQLQueryWithExecutor(exec, enabled)
+			_, err := tool.Handler.Invoke(context.Background(),
+				json.RawMessage(`{"query":"SELECT id FROM files"}`),
+			)
+			if err == nil {
+				t.Fatal("expected a disabled sql_query to refuse a valid SELECT")
+			}
+			if !strings.Contains(err.Error(), "chat_sql_query_enabled") {
+				t.Errorf("error should name the gate, got: %v", err)
+			}
+			if exec.gotQuery != "" {
+				t.Errorf("disabled tool reached the executor with %q", exec.gotQuery)
+			}
+		})
+	}
+}
+
+// TestNewSQLQuery_DisabledByDefault pins the production constructor: a nil
+// gate must fail closed, not fall through to the pool (which is nil here, so
+// an open gate would panic or error differently).
+func TestNewSQLQuery_DisabledByDefault(t *testing.T) {
+	t.Parallel()
+	tool := NewSQLQuery(nil, nil)
+	_, err := tool.Handler.Invoke(context.Background(),
+		json.RawMessage(`{"query":"SELECT id FROM files"}`),
+	)
+	if err == nil || !strings.Contains(err.Error(), "chat_sql_query_enabled") {
+		t.Fatalf("expected the gate error, got: %v", err)
 	}
 }

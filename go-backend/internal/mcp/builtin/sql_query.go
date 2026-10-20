@@ -121,9 +121,16 @@ const (
 //
 // pool MUST authenticate as a read-only Postgres role. The string
 // validator is defence-in-depth — the role's GRANTs are the
-// authoritative boundary.
-func NewSQLQuery(pool *pgxpool.Pool) mcp.Tool {
-	return newSQLQueryWithExecutor(&pgxPoolExecutor{pool: pool})
+// authoritative boundary. The validator has no function allowlist
+// (`query_to_xml('…'||'…')` runs arbitrary SQL with the role's grants),
+// so whatever that role can SELECT is reachable regardless of
+// allowedTablesDefault, across every user and KB.
+//
+// enabled is the global-only chat_sql_query_enabled gate, evaluated at
+// every invocation so an admin can flip it without a restart. nil means
+// disabled: the tool fails closed.
+func NewSQLQuery(pool *pgxpool.Pool, enabled func(ctx context.Context) bool) mcp.Tool {
+	return newSQLQueryWithExecutor(&pgxPoolExecutor{pool: pool}, enabled)
 }
 
 // NewSQLQueryUnconfigured returns the sql_query tool in a disabled state.
@@ -145,17 +152,23 @@ func NewSQLQueryUnconfigured() mcp.Tool {
 
 // newSQLQueryWithExecutor is the test seam. Production callers use
 // NewSQLQuery; tests inject a fake SQLExecutor.
-func newSQLQueryWithExecutor(exec SQLExecutor) mcp.Tool {
+func newSQLQueryWithExecutor(exec SQLExecutor, enabled func(ctx context.Context) bool) mcp.Tool {
+	if enabled == nil {
+		enabled = func(context.Context) bool { return false }
+	}
 	return mcp.Tool{
 		Name:        "sql_query",
 		Description: "Run a read-only SQL SELECT against allowlisted JustRAG tables (messages, chats, files, agent_decisions). Use for meta-questions: 'when was X uploaded', 'how many messages this week', 'most-cited file last month'. Returns up to 100 rows.",
 		InputSchema: json.RawMessage(sqlQueryInputSchema),
-		Handler:     mcp.ToolHandlerFunc(sqlQueryHandler(exec)),
+		Handler:     mcp.ToolHandlerFunc(sqlQueryHandler(exec, enabled)),
 	}
 }
 
-func sqlQueryHandler(exec SQLExecutor) mcp.ToolHandlerFunc {
+func sqlQueryHandler(exec SQLExecutor, enabled func(ctx context.Context) bool) mcp.ToolHandlerFunc {
 	return func(ctx context.Context, raw json.RawMessage) (mcp.ToolResult, error) {
+		if !enabled(ctx) {
+			return mcp.ToolResult{}, fmt.Errorf("sql_query: disabled (site_config chat_sql_query_enabled=false)")
+		}
 		var args SQLQueryArgs
 		if err := json.Unmarshal(raw, &args); err != nil {
 			return mcp.ToolResult{}, fmt.Errorf("sql_query: parse args: %w", err)
