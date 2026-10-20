@@ -1,5 +1,4 @@
 import React, { useRef } from 'react';
-import { AlertCircle, HelpCircle } from 'lucide-react';
 import {
     Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input,
 } from '@ki4jlu/design-system';
@@ -11,6 +10,10 @@ export interface ModalState {
     title: string;
     message: string;
     value?: string;
+    /** The confirm button's label; default „Bestätigen" (OK for an alert). */
+    confirmLabel?: string;
+    /** `destructive`: the confirm button reads as the destructive action it starts. */
+    tone?: 'default' | 'destructive';
     onConfirm: (value?: string) => void;
     onCancel: () => void;
 }
@@ -36,7 +39,6 @@ export const Modal: React.FC<CustomModalProps> = ({ modal, setModal }) => {
     const { t } = useTheme();
     const confirmRef = useRef<HTMLButtonElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const Icon = modal.type === 'alert' ? AlertCircle : HelpCircle;
 
     return (
         <Dialog open={modal.show} onOpenChange={(open) => { if (!open) modal.onCancel(); }}>
@@ -49,14 +51,10 @@ export const Modal: React.FC<CustomModalProps> = ({ modal, setModal }) => {
                     (modal.type === 'prompt' ? inputRef.current : confirmRef.current)?.focus();
                 }}
             >
-                <DialogHeader className="flex-row items-center gap-3 pr-8">
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary-container text-on-primary-container">
-                        <Icon className="size-6" aria-hidden="true" />
-                    </span>
+                <DialogHeader className="pr-8">
                     <DialogTitle>{modal.title}</DialogTitle>
+                    <DialogDescription>{modal.message}</DialogDescription>
                 </DialogHeader>
-
-                <DialogDescription>{modal.message}</DialogDescription>
 
                 {modal.type === 'prompt' && (
                     <form onSubmit={(e) => { e.preventDefault(); modal.onConfirm(modal.value); }}>
@@ -72,10 +70,14 @@ export const Modal: React.FC<CustomModalProps> = ({ modal, setModal }) => {
 
                 <DialogFooter>
                     {(modal.type === 'confirm' || modal.type === 'prompt') && (
-                        <Button variant="ghost" onClick={() => modal.onCancel()}>{t('cancel')}</Button>
+                        <Button variant="outline" onClick={() => modal.onCancel()}>{t('cancel')}</Button>
                     )}
-                    <Button ref={confirmRef} onClick={() => modal.onConfirm(modal.value)}>
-                        {modal.type === 'alert' ? t('ok') : t('confirm')}
+                    <Button
+                        ref={confirmRef}
+                        variant={modal.tone === 'destructive' ? 'destructive' : 'default'}
+                        onClick={() => modal.onConfirm(modal.value)}
+                    >
+                        {modal.confirmLabel ?? (modal.type === 'alert' ? t('ok') : t('confirm'))}
                     </Button>
                 </DialogFooter>
             </DialogContent>
