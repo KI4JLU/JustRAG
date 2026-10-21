@@ -11,7 +11,7 @@ const mockedAxios = vi.mocked(axios, true);
 // framer-motion is mocked globally in src/test/setup.ts — no per-file override.
 
 // Real context hooks return referentially stable values across renders (see
-// MembersModal.test.tsx for the full rationale): hoisted, module-level
+// kbSettings/KbMembersPanel.test.tsx for the full rationale): hoisted, module-level
 // singleton objects, never a fresh object literal per call, so effects keyed
 // on these values don't re-fire on every render. `t` just echoes the key
 // back, so tests select by data-testid/role rather than translated text.

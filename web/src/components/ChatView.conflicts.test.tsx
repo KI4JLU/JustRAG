@@ -141,7 +141,6 @@ vi.mock('../contexts/KbDataContext', () => ({
       toolLoading: false, webResearchRunning: false,
     },
     content: { handleGenerate: vi.fn(), selectedContent: null, fetchGeneratedContent: vi.fn() },
-    sharing: { handleOpenShare: vi.fn() },
     handleSelectContent: vi.fn(),
     rssLoading: false,
     confluenceLoading: false,

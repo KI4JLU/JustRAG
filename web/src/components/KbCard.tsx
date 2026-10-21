@@ -6,7 +6,7 @@ import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
 import { formatRelativeCoarse } from '../utils/dates';
-import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
+import { canOpenKbAdvancedSettings, canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
@@ -88,15 +88,6 @@ function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
       {visibilityBadge(kb, t)}
     </Badge>
   );
-}
-
-// canManageMembers gates the members-dialog trigger: admins and owners
-// manage membership, edit/view callers don't. Checking myRole (not the
-// legacy kb.userId === user.id owner comparison) is what makes the admin
-// tier reachable from the UI at all — an admin who isn't the owner used to
-// have no way to open the dialog.
-function canManageMembers(kb: KnowledgeBase): boolean {
-  return kb.myRole === 'admin' || kb.myRole === 'owner';
 }
 
 // A scent chip shows icon + count only; the full phrase ("36 Dateien") is the
@@ -292,6 +283,7 @@ export interface PrivateKbCardProps {
   t: T;
   language: Language;
   onSelectKB: (kb: KnowledgeBase) => void;
+  /** „Teilen": opens the topic with Thema-Einstellungen on Mitglieder. */
   onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** One compact line instead of a card — the list view. */
@@ -309,9 +301,9 @@ export interface PrivateKbCardProps {
  * `React.MouseEvent`.
  */
 function kbCardActions({
-  kb, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
 }: Pick<PrivateKbCardProps,
-  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
+  'kb' | 'currentUserId' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
 ): ActionMenuItem[] {
   const asMouse = (e: Event) => e as unknown as React.MouseEvent;
   // The favorite is ungated — the caller's own flag, not a permission. Its
@@ -321,7 +313,9 @@ function kbCardActions({
     icon: <Star size={16} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />,
     onSelect: e => onToggleFavorite(kb, asMouse(e)),
   }];
-  if (canManageMembers(kb)) {
+  // Teilen opens Thema-Einstellungen → Mitglieder, so it is offered exactly
+  // where that window is: the same predicate as the workspace's gear.
+  if (canOpenKbTopicSettings(kb, systemRole, currentUserId)) {
     items.push({ label: t('share'), icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
   }
   // Rename: owner-only (superadmin resolves to owner), mirroring
@@ -368,7 +362,7 @@ export function PrivateKbCard({
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
-      actions={kbCardActions({ kb, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
+      actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
       label={`${t('kbActions')}: ${kb.name}`}
       triggerClassName="size-6 rounded-[var(--ui-radius-control)]"
     />

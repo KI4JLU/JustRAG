@@ -15,10 +15,10 @@ import { translations } from './translations';
  * be got wrong. Keeping them apart means a failure names which route broke.
  *
  * WHAT IT GUARDS, in the exact terms its sibling states. `SharedKbsView` mounts
- * `AppChrome`, which calls `useSharingContext()` and `useAppNav()`; both throw
- * when their provider is missing, and both are mounted per branch in
- * `AuthenticatedApp`. `SharedKbsView.stories.tsx` supplies its own providers in
- * a harness, so all six stories would stay green if this branch forgot one —
+ * `AppChrome`, which calls `useAppNav()`; it throws when its provider is
+ * missing, and the provider is mounted in `AuthenticatedApp`.
+ * `SharedKbsView.stories.tsx` supplies its own providers in a harness, so all
+ * its stories would stay green if this branch forgot it —
  * which is the KI-740 failure mode verbatim: a screen that crashes on the route
  * every user reaches it by, while both component suites pass.
  *
@@ -203,8 +203,8 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     await userEvent.click(row);
 
     /* ORACLE: translations.ts + the ARIA mapping for h1. `SharedKbsView`
-     * reached `useSharingContext()` and `useAppNav()` during this render, via
-     * `AppChrome`; had either thrown, there would be no heading to find. This
+     * reached `useAppNav()` during this render, via `AppChrome`; had it
+     * thrown, there would be no heading to find. This
      * is also the only assertion in the repo that proves the union member, the
      * render branch and the context wiring line up. */
     expect(

@@ -11,7 +11,6 @@ import { KbChatProvider, type KbChatContextValue } from './contexts/KbChatContex
 import { KbDataProvider, type KbDataContextValue } from './contexts/KbDataContext';
 import { KbLayoutProvider, type KbLayoutContextValue } from './contexts/KbLayoutContext';
 import { AppNavProvider, type AppNavContextValue } from './contexts/AppNavContext';
-import { SharingProvider } from './contexts/SharingContext';
 import { KbSearchProvider } from './contexts/KbSearchContext';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 
@@ -23,7 +22,6 @@ import { useWebTools } from './hooks/useWebTools';
 import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
 import { useJoinRedeem } from './hooks/useJoinRedeem';
-import { useSharing } from './hooks/useSharing';
 import { useKbSearchState } from './hooks/useKbSearchState';
 import { useSearchNavigation } from './hooks/useSearchNavigation';
 import { useRssFeeds } from './hooks/useRssFeeds';
@@ -32,6 +30,7 @@ import { useGitRepoSources } from './hooks/useGitRepoSources';
 import { useViewState, type ViewType, type KbViewType } from './hooks/useViewState';
 import { useKbSettings } from './hooks/useKbSettings';
 import { useKbLifecycle } from './hooks/useKbLifecycle';
+import { useTopicSettings } from './hooks/useTopicSettings';
 
 // Components
 import { MyTopicsView } from './components/MyTopicsView';
@@ -170,7 +169,8 @@ function AuthenticatedAppInner() {
 
   // Sidebar resize
   const sidebar = useSidebarResize();
-  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  // Thema-Einstellungen: open for one topic at a time (see useTopicSettings).
+  const topicSettings = useTopicSettings(currentKb?.id);
 
   // Existing hooks
   const fileMgmt = useFileManagement({ currentKb });
@@ -222,10 +222,8 @@ function AuthenticatedAppInner() {
   // Redeem an invite link the user arrived with, now that they are signed in.
   useJoinRedeem({ openKbById: kbMgmt.handleOpenKbById });
 
-  const sharing = useSharing({ username: user?.username });
-
   /* The header search's state (cards KI-787, KI-837). Held HERE rather than
-     inside a provider component, exactly like `sharing` and `appNav` below:
+     inside a provider component, exactly like `appNav` below:
      every top-level view is a separate `return` from this component, and the
      dropdown's „show all in Discover" row lands on „Entdecken" WITH the query
      and the caret — behaviour that must not depend on how React reconciles
@@ -253,8 +251,6 @@ function AuthenticatedAppInner() {
     fetchRssFeeds,
     fetchConfluenceSources: confluenceHook.fetchSources,
     fetchConfluenceConnectionInfo: confluenceHook.fetchConnectionInfo,
-    showShareModal: sharing.showShareModal,
-    setShowShareModal: sharing.setShowShareModal,
     showSettings: kbSettings.showSettings,
     setShowSettings: kbSettings.setShowSettings,
   });
@@ -292,21 +288,25 @@ function AuthenticatedAppInner() {
     setSelectedContent(item);
   }, [setSelectedContent]);
 
-  const handleUpdateKBSettings = async (data: Record<string, unknown>) => {
-    if (!currentKb) return;
+  // Resolves true once the PATCH succeeded, false when it was declined or
+  // failed (already toasted), so a caller can keep its drafts on screen.
+  const handleUpdateKBSettings = async (data: Record<string, unknown>): Promise<boolean> => {
+    if (!currentKb) return false;
 
     if (data.embeddingModel && data.embeddingModel !== currentKb.embeddingModel && currentKb.embeddingModel !== null) {
       if (!await showConfirm(t('embeddingModelChangeConfirm'))) {
-        return;
+        return false;
       }
     }
 
     try {
       await kbMgmt.saveKbSettings(currentKb.id, data);
       if (typeof data.isPro === 'boolean') kbSettings.setIsPro(data.isPro);
+      return true;
     } catch (err: unknown) {
       console.error('Failed to update KB settings:', err);
       toast.error(t('settingsUpdateError'));
+      return false;
     }
   };
 
@@ -330,6 +330,12 @@ function AuthenticatedAppInner() {
     onOpenTopic: searchNav.openTopic,
     onOpenSource: (source) => { void searchNav.openSource(source); },
     onOpenChat: (target) => { void searchNav.openChat(target); },
+    // Request first, then the topic: the request names the topic it is for,
+    // so the topic change it causes keeps it (see useTopicSettings).
+    onOpenTopicSettings: (kb, section) => {
+      topicSettings.openFor(kb.id, section);
+      kbMgmt.handleSelectKB(kb);
+    },
   };
 
   // Early returns for non-KB views
@@ -418,9 +424,9 @@ function AuthenticatedAppInner() {
 
   /* „Geteilte Knowledge Bases" (KI-783) — a top-level view, not a section.
    *
-   * It is mounted inside THE SAME two providers as the overview, and that is
+   * It is mounted inside THE SAME providers as the overview, and that is
    * load-bearing rather than symmetric-looking: `AppChrome` calls
-   * `useSharingContext()` and `useAppNav()`, both of which THROW without a
+   * `useAppNav()` and `useKbSearch()`, both of which THROW without a
    * provider. `App.authenticated-home.test.tsx` is the route-level guard that
    * exists because exactly this kind of omission once stayed green in both
    * component suites; `App.authenticated-shared-kbs.test.tsx` is its twin for
@@ -430,18 +436,17 @@ function AuthenticatedAppInner() {
    * overview's own elements, so running it over this view would point at
    * nothing. `Footer` stays, so the legal pages remain reachable. */
   if (view === 'tools') {
-    /* THE SAME THREE PROVIDERS AS EVERY OTHER VIEW, even though the page itself
+    /* THE SAME TWO PROVIDERS AS EVERY OTHER VIEW, even though the page itself
        renders no search target (it was a placeholder when this was written).
  
        They are not the VIEW's dependencies, they are `AppChrome`'s: the shell
-       reads `useKbSearch` for the top-bar field and `useSharingContext` for the
-       members dialog it mounts, on every page that wraps itself in it. Shipping
+       reads `useKbSearch` for the top-bar field and `useAppNav` for its nav
+       rows, on every page that wraps itself in it. Shipping
        this branch with `AppNavProvider` alone threw
        „useKbSearch must be used within KbSearchProvider" the moment the row was
        clicked — the placeholder had nothing to do with it. Any future view that
-       renders `AppChrome` needs all three. */
+       renders `AppChrome` needs both. */
     return (
-      <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
         {/* Owned + shared (`kbs`) and subscribed public topics (`globalKbs`):
@@ -452,13 +457,11 @@ function AuthenticatedAppInner() {
         <ToolsView topics={uniqueById([...kbMgmt.kbs, ...kbMgmt.globalKbs])} />
       </KbSearchProvider>
       </AppNavProvider>
-      </SharingProvider>
     );
   }
 
   if (view === 'discover') {
     return (
-      <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
       <motion.div
@@ -475,13 +478,11 @@ function AuthenticatedAppInner() {
       </motion.div>
       </KbSearchProvider>
       </AppNavProvider>
-      </SharingProvider>
     );
   }
 
   if (view === 'shared-topics') {
     return (
-      <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
       <motion.div
@@ -503,17 +504,12 @@ function AuthenticatedAppInner() {
       </motion.div>
       </KbSearchProvider>
       </AppNavProvider>
-      </SharingProvider>
     );
   }
 
   if (view === 'my-topics') {
-    // The two overview contexts. `sharing` is the same object the KB
-    // workspace half already receives through KbDataContext.sharing — one
-    // useSharing() call, two mount points, so the dialog cannot get out of
-    // step between the two halves of the app.
+    // The two overview contexts.
     return (
-      <SharingProvider value={sharing}>
       <AppNavProvider value={appNav}>
       <KbSearchProvider value={kbSearch}>
       <motion.div
@@ -543,7 +539,6 @@ function AuthenticatedAppInner() {
       </motion.div>
       </KbSearchProvider>
       </AppNavProvider>
-      </SharingProvider>
     );
   }
 
@@ -592,7 +587,6 @@ function AuthenticatedAppInner() {
     fileMgmt,
     webTools,
     content,
-    sharing,
     rssFeeds,
     rssLoading,
     fetchRssFeeds,
@@ -626,8 +620,9 @@ function AuthenticatedAppInner() {
 
   const layoutValue: KbLayoutContextValue = {
     sidebar,
-    systemPromptOpen,
-    setSystemPromptOpen,
+    systemPromptOpen: topicSettings.open,
+    setSystemPromptOpen: topicSettings.setOpen,
+    systemPromptSection: topicSettings.section,
   };
 
   return (

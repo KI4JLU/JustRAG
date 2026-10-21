@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain, ArrowUp,
   X, GitBranch, Check,
@@ -12,7 +12,7 @@ import { useIsMobileContext } from '../contexts/MobileContext';
 import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
-import { SystemPromptPanel } from './SystemPromptPanel';
+import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
@@ -34,7 +34,7 @@ import {
 import MessageBubble from '../MessageBubble';
 import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { chatSourceSelection, hasKbAdminRole, kbSourceRights } from '../utils/kbAccess';
+import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../utils/kbAccess';
 import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
@@ -77,7 +77,7 @@ const ChatViewComp = () => {
     webSearchEnabled: webSearch, setWebSearchEnabled: setWebSearch,
     agentSelection, setAgentSelection,
   } = useKbChat();
-  const { fileMgmt, webTools, sharing } = useKbData();
+  const { fileMgmt, webTools } = useKbData();
   const toast = useToast();
   // Composer files are uploaded as chat attachments as soon as they are attached.
   const composerUploads = useComposerUploads(currentKb?.id, t);
@@ -86,7 +86,7 @@ const ChatViewComp = () => {
   // AuthenticatedApp).
   const webSearchAvailable = isChatWebSearchAvailable(siteConfigs);
   const webSearchOn = webSearchAvailable && webSearch;
-  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt } = useKbLayout();
+  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
   const kbAgentOptions = useKbAgents(currentKb?.id);
@@ -191,7 +191,7 @@ const ChatViewComp = () => {
   // through.
   // System prompt: owners and KB admins (the gear in the chrome bar,
   // KbWorkspaceLayout, uses the same predicate).
-  const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
+  const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
 
   const {
     hasFiles, filesLoaded, selectedFileCount,
@@ -259,8 +259,20 @@ const ChatViewComp = () => {
   }, [kbAgentOptions]);
 
 
+  // The region the Thema-Einstellungen dialog covers (DS `fitTo`): the shell's
+  // content column — header bar plus chat — found from the chat area; the
+  // chat area itself outside an AppShell. Read when the dialog measures, so a
+  // getter, not a value captured at render.
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const settingsAreaRef = useMemo<React.RefObject<HTMLElement | null>>(() => ({
+    get current() {
+      const area = chatAreaRef.current;
+      return area?.closest<HTMLElement>('[data-slot="app-shell-content"]') ?? area;
+    },
+  }), []);
+
   return (
-    <div className="chat-area">
+    <div className="chat-area" ref={chatAreaRef}>
       {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
           Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
           „Hauptinhalt"-Sprungziel für Screenreader. Die eigene Höhenrechnung
@@ -275,36 +287,7 @@ const ChatViewComp = () => {
           Anbindung als Tools. `KbViewType` ist auf 'chat' verengt, also gibt
           es nichts mehr zu verzweigen. */}
       {
-            showSystemPrompt && currentKb && canEditSystemPrompt ? (
-              // The KB behaviour editor takes the whole content area while open.
-              <SystemPromptPanel
-                draft={systemPromptDraft}
-                onDraftChange={setSystemPromptDraft}
-                flags={flagsDraft}
-                onFlagsChange={setFlagsDraft}
-                onAssignPeople={(e) => sharing.handleOpenShare(currentKb, e)}
-                dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
-                  || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
-                onSave={() => {
-                  // One PATCH for both tabs: only the fields that changed.
-                  const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };
-                  const newValue = systemPromptDraft || null;
-                  if (newValue !== (currentKb.systemPrompt || null)) update.systemPrompt = newValue;
-                  if (Object.keys(update).length) handleUpdateKBSettings(update);
-                  setShowSystemPrompt(false);
-                }}
-                onDelete={() => {
-                  setSystemPromptDraft('');
-                  handleUpdateKBSettings({ systemPrompt: null });
-                  setShowSystemPrompt(false);
-                }}
-                onClose={() => {
-                  setSystemPromptDraft(currentKb.systemPrompt || '');
-                  setFlagsDraft(savedFlags);
-                  setShowSystemPrompt(false);
-                }}
-              />
-            ) : chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
+            chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
                 <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                   <ComparisonView
@@ -771,6 +754,40 @@ const ChatViewComp = () => {
             </Suspense>
           </div>
         </div>
+      )}
+      {showSystemPrompt && currentKb && canEditSystemPrompt && (
+        // Modal over the chat: the chat stays where it was underneath and the
+        // rest of the app is inert until the dialog closes.
+        <KbSettingsDialog
+          fitTo={settingsAreaRef}
+          draft={systemPromptDraft}
+          onDraftChange={setSystemPromptDraft}
+          flags={flagsDraft}
+          onFlagsChange={setFlagsDraft}
+          kb={currentKb}
+          initialSection={systemPromptSection}
+          dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
+            || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
+          onSave={async () => {
+            // One PATCH for both tabs: only the fields that changed. On
+            // success the KB row is replaced, which resets both drafts to the
+            // stored values (the reset keys above), so the dialog reads clean.
+            const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };
+            const newValue = systemPromptDraft || null;
+            if (newValue !== (currentKb.systemPrompt || null)) update.systemPrompt = newValue;
+            return Object.keys(update).length ? handleUpdateKBSettings(update) : true;
+          }}
+          onDelete={async () => {
+            const ok = await handleUpdateKBSettings({ systemPrompt: null });
+            if (ok) setSystemPromptDraft('');
+            return ok;
+          }}
+          onClose={() => {
+            setSystemPromptDraft(currentKb.systemPrompt || '');
+            setFlagsDraft(savedFlags);
+            setShowSystemPrompt(false);
+          }}
+        />
       )}
     </div>
   );

@@ -11,9 +11,10 @@ import { setSettingsDialogOpen, setSettingsDialogTab } from './hooks/settingsDia
  * The test that KI-740's lesson demands for KI-770.
  *
  * KI-770 moved 20 of `HomeView`'s 38 props onto two NEW required contexts,
- * `SharingContext` and `AppNavContext`. Both `useSharingContext()` and
- * `useAppNav()` throw when their provider is missing, and the provider is
- * mounted in exactly one place: `AuthenticatedApp`'s `view === 'home'` branch.
+ * `SharingContext` and `AppNavContext`. `SharingContext` has since been
+ * deleted with the members dialog it fed; `useAppNav()` remains, throws when
+ * its provider is missing, and the provider is mounted only in
+ * `AuthenticatedApp`.
  *
  * Neither of the suites that guard `HomeView` can see that mount. The story
  * file supplies its own providers in a harness, and `HomeView.test.tsx`
@@ -28,7 +29,7 @@ import { setSettingsDialogOpen, setSettingsDialogTab } from './hooks/settingsDia
  * So this file asserts the WIRING, not the view: it renders the real `App`
  * with a token in storage, i.e. the real ErrorBoundary / ThemeProvider /
  * MobileProvider / ToastProvider composition, the real lazy `AuthenticatedApp`,
- * the real `useSharing()` and the real `HomeView`, and looks for the overview's
+ * and the real overview view, and looks for the overview's
  * own heading. No provider, no context and no hook is mocked — mocking them is
  * precisely what would hide the bug.
  *
@@ -147,9 +148,9 @@ describe('App — the KB overview on the authenticated home route', () => {
   it('mounts every provider HomeView consumes, so the overview renders', async () => {
     render(<App />);
 
-    // ORACLE: translations.ts + the ARIA mapping for h1. `HomeView` reached
-    // `useSharingContext()` and `useAppNav()` during this render; had either
-    // thrown, there would be no heading to find.
+    // ORACLE: translations.ts + the ARIA mapping for h1. The overview reached
+    // `useAppNav()` during this render; had it thrown, there would be no
+    // heading to find.
     expect(await findOverviewHeading()).toBeInTheDocument();
 
     // ORACLE: ErrorBoundary's own fallback copy. Belt and braces — a context
@@ -157,18 +158,19 @@ describe('App — the KB overview on the authenticated home route', () => {
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
   });
 
-  it('renders the action-row controls that read the two new contexts', async () => {
+  it('renders the user-menu controls that read AppNavContext and AuthContext', async () => {
     render(<App />);
 
     await findOverviewHeading();
 
-    /* ORACLE: translations.ts for each accessible name. These four are exactly
-     * the controls whose handlers stopped being props under KI-770 — the copy
-     * button reads `SharingContext`, profile and agents read `AppNavContext`,
-     * and logout reads `AuthContext.logout` instead of an `onLogout` prop. A
+    /* ORACLE: translations.ts for each accessible name. These are the
+     * controls whose handlers stopped being props under KI-770 — profile reads
+     * `AppNavContext` and logout reads `AuthContext.logout` instead of an
+     * `onLogout` prop. (The copy button, which read the since-deleted
+     * `SharingContext`, and the agents row are gone; see below.) A
      * provider mounted but empty, or a handler wired to the wrong member,
-     * still renders a control; what this pins is that the real app supplies all
-     * four sources on this route.
+     * still renders a control; what this pins is that the real app supplies
+     * both sources on this route.
      *
      * WHERE THEY ARE SINCE KI-776, and why the assertions had to change SHAPE
      * while the oracle did not. The shell moved them out of a flat action row:

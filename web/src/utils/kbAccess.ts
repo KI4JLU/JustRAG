@@ -43,6 +43,22 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
 }
 
 /**
+ * Whether the caller may open „Thema-Einstellungen" (Verhalten, Rollen &
+ * Rechte, Mitglieder) — and with it every entry point into it: the gear in the
+ * workspace header and „Teilen" on the topic cards, which opens the Mitglieder
+ * section. All three sections write through admin-gated routes (PATCH
+ * /api/kb/{id} and /members on kbAdminChain), so this is hasKbAdminRole plus
+ * the legacy owner column for a row that arrives without myRole.
+ */
+export function canOpenKbTopicSettings(
+  kb: Pick<KnowledgeBase, 'userId' | 'myRole' | 'isGlobal' | 'visibility'>,
+  systemRole?: string,
+  userId?: string,
+): boolean {
+  return (!!userId && kb.userId === userId) || hasKbAdminRole(kb, systemRole);
+}
+
+/**
  * hasKbEditRole: whether the caller's EFFECTIVE role on `kb` is edit or better
  * — the threshold of the backend's edit chain (RequireKBRole("edit") in
  * internal/app/routes.go). It is only the FALLBACK of kbSourceRights' add and

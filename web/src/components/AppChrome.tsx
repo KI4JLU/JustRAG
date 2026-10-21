@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AppShellLayout,
   Logo,
@@ -12,7 +12,6 @@ import {
 import { useTheme } from '../contexts/ThemeContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
-import { useSharingContext } from '../contexts/SharingContext';
 import { AppUserMenu } from './AppUserMenu';
 import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
@@ -23,7 +22,6 @@ import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
 // header for why the `home-view__` block name outlived the component.
 import './HomeView.css';
 
-const MembersModal = lazy(() => import('./MembersModal').then(module => ({ default: module.MembersModal })));
 
 /* ---------------------------------------------------------------------------
  * The signed-in app chrome (card KI-783).
@@ -41,16 +39,14 @@ const MembersModal = lazy(() => import('./MembersModal').then(module => ({ defau
  *
  * WHAT IT OWNS, AND WHAT IT DELIBERATELY DOES NOT.
  *  - It owns: the skip link, the shell, the logo slot, the nav rows, the user
- *    menu, the operator imprint, and the members dialog (which reads
- *    `SharingContext` directly and is reachable from a KB card on EVERY view
- *    that renders one — a per-page copy would mean a share button that opens
- *    nothing on the newer view).
+ *    menu and the operator imprint. (It used to own the members dialog too;
+ *    „Teilen" on a card now opens the topic's Thema-Einstellungen instead.)
  *  - It does not own page content. `children` is the content template
  *    (`SectionedGridLayout`), and the caller keeps every page-specific modal:
  *    `HomeView`'s `SettingsModal` stays in `HomeView`.
  *  - It reads no props from the page. Every value comes from a context the
  *    route already mounts (`ThemeContext`, `AuthContext`, `AppNavContext`,
- *    `SharingContext`, and since KI-787 `KbSearchContext`), which is what keeps
+ *    and since KI-787 `KbSearchContext`), which is what keeps
  *    KI-770's rule intact: a new destination in the sidebar — or a new control
  *    in the bar — needs no new prop on any page component. KI-787 is the case
  *    that tested it: the catalog search moved INTO this file and `HomeView`'s
@@ -95,9 +91,6 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
   // everything else here is: this component takes no props from the page.
   const { query, setQuery, applyCatalogQuery, focusPending, requestFocus, consumeFocus } = useKbSearch();
   const searchRef = useRef<HTMLInputElement>(null);
-  // Only the clipboard pair and the dialog's own open state are read here; the
-  // rest of the sharing concern belongs to the KB cards on the page.
-  const sharing = useSharingContext();
   /* The minimise toggle's state (card KI-789). `Sidebar` is controlled and
      remembers nothing by design, so the app owns this and persists it — see
      `useSidebarCollapse.ts` for why it goes through the same `localStorage`
@@ -399,25 +392,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         mobileTabBarLabel={t('switchArea')}
       >
         {children}
-
-        {/* The members dialog reads the sharing context directly; the same
-            eleven values reach KbWorkspaceModals through KbDataContext.sharing,
-            so the two mount points spell the dialog the same way. It lives in
-            the CHROME rather than on a page because every view that renders a
-            KB card renders that card's share button. No fallback while its
-            chunk loads: the dialog is an overlay, and a placeholder here
-            flashed three KB-card skeletons into the page (as KbWorkspaceModals
-            already does, fallback={null}). */}
-        <Suspense fallback={null}>
-          {sharing.showShareModal && <MembersModal
-            show={sharing.showShareModal}
-            onClose={() => sharing.setShowShareModal(false)}
-            sharingKb={sharing.sharingKb}
-            myRole={sharing.sharingKb?.myRole ?? 'view'}
-          />}
-        </Suspense>
       </AppShellLayout>
-
     </>
   );
 }

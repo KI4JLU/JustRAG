@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import type { KnowledgeBase } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useSharingContext } from '../contexts/SharingContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
@@ -93,11 +92,14 @@ export function SharedTopicsView({
 }: SharedTopicsViewProps) {
   const { language, t } = useTheme();
   const { user } = useAuth();
-  // A shared topic whose `myRole` is `admin` still offers the share button, so
-  // this view needs the same handler, from the same single `useSharing()` call.
-  const sharing = useSharingContext();
   // The same jump the „Entdecken" nav row uses — one destination, one handler.
-  const { onViewDiscover } = useAppNav();
+  // „Teilen" (a shared topic the caller administers) opens its
+  // Thema-Einstellungen on Mitglieder, as on „Mein Wissen".
+  const { onViewDiscover, onOpenTopicSettings } = useAppNav();
+  const handleShare = (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenTopicSettings(kb, 'members');
+  };
   const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
   const { sharedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
@@ -133,7 +135,7 @@ export function SharedTopicsView({
             t={t}
             language={language}
             onSelectKB={onSelectKB}
-            onOpenShare={sharing.handleOpenShare}
+            onOpenShare={handleShare}
             onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}

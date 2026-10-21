@@ -1,6 +1,12 @@
 import { useState, useCallback } from 'react';
 import type { ModalState } from '../components/Modal';
 
+/** How a confirmation reads: its button label, and whether the action is destructive. */
+export interface ConfirmOptions {
+  confirmLabel?: string;
+  tone?: 'default' | 'destructive';
+}
+
 export function useModal() {
   const [modal, setModal] = useState<ModalState>({
     show: false,
@@ -31,13 +37,15 @@ export function useModal() {
     });
   }, []);
 
-  const showConfirm = useCallback((message: string, title = 'Bestätigen') => {
+  const showConfirm = useCallback((message: string, title = 'Bestätigen', options: ConfirmOptions = {}) => {
     return new Promise<boolean>((resolve) => {
       setModal({
         show: true,
         type: 'confirm',
         title,
         message,
+        confirmLabel: options.confirmLabel,
+        tone: options.tone,
         onConfirm: () => {
           setModal(m => ({ ...m, show: false }));
           resolve(true);
