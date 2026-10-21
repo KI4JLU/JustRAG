@@ -1,6 +1,6 @@
 module github.com/justrag/go-backend
 
-go 1.26.9
+go 1.26.10
 
 // The go directive started at 1.26.6 because google.golang.org/adk/v2
 // requires it. That floor also carries the crypto/x509, crypto/tls,
@@ -9,7 +9,8 @@ go 1.26.9
 // GO-2026-5856, and GO-2026-5026/5972/6088/6089/6090/6091/6218 — the seven
 // that 1.26.6 closes); 1.26.9 closes the net/http and net/textproto
 // advisories GO-2026-6607 … GO-2026-6617, together with golang.org/x/net
-// v0.60.0. Bump it as new stdlib advisories land — CI runs
+// v0.60.0; 1.26.10 closes the crypto/x509 advisory GO-2026-6809 (reached
+// through http.Server.ListenAndServe). Bump it as new stdlib advisories land — CI runs
 // `govulncheck ./...` and will fail if it falls behind. Every entry above
 // was *called* code, not a latent import.
 
