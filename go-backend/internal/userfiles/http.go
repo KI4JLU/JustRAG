@@ -86,6 +86,7 @@ func userID(w http.ResponseWriter, r *http.Request) (string, bool) {
 func WriteQuotaExceeded(ctx context.Context, w http.ResponseWriter, qe *QuotaError) {
 	httputil.WriteJSONCtx(ctx, w, http.StatusRequestEntityTooLarge, map[string]any{
 		"error":               "quota_exceeded",
+		"code":                "quota_exceeded",
 		"usedBytes":           qe.UsedBytes,
 		"quotaBytes":          qe.QuotaBytes,
 		"chatAttachmentBytes": qe.ChatAttachmentBytes,
@@ -141,7 +142,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var ue *uploadcheck.Error
 		if errors.As(err, &ue) {
-			httputil.WriteErrorCtx(r.Context(), w, ue.Status, ue.Message)
+			ue.Write(r.Context(), w)
 			return
 		}
 		httputil.WriteInternalErrorCtx(r.Context(), w, err)

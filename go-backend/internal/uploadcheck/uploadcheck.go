@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
 )
@@ -45,25 +46,68 @@ type Upload struct {
 	MimeType string // extension-derived, "application/octet-stream" fallback
 }
 
+// Error codes are the stable, machine-readable half of an upload or file-read
+// refusal ({"error": msg, "code": code}); clients map them to a localized
+// message and never show msg. Shared by every endpoint that takes or reads a
+// user file, so one code means one thing everywhere.
+const (
+	// CodeFileTooLarge: the file exceeds a size limit; LimitBytes names it.
+	CodeFileTooLarge = "file_too_large"
+	// CodeUnsupportedFileType: no parser handles the file's format.
+	CodeUnsupportedFileType = "unsupported_file_type"
+	// CodeEmptyFile: the file has zero bytes.
+	CodeEmptyFile = "empty_file"
+	// CodeFileNameTooLong: the name exceeds MaxFileNameBytes.
+	CodeFileNameTooLong = "file_name_too_long"
+	// CodeInvalidUpload: the request is not a well-formed file upload.
+	CodeInvalidUpload = "invalid_upload"
+	// CodeFileUnreadable: the format is supported but parsing the file
+	// failed (corrupt file, missing OCR binary).
+	CodeFileUnreadable = "file_unreadable"
+	// CodeNoText: the file parsed but contains no text.
+	CodeNoText = "no_text"
+	// CodeParseTimeout: reading the file took longer than the server allows.
+	CodeParseTimeout = "parse_timeout"
+)
+
 // Error is a validation failure carrying the exact HTTP status + message the
-// KB upload endpoint has always returned. Rejected is true when the request
-// itself was well-formed but the file is not acceptable (empty, dangerous or
-// unsupported extension, over-long name) — internal/owuicompat records such
-// files instead of failing the upload.
+// KB upload endpoint has always returned, plus a Code (see the Code*
+// constants). Rejected is true when the request itself was well-formed but
+// the file is not acceptable (empty, dangerous or unsupported extension,
+// over-long name) — internal/owuicompat records such files instead of failing
+// the upload. LimitBytes is set for CodeFileTooLarge.
 type Error struct {
-	Status   int
-	Message  string
-	Rejected bool
+	Status     int
+	Code       string
+	Message    string
+	Rejected   bool
+	LimitBytes int64
 }
 
 func (e *Error) Error() string { return e.Message }
 
-func fail(status int, msg string) (*Upload, error) {
-	return nil, &Error{Status: status, Message: msg}
+// errorBody is the wire shape Write sends.
+type errorBody struct {
+	Error      string `json:"error"`
+	Code       string `json:"code"`
+	LimitBytes int64  `json:"limitBytes,omitempty"`
 }
 
-func rejected(status int, msg string) *Error {
-	return &Error{Status: status, Message: msg, Rejected: true}
+// Write sends e as {"error", "code"[, "limitBytes"]} with e.Status.
+func (e *Error) Write(ctx context.Context, w http.ResponseWriter) {
+	httputil.WriteJSONCtx(ctx, w, e.Status, errorBody{Error: e.Message, Code: e.Code, LimitBytes: e.LimitBytes})
+}
+
+func fail(status int, code, msg string) (*Upload, error) {
+	return nil, &Error{Status: status, Code: code, Message: msg}
+}
+
+func tooLarge(limit int64, msg string) (*Upload, error) {
+	return nil, &Error{Status: http.StatusRequestEntityTooLarge, Code: CodeFileTooLarge, Message: msg, LimitBytes: limit}
+}
+
+func rejected(status int, code, msg string) *Error {
+	return &Error{Status: status, Code: code, Message: msg, Rejected: true}
 }
 
 // dangerousExtensions is the set of file extensions that are rejected on upload.
@@ -88,16 +132,16 @@ var dangerousExtensions = map[string]bool{
 func ValidateName(name string) *Error {
 	ext := strings.ToLower(filepath.Ext(name))
 	if dangerousExtensions[ext] {
-		return rejected(http.StatusBadRequest, "File type not allowed")
+		return rejected(http.StatusBadRequest, CodeUnsupportedFileType, "File type not allowed")
 	}
 	// Without the supported check an unsupported binary (e.g. a legacy .doc)
 	// would be queued for ingestion and fail or be indexed as garbage.
 	if !parser.IsSupportedExtension(name) {
-		return rejected(http.StatusBadRequest, fmt.Sprintf("File type not supported (%s)", ext))
+		return rejected(http.StatusBadRequest, CodeUnsupportedFileType, fmt.Sprintf("File type not supported (%s)", ext))
 	}
 	// files.name is varchar(255); reject cleanly instead of a DB 500.
 	if len(name) > MaxFileNameBytes {
-		return rejected(http.StatusBadRequest, fmt.Sprintf("Filename must not exceed %d bytes", MaxFileNameBytes))
+		return rejected(http.StatusBadRequest, CodeFileNameTooLong, fmt.Sprintf("Filename must not exceed %d bytes", MaxFileNameBytes))
 	}
 	return nil
 }
@@ -146,16 +190,16 @@ func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, erro
 		// when the body was rejected purely for size by MaxBytesReader.
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
-			return fail(http.StatusRequestEntityTooLarge,
+			return tooLarge(mbe.Limit,
 				fmt.Sprintf("File too large: the upload limit is %s", humanBytes(mbe.Limit)))
 		}
-		return fail(http.StatusBadRequest, "Invalid multipart form")
+		return fail(http.StatusBadRequest, CodeInvalidUpload, "Invalid multipart form")
 	}
 
 	// 2. Get the file from the form.
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		return fail(http.StatusBadRequest, "File field is required")
+		return fail(http.StatusBadRequest, CodeInvalidUpload, "File field is required")
 	}
 	ok := false
 	defer func() {
@@ -166,7 +210,7 @@ func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, erro
 
 	// 3a. Reject empty files.
 	if header.Size == 0 {
-		return nil, rejected(http.StatusBadRequest, "File must not be empty")
+		return nil, rejected(http.StatusBadRequest, CodeEmptyFile, "File must not be empty")
 	}
 
 	// 3b-3c. Reject dangerous / unsupported extensions and over-long names.
@@ -196,7 +240,7 @@ func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, erro
 	// types — those stay governed only by MaxUploadSize / the KB size cap.
 	if limits != nil && (&parser.SpreadsheetParser{}).CanParse(mimeType, header.Filename) {
 		if limit := limits.TabularMaxFileBytes(r.Context()); limit > 0 && header.Size > int64(limit) {
-			return fail(http.StatusRequestEntityTooLarge,
+			return tooLarge(int64(limit),
 				fmt.Sprintf("Spreadsheet too large (%s): the limit is %s (tabular_max_file_bytes)",
 					humanBytes(header.Size), humanBytes(int64(limit))))
 		}

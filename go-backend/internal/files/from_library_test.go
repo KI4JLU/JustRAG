@@ -279,7 +279,7 @@ func TestUpload_ViaLibrary_AlreadyInKB(t *testing.T) {
 	rr := doLibUpload(h)
 	var out map[string]any
 	_ = json.Unmarshal(rr.Body.Bytes(), &out)
-	if rr.Code != http.StatusConflict || out["error"] != "already_in_kb" || out["fileId"] != "existing-row" {
+	if rr.Code != http.StatusConflict || out["error"] != "already_in_kb" || out["code"] != "already_in_kb" || out["fileId"] != "existing-row" {
 		t.Fatalf("%d %s", rr.Code, rr.Body.String())
 	}
 	if len(store.created) != 0 {
@@ -293,7 +293,7 @@ func TestUpload_ViaLibrary_Quota(t *testing.T) {
 	rr := doLibUpload(h)
 	var out map[string]any
 	_ = json.Unmarshal(rr.Body.Bytes(), &out)
-	if rr.Code != http.StatusRequestEntityTooLarge || out["error"] != "quota_exceeded" || out["usedBytes"] != float64(5) || out["quotaBytes"] != float64(9) {
+	if rr.Code != http.StatusRequestEntityTooLarge || out["error"] != "quota_exceeded" || out["code"] != "quota_exceeded" || out["usedBytes"] != float64(5) || out["quotaBytes"] != float64(9) {
 		t.Fatalf("%d %s", rr.Code, rr.Body.String())
 	}
 }

@@ -25,7 +25,8 @@ const (
 	filesTypeMaxBytes = 50
 )
 
-// Skip reasons of POST /api/kb/{id}/files/from-library (frontend contract).
+// Skip reasons of POST /api/kb/{id}/files/from-library (frontend contract);
+// already_in_kb and kb_full double as error codes of the KB upload.
 const (
 	skipNotFound    = "not_found"
 	skipAlreadyInKB = "already_in_kb"
@@ -122,7 +123,7 @@ func (h *Handler) uploadViaLibrary(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 	if existing != "" {
-		httputil.WriteJSONCtx(ctx, w, http.StatusConflict, map[string]any{"error": "already_in_kb", "fileId": existing})
+		httputil.WriteJSONCtx(ctx, w, http.StatusConflict, map[string]any{"error": skipAlreadyInKB, "code": skipAlreadyInKB, "fileId": existing})
 		return
 	}
 
@@ -139,7 +140,7 @@ func (h *Handler) uploadViaLibrary(w http.ResponseWriter, r *http.Request, user 
 	if err != nil {
 		if pgxutil.IsUniqueViolation(err) {
 			// Lost a race with a concurrent add of the same library file.
-			httputil.WriteJSONCtx(ctx, w, http.StatusConflict, map[string]any{"error": "already_in_kb"})
+			httputil.WriteJSONCtx(ctx, w, http.StatusConflict, map[string]any{"error": skipAlreadyInKB, "code": skipAlreadyInKB})
 			return
 		}
 		logctx.From(ctx).Error("upload: create file record failed", "kbId", kbID, "error", err)

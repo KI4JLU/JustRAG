@@ -68,13 +68,16 @@ func TestLibraryTextSource_DegradedNotCached(t *testing.T) {
 	}
 }
 
-func TestLibraryTextSource_Unparseable(t *testing.T) {
+func TestLibraryTextSource_NoParserIsUnsupported(t *testing.T) {
 	// The default factory ends in a catch-all TextParser, so "no parser" needs
-	// an empty factory.
+	// an empty factory. "No parser" and "parser failed" must stay apart: the
+	// user sees "format not supported" for one, "could not be read" for the
+	// other.
 	s, _, uf := libFixture(t, "a.bin", "x")
 	s.factory = parser.NewFactory()
-	if _, err := s.Text(context.Background(), uf); !errors.Is(err, ErrUnparseable) {
-		t.Fatalf("no parser: want ErrUnparseable, got %v", err)
+	_, err := s.Text(context.Background(), uf)
+	if !errors.Is(err, ErrUnsupportedType) || errors.Is(err, ErrUnparseable) {
+		t.Fatalf("no parser: want ErrUnsupportedType only, got %v", err)
 	}
 }
 
