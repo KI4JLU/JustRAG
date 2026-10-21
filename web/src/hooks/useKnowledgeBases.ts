@@ -6,6 +6,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbRemoval } from './useKbRemoval';
+import { userErrorMessage } from '../utils/userErrors';
 
 /* `GET /api/kb` is paged (API.md: `?limit=` default 50, clamped to 100, and
  * `?offset=`). The overview needs EVERY row, not the first page: the
@@ -79,7 +80,7 @@ export function useKnowledgeBases({
       console.error('Failed to fetch KBs:', err);
       // Suppress the error toast for background polling so a transient network
       // blip while files are processing doesn't spam the user.
-      if (!opts?.silent) toast.error(t('kbFetchError'));
+      if (!opts?.silent) toast.error(userErrorMessage(err, t, { fallbackKey: 'kbFetchError' }));
     }
   }, [t, toast]);
 
@@ -124,7 +125,7 @@ export function useKnowledgeBases({
       return res.data;
     } catch (err: unknown) {
       console.error('Failed to open KB:', err);
-      toast.error(t('kbFetchError'));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'kbFetchError' }));
       return null;
     }
   }, [handleSelectKB, toast, t]);

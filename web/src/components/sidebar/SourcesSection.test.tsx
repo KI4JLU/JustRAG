@@ -98,20 +98,21 @@ describe('SourcesSection error display + retry', () => {
 
     // Stage maps to the translation key (t() is identity-mocked).
     expect(screen.getByText('fileErrorParse')).toBeInTheDocument();
-    // Raw message rides along as the tooltip.
-    expect(screen.getByText('fileErrorParse')).toHaveAttribute('title', 'The file could not be parsed');
+    // The backend's technical text is never shown, not even as a tooltip.
+    expect(screen.getByText('fileErrorParse')).not.toHaveAttribute('title');
+    expect(screen.queryByText(/could not be parsed/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'retrySource doc.pdf' }));
     expect(onRetryFile).toHaveBeenCalledWith('f-1');
   });
 
-  it('falls back to errorMessage for unknown stages and to fileErrorUnknown without any detail', () => {
+  it('shows fileErrorUnknown for unknown stages and without any detail, never the raw errorMessage', () => {
     const weird = makeFile({ id: 'f-2', name: 'w.pdf', status: 'error', errorStage: 'martian', errorMessage: 'Strange failure' });
     const legacy = makeFile({ id: 'f-3', name: 'l.pdf', status: 'error' });
     render(<SourcesSection {...baseProps} files={[weird, legacy]} />);
 
-    expect(screen.getByText('Strange failure')).toBeInTheDocument();
-    expect(screen.getByText('fileErrorUnknown')).toBeInTheDocument();
+    expect(screen.queryByText('Strange failure')).not.toBeInTheDocument();
+    expect(screen.getAllByText('fileErrorUnknown')).toHaveLength(2);
   });
 
   it('shows no status line for a finished upload, only for queued files', () => {
