@@ -54,6 +54,33 @@ Where a table has an **Access** column, its values mean:
 
 `docs/api-contracts/` holds the full request/response contracts for the larger features (agent chat, user file library, early-open SSE, Open WebUI).
 
+### Error codes
+
+An error body is `{"error": "<message>"}`. The message is English text for logs and API clients; a
+UI shows its own localized message instead. The web client's messages — every error case with its
+German and English text — are listed in [`docs/user-error-messages.md`](docs/user-error-messages.md). Where the user can act on the cause, the body (or the
+SSE `{"error"}` frame) also carries a stable `code`. Clients map the code, never the message:
+
+| `code` | Status | Meaning |
+|---|---|---|
+| `file_too_large` | `413` | The file exceeds an upload size limit; `limitBytes` names the limit |
+| `quota_exceeded` | `413` | The user's file library quota is full (also in `error`, see "User file library") |
+| `kb_full` | `400` | The KB has reached its file count or total size limit |
+| `unsupported_file_type` | `415`, `400` on upload | No parser handles the file's format (or the extension is blocked) |
+| `file_unreadable` | `422` | The format is supported but the file could not be read (corrupt file, missing OCR) |
+| `no_text` | `422`, `400` in library chat | The file contains no text |
+| `parse_timeout` | `422` | Reading the file took longer than the server allows |
+| `too_large_for_context` | `422`, `400` in library chat | The documents do not fit the answer model's budget (also in `error`) |
+| `already_in_kb` | `409` | The KB already holds this file (also in `error`) |
+| `empty_file` | `400` | The uploaded file has zero bytes |
+| `file_name_too_long` | `400` | The file name exceeds 255 bytes |
+| `invalid_upload` | `400` | The request is not a well-formed file upload |
+
+The upload routes (`POST /kb/{id}/files`, `/library/files`, `/kb/{id}/chat/attachments`,
+`/kb/{id}/chat/attachment`), the attachment checks of `POST /kb/{id}/chat` and library chat carry
+these codes. An error without `code` is one the user cannot fix by changing the file (permissions,
+rate limits, server errors); map it by status.
+
 ### Authentication
 
 | Method | Path |
@@ -571,6 +598,7 @@ redemption.
 | POST | `/kb/{id}/tabular/rematerialize` |
 
 - Source permissions (see Knowledge bases): every adding route here — `POST /kb/{id}/files`, `/text`, `/add-sources`, `/fetch-url`, `/crawl`, `/files/from-library` — needs KB edit and `addSources` (`editorAddSources` plus `editorSeeSources`; never a viewer). Deleting and retrying — `DELETE /files/{id}`, `POST /files/{id}/retry`, `POST /kb/{id}/files/retry-failed` — needs `manageSources` (edit role and above with `seeSources`, never a viewer). `GET /kb/{id}/crawl/status/{jobId}` needs KB view and `seeSources`; `GET /files/{id}/download` and both `…/tabular` routes need KB view and `downloadSources`. `POST /kb/{id}/websearch` only searches (KB view); adding a hit goes through `/add-sources`. The `/files/{id}` routes check this in the handler (their path has no KB), the others in the route's middleware.
+- `POST /kb/{id}/files` refusals carry a `code` (see "Error codes"): the upload checks as on `/library/files`, `400 kb_full` when the KB holds its maximum number of files (500, 1 000 for a public KB) or would exceed 500 MB, and the library's `413 quota_exceeded` / `409 already_in_kb`.
 - `POST /files/{id}/retry` (`manageSources` on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (`manageSources`) does it for every failed file: `{"retried": N}`.
 - `POST /kb/{id}/files/from-library` (KB edit + `addSources`) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
 - `GET /kb/{id}/files/{fileId}/tabular` (KB view + `downloadSources`) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view + `downloadSources`) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
@@ -613,7 +641,7 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | POST | `/kb/{id}/chat/attachments` |
 
 - `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
-- `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`.
+- `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`. Refusals carry a `code`: `413 file_too_large` (`limitBytes` = `chat_compare_max_file_bytes`), `415 unsupported_file_type`, `422 file_unreadable` (the parser failed) or `no_text`, `400 invalid_upload`.
 
 **Chat attachments as context.** `POST /kb/{id}/chat/attachments` (KB view, `chat_attachments`
 rate limit) uploads one file (multipart field `file`) that the user attaches in the composer. The
@@ -625,10 +653,10 @@ budget (the KB's answer model); nothing about the KB is stored with the file.
 | Status | When |
 |---|---|
 | `201` | `{"id", "name", "mime", "size", "tokens"}`; `id` goes into `attachmentIds` of the send |
-| `400` / `413` | Invalid upload (name, missing field) / file over the upload size limit |
+| `400` / `413` | Invalid upload (`invalid_upload`, `empty_file`, `file_name_too_long`, `unsupported_file_type` for a blocked extension) / `file_too_large`, file over the upload size limit |
 | `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes", "chatAttachmentBytes"}` — the library quota is full; `chatAttachmentBytes` is the part of `usedBytes` held by chat attachments, which the library list does not show |
-| `415` | Unsupported file type (no parser; audio is not transcribed here) |
-| `422` | The file has no extractable text, took too long to read, or `{"error": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |
+| `415` | `unsupported_file_type`: no parser handles the format (audio is not transcribed here) |
+| `422` | `file_unreadable`: the format is supported but parsing failed (corrupt file, image without OCR); `no_text`: no extractable text; `parse_timeout`: took too long to read; or `{"error": "too_large_for_context", "code": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |
 | `503` | Chat attachments are not wired on this server |
 
 The budget is `chat_attachments_context_share` (default 0.5) of the KB answer model's context
@@ -647,7 +675,7 @@ a chat is created or usage is recorded:
 |---|---|
 | `400` | More ids than allowed; combined with a comparison run (`comparisonModes`); on a regenerate (it keeps its question's attachments) |
 | `404` | An id is not a UUID, does not exist, or belongs to another user |
-| `415` / `422` | A file cannot be read (as on upload), or `too_large_for_context`: the new files together exceed the budget |
+| `415` / `422` | A file cannot be read (same codes as on upload, plus `fileName`: the attachment it is about), or `too_large_for_context`: the new files together exceed the budget |
 
 The files are linked to the user message and stay context for every later turn of the chat. Their
 text goes into the conversation's first user turn as `<document>` blocks; the current turn's numbered

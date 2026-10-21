@@ -88,7 +88,7 @@ func (h *Handler) UploadChatAttachment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var ue *uploadcheck.Error
 		if errors.As(err, &ue) {
-			httputil.WriteErrorCtx(ctx, w, ue.Status, ue.Message)
+			ue.Write(ctx, w)
 			return
 		}
 		httputil.WriteInternalErrorCtx(ctx, w, err)
@@ -118,11 +118,13 @@ func (h *Handler) UploadChatAttachment(w http.ResponseWriter, r *http.Request) {
 	text, err := h.attachmentText(ctx, uf)
 	if err != nil {
 		rollback()
-		status, msg := attachmentTextError(err, uf.Name)
+		status, code, msg := attachmentTextError(err, uf.Name)
 		if status == http.StatusInternalServerError {
 			logctx.From(ctx).Error("chat.attachments: read text", "error", err, "user_file_id", uf.ID)
+			httputil.WriteErrorCtx(ctx, w, status, msg)
+			return
 		}
-		httputil.WriteErrorCtx(ctx, w, status, msg)
+		httputil.WriteCodedErrorCtx(ctx, w, status, code, msg)
 		return
 	}
 	lim, err := h.resolveAttachmentLimits(ctx, kbID)
@@ -143,17 +145,21 @@ func (h *Handler) UploadChatAttachment(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// attachmentTextError maps a text-read failure to the upload / send status.
-func attachmentTextError(err error, name string) (int, string) {
+// attachmentTextError maps a text-read failure to the upload / send status and
+// error code: 415 when no parser handles the format, 422 when a supported file
+// cannot be read, has no text or takes too long. A 500 carries no code.
+func attachmentTextError(err error, name string) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrUnsupportedType):
+		return http.StatusUnsupportedMediaType, uploadcheck.CodeUnsupportedFileType, "unsupported file type"
 	case errors.Is(err, ErrUnparseable):
-		return http.StatusUnsupportedMediaType, "unsupported file type"
+		return http.StatusUnprocessableEntity, uploadcheck.CodeFileUnreadable, fmt.Sprintf("the file %q could not be read", name)
 	case errors.Is(err, ErrLibraryParseTimeout):
-		return http.StatusUnprocessableEntity, fmt.Sprintf("the file %q took too long to read", name)
+		return http.StatusUnprocessableEntity, uploadcheck.CodeParseTimeout, fmt.Sprintf("the file %q took too long to read", name)
 	case errors.Is(err, errAttachmentText):
-		return http.StatusUnprocessableEntity, "the file contained no extractable text"
+		return http.StatusUnprocessableEntity, uploadcheck.CodeNoText, "the file contained no extractable text"
 	default:
-		return http.StatusInternalServerError, "failed to read the file"
+		return http.StatusInternalServerError, "", "failed to read the file"
 	}
 }
 
@@ -162,6 +168,7 @@ func attachmentTextError(err error, name string) (int, string) {
 func writeTooLargeForContext(ctx context.Context, w http.ResponseWriter, tokens, limit int) {
 	httputil.WriteJSONCtx(ctx, w, http.StatusUnprocessableEntity, map[string]any{
 		"error":  "too_large_for_context",
+		"code":   "too_large_for_context",
 		"tokens": tokens,
 		"limit":  limit,
 	})
@@ -183,7 +190,13 @@ func (h *Handler) deleteAttachmentFile(ctx context.Context, ownerID, userFileID 
 // turnAttachmentError is a send refusal decided by validateTurnAttachments.
 type turnAttachmentError struct {
 	status int
-	msg    string
+	// code is the machine-readable error code; empty for refusals clients
+	// cannot cause by the file itself (count, combination, 5xx).
+	code string
+	msg  string
+	// fileName names the attachment a file refusal is about: the send refers
+	// to its attachments by id, so the client could not name it otherwise.
+	fileName string
 	// tokens/limit are set for too_large_for_context.
 	tokens, limit int
 }
@@ -191,6 +204,14 @@ type turnAttachmentError struct {
 func (e *turnAttachmentError) write(ctx context.Context, w http.ResponseWriter) {
 	if e.limit > 0 {
 		writeTooLargeForContext(ctx, w, e.tokens, e.limit)
+		return
+	}
+	if e.code != "" && e.fileName != "" {
+		httputil.WriteJSONCtx(ctx, w, e.status, map[string]string{"error": e.msg, "code": e.code, "fileName": e.fileName})
+		return
+	}
+	if e.code != "" {
+		httputil.WriteCodedErrorCtx(ctx, w, e.status, e.code, e.msg)
 		return
 	}
 	httputil.WriteErrorCtx(ctx, w, e.status, e.msg)
@@ -248,11 +269,11 @@ func (h *Handler) validateTurnAttachments(ctx context.Context, body sendMessageR
 		}
 		text, err := h.attachmentText(ctx, uf)
 		if err != nil {
-			status, msg := attachmentTextError(err, uf.Name)
+			status, code, msg := attachmentTextError(err, uf.Name)
 			if status == http.StatusInternalServerError {
 				logctx.From(ctx).Error("chat.attachments: read text", "error", err, "user_file_id", id)
 			}
-			return nil, nil, &turnAttachmentError{status: status, msg: msg}
+			return nil, nil, &turnAttachmentError{status: status, code: code, msg: msg, fileName: uf.Name}
 		}
 		tokens := h.attachTokens.count(ctx, lim, uf.ID, text)
 		total += tokens

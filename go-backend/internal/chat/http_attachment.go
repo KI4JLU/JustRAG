@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/splitter"
+	"github.com/justrag/go-backend/internal/uploadcheck"
 )
 
 // errUnsupportedType is returned by parseAndSplitAttachment when no parser
@@ -25,6 +27,10 @@ var errUnsupportedType = errors.New("chatattach: unsupported file type")
 // errNoText is returned when parsing yields no usable text (empty file, or a
 // scanned PDF that produced nothing extractable).
 var errNoText = errors.New("chatattach: file contained no extractable text")
+
+// errParseFailed wraps an error from the parser itself (corrupt file, missing
+// OCR binary): the format is supported but this file cannot be read.
+var errParseFailed = errors.New("chatattach: parser failed")
 
 // parseAndSplitAttachment parses raw uploaded bytes into sections without KB
 // ingestion. The parser API reads from a file path on disk (every Parser opens
@@ -73,7 +79,7 @@ func parseAndSplitAttachment(ctx context.Context, factory *parser.Factory, filen
 		FileSize: int64(len(data)),
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("%w: %w", errParseFailed, err)
 	}
 
 	text := strings.TrimSpace(res.Text)
@@ -86,6 +92,15 @@ func parseAndSplitAttachment(ctx context.Context, factory *parser.Factory, filen
 		cfg = splitter.MarkdownConfig()
 	}
 	return splitter.Split(text, cfg), text, nil
+}
+
+// writeCompareTooLarge answers 413 file_too_large with the comparison's own
+// size limit.
+func writeCompareTooLarge(ctx context.Context, w http.ResponseWriter, limit int64) {
+	(&uploadcheck.Error{
+		Status: http.StatusRequestEntityTooLarge, Code: uploadcheck.CodeFileTooLarge,
+		Message: "file is too large", LimitBytes: limit,
+	}).Write(ctx, w)
 }
 
 // uploadAttachmentResponse is the wire shape returned on a successful upload.
@@ -133,10 +148,10 @@ func (h *Handler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(maxBytes); err != nil {
 		var mbErr *http.MaxBytesError
 		if errors.As(err, &mbErr) {
-			httputil.WriteErrorCtx(ctx, w, http.StatusRequestEntityTooLarge, "file is too large")
+			writeCompareTooLarge(ctx, w, maxBytes)
 			return
 		}
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid multipart form")
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusBadRequest, uploadcheck.CodeInvalidUpload, "invalid multipart form")
 		return
 	}
 	defer func() {
@@ -147,7 +162,7 @@ func (h *Handler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "missing file field")
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusBadRequest, uploadcheck.CodeInvalidUpload, "missing file field")
 		return
 	}
 	defer file.Close()
@@ -156,10 +171,10 @@ func (h *Handler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var mbErr *http.MaxBytesError
 		if errors.As(err, &mbErr) {
-			httputil.WriteErrorCtx(ctx, w, http.StatusRequestEntityTooLarge, "file is too large")
+			writeCompareTooLarge(ctx, w, maxBytes)
 			return
 		}
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "failed to read uploaded file")
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusBadRequest, uploadcheck.CodeInvalidUpload, "failed to read uploaded file")
 		return
 	}
 
@@ -167,10 +182,14 @@ func (h *Handler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	sections, full, err := parseAndSplitAttachment(ctx, h.attachmentFactory(), hdr.Filename, mimeType, data)
 	switch {
 	case errors.Is(err, errUnsupportedType):
-		httputil.WriteErrorCtx(ctx, w, http.StatusUnsupportedMediaType, "unsupported file type")
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusUnsupportedMediaType, uploadcheck.CodeUnsupportedFileType, "unsupported file type")
+		return
+	case errors.Is(err, errParseFailed):
+		logctx.From(ctx).Warn("chatattach: parser failed", "filename", hdr.Filename, "error", err)
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusUnprocessableEntity, uploadcheck.CodeFileUnreadable, "the file could not be read")
 		return
 	case errors.Is(err, errNoText):
-		httputil.WriteErrorCtx(ctx, w, http.StatusUnprocessableEntity, "the file contained no extractable text")
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusUnprocessableEntity, uploadcheck.CodeNoText, "the file contained no extractable text")
 		return
 	case err != nil:
 		logctx.From(ctx).Error("chatattach: parse failed", "filename", hdr.Filename, "error", err)

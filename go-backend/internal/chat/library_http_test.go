@@ -516,18 +516,45 @@ func TestSendLibraryMessage_TooLarge(t *testing.T) {
 	}
 }
 
-func TestSendLibraryMessage_UnparseableNamesFile(t *testing.T) {
-	fx := newLibChatFixture(t, nil)
-	fx.text.errs[libFileB] = ErrUnparseable
-	w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`","`+libFileB+`"]}`, false)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+// A supported file whose parser fails is 422 file_unreadable, a format no
+// parser handles 415 unsupported_file_type: the user sees "could not be read"
+// for one and "format not supported" for the other.
+func TestSendLibraryMessage_ReadFailuresNameFileAndCode(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"parser failed", ErrUnparseable, http.StatusUnprocessableEntity, "file_unreadable"},
+		{"no parser", ErrUnsupportedType, http.StatusUnsupportedMediaType, "unsupported_file_type"},
+		{"parse timeout", ErrLibraryParseTimeout, http.StatusUnprocessableEntity, "parse_timeout"},
 	}
-	if !strings.Contains(w.Body.String(), "beta.txt") {
-		t.Errorf("body does not name the file: %s", w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), ErrUnparseable.Error()) {
-		t.Errorf("body echoes the error: %s", w.Body.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newLibChatFixture(t, nil)
+			fx.text.errs[libFileB] = tc.err
+			w := fx.send(t, `{"message":"x","fileIds":["`+libFileA+`","`+libFileB+`"]}`, false)
+			if w.Code != tc.status {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body["code"] != tc.code {
+				t.Errorf("code = %q, want %q", body["code"], tc.code)
+			}
+			if !strings.Contains(body["error"], "beta.txt") {
+				t.Errorf("body does not name the file: %s", w.Body.String())
+			}
+			if strings.Contains(w.Body.String(), tc.err.Error()) {
+				t.Errorf("body echoes the error: %s", w.Body.String())
+			}
+			if len(fx.store.chats) != 0 {
+				t.Error("chat created on a rejected turn")
+			}
+		})
 	}
 }
 
@@ -614,22 +641,25 @@ func TestSendLibraryMessage_StreamErrorsAfterPrepareFrame(t *testing.T) {
 		name    string
 		setup   func(fx *libChatFixture)
 		want    string
-		created bool // the new chat is created and then removed again
+		code    string // "" = the frame carries no code
+		created bool   // the new chat is created and then removed again
 	}{
 		{"too large", func(fx *libChatFixture) {
 			fx.text.texts[libFileA] = &parser.ParseResult{Text: bigText(4000)}
-		}, "selected files are too large for one chat turn (at least 12000 tokens, maximum 10000)", false},
+		}, "selected files are too large for one chat turn (at least 12000 tokens, maximum 10000)", "too_large_for_context", false},
 		{"unparseable", func(fx *libChatFixture) { fx.text.errs[libFileA] = ErrUnparseable },
-			`the file "alpha.txt" cannot be read as text`, false},
+			`the file "alpha.txt" cannot be read as text`, "file_unreadable", false},
+		{"unsupported", func(fx *libChatFixture) { fx.text.errs[libFileA] = ErrUnsupportedType },
+			`the file "alpha.txt" has an unsupported type`, "unsupported_file_type", false},
 		{"parse timeout", func(fx *libChatFixture) { fx.text.errs[libFileA] = ErrLibraryParseTimeout },
-			`the file "alpha.txt" took too long to read`, false},
+			`the file "alpha.txt" took too long to read`, "parse_timeout", false},
 		{"text source error", func(fx *libChatFixture) { fx.text.errs[libFileA] = errors.New("s3: secret") },
-			"failed to read library file", false},
+			"failed to read library file", "", false},
 		{"no text", func(fx *libChatFixture) { fx.text.texts[libFileA] = &parser.ParseResult{Text: "  "} },
-			"the selected files contain no text", false},
+			"the selected files contain no text", "no_text", false},
 		{"refs race", func(fx *libChatFixture) {
 			fx.store.refsErr = fmt.Errorf("x: %w", ErrChatFileRefGone)
-		}, "file not found", true},
+		}, "file not found", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -647,6 +677,9 @@ func TestSendLibraryMessage_StreamErrorsAfterPrepareFrame(t *testing.T) {
 				frames[1]["stage"] != "library_parse" ||
 				frames[2]["error"] != tc.want || frames[3] != nil {
 				t.Fatalf("frames = %v, want [prepare, parse, {error: %q}, DONE]", frames, tc.want)
+			}
+			if code, _ := frames[2]["code"].(string); code != tc.code {
+				t.Errorf("frame code = %q, want %q", code, tc.code)
 			}
 			if len(fx.store.chats) != 0 || len(fx.usage.snapshot()) != 0 {
 				t.Errorf("chat or usage left on a rejected turn: %v", fx.store.chats)

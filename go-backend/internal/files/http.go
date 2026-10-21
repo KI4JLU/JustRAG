@@ -572,7 +572,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var ve *uploadcheck.Error
 		if errors.As(err, &ve) {
-			httputil.WriteErrorCtx(r.Context(), w, ve.Status, ve.Message)
+			ve.Write(r.Context(), w)
 			return
 		}
 		httputil.WriteInternalErrorCtx(r.Context(), w, err)
@@ -606,11 +606,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		maxFiles = maxFilesPerGlobalKB
 	}
 	if limits.FileCount >= maxFiles {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, fmt.Sprintf("Knowledge base has reached the maximum of %d files", maxFiles))
+		httputil.WriteCodedErrorCtx(r.Context(), w, http.StatusBadRequest, skipKBFull, fmt.Sprintf("Knowledge base has reached the maximum of %d files", maxFiles))
 		return
 	}
 	if limits.TotalSize+int64(header.Size) > maxTotalSizePerKB {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Knowledge base has reached the 500 MB storage limit")
+		httputil.WriteCodedErrorCtx(r.Context(), w, http.StatusBadRequest, skipKBFull, "Knowledge base has reached the 500 MB storage limit")
 		return
 	}
 
