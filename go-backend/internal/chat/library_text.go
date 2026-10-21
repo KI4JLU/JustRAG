@@ -17,10 +17,14 @@ import (
 	"github.com/justrag/go-backend/internal/userfiles"
 )
 
-// ErrUnparseable means no parser handles the library file or the parser failed
-// on its content. Storage, IO and context errors are never mapped to it.
-// Callers must test with errors.Is and show a fixed user message; the cause is
-// logged here, never carried in the error text.
+// ErrUnsupportedType means no parser handles the library file's format.
+var ErrUnsupportedType = errors.New("library file type is not supported")
+
+// ErrUnparseable means a parser handles the format but failed on the file's
+// content (corrupt file, missing OCR binary). Storage, IO and context errors
+// are never mapped to it. Like ErrUnsupportedType, callers must test with
+// errors.Is and show a fixed user message; the cause is logged here, never
+// carried in the error text.
 var ErrUnparseable = errors.New("library file cannot be parsed")
 
 // ErrLibraryParseTimeout means a server-side parse ran past
@@ -71,7 +75,7 @@ func NewLibraryTextSource(stor storage.Storage, factory *parser.Factory) *Librar
 // timeout is ErrLibraryParseTimeout.
 func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*parser.ParseResult, error) {
 	if s == nil || s.stor == nil || s.factory == nil || uf == nil {
-		return nil, ErrUnparseable
+		return nil, ErrUnsupportedType
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("library text %s: %w", uf.ID, err)
@@ -88,7 +92,7 @@ func (s *LibraryTextSource) Text(ctx context.Context, uf *userfiles.UserFile) (*
 
 	p := s.factory.GetParser(uf.Mime, uf.Name)
 	if p == nil {
-		return nil, ErrUnparseable
+		return nil, ErrUnsupportedType
 	}
 	if s.sem != nil {
 		select {

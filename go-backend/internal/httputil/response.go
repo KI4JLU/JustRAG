@@ -38,6 +38,20 @@ func WriteErrorCtx(ctx context.Context, w http.ResponseWriter, status int, msg s
 	WriteJSONCtx(ctx, w, status, errorResponse{Error: msg})
 }
 
+// codedErrorResponse is errorResponse plus a stable machine-readable code:
+// {"error": msg, "code": code}. Clients map the code to their own (localized)
+// message; msg stays for API clients that show the text.
+type codedErrorResponse struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
+
+// WriteCodedErrorCtx writes a JSON error response carrying a code:
+// {"error": msg, "code": code}.
+func WriteCodedErrorCtx(ctx context.Context, w http.ResponseWriter, status int, code, msg string) {
+	WriteJSONCtx(ctx, w, status, codedErrorResponse{Error: msg, Code: code})
+}
+
 // WriteInternalErrorCtx logs the raw err internally (so the unredacted detail
 // is never lost) and returns HTTP 500 with a SanitizeError-redacted message to
 // the client. The raw error only ever appears in the server logs, correlated
