@@ -106,7 +106,7 @@ export function useChat({
   // document via buildFollowUpContext). The comparison MODES are not held
   // here — they are chosen in the Workspace dialog and travel with that one
   // turn's send options; nothing in the chat UI can change them afterwards.
-  const attachmentState = useChatAttachment(currentKb?.id ?? '', t);
+  const attachmentState = useChatAttachment(currentKb?.id ?? '', t, language);
 
   // Chat history state
   const [chats, setChats] = useState<ChatEntry[]>([]);

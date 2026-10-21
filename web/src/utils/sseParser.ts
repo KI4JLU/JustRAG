@@ -22,6 +22,18 @@ export interface SSEParserOptions {
  * The caller is responsible for acquiring and releasing the reader.
  * This function does NOT call reader.releaseLock().
  */
+/**
+ * Thrown by parseSseStream when the stream stays silent past idleTimeoutMs.
+ * A type of its own so the caller can tell the user the answer took too long
+ * rather than that something failed.
+ */
+export class SseIdleTimeoutError extends Error {
+  constructor(idleTimeoutMs: number) {
+    super(`SSE stream idle for ${idleTimeoutMs}ms; connection aborted`);
+    this.name = 'SseIdleTimeoutError';
+  }
+}
+
 export async function parseSseStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   options: SSEParserOptions
@@ -37,7 +49,7 @@ export async function parseSseStream(
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         reader.cancel().catch(() => {});
-        reject(new Error(`SSE stream idle for ${idleTimeoutMs}ms; connection aborted`));
+        reject(new SseIdleTimeoutError(idleTimeoutMs));
       }, idleTimeoutMs);
       reader.read().then(
         (result) => {

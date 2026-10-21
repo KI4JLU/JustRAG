@@ -17,20 +17,36 @@ function axiosError(status: number, data: unknown): AxiosError {
 }
 
 describe('chatAttachmentErrorMessage', () => {
-  // Oracle: the statuses API.md § Chat documents for the upload endpoint.
+  // Oracle: the codes and statuses API.md § Chat documents for the upload
+  // endpoint, and the error-case list in docs/user-error-messages.md.
   it.each([
-    [413, {}, 'chatAttachmentTooLarge:doc.pdf'],
-    [413, { error: 'quota_exceeded' }, 'chatAttachmentQuotaExceeded:doc.pdf'],
-    [415, {}, 'chatAttachmentUnsupported:doc.pdf'],
-    [422, { error: 'too_large_for_context', tokens: 9, limit: 1 }, 'chatAttachmentTooLongForContext:doc.pdf'],
-    [422, { error: 'the file contained no extractable text' }, 'chatAttachmentNoText:doc.pdf'],
-    [429, {}, 'chatAttachmentRateLimited:{name}'],
+    [413, { code: 'file_too_large' }, 'errorFileTooLarge:doc.pdf'],
+    [413, { error: 'quota_exceeded', code: 'quota_exceeded' }, 'errorQuotaExceeded:doc.pdf'],
+    [413, { error: 'quota_exceeded' }, 'errorQuotaExceeded:doc.pdf'],
+    [415, { code: 'unsupported_file_type' }, 'errorUnsupportedType:doc.pdf'],
+    [400, { error: 'File type not supported (.exe)', code: 'unsupported_file_type' }, 'errorUnsupportedType:doc.pdf'],
+    [422, { code: 'file_unreadable' }, 'errorFileUnreadable:doc.pdf'],
+    [422, { code: 'no_text' }, 'errorNoText:doc.pdf'],
+    [422, { code: 'parse_timeout' }, 'errorParseTimeout:doc.pdf'],
+    [422, { error: 'too_large_for_context', tokens: 9, limit: 1 }, 'errorTooLongForContext:doc.pdf'],
+    [429, {}, 'errorRateLimited:doc.pdf'],
+    [403, { error: 'forbidden' }, 'errorForbidden:doc.pdf'],
+    [500, { error: 'internal' }, 'errorUnexpected:doc.pdf'],
   ])('maps %i %o to its message', (status, data, want) => {
     expect(chatAttachmentErrorMessage(axiosError(status, data), 'doc.pdf', t)).toBe(want);
   });
 
-  it('falls back to the generic message without a response', () => {
-    expect(chatAttachmentErrorMessage(new Error('offline'), 'doc.pdf', t)).toBe('chatAttachmentUploadFailed:doc.pdf');
+  it('never shows the backend text of an uncoded 400', () => {
+    expect(chatAttachmentErrorMessage(axiosError(400, { error: 'raw backend text' }), 'doc.pdf', t)).toBe('errorUploadFailed:doc.pdf');
+  });
+
+  it('reports a network failure as the service being unreachable', () => {
+    const err = new AxiosError('Network Error');
+    expect(chatAttachmentErrorMessage(err, 'doc.pdf', t)).toBe('errorServiceUnavailable:doc.pdf');
+  });
+
+  it('falls back to the upload message for a client-side error', () => {
+    expect(chatAttachmentErrorMessage(new Error('boom'), 'doc.pdf', t)).toBe('errorUploadFailed:doc.pdf');
   });
 });
 
@@ -50,6 +66,6 @@ describe('uploadChatAttachment', () => {
   it('rejects with the reason for that file', async () => {
     vi.spyOn(axios, 'post').mockRejectedValueOnce(axiosError(415, {}));
     await expect(uploadChatAttachment('kb1', part('x.bin'), t))
-      .rejects.toEqual(new ChatAttachmentUploadError('chatAttachmentUnsupported:x.bin'));
+      .rejects.toEqual(new ChatAttachmentUploadError('errorUnsupportedType:x.bin'));
   });
 });

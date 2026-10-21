@@ -6,7 +6,8 @@ import { MAX_FILES_PER_KB, MAX_FILES_PER_GLOBAL_KB } from '../constants';
 import { useModalContext } from '../contexts/ModalContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { isForbidden } from '../utils/apiError';
+import { uploadFailureMessage, userErrorMessage } from '../utils/userErrors';
 import { markdownSourceTitle } from '../utils/textSourceTitle';
 import { unlistableKbId } from '../utils/kbAccess';
 
@@ -15,7 +16,7 @@ interface UseFileManagementParams {
 }
 
 export function useFileManagement({ currentKb }: UseFileManagementParams) {
-  const { t } = useTheme();
+  const { t, language } = useTheme();
   const { showConfirm } = useModalContext();
   const toast = useToast();
   const [files, setFiles] = useState<FileEntry[]>([]);
@@ -97,7 +98,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     try {
       const UPLOAD_CONCURRENCY = 3;
       let nextIndex = 0;
-      let firstError: unknown = null;
+      const failures: { name: string; err: unknown }[] = [];
       const worker = async () => {
         while (nextIndex < eligible.length) {
           const file = eligible[nextIndex++];
@@ -107,20 +108,20 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
             await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/files`, formData);
           } catch (err: unknown) {
             console.error('Upload failed:', err);
-            if (firstError === null) firstError = err;
+            failures.push({ name: file.name, err });
           }
         }
       };
       const workerCount = Math.min(UPLOAD_CONCURRENCY, eligible.length);
       await Promise.all(Array.from({ length: workerCount }, worker));
-      if (firstError !== null) {
-        toast.error(getApiErrorMessage(firstError, t('uploadFailed')));
+      if (failures.length > 0) {
+        toast.error(uploadFailureMessage(failures, t, language));
       }
       await fetchFiles(currentKb.id);
     } finally {
       setUploading(false);
     }
-  }, [currentKb, files.length, fetchFiles, t, toast]);
+  }, [currentKb, files.length, fetchFiles, t, language, toast]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
@@ -154,7 +155,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
       ));
     } catch (err: unknown) {
       console.error('Retry failed:', err);
-      toast.error(getApiErrorMessage(err, t('retryRequestFailed')));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'retryRequestFailed' }));
     }
   }, [t, toast]);
 
@@ -165,7 +166,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
       await fetchFiles(currentKb.id);
     } catch (err: unknown) {
       console.error('Retry all failed:', err);
-      toast.error(getApiErrorMessage(err, t('retryRequestFailed')));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'retryAllRequestFailed' }));
     }
   }, [currentKb, fetchFiles, t, toast]);
 
@@ -268,7 +269,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
       setTextSourceContent('');
     } catch (err: unknown) {
       console.error('Text source add failed:', err);
-      toast.error(getApiErrorMessage(err, t('addTextFailed')));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'addTextFailed' }));
     } finally {
       setUploading(false);
     }

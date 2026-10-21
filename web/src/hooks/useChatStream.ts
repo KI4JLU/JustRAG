@@ -6,7 +6,8 @@ import { chatSourceSelection } from '../utils/kbAccess';
 import {
   addMessageToTree, updateMessageInTree, remapMessageId, nearestPersistedAncestorId, removeSubtree,
 } from '../utils/messageTree';
-import { parseSseStream } from '../utils/sseParser';
+import { parseSseStream, SseIdleTimeoutError } from '../utils/sseParser';
+import { errorInfoFromBody, isFileErrorCode, userErrorMessage } from '../utils/userErrors';
 import type { AgentSelection } from './useKbSettings';
 
 interface UseChatStreamParams {
@@ -202,15 +203,21 @@ export function useChatStream({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status === 422 && errorData.error === 'too_large_for_context') {
+        const errorData: unknown = await response.json().catch(() => ({}));
+        const info = errorInfoFromBody(response.status, errorData);
+        // A send refers to its attachments by id; a file refusal carries the
+        // attachment's fileName so the message can say which one to remove.
+        const fileName = (errorData as { fileName?: unknown } | null)?.fileName;
+        if (info.code === 'too_large_for_context') {
           refusal = t('chatAttachmentsTooLongTogether');
+        } else if (isFileErrorCode(info.code) && typeof fileName === 'string' && fileName) {
+          refusal = `${userErrorMessage(info, t, { name: fileName, locale: language })} ${t('chatAttachmentRemoveHint')}`;
+        } else if (isFileErrorCode(info.code)) {
+          refusal = t('chatAttachmentsUnusable');
+        } else {
+          refusal = userErrorMessage(info, t, { fallbackKey: 'chatSendError' });
         }
-        let errorMsg = errorData.error || t('chatSendError');
-        if (errorData.details && Array.isArray(errorData.details)) {
-          errorMsg += ': ' + errorData.details.map((d: { field: string; message: string }) => `${d.field}: ${d.message}`).join(', ');
-        }
-        throw new Error(errorMsg);
+        throw new Error(`chat send refused: ${response.status}`);
       }
 
       accepted = true;
@@ -226,8 +233,8 @@ export function useChatStream({
         // Watchdog against a silently hung server: orchestrators stream
         // trajectory/token events steadily, but a single long LLM call can
         // legitimately go quiet for tens of seconds — so the window is
-        // generous. On timeout the parser cancels the stream and throws,
-        // which the catch below surfaces as a generic chat error.
+        // generous. On timeout the parser cancels the stream and throws
+        // SseIdleTimeoutError, which the catch below reports as a timeout.
         idleTimeoutMs: 120_000,
         isStale: () => requestIdRef.current !== thisRequestId,
         onParseError: (e) => { console.error('Error parsing SSE data:', e); },
@@ -350,8 +357,13 @@ export function useChatStream({
           }
 
           if (event.error) {
+            // The frame's text is the backend's (English, technical); the
+            // user sees a localized message, after whatever already streamed.
             console.error('[Chat] Server error:', event.error);
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, { content: event.error as string }));
+            const notice = t('errorAnswerFailed');
+            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+              content: aiMessageContent ? `${aiMessageContent}\n\n${notice}` : notice,
+            }));
           }
           if (event.sources) {
             aiSources = event.sources as MessageSource[];
@@ -411,11 +423,14 @@ export function useChatStream({
       console.error('Chat failed:', err);
       if (!accepted && !regenerateOf) refusedQuestionIdsRef.current.add(tempUserMsgId);
       const errorMsgId = `temp-error-${Date.now()}`;
+      let content = refusal ?? t('aiGenericError');
+      if (err instanceof SseIdleTimeoutError) content = t('errorAnswerTimeout');
+      else if (err instanceof TypeError) content = t('errorServiceUnavailable'); // fetch: network failure
       setMessageTree(prev => addMessageToTree(prev, {
         id: errorMsgId,
         parentMessageId: userNodeId,
         role: 'ai',
-        content: refusal ?? t('aiGenericError'),
+        content,
       }));
       setActiveLeafId(errorMsgId);
     } finally {

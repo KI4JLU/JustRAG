@@ -478,6 +478,36 @@ describe('useChatStream.handleSendMessage — source selection follows seeSource
   });
 });
 
+// Oracle: the error-case list in docs/user-error-messages.md. The harness
+// translator echoes the key, so the bubble names the message that was chosen.
+describe('useChatStream.handleSendMessage — refusal messages', () => {
+  const refuse = async (response: unknown) => {
+    authFetchMock.mockImplementationOnce(async () => {
+      if (response instanceof Error) throw response;
+      return response as Response;
+    });
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage(
+        { preventDefault: () => {} } as React.FormEvent, 'Frage', null, undefined, {});
+    });
+    return [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'))?.content;
+  };
+
+  it.each([
+    ['a file refusal naming the file', { ok: false, status: 422, json: async () => ({ code: 'file_unreadable', fileName: 'a.pdf' }) },
+      'errorFileUnreadable chatAttachmentRemoveHint'],
+    ['a file refusal without a name', { ok: false, status: 415, json: async () => ({ code: 'unsupported_file_type' }) },
+      'chatAttachmentsUnusable'],
+    ['403', { ok: false, status: 403, json: async () => ({ error: 'access denied' }) }, 'errorForbidden'],
+    ['429', { ok: false, status: 429, json: async () => ({}) }, 'errorRateLimited'],
+    ['an uncoded 400', { ok: false, status: 400, json: async () => ({ error: 'message is required' }) }, 'chatSendError'],
+    ['a network failure', new TypeError('Failed to fetch'), 'errorServiceUnavailable'],
+  ])('shows the right message for %s', async (_name, response, want) => {
+    expect(await refuse(response)).toBe(want);
+  });
+});
+
 // A refused send (the server answered 4xx before storing the question) gives
 // the text and files back to the composer. The optimistic question and its
 // error bubble stay visible so the user sees why, but a retry must replace
@@ -510,6 +540,10 @@ describe('useChatStream.handleSendMessage — retry after a refused send', () =>
   it('lässt eine angenommene Frage stehen, auch wenn ihr Stream danach abbricht', async () => {
     // Accepted, then the stream fails before the userMessageId frame: the
     // question IS stored server-side, so a retry must not hide it.
+    // Temp ids carry Date.now(); two sends in one millisecond would share
+    // them, so the clock ticks per call here.
+    let now = 1_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => ++now);
     authFetchMock.mockResolvedValueOnce({ ok: true, body: { getReader: () => ({
       read: async () => { throw new Error('network'); }, releaseLock: () => {}, cancel: async () => {},
     }) } } as unknown as Response);
@@ -522,5 +556,6 @@ describe('useChatStream.handleSendMessage — retry after a refused send', () =>
     const errorNode = [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'));
     await act(async () => { await send(errorNode?.id ?? null); });
     expect([...result.current.messageTree.values()].filter(m => m.role === 'user')).toHaveLength(2);
+    clock.mockRestore();
   });
 });

@@ -33,7 +33,11 @@ const MAX_TOASTS = 5;
 function toastReducer(state: Toast[], action: Action): Toast[] {
   switch (action.type) {
     case 'ADD': {
-      const next = [...state, action.toast];
+      // An identical toast still on screen is replaced, not stacked: when the
+      // server is unreachable every load fails with the same message, and
+      // one toast says it (with its timer restarted) where four would shout.
+      const rest = state.filter(t => t.type !== action.toast.type || t.message !== action.toast.message);
+      const next = [...rest, action.toast];
       return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
     }
     case 'REMOVE':

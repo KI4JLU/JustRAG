@@ -80,7 +80,7 @@ const ChatViewComp = () => {
   const { fileMgmt, webTools } = useKbData();
   const toast = useToast();
   // Composer files are uploaded as chat attachments as soon as they are attached.
-  const composerUploads = useComposerUploads(currentKb?.id, t);
+  const composerUploads = useComposerUploads(currentKb?.id, t, language);
   // Per-turn web search is offered only when the admin gate is on; a state
   // left over from when it was on shows nothing (and is not sent, see
   // AuthenticatedApp).

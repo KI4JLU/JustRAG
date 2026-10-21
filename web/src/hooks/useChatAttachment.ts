@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
-import { getApiErrorMessage } from '../utils/apiError';
+import { userErrorMessage } from '../utils/userErrors';
 
 export interface ChatAttachment {
   attachmentId: string;
@@ -10,10 +10,7 @@ export interface ChatAttachment {
   charCount: number;
 }
 
-/**
- * Optional translator (the `t` from `useTheme()`) so status-specific upload
- * errors are localized. When omitted, English fallbacks are used.
- */
+/** The translator from `useTheme()`; upload errors are localized with it. */
 type Translator = (key: string) => string;
 
 /**
@@ -24,7 +21,7 @@ type Translator = (key: string) => string;
  * Auth is handled globally by axios (`axios.defaults.headers.common.Authorization`
  * set in App.tsx), matching the rest of the file-upload hooks.
  */
-export function useChatAttachment(kbId: string, t?: Translator) {
+export function useChatAttachment(kbId: string, t: Translator, locale = 'de') {
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,28 +45,10 @@ export function useChatAttachment(kbId: string, t?: Translator) {
       setAttachment(res.data);
       return res.data;
     } catch (err: unknown) {
-      const tr = (key: string, fallback: string) => (t ? t(key) : fallback);
-      let msg = tr('comparisonUploadFailed', 'Upload failed');
-      if (axios.isAxiosError(err)) {
-        switch (err.response?.status) {
-          case 503:
-            msg = tr('comparisonDisabled', 'Document comparison is disabled');
-            break;
-          case 413:
-            msg = tr('comparisonFileTooLarge', 'File too large');
-            break;
-          case 415:
-            msg = tr('comparisonUnsupportedType', 'Unsupported file type');
-            break;
-          case 422:
-            msg = tr('comparisonNoText', 'Could not extract text from file');
-            break;
-          default:
-            msg = getApiErrorMessage(err, msg);
-        }
-      } else {
-        msg = getApiErrorMessage(err, msg);
-      }
+      // 503 is this endpoint's "comparison is switched off", not an outage.
+      const msg = axios.isAxiosError(err) && err.response?.status === 503
+        ? t('comparisonDisabled')
+        : userErrorMessage(err, t, { name: file.name, fallbackKey: 'errorUploadFailed', locale });
       console.error('Attachment upload failed:', err);
       setError(msg);
       errorRef.current = msg;
@@ -77,7 +56,7 @@ export function useChatAttachment(kbId: string, t?: Translator) {
     } finally {
       setUploading(false);
     }
-  }, [kbId, t]);
+  }, [kbId, t, locale]);
 
   const clear = useCallback(() => {
     setAttachment(null);

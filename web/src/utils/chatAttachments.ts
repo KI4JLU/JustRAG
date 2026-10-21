@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { PromptInputMessage } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
-import { getApiErrorMessage } from './apiError';
+import { userErrorMessage } from './userErrors';
 import type { MessageAttachment } from '../types';
 
 /**
@@ -34,30 +34,11 @@ export class ChatAttachmentUploadError extends Error {
 }
 
 /**
- * The user-facing reason an upload of `name` failed (F-06b), from the
- * status and body the endpoint documents.
+ * The user-facing reason an upload of `name` failed (F-06b), from the error
+ * code and status the endpoint documents (API.md § Chat).
  */
-export function chatAttachmentErrorMessage(err: unknown, name: string, t: Translator): string {
-  const withName = (key: string) => t(key).replace('{name}', name);
-  if (!axios.isAxiosError(err) || !err.response) {
-    return withName('chatAttachmentUploadFailed');
-  }
-  const data = err.response.data as { error?: string; tokens?: number; limit?: number } | undefined;
-  switch (err.response.status) {
-    case 413:
-      return data?.error === 'quota_exceeded' ? withName('chatAttachmentQuotaExceeded') : withName('chatAttachmentTooLarge');
-    case 415:
-      return withName('chatAttachmentUnsupported');
-    case 422:
-      if (data?.error === 'too_large_for_context') {
-        return withName('chatAttachmentTooLongForContext');
-      }
-      return withName('chatAttachmentNoText');
-    case 429:
-      return t('chatAttachmentRateLimited');
-    default:
-      return getApiErrorMessage(err, withName('chatAttachmentUploadFailed'));
-  }
+export function chatAttachmentErrorMessage(err: unknown, name: string, t: Translator, locale = 'de'): string {
+  return userErrorMessage(err, t, { name, fallbackKey: 'errorUploadFailed', locale });
 }
 
 /** Turns a composer file (a data or blob URL) back into a File to upload. */
@@ -70,7 +51,7 @@ async function partToFile(part: ComposerFile): Promise<File> {
  * Uploads one composer file. Rejects with a ChatAttachmentUploadError whose
  * message says why the file was refused.
  */
-export async function uploadChatAttachment(kbId: string, part: ComposerFile, t: Translator): Promise<UploadedChatAttachment> {
+export async function uploadChatAttachment(kbId: string, part: ComposerFile, t: Translator, locale = 'de'): Promise<UploadedChatAttachment> {
   const name = part.filename || 'attachment';
   try {
     const fd = new FormData();
@@ -78,7 +59,7 @@ export async function uploadChatAttachment(kbId: string, part: ComposerFile, t: 
     const res = await axios.post<UploadedChatAttachment>(`${API_BASE_URL}/api/kb/${kbId}/chat/attachments`, fd);
     return res.data;
   } catch (err) {
-    throw new ChatAttachmentUploadError(chatAttachmentErrorMessage(err, name, t));
+    throw new ChatAttachmentUploadError(chatAttachmentErrorMessage(err, name, t, locale));
   }
 }
 

@@ -32,13 +32,14 @@ interface Uploads {
  * forgotten (a late result for one is ignored; the server sweeps the
  * unattached file after a day).
  */
-export function useComposerUploads(kbId: string | undefined, t: Translator) {
+export function useComposerUploads(kbId: string | undefined, t: Translator, locale = 'de') {
   const [uploads, setUploads] = useState<Uploads>({ ids: [], byId: {} });
   // Read synchronously by the submit handler, which runs before a re-render.
   const uploadsRef = useRef(uploads);
   const kbIdRef = useRef(kbId);
   const tRef = useRef(t);
-  useEffect(() => { kbIdRef.current = kbId; tRef.current = t; }, [kbId, t]);
+  const localeRef = useRef(locale);
+  useEffect(() => { kbIdRef.current = kbId; tRef.current = t; localeRef.current = locale; }, [kbId, t, locale]);
 
   const update = useCallback((fn: (prev: Uploads) => Uploads) => {
     setUploads(prev => {
@@ -51,7 +52,7 @@ export function useComposerUploads(kbId: string | undefined, t: Translator) {
   const start = useCallback((file: ChipFile) => {
     const kb = kbIdRef.current;
     if (!kb) return;
-    uploadChatAttachment(kb, file, tRef.current).then(
+    uploadChatAttachment(kb, file, tRef.current, localeRef.current).then(
       uploaded => update(prev => (prev.byId[file.id]
         ? { ...prev, byId: { ...prev.byId, [file.id]: { status: 'done', uploaded } } }
         : prev)),
@@ -60,7 +61,12 @@ export function useComposerUploads(kbId: string | undefined, t: Translator) {
           ...prev,
           byId: {
             ...prev.byId,
-            [file.id]: { status: 'error', message: err instanceof ChatAttachmentUploadError ? err.message : tRef.current('comparisonUploadFailed') },
+            [file.id]: {
+              status: 'error',
+              message: err instanceof ChatAttachmentUploadError
+                ? err.message
+                : tRef.current('errorUploadFailed').replace('{name}', file.filename || 'attachment'),
+            },
           },
         }
         : prev)),

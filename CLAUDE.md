@@ -114,6 +114,7 @@ CLAUDE.md is the operational reference (commands, env, architecture, feature ind
 
 - **`docs/feature-recipes.md`** — full enablement toggle blocks (combined flag lists in dependency order, operator-prerequisite SQL grants, ops sequences, provider caveats, security notes) for every gated feature indexed in the Feature-enablement-recipes table below.
 - **`docs/retrieval.md`** — every retrieval-pipeline subsystem (MMR, query cache, reranker blend, BM25 floor, embedder choice, CRAG, contextual retrieval, enumeration pre-pass, citation validator, ingestion dedup, …) with eval numbers and antipatterns.
+- **`docs/user-error-messages.md`** — the user-facing error cases (backend `code` → translation key, DE/EN wording, the one mapper `web/src/utils/userErrors.ts`) and an audit of every web-client surface that still shows raw backend text, status codes or untranslated strings.
 - **`docs/presentation/tuning-knobs.md`** — admin-UI knob reference, oriented toward operations rather than mechanism.
 - **`docs/observability/docling.md`** — opt-in Docling sidecar for layout-aware PDF parsing.
 - **`docs/runbooks/hnsw-reindex.md`** — operator runbook for the T0-1 HNSW iterative-scan path (rebuilding the index after pgvector upgrade).

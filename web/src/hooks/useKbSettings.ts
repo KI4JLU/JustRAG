@@ -4,6 +4,7 @@ import type { SafeAIConfig } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
+import { userErrorMessage } from '../utils/userErrors';
 
 // Per-chat-session sticky agent/team selection for the chat send path.
 // `teamId`/`agentId` are mutually exclusive; an empty object means Standard
@@ -35,7 +36,7 @@ export function useKbSettings() {
       setAvailableConfigs(res.data);
     } catch (err: unknown) {
       console.error('Failed to fetch configs:', err);
-      toast.error(t('configsFetchError'));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'configsFetchError' }));
     }
   }, [t, toast]);
 

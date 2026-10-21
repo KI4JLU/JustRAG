@@ -47,12 +47,13 @@ interface SourcesSectionProps {
     onRetryFile: (id: string) => void;
 }
 
-// Maps files.error_stage values (backend vocabulary, see
-// files.PGStore.MarkFileError) to translation keys. Unknown stages fall
-// back to the raw errorMessage, then to fileErrorUnknown.
 // Stable empty list for useSourcePreviews when nothing may be previewed.
 const NO_FILES: FileEntry[] = [];
 
+// Maps files.error_stage values (backend vocabulary, see
+// files.PGStore.MarkFileError) to translation keys. An unknown stage shows
+// fileErrorUnknown: errorMessage is the backend's technical text and is
+// never shown.
 const ERROR_STAGE_KEYS: Record<string, string> = {
     unsupported_type: 'fileErrorUnsupportedType',
     parse: 'fileErrorParse',
@@ -92,7 +93,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     };
     const errorLabel = (file: FileEntry) => {
         if (file.errorStage && ERROR_STAGE_KEYS[file.errorStage]) return t(ERROR_STAGE_KEYS[file.errorStage]);
-        return file.errorMessage || t('fileErrorUnknown');
+        return t('fileErrorUnknown');
     };
 
     return (
@@ -112,7 +113,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     <div className="source-meta sidebar-left__file-meta">{t('fileStatusPending')}</div>
                                 )}
                                 {file.status === 'error' && (
-                                    <div className="sidebar-left__rss-feed-error" title={file.errorMessage || undefined}>
+                                    <div className="sidebar-left__rss-feed-error">
                                         {errorLabel(file)}
                                     </div>
                                 )}
