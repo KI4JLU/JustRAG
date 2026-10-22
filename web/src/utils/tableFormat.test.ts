@@ -68,6 +68,10 @@ describe('row copy formats', () => {
         expect(JSON.parse(rowToJson(['nr', 'name'], [1, null]))).toEqual({ nr: 1, name: null });
         expect(rowToMarkdown(['nr', 'name'], [1, 'a|b'])).toBe('| nr | name |\n| --- | --- |\n| 1 | a\\|b |');
     });
+
+    it('escapes pipes in headers too (an answer table header can carry one)', () => {
+        expect(rowToMarkdown(['A|B'], ['x'])).toBe('| A\\|B |\n| --- |\n| x |');
+    });
 });
 
 // Codex review of the UI: integers past 2^53 must not lose digits.

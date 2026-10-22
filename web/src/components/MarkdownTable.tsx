@@ -1,7 +1,12 @@
-import { useCallback } from 'react';
-import { Download } from 'lucide-react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { Download, Maximize2 } from 'lucide-react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@ki4jlu/design-system';
+import { useTheme } from '../contexts/ThemeContext';
 import { exportRowsToXlsx } from '../utils/exportXlsx';
+
+// Lazy: the preview (SheetTable, row details) loads on the first "Maximize",
+// not with every chat answer.
+const LocalTablePreviewDialog = lazy(() => import('./tablePreview/LocalTablePreviewDialog').then(module => ({ default: module.LocalTablePreviewDialog })));
 
 // Minimal hast (HTML AST) node shape — react-markdown passes the parsed node
 // for each rendered element via the `node` prop.
@@ -16,7 +21,6 @@ interface HastNode {
 interface Props {
     node?: HastNode;
     children?: React.ReactNode;
-    label: string;
     filename: string;
 }
 
@@ -31,13 +35,19 @@ function hasClass(node: HastNode, name: string): boolean {
 // cell ("[1]", "[1, 2]", "[S. 4]") rather than the rendered source-ref sup.
 const CITATION_TEXT_RE = /\[\s*(?:S\.\s*)?\d+(?:\s*[,–-]\s*\d+)*\s*\]/g;
 
+// Elements that break a line: their text is set off by a space, so
+// "First<br>Second" reads "First Second", not "FirstSecond".
+const LINE_BREAKING = new Set(['br', 'p', 'div', 'li', 'ul', 'ol']);
+
 // textOf flattens a node's text, skipping rendered citation markers
 // (sup.source-ref injected by addCitationRefs) so they never reach the export.
+// cleanCell collapses the spaces line breaks leave.
 function textOf(node?: HastNode): string {
     if (!node) return '';
     if (node.type === 'text') return node.value ?? '';
     if (node.tagName === 'sup' && hasClass(node, 'source-ref')) return '';
-    return (node.children ?? []).map(textOf).join('');
+    const text = (node.children ?? []).map(textOf).join('');
+    return node.tagName && LINE_BREAKING.has(node.tagName) ? ` ${text} ` : text;
 }
 
 function cleanCell(node: HastNode): string {
@@ -62,37 +72,81 @@ function extractRows(table?: HastNode): string[][] {
     return rows;
 }
 
-// MarkdownTable renders a GFM table and, when it has extractable rows, an
-// icon-only "Download .xlsx" button (label as tooltip and accessible name).
-// It is wired as the ReactMarkdown `table` component override so EVERY table
-// in an AI answer becomes exportable — not just the corpus-comparison
-// StructuredTable (which has its own dedicated view). The button is pinned to
-// the visible bottom-right corner of the table and only shows on hover or
-// keyboard focus (index.css, .md-table-frame__action).
-export function MarkdownTable({ node, children, label, filename }: Props) {
-    const exportXlsx = useCallback(() => {
-        void exportRowsToXlsx(extractRows(node), { filename });
-    }, [node, filename]);
+// headerRow reports whether the table's first row is a header (all `th`).
+// A GFM table always has one; a raw-HTML table in an answer (rehype-raw) may
+// not, and then its first row is data.
+function headerRow(table?: HastNode): boolean {
+    let first: HastNode | undefined;
+    const find = (n?: HastNode) => {
+        if (!n || first) return;
+        if (n.tagName === 'tr') { first = n; return; }
+        (n.children ?? []).forEach(find);
+    };
+    find(table);
+    const cells = (first?.children ?? []).filter((c) => c.tagName === 'th' || c.tagName === 'td');
+    return cells.length > 0 && cells.every((c) => c.tagName === 'th');
+}
 
-    const hasRows = extractRows(node).length > 0;
+// MarkdownTable renders a GFM table and, when it has extractable rows, a
+// footer under it: the table's size, an icon-only "Download .xlsx" and a
+// "Maximize" that opens the table in the table preview (sort, search, row
+// details, full screen) — big tables otherwise only scroll inside the
+// answer. Icon-only buttons carry their label as tooltip and accessible name.
+// It is wired as the ReactMarkdown `table` component override so EVERY table
+// in an AI answer gets the footer — not just the corpus-comparison
+// StructuredTable (which has its own dedicated view). The footer is always
+// shown, never on hover only: the message list is virtualized, and a strip
+// that appears on hover would change the item's height under the pointer.
+export function MarkdownTable({ node, children, filename }: Props) {
+    const { t, language } = useTheme();
+    const locale = language === 'de' ? 'de-DE' : 'en-US';
+    const [maximized, setMaximized] = useState(false);
+
+    const cells = useMemo(() => extractRows(node), [node]);
+    const hasHeader = useMemo(() => headerRow(node), [node]);
+    const exportXlsx = useCallback(() => {
+        void exportRowsToXlsx(cells, { filename });
+    }, [cells, filename]);
+
+    const rowCount = hasHeader ? Math.max(0, cells.length - 1) : cells.length;
+    const colCount = cells[0]?.length ?? 0;
+    const plural = (one: string, many: string, n: number) => (n === 1 ? t(one) : t(many).replace('{count}', n.toLocaleString(locale)));
+    const downloadLabel = t('mdTableDownloadXlsx');
+    const maximizeLabel = t('mdTableMaximize');
 
     return (
         <div className="md-table-frame">
             <div className="md-table">
                 <table>{children}</table>
-                {hasRows && (
-                    <div className="md-table-frame__action">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="outline" size="icon" aria-label={label} onClick={exportXlsx}>
-                                    <Download size={16} aria-hidden="true" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{label}</TooltipContent>
-                        </Tooltip>
-                    </div>
-                )}
             </div>
+            {cells.length > 0 && (
+                <div className="md-table-frame__footer">
+                    <span className="md-table-frame__size">
+                        {plural('mdTableRowsOne', 'mdTableRowsMany', rowCount)} · {plural('mdTableColsOne', 'mdTableColsMany', colCount)}
+                    </span>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-8" aria-label={downloadLabel} onClick={exportXlsx}>
+                                <Download size={16} aria-hidden="true" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{downloadLabel}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-8" aria-label={maximizeLabel} aria-haspopup="dialog" onClick={() => setMaximized(true)}>
+                                <Maximize2 size={16} aria-hidden="true" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{maximizeLabel}</TooltipContent>
+                    </Tooltip>
+                </div>
+            )}
+            {maximized && (
+                <Suspense fallback={null}>
+                    <LocalTablePreviewDialog cells={cells} hasHeader={hasHeader} onDownload={exportXlsx} onClose={() => setMaximized(false)} />
+                </Suspense>
+            )}
         </div>
     );
 }

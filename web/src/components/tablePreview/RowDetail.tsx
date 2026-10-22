@@ -16,6 +16,8 @@ interface RowDetailProps {
     layout: 'grid' | 'list';
     /** Opens a linked lookup table's tab. */
     onOpenTable: (table: string) => void;
+    /** The source line under the record; default: the sheet and SQL row id. */
+    sourceLabel?: (row: ViewRow) => string;
 }
 
 /**
@@ -24,7 +26,7 @@ interface RowDetailProps {
  * and the complete value, the source line, and copy-as-JSON /
  * copy-as-Markdown. Shared by the inline detail row and the side panel.
  */
-export const RowDetail: React.FC<RowDetailProps> = ({ columns, row, sheetName, layout, onOpenTable }) => {
+export const RowDetail: React.FC<RowDetailProps> = ({ columns, row, sheetName, layout, onOpenTable, sourceLabel }) => {
     const { t, language } = useTheme();
     const locale = language === 'de' ? 'de-DE' : 'en-US';
     const [copied, setCopied] = useState<'json' | 'md' | null>(null);
@@ -75,7 +77,7 @@ export const RowDetail: React.FC<RowDetailProps> = ({ columns, row, sheetName, l
             </dl>
             <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
                 <span className="mr-auto">
-                    {t('tpSource').replace('{sheet}', sheetName).replace('{row}', String(row.id))}
+                    {sourceLabel ? sourceLabel(row) : t('tpSource').replace('{sheet}', sheetName).replace('{row}', String(row.id))}
                 </span>
                 <Button variant="ghost" size="sm" onClick={() => copy('json')}>
                     {copied === 'json' ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}

@@ -16,6 +16,7 @@ import {
     columnDecimals, columnKind, columnLabel, nextSort, parseCell, type SortState,
 } from '../../utils/tableFormat';
 import { PreviewHeader } from '../PreviewHeader';
+import { previewDialogClass } from './layout';
 import { SheetTable } from './SheetTable';
 import { SheetTabs } from './SheetTabs';
 import { ViewMenu } from './ViewMenu';
@@ -230,14 +231,7 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                     // Esc closes the row details first, the dialog second.
                     if (selectedId !== null) { e.preventDefault(); setSelectedId(null); }
                 }}
-                className={cn(
-                    'flex flex-col gap-0 overflow-hidden p-0',
-                    fullscreen
-                        ? 'top-0 left-0 h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0'
-                        // A fixed height, not content-sized: switching sheets, searching
-                        // or loading rows must not resize the dialog (Sten, 2026-10-15).
-                        : 'h-[calc(100dvh-3rem)] w-[calc(100vw-2rem)] max-w-[88rem] rounded-2xl',
-                )}
+                className={previewDialogClass(fullscreen)}
             >
                 {/* The shared preview header (icon, title, subtitle; no controls);
                     below it ONE row with the sheet tabs, download and fullscreen;

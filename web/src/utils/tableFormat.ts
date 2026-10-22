@@ -89,11 +89,11 @@ export function rowToJson(columns: string[], cells: Cell[]): string {
     return JSON.stringify(Object.fromEntries(columns.map((c, i) => [c, cells[i] ?? null])), null, 2);
 }
 
-/** One row as a Markdown table (header, separator, values); pipes are escaped. */
+/** One row as a Markdown table (header, separator, values); pipes are escaped in headers and values. */
 export function rowToMarkdown(columns: string[], cells: Cell[]): string {
     const esc = (v: Cell) => String(v ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
     return [
-        `| ${columns.join(' | ')} |`,
+        `| ${columns.map(esc).join(' | ')} |`,
         `| ${columns.map(() => '---').join(' | ')} |`,
         `| ${cells.map(esc).join(' | ')} |`,
     ].join('\n');
