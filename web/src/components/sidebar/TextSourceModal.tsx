@@ -1,8 +1,9 @@
 import React, { memo, useId } from 'react';
-import { Download } from 'lucide-react';
+import { Download, ExternalLink } from 'lucide-react';
 import {
-    Button, Dialog, DialogContent, DialogTitle, Input, RichTextEditor, type RichTextEditorLabels,
+    Button, Dialog, DialogContent, DialogTitle, Input, RichTextEditor, buttonVariants, type RichTextEditorLabels,
 } from '@ki4jlu/design-system';
+import { fillTemplate, originUrlOf, withoutOriginLine } from '../../utils/sourceDisplay';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFormValidation } from '../../hooks/useFormValidation';
 import { PreviewHeader } from '../PreviewHeader';
@@ -98,6 +99,9 @@ function useEditorLabels(): RichTextEditorLabels | undefined {
     return language === 'en' ? EDITOR_LABELS_EN : undefined;
 }
 
+// A link that reads like a Confluence page gets the Confluence label.
+const CONFLUENCE_URL_RE = /confluence|atlassian\.net|\/wiki\//i;
+
 const TextSourceModalComp: React.FC<TextSourceModalProps> = ({
     show, onClose, onTextSourceAdd,
     textSourceTitle, setTextSourceTitle, textSourceContent, setTextSourceContent,
@@ -174,8 +178,14 @@ interface TextSourceViewerProps {
 /** An existing .md/.txt source in the same window, read-only, with a download like the PDF preview's. */
 const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format }) => {
     const { t } = useTheme();
-    const labels = useEditorLabels();
+    const baseLabels = useEditorLabels();
+    // The word count moves into the header's meta line.
+    const labels = { ...baseLabels, count: '' };
     const isMarkdown = format === 'markdown';
+    // An imported page's or feed item's "Source: <url>" line is a header action, not body text.
+    const originUrl = originUrlOf(content.slice(0, 4000));
+    const shown = originUrl ? withoutOriginLine(content) : content;
+    const words = shown.split(/\s+/).filter(Boolean).length;
     // The object URL is made on click and revoked right after, so no URL
     // outlives the download (and none is held in state).
     const download = () => {
@@ -195,19 +205,25 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
                 <PreviewHeader
                     kind="text"
                     title={fileName}
-                    subtitle={t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')}
+                    subtitle={`${t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')} · ${fillTemplate(t('previewWordCount'), { count: words })}`}
+                    actions={originUrl && (
+                        <a href={originUrl} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                            <ExternalLink size={14} aria-hidden="true" />
+                            {CONFLUENCE_URL_RE.test(originUrl) ? t('openInConfluence') : t('openOriginal')}
+                        </a>
+                    )}
                 />
             )}
         >
             <RichTextEditor
                 // A different file is a different document: the editor reads `value` once.
-                key={`${fileName}\0${content.length}`}
+                key={`${fileName}\0${shown.length}`}
                 bare
                 readOnly
                 format={format}
                 className="min-h-0 flex-1"
                 aria-label={fileName}
-                value={content}
+                value={shown}
                 labels={labels}
                 toolbarEnd={(
                     <Button variant="ghost" size="icon" onClick={download} aria-label={`${t('download')} ${fileName}`} title={t('download')}>

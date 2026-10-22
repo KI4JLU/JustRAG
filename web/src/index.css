@@ -551,7 +551,12 @@ button.source-card {
 }
 
 .chat-column {
-  --chat-column-max: 56rem;
+  /* One width for the transcript and the composer (`.input-container`): an
+     answer spans exactly the composer's box. cqw keeps both relative to this
+     column, whatever the scroller's scrollbar takes. */
+  container-type: inline-size;
+  --chat-column-width: 80cqw;
+  --chat-column-inset: 2rem;
   --chat-message-max: 700px;
   flex: 1;
   display: flex;
@@ -579,6 +584,9 @@ button.source-card {
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  /* Symmetric gutters keep the transcript centred on the column, as the
+     composer is, when the scrollbar takes space. */
+  scrollbar-gutter: stable both-edges;
   /* The scroller spans the FULL column width (the wheel works everywhere) and
      carries no horizontal padding; the reading column is one level down
      (`.transcript`), centred with `margin: 0 auto`. */
@@ -595,11 +603,11 @@ button.source-card {
 .messages-container > .empty-state {
   box-sizing: border-box;
   width: 100%;
-  max-width: var(--chat-column-max, 56rem);
+  max-width: var(--chat-column-width, 80%);
   margin-left: auto;
   margin-right: auto;
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
+  padding-left: var(--chat-column-inset, 2rem);
+  padding-right: var(--chat-column-inset, 2rem);
 }
 
 /* One row = one flex column so the bubble's `align-self` applies: user on
@@ -632,7 +640,8 @@ button.source-card {
    :focus-visible ring would frame the whole answer, and browsers also match
    it on a click after keyboard input (Enter to send), so it showed up as a
    blue box around answers. data-contrast="more" still forces a ring. */
-.message-bubble:focus-visible {
+.message-bubble:focus-visible,
+.message-question:focus-visible {
   outline: none;
 }
 
@@ -648,6 +657,8 @@ button.source-card {
 .message-ai {
   align-self: flex-start;
   margin-right: auto;
+  /* The full column, unlike a question; wide tables and code scroll inside. */
+  max-width: 100%;
   color: var(--text-primary);
   background-color: transparent;
   padding: 0.75rem 1rem 0.75rem 1.25rem;
@@ -869,31 +880,6 @@ button.source-card {
   background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
 }
 
-/* Per-answer "Wissensgraph" affordance: same accent-pill family as
-   .source-tag / .follow-up-chip / the §8 Quellen·N toggle. Token-driven, so it
-   recolours correctly in dark mode for free; accent-fill on hover mirrors
-   .source-tag-link:hover. */
-.graph-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border-radius: var(--shape-full);
-  background: var(--tag-bg);
-  color: var(--accent-primary);
-  border: none;
-  font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.graph-pill:hover {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
-}
-
 .source-ref {
   color: var(--accent-primary);
   background: var(--tag-bg);
@@ -905,6 +891,13 @@ button.source-card {
   border-radius: var(--shape-sm);
   padding: 0 5px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+  /* A chip centred on the line's lowercase letters, not a raised superscript
+     (the base layer reverts <sup> to the UA's vertical-align: super) and not
+     on the baseline, where the smaller box hangs below the text. */
+  display: inline-block;
+  vertical-align: middle;
+  position: static;
+  line-height: 1.4;
 }
 
 .source-ref:hover {
@@ -921,7 +914,6 @@ button.source-card {
 .source-ref-suspect {
   color: var(--suspect-text);
   background: var(--suspect-bg);
-  border-bottom: 1.5px dashed var(--suspect-border);
 }
 
 .source-ref-suspect:hover {
@@ -942,12 +934,6 @@ button.source-card {
   /* Clickable like every other pill (it opens the source popover); the
      verification note stays available as the title tooltip. */
   cursor: pointer;
-}
-
-.source-ref-warn {
-  margin-left: 2px;
-  font-size: 0.85em;
-  vertical-align: baseline;
 }
 
 /* Factuality-verifier flagged claim (Phase 3 §3.3). Same amber dashed
@@ -993,33 +979,6 @@ button.source-card {
   /* improvement #4 — overline/label (QUELLEN) */
   letter-spacing: 0.05em;
   color: var(--text-secondary);
-}
-
-/* Conflicting-sources badge (Wave 5 conflict surfacing): the answer footer
-   chip that opens the per-conflict details list. Uses the --error-* tokens
-   (not the amber --suspect-* used by suspect citations/flagged claims)
-   because a genuine contradiction between two cited sources is a stronger
-   signal than a paraphrase mismatch and deliberately reads as such. */
-.conflict-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border-radius: var(--shape-full);
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--error-bg);
-  color: var(--error-text);
-  border: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-}
-
-.conflict-badge:hover,
-.conflict-badge:focus-visible {
-  outline: 2px solid var(--error-text);
-  outline-offset: 1px;
 }
 
 .conflict-details {
@@ -1097,8 +1056,8 @@ button.source-card {
 
 /* Input Bar */
 .input-container {
-  padding: 2rem;
-  max-width: 80%;
+  padding: 2rem var(--chat-column-inset, 2rem);
+  max-width: var(--chat-column-width, 80%);
   margin: 0 auto;
   width: 100%;
 }
@@ -2080,10 +2039,13 @@ button.source-card {
    Mobile Layout (< 1024px)
    ======================================== */
 @media (max-width: 1023px) {
-  .messages-container > .transcript,
-  .messages-container > .empty-state {
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+  .chat-column {
+    --chat-column-width: 100cqw;
+    --chat-column-inset: 0.75rem;
+  }
+
+  .messages-container {
+    scrollbar-gutter: auto;
   }
 
   .messages-container .transcript-row {
@@ -2091,9 +2053,7 @@ button.source-card {
   }
 
   .input-container {
-    max-width: 100%;
-    padding: 0.75rem;
-    padding-bottom: 0.75rem;
+    padding: 0.75rem var(--chat-column-inset, 0.75rem);
   }
 
   .message-user {

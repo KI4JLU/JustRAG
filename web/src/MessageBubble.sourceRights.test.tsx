@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import MessageBubble from './MessageBubble';
 import type { Message } from './types';
+import { SourcePanelContext } from './contexts/SourcePanelContext';
 
 // Same harness mocks as MessageBubble.test.tsx: identity `t`, the footer's
 // MessageActions contexts, and no matchMedia in jsdom.
@@ -41,14 +42,14 @@ const answer: Message = {
 describe('MessageBubble — seeCitations', () => {
   it('with it: the inline citation, the source list toggle and the conflict report', () => {
     const { container } = render(<MessageBubble message={answer} showCitations />);
-    expect(container.querySelector('sup.source-ref')).not.toBeNull();
+    expect(container.querySelector('button.citation-chip')).not.toBeNull();
     expect(screen.getByRole('button', { name: /answerSourcesToggle/ })).toBeInTheDocument();
     expect(screen.getByLabelText('conflictsBadge')).toBeInTheDocument();
   });
 
   it('without it: no marker in the text, no source list, no conflict report', () => {
     const { container } = render(<MessageBubble message={answer} showCitations={false} />);
-    expect(container.querySelector('sup.source-ref')).toBeNull();
+    expect(container.querySelector('button.citation-chip')).toBeNull();
     expect(container).toHaveTextContent('Die Beitragshöhe beträgt 50 EUR.');
     expect(container).not.toHaveTextContent('[1]');
     expect(screen.queryByRole('button', { name: /answerSourcesToggle/ })).not.toBeInTheDocument();
@@ -57,7 +58,7 @@ describe('MessageBubble — seeCitations', () => {
 
   it('defaults to showing citations (a backend without capabilities)', () => {
     const { container } = render(<MessageBubble message={answer} />);
-    expect(container.querySelector('sup.source-ref')).not.toBeNull();
+    expect(container.querySelector('button.citation-chip')).not.toBeNull();
   });
 
   it('leaves a user message untouched', () => {
@@ -66,24 +67,38 @@ describe('MessageBubble — seeCitations', () => {
   });
 });
 
-describe('MessageBubble — downloadSources (open handlers)', () => {
-  it('with an open handler: "openInDocument" in the source list and in the citation popover', () => {
+describe('MessageBubble — opening a source', () => {
+  it('without a source panel: the list row and "openInSource" open the document, with downloadSources', () => {
     const onPdfOpen = vi.fn();
     const { container } = render(<MessageBubble message={answer} onPdfOpen={onPdfOpen} sourcesOpen />);
-    expect(screen.getByRole('button', { name: /openInDocument/ })).toBeInTheDocument();
-    fireEvent.click(container.querySelector('sup.source-ref') as HTMLElement);
-    const popoverLink = screen.getAllByRole('button', { name: /openInDocument/ });
-    expect(popoverLink).toHaveLength(2);
-    fireEvent.click(popoverLink[1]);
+    fireEvent.click(screen.getByRole('button', { name: /satzung/ }));
     expect(onPdfOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 3);
+    fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
+    expect(onPdfOpen).toHaveBeenCalledTimes(2);
   });
 
-  it('without one: the citation popover still opens, but nothing offers to open the document', () => {
+  it('without a source panel and without downloadSources: the preview opens, nothing offers the document', () => {
     const { container } = render(<MessageBubble message={answer} sourcesOpen />);
-    // The list itself is citation content and stays.
-    expect(screen.getByText('satzung.pdf')).toBeInTheDocument();
-    fireEvent.click(container.querySelector('sup.source-ref') as HTMLElement);
-    expect(screen.getByRole('dialog')).toHaveTextContent('satzung.pdf');
-    expect(screen.queryByRole('button', { name: /openInDocument/ })).not.toBeInTheDocument();
+    // The list itself is citation content and stays, as plain rows.
+    expect(screen.getByText('satzung')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /satzung/ })).not.toBeInTheDocument();
+    fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
+    expect(screen.getByRole('dialog')).toHaveTextContent('satzung');
+    expect(screen.queryByRole('button', { name: 'openInSource' })).not.toBeInTheDocument();
+  });
+
+  it('with the chat view\'s source panel: row and preview open the panel at the cited passage', () => {
+    const open = vi.fn();
+    const { container } = render(
+      <SourcePanelContext.Provider value={{ target: null, open, close: vi.fn() }}>
+        <MessageBubble message={answer} sourcesOpen />
+      </SourcePanelContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /satzung/ }));
+    expect(open).toHaveBeenLastCalledWith(expect.objectContaining({ messageKey: 'ai1', passage: 0, source: expect.objectContaining({ n: 1, fileId: 'f1' }) }));
+    fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
+    expect(open).toHaveBeenCalledTimes(2);
   });
 });

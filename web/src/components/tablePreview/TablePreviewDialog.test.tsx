@@ -86,7 +86,7 @@ describe('TablePreviewDialog', () => {
         mockApi();
         render(<TablePreviewDialog {...props} />);
 
-        expect(await screen.findByRole('dialog', { name: 'gebaeude.xlsx' })).toBeInTheDocument();
+        expect(await screen.findByRole('dialog', { name: 'gebaeude' })).toBeInTheDocument();
         await waitFor(() => expect(screen.getAllByRole('tab').map(t => t.textContent)).toEqual(['Erhebung Nutzungsart2', 'Nutzungsarten5']));
 
         const grid = await screen.findByRole('table');

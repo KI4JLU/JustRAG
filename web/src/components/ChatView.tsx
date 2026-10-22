@@ -18,7 +18,7 @@ import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
-import { useMessageSections } from '../hooks/useMessageSections';
+import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useToast } from '../contexts/ToastContext';
@@ -28,7 +28,7 @@ import {
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
-  Shimmer,
+  Spinner,
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
@@ -39,6 +39,8 @@ import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { BranchTreeNav } from './BranchTreeNav';
+import { SourcePanel } from './sources/SourcePanel';
+import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
 import { MessageSkeleton } from './Skeleton';
 
 const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
@@ -245,6 +247,23 @@ const ChatViewComp = () => {
   // transcript so it survives the scroller remount on chat switch.
   const messageSections = useMessageSections();
 
+  // „In Quelle öffnen": one cited source beside the answers, closed again
+  // whenever another chat's transcript is loaded.
+  const [sourcePanelTarget, setSourcePanelTarget] = useState<SourcePanelTarget | null>(null);
+  const [panelTranscriptKey, setPanelTranscriptKey] = useState(chat.transcriptKey);
+  if (panelTranscriptKey !== chat.transcriptKey) {
+    setPanelTranscriptKey(chat.transcriptKey);
+    setSourcePanelTarget(null);
+  }
+  const sourcePanelApi = useMemo<SourcePanelApi>(() => ({
+    target: sourcePanelTarget,
+    open: setSourcePanelTarget,
+    close: () => setSourcePanelTarget(null),
+  }), [sourcePanelTarget]);
+  const sourcePanelOrigin = sourcePanelTarget?.source.fileId
+    ? fileMgmt.files.find(f => f.id === sourcePanelTarget.source.fileId)?.origin
+    : undefined;
+
   const handleEditCancel = useCallback(() => chat.setEditingMessageId(null), [chat]);
 
   // Resolves a message's teamId/agentId (Task 5 backend fields, stamped by
@@ -272,6 +291,7 @@ const ChatViewComp = () => {
   }), []);
 
   return (
+    <SourcePanelContext.Provider value={sourcePanelApi}>
     <div className="chat-area" ref={chatAreaRef}>
       {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
           Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
@@ -290,6 +310,8 @@ const ChatViewComp = () => {
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
                 <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  {/* No source panel here: sources open the document, as without the chat view. */}
+                  <SourcePanelContext.Provider value={null}>
                   <ComparisonView
                     messageTree={chat.messageTree}
                     leafIdA={chat.activeLeafId}
@@ -306,6 +328,7 @@ const ChatViewComp = () => {
                     onPdfOpen={handlePdfSourceOpen}
                     showCitations={sourceRights.seeCitations}
                   />
+                  </SourcePanelContext.Provider>
                 </div>
               </Suspense>
             ) : (
@@ -656,6 +679,7 @@ const ChatViewComp = () => {
                                   <MessageBubble
                                     message={msg}
                                     isStreaming={chat.loading && index === chat.messages.length - 1}
+                                    isLatest={index === chat.messages.length - 1}
                                     onPdfOpen={handlePdfSourceOpen}
                                     onFollowUpClick={chat.handleFollowUpClick}
                                     showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
@@ -674,10 +698,10 @@ const ChatViewComp = () => {
                                     kbId={currentKb?.id}
                                     questionText={questionText}
                                     resolveAttribution={resolveAttribution}
-                                    reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                                    sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                                    confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                                    conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
+                                    reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
+                                    sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
+                                    confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}
+                                    conflictsOpen={messageSections.isOpen(messageSectionKey(msg), 'conflicts')}
                                     onToggleSection={messageSections.toggle}
                                   />
                                 </MessageScrollerItem>
@@ -688,14 +712,19 @@ const ChatViewComp = () => {
                               const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
                               // Only until the first token (the "submitted" phase):
                               // once reasoning or answer text streams, that output
-                              // is the progress signal, and reasoning has its own
-                              // shimmering label.
+                              // is the progress signal. A spinner, not a shimmering
+                              // label, so it does not read as the reasoning trigger.
                               const showLoader = chat.loading && !lastMsg?.content && !lastMsg?.reasoning;
                               return showLoader && (
-                                <div className="message-ai chat-status-line">
-                                  <Shimmer as="span">
-                                    {isDeepSearching ? t('searchingDeeper') : t('thinking')}
-                                  </Shimmer>
+                                <div className="message-ai chat-status-line flex items-center gap-2" data-testid="chat-status-line">
+                                  {isDeepSearching ? (
+                                    <>
+                                      <Spinner size="sm" label={t('searchingDeeper')} />
+                                      <span aria-hidden="true" className="text-sm text-on-surface-variant">{t('searchingDeeper')}</span>
+                                    </>
+                                  ) : (
+                                    <Spinner size="sm" label={t('preparingAnswer')} />
+                                  )}
                                 </div>
                               );
                             })()}
@@ -707,6 +736,18 @@ const ChatViewComp = () => {
                   )}
 
                 </ChatStage>
+                {sourcePanelTarget && (
+                  <SourcePanel
+                    target={sourcePanelTarget}
+                    onClose={sourcePanelApi.close}
+                    onPassage={(passage) => setSourcePanelTarget(prev => (prev ? { ...prev, passage } : prev))}
+                    fileOrigin={sourcePanelOrigin}
+                    onPdfOpen={handlePdfSourceOpen}
+                    onPreviewSource={handlePreviewSource}
+                    canDownload={sourceRights.downloadSources}
+                    fullScreen={isMobile}
+                  />
+                )}
                 {!isMobile && (
                   <BranchTreeNav
                     messageTree={chat.messageTree}
@@ -790,6 +831,7 @@ const ChatViewComp = () => {
         />
       )}
     </div>
+    </SourcePanelContext.Provider>
   );
 };
 
