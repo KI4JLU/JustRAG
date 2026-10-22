@@ -29,6 +29,8 @@ interface SheetTableProps {
     onLoadMore: () => void;
     /** Opens a linked lookup table's tab. */
     onOpenTable: (table: string) => void;
+    /** The row details' source line; default: the sheet and SQL row id. */
+    rowSourceLabel?: (row: ViewRow) => string;
 }
 
 /** The first case-insensitive occurrence of `q` in `text`, marked. */
@@ -65,7 +67,7 @@ function NullValue({ label }: { label: string }) {
  */
 export const SheetTable: React.FC<SheetTableProps> = ({
     sheetName, columns, visibleCols, rows, matched, query, sort, onSort,
-    detailMode, selectedId, onSelect, hasMore, loadingMore, onLoadMore, onOpenTable,
+    detailMode, selectedId, onSelect, hasMore, loadingMore, onLoadMore, onOpenTable, rowSourceLabel,
 }) => {
     const { t, language } = useTheme();
     const locale = language === 'de' ? 'de-DE' : 'en-US';
@@ -253,7 +255,7 @@ export const SheetTable: React.FC<SheetTableProps> = ({
                                             <td className="sticky left-0 border-b border-outline-variant bg-surface-container-low shadow-[inset_3px_0_0_var(--color-primary)]" />
                                             <td colSpan={visibleCols.length + 1} className="border-b border-outline-variant px-3 py-4">
                                                 <div className="sticky left-15 max-w-[min(100%,72rem)]">
-                                                    <RowDetail columns={columns} row={row} sheetName={sheetName} layout="grid" onOpenTable={onOpenTable} />
+                                                    <RowDetail columns={columns} row={row} sheetName={sheetName} layout="grid" onOpenTable={onOpenTable} sourceLabel={rowSourceLabel} />
                                                 </div>
                                             </td>
                                         </tr>
@@ -305,7 +307,7 @@ export const SheetTable: React.FC<SheetTableProps> = ({
                         </Button>
                     </div>
                     <div className="min-h-0 flex-1 overflow-auto p-4">
-                        <RowDetail columns={columns} row={selRow} sheetName={sheetName} layout="list" onOpenTable={onOpenTable} />
+                        <RowDetail columns={columns} row={selRow} sheetName={sheetName} layout="list" onOpenTable={onOpenTable} sourceLabel={rowSourceLabel} />
                     </div>
                 </aside>
             )}

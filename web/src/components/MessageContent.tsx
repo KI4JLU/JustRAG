@@ -376,11 +376,10 @@ const REHYPE_PLUGINS: import('unified').PluggableList = [rehypeRaw, [rehypeSanit
 
 function buildMarkdownComponents(language: 'de' | 'en') {
     const loadingChartLabel = language === 'en' ? 'Loading chart...' : 'Lade Diagramm...';
-    const downloadXlsxLabel = language === 'en' ? 'Download .xlsx' : 'Als Excel (.xlsx) herunterladen';
     return {
         table: (tableProps: React.ComponentProps<'table'> & ExtraProps) => {
             const { node, children } = tableProps;
-            return <MarkdownTable node={node} label={downloadXlsxLabel} filename="table.xlsx">{children}</MarkdownTable>;
+            return <MarkdownTable node={node} filename="table.xlsx">{children}</MarkdownTable>;
         },
         img: (imgProps: React.ComponentProps<'img'> & ExtraProps) => {
             // Strip the react-markdown AST `node` so it isn't spread onto the DOM element.

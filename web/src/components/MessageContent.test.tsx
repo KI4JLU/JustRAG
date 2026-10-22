@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import MessageContent from './MessageContent';
 import type { TrajectoryEvent } from '../types';
+import { translations } from '../translations';
 import * as ThemeContext from '../contexts/ThemeContext';
 
 // Mock the module
@@ -20,7 +21,12 @@ describe('MessageContent', () => {
         // Reset mock before each test
         vi.resetAllMocks();
         // Default mock implementation
-        vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'en' } as ReturnType<typeof ThemeContext.useTheme>);
+        // `t` resolves the real English strings: the table footer (MarkdownTable)
+        // reads its labels through it.
+        vi.mocked(ThemeContext.useTheme).mockReturnValue({
+            language: 'en',
+            t: (k: string) => translations[k as keyof typeof translations]?.en ?? k,
+        } as unknown as ReturnType<typeof ThemeContext.useTheme>);
     });
 
     it('renders content correctly', () => {

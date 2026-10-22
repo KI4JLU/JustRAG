@@ -783,10 +783,17 @@ button.source-card {
   background: rgba(255, 255, 255, 0.02);
 }
 
-/* Per-table Excel export (generic Markdown tables in AI answers) */
+/* Tables in AI answers (MarkdownTable): the table plus a footer with its size,
+   the xlsx download and "Maximize". The frame carries the card look (radius,
+   shadow, background) so the footer sits inside the same card as the table;
+   the table inside drops its own. */
 .md-table-frame {
   position: relative;
   margin: 1rem 0;
+  background: var(--bg-secondary);
+  border-radius: var(--shape-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .md-table {
@@ -797,6 +804,8 @@ button.source-card {
 
 .md-table>table {
   margin: 0;
+  border-radius: 0;
+  box-shadow: none;
   /* Columns size to their content (prose capped by the cell max-width below);
      a table wider than the message scrolls inside .md-table, a narrow one
      still fills the width. Scoped to .md-table because the research reports
@@ -819,51 +828,32 @@ button.source-card {
   max-width: 20rem;
 }
 
-/* The xlsx download, pinned to the visible bottom-right corner of the table.
-   It lives INSIDE the scroll container, right after the table, as a sticky
-   zero-height strip: a block child of the scroller is as wide as the visible
-   area, and sticky `left: 0` keeps it there while the table scrolls sideways.
-   So the button is placed against the table's visible edges — not the outer
-   frame, whose bottom also includes the horizontal scrollbar — and sits the
-   same distance from the bottom and the side.
-   Shown only while the table is hovered or the button has keyboard focus;
-   hidden, it takes no clicks. */
-.md-table-frame__action {
-  position: sticky;
-  left: 0;
-  height: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
+/* Always visible and a fixed height: the message list is virtualized, so the
+   footer must not change the item's height on hover or remount. It stays put
+   while the table scrolls sideways (it is outside the scroller). The side and
+   bottom borders continue the table's cell grid; the table's last row
+   supplies the top one. */
+.md-table-frame__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  height: 2.5rem;
+  padding: 0 0.25rem 0 1rem;
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 var(--shape-md) var(--shape-md);
+  background: var(--msg-ai-bg);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
 }
 
-.md-table-frame__action > * {
-  position: absolute;
-  right: 0.75rem;
-  bottom: 0.75rem;
-}
-
-.md-table-frame:hover .md-table-frame__action,
-.md-table-frame__action:focus-within {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Devices without hover could never reveal it and could not tap the cell it
-   would cover, so there it sits in flow below the table, right-aligned. */
-@media (hover: none) {
-  .md-table-frame__action {
-    display: flex;
-    justify-content: flex-end;
-    height: auto;
-    padding-top: 0.25rem;
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .md-table-frame__action > * {
-    position: static;
-  }
+.md-table-frame__size {
+  margin-right: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Dark mode polish — accent glow on interactive elements */
