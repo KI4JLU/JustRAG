@@ -453,7 +453,6 @@ export const translations = {
     ltpFooterCounts: { de: '{shown} von {total} Zeilen · {cols} Spalten', en: '{shown} of {total} rows · {cols} columns' },
     resume: { de: 'Fortsetzen', en: 'Resume' },
     pause: { de: 'Pausieren', en: 'Pause' },
-    deleteRssFeed: { de: 'RSS-Feed löschen?', en: 'Delete RSS feed?' },
     deleteRssFeedConfirm: { de: 'Der Feed und alle zugehörigen Dateien werden gelöscht.', en: 'The feed and all associated files will be deleted.' },
     rssFeedAdded: { de: 'RSS-Feed hinzugefügt', en: 'RSS feed added' },
     rssFeedDeleted: { de: 'RSS-Feed gelöscht', en: 'RSS feed deleted' },
@@ -973,7 +972,7 @@ export const translations = {
     today: { de: 'Heute', en: 'Today' },
     yesterday: { de: 'Gestern', en: 'Yesterday' },
     renameChat: { de: 'Chat umbenennen', en: 'Rename chat' },
-    selectChats: { de: 'Auswählen', en: 'Select' },
+    deleteChats: { de: 'Chats löschen', en: 'Delete chats' },
     selectChat: { de: 'Auswählen:', en: 'Select:' },
     selectedCount: { de: '{count} ausgewählt', en: '{count} selected' },
     deleteSelected: { de: 'Ausgewählte löschen', en: 'Delete selected' },
@@ -1112,6 +1111,12 @@ export const translations = {
     goToHome: { de: 'Zur Startseite', en: 'Go to home' },
     sources: { de: 'Quellen', en: 'Sources' },
     selectSource: { de: 'Quelle auswählen', en: 'Select source' },
+    selectSources: { de: 'Auswählen', en: 'Select' },
+    confirmSourceSelection: { de: 'Auswahl für den Chat übernehmen', en: 'Use selection in chat' },
+    removeSource: { de: 'Entfernen', en: 'Remove' },
+    removeSources: { de: 'Quellen entfernen', en: 'Remove sources' },
+    removeSelected: { de: 'Ausgewählte entfernen', en: 'Remove selected' },
+    confirmRemoveSources: { de: '{count} Quellen entfernen?', en: 'Remove {count} sources?' },
 
     // HomeView
     // Three displayed visibility states from two stored fields (visibility +

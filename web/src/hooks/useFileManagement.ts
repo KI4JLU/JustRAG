@@ -131,18 +131,35 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [currentKb, uploadFilesBatch]);
 
+  // Deletes without asking: the caller has confirmed (one file, or a batch
+  // from the sources selection mode under one dialog). Optimistic; a file
+  // whose DELETE fails comes back in its old place.
+  const deleteFiles = useCallback(async (fileIds: string[]) => {
+    if (fileIds.length === 0) return;
+    const ids = new Set(fileIds);
+    let snapshot: FileEntry[] = [];
+    setFiles(prev => { snapshot = prev; return prev.filter(f => !ids.has(f.id)); });
+    const results = await Promise.allSettled(fileIds.map(id => axios.delete(`${API_BASE_URL}/api/files/${id}`)));
+    const failed = new Set(fileIds.filter((_, i) => results[i].status === 'rejected'));
+    if (failed.size === 0) return;
+    // Snapshot order for what was there before, then anything that arrived
+    // meanwhile (a poll, an upload).
+    setFiles(prev => {
+      const current = new Map(prev.map(f => [f.id, f]));
+      const before = new Set(snapshot.map(f => f.id));
+      return [
+        ...snapshot.filter(f => current.has(f.id) || failed.has(f.id)).map(f => current.get(f.id) ?? f),
+        ...prev.filter(f => !before.has(f.id)),
+      ];
+    });
+    toast.error(t('deleteFileError'));
+  }, [t, toast]);
+
   const handleDeleteFile = useCallback(async (fileId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!await showConfirm(t('confirmDeleteFile'))) return;
-    let snapshot: FileEntry[] = [];
-    setFiles(prev => { snapshot = prev; return prev.filter(f => f.id !== fileId); });
-    try {
-      await axios.delete(`${API_BASE_URL}/api/files/${fileId}`);
-    } catch {
-      setFiles(snapshot);
-      toast.error(t('deleteFileError'));
-    }
-  }, [showConfirm, t, toast]);
+    await deleteFiles([fileId]);
+  }, [deleteFiles, showConfirm, t]);
 
   const retryFile = useCallback(async (fileId: string) => {
     try {
@@ -277,7 +294,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
 
   return useMemo(() => ({
     files, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
-    fetchFiles, uploadFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
+    fetchFiles, uploadFiles, handleFileUpload, deleteFiles, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     showUploadModal, setShowUploadModal,
     isDragging, textSourceTitle, setTextSourceTitle,
@@ -286,7 +303,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   }), [
     files, uploading, hasFiles, filesLoaded, selectedFileCount,
     showUploadModal, isDragging, textSourceTitle, textSourceContent,
-    fetchFiles, uploadFiles, handleFileUpload, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
+    fetchFiles, uploadFiles, handleFileUpload, deleteFiles, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd
   ]);

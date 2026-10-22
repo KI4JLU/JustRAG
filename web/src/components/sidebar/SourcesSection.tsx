@@ -1,6 +1,6 @@
 import React, { createElement, memo } from 'react';
 import {
-    Download, Trash2,
+    Download, Trash2, ListChecks,
     Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, ShieldAlert
 } from 'lucide-react';
 import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
@@ -11,13 +11,22 @@ import { SyncScheduleSelect } from './SyncScheduleSelect';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
 import { SourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
+import { cardFiles, feedExcluded, feedKey, fileKey, type SourceKey } from './sourceSelection';
 
 interface SourcesSectionProps {
     files: FileEntry[];
     onPreviewSource: (file: FileEntry) => void;
-    onToggleFilesSelection: (fileIds: string[], selected: boolean) => void;
+    /** The open mode's ticked rows (see sourceSelection.ts): null = no mode,
+     *  and then no card carries a checkbox. */
+    selection: ReadonlySet<SourceKey> | null;
+    /** `destructive` while the mode is a remove selection: ticked rows read red. */
+    selectionTone: 'default' | 'destructive';
+    /** Opens the filter mode ("Auswählen"). */
+    onStartSelection: () => void;
+    /** Opens the remove mode with this row ticked (a row's "Entfernen"). */
+    onStartRemoval: (key: SourceKey) => void;
+    onToggleSelected: (key: SourceKey, selected: boolean) => void;
     onDownloadFile: (id: string) => void;
-    onDeleteFile: (id: string, e: React.MouseEvent) => void;
     /** Whether the caller may change the KB's existing sources
      *  (capabilities.manageSources — role edit or better). false hides delete,
      *  retry, sync, pause and the schedule picker: the backend would refuse
@@ -28,12 +37,11 @@ interface SourcesSectionProps {
      *  (capabilities.downloadSources). false drops the Download action, the
      *  hover preview (it is built from the downloaded file) and the preview on
      *  click — the card is then display-only (DS SidebarCard without onOpen:
-     *  the title is plain text); its checkbox still selects it. Required for
+     *  the title is plain text); in selection mode a click still ticks it. Required for
      *  the same reason as canManage. */
     canDownload: boolean;
     rssFeeds: RssFeed[];
     onUpdateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-    onDeleteRssFeed: (feedId: string) => void;
     onPollFeedNow: (feedId: string) => void;
     onViewFeed: (feed: RssFeed) => void;
     confluenceSources: ConfluenceSource[];
@@ -68,21 +76,20 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // deliberately excluding .xlsm (macro-enabled workbooks, out of scope) — the
 // "Tabellen" file-detail button only makes sense for these.
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
-    files, onPreviewSource, onToggleFilesSelection,
-    onDownloadFile, onDeleteFile, canManage, canDownload,
-    rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
+    files, onPreviewSource, selection, selectionTone, onStartSelection, onStartRemoval, onToggleSelected,
+    onDownloadFile, canManage, canDownload,
+    rssFeeds, onUpdateRssFeed, onPollFeedNow, onViewFeed,
     confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
     onRetryFile
 }) => {
     const { t } = useTheme();
+    const selecting = selection !== null;
 
-
-    const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
+    const nonRssFiles = cardFiles(files);
     // Hover previews are prepared ahead of the hover (see sourcePreviews.ts) —
     // only for a caller who may download, since the preview IS the download.
     useSourcePreviews(canDownload ? nonRssFiles : NO_FILES);
-    const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
 
     // Untrusted, document-derived text: it goes into title/aria-label as a
     // plain string and is never rendered as markup. The per-KB count of
@@ -152,17 +159,24 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             </>}
                             actionsLabel={t('sourceActions')}
                             actions={[
+                                { label: t('selectSources'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: onStartSelection },
                                 ...(canDownload ? [
                                     { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
                                 ] : []),
                                 ...(canManage ? [
-                                    { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: canDownload,
-                                      onSelect: (e: Event) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                                    { label: t('removeSource'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
+                                      onSelect: () => onStartRemoval(fileKey(file.id)) },
                                 ] : []),
                             ]}
-                            selectable
-                            selected={file.selected !== false}
-                            onSelectedChange={(sel) => onToggleFilesSelection([file.id], sel)}
+                            // Outside selection mode the chat filter shows as a
+                            // greyed-out card: the checkboxes that used to say it
+                            // are gone (the count in the prompt bar sums it up).
+                            muted={!selecting && file.selected === false}
+                            selectable={selecting}
+                            selectionMode={selecting}
+                            selectionTone={selectionTone}
+                            selected={selection?.has(fileKey(file.id)) ?? false}
+                            onSelectedChange={(sel) => onToggleSelected(fileKey(file.id), sel)}
                             selectLabel={t('selectSource')}
                         />
                     );
@@ -171,14 +185,19 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                         : card;
                 })}
 
-                {rssFeeds.map(feed => (
-                    <li key={`rss-${feed.id}`} className="source-card sidebar-left__file-card">
+                {rssFeeds.map(feed => {
+                    // Greyed out like a muted SidebarCard (opacity-50 on icon,
+                    // title and meta; controls at full strength) when none of
+                    // the feed's files is in the chat filter.
+                    const feedMuted = !selecting && feedExcluded(feed.id, files);
+                    return (
+                    <li key={`rss-${feed.id}`} className="source-card sidebar-left__file-card" data-muted={feedMuted ? '' : undefined}>
                         <div className="sidebar-left__file-row">
-                            <div className="sidebar-left__file-origin-icon">
+                            <div className={`sidebar-left__file-origin-icon${feedMuted ? ' opacity-50' : ''}`}>
                                 <Rss size={18} aria-hidden="true" />
                             </div>
                             <div className="sidebar-left__file-main sidebar-ui__item-main">
-                                <div className="sidebar-left__file-top-row sidebar-ui__item-row">
+                                <div className={`sidebar-left__file-top-row sidebar-ui__item-row${feedMuted ? ' opacity-50' : ''}`}>
                                     <span className="text-button source-title sidebar-left__file-name sidebar-ui__item-title">
                                         {feed.title || feed.url}
                                     </span>
@@ -186,7 +205,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         {feed.status === 'active' ? t('active') : feed.status === 'paused' ? t('paused') : t('feedError')}
                                     </span>
                                 </div>
-                                <div className="sidebar-left__file-meta-row">
+                                <div className={`sidebar-left__file-meta-row${feedMuted ? ' opacity-50' : ''}`}>
                                     <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
                                         {feed.itemCount > 0 && <span>{feed.itemCount} {t('items')}</span>}
                                         {feed.lastPolledAt && <span>{t('lastPolled')}: {new Date(feed.lastPolledAt).toLocaleString()}</span>}
@@ -198,14 +217,19 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                 {feed.status === 'error' && feed.errorMessage && (
                                     <div className="sidebar-left__rss-feed-error">{feed.errorMessage}</div>
                                 )}
-                                {canManage && (
+                                {canManage && !selecting && (
                                     <SyncScheduleSelect
                                         id={`rss-row-schedule-${feed.id}`}
                                         value={feed.syncSchedule}
                                         onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
                                     />
                                 )}
+                                {!selecting && (
                                 <div className="sidebar-left__rss-feed-actions">
+                                    {/* eslint-disable-next-line design-system/no-raw-ui-elements -- same raw icon button as its siblings in this row; they move to the DS together with the feed row */}
+                                    <button onClick={onStartSelection} title={t('selectSources')} aria-label={`${t('selectSources')} ${feed.title || feed.url}`}>
+                                        <ListChecks size={14} />
+                                    </button>
                                     {canManage && (<>
                                         <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
                                             <RefreshCw size={14} />
@@ -220,24 +244,25 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <Eye size={14} />
                                     </button>
                                     {canManage && (
-                                        <button onClick={() => onDeleteRssFeed(feed.id)} title={t('delete')} aria-label={`${t('delete')} ${feed.title || feed.url}`}>
+                                        <button onClick={() => onStartRemoval(feedKey(feed.id))} title={t('removeSource')} aria-label={`${t('removeSource')} ${feed.title || feed.url}`}>
                                             <Trash2 size={14} />
                                         </button>
                                     )}
                                 </div>
+                                )}
                             </div>
-                            <Checkbox
-                                checked={rssFeedFiles(feed.id).length > 0 && rssFeedFiles(feed.id).every(f => f.selected !== false)}
-                                onCheckedChange={() => {
-                                    const feedFileList = rssFeedFiles(feed.id);
-                                    const allSelected = feedFileList.every(f => f.selected !== false);
-                                    onToggleFilesSelection(feedFileList.map(f => f.id), !allSelected);
-                                }}
-                                aria-label={`${t('selectSource')} ${feed.title || feed.url}`}
-                            />
+                            {selecting && (
+                                <Checkbox
+                                    tone={selectionTone}
+                                    checked={selection.has(feedKey(feed.id))}
+                                    onCheckedChange={(on) => onToggleSelected(feedKey(feed.id), on === true)}
+                                    aria-label={`${t('selectSource')} ${feed.title || feed.url}`}
+                                />
+                            )}
                         </div>
                     </li>
-                ))}
+                    );
+                })}
 
                 {confluenceSources.map(source => (
                     <li key={`confluence-${source.id}`} className="source-card sidebar-left__file-card">
@@ -299,7 +324,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     })} title={source.status === 'active' ? t('pause') : t('resume')} aria-label={source.status === 'active' ? t('pause') : t('resume')}>
                                         {source.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
                                     </button>
-                                    <button onClick={() => onDeleteConfluenceSource(source.id)} title={t('delete')} aria-label={`${t('delete')} ${source.spaceKey}`}>
+                                    <button onClick={() => onDeleteConfluenceSource(source.id)} title={t('removeSource')} aria-label={`${t('removeSource')} ${source.spaceKey}`}>
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
@@ -363,7 +388,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <button onClick={() => onUpdateGitRepoSource(source.id, { status: source.status === 'active' ? 'paused' : 'active' })} disabled={source.status === 'syncing'} title={source.status === 'active' ? t('pause') : t('resume')} aria-label={source.status === 'active' ? t('pause') : t('resume')}>
                                             {source.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
                                         </button>
-                                        <button onClick={() => onDeleteGitRepoSource(source.id)} title={t('delete')} aria-label={`${t('delete')} ${repoName}`}>
+                                        <button onClick={() => onDeleteGitRepoSource(source.id)} title={t('removeSource')} aria-label={`${t('removeSource')} ${repoName}`}>
                                             <Trash2 size={14} />
                                         </button>
                                     </div>

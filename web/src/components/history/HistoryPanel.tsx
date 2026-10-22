@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
-    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil, ListChecks,
+    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil,
 } from 'lucide-react';
 import {
     Button, SidebarAction, SidebarCard, SidebarCardList, SidebarRail, SidebarPanel, SidebarRailItem, SidebarSelectionBar,
@@ -38,7 +38,7 @@ const HistoryPanelComp: React.FC = () => {
     const { chat } = useKbChat();
     const { content } = useKbData();
 
-    const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
+    const { chats, activeChatId, handleSelectChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
     const { generatedContent, generating, podcastProgress } = content;
 
     // Nur Chats (Entwickler, 22.09.2026). Artefakte öffneten die Workspace-
@@ -70,14 +70,9 @@ const HistoryPanelComp: React.FC = () => {
         setKbView('chat');
     }, [handleSelectChat, setKbView, activeChatId]);
 
-    // Radix hands `onSelect` a DOM Event; the handler only needs
-    // stopPropagation, which both share.
-    const deleteItem = useCallback((item: HistoryItem, e: Event) => {
-        handleDeleteChat(item.id, e as unknown as React.MouseEvent);
-    }, [handleDeleteChat]);
-
-    // Selection mode (batch actions): off by default, so the chat cards carry no
-    // checkbox. Started from a card's "Select" action with that card ticked.
+    // Delete mode, as in the sources list: off by default, so the chat cards
+    // carry no checkbox. A card's Delete action starts it with that card
+    // ticked, in the error colour; the bar's delete asks once for the batch.
     const [selection, setSelection] = useState<Set<string> | null>(null);
     const selecting = selection !== null;
     const toggleSelected = useCallback((id: string, on: boolean) => {
@@ -174,13 +169,13 @@ const HistoryPanelComp: React.FC = () => {
                             </SidebarAction>
                             {selecting && (
                                 <SidebarSelectionBar
-                                    aria-label={t('selectChats')}
+                                    aria-label={t('deleteChats')}
                                     countLabel={t('selectedCount').replace('{count}', String(selection.size))}
                                     onCancel={() => setSelection(null)}
                                     cancelLabel={t('cancel')}
                                 >
                                     <Button
-                                        variant="ghost"
+                                        variant="ghost-destructive"
                                         size="icon"
                                         onClick={deleteSelected}
                                         disabled={selection.size === 0}
@@ -226,11 +221,11 @@ const HistoryPanelComp: React.FC = () => {
                                             actionsLabel={t('chatActions')}
                                             actions={[
                                                 { label: t('renameChat'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: () => renameItem(item) },
-                                                { label: t('selectChats'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: () => setSelection(new Set([item.id])) },
-                                                { label: t('deleteItem'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true, onSelect: (e) => deleteItem(item, e) },
+                                                { label: t('deleteItem'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true, onSelect: () => setSelection(new Set([item.id])) },
                                             ]}
                                             selectable={selecting}
                                             selectionMode={selecting}
+                                            selectionTone="destructive"
                                             selected={selection?.has(item.id) ?? false}
                                             onSelectedChange={(on) => toggleSelected(item.id, on)}
                                             selectLabel={t('selectChat')}
