@@ -14,7 +14,8 @@ export interface KbDataContextValue {
   fetchRssFeeds: (kbId?: string) => void;
   addRssFeed: (url: string, syncSchedule: SyncSchedule, fetchFullText: boolean) => void;
   updateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused'; fetchFullText?: boolean }) => void;
-  deleteRssFeed: (feedId: string) => void;
+  /** Deletes without a confirm dialog — the caller has asked. */
+  deleteRssFeeds: (feedIds: string[]) => Promise<void>;
   pollFeedNow: (feedId: string) => void;
   // Confluence
   confluenceSources: ConfluenceSource[];

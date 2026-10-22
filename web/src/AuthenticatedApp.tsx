@@ -192,7 +192,7 @@ function AuthenticatedAppInner() {
     fetchFiles: fileMgmt.fetchFiles,
   });
 
-  const { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeed, pollFeedNow } = useRssFeeds({
+  const { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow } = useRssFeeds({
     currentKb,
     fetchFiles: fileMgmt.fetchFiles,
   });
@@ -592,7 +592,7 @@ function AuthenticatedAppInner() {
     fetchRssFeeds,
     addRssFeed,
     updateRssFeed,
-    deleteRssFeed,
+    deleteRssFeeds,
     pollFeedNow,
     confluenceSources: confluenceHook.confluenceSources,
     confluenceConnection: confluenceHook.confluenceConnection,

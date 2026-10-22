@@ -120,13 +120,26 @@ describe('HistoryPanel', () => {
     expect(screen.getByText('history')).toBeInTheDocument();
   });
 
-  it('löscht einen Chat aus dem Aktionsmenü über handleDeleteChat, nicht über handleDeleteGeneratedContent', async () => {
+  // Wie in der Quellenliste: „Löschen" im Aktionsmenü löscht nicht sofort,
+  // sondern startet den Löschmodus mit diesem Chat angehakt.
+  it('startet über „Löschen" im Aktionsmenü den Löschmodus, ohne sofort zu löschen', async () => {
     render(<HistoryPanel />);
     expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
     await userEvent.click(screen.getByRole('menuitem', { name: /deleteItem/ }));
-    expect(handleDeleteChat).toHaveBeenCalledWith('c1', expect.anything());
+    expect(handleDeleteChat).not.toHaveBeenCalled();
+    expect(handleDeleteChats).not.toHaveBeenCalled();
     expect(handleDeleteGeneratedContent).not.toHaveBeenCalled();
+    expect(screen.getByRole('toolbar', { name: 'deleteChats' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'selectChat Budget?' })).toHaveAttribute('aria-checked', 'true');
+    // Was gelöscht werden soll, ist rot markiert (DS selectionTone="destructive").
+    expect(screen.getByTestId('history-item-title').closest('[data-slot=sidebar-card]')).toHaveClass('border-error');
+  });
+
+  it('bietet keinen eigenen „Auswählen"-Eintrag mehr an — Auswahl gibt es nur zum Löschen', async () => {
+    render(<HistoryPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
+    expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual(['renameChat', 'deleteItem']);
   });
 
   it('öffnet den Chat beim Klick auf die Kartenfläche, nicht aber über das Aktionsmenü', async () => {
@@ -139,12 +152,12 @@ describe('HistoryPanel', () => {
     expect(handleSelectChat).toHaveBeenCalledTimes(1);
   });
 
-  it('zeigt keine Checkbox, bis über „Auswählen" eine Mehrfachauswahl beginnt', async () => {
+  it('zeigt keine Checkbox, bis über „Löschen" eine Mehrfachauswahl beginnt', async () => {
     render(<HistoryPanel />);
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: /selectChats/ }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /deleteItem/ }));
 
     const box = screen.getByRole('checkbox', { name: 'selectChat Budget?' });
     expect(box).toHaveAttribute('aria-checked', 'true');
@@ -158,7 +171,7 @@ describe('HistoryPanel', () => {
   it('löscht die Auswahl gesammelt und beendet danach den Auswahlmodus', async () => {
     render(<HistoryPanel />);
     await userEvent.click(screen.getByRole('button', { name: 'chatActions Budget?' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: /selectChats/ }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /deleteItem/ }));
     await userEvent.click(screen.getByRole('button', { name: 'deleteSelected' }));
     expect(handleDeleteChats).toHaveBeenCalledWith(['c1']);
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();

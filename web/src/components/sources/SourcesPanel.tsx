@@ -3,7 +3,9 @@ import type { RssFeed } from '../../types';
 import { useKbCore } from '../../contexts/KbCoreContext';
 import { useKbData } from '../../contexts/KbDataContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FileDropzone, SidebarPanel, useWindowFileDrag } from '@ki4jlu/design-system';
+import { Check, CheckCheck, Trash2 } from 'lucide-react';
+import { Button, FileDropzone, SidebarPanel, SidebarSelectionBar, useWindowFileDrag } from '@ki4jlu/design-system';
+import { useModalContext } from '../../contexts/ModalContext';
 import '../sidebar-primitives.css';
 import { RssFeedEntriesModal } from '../RssFeedEntriesModal';
 import { SourcesSection } from '../sidebar/SourcesSection';
@@ -18,14 +20,16 @@ import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
 import { ACCEPTED_FILE_TYPES } from '../../constants';
 import { useKbSourceRights } from '../../hooks/useKbSourceRights';
+import { deleteTargets, filterKeepsFiles, filterKeys, filterUpdate, liveSelection, selectableKeys, type SourceKey } from '../sidebar/sourceSelection';
 import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
     const { t } = useTheme();
-    const { setKbView } = useKbCore();
+    const { currentKb, setKbView } = useKbCore();
+    const { showConfirm } = useModalContext();
     const {
         fileMgmt, webTools,
-        rssFeeds, rssLoading, addRssFeed, updateRssFeed, deleteRssFeed, pollFeedNow,
+        rssFeeds, rssLoading, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow,
         confluenceSources, updateConfluenceSource, deleteConfluenceSource, syncConfluenceNow,
         confluenceConnection, confluenceLoading,
         gitRepoSources, gitRepoLoading, addGitRepoSource, updateGitRepoSource, deleteGitRepoSource, syncGitRepoNow,
@@ -36,7 +40,7 @@ const SourcesPanelComp: React.FC = () => {
     const {
         files, filesLoaded, fileInputRef,
         handleToggleFilesSelection,
-        handleDownloadFile, handleDeleteFile, handleFileUpload,
+        handleDownloadFile, handleDeleteFile, deleteFiles, handleFileUpload,
         retryFile,
         isDragging, textSourceTitle, setTextSourceTitle,
         textSourceContent, setTextSourceContent,
@@ -96,6 +100,59 @@ const SourcesPanelComp: React.FC = () => {
 
     const closeSourceModal = useCallback(() => setActiveSourceModal(null), []);
 
+    // Two modes over the list, both off by default, so the cards carry no
+    // checkbox (sourceSelection.ts):
+    //  - filter ("Auswählen"): opens with the current chat filter ticked;
+    //    Confirm writes it, Cancel leaves the filter as it was.
+    //  - remove (a card's "Entfernen"): opens with that card ticked, in the
+    //    error colour; Remove asks once and deletes the ticked sources.
+    const [mode, setMode] = useState<{ kind: 'filter' | 'remove'; keys: Set<SourceKey> } | null>(null);
+    // Another KB's list is a different set of rows: leave the mode.
+    const [modeKbId, setModeKbId] = useState(currentKb.id);
+    if (currentKb.id !== modeKbId) {
+        setModeKbId(currentKb.id);
+        setMode(null);
+    }
+    const startSelection = useCallback(
+        () => setMode({ kind: 'filter', keys: new Set(filterKeys(files, rssFeeds)) }),
+        [files, rssFeeds],
+    );
+    const startRemoval = useCallback((key: SourceKey) => setMode({ kind: 'remove', keys: new Set([key]) }), []);
+    const toggleSelected = useCallback((key: SourceKey, on: boolean) => {
+        setMode(prev => {
+            if (!prev) return prev;
+            const keys = new Set(prev.keys);
+            if (on) keys.add(key); else keys.delete(key);
+            return { ...prev, keys };
+        });
+    }, []);
+    const cancelMode = useCallback(() => setMode(null), []);
+    const ticked = mode ? liveSelection(mode.keys, files, rssFeeds) : [];
+    const allKeys = selectableKeys(files, rssFeeds);
+    const allTicked = ticked.length > 0 && ticked.length === allKeys.length;
+    const toggleAll = () => setMode(prev => prev && { ...prev, keys: allTicked ? new Set() : new Set(allKeys) });
+    const confirmSelection = useCallback(() => {
+        if (mode?.kind !== 'filter') return;
+        const { select, deselect } = filterUpdate(mode.keys, files, rssFeeds);
+        handleToggleFilesSelection(select, true);
+        handleToggleFilesSelection(deselect, false);
+        setMode(null);
+    }, [mode, files, rssFeeds, handleToggleFilesSelection]);
+    const removeSelected = useCallback(async () => {
+        if (mode?.kind !== 'remove') return;
+        const { fileIds, feedIds } = deleteTargets(mode.keys, files, rssFeeds);
+        const count = fileIds.length + feedIds.length;
+        if (count === 0) return;
+        const message = t('confirmRemoveSources').replace('{count}', String(count))
+            + (feedIds.length > 0 ? ` ${t('deleteRssFeedConfirm')}` : '');
+        if (!await showConfirm(message, t('removeSelected'), { tone: 'destructive', confirmLabel: t('removeSource') })) return;
+        setMode(null);
+        // In turn, not in parallel: removing a feed re-reads the file list,
+        // and a read that lands before a file's DELETE would bring it back.
+        await deleteFiles(fileIds);
+        await deleteRssFeeds(feedIds);
+    }, [mode, files, rssFeeds, showConfirm, t, deleteFiles, deleteRssFeeds]);
+
     // Close modal when sources are successfully added.
     // Adjust-state-during-render pattern (react.dev "You Might Not Need an Effect"):
     // compare against the previous value instead of reacting in an effect.
@@ -133,6 +190,57 @@ const SourcesPanelComp: React.FC = () => {
                             />
                         )}
                         <SourcesHeader />
+                        {mode?.kind === 'filter' && (
+                            <SidebarSelectionBar
+                                aria-label={t('selectSources')}
+                                countLabel={t('selectedCount').replace('{count}', String(ticked.length))}
+                                onCancel={cancelMode}
+                                cancelLabel={t('cancel')}
+                            >
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={toggleAll}
+                                    aria-label={allTicked ? t('deselectAll') : t('selectAll')}
+                                    title={allTicked ? t('deselectAll') : t('selectAll')}
+                                    aria-pressed={allTicked}
+                                >
+                                    <CheckCheck size={16} aria-hidden="true" />
+                                </Button>
+                                {/* A turn needs at least one file
+                                    (chatSourceSelection), so a filter that
+                                    leaves none is not one to confirm. */}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={confirmSelection}
+                                    disabled={!filterKeepsFiles(mode.keys, files, rssFeeds)}
+                                    aria-label={t('confirmSourceSelection')}
+                                    title={t('confirmSourceSelection')}
+                                >
+                                    <Check size={16} aria-hidden="true" />
+                                </Button>
+                            </SidebarSelectionBar>
+                        )}
+                        {mode?.kind === 'remove' && (
+                            <SidebarSelectionBar
+                                aria-label={t('removeSources')}
+                                countLabel={t('selectedCount').replace('{count}', String(ticked.length))}
+                                onCancel={cancelMode}
+                                cancelLabel={t('cancel')}
+                            >
+                                <Button
+                                    variant="ghost-destructive"
+                                    size="icon"
+                                    onClick={removeSelected}
+                                    disabled={ticked.length === 0}
+                                    aria-label={t('removeSelected')}
+                                    title={t('removeSelected')}
+                                >
+                                    <Trash2 size={16} aria-hidden="true" />
+                                </Button>
+                            </SidebarSelectionBar>
+                        )}
                     </>
                 )}
             >
@@ -150,14 +258,16 @@ const SourcesPanelComp: React.FC = () => {
                 <SourcesSection
                     files={files}
                     onPreviewSource={handlePreviewSource}
-                    onToggleFilesSelection={handleToggleFilesSelection}
+                    selection={mode?.keys ?? null}
+                    selectionTone={mode?.kind === 'remove' ? 'destructive' : 'default'}
+                    onStartSelection={startSelection}
+                    onStartRemoval={startRemoval}
+                    onToggleSelected={toggleSelected}
                     onDownloadFile={handleDownloadFile}
-                    onDeleteFile={handleDeleteFile}
                     canManage={canManage}
                     canDownload={canDownload}
                     rssFeeds={rssFeeds}
                     onUpdateRssFeed={updateRssFeed}
-                    onDeleteRssFeed={deleteRssFeed}
                     onPollFeedNow={pollFeedNow}
                     onViewFeed={setViewingFeed}
                     confluenceSources={confluenceSources}

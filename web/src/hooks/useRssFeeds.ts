@@ -3,7 +3,6 @@ import axios from 'axios';
 import type { KnowledgeBase, RssFeed, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
-import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { getApiErrorMessage, isForbidden } from '../utils/apiError';
 import { unlistableKbId } from '../utils/kbAccess';
@@ -15,7 +14,6 @@ interface UseRssFeedsParams {
 
 export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
     const { t } = useTheme();
-    const { showConfirm } = useModalContext();
     const toast = useToast();
     const [rssFeeds, setRssFeeds] = useState<RssFeed[]>([]);
     const [rssLoading, setRssLoading] = useState(false);
@@ -79,21 +77,23 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
         }
     }, [currentKb, fetchRssFeeds, t, toast]);
 
-    const deleteRssFeed = useCallback(async (feedId: string) => {
-        if (!currentKb) return;
-        const confirmed = await showConfirm(t('deleteRssFeed'), t('deleteRssFeedConfirm'));
-        if (!confirmed) return;
-
-        setRssFeeds(prev => prev.filter(f => f.id !== feedId));
-        try {
-            await axios.delete(`${API_BASE_URL}/api/kb/${currentKb.id}/rss/${feedId}`);
-            toast.success(t('rssFeedDeleted'));
-            await fetchFiles(currentKb.id);
-        } catch (err: unknown) {
+    // Deletes without asking: the caller has confirmed (the sources remove
+    // mode asks once for the whole batch). A feed takes its
+    // files with it, so the file list is re-read afterwards.
+    const deleteRssFeeds = useCallback(async (feedIds: string[]) => {
+        if (!currentKb || feedIds.length === 0) return;
+        const ids = new Set(feedIds);
+        setRssFeeds(prev => prev.filter(f => !ids.has(f.id)));
+        const results = await Promise.allSettled(feedIds.map(id => axios.delete(`${API_BASE_URL}/api/kb/${currentKb.id}/rss/${id}`)));
+        const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (failure) {
             await fetchRssFeeds();
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(getApiErrorMessage(failure.reason, t('error')));
+        } else {
+            toast.success(t('rssFeedDeleted'));
         }
-    }, [currentKb, fetchFiles, fetchRssFeeds, showConfirm, t, toast]);
+        await fetchFiles(currentKb.id);
+    }, [currentKb, fetchFiles, fetchRssFeeds, t, toast]);
 
     const pollFeedNow = useCallback(async (feedId: string) => {
         if (!currentKb) return;
@@ -109,5 +109,5 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
         }
     }, [currentKb, fetchFiles, fetchRssFeeds, t, toast]);
 
-    return { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeed, pollFeedNow };
+    return { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow };
 }

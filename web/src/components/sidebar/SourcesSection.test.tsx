@@ -68,13 +68,14 @@ const makeGitRepoSource = (over: Partial<GitRepoSource> = {}): GitRepoSource => 
 
 const baseProps = {
   onPreviewSource: vi.fn(),
-  onToggleFileSelection: vi.fn(),
-  onToggleFilesSelection: vi.fn(),
+  selection: null,
+  selectionTone: 'default' as const,
+  onStartSelection: vi.fn(),
+  onStartRemoval: vi.fn(),
+  onToggleSelected: vi.fn(),
   onDownloadFile: vi.fn(),
-  onDeleteFile: vi.fn(),
   rssFeeds: [],
   onUpdateRssFeed: vi.fn(),
-  onDeleteRssFeed: vi.fn(),
   onPollFeedNow: vi.fn(),
   onViewFeed: vi.fn(),
   confluenceSources: [],
@@ -122,37 +123,25 @@ describe('SourcesSection error display + retry', () => {
     expect(screen.getByText('fileStatusPending')).toBeInTheDocument();
   });
 
-  it('keeps download and delete behind the per-file actions menu', async () => {
+  it('keeps download and remove behind the per-file actions menu', async () => {
     const onDownloadFile = vi.fn();
     render(<SourcesSection {...baseProps} files={[makeFile({})]} onDownloadFile={onDownloadFile} />);
     expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
-    expect(screen.getByRole('menuitem', { name: /delete/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'removeSource' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('menuitem', { name: /download/ }));
     expect(onDownloadFile).toHaveBeenCalledWith('f-1');
   });
 
-  it('puts the selection checkbox on the card and toggles through the bulk handler', async () => {
-    const onToggleFilesSelection = vi.fn();
-    render(<SourcesSection {...baseProps} files={[makeFile({})]} onToggleFilesSelection={onToggleFilesSelection} />);
-    const box = screen.getByRole('checkbox', { name: 'selectSource doc.pdf' });
-    expect(box).toHaveAttribute('aria-checked', 'true');
-    await userEvent.click(box);
-    expect(onToggleFilesSelection).toHaveBeenCalledWith(['f-1'], false);
-  });
-
   it('previews on a click anywhere on the card, but not on its controls', async () => {
     const onPreviewSource = vi.fn();
-    const onToggleFilesSelection = vi.fn();
-    render(<SourcesSection {...baseProps} files={[makeFile({})]} onPreviewSource={onPreviewSource} onToggleFilesSelection={onToggleFilesSelection} />);
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} onPreviewSource={onPreviewSource} />);
     await userEvent.click(screen.getByRole('listitem'));
     expect(onPreviewSource).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
     await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
     await userEvent.click(screen.getByRole('menuitem', { name: /download/ }));
-    expect(onToggleFilesSelection).toHaveBeenCalledTimes(1);
     expect(onPreviewSource).toHaveBeenCalledTimes(1);
   });
 
@@ -379,16 +368,15 @@ describe('SourcesSection without the manage right (canManage=false)', () => {
   it('offers no retry button and no delete action on a file, but keeps download and select', async () => {
     render(<SourcesSection {...viewer} files={[makeFile({ status: 'error', errorMessage: 'x' })]} />);
     expect(screen.queryByRole('button', { name: /retrySource/ })).not.toBeInTheDocument();
-    // Before opening the menu: an open (modal) menu hides the rest from the a11y tree.
-    expect(screen.getByRole('checkbox', { name: /selectSource/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /sourceActions/ }));
     expect(await screen.findByRole('menuitem', { name: /download/ })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: /delete/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'selectSources' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /removeSource/ })).not.toBeInTheDocument();
   });
 
-  it('shows an RSS feed without sync, pause, delete or schedule, but with its entries', () => {
+  it('shows an RSS feed without sync, pause, remove or schedule, but with its entries', () => {
     render(<SourcesSection {...viewer} files={[]} rssFeeds={[makeRssFeed()]} />);
-    for (const name of [/pollNow/, /^pause$/, /delete/]) {
+    for (const name of [/pollNow/, /^pause$/, /removeSource/]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
@@ -399,7 +387,7 @@ describe('SourcesSection without the manage right (canManage=false)', () => {
     render(<SourcesSection {...viewer} files={[]}
       confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
     expect(screen.getByText('ENG')).toBeInTheDocument();
-    expect(screen.queryAllByRole('button', { name: /pollNow|pause|delete/ })).toHaveLength(0);
+    expect(screen.queryAllByRole('button', { name: /pollNow|pause|removeSource/ })).toHaveLength(0);
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
@@ -407,7 +395,7 @@ describe('SourcesSection without the manage right (canManage=false)', () => {
     render(<SourcesSection {...baseProps} files={[]}
       rssFeeds={[makeRssFeed()]} confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
     expect(screen.getAllByRole('button', { name: /pollNow/ })).toHaveLength(3);
-    expect(screen.getAllByRole('button', { name: /^delete/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /^removeSource/ })).toHaveLength(3);
   });
 });
 
@@ -433,33 +421,122 @@ describe('SourcesSection download right (canDownload)', () => {
   it('without it: no Download, no hover preview, no preloading, the title is not a button', async () => {
     useSourcePreviews.mockClear();
     const onPreviewSource = vi.fn();
-    const onToggleFilesSelection = vi.fn();
+    const onToggleSelected = vi.fn();
     render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]}
-      onPreviewSource={onPreviewSource} onToggleFilesSelection={onToggleFilesSelection} />);
+      onPreviewSource={onPreviewSource} onToggleSelected={onToggleSelected} />);
     expect(screen.queryByTestId('hover-preview')).not.toBeInTheDocument();
     expect(useSourcePreviews).toHaveBeenLastCalledWith([]);
     expect(screen.queryByRole('button', { name: 'doc.pdf' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('doc.pdf'));
     expect(onPreviewSource).not.toHaveBeenCalled();
-    expect(onToggleFilesSelection).not.toHaveBeenCalled();
-    // The manager still has Delete in the menu — just no Download.
+    expect(onToggleSelected).not.toHaveBeenCalled();
+    // The manager still has Remove in the menu — just no Download.
     await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
-    expect(await screen.findByRole('menuitem', { name: /delete/ })).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'removeSource' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /download/ })).not.toBeInTheDocument();
   });
 
-  it('renders no actions menu at all when neither download nor manage is allowed', () => {
+  it('leaves only Select in the menu when neither download nor manage is allowed', async () => {
     render(<SourcesSection {...baseProps} canDownload={false} canManage={false} files={[makeFile({})]} />);
-    expect(screen.queryByRole('button', { name: /sourceActions/ })).not.toBeInTheDocument();
     // The selection stays for whoever sees the list.
-    expect(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual(['selectSources']);
   });
 
-  it('without it the checkbox still selects an excluded source again', async () => {
-    const onToggleFilesSelection = vi.fn();
-    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({ selected: false })]}
-      onToggleFilesSelection={onToggleFilesSelection} />);
+  it('without it the checkbox still ticks a source in selection mode', async () => {
+    const onToggleSelected = vi.fn();
+    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]}
+      selection={new Set()} onToggleSelected={onToggleSelected} />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
-    expect(onToggleFilesSelection).toHaveBeenCalledWith(['f-1'], true);
+    expect(onToggleSelected).toHaveBeenCalledWith('file:f-1', true);
+  });
+});
+
+// Two modes over the list (SourcesPanel owns them): "Select" opens the filter
+// mode, "Remove" opens the remove mode with that row ticked. No checkbox until
+// one is open; the checkboxes then show the mode's own set, not the chat
+// filter (FileEntry.selected).
+describe('SourcesSection selection and remove modes', () => {
+  it('shows no checkbox by default, whatever the chat filter says', () => {
+    render(<SourcesSection {...baseProps} files={[makeFile({}), makeFile({ id: 'f-2', name: 'b.pdf', selected: false })]}
+      rssFeeds={[makeRssFeed()]} />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it("opens the filter mode from a file card's Select action and an RSS feed's Select button", async () => {
+    const onStartSelection = vi.fn();
+    render(<SourcesSection {...baseProps} canManage={false} files={[makeFile({})]} rssFeeds={[makeRssFeed()]} onStartSelection={onStartSelection} />);
+    await userEvent.click(screen.getByRole('button', { name: 'selectSources Feed' }));
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'selectSources' }));
+    expect(onStartSelection).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the remove mode from a file card's Remove action and an RSS feed's remove button, with that row's key", async () => {
+    const onStartRemoval = vi.fn();
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} rssFeeds={[makeRssFeed()]} onStartRemoval={onStartRemoval} />);
+    await userEvent.click(screen.getByRole('button', { name: 'removeSource Feed' }));
+    expect(onStartRemoval).toHaveBeenLastCalledWith('rss:feed-1');
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'removeSource' }));
+    expect(onStartRemoval).toHaveBeenLastCalledWith('file:f-1');
+  });
+
+  // Oracle: the DS contract — SidebarCard muted carries data-muted.
+  it('greys out a file card left out of the chat filter, but not while a mode is open', () => {
+    const files = [makeFile({ selected: false }), makeFile({ id: 'f-2', name: 'b.pdf' })];
+    const { container, rerender } = render(<SourcesSection {...baseProps} files={files} />);
+    expect(container.querySelectorAll('[data-slot=sidebar-card][data-muted]')).toHaveLength(1);
+    expect(screen.getByText('doc.pdf').closest('[data-slot=sidebar-card]')).toHaveAttribute('data-muted');
+    rerender(<SourcesSection {...baseProps} files={files} selection={new Set()} />);
+    expect(container.querySelector('[data-muted]')).toBeNull();
+  });
+
+  it('marks a remove selection in the destructive tone', () => {
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} rssFeeds={[makeRssFeed()]}
+      selection={new Set(['file:f-1', 'rss:feed-1'] as const)} selectionTone="destructive" />);
+    expect(screen.getByText('doc.pdf').closest('[data-slot=sidebar-card]')).toHaveClass('border-error');
+    expect(screen.getByRole('checkbox', { name: 'selectSource Feed' }).className).toContain('data-[state=checked]:bg-error');
+  });
+
+  it('greys out an RSS feed none of whose files is in the chat filter, but not while a mode is open', () => {
+    const files = [makeFile({ id: 'r1', origin: 'rss', rssFeedId: 'feed-1', selected: false })];
+    const { container, rerender } = render(<SourcesSection {...baseProps} files={files} rssFeeds={[makeRssFeed()]} />);
+    expect(container.querySelector('li[data-muted]')).not.toBeNull();
+    rerender(<SourcesSection {...baseProps} files={files} rssFeeds={[makeRssFeed()]} selection={new Set()} />);
+    expect(container.querySelector('li[data-muted]')).toBeNull();
+    rerender(<SourcesSection {...baseProps} files={[{ ...files[0], selected: true }]} rssFeeds={[makeRssFeed()]} />);
+    expect(container.querySelector('li[data-muted]')).toBeNull();
+  });
+
+  it('ticks from the selection set, not from the chat filter, and toggles by key', async () => {
+    const onToggleSelected = vi.fn();
+    const onPreviewSource = vi.fn();
+    const files = [makeFile({ selected: false }), makeFile({ id: 'f-2', name: 'b.pdf', selected: true })];
+    render(<SourcesSection {...baseProps} files={files} rssFeeds={[makeRssFeed()]}
+      selection={new Set(['file:f-1'] as const)} onToggleSelected={onToggleSelected} onPreviewSource={onPreviewSource} />);
+    expect(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('checkbox', { name: 'selectSource b.pdf' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('checkbox', { name: 'selectSource Feed' })).toHaveAttribute('aria-checked', 'false');
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource b.pdf' }));
+    expect(onToggleSelected).toHaveBeenCalledWith('file:f-2', true);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource Feed' }));
+    expect(onToggleSelected).toHaveBeenCalledWith('rss:feed-1', true);
+    // A click on the card toggles in the mode instead of previewing.
+    expect(onPreviewSource).not.toHaveBeenCalled();
+  });
+
+  it('hides card menus and the feed controls while selecting', () => {
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} rssFeeds={[makeRssFeed()]} selection={new Set()} />);
+    expect(screen.queryByRole('button', { name: /sourceActions/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pollNow|rssViewEntries|selectSources|removeSource/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('gives Confluence and git rows no checkbox — their files have no row mapping', () => {
+    render(<SourcesSection {...baseProps} files={[]} selection={new Set()}
+      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });
