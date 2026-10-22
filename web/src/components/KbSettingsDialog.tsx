@@ -238,7 +238,7 @@ export function KbSettingsDialog({
                 <>
                     <div className="flex items-center gap-3">
                         {section === 'behavior' && (
-                            <Button variant="ghost" onClick={() => void run(onDelete)} disabled={saving}>
+                            <Button variant="ghost-destructive" onClick={() => void run(onDelete)} disabled={saving}>
                                 <Trash2 size={16} aria-hidden="true" />
                                 {t('delete')}
                             </Button>
