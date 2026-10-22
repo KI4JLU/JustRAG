@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
-import { Pencil, GitBranch, Columns, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Copy, Pencil, GitBranch, Columns, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink, Network } from 'lucide-react';
+import { Button, MessageAction, MessageActions as DsMessageActions, Textarea } from '@ki4jlu/design-system';
 import type { Message } from '../types';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { openExternal } from '../utils/openExternal';
-import { isTempMessageId } from '../utils/messageTree';
 import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
+import { useMessageActionRules, useMessageExport } from '../hooks/useMessageActions';
 import { AnswerExportMenu } from './AnswerExportMenu';
 import { AnchoredPopover } from './AnchoredPopover';
 
@@ -16,17 +16,14 @@ interface MessageActionsProps {
     onCompare?: () => void;
     onRegenerate?: () => void;
     onFeedback?: (feedback: 'positive' | 'negative' | null, comment?: string) => void;
-    position?: 'top' | 'bottom';
-    /**
-     * 'floating' (default) is the absolutely-positioned hover toolbar.
-     * 'inline' renders the buttons as a plain, in-flow row with no box — used
-     * by the §8 single answer-footer action row.
-     */
-    variant?: 'floating' | 'inline';
-    isMobile?: boolean;
+    onViewGraph?: () => void;
+    /** Offers copying the message text (the question row). */
+    canCopy?: boolean;
     kbId?: string;
     questionText?: string;
     contentRef?: React.RefObject<HTMLDivElement | null>;
+    /** Reports whether a popover opened from this row (feedback comment, export menu) is open. */
+    onPopoverOpenChange?: (open: boolean) => void;
 }
 
 const MAX_COMMENT_LEN = 2000;
@@ -34,20 +31,24 @@ const MAX_COMMENT_LEN = 2000;
 interface FeedbackThumbsProps {
     message: Message;
     onFeedback: (feedback: 'positive' | 'negative' | null, comment?: string) => void;
-    buttonStyle: React.CSSProperties;
-    iconSize: number;
+    onOpenChange: (open: boolean) => void;
     t: (key: string) => string;
 }
 
-function FeedbackThumbs({ message, onFeedback, buttonStyle, iconSize, t }: FeedbackThumbsProps) {
+function FeedbackThumbs({ message, onFeedback, onOpenChange, t }: FeedbackThumbsProps) {
     const [pendingRating, setPendingRating] = useState<'positive' | 'negative' | null>(null);
     const [comment, setComment] = useState('');
     const positiveRef = useRef<HTMLButtonElement>(null);
     const negativeRef = useRef<HTMLButtonElement>(null);
     // Anchor the comment popover to whichever thumb opened it (§6: open from the thumb).
     const activeTriggerRef = pendingRating === 'negative' ? negativeRef : positiveRef;
+    const open = pendingRating !== null;
 
+    useEffect(() => { onOpenChange(open); }, [open, onOpenChange]);
+
+    // Focus goes back to the thumb: the box's own controls are about to unmount.
     const closePopover = () => {
+        activeTriggerRef.current?.focus();
         setPendingRating(null);
         setComment('');
     };
@@ -56,8 +57,7 @@ function FeedbackThumbs({ message, onFeedback, buttonStyle, iconSize, t }: Feedb
         if (pendingRating === null) return;
         const trimmed = comment.trim();
         onFeedback(pendingRating, trimmed.length > 0 ? trimmed : undefined);
-        setPendingRating(null);
-        setComment('');
+        closePopover();
     };
 
     const handleThumbClick = (rating: 'positive' | 'negative') => {
@@ -77,39 +77,25 @@ function FeedbackThumbs({ message, onFeedback, buttonStyle, iconSize, t }: Feedb
 
     return (
         <>
-            <button
+            <MessageAction
                 ref={positiveRef}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handleThumbClick('positive'); }}
-                style={{
-                    ...buttonStyle,
-                    color: message.feedback === 'positive' ? 'var(--success-text, #2d8f4e)' : 'var(--text-secondary)',
-                }}
-                title={t('helpfulAnswer')}
-                aria-label={t('helpfulAnswer')}
-                onMouseEnter={(e) => { if (message.feedback !== 'positive') { e.currentTarget.style.color = 'var(--success-text, #2d8f4e)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}}
-                onMouseLeave={(e) => { if (message.feedback !== 'positive') { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}}
+                tooltip={t('helpfulAnswer')}
+                aria-pressed={message.feedback === 'positive'}
+                onClick={() => handleThumbClick('positive')}
             >
-                <ThumbsUp size={iconSize} />
-            </button>
-            <button
+                <ThumbsUp className="size-4" aria-hidden="true" />
+            </MessageAction>
+            <MessageAction
                 ref={negativeRef}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handleThumbClick('negative'); }}
-                style={{
-                    ...buttonStyle,
-                    color: message.feedback === 'negative' ? 'var(--error-text, #c0392b)' : 'var(--text-secondary)',
-                }}
-                title={t('unhelpfulAnswer')}
-                aria-label={t('unhelpfulAnswer')}
-                onMouseEnter={(e) => { if (message.feedback !== 'negative') { e.currentTarget.style.color = 'var(--error-text, #c0392b)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}}
-                onMouseLeave={(e) => { if (message.feedback !== 'negative') { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}}
+                tooltip={t('unhelpfulAnswer')}
+                aria-pressed={message.feedback === 'negative'}
+                onClick={() => handleThumbClick('negative')}
             >
-                <ThumbsDown size={iconSize} />
-            </button>
+                <ThumbsDown className="size-4" aria-hidden="true" />
+            </MessageAction>
 
             <AnchoredPopover
-                open={pendingRating !== null}
+                open={open}
                 triggerRef={activeTriggerRef}
                 onClose={closePopover}
                 align="start"
@@ -117,64 +103,28 @@ function FeedbackThumbs({ message, onFeedback, buttonStyle, iconSize, t }: Feedb
                 role="dialog"
                 ariaLabel={pendingRating === 'negative' ? t('feedbackTitleNegative') : t('feedbackTitlePositive')}
             >
-                <div style={{ padding: '10px' }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                <div className="flex flex-col gap-2 p-3">
+                    <p className="m-0 text-sm font-semibold text-on-surface">
                         {pendingRating === 'negative' ? t('feedbackTitleNegative') : t('feedbackTitlePositive')}
-                    </div>
+                    </p>
                     {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
-                    <textarea autoFocus
+                    <Textarea autoFocus
                         value={comment}
                         onChange={(e) => setComment(e.target.value.slice(0, MAX_COMMENT_LEN))}
                         placeholder={t('feedbackCommentPlaceholder')}
                         rows={3}
-                        style={{
-                            width: '100%',
-                            boxSizing: 'border-box',
-                            background: 'var(--bg-secondary)',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '4px',
-                            padding: '4px 6px',
-                            fontFamily: 'inherit',
-                            fontSize: '0.85rem',
-                            resize: 'vertical',
-                        }}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', gap: '8px' }}>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-on-surface-variant">
                             {comment.length} / {MAX_COMMENT_LEN}
                         </span>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                                type="button"
-                                onClick={closePopover}
-                                style={{
-                                    padding: '4px 10px',
-                                    background: 'none',
-                                    color: 'var(--text-secondary)',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.85rem',
-                                }}
-                            >
+                        <div className="flex gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={closePopover}>
                                 {t('cancel')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={submitWithComment}
-                                style={{
-                                    padding: '4px 10px',
-                                    background: 'var(--accent-primary)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.85rem',
-                                }}
-                            >
+                            </Button>
+                            <Button type="button" size="sm" onClick={submitWithComment}>
                                 {t('feedbackCommentSubmit')}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -183,151 +133,73 @@ function FeedbackThumbs({ message, onFeedback, buttonStyle, iconSize, t }: Feedb
     );
 }
 
-export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerate, onFeedback, position = 'top', variant = 'floating', isMobile, kbId, questionText, contentRef }: MessageActionsProps) {
+export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, canCopy, kbId, questionText, contentRef, onPopoverOpenChange }: MessageActionsProps) {
     const { t } = useTheme();
-    const { user, siteConfigs } = useAuth();
-    const isUser = message.role === 'user';
-    const iconSize = isMobile ? 18 : 14;
-    const isInline = variant === 'inline';
+    const rules = useMessageActionRules(message, { onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, contentRef });
+    const exporter = useMessageExport(message);
+    const [feedbackOpen, setFeedbackOpen] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
+    const popoverOpen = feedbackOpen || exportOpen;
 
-    const buttonStyle: React.CSSProperties = {
-        background: 'none',
-        border: 'none',
-        padding: isMobile ? '8px' : '4px',
-        cursor: 'pointer',
-        color: 'var(--text-secondary)',
-        borderRadius: '4px',
-        display: 'flex',
-        alignItems: 'center',
-        transition: 'color 0.15s, background 0.15s',
-        minWidth: isMobile ? '44px' : undefined,
-        minHeight: isMobile ? '44px' : undefined,
-        justifyContent: isMobile ? 'center' : undefined,
-    };
+    useEffect(() => {
+        onPopoverOpenChange?.(popoverOpen);
+        return () => { if (popoverOpen) onPopoverOpenChange?.(false); };
+    }, [popoverOpen, onPopoverOpenChange]);
 
-    const wrapperStyle: React.CSSProperties = isInline
-        // flexWrap + justify-end + min-width:0 let the cluster reflow its buttons
-        // onto a second row instead of overflowing the right edge of a narrow
-        // message column (mobile 44px touch targets exceed the column width).
-        ? { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '2px', alignItems: 'center', minWidth: 0 }
-        : {
-            position: isMobile ? 'relative' : 'absolute',
-            ...(isMobile ? { marginTop: '4px' } : (position === 'top' ? { top: '-8px' } : { bottom: '-8px' })),
-            right: !isMobile && isUser ? '0' : undefined,
-            left: !isMobile && isUser ? undefined : '0',
-            display: 'flex',
-            gap: '2px',
-            background: 'var(--bg-primary)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '6px',
-            padding: '2px',
-            boxShadow: 'var(--shadow-sm)',
-            zIndex: 10,
-        };
+    const act = (fn: () => void) => () => { triggerHaptic(HAPTIC_PATTERNS.action); fn(); };
+
+    const traceUrl = rules.traceUrl;
 
     return (
-        <div style={wrapperStyle}>
-            {isUser && onEdit && (
-                <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); triggerHaptic(HAPTIC_PATTERNS.action); onEdit(); }}
-                    style={buttonStyle}
-                    title={t('editMessage')}
-                    aria-label={t('editMessage')}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
-                >
-                    <Pencil size={iconSize} />
-                </button>
+        <DsMessageActions className={message.role === 'user' ? 'flex-wrap justify-end' : 'flex-wrap'}>
+            {canCopy && (
+                <MessageAction tooltip={t('copy')} onClick={act(exporter.copy)}>
+                    <Copy className="size-4" aria-hidden="true" />
+                </MessageAction>
             )}
-            {!isUser && onFork && (
-                <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); triggerHaptic(HAPTIC_PATTERNS.action); onFork(); }}
-                    style={buttonStyle}
-                    title={t('forkFromHere')}
-                    aria-label={t('forkFromHere')}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
-                >
-                    <GitBranch size={iconSize} />
-                </button>
+            {rules.edit && onEdit && (
+                <MessageAction tooltip={t('editMessage')} onClick={act(onEdit)}>
+                    <Pencil className="size-4" aria-hidden="true" />
+                </MessageAction>
             )}
-            {/* Not on an unsaved answer (a failed send leaves a `temp-error-*`
-                bubble): a regenerate names the answer it replaces, so there
-                would be nothing for the backend to hang the new one under. */}
-            {!isUser && onRegenerate && message.id && !isTempMessageId(message.id) && (
-                <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); triggerHaptic(HAPTIC_PATTERNS.action); onRegenerate(); }}
-                    style={buttonStyle}
-                    title={t('regenerateResponse')}
-                    aria-label={t('regenerateResponse')}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
-                >
-                    <RefreshCw size={iconSize} />
-                </button>
+            {rules.feedback && onFeedback && (
+                <FeedbackThumbs message={message} onFeedback={onFeedback} onOpenChange={setFeedbackOpen} t={t} />
             )}
-            {onCompare && (
-                <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); triggerHaptic(HAPTIC_PATTERNS.action); onCompare(); }}
-                    style={buttonStyle}
-                    title={t('compareBranches')}
-                    aria-label={t('compareBranches')}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
-                >
-                    <Columns size={iconSize} />
-                </button>
+            {rules.regenerate && onRegenerate && (
+                <MessageAction tooltip={t('regenerateResponse')} onClick={act(onRegenerate)}>
+                    <RefreshCw className="size-4" aria-hidden="true" />
+                </MessageAction>
             )}
-            {!isUser && onFeedback && (
-                <FeedbackThumbs
-                    message={message}
-                    onFeedback={onFeedback}
-                    buttonStyle={buttonStyle}
-                    iconSize={iconSize}
-                    t={t}
-                />
+            {rules.fork && onFork && (
+                <MessageAction tooltip={t('forkFromHere')} onClick={act(onFork)}>
+                    <GitBranch className="size-4" aria-hidden="true" />
+                </MessageAction>
             )}
-            {!isUser && contentRef && (
+            {rules.compare && onCompare && (
+                <MessageAction tooltip={t('compareBranches')} onClick={act(onCompare)}>
+                    <Columns className="size-4" aria-hidden="true" />
+                </MessageAction>
+            )}
+            {rules.export && contentRef && (
                 <AnswerExportMenu
                     message={message}
                     kbId={kbId}
                     questionText={questionText}
                     contentRef={contentRef}
-                    buttonStyle={buttonStyle}
-                    iconSize={iconSize}
+                    onOpenChange={setExportOpen}
                     t={t}
                 />
             )}
-            {/* View trace — admin-only, requires both message.traceId AND siteConfigs.langfuse_base_url */}
-            {!isUser && message.traceId && (() => {
-                const langfuseBaseUrl = siteConfigs.langfuse_base_url;
-                const role = user?.role;
-                if (!langfuseBaseUrl || (role !== 'admin' && role !== 'superadmin')) {
-                    return null;
-                }
-                return (
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            triggerHaptic(HAPTIC_PATTERNS.action);
-                            const base = langfuseBaseUrl.replace(/\/$/, '');
-                            openExternal(`${base}/${message.traceId}`);
-                        }}
-                        style={buttonStyle}
-                        title={t('viewTrace')}
-                        aria-label={t('viewTrace')}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
-                    >
-                        <ExternalLink size={iconSize} />
-                    </button>
-                );
-            })()}
-        </div>
+            {rules.graph && onViewGraph && (
+                <MessageAction tooltip={t('viewGraphForAnswer')} onClick={act(onViewGraph)}>
+                    <Network className="size-4" aria-hidden="true" />
+                </MessageAction>
+            )}
+            {traceUrl && (
+                <MessageAction tooltip={t('viewTrace')} onClick={act(() => openExternal(traceUrl))}>
+                    <ExternalLink className="size-4" aria-hidden="true" />
+                </MessageAction>
+            )}
+        </DsMessageActions>
     );
 }

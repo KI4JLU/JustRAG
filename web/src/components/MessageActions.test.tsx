@@ -49,32 +49,32 @@ const aiMsg: Message = { id: 'a1', role: 'ai', content: 'hi' };
 describe('MessageActions', () => {
   it('shows Edit button only for user messages when onEdit provided', () => {
     render(<MessageActions message={userMsg} onEdit={() => {}} />);
-    expect(screen.getByLabelText('Edit message')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit message' })).toBeInTheDocument();
   });
 
   it('does not show Edit button for ai messages', () => {
     render(<MessageActions message={aiMsg} onEdit={() => {}} />);
-    expect(screen.queryByLabelText('Edit message')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument();
   });
 
   it('shows Fork button only for ai messages when onFork provided', () => {
     render(<MessageActions message={aiMsg} onFork={() => {}} />);
-    expect(screen.getByLabelText('Fork from here')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fork from here' })).toBeInTheDocument();
   });
 
   it('does not show Fork button for user messages', () => {
     render(<MessageActions message={userMsg} onFork={() => {}} />);
-    expect(screen.queryByLabelText('Fork from here')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fork from here' })).not.toBeInTheDocument();
   });
 
   it('shows Regenerate button only for ai messages when onRegenerate provided', () => {
     render(<MessageActions message={aiMsg} onRegenerate={() => {}} />);
-    expect(screen.getByLabelText('Regenerate response')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Regenerate response' })).toBeInTheDocument();
   });
 
   it('does not show Regenerate for user messages', () => {
     render(<MessageActions message={userMsg} onRegenerate={() => {}} />);
-    expect(screen.queryByLabelText('Regenerate response')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument();
   });
 
   // A regenerate names the answer it replaces, so the answer has to exist in
@@ -83,16 +83,16 @@ describe('MessageActions', () => {
   it('does not show Regenerate for an unsaved ai message', () => {
     const tempMsg: Message = { id: 'temp-error-1787133382351', role: 'ai', content: 'Fehler' };
     render(<MessageActions message={tempMsg} onRegenerate={() => {}} />);
-    expect(screen.queryByLabelText('Regenerate response')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument();
   });
 
   it('shows Compare button for both roles when onCompare provided', () => {
     const { unmount } = render(<MessageActions message={userMsg} onCompare={() => {}} />);
-    expect(screen.getByLabelText('Compare branches')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compare branches' })).toBeInTheDocument();
     unmount();
 
     render(<MessageActions message={aiMsg} onCompare={() => {}} />);
-    expect(screen.getByLabelText('Compare branches')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compare branches' })).toBeInTheDocument();
   });
 
   it('calls correct callback on click', async () => {
@@ -101,10 +101,10 @@ describe('MessageActions', () => {
     const onCompare = vi.fn();
     render(<MessageActions message={userMsg} onEdit={onEdit} onCompare={onCompare} />);
 
-    await user.click(screen.getByLabelText('Edit message'));
+    await user.click(screen.getByRole('button', { name: 'Edit message' }));
     expect(onEdit).toHaveBeenCalledOnce();
 
-    await user.click(screen.getByLabelText('Compare branches'));
+    await user.click(screen.getByRole('button', { name: 'Compare branches' }));
     expect(onCompare).toHaveBeenCalledOnce();
   });
 
@@ -115,12 +115,12 @@ describe('MessageActions', () => {
 
   it('renders the export menu button for AI messages with a contentRef', () => {
     render(<MessageActions message={aiMsg} contentRef={createRef<HTMLDivElement>()} />);
-    expect(screen.getByLabelText('Export answer')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export answer' })).toBeInTheDocument();
   });
 
   it('does not render the export menu for user messages', () => {
     render(<MessageActions message={userMsg} contentRef={createRef<HTMLDivElement>()} />);
-    expect(screen.queryByLabelText('Export answer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Export answer' })).toBeNull();
   });
 });
 
@@ -136,7 +136,7 @@ describe('MessageActions feedback flow', () => {
     const user = userEvent.setup();
     const onFeedback = vi.fn();
     render(<MessageActions message={aiMessage} onFeedback={onFeedback} />);
-    const upBtn = screen.getByLabelText('Helpful answer');
+    const upBtn = screen.getByRole('button', { name: 'Helpful answer' });
     await user.click(upBtn);
     expect(onFeedback).toHaveBeenCalledWith('positive');
     expect(screen.getByPlaceholderText('Optional comment (max 2000 chars)')).toBeInTheDocument();
@@ -146,7 +146,7 @@ describe('MessageActions feedback flow', () => {
     const user = userEvent.setup();
     const onFeedback = vi.fn();
     render(<MessageActions message={{ ...aiMessage, feedback: 'positive' }} onFeedback={onFeedback} />);
-    const upBtn = screen.getByLabelText('Helpful answer');
+    const upBtn = screen.getByRole('button', { name: 'Helpful answer' });
     await user.click(upBtn);
     expect(onFeedback).toHaveBeenCalledWith(null);
   });
@@ -155,7 +155,7 @@ describe('MessageActions feedback flow', () => {
     const user = userEvent.setup();
     const onFeedback = vi.fn();
     render(<MessageActions message={aiMessage} onFeedback={onFeedback} />);
-    await user.click(screen.getByLabelText('Helpful answer'));
+    await user.click(screen.getByRole('button', { name: 'Helpful answer' }));
     const textarea = screen.getByPlaceholderText('Optional comment (max 2000 chars)');
     await user.type(textarea, 'great answer');
     await user.click(screen.getByRole('button', { name: 'Send' }));

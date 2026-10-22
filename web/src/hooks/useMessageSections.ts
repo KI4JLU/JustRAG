@@ -1,10 +1,20 @@
 import { useCallback, useState } from 'react';
+import type { Message } from '../types';
 
 /**
  * Expandable sections inside an answer whose open/closed state changes the
  * message's rendered height.
  */
 export type MessageSection = 'reasoning' | 'sources' | 'confidence' | 'conflicts';
+
+/**
+ * The key a message's sections are stored under: the render key, which
+ * survives the temp→saved id remap mid-stream, so a section opened while the
+ * answer streams stays open once it is saved.
+ */
+export function messageSectionKey(message: Pick<Message, 'id' | 'renderKey'>): string | undefined {
+    return message.renderKey ?? message.id;
+}
 
 /**
  * Per-message expand state, owned ABOVE the message list.

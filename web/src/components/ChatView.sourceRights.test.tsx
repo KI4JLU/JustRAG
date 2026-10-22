@@ -164,33 +164,40 @@ describe('ChatView — citations follow seeCitations', () => {
   it('renders the inline citation with seeCitations', () => {
     capabilities = caps({ seeCitations: true });
     const { container } = render(<ChatView />);
-    expect(container.querySelector('sup.source-ref')).not.toBeNull();
+    expect(container.querySelector('button.citation-chip')).not.toBeNull();
     expect(screen.getByRole('button', { name: /answerSourcesToggle/ })).toBeInTheDocument();
   });
 
   it('renders neither the citation nor the source list without it', () => {
     capabilities = caps({ seeCitations: false });
     const { container } = render(<ChatView />);
-    expect(container.querySelector('sup.source-ref')).toBeNull();
+    expect(container.querySelector('button.citation-chip')).toBeNull();
     expect(screen.queryByRole('button', { name: /answerSourcesToggle/ })).not.toBeInTheDocument();
   });
 });
 
-describe('ChatView — opening a source from an answer follows downloadSources', () => {
-  it('offers "openInDocument" in the citation popover with downloadSources', () => {
+describe('ChatView — the source panel follows downloadSources', () => {
+  it('opens the cited source beside the answer, with the full view and download', () => {
     capabilities = caps({ downloadSources: true });
     const { container } = render(<ChatView />);
-    fireEvent.click(container.querySelector('sup.source-ref') as HTMLElement);
-    fireEvent.click(screen.getByRole('button', { name: /openInDocument/ }));
+    fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
+    // The harness is the mobile layout: the panel opens full screen.
+    const panel = screen.getByRole('dialog', { name: 'satzung' });
+    expect(panel).toHaveTextContent('sourcePanelPassagesOne');
+    expect(screen.getByRole('button', { name: 'sourcePanelDownload' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'sourcePanelFullView' }));
     expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2);
   });
 
-  it('offers no way to open the document without it', () => {
+  it('opens the panel without it, but offers neither the full view nor the download', () => {
     capabilities = caps({ downloadSources: false });
     const { container } = render(<ChatView />);
-    fireEvent.click(container.querySelector('sup.source-ref') as HTMLElement);
-    expect(screen.getByRole('dialog')).toHaveTextContent('satzung.pdf');
-    expect(screen.queryByRole('button', { name: /openInDocument/ })).not.toBeInTheDocument();
+    fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
+    expect(screen.getByRole('dialog', { name: 'satzung' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'sourcePanelFullView' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'sourcePanelDownload' })).not.toBeInTheDocument();
   });
 });
 

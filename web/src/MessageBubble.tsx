@@ -1,24 +1,33 @@
 import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, ChevronDown, Check, ArrowRight, Network, Users, Bot, AlertTriangle, Paperclip } from 'lucide-react';
-import type { Message, BranchInfo, MessageVerification, MessageSource, MessageConflict } from './types';
+import { FileText, ChevronDown, Check, Users, Bot, AlertTriangle, Paperclip, Info } from 'lucide-react';
+import {
+    Badge, Button, MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
+    MessageToolbar, Sources, SourcesContent, SourcesTrigger,
+} from '@ki4jlu/design-system';
+import type { Message, BranchInfo, MessageVerification, MessageConflict } from './types';
 import { flaggedClaimsFor } from './utils/verification';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 import { BranchIndicator } from './components/BranchIndicator';
 import { MessageActions } from './components/MessageActions';
+import { MessageContextMenu } from './components/MessageContextMenu';
 import { InlineMessageEditor } from './components/InlineMessageEditor';
 import MessageContent from './components/MessageContent';
 import { ComparisonFindings } from './components/ComparisonFindings';
-import type { MessageSection } from './hooks/useMessageSections';
+import { messageSectionKey, type MessageSection } from './hooks/useMessageSections';
 import { useIsMobileContext } from './contexts/MobileContext';
 import { useTheme } from './contexts/ThemeContext';
 import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
-import { extractCitedSourceIndices, formatPageRanges, maxCitationNumber, withoutCitations } from './utils/citations';
-import { formatDate } from './utils/dates';
+import { withoutCitations } from './utils/citations';
+import { buildCitationModel, citingTextByRaw, type CitedSource } from './utils/sourceDisplay';
+import { SourceList } from './components/sources/SourceList';
+import { useSourcePanel } from './contexts/SourcePanelContext';
 
 interface MessageBubbleProps {
     message: Message;
     isStreaming?: boolean;
+    /** The last message of the transcript: its action row stays visible at rest. */
+    isLatest?: boolean;
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
     onFollowUpClick?: (question: string) => void;
     showFollowUps?: boolean;
@@ -65,18 +74,15 @@ interface ConfidenceProps {
     t: (key: string) => string;
 }
 
-// confidenceColors maps a verification verdict to the citation-trust palette
-// (shared with the old VerificationBadge): green ≥80, amber ≥60, orange <60,
-// red unverified. Used by both the always-visible confidence chip and its
-// expandable breakdown.
-function confidenceColors(verification: MessageVerification): { bg: string; color: string; labelKey: string } {
+// confidenceTone maps a verification verdict to a status tone: success ≥80,
+// warning ≥60, error below that and when unverified. Shared by the confidence
+// chip and its expandable breakdown.
+function confidenceTone(verification: MessageVerification): { tone: 'success' | 'warning' | 'error'; bar: string; labelKey: string } {
     const { verified, score } = verification;
-    // Status-color tokens (improvement #1) — dark-mode-safe, and "Partial" now shares
-    // the same amber as suspect citations (--suspect-*), removing the two-ambers split.
-    if (!verified) return { bg: 'var(--error-bg)', color: 'var(--error-text)', labelKey: 'verificationUnverified' };
-    if (score >= 80) return { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-foreground)', labelKey: 'verificationVerified' };
-    if (score >= 60) return { bg: 'var(--suspect-bg)', color: 'var(--suspect-text)', labelKey: 'verificationPartial' };
-    return { bg: 'var(--warning-bg)', color: 'var(--warning-text)', labelKey: 'verificationLowConfidence' };
+    if (!verified) return { tone: 'error', bar: 'bg-error', labelKey: 'verificationUnverified' };
+    if (score >= 80) return { tone: 'success', bar: 'bg-success', labelKey: 'verificationVerified' };
+    if (score >= 60) return { tone: 'warning', bar: 'bg-warning', labelKey: 'verificationPartial' };
+    return { tone: 'error', bar: 'bg-error', labelKey: 'verificationLowConfidence' };
 }
 
 // hasFactcheckOutput reports whether the LLM-based factchecker actually
@@ -89,34 +95,17 @@ function hasFactcheckOutput(v: MessageVerification): boolean {
     return v.score > 0 || (v.issues?.length ?? 0) > 0;
 }
 
-// suspectCitationMap distills the n-gram validator output into the shape
-// MessageContent expects: a Map of suspect citation N → reason string. Returns
-// undefined when validation didn't run (so MessageContent skips the marker
-// path entirely instead of decorating every citation).
-function suspectCitationMap(v: MessageVerification | null | undefined): Map<number, string> | undefined {
-    if (!v?.citations?.length) return undefined;
-    const out = new Map<number, string>();
-    for (const c of v.citations) {
-        if (!c.verified && c.reason) {
-            out.set(c.n, c.reason);
-        }
-    }
-    return out.size > 0 ? out : undefined;
-}
+type SuspectReason = 'out_of_range' | 'no_overlap';
 
-// semanticCitationSet collects the citation Ns whose verified=true result
-// came from the cosine-similarity fallback rather than the n-gram fast
-// path. The frontend renders these with a subtle solid underline (no
-// warning glyph) — distinct from suspect (amber dashed + ⚠) and from
-// ngram-verified (no decoration). Returns undefined when no semantic
-// verifications exist so MessageContent can skip the marker path.
-function semanticCitationSet(v: MessageVerification | null | undefined): Set<number> | undefined {
+// suspectCitations maps the raw citation numbers the n-gram validator could
+// not back up to the validator's reason: their chips are amber (colour only)
+// and the preview says why. Undefined when validation didn't run or flagged
+// nothing.
+function suspectCitations(v: MessageVerification | null | undefined): Map<number, SuspectReason> | undefined {
     if (!v?.citations?.length) return undefined;
-    const out = new Set<number>();
+    const out = new Map<number, SuspectReason>();
     for (const c of v.citations) {
-        if (c.verified && c.method === 'semantic') {
-            out.add(c.n);
-        }
+        if (!c.verified) out.set(c.n, c.reason);
     }
     return out.size > 0 ? out : undefined;
 }
@@ -135,28 +124,25 @@ function citationSpanMap(v: MessageVerification | null | undefined): Map<number,
     return out.size > 0 ? out : undefined;
 }
 
-// ConfidenceChip is the always-visible answer-footer chip ("✓ Geprüft · 92%").
-// Clicking it toggles the ConfidenceDetails breakdown (owned by MessageBubble).
+// fill replaces `{name}` placeholders in a translated string.
+const fill = (text: string, values: Record<string, number>) =>
+    text.replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m));
+
+const chevronClass = 'size-3.5 transition-transform motion-reduce:transition-none group-aria-expanded:rotate-180';
+
+// ConfidenceChip is the answer-footer chip ("✓ Geprüft · 92%"). Clicking it
+// toggles the ConfidenceDetails breakdown (owned by MessageBubble).
 function ConfidenceChip({ verification, t, open, onToggle }: ConfidenceProps & { open: boolean; onToggle: () => void }) {
     const { verified, score } = verification;
-    const c = confidenceColors(verification);
+    const c = confidenceTone(verification);
     return (
-        <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            aria-expanded={open}
-            style={{
-                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                padding: '2px 10px', borderRadius: 'var(--shape-full)',
-                fontSize: '0.75rem', fontWeight: 500,
-                backgroundColor: c.bg, color: c.color,
-                border: 'none', cursor: 'pointer', userSelect: 'none', fontFamily: 'inherit',
-            }}
-        >
-            <Check size={12} aria-hidden="true" />
-            <span>{t(c.labelKey)}{verified ? ` · ${score}%` : ''}</span>
-            <ChevronDown size={12} aria-hidden="true" style={{ transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }} />
-        </button>
+        <Button type="button" variant="ghost" size="sm" className="group" onClick={onToggle} aria-expanded={open}>
+            <Badge appearance="text" tone={c.tone}>
+                <Check className="size-3.5" aria-hidden="true" />
+                {t(c.labelKey)}{verified ? ` · ${score}%` : ''}
+            </Badge>
+            <ChevronDown className={chevronClass} aria-hidden="true" />
+        </Button>
     );
 }
 
@@ -165,26 +151,26 @@ function ConfidenceChip({ verification, t, open, onToggle }: ConfidenceProps & {
 // citation validator + factuality verifier output.
 function ConfidenceDetails({ verification, t }: ConfidenceProps) {
     const { score, issues, citations } = verification;
-    const c = confidenceColors(verification);
+    const c = confidenceTone(verification);
     const exact = citations?.filter(x => x.verified && x.method !== 'semantic').length ?? 0;
     const semantic = citations?.filter(x => x.verified && x.method === 'semantic').length ?? 0;
     const hints = (issues?.length ?? 0) + (citations?.filter(x => !x.verified).length ?? 0);
     return (
-        <div style={{
-            marginTop: '0.5rem', padding: '0.75rem',
-            background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-            borderRadius: 'var(--shape-md)', maxWidth: '420px',
-        }}>
-            <div style={{ height: 6, borderRadius: 'var(--shape-full)', background: 'var(--border-color)', overflow: 'hidden', marginBottom: '0.6rem' }}>
-                <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, score))}%`, background: c.color, borderRadius: 'var(--shape-full)', transition: 'width 0.3s' }} />
+        <div className="mt-2 flex max-w-[420px] flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-3">
+            <div className="h-1.5 overflow-hidden rounded-full bg-outline-variant">
+                {/* The width is the score itself, so it stays a style value. */}
+                <div
+                    className={`h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none ${c.bar}`}
+                    style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+                />
             </div>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                <span><strong style={{ color: 'var(--text-primary)' }}>{exact}</strong> {t('confidenceExactMatch')}</span>
-                <span><strong style={{ color: 'var(--text-primary)' }}>{semantic}</strong> {t('confidenceSemantic')}</span>
-                <span><strong style={{ color: 'var(--text-primary)' }}>{hints}</strong> {t('confidenceHints')}</span>
+            <div className="flex flex-wrap gap-4 text-xs text-on-surface-variant">
+                <span><strong className="text-on-surface">{exact}</strong> {t('confidenceExactMatch')}</span>
+                <span><strong className="text-on-surface">{semantic}</strong> {t('confidenceSemantic')}</span>
+                <span><strong className="text-on-surface">{hints}</strong> {t('confidenceHints')}</span>
             </div>
             {issues && issues.length > 0 && (
-                <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                <ul className="m-0 list-disc pl-4 text-xs text-on-surface-variant">
                     {issues.map((iss, i) => <li key={i}>{iss}</li>)}
                 </ul>
             )}
@@ -193,24 +179,28 @@ function ConfidenceDetails({ verification, t }: ConfidenceProps) {
 }
 
 // ConflictsChip is the "Widersprüchliche Quellen" / "Conflicting sources"
-// answer-footer badge (Wave 5 conflict surfacing), shown next to the
+// answer-footer chip (Wave 5 conflict surfacing), shown next to the
 // confidence chip whenever the turn's report found at least one conflict
 // among the cited sources. Click toggles ConflictsDetails — same
 // caller-owned-open-state pattern as ConfidenceChip (see useMessageSections;
 // the state has to live above the virtualized message list).
 function ConflictsChip({ count, t, open, onToggle }: { count: number; t: (key: string) => string; open: boolean; onToggle: () => void }) {
     return (
-        <button
+        <Button
             type="button"
-            className="conflict-badge"
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            variant="ghost"
+            size="sm"
+            className="group"
+            onClick={onToggle}
             aria-expanded={open}
             aria-label={t('conflictsBadge')}
         >
-            <AlertTriangle size={12} aria-hidden="true" />
-            <span>{t('conflictsBadge')} · {count}</span>
-            <ChevronDown size={12} aria-hidden="true" style={{ transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }} />
-        </button>
+            <Badge appearance="text" tone="error">
+                <AlertTriangle className="size-3.5" aria-hidden="true" />
+                {t('conflictsBadge')} · {count}
+            </Badge>
+            <ChevronDown className={chevronClass} aria-hidden="true" />
+        </Button>
     );
 }
 
@@ -244,8 +234,8 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
     );
 }
 
-function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
-    const { t, language } = useTheme();
+function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+    const { t } = useTheme();
     // An answer without its citations for a caller who may not see them.
     // Everything below — rendering, copy and export — reads this one object.
     const message = useMemo(
@@ -258,14 +248,25 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     const [isHovered, setIsHovered] = useState(false);
     const [isFocused, setIsFocused] = useState(false);
     const [tapped, setTapped] = useState(false);
+    // The tap that ends a long-press must not also toggle the footer.
+    const menuClosedAtRef = useRef(0);
+    const menuOpenRef = useRef(false);
+    const handleMenuOpenChange = useCallback((open: boolean) => {
+        menuOpenRef.current = open;
+        if (!open) menuClosedAtRef.current = Date.now();
+    }, []);
+    // A popover opened from the answer actions keeps them shown while the
+    // pointer is elsewhere.
+    const [actionPopoverOpen, setActionPopoverOpen] = useState(false);
     // §8 answer-footer expandable sections — state lives in the chat view, keyed
-    // by message id, so it survives virtualization remounts (see the props).
+    // by messageSectionKey, so it survives remounts (see the props).
     const confOpen = confidenceOpen;
     const sourcesExpanded = sourcesOpen;
     const conflictsExpanded = conflictsOpen;
+    const sectionKey = messageSectionKey(message);
     const toggleSection = useCallback((section: MessageSection) => {
-        if (message.id) onToggleSection?.(message.id, section);
-    }, [message.id, onToggleSection]);
+        if (sectionKey) onToggleSection?.(sectionKey, section);
+    }, [sectionKey, onToggleSection]);
     const bubbleRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
 
@@ -282,6 +283,19 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     }, [isMobile, tapped]);
 
     const showActions = isMobile ? tapped : (isHovered || isFocused);
+    // The footer shows on hover, focus inside the message or (touch) a tap, and
+    // stays while a popover opened from it is open. On touch the actions are
+    // not in it: they open from the long-press menu. The last message keeps it
+    // at rest, and an expanded section (sources, confidence, conflicts) pins it
+    // like a popover, so the toggle that closes it stays next to what it opened.
+    const sectionExpanded = sourcesExpanded || confOpen || conflictsExpanded;
+    const footerShown = (isLatest && !isMobile) || actionPopoverOpen || sectionExpanded || showActions;
+    // Actions that need the saved message wait for the end of the stream; the
+    // information around them (sources, confidence, conflicts) does not.
+    const actionsReady = !isStreaming && !!message.id;
+    // A question carries its bubble inside the row, with its action row below it.
+    const isQuestion = message.role === 'user' && !message.isEnhanced;
+    const revealClass = 'transition-[opacity,visibility] duration-150 motion-reduce:transition-none data-[revealed=false]:invisible data-[revealed=false]:opacity-0';
 
     // Citation pills are owned by MessageContent: a click there opens the
     // source popover, and the document is opened from inside it via
@@ -302,42 +316,38 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     // downloadSources (the PDF viewer and the preview load the file).
     const canOpenSources = !!onPdfOpen || !!onPreviewSource;
 
-    // handleOpenSource powers the §8 citation-preview "Im Dokument öffnen" link.
-    const handleOpenSource = useCallback((source: MessageSource) => {
-        openSourceByFile(source.fileName, source.fileId, source.pages?.[0] || 1);
-    }, [openSourceByFile]);
+    // Per-answer numbering of the cited sources (utils/sourceDisplay), shared
+    // by the chips, the source list, the preview and the source panel.
+    const citationModel = useMemo(() => buildCitationModel(message.content, message.sources), [message.content, message.sources]);
+    const spans = useMemo(() => citationSpanMap(message.verification), [message.verification]);
+    const suspect = useMemo(() => suspectCitations(message.verification), [message.verification]);
 
-    // Grouped, cited sources for the §8 answer footer (one entry per file, with
-    // merged page ranges and a per-file match count). Replaces the old
-    // "Quellen:" pill list with scannable source cards.
-    const sourceGroups = useMemo(() => {
-        if (!message.sources || message.sources.length === 0) return [];
-
-        const cited = extractCitedSourceIndices(message.content, maxCitationNumber(message.sources));
-        const visibleSources = cited.size > 0
-            ? message.sources.filter((s, i) => cited.has(s.index ?? i + 1))
-            : message.sources;
-
-        if (visibleSources.length === 0) return [];
-
-        const grouped = new Map<string, { fileId?: string; pages: Set<number>; count: number; dateIso?: string }>();
-        for (const s of visibleSources) {
-            if (!s.fileName) continue;
-            const entry = grouped.get(s.fileName) || { fileId: s.fileId, pages: new Set<number>(), count: 0, dateIso: undefined };
-            if (s.pages) s.pages.forEach(p => entry.pages.add(p));
-            if (s.fileId) entry.fileId = s.fileId;
-            // Same file's chunks share the same file-level dates; the first
-            // one found is as good as any. publishedAt wins over createdAt
-            // (RSS-only; see the citation popover's identical rule).
-            if (!entry.dateIso) entry.dateIso = s.publishedAt ?? s.createdAt;
-            entry.count += 1;
-            grouped.set(s.fileName, entry);
+    // "In Quelle öffnen": the source panel next to the answer (chat view), or
+    // the document itself where there is no panel (comparison view).
+    const sourcePanel = useSourcePanel();
+    const openPanel = useCallback((source: CitedSource, passage: number, focus?: string) => {
+        if (sourcePanel && sectionKey) {
+            sourcePanel.open({ messageKey: sectionKey, source, passage, spans, citing: citingTextByRaw(message.content), focus });
+            return;
         }
+        if (source.fileId) openSourceByFile(source.fileName, source.fileId, source.passages[passage]?.pages?.[0] || 1);
+    }, [sourcePanel, sectionKey, spans, openSourceByFile, message.content]);
+    const canOpenPanel = !!sourcePanel || canOpenSources;
+    const handleOpenPanel = useCallback((n: number, raw: number, focus?: string) => {
+        const source = citationModel.cited[n - 1];
+        if (source) openPanel(source, Math.max(0, source.rawNumbers.indexOf(raw)), focus);
+    }, [citationModel, openPanel]);
+    const panelTarget = sourcePanel?.target && sourcePanel.target.messageKey === sectionKey ? sourcePanel.target : null;
+    const activeCitation = useMemo(() => (panelTarget
+        ? { n: panelTarget.source.n, raw: panelTarget.source.rawNumbers[panelTarget.passage] }
+        : null), [panelTarget]);
 
-        return [...grouped.entries()].map(([name, { fileId, pages, count, dateIso }]) => ({
-            name, fileId, pages: [...pages].sort((a, b) => a - b), count, dateIso,
-        }));
-    }, [message.sources, message.content]);
+    // "Alle N Quellen": opens the source list and brings it into view.
+    const sourceListRef = useRef<HTMLDivElement>(null);
+    const handleShowAllSources = useCallback(() => {
+        if (!sourcesExpanded) toggleSection('sources');
+        requestAnimationFrame(() => sourceListRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }));
+    }, [sourcesExpanded, toggleSection]);
 
     // Attribution chip name — undefined on a lookup miss (team/agent deleted
     // after answering), in which case the chip renders nothing.
@@ -361,239 +371,262 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
         );
     }
 
-    return (
-        <motion.div
-            ref={bubbleRef}
-            {...getMotionProps(reducedMotion)}
-            initial={{ opacity: 0, y: 10, scale: 0.99 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.3, ease: "easeOut", delay: animationDelay ?? 0 }}
-            className={`message-bubble ${message.role === 'user' ? 'message-user' : 'message-ai'}`}
-            style={message.isEnhanced ? {
-                background: 'var(--msg-enhanced-bg)',
-                color: 'var(--msg-enhanced-text)',
-                fontStyle: 'italic',
-                fontSize: '0.9rem',
-                border: `1px dashed var(--msg-enhanced-border)`,
-                alignSelf: 'flex-end',
-                borderRadius: 'var(--shape-xl) var(--shape-xl) var(--shape-sm) var(--shape-xl)',
-                padding: '0.5rem 1rem'
-            } : { position: 'relative' as const }}
-            onMouseEnter={isMobile ? undefined : () => setIsHovered(true)}
-            onMouseLeave={isMobile ? undefined : () => setIsHovered(false)}
-            onClick={isMobile ? () => {
-                setTapped(prev => {
-                    const next = !prev;
-                    if (next) {
-                        triggerHaptic(HAPTIC_PATTERNS.reveal);
-                    }
-                    return next;
-                });
-            } : undefined}
-            onFocus={isMobile ? undefined : () => setIsFocused(true)}
-            onBlur={isMobile ? undefined : () => setIsFocused(false)}
-            tabIndex={0}
-        >
-            {branchInfo && onSwitchBranch && (
-                <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
-            )}
-            {/* Top hover toolbar — user messages only (edit). AI actions live in the §8 footer row. */}
-            {message.role === 'user' && showActions && !isStreaming && !message.isEnhanced && message.id && (
-                <MessageActions
-                    message={message}
-                    onEdit={onEdit ? () => onEdit(message.id!, message.content) : undefined}
-                    isMobile={isMobile}
-                    kbId={kbId}
-                    questionText={questionText}
-                    contentRef={contentRef}
-                />
-            )}
-
-            {message.role === 'ai' ? (
-                // Inert wrapper. It used to be role="button" tabIndex={0} purely to
-                // carry the citation click/keydown delegation, which made screen
-                // readers announce the entire answer as a single button. Citation
-                // pills are individually focusable buttons now, so nothing here
-                // needs button semantics.
-                <div ref={contentRef} style={{ minWidth: 0 }}>
-                    <MessageContent
-                        content={message.content}
-                        reasoning={message.reasoning}
-                        isThinking={isThinking}
-                        sources={message.sources}
-                        suspectCitations={suspectCitationMap(message.verification)}
-                        semanticCitations={semanticCitationSet(message.verification)}
-                        citationSpans={citationSpanMap(message.verification)}
-                        trajectory={message.trajectory}
-                        flaggedClaims={flaggedClaimsFor(message.verification)}
-                        onOpenSource={canOpenSources ? handleOpenSource : undefined}
-                        reasoningOpen={reasoningOpen}
-                        onToggleReasoning={() => toggleSection('reasoning')}
-                    />
-                </div>
-            ) : (
-                <>
-                    {/* Files attached to this question (chat attachments as context),
-                        styled like the answer's attribution chip. */}
-                    {message.attachments && message.attachments.length > 0 && (
-                        <ul
-                            aria-label={t('chatAttachmentsLabel')}
-                            style={{ listStyle: 'none', margin: '0 0 0.5rem', padding: 0, display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem' }}
+    const questionBody = (
+        <>
+            {/* Files attached to this question (chat attachments as context),
+                styled like the answer's attribution chip. */}
+            {message.attachments && message.attachments.length > 0 && (
+                <ul
+                    aria-label={t('chatAttachmentsLabel')}
+                    style={{ listStyle: 'none', margin: '0 0 0.5rem', padding: 0, display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem' }}
+                >
+                    {message.attachments.map(a => (
+                        <li
+                            key={a.userFileId}
+                            title={a.name}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', minWidth: 0, maxWidth: '100%', fontSize: '0.75rem', opacity: 0.85 }}
                         >
-                            {message.attachments.map(a => (
-                                <li
-                                    key={a.userFileId}
-                                    title={a.name}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', minWidth: 0, maxWidth: '100%', fontSize: '0.75rem', opacity: 0.85 }}
+                            <Paperclip size={12} aria-hidden="true" style={{ flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {message.content}
+        </>
+    );
+
+    return (
+        <MessageContextMenu
+            message={message}
+            enabled={actionsReady && !message.isEnhanced}
+            onOpenChange={handleMenuOpenChange}
+            onEdit={message.role === 'user' && onEdit ? () => onEdit(message.id!, message.content) : undefined}
+            onFork={message.role === 'ai' && onFork ? () => onFork(message.id!) : undefined}
+            onCompare={message.role === 'ai' && onCompare ? () => onCompare(message.id!) : undefined}
+            onRegenerate={onRegenerate ? () => onRegenerate(message.id!) : undefined}
+            onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
+            onViewGraph={onViewGraph && citationModel.cited.length > 0 ? () => onViewGraph(message.id!) : undefined}
+            contentRef={message.role === 'ai' ? contentRef : undefined}
+            kbId={kbId}
+            questionText={questionText}
+        >
+            <motion.div
+                ref={bubbleRef}
+                {...getMotionProps(reducedMotion)}
+                initial={{ opacity: 0, y: 10, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.3, ease: "easeOut", delay: animationDelay ?? 0 }}
+                className={`${isQuestion
+                    ? 'message-question flex min-w-0 max-w-full flex-col items-end self-end'
+                    : `message-bubble ${message.role === 'user' ? 'message-user' : 'message-ai'}`}${isMobile ? ' select-none' : ''}`}
+                style={message.isEnhanced ? {
+                    background: 'var(--msg-enhanced-bg)',
+                    color: 'var(--msg-enhanced-text)',
+                    fontStyle: 'italic',
+                    fontSize: '0.9rem',
+                    border: `1px dashed var(--msg-enhanced-border)`,
+                    alignSelf: 'flex-end',
+                    borderRadius: 'var(--shape-xl) var(--shape-xl) var(--shape-sm) var(--shape-xl)',
+                    padding: '0.5rem 1rem'
+                } : isQuestion ? undefined : { position: 'relative' as const }}
+                onMouseEnter={isMobile ? undefined : () => setIsHovered(true)}
+                onMouseLeave={isMobile ? undefined : () => setIsHovered(false)}
+                onClick={isMobile ? (e) => {
+                    // A tap on a control (or inside a popover or menu portalled from
+                    // one) is that control's, not a tap on the message.
+                    const target = e.target as Element;
+                    if (!e.currentTarget.contains(target) || target.closest('button, a, input, textarea, [role="button"], [role="menuitem"]')) return;
+                    if (menuOpenRef.current || Date.now() - menuClosedAtRef.current < 500) return;
+                    setTapped(prev => {
+                        const next = !prev;
+                        if (next) {
+                            triggerHaptic(HAPTIC_PATTERNS.reveal);
+                        }
+                        return next;
+                    });
+                } : undefined}
+                onFocus={isMobile ? undefined : () => setIsFocused(true)}
+                onBlur={isMobile ? undefined : () => setIsFocused(false)}
+                tabIndex={0}
+            >
+                {branchInfo && onSwitchBranch && message.isEnhanced && (
+                    <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
+                )}
+
+                {message.role === 'ai' ? (
+                    // Inert wrapper. It used to be role="button" tabIndex={0} purely to
+                    // carry the citation click/keydown delegation, which made screen
+                    // readers announce the entire answer as a single button. Citation
+                    // pills are individually focusable buttons now, so nothing here
+                    // needs button semantics.
+                    <div ref={contentRef} style={{ minWidth: 0 }}>
+                        <MessageContent
+                            content={message.content}
+                            reasoning={message.reasoning}
+                            isThinking={isThinking}
+                            sources={message.sources}
+                            citationModel={citationModel}
+                            suspectCitations={suspect}
+                            citationSpans={spans}
+                            activeCitation={activeCitation}
+                            onOpenPanel={canOpenPanel ? handleOpenPanel : undefined}
+                            onShowAllSources={citationModel.cited.length > 0 ? handleShowAllSources : undefined}
+                            trajectory={message.trajectory}
+                            flaggedClaims={flaggedClaimsFor(message.verification)}
+                            reasoningOpen={reasoningOpen}
+                            onToggleReasoning={() => toggleSection('reasoning')}
+                        />
+                    </div>
+                ) : isQuestion ? (
+                    <>
+                        <div className="message-bubble message-user">
+                            {branchInfo && onSwitchBranch && (
+                                <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
+                            )}
+                            {questionBody}
+                        </div>
+                        {actionsReady && !isMobile && (
+                            <div data-testid="question-actions" data-revealed={footerShown} className={`mt-1 ${revealClass}`}>
+                                <MessageActions
+                                    message={message}
+                                    canCopy
+                                    onEdit={onEdit ? () => onEdit(message.id!, message.content) : undefined}
+                                />
+                            </div>
+                        )}
+                    </>
+                ) : questionBody}
+
+                {message.role === 'ai' && message.comparisonFindings && message.comparisonFindings.length > 0 && (
+                    <ComparisonFindings findings={message.comparisonFindings} t={t} />
+                )}
+
+                {/* §8 answer footer: shown on hover, focus inside the answer or a tap,
+                    keeping its space while hidden. Sources, versions and checks are in it
+                    as soon as they arrive; the actions wait for the saved answer. */}
+                {message.role === 'ai' && !message.isEnhanced && (!isStreaming || message.content || message.reasoning) && (
+                    <Sources
+                        className="mb-0"
+                        open={sourcesExpanded}
+                        onOpenChange={(open) => { if (open !== sourcesExpanded) toggleSection('sources'); }}
+                    >
+                        <MessageToolbar
+                            data-testid="answer-footer"
+                            data-revealed={footerShown}
+                            className={`mt-2 min-h-8 flex-wrap justify-start gap-1 ${revealClass}`}
+                        >
+                            {attributionName && (
+                                <Badge appearance="text" tone="neutral">
+                                    {message.teamId ? <Users className="size-3.5" aria-hidden="true" /> : <Bot className="size-3.5" aria-hidden="true" />}
+                                    {attributionName}
+                                </Badge>
+                            )}
+                            {citationModel.cited.length > 0 ? (
+                                <SourcesTrigger count={citationModel.cited.length}>
+                                    <FileText className="size-4" aria-hidden="true" />
+                                    <span className="font-medium">{t('answerSourcesToggle')} · {citationModel.cited.length}</span>
+                                    <ChevronDown className="size-4 transition-transform motion-reduce:transition-none group-data-[state=open]:rotate-180" aria-hidden="true" />
+                                </SourcesTrigger>
+                            ) : !isStreaming && (
+                                // An answer without a cited source (a follow-up question, say).
+                                <Badge appearance="text" tone="neutral" data-testid="no-sources">
+                                    <Info className="size-3.5" aria-hidden="true" />
+                                    {t('noMatchingSources')}
+                                </Badge>
+                            )}
+                            {message.verification != null && hasFactcheckOutput(message.verification) && (
+                                <ConfidenceChip
+                                    verification={message.verification}
+                                    t={t}
+                                    open={confOpen}
+                                    onToggle={() => toggleSection('confidence')}
+                                />
+                            )}
+                            {message.conflicts != null && message.conflicts.length > 0 && (
+                                <ConflictsChip
+                                    count={message.conflicts.length}
+                                    t={t}
+                                    open={conflictsExpanded}
+                                    onToggle={() => toggleSection('conflicts')}
+                                />
+                            )}
+                            {branchInfo && onSwitchBranch && branchInfo.total > 1 && (
+                                <MessageBranch
+                                    className="w-auto"
+                                    branch={branchInfo.currentIndex}
+                                    totalBranches={branchInfo.total}
+                                    onBranchChange={(i) => {
+                                        const id = branchInfo.siblingIds[i];
+                                        if (id) onSwitchBranch(id);
+                                    }}
                                 >
-                                    <Paperclip size={12} aria-hidden="true" style={{ flexShrink: 0 }} />
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                                </li>
+                                    <MessageBranchSelector aria-label={t('answerVersions')}>
+                                        <MessageBranchPrevious formatLabel={(target, total) => fill(t('previousVersion'), { target, total })} />
+                                        <MessageBranchPage format={(current, total) => fill(t('versionPage'), { current, total })} />
+                                        <MessageBranchNext formatLabel={(target, total) => fill(t('nextVersion'), { target, total })} />
+                                    </MessageBranchSelector>
+                                </MessageBranch>
+                            )}
+                            {actionsReady && !isMobile && (
+                                <div data-testid="answer-actions" className="min-w-0">
+                                    <MessageActions
+                                        message={message}
+                                        onFork={onFork ? () => onFork(message.id!) : undefined}
+                                        onCompare={onCompare ? () => onCompare(message.id!) : undefined}
+                                        onRegenerate={onRegenerate ? () => onRegenerate(message.id!) : undefined}
+                                        onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
+                                        onViewGraph={onViewGraph && citationModel.cited.length > 0 ? () => onViewGraph(message.id!) : undefined}
+                                        onPopoverOpenChange={setActionPopoverOpen}
+                                        kbId={kbId}
+                                        questionText={questionText}
+                                        contentRef={contentRef}
+                                    />
+                                </div>
+                            )}
+                        </MessageToolbar>
+
+                        {confOpen && message.verification != null && (
+                            <ConfidenceDetails verification={message.verification} t={t} />
+                        )}
+
+                        {conflictsExpanded && message.conflicts != null && message.conflicts.length > 0 && (
+                            <ConflictsDetails conflicts={message.conflicts} t={t} />
+                        )}
+
+                        {citationModel.cited.length > 0 && (
+                            <SourcesContent className="w-full" ref={sourceListRef}>
+                                <SourceList
+                                    sources={citationModel.cited}
+                                    activeN={activeCitation?.n ?? null}
+                                    onOpen={canOpenPanel ? (source) => openPanel(source, 0) : undefined}
+                                />
+                            </SourcesContent>
+                        )}
+                    </Sources>
+                )}
+
+                {showFollowUps && message.followUpQuestions && message.followUpQuestions.length > 0 && onFollowUpClick && (
+                    <div style={{ marginTop: '1rem' }}>
+                        <div className="source-label" style={{ marginBottom: '0.5rem' }}>{t('followUpsLabel')}</div>
+                        <div className="follow-up-suggestions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
+                            {message.followUpQuestions.map((q, idx) => (
+                                <button
+                                    key={idx}
+                                    className="follow-up-chip"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onFollowUpClick(q);
+                                    }}
+                                >
+                                    {q}
+                                </button>
                             ))}
-                        </ul>
-                    )}
-                    {message.content}
-                </>
-            )}
-
-            {message.role === 'ai' && message.comparisonFindings && message.comparisonFindings.length > 0 && (
-                <ComparisonFindings findings={message.comparisonFindings} t={t} />
-            )}
-
-            {/* §8: single calm answer footer — confidence chip + Quellen·N toggle + one action row */}
-            {message.role === 'ai' && !isStreaming && !message.isEnhanced && message.id && (
-                <>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minWidth: 0, marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
-                        {attributionName && (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                                {message.teamId ? <Users size={12} aria-hidden="true" /> : <Bot size={12} aria-hidden="true" />}
-                                {attributionName}
-                            </span>
-                        )}
-                        {message.verification != null && hasFactcheckOutput(message.verification) && (
-                            <ConfidenceChip
-                                verification={message.verification}
-                                t={t}
-                                open={confOpen}
-                                onToggle={() => toggleSection('confidence')}
-                            />
-                        )}
-                        {message.conflicts != null && message.conflicts.length > 0 && (
-                            <ConflictsChip
-                                count={message.conflicts.length}
-                                t={t}
-                                open={conflictsExpanded}
-                                onToggle={() => toggleSection('conflicts')}
-                            />
-                        )}
-                        {sourceGroups.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); toggleSection('sources'); }}
-                                aria-expanded={sourcesExpanded}
-                                style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                    padding: '2px 10px', borderRadius: 'var(--shape-full)',
-                                    fontSize: '0.75rem', fontWeight: 600,
-                                    background: 'var(--tag-bg)', color: 'var(--accent-primary)',
-                                    border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                            >
-                                <FileText size={13} aria-hidden="true" />
-                                {t('answerSourcesToggle')} · {sourceGroups.length}
-                                <ChevronDown size={12} aria-hidden="true" style={{ transition: 'transform 0.15s', transform: sourcesExpanded ? 'rotate(180deg)' : 'none' }} />
-                            </button>
-                        )}
-                        {/* Per-answer knowledge-graph pill — joins the source-affordance family
-                            in the footer. Only shown when the answer has a cited subgraph, so
-                            it's never a dead control. */}
-                        {onViewGraph && sourceGroups.length > 0 && (
-                            <button
-                                type="button"
-                                className="graph-pill"
-                                onClick={(e) => { e.stopPropagation(); onViewGraph(message.id!); }}
-                                title={t('viewGraphForAnswer')}
-                                aria-label={t('viewGraphForAnswer')}
-                            >
-                                <Network size={13} aria-hidden="true" />
-                                {t('viewGraphLabel')}
-                            </button>
-                        )}
-                        <div style={{ marginLeft: 'auto', minWidth: 0 }}>
-                            <MessageActions
-                                message={message}
-                                variant="inline"
-                                onFork={onFork ? () => onFork(message.id!) : undefined}
-                                onCompare={onCompare ? () => onCompare(message.id!) : undefined}
-                                onRegenerate={onRegenerate ? () => onRegenerate(message.id!) : undefined}
-                                onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
-                                isMobile={isMobile}
-                                kbId={kbId}
-                                questionText={questionText}
-                                contentRef={contentRef}
-                            />
                         </div>
                     </div>
-
-                    {confOpen && message.verification != null && (
-                        <ConfidenceDetails verification={message.verification} t={t} />
-                    )}
-
-                    {conflictsExpanded && message.conflicts != null && message.conflicts.length > 0 && (
-                        <ConflictsDetails conflicts={message.conflicts} t={t} />
-                    )}
-
-                    {sourcesExpanded && sourceGroups.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-                            {sourceGroups.map((g, i) => {
-                                const isPdf = g.name.toLowerCase().endsWith('.pdf');
-                                const pageLabel = g.pages.length ? `S. ${formatPageRanges(g.pages)} · ` : '';
-                                const dateLabel = g.dateIso ? `${formatDate(g.dateIso, language)} · ` : '';
-                                const canOpen = !!g.fileId && (isPdf ? !!onPdfOpen : !!onPreviewSource);
-                                return (
-                                    <div key={`${g.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.6rem 0.75rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--shape-md)' }}>
-                                        <FileText size={18} aria-hidden="true" style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />
-                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                            <div style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{dateLabel}{pageLabel}{g.count} {t('hitsLabel')}</div>
-                                        </div>
-                                        {canOpen && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => { e.stopPropagation(); openSourceByFile(g.name, g.fileId, g.pages[0] || 1); }}
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'inherit', flexShrink: 0 }}
-                                            >
-                                                {t('openInDocument')} <ArrowRight size={13} aria-hidden="true" />
-                                            </button>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </>
-            )}
-
-            {showFollowUps && message.followUpQuestions && message.followUpQuestions.length > 0 && onFollowUpClick && (
-                <div style={{ marginTop: '1rem' }}>
-                    <div className="source-label" style={{ marginBottom: '0.5rem' }}>{t('followUpsLabel')}</div>
-                    <div className="follow-up-suggestions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
-                        {message.followUpQuestions.map((q, idx) => (
-                            <button
-                                key={idx}
-                                className="follow-up-chip"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onFollowUpClick(q);
-                                }}
-                            >
-                                {q}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </motion.div>
+                )}
+            </motion.div>
+        </MessageContextMenu>
     );
 }
 
