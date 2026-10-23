@@ -66,10 +66,11 @@ type sendMessageRequest struct {
 	WebSearch       *bool    `json:"webSearch"`
 	AttachmentID    string   `json:"attachmentId"`
 	ComparisonModes []string `json:"comparisonModes"`
-	// RegenerateOfMessageID names an AI message to answer again. The turn
-	// then carries no question of its own: the stored question is re-answered
-	// and the new answer becomes a sibling of the named one. Overrides
-	// Message, Enhance and ParentMessageID — see internal/chat/regenerate.go.
+	// RegenerateOfMessageID names an AI message to answer again — or a
+	// question, to answer it. The turn then carries no question of its own:
+	// the stored question is (re-)answered and the new answer hangs under it,
+	// beside the named answer if there is one. Overrides Message, Enhance and
+	// ParentMessageID — see internal/chat/regenerate.go.
 	RegenerateOfMessageID string `json:"regenerateOfMessageId"`
 	// TeamID / AgentID select a user-created agent team (or single agent)
 	// for this turn — sticky per chat session (persisted on the chat row).

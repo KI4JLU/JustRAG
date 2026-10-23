@@ -109,7 +109,7 @@ func (m *mockStore) UpdateChatTitle(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *mockStore) BranchChat(context.Context, string, string, string) (*ChatRow, error) {
+func (m *mockStore) BranchChat(context.Context, string, string, string) (*BranchResult, error) {
 	return nil, nil
 }
 

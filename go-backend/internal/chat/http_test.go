@@ -37,6 +37,7 @@ type mockStore struct {
 	// args of the most recent BranchChat call; branchErr is returned
 	branchedChat, branchedMsg, branchedBy string
 	branchErr                             error
+	branchCalled                          bool
 
 	// captured args from the most recent UpdateMessageFeedback call
 	lastUserID   string
@@ -103,13 +104,14 @@ func (m *mockStore) UpdateChatTitle(_ context.Context, chatID, userID, title str
 	return m.renameErr
 }
 
-func (m *mockStore) BranchChat(_ context.Context, chatID, messageID, userID string) (*chat.ChatRow, error) {
+func (m *mockStore) BranchChat(_ context.Context, chatID, messageID, userID string) (*chat.BranchResult, error) {
+	m.branchCalled = true
 	m.branchedChat, m.branchedMsg, m.branchedBy = chatID, messageID, userID
 	if m.branchErr != nil {
 		return nil, m.branchErr
 	}
 	origin := chatID
-	return &chat.ChatRow{ID: "chat-new", UserID: userID, BranchedFromChatID: &origin}, nil
+	return &chat.BranchResult{ChatRow: chat.ChatRow{ID: "chat-new", UserID: userID, BranchedFromChatID: &origin}, CopiedMessageID: "copy-1"}, nil
 }
 
 func (m *mockStore) StarterContext(_ context.Context, _ string, _ int) (chat.StarterSource, error) {
@@ -529,9 +531,21 @@ func TestBranchChat_OK(t *testing.T) {
 	if store.branchedChat != renameChatIDCanonical || store.branchedMsg != branchMessageID || store.branchedBy != "user-1" {
 		t.Fatalf("store got (%q, %q, %q)", store.branchedChat, store.branchedMsg, store.branchedBy)
 	}
-	var got chat.ChatRow
-	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || got.ID != "chat-new" || got.BranchedFromChatID == nil {
-		t.Fatalf("body = %s (%v), want the new chat with branchedFromChatId", rr.Body.String(), err)
+	var got chat.BranchResult
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || got.ID != "chat-new" || got.BranchedFromChatID == nil || got.CopiedMessageID != "copy-1" {
+		t.Fatalf("body = %s (%v), want the new chat with branchedFromChatId and copiedMessageId", rr.Body.String(), err)
+	}
+}
+
+// Oracle: the request — no messageId is the empty branch (editing the first
+// question), passed on as an empty message id, not refused.
+func TestBranchChat_EmptyBranch(t *testing.T) {
+	store := &mockStore{}
+	h := chat.NewHandler(store, nil, nil)
+	rr := httptest.NewRecorder()
+	h.BranchChat(rr, branchRequest(renameChatID, map[string]string{}, testUser()))
+	if rr.Code != http.StatusCreated || !store.branchCalled || store.branchedMsg != "" {
+		t.Fatalf("got %d (store called %v with %q), want 201 and an empty message id", rr.Code, store.branchCalled, store.branchedMsg)
 	}
 }
 
@@ -546,13 +560,13 @@ func TestBranchChat_RejectsBeforeStore(t *testing.T) {
 	}{
 		{"chat-1", map[string]string{"messageId": branchMessageID}, http.StatusNotFound},
 		{renameChatID, map[string]string{"messageId": "msg-1"}, http.StatusBadRequest},
-		{renameChatID, map[string]string{}, http.StatusBadRequest},
+		{renameChatID, "not an object", http.StatusBadRequest},
 	} {
 		store := &mockStore{}
 		h := chat.NewHandler(store, nil, nil)
 		rr := httptest.NewRecorder()
 		h.BranchChat(rr, branchRequest(tc.id, tc.body, testUser()))
-		if rr.Code != tc.want || store.branchedChat != "" {
+		if rr.Code != tc.want || store.branchCalled {
 			t.Fatalf("id %q body %v: got %d (store saw %q), want %d and no store call", tc.id, tc.body, rr.Code, store.branchedChat, tc.want)
 		}
 	}

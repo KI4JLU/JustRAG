@@ -171,7 +171,7 @@ func (s *wiringStore) UpdateChatTitle(context.Context, string, string, string) e
 	return nil
 }
 
-func (s *wiringStore) BranchChat(context.Context, string, string, string) (*ChatRow, error) {
+func (s *wiringStore) BranchChat(context.Context, string, string, string) (*BranchResult, error) {
 	return nil, nil
 }
 

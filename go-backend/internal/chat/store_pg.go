@@ -107,7 +107,24 @@ type messageDBRow struct {
 }
 
 func toChatRow(r chatDBRow) ChatRow {
-	return ChatRow(r)
+	return ChatRow{
+		ID:                 r.ID,
+		KbID:               r.KbID,
+		UserID:             r.UserID,
+		Title:              r.Title,
+		Type:               r.Type,
+		TeamID:             r.TeamID,
+		AgentID:            r.AgentID,
+		CreatedAt:          r.CreatedAt,
+		UpdatedAt:          r.UpdatedAt,
+		BranchedFromChatID: r.BranchedFromChatID,
+	}
+}
+
+// chatListDBRow is a chats row plus the list-only has_branches flag.
+type chatListDBRow struct {
+	chatDBRow
+	HasBranches bool `db:"has_branches"`
 }
 
 func toMessageRow(r messageDBRow) (MessageRow, error) {
@@ -172,21 +189,36 @@ func isJSONNull(raw json.RawMessage) bool {
 	return len(trimmed) == 4 && string(trimmed) == "null"
 }
 
-// GetChats returns all chats for the given kbID and userID, ordered by updated_at DESC.
+// GetChats returns all chats for the given kbID and userID, ordered by
+// updated_at DESC. Besides branchedFromChatId (a chat made by branching),
+// each carries HasBranches: whether two of its messages share a parent (two
+// root messages count too — GROUP BY puts the NULL parents in one group), so
+// chats that branched inside themselves — edits, regenerations and forks from
+// before branching opened a new chat — are marked as well. Prompt-enhancement
+// rows are not versions of a turn and are left out. The subquery reads one
+// chat's messages through messages_chat_id_idx.
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id
-		FROM chats
-		WHERE kb_id = $1 AND user_id = $2
-		ORDER BY updated_at DESC`
+		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
+		       c.created_at, c.updated_at, c.branched_from_chat_id,
+		       EXISTS (
+		           SELECT 1 FROM messages m
+		           WHERE m.chat_id = c.id AND NOT COALESCE(m.is_enhanced, false)
+		           GROUP BY m.parent_message_id
+		           HAVING count(*) > 1
+		       ) AS has_branches
+		FROM chats c
+		WHERE c.kb_id = $1 AND c.user_id = $2
+		ORDER BY c.updated_at DESC`
 
-	rows, err := pgxutil.QueryRows[chatDBRow](ctx, s.pool, sql, kbID, userID)
+	rows, err := pgxutil.QueryRows[chatListDBRow](ctx, s.pool, sql, kbID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("GetChats: %w", err)
 	}
 	result := make([]ChatRow, len(rows))
 	for i, r := range rows {
-		result[i] = toChatRow(r)
+		result[i] = toChatRow(r.chatDBRow)
+		result[i].HasBranches = r.HasBranches
 	}
 	return result, nil
 }
@@ -434,83 +466,118 @@ func (s *PGStore) UpdateChatTitle(ctx context.Context, chatID, userID, title str
 // are re-linked (not copied: the files are the user's, and the chat that
 // reads them is what changes). One transaction: no half-copied chat on error.
 //
-// store.ErrNotFound when the chat is not the user's, is a library chat, or
+// Only an ordinary KB chat can be branched — its whole state is the parent
+// chain copied here. Not a library chat (its file selection lives in
+// chat_file_refs), not a research session (goal and report carry no parent
+// link, so the chain would lose the goal), and not an agent chat (the model's
+// history lives in its ADK session, keyed by the chat id, which a copy of the
+// rows would not carry over).
+//
+// An empty messageID copies no message: the branch before the first
+// question (editing the first question opens one).
+//
+// store.ErrNotFound when the chat is not the user's or not branchable, or
 // messageID is not in it.
-func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID string) (*ChatRow, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("BranchChat: begin: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // a no-op after Commit
+func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID string) (*BranchResult, error) {
+	var out *BranchResult
+	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var branchable bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM chats c
+				WHERE c.id = $1 AND c.user_id = $2 AND c.kb_id IS NOT NULL AND c.type = 'chat'
+				  AND NOT EXISTS (SELECT 1 FROM adk_sessions s WHERE s.app_name = $3 AND s.id = c.id::text))`,
+			chatID, userID, agentChatApp).Scan(&branchable); err != nil {
+			return fmt.Errorf("check chat: %w", err)
+		}
+		if !branchable {
+			return fmt.Errorf("chat %s: %w", chatID, store.ErrNotFound)
+		}
 
-	// The path: messageID and its ancestors, never leaving the chat (the
-	// same guard as GetMessageAncestors), and only in a chat of userID.
-	var oldIDs []string
+		// The path: messageID and its ancestors, never leaving the chat (the
+		// same guard as GetMessageAncestors).
+		var oldIDs []string
+		if messageID != "" {
+			ids, err := branchPath(ctx, tx, chatID, messageID)
+			if err != nil {
+				return err
+			}
+			oldIDs = ids
+		}
+		newIDs := make([]string, len(oldIDs))
+		for i := range oldIDs {
+			newIDs[i] = uuid.NewString()
+		}
+
+		row, err := pgxutil.QueryOne[chatDBRow](ctx, tx, `
+			INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id)
+			SELECT kb_id, user_id, title, type, team_id, agent_id, id
+			FROM chats WHERE id = $1
+			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`,
+			chatID)
+		if err != nil {
+			return fmt.Errorf("create chat: %w", err)
+		}
+		if row == nil {
+			return fmt.Errorf("chat %s: %w", chatID, store.ErrNotFound)
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO messages (id, chat_id, parent_message_id, role, content, sources, is_enhanced, enhanced_query,
+			                      reasoning, verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at)
+			SELECT map.new_id, $3, parent.new_id, m.role, m.content, m.sources, m.is_enhanced, m.enhanced_query,
+			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.team_id, m.agent_id, m.created_at
+			FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
+			JOIN messages m ON m.id = map.old_id
+			LEFT JOIN unnest($1::uuid[], $2::uuid[]) AS parent(old_id, new_id) ON parent.old_id = m.parent_message_id`,
+			oldIDs, newIDs, row.ID); err != nil {
+			return fmt.Errorf("copy messages: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO message_attachments (message_id, user_file_id, position)
+			SELECT map.new_id, a.user_file_id, a.position
+			FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
+			JOIN message_attachments a ON a.message_id = map.old_id`,
+			oldIDs, newIDs); err != nil {
+			return fmt.Errorf("link attachments: %w", err)
+		}
+		out = &BranchResult{ChatRow: toChatRow(*row)}
+		if len(newIDs) > 0 {
+			out.CopiedMessageID = newIDs[0]
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("BranchChat: %w", err)
+	}
+	return out, nil
+}
+
+// branchPath returns messageID and its ancestors inside chatID, messageID
+// first, never leaving the chat (the same guard as GetMessageAncestors).
+// store.ErrNotFound when messageID is not in the chat.
+func branchPath(ctx context.Context, tx pgx.Tx, chatID, messageID string) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 		WITH RECURSIVE chain AS (
-			SELECT m.id, m.parent_message_id
-			FROM messages m JOIN chats c ON c.id = m.chat_id
-			-- KB chats only: a library chat's file selection (chat_file_refs)
-			-- is not part of the copy.
-			WHERE m.id = $1 AND m.chat_id = $2 AND c.user_id = $3 AND c.kb_id IS NOT NULL
+			SELECT m.id, m.parent_message_id, 0 AS depth
+			FROM messages m WHERE m.id = $1 AND m.chat_id = $2
 			UNION ALL
-			SELECT p.id, p.parent_message_id
+			SELECT p.id, p.parent_message_id, ch.depth + 1
 			FROM messages p JOIN chain ch ON ch.parent_message_id = p.id
 			WHERE p.chat_id = $2
 		)
-		SELECT id::text FROM chain`, messageID, chatID, userID)
+		SELECT id::text FROM chain ORDER BY depth`, messageID, chatID)
 	if err != nil {
-		return nil, fmt.Errorf("BranchChat: path: %w", err)
+		return nil, fmt.Errorf("path: %w", err)
 	}
-	oldIDs, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return nil, fmt.Errorf("BranchChat: path: %w", err)
+		return nil, fmt.Errorf("path: %w", err)
 	}
-	if len(oldIDs) == 0 {
+	if len(ids) == 0 {
 		return nil, fmt.Errorf("chat %s message %s: %w", chatID, messageID, store.ErrNotFound)
 	}
-	newIDs := make([]string, len(oldIDs))
-	for i := range oldIDs {
-		newIDs[i] = uuid.NewString()
-	}
-
-	row, err := pgxutil.QueryOne[chatDBRow](ctx, tx, `
-		INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id)
-		SELECT kb_id, user_id, title, type, team_id, agent_id, id
-		FROM chats WHERE id = $1
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`,
-		chatID)
-	if err != nil {
-		return nil, fmt.Errorf("BranchChat: create chat: %w", err)
-	}
-	if row == nil {
-		return nil, fmt.Errorf("chat %s: %w", chatID, store.ErrNotFound)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO messages (id, chat_id, parent_message_id, role, content, sources, is_enhanced, enhanced_query,
-		                      reasoning, verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at)
-		SELECT map.new_id, $3, parent.new_id, m.role, m.content, m.sources, m.is_enhanced, m.enhanced_query,
-		       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.team_id, m.agent_id, m.created_at
-		FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
-		JOIN messages m ON m.id = map.old_id
-		LEFT JOIN unnest($1::uuid[], $2::uuid[]) AS parent(old_id, new_id) ON parent.old_id = m.parent_message_id`,
-		oldIDs, newIDs, row.ID); err != nil {
-		return nil, fmt.Errorf("BranchChat: copy messages: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO message_attachments (message_id, user_file_id, position)
-		SELECT map.new_id, a.user_file_id, a.position
-		FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
-		JOIN message_attachments a ON a.message_id = map.old_id`,
-		oldIDs, newIDs); err != nil {
-		return nil, fmt.Errorf("BranchChat: link attachments: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("BranchChat: commit: %w", err)
-	}
-	r := toChatRow(*row)
-	return &r, nil
+	return ids, nil
 }
 
 // UpdateChatAgentSelection persists the sticky per-chat team/agent pick.

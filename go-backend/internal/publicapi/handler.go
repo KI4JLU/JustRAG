@@ -177,7 +177,7 @@ func (a chatStoreAdapter) UpdateChatTitle(_ context.Context, _, _, _ string) err
 	return fmt.Errorf("UpdateChatTitle: %w", errChatStoreUnsupported)
 }
 
-func (a chatStoreAdapter) BranchChat(_ context.Context, _, _, _ string) (*chat.ChatRow, error) {
+func (a chatStoreAdapter) BranchChat(_ context.Context, _, _, _ string) (*chat.BranchResult, error) {
 	return nil, fmt.Errorf("BranchChat: %w", errChatStoreUnsupported)
 }
 
