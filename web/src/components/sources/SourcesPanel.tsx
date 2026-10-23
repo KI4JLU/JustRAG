@@ -236,6 +236,7 @@ const SourcesPanelComp: React.FC = () => {
                         <SourcesHeader />
                         {mode?.kind === 'filter' && (
                             <SidebarSelectionBar
+                                iconSlot="badge"
                                 aria-label={t('selectSources')}
                                 countLabel={t('selectedCount').replace('{count}', String(ticked.length))}
                                 onCancel={cancelMode}
@@ -268,6 +269,7 @@ const SourcesPanelComp: React.FC = () => {
                         )}
                         {mode?.kind === 'remove' && (
                             <SidebarSelectionBar
+                                iconSlot="badge"
                                 aria-label={t('removeSources')}
                                 countLabel={t('selectedCount').replace('{count}', String(ticked.length))}
                                 onCancel={cancelMode}

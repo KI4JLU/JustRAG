@@ -38,6 +38,9 @@
 }
 
 .sources-grid__search-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
     height: 26px;
     border: none;
     background: var(--color-surface-container-low);
@@ -132,23 +135,30 @@
     text-decoration: underline;
 }
 
-/* Deep research progress */
+/* Deep research progress, inside the search box: the status line under a
+   hairline, the bar along the box's bottom edge (clipped by its radius). */
+.sources-grid__search-box {
+    position: relative;
+    overflow: hidden;
+}
+
 .sources-grid__research-progress {
-    margin-bottom: 6px;
+    border-top: 1px solid var(--color-outline-variant);
+    padding-top: 6px;
 }
 
 .sources-grid__research-track {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--bg-tertiary);
-    overflow: hidden;
-    margin-bottom: 4px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: var(--color-surface-container);
 }
 
 .sources-grid__research-fill {
     height: 100%;
-    border-radius: 2px;
-    background: var(--accent-primary);
+    background: var(--color-primary);
     transition: width 0.3s ease;
 }
 
@@ -160,8 +170,8 @@
 }
 
 .sources-grid__research-text {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
+    font-size: 0.75rem;
+    color: var(--color-on-surface-variant);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

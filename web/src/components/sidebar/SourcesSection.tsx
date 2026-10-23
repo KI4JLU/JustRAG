@@ -6,12 +6,12 @@ import {
 import { Button, SidebarCard, SidebarCardList, type ActionMenuItem } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
-import { IngestStageIndicator } from './IngestStageIndicator';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
 import { SourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
 import { cardFiles, confluenceKey, feedExcluded, feedKey, fileKey, gitKey, syncedExcluded, type SourceKey } from './sourceSelection';
 import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
+import { INGEST_STAGE_LABEL_KEYS } from '../../utils/ingestStages';
 
 interface SourcesSectionProps {
     files: FileEntry[];
@@ -120,10 +120,17 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 
     /* A synced source's row is its type chip and title; everything else
        (state, counts, sync times, entries) is in its details dialog. Only a
-       failure stays on the row, because it needs acting on. */
-    const errorMeta = (status: string) => (status === 'error'
-        ? <div className="sidebar-left__rss-feed-error">{t('feedError')}</div>
-        : null);
+       failure shows on the row — tinted red, the message as its tooltip —
+       because it needs acting on. */
+    // The tooltip of a row in progress: "3/4 Embeddings werden erzeugt", or queued.
+    const busyLabel = (file: FileEntry) => {
+        if (!file.currentStage) return t('fileStatusPending');
+        const label = t(INGEST_STAGE_LABEL_KEYS[file.currentStage] ?? 'ingestStageGeneric');
+        return file.stageIndex && file.stageTotal ? `${file.stageIndex}/${file.stageTotal} ${label}` : label;
+    };
+    const errorOf = (source: { status: string; errorMessage?: string | null }) => (source.status === 'error'
+        ? (source.errorMessage || t('feedError'))
+        : undefined);
 
     /* The management actions of a synced source, in its ⋯ menu: sync now,
        pause/resume, the schedule as a submenu, remove. */
@@ -165,18 +172,12 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             icon={createElement(sourceIconFor(file), { 'aria-hidden': true })}
                             iconText={sourceTypeLabel(file) ?? undefined}
                             title={file.name}
+                            // A failed ingest: the row is tinted red, the message is its tooltip.
+                            error={file.status === 'error' ? errorLabel(file) : undefined}
+                            // Queued or ingesting: a spinner on the tile, the stage as its tooltip.
+                            busy={file.status === 'pending' || file.status === 'processing' ? busyLabel(file) : undefined}
                             onOpen={canDownload ? () => onPreviewSource(file) : undefined}
                             meta={<>
-                                {/* Status only when it is news: queued or failed. A finished
-                                    upload says nothing — the card being there is the status. */}
-                                {file.status === 'pending' && !file.currentStage && (
-                                    <div className="source-meta sidebar-left__file-meta">{t('fileStatusPending')}</div>
-                                )}
-                                {file.status === 'error' && (
-                                    <div className="sidebar-left__rss-feed-error">
-                                        {errorLabel(file)}
-                                    </div>
-                                )}
                                 {file.injectionFlag && (
                                     <div
                                         className="sidebar-left__file-injection"
@@ -186,15 +187,6 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                     >
                                         <ShieldAlert size={12} aria-hidden="true" /> {t('fileInjectionFlagged')}
                                     </div>
-                                )}
-                                {file.currentStage && (
-                                    <IngestStageIndicator
-                                        stage={file.currentStage}
-                                        index={file.stageIndex}
-                                        total={file.stageTotal}
-                                        fileName={file.name}
-                                        detail={file.stageDetail}
-                                    />
                                 )}
                             </>}
                             extra={<>
@@ -233,7 +225,9 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             selectLabel={t('selectSource')}
                         />
                     );
-                    return canDownload
+                    // A row in progress or failed shows its status tooltip instead of the preview.
+                    const ready = file.status !== 'error' && file.status !== 'pending' && file.status !== 'processing';
+                    return canDownload && ready
                         ? <SourceHoverPreview key={file.id} file={file}>{card}</SourceHoverPreview>
                         : card;
                 })}
@@ -246,7 +240,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             iconText={SOURCE_TYPE_CHIP.rss}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
-                            meta={errorMeta(feed.status)}
+                            error={errorOf(feed)}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -282,7 +276,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             iconText={SOURCE_TYPE_CHIP.confluence}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
-                            meta={errorMeta(source.status)}
+                            error={errorOf(source)}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -313,7 +307,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             iconText={SOURCE_TYPE_CHIP.git}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
-                            meta={errorMeta(source.status)}
+                            error={errorOf(source)}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
