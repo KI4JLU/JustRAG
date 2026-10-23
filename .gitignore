@@ -21,6 +21,9 @@ e2e/.auth/
 !/docs/agent-orchestration.md
 !/docs/feature-recipes.md
 !/docs/user-error-messages.md
+!/docs/feature-reference.md
+!/docs/kb-access.md
+!/docs/eval-cli.md
 !/docs/presentation/
 /docs/presentation/*
 !/docs/presentation/tuning-knobs.md

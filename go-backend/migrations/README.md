@@ -72,3 +72,50 @@ Two consequences of `NO TRANSACTION` worth knowing before you use it:
 
 For a new table created in the same migration, keep the plain in-transaction
 `CREATE INDEX` — the table is empty and nothing else can be writing to it yet.
+
+## Migration index (main DB)
+
+What each notable migration adds. Keep this table current when adding one.
+
+| # | Adds |
+|---|---|
+| 0007 | `content_hash` (cross-file ingest dedup until user-file-library phase 0; now within-batch only) |
+| 0008 | `contextual_prefix` column (Anthropic-style enrichment) |
+| 0042 | `agent_decisions` (admin metrics panel) |
+| 0043 | `agent_decisions.tool_calls JSONB` (tool-mix telemetry) |
+| 0044 | `kg_entities` + `kg_edges` (knowledge-graph extraction) |
+| 0045 | `user_memory` (long-term per-user memory) |
+| 0046 | `node_kind`, `tree_level`, `raptor_parent_id` (RAPTOR hierarchical indexing) |
+| 0047 | `users.external_id` + unique partial index (OIDC `sub` linkage; legacy LDAP rows stay NULL) |
+| 0048 | tabular schema + `tabular_catalog` (structured spreadsheet Q&A) |
+| 0049 | `eval_golden_set_jobs` (async corpus → golden-set generation status) |
+| 0052 | `message_chunks` (answer→chunk links for the online feedback loop) |
+| 0054 | `files.error_stage` + `error_message` (ingestion error visibility + per-file/per-KB retry) |
+| 0059 | `kg_communities` (GraphRAG community detection) |
+| 0060 | `git_repo_sources` + `files.git_repo_source_id`/`git_file_path`/`git_blob_sha` (git repository ingestion) |
+| 0064 | `kb_members` (four KB roles) + owner-mirror trigger; also **renames** `pending_kb_invites.permission` → `role` and widens its CHECK to allow `admin` |
+| 0065 | `knowledge_bases.visibility` + `auto_subscribe`, `is_global` becomes a generated column; `kb_subscriptions`, `kb_categories`, `kb_category_links` |
+| 0066 | `usage_events` (per-turn usage ledger across web / api_v1 / openai_compat / mcp) + backfill of historical web turns |
+| 0067 | `kb_invite_links` (permanent, revocable KB invite links carrying a role) |
+| 0068 | `sync_schedule` + `next_sync_at` on `rss_feeds` / `confluence_sources` / `git_repo_sources` (night-window sync scheduling; `poll_interval` / `sync_interval` left unread for a later cleanup release) |
+| 0069 | `tabular_catalog` v2 columns (`sheet_index`, `region_index`, `sheet_kind`, `hidden`, `header_row`, `profile`, `column_stats`, `coercion_stats`) + `tabular_column_values` + `tabular_query_log` + `files.parse_report`/`stage_detail` (2026-09-04 spreadsheet-ingest rework, Phase 2) |
+| 0070 | `eval_golden_sets.schedule`/`next_run_at` + `eval_runs.scheduled` (scheduled in-app eval runs) |
+| 0071 | `files.published_at` (RSS + Confluence pages + git, **no backfill**) + `last_success_at` on `rss_feeds` / `confluence_sources` / `git_repo_sources` (freshness surface; four `ADD COLUMN IF NOT EXISTS`, no index) |
+| 0072 | `ragas_samples` (+ a `(kb_id, sampled_at DESC)` index) + `messages.conflicts jsonb` + `files.injection_flag`/`injection_detail` (Wave-5 trust surfaces; one file, **no backfill**, no index on a pre-existing table) |
+| 0073 | `agent_decisions.policy_rule` smallint (Wave 6, W6-R6 — which `chat_orchestrator_policy` rule, if any, pinned the turn's orchestrator; nullable, idempotent `ADD COLUMN IF NOT EXISTS`, **no backfill**) |
+| 0075 | `files.uploaded_by` (uuid → users, `ON DELETE SET NULL`, **no backfill**, no index) — who added the file; exposed as `uploadedBy` on `GET /api/kb/{id}/files` for KB role ≥ edit |
+| 0076 | `user_files` (per-user library, `UNIQUE (owner_user_id, sha256)`) + `users.file_quota_bytes` + `files.user_file_id` (both FKs `ON DELETE RESTRICT`; user-file library phase 1) |
+| 0077 | `files_user_file_kb_uidx` — unique partial index `files(user_file_id, kb_id)`, `NO TRANSACTION` + `CREATE INDEX CONCURRENTLY` |
+| 0078 | `files_uploaded_by_idx` — partial index `files(uploaded_by)`, `NO TRANSACTION` + `CREATE INDEX CONCURRENTLY` |
+| 0079 | `files.index_fingerprint text NULL` (user-file library phase 2; no index, no backfill) |
+| 0080 | `kg_extraction_cache` (per-library-file raw KG extraction output; `user_file_id` FK `ON DELETE CASCADE`; no backfill) |
+| 0081 | `chats.kb_id` DROP NOT NULL + `chat_file_refs` (library chat file selection; `ON DELETE CASCADE` both FKs); Down deletes all `kb_id IS NULL` chats (user file library phase 3) |
+| 0082 | `adk_sessions` / `adk_events` / `adk_app_states` / `adk_user_states` (ADK bridge session store; used by the agent chat since Phase 2) |
+| 0083 | `agent_runs` (ADK/AG-UI run lifecycle, one open interrupt per thread, 24 h interrupt expiry; used by the agent chat since Phase 2) |
+| 0084 | `pg_trgm` extension + GIN trigram indexes on `knowledge_bases.name`/`description`/`header_text`, `files.name`, `chats.title` (global search, fuzzy matching; `NO TRANSACTION`, `CONCURRENTLY`). **Needs the CREATE privilege on the database** for `CREATE EXTENSION pg_trgm` (trusted extension, no superuser) — else an operator creates the extension once and re-runs. Run a **single** `cmd/migrate`: a second one waiting on the advisory lock deadlocks against the concurrent build and is aborted |
+| 0085 | `messages_content_fts_idx`, a GIN expression index on `to_tsvector('simple', left(content, 100000))` (global search, message full text; `NO TRANSACTION`, `CONCURRENTLY`; `internal/globalsearch` repeats the expression exactly) |
+| 0086 | `kb_favorites`, `kb_user_categories`, `kb_user_category_links` (per-user topic filters; no backfill, three new tables only) |
+| 0087 | `kb_invite_link_redemptions` (one row per invite link and person; `redemption_count` now counts people, not visits; no backfill) |
+| 0088 | `owui_knowledge`, `owui_files`, `owui_knowledge_files` + usage surface `owui_compat` (ILIAS Open WebUI surface; no backfill) |
+| 0089 | `knowledge_bases.viewer_see_sources` / `viewer_download_sources` / `viewer_see_citations` (default **false**) + `editor_see_sources` / `editor_add_sources` / `editor_download_sources` / `editor_see_citations` (default **true**) — per-KB source permissions; the defaults apply to existing KBs too (viewers of published global KBs lose source list, downloads and citations until a KB admin re-enables them — release upgrade note); catalog-only `ADD COLUMN`, no backfill, no index |
+| 0090 | `user_files.scope` (`library` \| `chat`, default `library`; catalog-only) + `message_attachments(message_id, user_file_id, position)` (both FKs `ON DELETE CASCADE`) + `ai_models.context_window` (nullable) — chat attachments as context; no backfill |
