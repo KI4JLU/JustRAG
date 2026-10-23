@@ -87,7 +87,7 @@ func NewAIQGen(resolver *ai.ConfigResolver, kbID, lang, model string) *AIQGen {
 
 // LookupQuestions generates up to n factual lookup questions for a single chunk.
 func (a *AIQGen) LookupQuestions(ctx context.Context, fileName, document, chunk string, n int) ([]string, error) {
-	return ai.GenerateHypotheticalQuestions(ctx, a.resolver, fileName, document, chunk, a.kbID, n, a.lang, a.model)
+	return ai.GenerateHypotheticalQuestions(ctx, a.resolver, fileName, ai.NewContextDoc(document), chunk, a.kbID, n, a.lang, a.model)
 }
 
 // ComplexQuestion generates one complex-reasoning question for a single chunk.

@@ -323,7 +323,7 @@ func TestGenerateChunkContext_UsesModelOverride(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o", "fast-model")
-	got, err := GenerateChunkContext(context.Background(), resolver, "file.pdf", "chunk text", "surrounding", "", "fast-model")
+	got, err := GenerateChunkContext(context.Background(), resolver, "file.pdf", NewContextDoc("chunk text"), "surrounding", "", "fast-model")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestGenerateChunkContext_EmptyOverrideFallsBack(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	_, err := GenerateChunkContext(context.Background(), resolver, "file.pdf", "chunk text", "surrounding", "", "")
+	_, err := GenerateChunkContext(context.Background(), resolver, "file.pdf", NewContextDoc("chunk text"), "surrounding", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -390,42 +390,4 @@ func TestParseJSONStringArray_EmptyArray(t *testing.T) {
 	if len(result) != 0 {
 		t.Errorf("expected empty slice, got %v", result)
 	}
-}
-
-// TestTruncateToTokens verifies the doc-truncation helper used by
-// GenerateChunkContext. Empty input round-trips, short input is unchanged,
-// and over-budget input is cut so its token count fits the budget.
-func TestTruncateToTokens(t *testing.T) {
-	t.Run("empty input", func(t *testing.T) {
-		if got := truncateToTokens("", 100); got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
-
-	t.Run("zero budget returns input unchanged", func(t *testing.T) {
-		if got := truncateToTokens("hello", 0); got != "hello" {
-			t.Errorf("expected unchanged, got %q", got)
-		}
-	})
-
-	t.Run("under budget returns input unchanged", func(t *testing.T) {
-		s := "short text"
-		if got := truncateToTokens(s, 1000); got != s {
-			t.Errorf("expected unchanged, got %q", got)
-		}
-	})
-
-	t.Run("over budget cuts to fit", func(t *testing.T) {
-		long := strings.Repeat("word ", 5000)
-		got := truncateToTokens(long, 100)
-		if len(got) >= len(long) {
-			t.Errorf("expected shorter result, got len=%d (input len=%d)", len(got), len(long))
-		}
-		// We don't assert the token count exactly because tiktoken
-		// availability varies in CI; the function falls back to a
-		// character estimate. Just confirm it actually shrunk.
-		if got == "" {
-			t.Error("expected non-empty truncation, got empty string")
-		}
-	})
 }
