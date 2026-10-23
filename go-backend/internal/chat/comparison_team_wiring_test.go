@@ -171,6 +171,10 @@ func (s *wiringStore) UpdateChatTitle(context.Context, string, string, string) e
 	return nil
 }
 
+func (s *wiringStore) BranchChat(context.Context, string, string, string) (*ChatRow, error) {
+	return nil, nil
+}
+
 func (s *wiringStore) StarterContext(context.Context, string, int) (StarterSource, error) {
 	return StarterSource{}, nil
 }

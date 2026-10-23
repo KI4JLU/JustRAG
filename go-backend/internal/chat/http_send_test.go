@@ -109,6 +109,10 @@ func (m *mockStore) UpdateChatTitle(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
+func (m *mockStore) BranchChat(context.Context, string, string, string) (*ChatRow, error) {
+	return nil, nil
+}
+
 func (m *mockStore) StarterContext(_ context.Context, _ string, _ int) (StarterSource, error) {
 	return StarterSource{}, nil
 }

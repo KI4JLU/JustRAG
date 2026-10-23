@@ -633,6 +633,7 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | GET | `/chat/rag-system-prompt` |
 | GET | `/chats/{id}/messages` |
 | PATCH | `/chats/{id}` |
+| POST | `/chats/{id}/branch` |
 | DELETE | `/chats/{id}` |
 | POST | `/kb/{id}/chat` |
 | POST | `/kb/{id}/chats/{chatId}/messages/{messageId}/feedback` |
@@ -640,7 +641,8 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | POST | `/kb/{id}/chat/attachment` |
 | POST | `/kb/{id}/chat/attachments` |
 
-- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. Each row carries `hasBranches: true` when the chat's messages fork — an edited question or a regenerated answer leaves two messages under one parent (two root questions count too); prompt-enhancement rows do not. The key is omitted when false. Only this list carries it.
+- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. A chat made by branching carries `branchedFromChatId` (the chat it was copied from, which may have been deleted since); the key is omitted for an ordinary chat.
+- `POST /chats/{id}/branch` (authenticated, owner) with `{"messageId"}` copies the conversation from its first message down to that message — the path only, not sibling versions — into a new chat of the caller in the same KB, and answers `201` with the new chat (`branchedFromChatId` = `{id}`). Feedback is not copied; chat attachments are re-linked. `400` for a missing or malformed `messageId`, `404` when the chat is not the caller's or the message is not in it.
 - `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
 - `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`. Refusals carry a `code`: `413 file_too_large` (`limitBytes` = `chat_compare_max_file_bytes`), `415 unsupported_file_type`, `422 file_unreadable` (the parser failed) or `no_text`, `400 invalid_upload`.
 

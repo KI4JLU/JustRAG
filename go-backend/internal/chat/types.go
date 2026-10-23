@@ -120,11 +120,11 @@ type ChatRow struct {
 	AgentID   *string   `json:"agentId" db:"agent_id"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
-	// HasBranches is set by GetChats only (the chat list): true when the chat
-	// holds at least two sibling messages — an edited question or a
-	// regenerated answer — so the history can mark it as branched. Every
-	// other read leaves it false, and it is omitted from the JSON then.
-	HasBranches bool `json:"hasBranches,omitempty" db:"-"`
+	// BranchedFromChatID is the chat this one was branched from
+	// (POST /api/chats/{id}/branch), nil for an ordinary chat. The history
+	// marks a branched chat with the branch icon. The origin may have been
+	// deleted since; the id is not a reference to follow.
+	BranchedFromChatID *string `json:"branchedFromChatId,omitempty" db:"branched_from_chat_id"`
 }
 
 // MessageRow represents a row from the messages table.
@@ -234,6 +234,11 @@ type Store interface {
 	// UpdateChatTitle renames chatID if userID owns it; store.ErrNotFound
 	// when no such chat belongs to the user. Leaves updated_at untouched.
 	UpdateChatTitle(ctx context.Context, chatID, userID, title string) error
+	// BranchChat copies chatID's conversation from its first message down to
+	// messageID into a new chat of the same user and KB, branched from
+	// chatID. store.ErrNotFound when the chat is not the user's or the
+	// message is not in it.
+	BranchChat(ctx context.Context, chatID, messageID, userID string) (*ChatRow, error)
 	GetChatMessages(ctx context.Context, chatID string) ([]MessageRow, error)
 	GetMessageAncestors(ctx context.Context, messageID, chatID string) ([]MessageRow, error)
 	AddMessage(ctx context.Context, params AddMessageParams) (*MessageRow, error)
