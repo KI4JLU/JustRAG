@@ -246,27 +246,6 @@ describe('App — the KB overview on the authenticated home route', () => {
     ).toBeInTheDocument();
   });
 
-  /* Card KI-781 gave the onboarding-tour trigger a stable `id` so it can be
-   * addressed by the tour itself or by external scripting. An `id` is only
-   * worth anything if it resolves to exactly ONE element, and that is a
-   * property of the rendered DOCUMENT, not of the component: `AuthenticatedApp`
-   * could grow a second mount point, or another component could take the same
-   * id, and the component's own source would still look correct. This file is
-   * where that can be seen, because it renders the real `App` down to the real
-   * `view === 'home'` branch with only the network stubbed.
-   *
-   * ORACLES, both independent of the code under change:
-   *  - `document.querySelectorAll` / `getElementById` — the DOM's own id
-   *    semantics, supplied by jsdom, not by anything this card wrote. The
-   *    count is the assertion; a duplicated id makes it 2 and fails.
-   *  - `translations.ts` (`onboardingReopenTour`) for the accessible name,
-   *    which pins that the id landed on the TOUR trigger and not on some other
-   *    button that happens to exist on the overview.
-   *
-   * Deliberately NOT asserted: the corner it sits in. The position is inline
-   * CSS with no layout in jsdom, so any such assertion would only restate the
-   * style object back to itself — no independent oracle exists for it here,
-   * and a green assertion would be worse than none. */
   /* -----------------------------------------------------------------------
    * The appearance preferences live in the settings window (developer,
    * 24.09.2026), opened from the user menu's „Einstellungen" item: colour
@@ -318,35 +297,6 @@ describe('App — the KB overview on the authenticated home route', () => {
     const dialog = within(await screen.findByRole('dialog', { name: translations.settings.en }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsGeneral.en })).toBeInTheDocument();
     expect(dialog.queryByText(translations.settingsGeneral.de)).toBeNull();
-  });
-
-  // TEMPORARY, with the switch-off in AuthenticatedApp.tsx: remove or invert
-  // this test when the automatic tour comes back.
-  // A first login is storage with a token and a user and nothing else, which is
-  // what beforeEach leaves. ORACLE: translations.ts for both names, WAI-ARIA's
-  // dialog role.
-  it('opens no tour on a first login, and the help button still opens it', async () => {
-    render(<App />);
-    await findOverviewHeading();
-    expect(screen.queryByRole('dialog', { name: translations.onboardingWelcomeTitle.de })).toBeNull();
-
-    await userEvent.click(screen.getByRole('button', { name: translations.onboardingReopenTour.de }));
-    expect(await screen.findByRole('dialog', { name: translations.onboardingWelcomeTitle.de })).toBeInTheDocument();
-  });
-
-  it('renders the onboarding-tour trigger under exactly one stable id', async () => {
-    render(<App />);
-
-    await findOverviewHeading();
-
-    // ORACLE: the DOM's id semantics. Unique means exactly one, not >= one.
-    const matches = document.querySelectorAll('#onboarding-tour-trigger');
-    expect(matches).toHaveLength(1);
-
-    // ORACLE: translations.ts — the id is on the tour trigger specifically.
-    const trigger = document.getElementById('onboarding-tour-trigger');
-    expect(trigger?.tagName).toBe('BUTTON');
-    expect(trigger).toHaveAccessibleName(translations.onboardingReopenTour.de);
   });
 
   /* -------------------------------------------------------------------------

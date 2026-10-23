@@ -4,7 +4,7 @@ import {
     Download, Eye, EyeOff, Loader2, Maximize2, Minimize2, Search,
 } from 'lucide-react';
 import {
-    Button, Dialog, DialogContent, Input, Kbd,
+    Button, Input, Kbd,
     Tabs, TabsContent, cn,
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
@@ -15,8 +15,7 @@ import type { FileEntry, TabularFileDetail, TabularTable } from '../../types';
 import {
     columnDecimals, columnKind, columnLabel, nextSort, parseCell, type SortState,
 } from '../../utils/tableFormat';
-import { PreviewHeader } from '../PreviewHeader';
-import { previewDialogClass } from './layout';
+import { PreviewDialog } from '../PreviewDialog';
 import { SheetTable } from './SheetTable';
 import { SheetTabs } from './SheetTabs';
 import { ViewMenu } from './ViewMenu';
@@ -223,33 +222,25 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
     else if (tables === null) body = status(<Loader2 className="size-5 animate-spin" aria-hidden="true" />);
     else if (tables.length === 0) body = status(t('tabularNoPreview'));
 
-    return (
-        <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent
-                closeLabel={t('close')}
-                onEscapeKeyDown={(e) => {
+    const dialog = (
+        <PreviewDialog
+            onClose={onClose}
+            size="wide"
+            fullscreen={fullscreen}
+            onEscapeKeyDown={(e) => {
                     // Esc closes the row details first, the dialog second.
                     if (selectedId !== null) { e.preventDefault(); setSelectedId(null); }
                 }}
-                className={previewDialogClass(fullscreen)}
-            >
-                {/* The shared preview header (icon, title, subtitle; no controls);
-                    below it ONE row with the sheet tabs, download and fullscreen;
-                    then the search / view strip and the table. */}
-                <PreviewHeader
-                    kind="spreadsheet"
+            kind="spreadsheet"
                     title={fileName}
                     subtitle={t('tpSubtitle')
                         .replace('{kind}', fileKind(fileName))
                         .replace('{sheets}', plural('tpSheetsOne', 'tpSheetsMany', tables?.length ?? 0))}
-                />
-
-                {body && (
-                    <div className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-outline-variant px-2">{actions}</div>
-                )}
-
-                {body ?? (
-                    <Tabs value={active} onValueChange={selectSheet} className="flex min-h-0 flex-1 flex-col gap-0">
+            toolbar={body
+                // Nothing to tab through: the window actions alone.
+                ? <div className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">{actions}</div>
+                : (
+                    <>
                         <SheetTabs
                             active={active}
                             tabs={shownTables.map(tbl => ({
@@ -274,7 +265,7 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                             actions={actions}
                         />
 
-                        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant bg-surface-container-lowest px-2">
+                        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant px-2">
                             {/* Borderless DS field so the strip stays 48px; the wrapper
                                 carries the focus ring the inline variant leaves out. */}
                             <div className="relative min-w-0 max-w-sm flex-1 rounded-action focus-within:ring-2 focus-within:ring-focus-ring">
@@ -300,7 +291,11 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                                 />
                             </div>
                         </div>
-
+                    </>
+                )}
+        >
+            {body ?? (
+                <>
                         <TabsContent value={active} className="relative mt-0 flex min-h-0 flex-1 flex-col focus-visible:outline-none" tabIndex={-1}>
                             {sheet.error ? status(t('tabularLoadError'), 'text-error') : !table || (sheet.loading && rows.length === 0) ? (
                                 status(<Loader2 className="size-5 animate-spin" aria-hidden="true" />)
@@ -340,10 +335,18 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                                 <Kbd>↑</Kbd><Kbd>↓</Kbd> {t('tpKeysSelect')} · <Kbd>Esc</Kbd> {t('tpKeysClose')} · {t('tpKeysSort')}
                             </span>
                         </footer>
-                    </Tabs>
-                )}
-            </DialogContent>
-        </Dialog>
+                </>
+            )}
+        </PreviewDialog>
+    );
+    // The sheet tabs (header band) and the sheet (body) need one Radix Tabs
+    // root; the dialog is portaled, but React context reaches through it.
+    // Always rendered, so the dialog keeps its place in the tree (and does not
+    // remount) when the sheets arrive.
+    return (
+        <Tabs value={active} onValueChange={selectSheet}>
+            {dialog}
+        </Tabs>
     );
 };
 

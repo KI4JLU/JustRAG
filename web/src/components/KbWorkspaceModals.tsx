@@ -64,6 +64,10 @@ export function KbWorkspaceModals() {
           fileName={webTools.previewPage.title}
           content={webTools.previewPage.content}
           format={webTools.previewPage.format ?? 'markdown'}
+          back={webTools.previewPage.back && {
+            trail: webTools.previewPage.back.trail,
+            onBack: () => { webTools.setShowPreviewModal(false); webTools.previewPage?.back?.onBack(); },
+          }}
         />}
       </Suspense>
 

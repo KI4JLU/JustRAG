@@ -1,6 +1,6 @@
 import { useState, lazy, Suspense, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, HelpCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, ArrowLeft } from 'lucide-react';
 import type { KnowledgeBase, GeneratedContent } from './types';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
@@ -44,7 +44,6 @@ import { KbWorkspaceModals } from './components/KbWorkspaceModals';
 const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
 const KbSettingsPanel = lazy(() => import('./components/kb-settings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
-import { OnboardingTour } from './components/OnboardingTour';
 import { LegalPage } from './components/LegalPage';
 import { viewportHeight } from './utils/viewport';
 import { chatWebSearchRequestField } from './utils/chatWebSearch';
@@ -65,44 +64,6 @@ const LoadingFallback = () => (
 function uniqueById(kbs: KnowledgeBase[]): KnowledgeBase[] {
   const seen = new Set<string>();
   return kbs.filter(kb => (seen.has(kb.id) ? false : (seen.add(kb.id), true)));
-}
-
-function OnboardingHelpButton({ onClick }: { onClick: () => void }) {
-  const { t } = useTheme();
-  return (
-    <button
-      /* Stable app-level anchor (card KI-781). Names the element's ROLE — the
-       * control that opens the onboarding tour — not its look or its corner,
-       * both of which this card just proved are unstable. Must stay unique in
-       * the document; App.authenticated-home.test.tsx asserts that. */
-      id="onboarding-tour-trigger"
-      onClick={onClick}
-      title={t('onboardingReopenTour')}
-      aria-label={t('onboardingReopenTour')}
-      style={{
-        position: 'fixed',
-        bottom: '24px',
-        /* Bottom-RIGHT since KI-781. The toast container used to be pinned to
-         * the identical bottom:24/right:24 and moved to the top (Toast.css);
-         * check that file before putting anything else in this corner. */
-        right: '24px',
-        width: '44px',
-        height: '44px',
-        borderRadius: '50%',
-        border: '1px solid var(--border-color)',
-        background: 'var(--bg-secondary)',
-        color: 'var(--text-secondary)',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-      }}
-    >
-      <HelpCircle size={20} />
-    </button>
-  );
 }
 
 export default function AuthenticatedApp() {
@@ -159,12 +120,6 @@ function AuthenticatedAppInner() {
     showFilesTab: kbSourceRights(currentKb, user?.role, user?.id).seeSources,
   });
 
-  // TEMPORARY (2026-10-12): the onboarding tour opens only from its help
-  // button; the automatic tour on first login is switched off for now. To bring
-  // it back, initialise from `!localStorage.getItem('onboardingCompleted')` and
-  // set that key again on close.
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const handleCloseOnboarding = useCallback(() => setShowOnboarding(false), []);
 
 
   // Sidebar resize
@@ -432,10 +387,7 @@ function AuthenticatedAppInner() {
    * exists because exactly this kind of omission once stayed green in both
    * component suites; `App.authenticated-shared-kbs.test.tsx` is its twin for
    * this branch.
-   *
-   * No `OnboardingTour` and no help button here: the tour's steps address the
-   * overview's own elements, so running it over this view would point at
-   * nothing. `Footer` stays, so the legal pages remain reachable. */
+   * `Footer` stays, so the legal pages remain reachable. */
   if (view === 'tools') {
     /* THE SAME TWO PROVIDERS AS EVERY OTHER VIEW, even though the page itself
        renders no search target (it was a placeholder when this was written).
@@ -535,8 +487,6 @@ function AuthenticatedAppInner() {
           showSettings={kbSettings.showSettings}
           setShowSettings={kbSettings.setShowSettings}
         />
-        <OnboardingHelpButton onClick={() => setShowOnboarding(true)} />
-        <OnboardingTour show={showOnboarding} onClose={handleCloseOnboarding} />
       </motion.div>
       </KbSearchProvider>
       </AppNavProvider>
@@ -641,7 +591,6 @@ function AuthenticatedAppInner() {
                 swipeHandlers={viewState.swipeHandlers}
               />
               <KbWorkspaceModals />
-              <OnboardingTour show={showOnboarding} onClose={handleCloseOnboarding} />
             </div>
           </KbLayoutProvider>
         </KbDataProvider>

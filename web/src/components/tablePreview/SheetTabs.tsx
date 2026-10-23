@@ -69,7 +69,8 @@ export const SheetTabs: React.FC<SheetTabsProps> = ({ tabs, active, end, actions
         // The DS `enclosed` sheet tabs on the dialog's own surface, with the
         // divider continued under the arrows and actions (same inset line).
         // Every control here is exactly a tab's height (h-8), bottom-aligned.
-        <div className="flex shrink-0 items-end gap-1 px-2 shadow-[inset_0_-1px_0_var(--color-outline-variant)]">
+        // The last action ends on the dialog's close button edge (DS Dialog `--dialog-close-inset`).
+        <div className="flex shrink-0 items-end gap-1 pl-2 pr-[var(--dialog-close-inset,0.5rem)] shadow-[inset_0_-1px_0_var(--color-outline-variant)]">
             {overflow && (
                 <Button
                     variant="ghost"

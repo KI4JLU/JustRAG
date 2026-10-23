@@ -1,11 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Download, Maximize2, Minimize2, Search } from 'lucide-react';
-import { Button, Dialog, DialogContent, Input, Kbd } from '@ki4jlu/design-system';
+import { Button, Input, Kbd } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { nextSort, type SortState } from '../../utils/tableFormat';
 import { searchRows, sortRows, toLocalTable } from '../../utils/localTable';
-import { PreviewHeader } from '../PreviewHeader';
-import { previewDialogClass } from './layout';
+import { PreviewDialog } from '../PreviewDialog';
 import { SheetTable } from './SheetTable';
 import { ViewMenu } from './ViewMenu';
 import type { DetailMode, ViewRow } from './types';
@@ -53,24 +52,21 @@ export const LocalTablePreviewDialog: React.FC<LocalTablePreviewDialogProps> = (
     const rowSourceLabel = (row: ViewRow) => t('ltpSource').replace('{row}', String(row.id));
 
     return (
-        <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent
-                closeLabel={t('close')}
-                onEscapeKeyDown={(e) => {
-                    // Esc closes the row details first, the dialog second.
-                    if (selectedId !== null) { e.preventDefault(); setSelectedId(null); }
-                }}
-                className={previewDialogClass(fullscreen)}
-            >
-                <PreviewHeader
-                    kind="spreadsheet"
-                    title={t('ltpTitle')}
-                    subtitle={t('ltpSubtitle')
-                        .replace('{rows}', plural('mdTableRowsOne', 'mdTableRowsMany', rowCount))
-                        .replace('{cols}', plural('mdTableColsOne', 'mdTableColsMany', colCount))}
-                />
-
-                <div className="flex h-12 shrink-0 items-center gap-1 border-y border-outline-variant bg-surface-container-lowest px-2">
+        <PreviewDialog
+            onClose={onClose}
+            size="wide"
+            fullscreen={fullscreen}
+            onEscapeKeyDown={(e) => {
+                // Esc closes the row details first, the dialog second.
+                if (selectedId !== null) { e.preventDefault(); setSelectedId(null); }
+            }}
+            kind="spreadsheet"
+            title={t('ltpTitle')}
+            subtitle={t('ltpSubtitle')
+                .replace('{rows}', plural('mdTableRowsOne', 'mdTableRowsMany', rowCount))
+                .replace('{cols}', plural('mdTableColsOne', 'mdTableColsMany', colCount))}
+            toolbar={(
+                <div className="flex h-12 shrink-0 items-center gap-1 border-y border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">
                     {/* Borderless DS field so the strip stays 48px; the wrapper
                         carries the focus ring the inline variant leaves out. */}
                     <div className="relative min-w-0 max-w-sm flex-1 rounded-action focus-within:ring-2 focus-within:ring-focus-ring">
@@ -109,7 +105,8 @@ export const LocalTablePreviewDialog: React.FC<LocalTablePreviewDialogProps> = (
                         </Button>
                     </div>
                 </div>
-
+            )}
+        >
                 <div className="relative flex min-h-0 flex-1 flex-col">
                     <SheetTable
                         sheetName={sheetName}
@@ -142,7 +139,6 @@ export const LocalTablePreviewDialog: React.FC<LocalTablePreviewDialogProps> = (
                         <Kbd>↑</Kbd><Kbd>↓</Kbd> {t('tpKeysSelect')} · <Kbd>Esc</Kbd> {t('tpKeysClose')} · {t('tpKeysSort')}
                     </span>
                 </footer>
-            </DialogContent>
-        </Dialog>
+        </PreviewDialog>
     );
 };

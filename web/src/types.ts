@@ -168,6 +168,8 @@ export interface MessageAttachment {
 
 export interface Message {
     id?: string;              // DB UUID, undefined during streaming
+    /** When the message was written (ISO); set locally for a message of this session. */
+    createdAt?: string;
     /** Client-side render key: the temp id a streamed message was created
      *  under, kept when `id` is remapped to the DB UUID so its row does not
      *  remount (and replay its entrance animation). Unset for loaded messages. */

@@ -25,6 +25,7 @@ import { isTempMessageId } from './utils/messageTree';
 import { normalizeMathDelimiters } from './utils/markdownMath';
 import { SourceList } from './components/sources/SourceList';
 import { useSourcePanel } from './contexts/SourcePanelContext';
+import { formatMessageTime } from './utils/chatDates';
 
 interface MessageBubbleProps {
     message: Message;
@@ -243,7 +244,7 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
 }
 
 function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
-    const { t } = useTheme();
+    const { t, language } = useTheme();
     // An answer without its citations for a caller who may not see them.
     // Everything below — rendering, copy and export — reads this one object.
     const message = useMemo(
@@ -502,12 +503,18 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                         {/* Under the bubble, shown with the other controls (hover,
                             focus, tap): the question's actions and, for an
                             edited question, its version selector. */}
-                        {((branchInfo && onSwitchBranch && branchInfo.total > 1) || (actionsReady && !isMobile)) && (
+                        {((branchInfo && onSwitchBranch && branchInfo.total > 1) || (actionsReady && !isMobile) || message.createdAt) && (
                             <div
                                 data-testid="question-actions"
                                 data-revealed={footerShown}
                                 className={`mt-1 flex items-center justify-end gap-1 ${revealClass}`}
                             >
+                                {/* When the question was asked — the day stands on the separator above. */}
+                                {message.createdAt && (
+                                    <time dateTime={message.createdAt} className="mr-1 text-xs tabular-nums text-on-surface-variant">
+                                        {formatMessageTime(message.createdAt, language)}
+                                    </time>
+                                )}
                                 {actionsReady && !isMobile && (
                                     <MessageActions
                                         message={message}

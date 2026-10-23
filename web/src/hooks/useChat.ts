@@ -42,6 +42,7 @@ export function buildComparisonSend(
 
 interface RawChatMessage {
   id: string;
+  createdAt?: string;
   parentMessageId?: string | null;
   role: 'user' | 'ai';
   content: string;
@@ -254,6 +255,7 @@ export function useChat({
       const res = await axios.get(`${API_BASE_URL}/api/chats/${chat.id}/messages`);
       const rawMessages: Message[] = (res.data as RawChatMessage[]).map((m) => ({
         id: m.id,
+        createdAt: m.createdAt,
         parentMessageId: m.parentMessageId || undefined,
         role: m.role,
         content: m.content,

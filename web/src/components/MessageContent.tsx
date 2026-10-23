@@ -20,7 +20,7 @@ import { useSourcePanel } from '../contexts/SourcePanelContext';
 import { SourcePreview } from './sources/SourcePreview';
 import { TrajectoryPanel } from './TrajectoryPanel';
 import {
-    Button, Drawer, DrawerClose, DrawerContent, DrawerTitle, Reasoning, ReasoningContent, ReasoningTrigger, Shimmer,
+    Button, CodeBlock, Drawer, DrawerClose, DrawerContent, DrawerTitle, Reasoning, ReasoningContent, ReasoningTrigger, Shimmer,
 } from '@ki4jlu/design-system';
 import { MarkdownTable } from './MarkdownTable';
 
@@ -179,10 +179,45 @@ function MarkdownSup(supProps: React.ComponentProps<'sup'> & ExtraProps) {
     return <sup className={className} {...rest} />;
 }
 
+/** The text of a hast node (a code fence's `<code>`), as written. */
+function hastText(node: { type: string; value?: string; children?: unknown[] }): string {
+    if (node.type === 'text') return node.value ?? '';
+    return (node.children ?? []).map(c => hastText(c as { type: string })).join('');
+}
+
 function buildMarkdownComponents(language: 'de' | 'en') {
     const loadingChartLabel = language === 'en' ? 'Loading chart...' : 'Lade Diagramm...';
+    const copyCodeLabel = language === 'en' ? 'Copy code' : 'Code kopieren';
+    const copiedCodeLabel = language === 'en' ? 'Copied' : 'Kopiert';
+    const collapseCodeLabel = language === 'en' ? 'Collapse code' : 'Code einklappen';
+    const expandCodeLabel = language === 'en' ? 'Expand code' : 'Code ausklappen';
     return {
         sup: MarkdownSup,
+        // A code fence is the DS CodeBlock (editor look, copy button). A
+        // ```chart fence renders through `code` below (ChartRenderer), so its
+        // <pre> is dropped rather than framing the chart in a code box.
+        pre: (preProps: React.ComponentProps<'pre'> & ExtraProps) => {
+            const { node, children } = preProps;
+            const first = node?.children?.[0];
+            if (!first || first.type !== 'element' || first.tagName !== 'code') return <pre>{children}</pre>;
+            const cls = first.properties?.className;
+            const lang = Array.isArray(cls)
+                ? cls.map(String).find(c => c.startsWith('language-'))?.slice('language-'.length)
+                : undefined;
+            if (lang === 'chart') return <>{children}</>;
+            return (
+                <CodeBlock
+                    className="my-4"
+                    code={hastText(first).replace(/\n$/, '')}
+                    language={lang}
+                    collapsible
+                    copyLabel={copyCodeLabel}
+                    copiedLabel={copiedCodeLabel}
+                    collapseLabel={collapseCodeLabel}
+                    expandLabel={expandCodeLabel}
+                />
+            );
+        },
         table: (tableProps: React.ComponentProps<'table'> & ExtraProps) => {
             const { node, children } = tableProps;
             return <MarkdownTable node={node} filename="table.xlsx">{children}</MarkdownTable>;
@@ -207,7 +242,8 @@ function buildMarkdownComponents(language: 'de' | 'en') {
             // then collapse — the same height churn this reservation exists to
             // prevent.
             const isChart = match?.[1] === 'chart';
-            return !inline && match ? (
+            // Other fences never reach here as blocks: `pre` above renders them.
+            return !inline && isChart ? (
                 <Suspense fallback={
                     // Reserves the same box the resolved chart occupies
                     // (.chart-container: min-height 350 + 1rem margins), so the

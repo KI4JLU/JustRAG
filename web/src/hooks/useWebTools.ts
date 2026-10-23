@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import type { PreviewBack } from '../components/PreviewHeader';
 import axios from 'axios';
 import type { KnowledgeBase } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
@@ -23,7 +24,7 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
   const [crawlResults, setCrawlResults] = useState<{ title: string; content: string; url: string; isEdited?: boolean }[]>([]);
   const [searchResults, setSearchResults] = useState<{ title: string; snippet: string; url: string; content?: string; isEdited?: boolean }[]>([]);
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text' } | null>(null);
+  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text'; back?: PreviewBack } | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number } | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
@@ -312,12 +313,12 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     setShowTabularModal(true);
   }, []);
 
-  const fetchFileContent = useCallback(async (fileId: string, fileName: string, format: 'markdown' | 'text' = 'markdown') => {
+  const fetchFileContent = useCallback(async (fileId: string, fileName: string, format: 'markdown' | 'text' = 'markdown', back?: PreviewBack) => {
     try {
       const res = await axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, {
         responseType: 'text'
       });
-      setPreviewPage({ title: fileName, content: res.data, url: '', format });
+      setPreviewPage({ title: fileName, content: res.data, url: '', format, back });
       setShowPreviewModal(true);
     } catch (err: unknown) {
       console.error('Failed to fetch file content:', err);

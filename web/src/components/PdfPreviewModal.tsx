@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import {
-    Button, Dialog, DialogContent, PdfViewer,
+    Button, PdfViewer,
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { PreviewHeader } from './PreviewHeader';
+import { PreviewDialog } from './PreviewDialog';
 
 interface PdfPreviewModalProps {
     show: boolean;
@@ -56,18 +56,14 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
     }, [fileId, t, toast]);
 
     return (
-        <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent
-                closeLabel={t('close')}
-                className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
-            >
-                <PreviewHeader
-                    kind="pdf"
-                    title={fileName}
-                    subtitle={pageCount === null
-                        ? t('previewPdfSubtitle')
-                        : t('previewPdfSubtitlePages').replace('{pages}', pageCount === 1 ? t('previewPageOne') : t('previewPagesMany').replace('{count}', String(pageCount)))}
-                />
+        <PreviewDialog
+            onClose={onClose}
+            kind="pdf"
+            title={fileName}
+            subtitle={pageCount === null
+                ? t('previewPdfSubtitle')
+                : t('previewPdfSubtitlePages').replace('{pages}', pageCount === 1 ? t('previewPageOne') : t('previewPagesMany').replace('{count}', String(pageCount)))}
+        >
                 {error ? (
                     <div className="flex flex-1 items-center justify-center p-8 text-error">{error}</div>
                 ) : !blobUrl ? (
@@ -77,6 +73,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                     </div>
                 ) : (
                     <PdfViewer
+                        plain
                         src={blobUrl}
                         initialPage={page}
                         onLoad={setPageCount}
@@ -99,8 +96,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                         )}
                     />
                 )}
-            </DialogContent>
-        </Dialog>
+        </PreviewDialog>
     );
 };
 

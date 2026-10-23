@@ -123,6 +123,7 @@ export function useChatStream({
       if (refusedQuestionIdsRef.current.has(cur)) refusedQuestionId = cur;
     }
     const tempUserMsgId = `temp-user-${Date.now()}`;
+    const sentAt = new Date().toISOString();
     const tempAiMsgId = `temp-ai-${Date.now()}`;
 
     // Everything below hangs off the turn's question. On a regenerate that is
@@ -136,6 +137,7 @@ export function useChatStream({
       if (!regenerateOf) {
         tree = addMessageToTree(tree, {
           id: tempUserMsgId,
+          createdAt: sentAt,
           parentMessageId: parentId,
           role: 'user',
           content: userMessage,
@@ -144,6 +146,7 @@ export function useChatStream({
       }
       const aiMsg: Message = {
         id: tempAiMsgId,
+        createdAt: sentAt,
         parentMessageId: userNodeId,
         role: 'ai',
         content: '',
