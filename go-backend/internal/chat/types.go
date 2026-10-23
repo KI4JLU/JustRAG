@@ -120,6 +120,11 @@ type ChatRow struct {
 	AgentID   *string   `json:"agentId" db:"agent_id"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+	// HasBranches is set by GetChats only (the chat list): true when the chat
+	// holds at least two sibling messages — an edited question or a
+	// regenerated answer — so the history can mark it as branched. Every
+	// other read leaves it false, and it is omitted from the JSON then.
+	HasBranches bool `json:"hasBranches,omitempty" db:"-"`
 }
 
 // MessageRow represents a row from the messages table.

@@ -105,7 +105,23 @@ type messageDBRow struct {
 }
 
 func toChatRow(r chatDBRow) ChatRow {
-	return ChatRow(r)
+	return ChatRow{
+		ID:        r.ID,
+		KbID:      r.KbID,
+		UserID:    r.UserID,
+		Title:     r.Title,
+		Type:      r.Type,
+		TeamID:    r.TeamID,
+		AgentID:   r.AgentID,
+		CreatedAt: r.CreatedAt,
+		UpdatedAt: r.UpdatedAt,
+	}
+}
+
+// chatListDBRow is a chats row plus the list-only has_branches flag.
+type chatListDBRow struct {
+	chatDBRow
+	HasBranches bool `db:"has_branches"`
 }
 
 func toMessageRow(r messageDBRow) (MessageRow, error) {
@@ -170,21 +186,33 @@ func isJSONNull(raw json.RawMessage) bool {
 	return len(trimmed) == 4 && string(trimmed) == "null"
 }
 
-// GetChats returns all chats for the given kbID and userID, ordered by updated_at DESC.
+// GetChats returns all chats for the given kbID and userID, ordered by
+// updated_at DESC, each with HasBranches: whether two of its messages share a
+// parent (two root messages count too — GROUP BY puts the NULL parents in one
+// group). Prompt-enhancement rows are not versions of a turn and are left out.
+// The subquery reads one chat's messages through messages_chat_id_idx.
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at
-		FROM chats
-		WHERE kb_id = $1 AND user_id = $2
-		ORDER BY updated_at DESC`
+		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
+		       c.created_at, c.updated_at,
+		       EXISTS (
+		           SELECT 1 FROM messages m
+		           WHERE m.chat_id = c.id AND NOT COALESCE(m.is_enhanced, false)
+		           GROUP BY m.parent_message_id
+		           HAVING count(*) > 1
+		       ) AS has_branches
+		FROM chats c
+		WHERE c.kb_id = $1 AND c.user_id = $2
+		ORDER BY c.updated_at DESC`
 
-	rows, err := pgxutil.QueryRows[chatDBRow](ctx, s.pool, sql, kbID, userID)
+	rows, err := pgxutil.QueryRows[chatListDBRow](ctx, s.pool, sql, kbID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("GetChats: %w", err)
 	}
 	result := make([]ChatRow, len(rows))
 	for i, r := range rows {
-		result[i] = toChatRow(r)
+		result[i] = toChatRow(r.chatDBRow)
+		result[i].HasBranches = r.HasBranches
 	}
 	return result, nil
 }
