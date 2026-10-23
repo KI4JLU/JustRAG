@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { AgentRecord, TeamRecord, TeamUpsert } from './api';
 
@@ -62,7 +63,11 @@ export default function TeamForm({ initial, agents, onSave, onCancel }: Props) {
         <input type="number" min={1} max={5} value={maxAgentsPerTurn}
           onChange={e => setMaxAgentsPerTurn(Number(e.target.value) || 3)} style={{ width: 80 }} />
       </label>
-      {error && <div role="alert" className="form-hint form-hint--error">{error}</div>}
+      {error && (
+        <Alert tone="error" live="assertive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
         <button type="button" className="btn btn--tertiary" onClick={onCancel}>{t('cancel')}</button>
         <button type="submit" className="btn btn--primary" disabled={saving || !name.trim() || memberIds.length === 0}>{t('save')}</button>

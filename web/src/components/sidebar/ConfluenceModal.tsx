@@ -1,5 +1,6 @@
 import React, { memo, useState, useEffect, useCallback } from 'react';
-import { Plus, Loader2, ChevronDown, ChevronRight, Info, FileText, AlertCircle } from 'lucide-react';
+import { Plus, Loader2, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { SourceModal } from './SourceModal';
@@ -394,10 +395,9 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
         // Not enabled
         if (confluenceConnection && !confluenceConnection.enabled) {
             return (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 0' }}>
-                    <Info size={18} style={{ color: 'var(--text-secondary)', flexShrink: 0, marginTop: 2 }} />
-                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('confluenceNotEnabled')}</p>
-                </div>
+                <Alert tone="info">
+                    <AlertDescription>{t('confluenceNotEnabled')}</AlertDescription>
+                </Alert>
             );
         }
 
@@ -419,24 +419,10 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
             if (spacesError) {
                 return (
                     <>
-                        <div
-                            role="alert"
-                            style={{
-                                display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', marginBottom: 12,
-                                borderRadius: 8, background: 'rgba(239, 68, 68, 0.08)',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                            }}
-                        >
-                            <AlertCircle size={18} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: 4 }}>
-                                    {t('confluenceTokenInvalidTitle')}
-                                </div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    {t('confluenceTokenInvalidHelp')}
-                                </div>
-                            </div>
-                        </div>
+                        <Alert tone="error" live="assertive" className="mb-3">
+                            <AlertTitle>{t('confluenceTokenInvalidTitle')}</AlertTitle>
+                            <AlertDescription>{t('confluenceTokenInvalidHelp')}</AlertDescription>
+                        </Alert>
                         {renderTokenForm(t('confluenceRetryAfterReconnect'))}
                     </>
                 );
@@ -524,17 +510,9 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
                     </div>
 
                     {scopeMode === 'page_tree' && rootPagesError && (
-                        <div
-                            role="alert"
-                            style={{
-                                display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', marginBottom: 8,
-                                borderRadius: 6, background: 'rgba(239, 68, 68, 0.08)',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                            }}
-                        >
-                            <AlertCircle size={14} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
-                            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{rootPagesError}</span>
-                        </div>
+                        <Alert tone="error" live="assertive" className="mb-2">
+                            <AlertDescription>{rootPagesError}</AlertDescription>
+                        </Alert>
                     )}
 
                     {scopeMode === 'page_tree' && (

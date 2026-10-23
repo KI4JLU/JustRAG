@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import axios from 'axios';
 import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe } from 'lucide-react';
 import {
-    Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
+    Alert, AlertDescription, Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
     PopoverContent, PopoverTrigger, Spinner, Stack, cn,
 } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
@@ -682,7 +682,9 @@ export default function KBOverviewDashboard() {
             }
         >
             {error && (
-                <div className="text-error">{error}</div>
+                <Alert tone="error" live="assertive">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
             {loading && (
                 <div className="flex items-center gap-2 text-on-surface-variant">

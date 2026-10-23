@@ -18,9 +18,9 @@ import {
     Download,
     ChevronDown,
     ChevronRight,
-    AlertCircle,
     X,
 } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
@@ -394,9 +394,10 @@ function AcademicSearchMode({
 
             {/* Error */}
             {error && (
-                <div className="research-mode-error">
-                    <span className="research-mode-error-icon"><AlertCircle size={16} /></span>
-                    <span>{error}</span>
+                <div className="mx-8 my-4">
+                    <Alert tone="error" live="assertive">
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                 </div>
             )}
 

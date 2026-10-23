@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import {
-    Button, PdfViewer,
+    Alert, AlertDescription, Button, PdfViewer,
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
@@ -65,7 +65,11 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                 : t('previewPdfSubtitlePages').replace('{pages}', pageCount === 1 ? t('previewPageOne') : t('previewPagesMany').replace('{count}', String(pageCount)))}
         >
                 {error ? (
-                    <div className="flex flex-1 items-center justify-center p-8 text-error">{error}</div>
+                    <div className="flex flex-1 items-center justify-center p-8">
+                        <Alert tone="error" live="assertive" className="max-w-md">
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    </div>
                 ) : !blobUrl ? (
                     <div className="flex flex-1 items-center justify-center gap-2 text-on-surface-variant">
                         <Loader2 className="animate-spin" size={20} aria-hidden="true" />

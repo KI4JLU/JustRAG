@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { BookOpen, CheckCircle, AlertCircle, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from '../utils/apiError';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
@@ -129,31 +130,15 @@ export default function ConfluenceTokenManager() {
             </div>
 
             {error && (
-                <div style={{
-                    padding: '0.75rem 1rem',
-                    marginBottom: '1rem',
-                    borderRadius: '8px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    color: '#ef4444',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    fontSize: '0.9rem',
-                }}>
-                    {error}
-                </div>
+                <Alert tone="error" live="assertive" className="mb-4">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {success && (
-                <div style={{
-                    padding: '0.75rem 1rem',
-                    marginBottom: '1rem',
-                    borderRadius: '8px',
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    color: '#22c55e',
-                    border: '1px solid rgba(34, 197, 94, 0.3)',
-                    fontSize: '0.9rem',
-                }}>
-                    {success}
-                </div>
+                <Alert tone="success" live="polite" className="mb-4">
+                    <AlertDescription>{success}</AlertDescription>
+                </Alert>
             )}
 
             {loading ? (
@@ -163,46 +148,20 @@ export default function ConfluenceTokenManager() {
             ) : isConnected && !editing ? (
                 <div>
                     {/* Connection status */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                        padding: '1rem',
-                        background: connection.status === 'active'
-                            ? 'rgba(34, 197, 94, 0.08)'
-                            : 'rgba(239, 68, 68, 0.08)',
-                        border: `1px solid ${connection.status === 'active' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                        borderRadius: '8px',
-                        marginBottom: '1rem',
-                    }}>
-                        {connection.status === 'active' ? (
-                            <CheckCircle size={20} color="#22c55e" />
-                        ) : (
-                            <AlertCircle size={20} color="#ef4444" />
-                        )}
-                        <div style={{ flex: 1 }}>
-                            <div style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.9rem' }}>
-                                {connection.status === 'active' ? t('confluenceProfileStatusActive') : t('confluenceProfileStatusError')}
-                            </div>
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                                {t('confluenceProfileToken')}: <code style={{
-                                    background: 'var(--bg-primary)',
-                                    padding: '0.1rem 0.3rem',
-                                    borderRadius: '3px',
-                                }}>{connection.token}</code>
-                            </div>
-                            {connection.errorMessage && (
-                                <div style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                                    {connection.errorMessage}
-                                </div>
-                            )}
+                    <Alert tone={connection.status === 'active' ? 'success' : 'error'} className="mb-4">
+                        <AlertTitle>
+                            {connection.status === 'active' ? t('confluenceProfileStatusActive') : t('confluenceProfileStatusError')}
+                        </AlertTitle>
+                        <AlertDescription>
+                            <p>
+                                {t('confluenceProfileToken')}: <code className="rounded-sm bg-surface-container-lowest px-1 py-px">{connection.token}</code>
+                            </p>
+                            {connection.errorMessage && <p>{connection.errorMessage}</p>}
                             {connection.lastVerifiedAt && (
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                                    {t('confluenceProfileLastVerified')}: {new Date(connection.lastVerifiedAt).toLocaleString()}
-                                </div>
+                                <p>{t('confluenceProfileLastVerified')}: {new Date(connection.lastVerifiedAt).toLocaleString()}</p>
                             )}
-                        </div>
-                    </div>
+                        </AlertDescription>
+                    </Alert>
 
                     {/* Action buttons */}
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>

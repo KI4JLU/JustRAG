@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export interface ConfirmDialogProps {
@@ -63,9 +64,9 @@ export function ConfirmDialog({
         <div style={{ marginBottom: '1rem' }}>{body}</div>
 
         {error && (
-          <p role="alert" style={{ margin: '0 0 1rem', color: 'var(--error-text)', fontSize: '0.9rem' }}>
-            {error}
-          </p>
+          <Alert tone="error" live="assertive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>

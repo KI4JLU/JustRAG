@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { SlidersHorizontal, FlaskConical, Workflow, Bot, ChevronDown, ChevronRight, Search, Save, RotateCcw, Copy, Check } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
 import type { KbConfigField, KbSettingsResponse } from '../../types';
 import { fetchKbSettings, saveKbSettings, resetKbSetting, reembedKb, KbSettingsHttpError } from './api';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -208,15 +209,15 @@ export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
   if (forbidden) {
     return (
       <div className="kb-settings">
-        <div role="alert" style={{ maxWidth: 560, color: 'var(--text-primary)', lineHeight: 1.55 }}>
-          <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem' }}>Keine Berechtigung</h2>
-          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+        <Alert tone="error" live="assertive" className="max-w-[560px]">
+          <AlertTitle asChild><h2 className="text-sm">Keine Berechtigung</h2></AlertTitle>
+          <AlertDescription>
             Für die erweiterten Einstellungen dieser Knowledge Base brauchst du
             zusätzlich zur KB-Rolle „admin" eine der Systemrollen „api-user",
             „admin" oder „superadmin". Wende dich an deine Administration, wenn
             du sie brauchst.
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -225,7 +226,9 @@ export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
     return (
       <div className="kb-settings">
         {header}
-        <div role="alert" style={{ color: 'var(--text-primary)' }}>{error}</div>
+        <Alert tone="error" live="assertive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       </div>
     );
   }
