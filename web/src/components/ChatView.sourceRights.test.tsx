@@ -24,7 +24,7 @@ vi.mock('../contexts/ToastContext', () => ({
 }));
 vi.mock('../contexts/MobileContext', () => ({
   // isMobile=true collapses most of ChatView's desktop-only chrome (theme/
-  // language toggles, BranchTreeNav, …) that this test has no reason to
+  // language toggles, …) that this test has no reason to
   // exercise or mock further.
   useIsMobileContext: () => true,
 }));
@@ -86,7 +86,6 @@ vi.mock('../contexts/KbChatContext', () => ({
       setActiveLeafId: vi.fn(),
       editingMessageId: null,
       setEditingMessageId: vi.fn(),
-      forkPointId: null,
       setForkPointId: vi.fn(),
       userMessageInput: '',
       setUserMessageInput: vi.fn(),

@@ -11,8 +11,10 @@ export interface CitationChipContextValue {
     activeN: number | null;
     /** Hover popover (mouse, trackpad) or bottom sheet (touch). */
     finePointer: boolean;
-    /** "In Quelle öffnen". */
-    onOpenPanel?: (n: number, raw: number, focus?: string) => void;
+    /** "In Quelle öffnen" — and, while the panel is open, a click on a chip. */
+    onOpenPanel?: (n: number, raw: number, focus?: string, occ?: number) => void;
+    /** The source panel is open (for any answer): a chip click goes straight to it, no popover. */
+    panelOpen: boolean;
     /** "Alle N Quellen". */
     onShowAll?: () => void;
     /** Touch: opens the sheet for this chip. */

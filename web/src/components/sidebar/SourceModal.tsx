@@ -1,7 +1,6 @@
-import React, { memo, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { X } from 'lucide-react';
-import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
+import React, { memo } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@ki4jlu/design-system';
+import { useTheme } from '../../contexts/ThemeContext';
 import './SourceModal.css';
 
 interface SourceModalProps {
@@ -12,40 +11,30 @@ interface SourceModalProps {
     className?: string;
 }
 
+/**
+ * The frame of every "add a source" dialog (Crawl, RSS, upload, web search,
+ * git, Confluence): the DS `Dialog` — its padding, radius, title line and
+ * close button — with the form as the body. It used to be a hand-built
+ * `.modal-content` box whose own 2rem padding wrapped a header and a body
+ * that were padded again, so every source dialog had a double inset.
+ */
 const SourceModalComp: React.FC<SourceModalProps> = ({ title, show, onClose, children, className }) => {
-    const reducedMotion = useReducedMotion();
-
-    useEffect(() => {
-        if (!show) return;
-        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [show, onClose]);
-
-    if (!show) return null;
-
+    const { t } = useTheme();
     return (
-        <div className="modal-overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <motion.div
-                {...getMotionProps(reducedMotion)}
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                className={`modal-content source-modal${className ? ` ${className}` : ''}`}
-                role="dialog"
-                aria-modal="true"
-                aria-label={title}
+        <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
+            <DialogContent
+                className={`source-modal${className ? ` ${className}` : ''}`}
+                closeLabel={t('close')}
+                aria-describedby={undefined}
             >
-                <div className="source-modal__header">
-                    <h3 className="source-modal__title">{title}</h3>
-                    <button className="source-modal__close" onClick={onClose} aria-label="Close">
-                        <X size={20} />
-                    </button>
-                </div>
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                </DialogHeader>
                 <div className="source-modal__body">
                     {children}
                 </div>
-            </motion.div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 };
 

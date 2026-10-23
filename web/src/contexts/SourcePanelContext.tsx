@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import type { CitedSource } from '../utils/sourceDisplay';
+import type { CitationModel, CitedSource } from '../utils/sourceDisplay';
+import type { CitationMarker } from '../utils/citationRefs';
 
 /** What the source panel shows: one cited file of one answer, at one passage. */
 export interface SourcePanelTarget {
@@ -14,6 +15,12 @@ export interface SourcePanelTarget {
     citing?: Map<number, string>;
     /** The statement whose chip opened the panel: marks the active passage. */
     focus?: string;
+    /** The answer's citation model and every inline chip in reading order: the
+     *  panel's ↑ / ↓ step from one chip to the next, across sources. */
+    model?: CitationModel;
+    markers?: CitationMarker[];
+    /** The chip the panel shows (its `data-occ`); absent when opened from the source list. */
+    occ?: number;
 }
 
 export interface SourcePanelApi {

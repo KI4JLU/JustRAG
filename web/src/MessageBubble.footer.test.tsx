@@ -44,8 +44,13 @@ beforeEach(() => { isMobile = false; });
  *    it shown while the pointer is away.
  *  - Hiding keeps the row in the layout (visibility, not display:none), so
  *    its controls stay in the DOM.
- *  - Sources, confidence and conflicts are in the row as soon as their frames
- *    arrive, also while streaming; the actions wait for the saved answer.
+ *  - Confidence and conflicts are in the row as soon as their frames arrive,
+ *    also while streaming. The source list („Quellen · N") and the actions
+ *    wait for the saved answer (a real, non-temp id — the aiMessageId frame),
+ *    never while the text streams. A saved answer whose turn still runs (the
+ *    post-response frames) has its actions, with regenerate/branch disabled.
+ *  - „Von hier abzweigen" is offered on earlier answers only: branching from
+ *    the latest one would copy the whole chat.
  * `data-revealed` is the switch the visibility classes key on (jsdom applies
  * no CSS, so the attribute is what can be asserted).
  * ------------------------------------------------------------------------- */
@@ -165,11 +170,20 @@ describe('answer footer — when it shows', () => {
 describe('answer footer — what shows while the answer streams', () => {
   const streaming: Message = { ...answer, id: 'temp-ai-1' };
 
-  it('has the sources pill in the footer while streaming, without the actions', () => {
+  it('withholds the sources pill and the actions while the text streams', () => {
     render(<MessageBubble message={streaming} isStreaming onFeedback={vi.fn()} onRegenerate={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /answerSourcesToggle · 1/ })).toBeInTheDocument();
+    expect(footer()).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /answerSourcesToggle/ })).toBeNull();
+    expect(screen.queryByText('satzung')).toBeNull();
     expect(screen.queryByTestId('answer-actions')).toBeNull();
     expect(screen.queryByRole('button', { name: 'helpfulAnswer' })).toBeNull();
+  });
+
+  it('shows the sources pill once the answer is saved', () => {
+    const { rerender } = render(<MessageBubble message={streaming} isStreaming />);
+    expect(screen.queryByRole('button', { name: /answerSourcesToggle/ })).toBeNull();
+    rerender(<MessageBubble message={{ ...streaming, id: 'ai-saved', renderKey: 'temp-ai-1' }} isStreaming />);
+    expect(screen.getByRole('button', { name: /answerSourcesToggle · 1/ })).toBeInTheDocument();
   });
 
   it('shows the confidence and conflicts chips as their frames arrive', () => {
@@ -184,16 +198,29 @@ describe('answer footer — what shows while the answer streams', () => {
     expect(screen.getByLabelText('conflictsBadge')).toBeInTheDocument();
   });
 
-  it('withholds the actions until the stream has ended', () => {
+  // A saved answer whose turn still runs (citations, fact check): the actions
+  // are there, but the ones that start a new turn wait for its end.
+  it('shows the actions once the answer is saved; regenerate and branch wait for the turn', () => {
     const props = { onFeedback: vi.fn(), onRegenerate: vi.fn(), onFork: vi.fn() };
     const saved: Message = { ...answer, id: 'ai-saved', renderKey: 'temp-ai-1' };
     const { rerender } = render(<MessageBubble message={saved} isStreaming {...props} />);
-    expect(screen.queryByRole('button', { name: 'regenerateResponse' })).toBeNull();
+    for (const name of ['helpfulAnswer', 'unhelpfulAnswer']) {
+      expect(within(actions()).getByRole('button', { name })).toBeEnabled();
+    }
+    for (const name of ['regenerateResponse', 'forkFromHere']) {
+      expect(within(actions()).getByRole('button', { name })).toBeDisabled();
+    }
 
     rerender(<MessageBubble message={saved} {...props} />);
     for (const name of ['helpfulAnswer', 'unhelpfulAnswer', 'regenerateResponse', 'forkFromHere']) {
-      expect(within(actions()).getByRole('button', { name })).toBeInTheDocument();
+      expect(within(actions()).getByRole('button', { name })).toBeEnabled();
     }
+  });
+
+  it('offers no branch action on the latest answer', () => {
+    render(<MessageBubble message={answer} isLatest onRegenerate={vi.fn()} onFork={vi.fn()} />);
+    expect(within(actions()).getByRole('button', { name: 'regenerateResponse' })).toBeInTheDocument();
+    expect(within(actions()).queryByRole('button', { name: 'forkFromHere' })).toBeNull();
   });
 
   it('renders no footer before the first token', () => {
@@ -203,8 +230,10 @@ describe('answer footer — what shows while the answer streams', () => {
   });
 
   // Oracle: messageSectionKey — a section is keyed by the render key, which
-  // survives the temp→saved id remap (utils/messageTree remapMessageId).
-  it('keeps the source list open across the temp→saved id remap', async () => {
+  // survives the temp→saved id remap (utils/messageTree remapMessageId). The
+  // list cannot be opened before the remap any more, so this pins that it
+  // opens right after it, under the saved id, and stays open once the turn ends.
+  it('opens the source list on the saved answer and keeps it open as the turn ends', async () => {
     const user = userEvent.setup();
     function Harness({ message, isStreaming }: { message: Message; isStreaming?: boolean }) {
       const sections = useMessageSections();
@@ -217,11 +246,15 @@ describe('answer footer — what shows while the answer streams', () => {
         />
       );
     }
+    const saved: Message = { ...streaming, id: 'ai-saved', renderKey: 'temp-ai-1' };
     const { rerender } = render(<Harness message={streaming} isStreaming />);
+    expect(screen.queryByRole('button', { name: /answerSourcesToggle/ })).toBeNull();
+
+    rerender(<Harness message={saved} isStreaming />);
     await user.click(screen.getByRole('button', { name: /answerSourcesToggle/ }));
     expect(screen.getByText('satzung')).toBeInTheDocument();
 
-    rerender(<Harness message={{ ...streaming, id: 'ai-saved', renderKey: 'temp-ai-1' }} />);
+    rerender(<Harness message={saved} />);
     expect(screen.getByText('satzung')).toBeInTheDocument();
   });
 });
@@ -293,9 +326,13 @@ describe('question action row', () => {
     expect(onEdit).toHaveBeenCalledWith('u1', 'Wie hoch ist der Beitrag?');
   });
 
-  it('waits for the saved question while the turn streams', () => {
-    render(<MessageBubble message={question} isStreaming />);
+  // Same rule as the answer: the row needs the saved question (a real id),
+  // not the end of the turn.
+  it('waits for the saved question, not for the end of the turn', () => {
+    const { rerender } = render(<MessageBubble message={{ ...question, id: 'temp-user-1' }} isStreaming />);
     expect(screen.queryByTestId('question-actions')).toBeNull();
+    rerender(<MessageBubble message={question} isStreaming />);
+    expect(within(questionActions()).getByRole('button', { name: 'copy' })).toBeInTheDocument();
   });
 });
 
@@ -350,10 +387,20 @@ describe('message context menu', () => {
     expect(h.onFeedback).toHaveBeenLastCalledWith('ai1', null, undefined);
   });
 
-  it('follows the footer\'s availability rules', () => {
+  // An unsaved answer (a failed send leaves a `temp-error-*` bubble) has no
+  // footer actions, so it has no menu either.
+  it('follows the footer\'s availability rules: no menu on an unsaved answer', () => {
     render(<MessageBubble message={{ ...answer, id: 'temp-error-1' }} onRegenerate={vi.fn()} />);
     openMenu();
-    expect(items()).toEqual(['copy', 'exportAnswer']);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('follows the footer\'s availability rules: no branch action on the latest answer', () => {
+    render(<MessageBubble message={answer} isLatest {...handlers()} />);
+    openMenu();
+    expect(items()).toEqual([
+      'copy', 'helpfulAnswer', 'unhelpfulAnswer', 'regenerateResponse', 'compareBranches', 'exportAnswer', 'viewGraphForAnswer',
+    ]);
   });
 
   it('offers copy and edit on a question', async () => {
@@ -366,8 +413,8 @@ describe('message context menu', () => {
     expect(onEdit).toHaveBeenCalledWith('u1', 'Wie hoch ist der Beitrag?');
   });
 
-  it('has no menu while the answer streams', () => {
-    render(<MessageBubble message={answer} isStreaming {...handlers()} />);
+  it('has no menu while the answer text streams', () => {
+    render(<MessageBubble message={{ ...answer, id: 'temp-ai-1' }} isStreaming {...handlers()} />);
     openMenu();
     expect(screen.queryByRole('menu')).toBeNull();
   });

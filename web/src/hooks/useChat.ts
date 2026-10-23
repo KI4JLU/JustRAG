@@ -95,9 +95,6 @@ export function useChat({
   // Editing state
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
-  // Fork indicator
-  const [forkPointId, setForkPointId] = useState<string | null>(null);
-
   // Input state
   const [userMessageInput, setUserMessageInput] = useState('');
 
@@ -304,7 +301,6 @@ export function useChat({
     setComparisonMode(false);
     setComparisonLeafId(null);
     setEditingMessageId(null);
-    setForkPointId(null);
     setLoadedResearchSession(null);
     setLoadedAcademicSession(null);
     clearComparison();
@@ -392,7 +388,6 @@ export function useChat({
 
     setUserMessageInput('');
     setEditingMessageId(null);
-    setForkPointId(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -498,14 +493,40 @@ export function useChat({
     pendingEditAttachmentsRef.current = msg.attachments ?? [];
   }, [messageTreeRef]);
 
-  const handleForkFromMessage = useCallback((messageId: string) => {
-    setActiveLeafId(messageId);
-    setForkPointId(messageId);
-    forkFocusTimerRef.current = setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 50);
-  }, [setActiveLeafId]);
+  /**
+   * Every way of taking a conversation elsewhere opens a NEW chat (POST
+   * /api/chats/{id}/branch), which joins the history with the branch icon and
+   * opens; the original chat stays as it was:
+   *  - „Verzweigen" on an answer — branched at that answer, ready for a
+   *    different follow-up;
+   *  - „Antwort neu generieren" — branched at the question, which the branch
+   *    then answers (handleRegenerate);
+   *  - editing a question — branched at the turn before it (an empty branch
+   *    for the first question), where the edit is then sent (the pending-edit
+   *    effect below).
+   * Resolves to the id of the copied message (undefined for an empty branch),
+   * or null when branching failed (a toast says so).
+   */
+  const openBranch = useCallback(async (messageId: string | null): Promise<string | undefined | null> => {
+    const chatId = activeChatIdRef.current;
+    if (!chatId || (messageId && isTempMessageId(messageId))) return null;
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/chats/${chatId}/branch`, messageId ? { messageId } : {});
+      const { copiedMessageId, ...branch } = res.data as ChatEntry & { copiedMessageId?: string };
+      setChats(prev => [branch, ...prev.filter(c => c.id !== branch.id)]);
+      await handleSelectChat(branch);
+      return copiedMessageId;
+    } catch (err: unknown) {
+      console.error('Failed to branch chat:', err);
+      toast.error(t('chatBranchFailed'));
+      return null;
+    }
+  }, [activeChatIdRef, handleSelectChat, toast, t]);
+
+  const handleForkFromMessage = useCallback(async (messageId: string) => {
+    if (await openBranch(messageId) === null) return;
+    forkFocusTimerRef.current = setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [openBranch]);
 
   /**
    * "Antwort neu generieren" — a second answer under the SAME question.
@@ -531,14 +552,19 @@ export function useChat({
     const userMsg = messageTreeRef.current.get(userMessageId);
     if (!userMsg || userMsg.role !== 'user') return;
 
+    // A new answer is a new branch: copy the chat up to the question, then
+    // have the branch answer its copy of it (regenerateOfMessageId naming
+    // the question). The original keeps its answer untouched.
+    const question = await openBranch(userMessageId);
+    if (!question) return;
     await stream.handleSendMessage(
       { preventDefault: () => {} } as React.FormEvent,
       userMsg.content,
-      activeLeafId,
+      question,
       undefined,
-      { regenerateOf: { aiMessageId, userMessageId } },
+      { regenerateOf: { aiMessageId: question, userMessageId: question } },
     );
-  }, [messageTreeRef, stream, activeLeafId]);
+  }, [messageTreeRef, stream, openBranch]);
 
   const handleFollowUpClick = useCallback((question: string) => {
     pendingFollowUpRef.current = question;
@@ -578,13 +604,19 @@ export function useChat({
       pendingEditRef.current = undefined;
       pendingEditAttachmentsRef.current = [];
       const syntheticEvent = { preventDefault: () => { } } as React.FormEvent;
-      // `null` is passed through, not collapsed to undefined: editing the
-      // first question of a chat has no parent, and "no parent" must not be
-      // read as "no opinion" — that fell back to the active leaf and appended
-      // the edited question to the answer it was replacing.
-      handleSendMessage(syntheticEvent, parentId, attachments);
+      // An edited question is a new branch: copy the chat up to the turn
+      // before it (an empty branch for the first question) and send the
+      // edit there. `null` is passed through, not collapsed to undefined:
+      // the first question has no parent, and "no parent" must not be read
+      // as "no opinion" — that fell back to the active leaf and appended the
+      // edited question to the answer it was replacing.
+      void (async () => {
+        const copied = await openBranch(parentId);
+        if (copied === null) return;
+        await handleSendMessage(syntheticEvent, copied ?? null, attachments);
+      })();
     }
-  }, [userMessageInput, handleSendMessage]);
+  }, [userMessageInput, handleSendMessage, openBranch]);
 
   return useMemo(() => ({
     // Message tree
@@ -602,8 +634,6 @@ export function useChat({
     editingMessageId,
     setEditingMessageId,
     // Fork
-    forkPointId,
-    setForkPointId,
     // Input
     userMessageInput,
     setUserMessageInput,
@@ -654,7 +684,6 @@ export function useChat({
     comparisonMode,
     comparisonLeafId,
     editingMessageId,
-    forkPointId,
     userMessageInput,
     loading,
     attachmentState,

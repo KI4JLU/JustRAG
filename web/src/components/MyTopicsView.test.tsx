@@ -85,6 +85,7 @@ const NAV = {
   onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
   onViewAdmin: vi.fn(),
+  onViewLegal: vi.fn(),
   // The header search's destinations (KI-837). No test here selects a hit.
   onOpenTopic: vi.fn(),
   onOpenSource: vi.fn(),

@@ -26,7 +26,7 @@ export interface KbDataContextValue {
   saveConfluenceConnection: (token: string, displayName?: string) => Promise<void>;
   addConfluenceSource: (data: { connectionId: string; spaceKey: string; rootPageId?: string; rootPageTitle?: string; includeAttachments?: boolean; syncSchedule?: SyncSchedule }) => void;
   updateConfluenceSource: (sourceId: string, updates: { includeAttachments?: boolean; syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-  deleteConfluenceSource: (sourceId: string) => void;
+  deleteConfluenceSources: (sourceIds: string[]) => Promise<void>;
   syncConfluenceNow: (sourceId: string) => void;
   fetchConfluenceSpaces: () => Promise<ConfluenceSpace[]>;
   fetchConfluenceSpacePages: (spaceKey: string) => Promise<ConfluencePage[]>;
@@ -38,7 +38,7 @@ export interface KbDataContextValue {
   fetchGitRepoSources: (kbId?: string) => void;
   addGitRepoSource: (data: { repoUrl: string; isPrivate: boolean; accessToken?: string; branch?: string; syncSchedule?: SyncSchedule }) => void;
   updateGitRepoSource: (sourceId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-  deleteGitRepoSource: (sourceId: string) => void;
+  deleteGitRepoSources: (sourceIds: string[]) => Promise<void>;
   syncGitRepoNow: (sourceId: string) => void;
   // Actions
   handleSelectContent: (item: GeneratedContent) => void;

@@ -24,6 +24,11 @@ interface MessageActionsProps {
     contentRef?: React.RefObject<HTMLDivElement | null>;
     /** Reports whether a popover opened from this row (feedback comment, export menu) is open. */
     onPopoverOpenChange?: (open: boolean) => void;
+    /**
+     * The turn is still running (the checks after the answer): the actions
+     * that start a new turn — regenerate, branch — are disabled until it ends.
+     */
+    turnRunning?: boolean;
 }
 
 const MAX_COMMENT_LEN = 2000;
@@ -133,7 +138,7 @@ function FeedbackThumbs({ message, onFeedback, onOpenChange, t }: FeedbackThumbs
     );
 }
 
-export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, canCopy, kbId, questionText, contentRef, onPopoverOpenChange }: MessageActionsProps) {
+export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, canCopy, kbId, questionText, contentRef, onPopoverOpenChange, turnRunning = false }: MessageActionsProps) {
     const { t } = useTheme();
     const rules = useMessageActionRules(message, { onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, contentRef });
     const exporter = useMessageExport(message);
@@ -166,12 +171,12 @@ export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerat
                 <FeedbackThumbs message={message} onFeedback={onFeedback} onOpenChange={setFeedbackOpen} t={t} />
             )}
             {rules.regenerate && onRegenerate && (
-                <MessageAction tooltip={t('regenerateResponse')} onClick={act(onRegenerate)}>
+                <MessageAction tooltip={t('regenerateResponse')} onClick={act(onRegenerate)} disabled={turnRunning}>
                     <RefreshCw className="size-4" aria-hidden="true" />
                 </MessageAction>
             )}
             {rules.fork && onFork && (
-                <MessageAction tooltip={t('forkFromHere')} onClick={act(onFork)}>
+                <MessageAction tooltip={t('forkFromHere')} onClick={act(onFork)} disabled={turnRunning}>
                     <GitBranch className="size-4" aria-hidden="true" />
                 </MessageAction>
             )}

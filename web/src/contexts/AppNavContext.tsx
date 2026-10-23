@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNavigation';
 import type { KbSettingsSection, KnowledgeBase } from '../types';
+import type { LegalPageType } from '../components/LegalPage';
 
 /**
  * Top-level navigation destinations that are reachable from a chrome element
@@ -43,6 +44,8 @@ export interface AppNavContextValue {
   onViewProfile: () => void;
   /** The system-admin console. Rendered only for admin/superadmin. */
   onViewAdmin: () => void;
+  /** One of the legal pages, from the user menu's "Hilfe" submenu. */
+  onViewLegal: (page: LegalPageType) => void;
   /*
    * KI-837: THE HEADER SEARCH'S DESTINATIONS. Same criterion as every row
    * above — a jump rendered by the chrome, not by page content — except that

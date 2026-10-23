@@ -110,10 +110,31 @@ interface SourceExcerptProps {
     focus?: string;
     /** Label/value pairs side by side (desktop) or one under the other (sheet). */
     layout?: 'grid' | 'stack';
+    /**
+     * Prose as ONE run of text, its lines joined with „ · " and cut after
+     * three lines with an ellipsis — the compact hover preview. Without it
+     * each line is its own paragraph.
+     */
+    inline?: boolean;
     className?: string;
 }
 
-function SourceExcerptComp({ content, span, clamp = false, focus, layout = 'grid', className }: SourceExcerptProps) {
+/** One line of text from the passage's lines: Markdown block markers
+ *  (headings, list bullets, quotes) dropped, lines joined with „ · ". */
+function inlineMarkdown(md: string): string {
+    return md
+        .split(/\n+/)
+        .map(line => line.replace(/^\s*(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/, '').trim())
+        .filter(Boolean)
+        .join(' · ');
+}
+
+const INLINE_COMPONENTS = {
+    ...COMPONENTS,
+    p: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+};
+
+function SourceExcerptComp({ content, span, clamp = false, focus, layout = 'grid', inline = false, className }: SourceExcerptProps) {
     const verified = span && isValidSpan(content, span) ? span : undefined;
     // Without a verified span: the matching sentences — the best one frames a
     // clamped excerpt, the full passage marks all of them. Extracted text
@@ -151,6 +172,16 @@ function SourceExcerptComp({ content, span, clamp = false, focus, layout = 'grid
         const record = recordForSpan(records, validSpan);
         const top = [...record.fields.filter(marked), ...record.fields.filter(f => !marked(f))].slice(0, 6);
         return renderFields(record.fields.filter(f => top.includes(f)));
+    }
+
+    if (inline) {
+        return (
+            <div className={cn('min-w-0 break-words line-clamp-3', className)}>
+                <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={INLINE_COMPONENTS}>
+                    {inlineMarkdown(proseMarkdown(content, validSpan, clamp, matched))}
+                </ReactMarkdown>
+            </div>
+        );
     }
 
     return (

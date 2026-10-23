@@ -132,8 +132,9 @@ describe('HistoryPanel', () => {
     expect(handleDeleteGeneratedContent).not.toHaveBeenCalled();
     expect(screen.getByRole('toolbar', { name: 'deleteChats' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'selectChat Budget?' })).toHaveAttribute('aria-checked', 'true');
-    // Was gelöscht werden soll, ist rot markiert (DS selectionTone="destructive").
-    expect(screen.getByTestId('history-item-title').closest('[data-slot=sidebar-card]')).toHaveClass('border-error');
+    // Was gelöscht werden soll, ist rot markiert (DS selectionTone="destructive"):
+    // seit dem Sidebar-Redesign eine rot getönte Fläche statt eines roten Rahmens.
+    expect(screen.getByTestId('history-item-title').closest('[data-slot=sidebar-card]')).toHaveClass('bg-error/10');
   });
 
   it('bietet keinen eigenen „Auswählen"-Eintrag mehr an — Auswahl gibt es nur zum Löschen', async () => {

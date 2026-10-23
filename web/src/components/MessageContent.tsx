@@ -1,4 +1,4 @@
-import { memo, lazy, Suspense, useMemo, useRef, useState, useCallback } from 'react';
+import { memo, lazy, Suspense, useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -6,14 +6,17 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { MATH_SPAN_RE, normalizeMathDelimiters } from '../utils/markdownMath';
+import { normalizeMathDelimiters } from '../utils/markdownMath';
 import { Loader2, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import type { MessageSource, TrajectoryEvent, FlaggedClaimStatus } from '../types';
 import { buildCitationModel, citingTextByRaw, fillTemplate, type CitationModel } from '../utils/sourceDisplay';
+import { PRESERVE_RE, addCitationRefs } from '../utils/citationRefs';
 import { useFinePointer } from '../hooks/useFinePointer';
 import { CitationChip } from './sources/CitationChip';
-import { CitationChipContext, passageFor, type ChipSheet, type CitationChipContextValue } from './sources/citationChipContext';
+import { CITED_BLOCK_SELECTOR, CitationChipContext, passageFor, type ChipSheet, type CitationChipContextValue } from './sources/citationChipContext';
+import { citingRange } from '../utils/citingRange';
+import { useSourcePanel } from '../contexts/SourcePanelContext';
 import { SourcePreview } from './sources/SourcePreview';
 import { TrajectoryPanel } from './TrajectoryPanel';
 import {
@@ -58,14 +61,14 @@ interface MessageContentProps {
      */
     flaggedClaims?: FlaggedClaimStatus[];
     /** "In Quelle öffnen" in a preview: the source panel at that passage. */
-    onOpenPanel?: (n: number, raw: number, focus?: string) => void;
+    onOpenPanel?: (n: number, raw: number, focus?: string, occ?: number) => void;
     /** "Alle N Quellen" in a preview: the answer's source list. */
     onShowAllSources?: () => void;
     /**
      * The passage the source panel shows, when it is this answer's: its chips
      * stay filled and the paragraph citing it is marked.
      */
-    activeCitation?: { n: number; raw: number } | null;
+    activeCitation?: { n: number; raw: number; occ?: number } | null;
     /**
      * Whether the chain-of-thought panel is expanded. Controlled from the chat
      * view (keyed by message id) rather than left to the native <details> DOM
@@ -75,91 +78,6 @@ interface MessageContentProps {
      */
     reasoningOpen?: boolean;
     onToggleReasoning?: () => void;
-}
-
-// Code spans and math spans are cut out before the citation / flagged-claim
-// rewriters run and restored afterwards: both inject raw HTML, which would
-// break code and formulas alike.
-const PRESERVE_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source, 'g');
-
-// One marker: [1], [1, 2], [150], markdown-escaped \[1\], inner blanks
-// tolerated — the shapes utils/citations.ts and utils/sourceDisplay.ts read.
-// A run is markers next to each other, optionally comma-separated
-// ("[1][2]", "[1], [3]"): its chips render side by side, without commas.
-const MARKER_SRC = String.raw`(?<![\`[])\\?\[\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\\?\](?!\()`;
-const RUN_RE = new RegExp(`([ \\t]*)(${MARKER_SRC}(?:\\s*,?\\s*${MARKER_SRC})*)`, 'g');
-// A line that is its own unit: list item, table row, heading, quote.
-const STRUCTURAL_LINE_RE = /^\s*(?:[-*+]\s|\d+[.)]\s|\||#{1,6}\s|>)/;
-
-// Paragraphs, and every structural line on its own: within one unit a
-// source is cited once.
-function citationUnits(text: string): string[] {
-    const out: string[] = [];
-    let cur = '';
-    let curBreaks = false;
-    for (const line of text.split(/(?<=\n)/)) {
-        const blank = line.trim() === '';
-        const structural = STRUCTURAL_LINE_RE.test(line);
-        if (cur && (blank || structural || curBreaks)) {
-            out.push(cur);
-            cur = '';
-        }
-        cur += line;
-        curBreaks = blank || structural;
-    }
-    if (cur) out.push(cur);
-    return out;
-}
-
-/**
- * Turns the answer's raw `[n]` markers into chip placeholders carrying the
- * per-answer display number (utils/sourceDisplay): `<sup class="source-ref"
- * data-n data-raw data-occ>`, which the `sup` component below renders as a
- * CitationChip. Within one paragraph (or list item / table row) a source is
- * marked once, at its last citation, carrying every raw number it had there.
- * A marker that resolves to no source is dropped. Code and math are left
- * alone.
- */
-function addCitationRefs(content: string, model: CitationModel): string {
-    const preserved: string[] = [];
-    const placeholder = (i: number) => `\x00CITE_PRESERVE_${i}\x00`;
-    const safe = content.replace(PRESERVE_RE, (match) => {
-        preserved.push(match);
-        return placeholder(preserved.length - 1);
-    });
-
-    let occ = 0;
-    let out = citationUnits(safe).map((unit) => {
-        const runs = [...unit.matchAll(RUN_RE)].map((m) => {
-            const byN = new Map<number, number[]>();
-            for (const d of m[2].match(/\d{1,3}/g) ?? []) {
-                const raw = parseInt(d, 10);
-                const n = model.displayOf.get(raw);
-                if (!n) continue;
-                byN.set(n, [...(byN.get(n) ?? []), raw]);
-            }
-            return byN;
-        });
-        if (runs.length === 0) return unit;
-        const last = new Map<number, number>();
-        const raws = new Map<number, number[]>();
-        runs.forEach((byN, i) => byN.forEach((rs, n) => {
-            last.set(n, i);
-            raws.set(n, [...new Set([...(raws.get(n) ?? []), ...rs])]);
-        }));
-        let i = -1;
-        return unit.replace(RUN_RE, (_m, ws: string) => {
-            i += 1;
-            const ns = [...runs[i].keys()].filter(n => last.get(n) === i);
-            if (ns.length === 0) return '';
-            return ws + ns.map(n => `<sup class="source-ref" data-n="${n}" data-raw="${raws.get(n)!.join(',')}" data-occ="${occ++}"></sup>`).join('');
-        });
-    }).join('');
-
-    for (let i = 0; i < preserved.length; i++) {
-        out = out.replace(placeholder(i), () => preserved[i]);
-    }
-    return out;
 }
 
 // escapeAttr keeps tooltip text safe to inline as an HTML attribute. The
@@ -335,6 +253,7 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
     const finePointer = useFinePointer();
     const model = useMemo(() => citationModel ?? buildCitationModel(content, sources), [citationModel, content, sources]);
     const bodyRef = useRef<HTMLDivElement>(null);
+    const sourcePanel = useSourcePanel();
 
     // Touch: one bottom sheet per answer, for whichever chip was tapped.
     const [sheet, setSheet] = useState<ChipSheet | null>(null);
@@ -345,13 +264,44 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
         spans: citationSpans,
         suspect: suspectCitations,
         activeN: activeCitation?.n ?? null,
+        panelOpen: !!sourcePanel?.target,
         finePointer,
         onOpenPanel,
         onShowAll: onShowAllSources,
         openSheet: setSheet,
         sheetOcc: sheet?.occ ?? null,
-    }), [model, citationSpans, suspectCitations, activeCitation?.n, finePointer, onOpenPanel, onShowAllSources, sheet?.occ]);
+    }), [model, citationSpans, suspectCitations, activeCitation?.n, sourcePanel?.target, finePointer, onOpenPanel, onShowAllSources, sheet?.occ]);
 
+
+    // While the source panel shows one of this answer's citations, the
+    // sentences that cite that passage are highlighted in the answer — the
+    // panel marks the passage, this marks the claim, so the two read as one
+    // link. A CSS Custom Highlight (no DOM change); browsers without the API
+    // simply show no highlight.
+    // Opened from a chip (or stepped to one), the panel names that chip's
+    // occurrence: only its sentence is marked, and it is scrolled into view.
+    // Opened from the source list, every sentence citing the passage is.
+    const activeRaw = activeCitation?.raw;
+    const activeOcc = activeCitation?.occ;
+    useEffect(() => {
+        const root = bodyRef.current;
+        if (!root || activeOcc == null) return;
+        root.querySelector<HTMLElement>(`.citation-chip[data-occ="${activeOcc}"]`)?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    }, [activeOcc]);
+    useEffect(() => {
+        const root = bodyRef.current;
+        const highlights = typeof CSS !== 'undefined' ? (CSS as unknown as { highlights?: Map<string, unknown> }).highlights : undefined;
+        if (!root || activeRaw == null || !highlights || typeof Highlight === 'undefined') return;
+        const ranges = [...root.querySelectorAll<HTMLElement>('.citation-chip[data-raw]')]
+            .filter(chip => (activeOcc != null
+                ? chip.dataset.occ === String(activeOcc)
+                : (chip.dataset.raw ?? '').split(',').includes(String(activeRaw))))
+            .map(chip => citingRange(chip, CITED_BLOCK_SELECTOR, '.citation-chip'))
+            .filter((r): r is Range => r !== null);
+        if (ranges.length === 0) return;
+        highlights.set('citation-focus', new Highlight(...ranges));
+        return () => { highlights.delete('citation-focus'); };
+    }, [activeRaw, activeOcc, content]);
 
     const closeSheet = useCallback(() => setSheet(null), []);
     const sheetPassage = sheet && sheetSource ? passageFor(sheetSource, sheet.raw) : undefined;
@@ -423,7 +373,7 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
                                     notice={sheetReason ? t(sheetReason === 'out_of_range' ? 'citationSuspectOutOfRange' : 'citationSuspectNoOverlap') : undefined}
                                     totalSources={model.cited.length}
                                     onShowAll={onShowAllSources ? () => { closeSheet(); onShowAllSources(); } : undefined}
-                                    onOpenSource={onOpenPanel ? () => { closeSheet(); onOpenPanel(sheetSource.n, sheetPassage.raw); } : undefined}
+                                    onOpenSource={onOpenPanel ? () => { closeSheet(); onOpenPanel(sheetSource.n, sheetPassage.raw, undefined, sheet.occ); } : undefined}
                                 />
                             </>
                         )}

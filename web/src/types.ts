@@ -424,7 +424,8 @@ export interface FileEntry {
     createdAt: string;
     selected?: boolean;
     rssFeedId?: string;
-    gitRepoSourceId?: string;
+    confluenceSourceId?: string | null;
+    gitRepoSourceId?: string | null;
     errorStage?: string;
     errorMessage?: string;
     currentStage?: string;
@@ -564,6 +565,13 @@ export interface ChatEntry {
     updatedAt: string;
     teamId?: string | null;
     agentId?: string | null;
+    /** Set on a chat made by branching (Verzweigen, a new answer, an edited
+     *  question): the chat it was copied from, which may have been deleted
+     *  since. Absent on an ordinary chat. */
+    branchedFromChatId?: string | null;
+    /** The chat list only: the chat forks INSIDE itself — versions from
+     *  before branching opened a new chat. Absent means false. */
+    hasBranches?: boolean;
 }
 
 export interface FlashcardItem {

@@ -163,7 +163,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
      (`internal/siteconfig`) still exist and still work.
      // TODO: removing the upload end to end — admin surface and the site-config
      // key with it — is not decided here. */
-  const logo = <Logo product="RAG" />;
+  const logo = <Logo product="RAG" size="sm" />;
 
   /* The nav rows.
    *

@@ -242,6 +242,7 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
             onViewTools: idle(),
             onViewProfile: args.onViewProfile,
             onViewAdmin: args.onViewAdmin,
+            onViewLegal: idle(),
             // The header search's destinations (KI-837).
             onOpenTopic: args.onOpenTopic,
             onOpenSource: idle(),
@@ -355,6 +356,9 @@ const USER_MENU_NAMES: (string | RegExp)[] = [
   'Mein Profil',
   // Opens the settings window with the appearance preferences (24.09.2026).
   'Einstellungen',
+  // The legal pages' submenu (a Radix sub-trigger is a menuitem too): before
+  // it they were linked from the login page's footer only.
+  'Hilfe',
   'Abmelden',
 ];
 
@@ -870,11 +874,13 @@ export const SettingsOpenFromTheUserMenu: Story = {
 };
 
 /**
- * The chrome bar is 64px tall, and the search field is centred in it.
+ * The chrome bar is 56px tall, and the search field is centred in it.
  *
- * WHY THE HEIGHT IS RE-MEASURED HERE (cards KI-788, then KI-787).
- * `.toast-container { top: 76px }` is 64px of chrome plus a 12px gap. 64px was
- * measured against design-system 0.25.0; 0.26.0 replaced the bar's hardcoded
+ * WHY THE HEIGHT IS RE-MEASURED HERE (cards KI-788, then KI-787, then the
+ * sidebar redesign). `.toast-container { top: 68px }` is 56px of chrome plus a
+ * 12px gap. The bar was 64px (`h-16`, `top: 76px`) until the redesign made it
+ * and the side-panel header rows `h-14`; 64px had been measured against
+ * design-system 0.25.0; 0.26.0 replaced the bar's hardcoded
  * `ThemeToggle` with the optional `headerActions` slot, and 0.29.0 made
  * `pageLabel` optional and renders NO element for it when omitted — which is
  * how this app draws the bar since KI-787. That is the bar rebuilt twice under
@@ -909,7 +915,7 @@ export const SettingsOpenFromTheUserMenu: Story = {
  * dev-mode Tailwind emits `.lg:hidden` before `.flex`, so `AppShell`'s mobile
  * top bar stays visible here and pushes the bar down (MyTopicsView.test.tsx:241
  * records the same quirk). The HEIGHT is unaffected, and it is the only half
- * `top: 76px` depends on.
+ * `top: 68px` depends on.
  */
 export const AppShellGeometry: Story = {
   play: async ({ canvas }) => {
@@ -922,11 +928,12 @@ export const AppShellGeometry: Story = {
     const bar = field.parentElement?.parentElement?.parentElement;
     await expect(bar).toBeDefined();
 
-    // ORACLE: Chromium's layout engine. 64px = `h-16`, the number Toast.css
-    // adds its 12px gap to. Re-measured against design-system 0.31.0, with no
-    // `pageLabel` and the field in the `search` region.
+    // ORACLE: Chromium's layout engine. 56px = `h-14`, the number Toast.css
+    // adds its 12px gap to (`top: 68px`). Re-measured against the redesign's
+    // design system (0.60.0), with no `pageLabel` and the field in the
+    // `search` region.
     const barRect = (bar as HTMLElement).getBoundingClientRect();
-    await expect(barRect.height).toBe(64);
+    await expect(barRect.height).toBe(56);
 
     // ORACLE: the bar's own centre. This is what fails if the field is handed
     // to `headerActions` instead of `search` — that region is `justify-end`.
@@ -945,13 +952,13 @@ export const AppShellGeometry: Story = {
  * The same bar with the global-search dropdown OPEN (card KI-837), plus the
  * dropdown's keyboard contract and one navigation.
  *
- * WHY IT IS RE-MEASURED OPEN. `Toast.css`'s `top: 76px` needs the bar at 64px
+ * WHY IT IS RE-MEASURED OPEN. `Toast.css`'s `top: 68px` needs the bar at 56px
  * in every state, and a dropdown that rendered INSIDE the bar (instead of the
  * DS portalling it) would either grow the bar or be clipped by it. Both are
  * layout facts jsdom cannot see.
  *
  * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`) —
- * the bar, the popover and their boxes are the design system's, the 64 is the
+ * the bar, the popover and their boxes are the design system's, the 56 is the
  * constant in `Toast.css`; WAI-ARIA's combobox states read off the DOM
  * (`aria-expanded`, `aria-activedescendant`, `document.activeElement`); the
  * mocked `/api/search` body (API.md's shape) for option text; and the
@@ -980,7 +987,7 @@ export const AppShellGeometryWithSearchOpen: Story = {
     const body = within(canvasElement.ownerDocument.body);
     const wrapper = canvas.getByTestId('app-chrome-search');
     const bar = wrapper.parentElement?.parentElement?.parentElement as HTMLElement;
-    await expect(bar.getBoundingClientRect().height).toBe(64);
+    await expect(bar.getBoundingClientRect().height).toBe(56);
 
     const input = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
     await userEvent.type(input, 'Prü');
@@ -988,8 +995,8 @@ export const AppShellGeometryWithSearchOpen: Story = {
     const options = await within(listbox).findAllByRole('option');
     await expect(input).toHaveAttribute('aria-expanded', 'true');
 
-    // Open, the bar is still 64px, and the list is outside it and below it.
-    await expect(bar.getBoundingClientRect().height).toBe(64);
+    // Open, the bar is still 56px, and the list is outside it and below it.
+    await expect(bar.getBoundingClientRect().height).toBe(56);
     await expect(bar.contains(listbox)).toBe(false);
     const barBottom = bar.getBoundingClientRect().bottom;
     const last = options[options.length - 1];
@@ -1022,7 +1029,7 @@ export const AppShellGeometryWithSearchOpen: Story = {
     await expect(args.onOpenChat).toHaveBeenCalledWith({
       chatId: 'c-1', kbId: 'kb-1', title: 'Prüfungsfragen', type: 'chat', timestamp: '2026-09-20T10:00:00Z',
     });
-    await expect(bar.getBoundingClientRect().height).toBe(64);
+    await expect(bar.getBoundingClientRect().height).toBe(56);
   },
 };
 

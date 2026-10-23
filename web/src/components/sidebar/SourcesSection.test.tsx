@@ -1,6 +1,6 @@
 import type React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SourcesSection } from './SourcesSection';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource } from '../../types';
@@ -77,16 +77,14 @@ const baseProps = {
   rssFeeds: [],
   onUpdateRssFeed: vi.fn(),
   onPollFeedNow: vi.fn(),
-  onViewFeed: vi.fn(),
   confluenceSources: [],
   onUpdateConfluenceSource: vi.fn(),
-  onDeleteConfluenceSource: vi.fn(),
   onSyncConfluenceNow: vi.fn(),
   gitRepoSources: [],
   onUpdateGitRepoSource: vi.fn(),
-  onDeleteGitRepoSource: vi.fn(),
   onSyncGitRepoNow: vi.fn(),
   onRetryFile: vi.fn(),
+  onViewSource: vi.fn(),
   canManage: true,
   canDownload: true,
 };
@@ -163,117 +161,122 @@ describe('SourcesSection error display + retry', () => {
   });
 });
 
-// The API contract: nextSyncAt is displayed only when the source's schedule
-// is not 'manual' AND the value is non-null. Asserted on the text the user
-// actually sees (t() is identity-mocked, so t('nextSync') renders literally
-// as "nextSync") rather than on internal props, per each of the three source
-// types the rule applies to.
-describe('SourcesSection next-sync display', () => {
-  it('shows the next sync time for an RSS feed on a non-manual schedule', () => {
-    const feed = makeRssFeed({ syncSchedule: 'daily', nextSyncAt: '2026-09-04T02:00:00Z' });
-    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[feed]} />);
-    expect(screen.getByText(/nextSync/)).toBeInTheDocument();
-  });
+// A synced source (RSS feed, Confluence space, git repository) is a row like
+// a file card: a grey type chip and its title, nothing else inline. State,
+// counts, sync times (the next-sync rule moved with them — see
+// SourceDetailsModal.test.tsx) and the entries live in its details dialog;
+// sync, pause, the schedule and remove live in the row's ⋯ menu. Only a
+// failure stays on the row, because it needs acting on.
+describe('SourcesSection synced source rows', () => {
+  const rows = {
+    rss: makeRssFeed({ syncSchedule: 'daily', nextSyncAt: '2026-09-04T02:00:00Z', itemCount: 12 }),
+    confluence: makeConfluenceSource({ syncSchedule: 'weekly', nextSyncAt: '2026-09-07T02:00:00Z', pageCount: 30 }),
+    git: makeGitRepoSource({ syncSchedule: 'daily', nextSyncAt: '2026-09-04T02:00:00Z', fileCount: 8 }),
+  };
 
-  it('hides the next sync time for an RSS feed on a manual schedule, even with a value set', () => {
-    const feed = makeRssFeed({ syncSchedule: 'manual', nextSyncAt: '2026-09-04T02:00:00Z' });
-    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[feed]} />);
+  it('renders each as a type chip and its title, without inline meta, schedule or entries', () => {
+    render(<SourcesSection {...baseProps} files={[]}
+      rssFeeds={[rows.rss]} confluenceSources={[rows.confluence]} gitRepoSources={[rows.git]} />);
+    // Titles per sourceDetailsTitle: the feed title, the space key, owner/repo.
+    const cards = [...document.querySelectorAll('[data-slot=sidebar-card]')];
+    expect(cards.map(c => c.textContent)).toEqual(['RSSFeed', 'COLENG', 'GITacme/repo']);
     expect(screen.queryByText(/nextSync/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/12|30|8/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /rssViewEntries|pollNow|^pause|removeSource/ })).not.toBeInTheDocument();
   });
 
-  it('hides the next sync time for an RSS feed with no value, even on a non-manual schedule', () => {
-    const feed = makeRssFeed({ syncSchedule: 'daily', nextSyncAt: null });
-    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[feed]} />);
-    expect(screen.queryByText(/nextSync/)).not.toBeInTheDocument();
+  it('keeps a failure on the row', () => {
+    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[makeGitRepoSource({ status: 'error', errorMessage: 'auth' })]} />);
+    expect(screen.getByText('feedError')).toBeInTheDocument();
+    expect(screen.queryByText('auth')).not.toBeInTheDocument();
   });
 
-  it('shows the next sync time for a Confluence source on a non-manual schedule', () => {
-    const source = makeConfluenceSource({ syncSchedule: 'weekly', nextSyncAt: '2026-09-07T02:00:00Z' });
-    render(<SourcesSection {...baseProps} files={[]} confluenceSources={[source]} />);
-    expect(screen.getByText(/nextSync/)).toBeInTheDocument();
-  });
-
-  it('hides the next sync time for a Confluence source on a manual schedule, even with a value set', () => {
-    const source = makeConfluenceSource({ syncSchedule: 'manual', nextSyncAt: '2026-09-07T02:00:00Z' });
-    render(<SourcesSection {...baseProps} files={[]} confluenceSources={[source]} />);
-    expect(screen.queryByText(/nextSync/)).not.toBeInTheDocument();
-  });
-
-  it('hides the next sync time for a Confluence source with no value, even on a non-manual schedule', () => {
-    const source = makeConfluenceSource({ syncSchedule: 'weekly', nextSyncAt: null });
-    render(<SourcesSection {...baseProps} files={[]} confluenceSources={[source]} />);
-    expect(screen.queryByText(/nextSync/)).not.toBeInTheDocument();
-  });
-
-  it('shows the next sync time for a git repo source on a non-manual schedule', () => {
-    const source = makeGitRepoSource({ syncSchedule: 'daily', nextSyncAt: '2026-09-04T02:00:00Z' });
-    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[source]} />);
-    expect(screen.getByText(/nextSync/)).toBeInTheDocument();
-  });
-
-  it('hides the next sync time for a git repo source on a manual schedule, even with a value set', () => {
-    const source = makeGitRepoSource({ syncSchedule: 'manual', nextSyncAt: '2026-09-04T02:00:00Z' });
-    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[source]} />);
-    expect(screen.queryByText(/nextSync/)).not.toBeInTheDocument();
-  });
-
-  it('hides the next sync time for a git repo source with no value, even on a non-manual schedule', () => {
-    const source = makeGitRepoSource({ syncSchedule: 'daily', nextSyncAt: null });
-    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[source]} />);
-    expect(screen.queryByText(/nextSync/)).not.toBeInTheDocument();
+  it.each([
+    ['rss' as const, 'Feed', { rssFeeds: [rows.rss] }, rows.rss],
+    ['confluence' as const, 'ENG', { confluenceSources: [rows.confluence] }, rows.confluence],
+    ['git' as const, 'acme/repo', { gitRepoSources: [rows.git] }, rows.git],
+  ])('opens the %s details from a click on the row and from „sourceDetails" in its menu', async (kind, title, lists, source) => {
+    const onViewSource = vi.fn();
+    render(<SourcesSection {...baseProps} files={[]} {...lists} onViewSource={onViewSource} />);
+    await userEvent.click(screen.getByRole('button', { name: title }));
+    expect(onViewSource).toHaveBeenLastCalledWith({ kind, source });
+    await userEvent.click(screen.getByRole('button', { name: `sourceActions ${title}` }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'sourceDetails' }));
+    expect(onViewSource).toHaveBeenCalledTimes(2);
+    expect(onViewSource).toHaveBeenLastCalledWith({ kind, source });
   });
 });
 
-// F3(b): a schedule control is reachable on every source row (not just at
-// creation time), wired to the existing update handlers, so a user can
-// change their mind about a source's schedule without deleting and
-// recreating it.
-describe('SourcesSection per-row schedule control', () => {
-  it('renders a schedule select for an RSS feed, pre-selected to its current schedule, and calls onUpdateRssFeed on change', () => {
+// F3(b): the schedule stays changeable on every source after creation, wired
+// to the existing update handlers — now as the „syncScheduleLabel" submenu of
+// the row's ⋯ menu, with the current schedule checked (aria-current).
+describe('SourcesSection schedule in the row menu', () => {
+  async function openSchedule(title: string) {
+    await userEvent.click(screen.getByRole('button', { name: `sourceActions ${title}` }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'syncScheduleLabel' }));
+  }
+  const checked = () => screen.getAllByRole('menuitem').filter(i => i.getAttribute('aria-current') === 'true').map(i => i.textContent);
+
+  it('offers the RSS feed\'s schedule with the current one checked, and calls onUpdateRssFeed on a pick', async () => {
     const onUpdateRssFeed = vi.fn();
-    const feed = makeRssFeed({ syncSchedule: 'weekly' });
-    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[feed]} onUpdateRssFeed={onUpdateRssFeed} />);
-
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('weekly');
-
-    fireEvent.change(select, { target: { value: 'daily' } });
+    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[makeRssFeed({ syncSchedule: 'weekly' })]} onUpdateRssFeed={onUpdateRssFeed} />);
+    await openSchedule('Feed');
+    expect(checked()).toEqual(['syncScheduleWeekly']);
+    await userEvent.click(screen.getByRole('menuitem', { name: 'syncScheduleDaily' }));
     expect(onUpdateRssFeed).toHaveBeenCalledWith('feed-1', { syncSchedule: 'daily' });
   });
 
-  it('renders a schedule select for a Confluence source and calls onUpdateConfluenceSource on change', () => {
+  it('calls onUpdateConfluenceSource for a Confluence space', async () => {
     const onUpdateConfluenceSource = vi.fn();
-    const source = makeConfluenceSource({ syncSchedule: 'manual' });
-    render(<SourcesSection {...baseProps} files={[]} confluenceSources={[source]} onUpdateConfluenceSource={onUpdateConfluenceSource} />);
-
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('manual');
-
-    fireEvent.change(select, { target: { value: 'weekly' } });
+    render(<SourcesSection {...baseProps} files={[]} confluenceSources={[makeConfluenceSource()]} onUpdateConfluenceSource={onUpdateConfluenceSource} />);
+    await openSchedule('ENG');
+    expect(checked()).toEqual(['syncScheduleManual']);
+    await userEvent.click(screen.getByRole('menuitem', { name: 'syncScheduleWeekly' }));
     expect(onUpdateConfluenceSource).toHaveBeenCalledWith('conf-1', { syncSchedule: 'weekly' });
   });
 
-  it('renders a schedule select for a git repo source and calls onUpdateGitRepoSource on change', () => {
+  it('calls onUpdateGitRepoSource for a git repository', async () => {
     const onUpdateGitRepoSource = vi.fn();
-    const source = makeGitRepoSource({ syncSchedule: 'manual' });
-    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[source]} onUpdateGitRepoSource={onUpdateGitRepoSource} />);
-
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('manual');
-
-    fireEvent.change(select, { target: { value: 'daily' } });
+    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[makeGitRepoSource()]} onUpdateGitRepoSource={onUpdateGitRepoSource} />);
+    await openSchedule('acme/repo');
+    await userEvent.click(screen.getByRole('menuitem', { name: 'syncScheduleDaily' }));
     expect(onUpdateGitRepoSource).toHaveBeenCalledWith('git-1', { syncSchedule: 'daily' });
   });
+});
 
-  it('gives each row schedule select a unique id for label association when multiple sources are shown', () => {
-    const feed = makeRssFeed({ id: 'feed-a' });
-    const feed2 = makeRssFeed({ id: 'feed-b' });
-    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[feed, feed2]} />);
+// Sync now and pause/resume, also from the ⋯ menu.
+describe('SourcesSection sync and pause in the row menu', () => {
+  it('syncs and pauses an active RSS feed', async () => {
+    const onPollFeedNow = vi.fn();
+    const onUpdateRssFeed = vi.fn();
+    render(<SourcesSection {...baseProps} files={[]} rssFeeds={[makeRssFeed()]} onPollFeedNow={onPollFeedNow} onUpdateRssFeed={onUpdateRssFeed} />);
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions Feed' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'pollNow' }));
+    expect(onPollFeedNow).toHaveBeenCalledWith('feed-1');
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions Feed' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'pause' }));
+    expect(onUpdateRssFeed).toHaveBeenCalledWith('feed-1', { status: 'paused' });
+  });
 
-    const selects = screen.getAllByRole('combobox') as HTMLSelectElement[];
-    expect(selects).toHaveLength(2);
-    expect(selects[0].id).not.toBe(selects[1].id);
-    expect(new Set(selects.map(s => s.id)).size).toBe(2);
+  it('resumes a paused Confluence space and syncs it', async () => {
+    const onUpdateConfluenceSource = vi.fn();
+    const onSyncConfluenceNow = vi.fn();
+    render(<SourcesSection {...baseProps} files={[]} confluenceSources={[makeConfluenceSource({ status: 'paused' })]}
+      onUpdateConfluenceSource={onUpdateConfluenceSource} onSyncConfluenceNow={onSyncConfluenceNow} />);
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions ENG' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'resume' }));
+    expect(onUpdateConfluenceSource).toHaveBeenCalledWith('conf-1', { status: 'active' });
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions ENG' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'pollNow' }));
+    expect(onSyncConfluenceNow).toHaveBeenCalledWith('conf-1');
+  });
+
+  // The backend refuses to pause a repository mid-sync.
+  it('disables pausing a git repository while it syncs', async () => {
+    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[makeGitRepoSource({ status: 'syncing' })]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions acme/repo' }));
+    expect(screen.getByRole('menuitem', { name: 'resume' })).toHaveAttribute('aria-disabled', 'true');
   });
 });
 
@@ -359,8 +362,8 @@ describe('SourcesSection injection screening badge', () => {
 // Without capabilities.manageSources (backend contract 2026-10-16: changing
 // existing sources is fixed at edit and above) the backend refuses delete,
 // retry, sync, pause and reschedule with a 403. So none of those controls may
-// render, while what the caller CAN do — open, download, select, read an RSS
-// feed's entries — stays. Adding sources is a separate right and not this
+// render, while what the caller CAN do — open, download, select, read a
+// synced source's details (its entries included) — stays. Adding sources is a separate right and not this
 // component's concern (SourcesPanel / SourcesRail).
 describe('SourcesSection without the manage right (canManage=false)', () => {
   const viewer = { ...baseProps, canManage: false };
@@ -374,28 +377,26 @@ describe('SourcesSection without the manage right (canManage=false)', () => {
     expect(screen.queryByRole('menuitem', { name: /removeSource/ })).not.toBeInTheDocument();
   });
 
-  it('shows an RSS feed without sync, pause, remove or schedule, but with its entries', () => {
-    render(<SourcesSection {...viewer} files={[]} rssFeeds={[makeRssFeed()]} />);
-    for (const name of [/pollNow/, /^pause$/, /removeSource/]) {
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-    }
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /rssViewEntries/ })).toBeInTheDocument();
+  it.each([
+    ['an RSS feed', 'Feed', { rssFeeds: [makeRssFeed()] }],
+    ['a Confluence space', 'ENG', { confluenceSources: [makeConfluenceSource()] }],
+    ['a git repository', 'acme/repo', { gitRepoSources: [makeGitRepoSource()] }],
+  ])('offers %s only its details and the selection — no sync, pause, schedule or remove', async (_kind, title, lists) => {
+    render(<SourcesSection {...viewer} files={[]} {...lists} />);
+    await userEvent.click(screen.getByRole('button', { name: `sourceActions ${title}` }));
+    expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual(['sourceDetails', 'selectSources']);
   });
 
-  it('shows Confluence and git sources without any edit control', () => {
-    render(<SourcesSection {...viewer} files={[]}
-      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
-    expect(screen.getByText('ENG')).toBeInTheDocument();
-    expect(screen.queryAllByRole('button', { name: /pollNow|pause|removeSource/ })).toHaveLength(0);
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-  });
-
-  it('an editor still gets every control (the same rows with canManage=true)', () => {
+  it('an editor still gets every control (the same rows with canManage=true)', async () => {
     render(<SourcesSection {...baseProps} files={[]}
       rssFeeds={[makeRssFeed()]} confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
-    expect(screen.getAllByRole('button', { name: /pollNow/ })).toHaveLength(3);
-    expect(screen.getAllByRole('button', { name: /^removeSource/ })).toHaveLength(3);
+    for (const title of ['Feed', 'ENG', 'acme/repo']) {
+      await userEvent.click(screen.getByRole('button', { name: `sourceActions ${title}` }));
+      expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual([
+        'sourceDetails', 'selectSources', 'pollNow', 'pause', 'syncScheduleLabel', 'removeSource',
+      ]);
+      await userEvent.keyboard('{Escape}');
+    }
   });
 });
 
@@ -463,23 +464,26 @@ describe('SourcesSection selection and remove modes', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
-  it("opens the filter mode from a file card's Select action and an RSS feed's Select button", async () => {
+  it("opens the filter mode from the Select action of a file card's and a synced row's menu", async () => {
     const onStartSelection = vi.fn();
-    render(<SourcesSection {...baseProps} canManage={false} files={[makeFile({})]} rssFeeds={[makeRssFeed()]} onStartSelection={onStartSelection} />);
-    await userEvent.click(screen.getByRole('button', { name: 'selectSources Feed' }));
-    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'selectSources' }));
-    expect(onStartSelection).toHaveBeenCalledTimes(2);
+    render(<SourcesSection {...baseProps} canManage={false} files={[makeFile({})]} rssFeeds={[makeRssFeed()]}
+      gitRepoSources={[makeGitRepoSource()]} onStartSelection={onStartSelection} />);
+    for (const title of ['Feed', 'acme/repo', 'doc.pdf']) {
+      await userEvent.click(screen.getByRole('button', { name: `sourceActions ${title}` }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'selectSources' }));
+    }
+    expect(onStartSelection).toHaveBeenCalledTimes(3);
   });
 
-  it("opens the remove mode from a file card's Remove action and an RSS feed's remove button, with that row's key", async () => {
+  it("opens the remove mode from the Remove action of a row's menu, with that row's key", async () => {
     const onStartRemoval = vi.fn();
-    render(<SourcesSection {...baseProps} files={[makeFile({})]} rssFeeds={[makeRssFeed()]} onStartRemoval={onStartRemoval} />);
-    await userEvent.click(screen.getByRole('button', { name: 'removeSource Feed' }));
-    expect(onStartRemoval).toHaveBeenLastCalledWith('rss:feed-1');
-    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'removeSource' }));
-    expect(onStartRemoval).toHaveBeenLastCalledWith('file:f-1');
+    render(<SourcesSection {...baseProps} files={[makeFile({})]} rssFeeds={[makeRssFeed()]}
+      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} onStartRemoval={onStartRemoval} />);
+    for (const [title, key] of [['Feed', 'rss:feed-1'], ['ENG', 'confluence:conf-1'], ['acme/repo', 'git:git-1'], ['doc.pdf', 'file:f-1']]) {
+      await userEvent.click(screen.getByRole('button', { name: `sourceActions ${title}` }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'removeSource' }));
+      expect(onStartRemoval).toHaveBeenLastCalledWith(key);
+    }
   });
 
   // Oracle: the DS contract — SidebarCard muted carries data-muted.
@@ -492,10 +496,13 @@ describe('SourcesSection selection and remove modes', () => {
     expect(container.querySelector('[data-muted]')).toBeNull();
   });
 
+  // DS SidebarCard selectionTone="destructive": a ticked row gets a red-tinted
+  // background (bg-error/10) since the redesign, no longer a red border.
   it('marks a remove selection in the destructive tone', () => {
     render(<SourcesSection {...baseProps} files={[makeFile({})]} rssFeeds={[makeRssFeed()]}
       selection={new Set(['file:f-1', 'rss:feed-1'] as const)} selectionTone="destructive" />);
-    expect(screen.getByText('doc.pdf').closest('[data-slot=sidebar-card]')).toHaveClass('border-error');
+    expect(screen.getByText('doc.pdf').closest('[data-slot=sidebar-card]')).toHaveClass('bg-error/10');
+    expect(screen.getByText('doc.pdf').closest('[data-slot=sidebar-card]')).not.toHaveClass('border-error');
     expect(screen.getByRole('checkbox', { name: 'selectSource Feed' }).className).toContain('data-[state=checked]:bg-error');
   });
 
@@ -534,9 +541,24 @@ describe('SourcesSection selection and remove modes', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('gives Confluence and git rows no checkbox — their files have no row mapping', () => {
-    render(<SourcesSection {...baseProps} files={[]} selection={new Set()}
-      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} />);
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  // Confluence and git rows take part in both modes now: their files carry
+  // the source's id (confluenceSourceId, gitRepoSourceId), so a row stands for
+  // them like an RSS feed's does (sourceSelection.ts).
+  it.each(['default', 'destructive'] as const)('gives Confluence and git rows a checkbox in the %s mode, toggled by their key', async (tone) => {
+    const onToggleSelected = vi.fn();
+    render(<SourcesSection {...baseProps} files={[]} selection={new Set(['git:git-1'] as const)} selectionTone={tone}
+      confluenceSources={[makeConfluenceSource()]} gitRepoSources={[makeGitRepoSource()]} onToggleSelected={onToggleSelected} />);
+    expect(screen.getByRole('checkbox', { name: 'selectSource ENG' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('checkbox', { name: 'selectSource acme/repo' })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource ENG' }));
+    expect(onToggleSelected).toHaveBeenLastCalledWith('confluence:conf-1', true);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource acme/repo' }));
+    expect(onToggleSelected).toHaveBeenLastCalledWith('git:git-1', false);
+  });
+
+  it('greys out a Confluence space none of whose files is in the chat filter', () => {
+    const files = [makeFile({ id: 'c1', origin: 'confluence', confluenceSourceId: 'conf-1', selected: false })];
+    render(<SourcesSection {...baseProps} files={files} confluenceSources={[makeConfluenceSource()]} />);
+    expect(screen.getByText('ENG').closest('[data-slot=sidebar-card]')).toHaveAttribute('data-muted');
   });
 });

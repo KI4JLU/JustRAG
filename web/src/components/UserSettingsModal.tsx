@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-    SettingsDialog, SettingsRow, Switch, useAccent, useContrast, useUiShape,
-    type AccentColor, type ContrastChoice, type UiShape,
+    SettingsDialog, SettingsRow, Switch, useAccent, useContrast,
+    type AccentColor, type ContrastChoice,
 } from '@ki4jlu/design-system';
 import type { Theme } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
@@ -24,7 +24,8 @@ interface UserSettingsModalProps {
     onTabChange: (tab: SettingsTab) => void;
 }
 
-/** A labelled choice for a SettingsRow; the row's label names the select. */
+/** A labelled choice for a SettingsRow; the row's label names the select.
+ *  Ghost trigger (value + chevron, no frame): the row already says what it is. */
 function Choice<T extends string>({ id, value, onChange, options }: {
     id: string;
     value: T;
@@ -33,7 +34,7 @@ function Choice<T extends string>({ id, value, onChange, options }: {
 }) {
     return (
         <Select value={value} onValueChange={(v) => onChange(v as T)}>
-            <SelectTrigger aria-labelledby={id} className="w-48">
+            <SelectTrigger variant="ghost" aria-labelledby={id}>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
@@ -45,14 +46,13 @@ function Choice<T extends string>({ id, value, onChange, options }: {
 
 /**
  * The user's settings window (user menu → „Einstellungen"), on the DS
- * `SettingsDialog`. General: colour scheme, Style, language. Chat: starter
+ * `SettingsDialog`. General: colour scheme, contrast, accent, language. Chat: starter
  * suggestions, follow-ups, autoscroll. Profile: the
  * account as the directory (LDAP) knows it — read-only — plus the API-key and
  * Confluence-token managers where they apply, as on the profile page.
  */
 export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: UserSettingsModalProps) {
     const { t, theme, setTheme, language, setLanguage } = useTheme();
-    const { shape, setShape } = useUiShape();
     const [suggestionsEnabled, setSuggestionsEnabled] = usePromptSuggestionsEnabled();
     const [followUpsEnabled, setFollowUpsEnabled] = useFollowUpsEnabled();
     const [autoScrollEnabled, setAutoScrollEnabled] = useAutoScrollEnabled();
@@ -78,7 +78,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'general',
                     label: t('settingsGeneral'),
                     icon: <Settings aria-hidden="true" />,
-                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('uiShape'), t('languageLabel')],
+                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('languageLabel')],
                     content: (
                         <>
                             <SettingsRow
@@ -102,7 +102,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                         id="settings-contrast"
                                         value={contrast}
                                         onChange={setContrast}
-                                        options={[['system', t('themeSystemShort')], ['normal', t('contrastNormal')], ['more', t('contrastMore')]]}
+                                        options={[['system', t('themeSystemShort')], ['normal', t('contrastNormal')], ['medium', t('contrastMedium')], ['more', t('contrastMore')]]}
                                     />
                                 )}
                             />
@@ -120,19 +120,6 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                                 {t(`accent_${a}`)}
                                             </span>
                                         )] as [AccentColor, ReactNode])}
-                                    />
-                                )}
-                            />
-                            <SettingsRow
-                                label={t('uiShape')}
-                                labelId="settings-ui-shape"
-                                description={t('uiShapeHint')}
-                                control={(
-                                    <Choice<UiShape>
-                                        id="settings-ui-shape"
-                                        value={shape}
-                                        onChange={setShape}
-                                        options={[['rounded', t('uiShapeRounded')], ['pill', t('uiShapePill')]]}
                                     />
                                 )}
                             />
