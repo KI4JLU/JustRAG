@@ -194,16 +194,17 @@ func isJSONNull(raw json.RawMessage) bool {
 // each carries HasBranches: whether two of its messages share a parent (two
 // root messages count too — GROUP BY puts the NULL parents in one group), so
 // chats that branched inside themselves — edits, regenerations and forks from
-// before branching opened a new chat — are marked as well. Prompt-enhancement
-// rows are not versions of a turn and are left out. The subquery reads one
-// chat's messages through messages_chat_id_idx.
+// before branching opened a new chat — are marked as well. is_enhanced is
+// not a filter: it flags a question asked with prompt enhancement, which is
+// a real question row like any other. The subquery reads one chat's
+// messages through messages_chat_id_idx.
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
 		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
 		       c.created_at, c.updated_at, c.branched_from_chat_id,
 		       EXISTS (
 		           SELECT 1 FROM messages m
-		           WHERE m.chat_id = c.id AND NOT COALESCE(m.is_enhanced, false)
+		           WHERE m.chat_id = c.id
 		           GROUP BY m.parent_message_id
 		           HAVING count(*) > 1
 		       ) AS has_branches

@@ -248,17 +248,17 @@ func TestPGStore_GetChatsHasBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("a prompt-enhancement row is not a branch", func(t *testing.T) {
+	// Production writes is_enhanced on the question row itself (http_send.go):
+	// an edited question asked with prompt enhancement is still a branch.
+	t.Run("enhanced sibling questions are a branch", func(t *testing.T) {
 		chatID := seedChat(t, pool, "branches-enhanced")
-		q := add(chatID, "user", "q1", nil)
-		add(chatID, "ai", "a1", &q)
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO messages (chat_id, role, content, parent_message_id, is_enhanced)
-			VALUES ($1::uuid, 'ai', 'enhanced', $2::uuid, true)`, chatID, q); err != nil {
-			t.Fatal(err)
+		for _, q := range []string{"q1", "q1 edited"} {
+			if _, err := store.AddMessage(ctx, AddMessageParams{ChatID: chatID, Role: "user", Content: q, IsEnhanced: true, EnhancedQuery: &q}); err != nil {
+				t.Fatalf("AddMessage: %v", err)
+			}
 		}
-		if listedHasBranches(t, store, pool, chatID) {
-			t.Fatal("enhancement row counted as a branch")
+		if !listedHasBranches(t, store, pool, chatID) {
+			t.Fatal("enhanced sibling questions not listed as branched")
 		}
 	})
 }
