@@ -186,10 +186,12 @@ describe('SourcesSection synced source rows', () => {
     expect(screen.queryByRole('button', { name: /rssViewEntries|pollNow|^pause|removeSource/ })).not.toBeInTheDocument();
   });
 
+  // A failure tints the row and is its tooltip / description (DS SidebarCard `error`).
   it('keeps a failure on the row', () => {
     render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[makeGitRepoSource({ status: 'error', errorMessage: 'auth' })]} />);
-    expect(screen.getByText('feedError')).toBeInTheDocument();
-    expect(screen.queryByText('auth')).not.toBeInTheDocument();
+    const row = screen.getByRole('listitem');
+    expect(row).toHaveAttribute('data-error');
+    expect(screen.getByRole('button', { name: 'acme/repo' })).toHaveAccessibleDescription('auth');
   });
 
   it.each([
@@ -305,10 +307,14 @@ describe('SourcesSection spreadsheet sources', () => {
 // Phase 4: files.stage_detail (live per-stage progress text) rendered by
 // IngestStageIndicator when currentStage is set.
 describe('SourcesSection stage detail pass-through', () => {
-  it('renders stageDetail when currentStage is set', () => {
-    const file = makeFile({ currentStage: 'tabular', stageDetail: 'Blatt 2/3 · 120000 Zeilen' });
+  // Oracle: the row's accessible description (DS SidebarCard `busy`) — a
+  // spinner on the tile with the stage as tooltip, no status line.
+  it('describes a file in progress by its stage, without a status line', () => {
+    const file = makeFile({ status: 'processing', currentStage: 'tabular', stageIndex: 2, stageTotal: 4, stageDetail: 'Blatt 2/3 · 120000 Zeilen' });
     render(<SourcesSection {...baseProps} files={[file]} />);
-    expect(screen.getByText('Blatt 2/3 · 120000 Zeilen')).toBeInTheDocument();
+    expect(screen.getByRole('listitem')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: file.name })).toHaveAccessibleDescription('2/4 ingestStageTabular');
+    expect(screen.queryByText('Blatt 2/3 · 120000 Zeilen')).not.toBeInTheDocument();
   });
 });
 
