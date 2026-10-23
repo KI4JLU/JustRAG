@@ -17,6 +17,11 @@ export const PRESERVE_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN
 // ("[1][2]", "[1], [3]"): its chips render side by side, without commas.
 const MARKER_SRC = String.raw`(?<![\`[])\\?\[\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\\?\](?!\()`;
 const RUN_RE = new RegExp(`([ \\t]*)(${MARKER_SRC}(?:\\s*,?\\s*${MARKER_SRC})*)`, 'g');
+// The same run with the punctuation right after it ("…werden [1]."): the
+// rewrite glues word gap, chips and punctuation into one no-wrap span, so a
+// line never breaks between a sentence's last word, its chips and its full
+// stop (a chip is an atomic inline, after which browsers allow a break).
+const RUN_PUNCT_RE = new RegExp(`${RUN_RE.source}([.,;:!?…)»"“”'’]*)`, 'g');
 // A line that is its own unit: list item, table row, heading, quote.
 const STRUCTURAL_LINE_RE = /^\s*(?:[-*+]\s|\d+[.)]\s|\||#{1,6}\s|>)/;
 
@@ -77,11 +82,12 @@ export function addCitationRefs(content: string, model: CitationModel): string {
             raws.set(n, [...new Set([...(raws.get(n) ?? []), ...rs])]);
         }));
         let i = -1;
-        return unit.replace(RUN_RE, (_m, ws: string) => {
+        return unit.replace(RUN_PUNCT_RE, (_m, ws: string, _run: string, punct: string) => {
             i += 1;
             const ns = [...runs[i].keys()].filter(n => last.get(n) === i);
-            if (ns.length === 0) return '';
-            return ws + ns.map(n => `<sup class="source-ref" data-n="${n}" data-raw="${raws.get(n)!.join(',')}" data-occ="${occ++}"></sup>`).join('');
+            if (ns.length === 0) return punct;
+            const chips = ns.map(n => `<sup class="source-ref" data-n="${n}" data-raw="${raws.get(n)!.join(',')}" data-occ="${occ++}"></sup>`).join('');
+            return `<span class="cite-glue">${ws}${chips}${punct}</span>`;
         });
     }).join('');
 

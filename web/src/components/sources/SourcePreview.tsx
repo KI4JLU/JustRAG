@@ -143,7 +143,7 @@ function CompactPreview({ source, passage, span, onOpenSource, titleId, focus, n
                 <p className="m-0 rounded-[var(--ui-radius-row)] bg-warning-container px-3 py-2 text-xs text-on-warning-container">{notice}</p>
             )}
             {passage.content && (
-                <div className="text-sm leading-6 text-on-surface-variant [&_mark]:text-on-surface">
+                <div className="text-sm leading-6 text-on-surface-variant">
                     <SourceExcerpt content={passage.content} span={span} clamp focus={focus} layout="grid" inline />
                 </div>
             )}

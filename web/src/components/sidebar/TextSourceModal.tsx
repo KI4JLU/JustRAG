@@ -4,9 +4,11 @@ import {
     Button, Dialog, DialogContent, DialogTitle, Input, RichTextEditor, buttonVariants, type RichTextEditorLabels,
 } from '@ki4jlu/design-system';
 import { fillTemplate, originUrlOf, withoutOriginLine } from '../../utils/sourceDisplay';
+import { renderHtmlBlocks } from '../../utils/htmlBlocks';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFormValidation } from '../../hooks/useFormValidation';
-import { PreviewHeader } from '../PreviewHeader';
+import { type PreviewBack } from '../PreviewHeader';
+import { PreviewDialog } from '../PreviewDialog';
 
 /**
  * Text sources in the DS `RichTextEditor` (Tiptap, markdown in and out), in a
@@ -62,15 +64,14 @@ interface TextSourceModalProps {
 }
 
 /**
- * The PDF preview's frame: same dialog size, same header. A preview passes
- * the shared `PreviewHeader` as `preview`; the editor passes its own 56px
- * `header` row (title field + action).
+ * „Text einfügen"'s frame: the preview window's size (`PreviewDialog`
+ * `document`) with the editor's own 56px header row (title field + action).
+ * The read-only viewer below is a `PreviewDialog`.
  */
-function EditorDialog({ open, onClose, header, preview, children }: {
+function EditorDialog({ open, onClose, header, children }: {
     open: boolean;
     onClose: () => void;
-    header?: React.ReactNode;
-    preview?: React.ReactNode;
+    header: React.ReactNode;
     children: React.ReactNode;
 }) {
     const { t } = useTheme();
@@ -79,15 +80,12 @@ function EditorDialog({ open, onClose, header, preview, children }: {
             <DialogContent
                 closeLabel={t('close')}
                 className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
-                // A preview header brings a DialogDescription (Radix links it);
-                // the editor has none, so it opts out of the description.
-                {...(preview ? {} : { 'aria-describedby': undefined })}
+                // The editor's header has no DialogDescription, so it opts out of one.
+                aria-describedby={undefined}
             >
-                {preview ?? (
-                    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
-                        {header}
-                    </div>
-                )}
+                <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
+                    {header}
+                </div>
                 {children}
             </DialogContent>
         </Dialog>
@@ -173,10 +171,12 @@ interface TextSourceViewerProps {
     content: string;
     /** `markdown` is rendered; `text` is shown literally (a `# x` line stays text). */
     format: 'markdown' | 'text';
+    /** Back to the list it was opened from (a synced source's entries). */
+    back?: PreviewBack;
 }
 
 /** An existing .md/.txt source in the same window, read-only, with a download like the PDF preview's. */
-const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format }) => {
+const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format, back }) => {
     const { t } = useTheme();
     const baseLabels = useEditorLabels();
     // The word count moves into the header's meta line.
@@ -184,7 +184,9 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
     const isMarkdown = format === 'markdown';
     // An imported page's or feed item's "Source: <url>" line is a header action, not body text.
     const originUrl = originUrlOf(content.slice(0, 4000));
-    const shown = originUrl ? withoutOriginLine(content) : content;
+    const stripped = originUrl ? withoutOriginLine(content) : content;
+    // Markup left in a stored page or feed item reads as its content, not as code.
+    const shown = isMarkdown ? renderHtmlBlocks(stripped) : stripped;
     const words = shown.split(/\s+/).filter(Boolean).length;
     // The object URL is made on click and revoked right after, so no URL
     // outlives the download (and none is held in state).
@@ -198,27 +200,25 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
     };
 
     return (
-        <EditorDialog
+        <PreviewDialog
             open={show}
             onClose={onClose}
-            preview={(
-                <PreviewHeader
-                    kind="text"
-                    title={fileName}
-                    subtitle={`${t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')} · ${fillTemplate(t('previewWordCount'), { count: words })}`}
-                    actions={originUrl && (
-                        <a href={originUrl} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                            <ExternalLink size={14} aria-hidden="true" />
-                            {CONFLUENCE_URL_RE.test(originUrl) ? t('openInConfluence') : t('openOriginal')}
-                        </a>
-                    )}
-                />
+            kind="text"
+            back={back}
+            title={fileName}
+            subtitle={`${t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')} · ${fillTemplate(t('previewWordCount'), { count: words })}`}
+            actions={originUrl && (
+                <a href={originUrl} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                    <ExternalLink size={14} aria-hidden="true" />
+                    {CONFLUENCE_URL_RE.test(originUrl) ? t('openInConfluence') : t('openOriginal')}
+                </a>
             )}
         >
             <RichTextEditor
                 // A different file is a different document: the editor reads `value` once.
                 key={`${fileName}\0${shown.length}`}
                 bare
+                plain
                 readOnly
                 format={format}
                 className="min-h-0 flex-1"
@@ -231,7 +231,7 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
                     </Button>
                 )}
             />
-        </EditorDialog>
+        </PreviewDialog>
     );
 };
 

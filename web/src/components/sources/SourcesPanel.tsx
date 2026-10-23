@@ -8,7 +8,7 @@ import { Button, FileDropzone, SidebarPanel, SidebarSelectionBar, useWindowFileD
 import { useModalContext } from '../../contexts/ModalContext';
 import '../sidebar-primitives.css';
 import { SourceDetailsModal } from './SourceDetailsModal';
-import type { SourceDetailsTarget } from './sourceDetails';
+import { sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
 import { closeSourceDetails, openSourceDetails, useSourceDetails } from '../../hooks/sourceDetails';
 import { SourcesSection } from '../sidebar/SourcesSection';
 import { SourcesHeader } from './SourcesHeader';
@@ -54,7 +54,7 @@ const SourcesPanelComp: React.FC = () => {
         setToolTab, toolInput, setToolInput,
         crawlMaxPages, setCrawlMaxPages,
         toolLoading, handleToolSubmit, crawlResults, searchResults,
-        handlePreviewSource,
+        handlePreviewSource, fetchFileContent,
         webResearchRunning, webResearchStatus, webResearchProgress, handleCancelWebResearch,
         setShowWebWorkspace, sourcesAddedCount,
     } = webTools;
@@ -102,6 +102,20 @@ const SourcesPanelComp: React.FC = () => {
         target.kind === 'rss' ? files.filter(f => f.rssFeedId === target.source.id)
         : target.kind === 'confluence' ? files.filter(f => f.confluenceSourceId === target.source.id)
         : files.filter(f => f.gitRepoSourceId === target.source.id);
+
+    // A synced entry shows what was ingested, not its original (a web page,
+    // a Confluence page, a repository file the reader may not reach): RSS
+    // items and Confluence pages are stored as Markdown, git files as text
+    // whatever their extension — the stored copy is the ingested text. Other
+    // stored types (a Confluence attachment) take the normal preview.
+    // The text preview links back to the source's entry list.
+    const openSyncedEntry = (file: FileEntry, from: SourceDetailsTarget) => {
+        const ref = { kind: from.kind, id: from.source.id };
+        const back = { trail: [sourceDetailsTitle(from)], onBack: () => openSourceDetails(ref) };
+        if (file.type === 'text/markdown') fetchFileContent(file.id, file.name, 'markdown', back);
+        else if (file.type?.startsWith('text/')) fetchFileContent(file.id, file.name, 'text', back);
+        else handlePreviewSource(file);
+    };
 
     const handleSourceSelect = useCallback((type: SourceType) => {
         if (type === 'upload') {
@@ -325,6 +339,8 @@ const SourcesPanelComp: React.FC = () => {
                     target={viewingSource}
                     files={sourceFiles(viewingSource)}
                     onDeleteFile={canManage ? handleDeleteFile : undefined}
+                    // Like a file row in the list: the preview needs the download right.
+                    onOpenFile={canDownload ? (file) => { closeSourceDetails(); openSyncedEntry(file, viewingSource); } : undefined}
                     onClose={closeSourceDetails}
                 />
             )}

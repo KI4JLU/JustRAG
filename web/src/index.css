@@ -708,17 +708,27 @@ button.source-card {
   margin-bottom: 0.25rem;
 }
 
+/* Inline code: a quiet monospace token — a hairline frame on the faintest
+   container tint, so it reads as code without the weight of a filled grey
+   box, and stays apart from the filled citation chips beside it. Wrapped
+   lines keep the frame on each piece (box-decoration-break). */
 .markdown-content code {
-  background: var(--border-color);
-  padding: 0.2rem 0.4rem;
-  border-radius: var(--shape-sm);
-  /* Inline code keeps the body font: monospace is for code BOXES only
-     (`.markdown-content pre code` below). */
-  font-size: 0.85em;
-  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  /* Monospace runs large beside the body sans: 0.8em matches its x-height. */
+  font-size: 0.8em;
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 6px;
+  background: var(--color-surface-container-low);
+  color: var(--color-on-surface);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
-.markdown-content pre {
+/* `:not([class])`: a code fence is the DS CodeBlock (MessageContent), whose
+   classed <pre> must not take these unlayered rules over its utilities; they
+   keep styling the plain <pre>s that remain (e.g. a chart's raw JSON). */
+.markdown-content pre:not([class]) {
   background: var(--code-bg);
   color: var(--code-text);
   padding: 1rem;
@@ -739,7 +749,7 @@ button.source-card {
   height: auto;
 }
 
-.markdown-content pre code {
+.markdown-content pre:not([class]) code {
   background: transparent;
   padding: 0;
   color: inherit;
@@ -872,7 +882,7 @@ button.source-card {
   border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
 
-[data-theme='dark'] .markdown-content pre {
+[data-theme='dark'] .markdown-content pre:not([class]) {
   border-top: 1px solid color-mix(in srgb, var(--accent-primary) 15%, transparent);
 }
 
@@ -2337,6 +2347,13 @@ button.source-card {
 /* The answer's sentences that cite the passage the source panel shows
    (MessageContent, CSS Custom Highlight "citation-focus"): a gentle amber,
    the warm highlighter look — distinct from the blue chips and selections. */
+/* A sentence's last word gap, its citation chips and the punctuation after
+   them stay on one line (utils/citationRefs.ts). */
+.cite-glue {
+  white-space: nowrap;
+}
+
 ::highlight(citation-focus) {
   background-color: var(--color-warning-container);
+  color: var(--color-on-warning-container);
 }

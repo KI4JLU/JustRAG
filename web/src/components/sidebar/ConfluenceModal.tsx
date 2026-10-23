@@ -491,7 +491,7 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
                                 className="search-button"
                                 style={{ marginTop: 8 }}
                             >
-                                {t('onboardingNext')}
+                                {t('wizardNext')}
                             </button>
                         </>
                     )}
@@ -606,7 +606,7 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
                         className="search-button"
                         style={{ marginTop: 8 }}
                     >
-                        {t('onboardingNext')}
+                        {t('wizardNext')}
                     </button>
                 </>
             );

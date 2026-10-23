@@ -41,6 +41,7 @@ import { API_BASE_URL, authFetch } from '../api';
 import { SourcePanel } from './sources/SourcePanel';
 import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
 import { MessageSkeleton } from './Skeleton';
+import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
 
 const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
@@ -345,6 +346,9 @@ const ChatViewComp = () => {
                     <PromptInput
                       id="chat-composer"
                       multiple
+                      dropLabel={t('chatDropFiles')}
+                      // Lights up for a file drag anywhere in the app, like the sources dropzone.
+                      dropZoneScope="page"
                       // The composer's files go with the message as chat
                       // attachments, uploaded when they were attached. A send
                       // that does not happen throws, so PromptInput keeps the
@@ -624,6 +628,18 @@ const ChatViewComp = () => {
                               const questionText = msg.role === 'ai' && msg.parentMessageId
                                 ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
                                 : '';
+                              // The answer being prepared has no row yet: until its first
+                              // token the status line below stands in for it. An empty row
+                              // here added a blank gap above the spinner that collapsed
+                              // once the text streamed in.
+                              const awaitingFirstToken = chat.loading && index === chat.messages.length - 1
+                                && msg.role === 'ai' && !msg.content && !msg.reasoning && !msg.trajectory?.length;
+                              if (awaitingFirstToken) return null;
+                              // A day separator above the first message of each day.
+                              const prevAt = chat.messages.slice(0, index).reverse().find((m: Message) => m.createdAt)?.createdAt;
+                              const daySeparator = msg.createdAt && (!prevAt || !sameLocalDay(prevAt, msg.createdAt))
+                                ? formatDaySeparator(msg.createdAt, language)
+                                : null;
                               return (
                                 <MessageScrollerItem
                                   // renderKey survives the temp→DB id remap mid-stream;
@@ -634,6 +650,11 @@ const ChatViewComp = () => {
                                   scrollAnchor={msg.role === 'user'}
                                   className="transcript-row"
                                 >
+                                  {daySeparator && (
+                                    <div data-testid="day-separator" className="mb-4 text-center text-sm text-on-surface-variant">
+                                      {daySeparator}
+                                    </div>
+                                  )}
                                   <MessageBubble
                                     message={msg}
                                     isStreaming={chat.loading && index === chat.messages.length - 1}
