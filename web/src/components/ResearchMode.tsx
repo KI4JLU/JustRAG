@@ -17,6 +17,7 @@ import {
     Rocket, ClipboardList, Search, BookOpen, Brain, RefreshCw, FileText,
     CheckCircle2, AlertCircle, Ban, Loader2, Circle, X, ChevronRight, ChevronDown,
 } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import type { LucideIcon } from 'lucide-react';
 
 interface ResearchProgressEvent {
@@ -659,9 +660,10 @@ export default function ResearchMode({ kbId, onClose, loadedSession, onSessionSa
 
             {/* Error Display */}
             {error && (
-                <div className="research-mode-error">
-                    <span className="research-mode-error-icon"><AlertCircle size={18} aria-hidden="true" /></span>
-                    <span>{error}</span>
+                <div className="mx-8 my-4">
+                    <Alert tone="error" live="assertive">
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                 </div>
             )}
 

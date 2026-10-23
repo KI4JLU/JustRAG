@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -130,48 +131,21 @@ export default function ApiKeyManager() {
             </div>
 
             {error && (
-                <div style={{
-                    padding: '0.75rem 1rem',
-                    marginBottom: '1rem',
-                    borderRadius: '8px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    color: '#ef4444',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    fontSize: '0.9rem',
-                }}>
-                    {error}
-                </div>
+                <Alert tone="error" live="assertive" className="mb-4">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {newlyCreated && (
-                <div style={{
-                    padding: '1rem',
-                    marginBottom: '1.5rem',
-                    borderRadius: '8px',
-                    background: 'rgba(34, 197, 94, 0.1)',
-                    border: '1px solid rgba(34, 197, 94, 0.3)',
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <strong style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-                            {t('apiKeyCreated')}: {newlyCreated.name}
-                        </strong>
-                        <button
-                            onClick={() => setNewlyCreated(null)}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                color: 'var(--text-secondary)',
-                                cursor: 'pointer',
-                                fontSize: '0.85rem',
-                                textDecoration: 'underline',
-                            }}
-                        >
-                            {t('apiKeyHide')}
-                        </button>
-                    </div>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 0.75rem 0' }}>
-                        {t('apiKeyCopyWarning')}
-                    </p>
+                <Alert
+                    tone="success"
+                    live="polite"
+                    className="mb-6"
+                    onDismiss={() => setNewlyCreated(null)}
+                    dismissLabel={t('apiKeyHide')}
+                >
+                    <AlertTitle>{t('apiKeyCreated')}: {newlyCreated.name}</AlertTitle>
+                    <AlertDescription>{t('apiKeyCopyWarning')}</AlertDescription>
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -218,7 +192,7 @@ export default function ApiKeyManager() {
                             {copied ? <Check size={16} /> : <Copy size={16} />}
                         </button>
                     </div>
-                </div>
+                </Alert>
             )}
 
             {/* Create form */}

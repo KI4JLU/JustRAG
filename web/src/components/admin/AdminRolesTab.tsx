@@ -1,6 +1,6 @@
 import { Check, Crown, Eye, Info, KeyRound, Lock, Pencil, Shield, ShieldCheck, User } from 'lucide-react';
 import {
-    Badge, Button, HoverCard, HoverCardContent, HoverCardTrigger, Notice, PanelSection,
+    Badge, Button, HoverCard, HoverCardContent, HoverCardTrigger, Alert, AlertDescription, PanelSection,
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -87,9 +87,9 @@ export default function AdminRolesTab({ users }: AdminRolesTabProps) {
 
     return (
         <div className="flex flex-col gap-8">
-            <Notice icon={<Lock />}>
-                <p className="m-0">{t('arNotice')}</p>
-            </Notice>
+            <Alert icon={<Lock />}>
+                <AlertDescription>{t('arNotice')}</AlertDescription>
+            </Alert>
 
             <PanelSection
                 title={t('arSystemRolesTitle')}
@@ -107,9 +107,9 @@ export default function AdminRolesTab({ users }: AdminRolesTabProps) {
                 className="gap-4"
             >
                 <KbRolesTable t={t} />
-                <Notice icon={<Info />}>
-                    <p className="m-0">{t('arKbFlagsNotice')}</p>
-                </Notice>
+                <Alert icon={<Info />}>
+                    <AlertDescription>{t('arKbFlagsNotice')}</AlertDescription>
+                </Alert>
                 <div className="flex flex-col gap-2">
                     <h4 className="m-0 text-sm font-semibold text-on-surface">{t('arMappingTitle')}</h4>
                     <ul className="m-0 flex list-disc flex-col gap-1 pl-5 text-sm text-on-surface-variant">

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, CheckCircle2, Settings, Save, X, RefreshCw, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, Settings, Save, X, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Badge, Button, Input } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, Badge, Button, Input } from '@ki4jlu/design-system';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { parseDimensionsInput, formatDimensionsValue } from '../../utils/embeddingDimensions';
@@ -180,48 +180,21 @@ export default function AdminConfigsTab({
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.75rem',
-                            padding: '0.75rem 1rem',
-                            marginBottom: '1rem',
-                            borderRadius: '8px',
-                            background: connectionTest.status === 'testing'
-                                ? 'var(--bg-secondary)'
-                                : connectionTest.status === 'healthy'
-                                    ? '#2d8f4e15'
-                                    : '#c0392b15',
-                            border: `1px solid ${connectionTest.status === 'testing'
-                                ? 'var(--border-color)'
-                                : connectionTest.status === 'healthy'
-                                    ? '#2d8f4e'
-                                    : '#c0392b'}`,
-                        }}
+                        className="mb-4"
                     >
-                        {connectionTest.status === 'testing' && (
-                            <RefreshCw size={18} className="spin" style={{ color: 'var(--text-secondary)' }} />
-                        )}
-                        {connectionTest.status === 'healthy' && (
-                            <CheckCircle2 size={18} style={{ color: '#2d8f4e' }} />
-                        )}
-                        {connectionTest.status === 'unhealthy' && (
-                            <AlertCircle size={18} style={{ color: '#c0392b' }} />
-                        )}
-                        <span style={{ flex: 1, fontSize: '0.9rem' }}>
-                            {connectionTest.status === 'testing' && t('connectionTesting')}
-                            {connectionTest.status === 'healthy' && `${t('connectionSuccess')} (${connectionTest.latencyMs}ms)`}
-                            {connectionTest.status === 'unhealthy' && (connectionTest.error || t('connectionFailed'))}
-                        </span>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setConnectionTest(null)}
-                            aria-label={t('closeBanner')}
+                        <Alert
+                            tone={connectionTest.status === 'testing' ? 'neutral' : connectionTest.status === 'healthy' ? 'success' : 'error'}
+                            live="polite"
+                            icon={connectionTest.status === 'testing' ? <RefreshCw className="spin" aria-hidden="true" /> : undefined}
+                            onDismiss={() => setConnectionTest(null)}
+                            dismissLabel={t('closeBanner')}
                         >
-                            <X size={16} />
-                        </Button>
+                            <AlertDescription>
+                                {connectionTest.status === 'testing' && t('connectionTesting')}
+                                {connectionTest.status === 'healthy' && `${t('connectionSuccess')} (${connectionTest.latencyMs}ms)`}
+                                {connectionTest.status === 'unhealthy' && (connectionTest.error || t('connectionFailed'))}
+                            </AlertDescription>
+                        </Alert>
                     </motion.div>
                 )}
             </AnimatePresence>

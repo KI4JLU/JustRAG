@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WorkflowLane, WorkflowPreset } from '../../../types';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { fetchPresets, previewPreset, applyPreset } from './api';
 import './PresetPicker.css';
 
@@ -271,9 +272,9 @@ export function PresetPicker({
   return (
     <div className="wf-presets" ref={rootRef} tabIndex={-1}>
       {listError ? (
-        <p className="wf-presets__error" role="alert">
-          Vorlagen konnten nicht geladen werden ({listError}).
-        </p>
+        <Alert tone="error" live="assertive">
+          <AlertDescription>Vorlagen konnten nicht geladen werden ({listError}).</AlertDescription>
+        </Alert>
       ) : (
         <>
           <ul className="wf-presets__list" aria-label="Vorlagen">

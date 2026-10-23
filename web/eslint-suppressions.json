@@ -41,7 +41,7 @@
   },
   "src/components/ApiKeys/ApiKeyManager.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 6
+      "count": 5
     }
   },
   "src/components/Button.tsx": {
@@ -197,11 +197,6 @@
   "src/components/Studio/WorkspacePromptDialog.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
-    }
-  },
-  "src/components/ToastContainer.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/TrajectoryPanel.tsx": {

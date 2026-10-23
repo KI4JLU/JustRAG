@@ -1,27 +1,20 @@
 import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCircle, XCircle, Info, AlertTriangle, X } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { useToastContext, type Toast } from '../contexts/ToastContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import './Toast.css';
 
-const ICONS = {
-  success: CheckCircle,
-  error: XCircle,
-  info: Info,
-  warning: AlertTriangle,
-} as const;
-
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const reducedMotion = useReducedMotion();
+  const { t } = useTheme();
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     timerRef.current = setTimeout(onDismiss, toast.duration);
     return () => clearTimeout(timerRef.current);
   }, [toast.duration, onDismiss]);
-
-  const Icon = ICONS[toast.type];
 
   return (
     <motion.div
@@ -31,15 +24,19 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 80 }}
       transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-      className={`toast toast--${toast.type}`}
-      role="status"
-      aria-live="polite"
+      className="toast"
     >
-      <Icon size={18} className={`toast__icon toast__icon--${toast.type}`} aria-hidden="true" />
-      <span className="toast__message">{toast.message}</span>
-      <button className="toast__close" onClick={onDismiss} aria-label="Dismiss">
-        <X size={14} />
-      </button>
+      {/* Same box as every inline message (DS Alert), lifted with the
+       * overlay shadow because it floats over the page. */}
+      <Alert
+        tone={toast.type}
+        live="polite"
+        onDismiss={onDismiss}
+        dismissLabel={t('close')}
+        className="shadow-overlay"
+      >
+        <AlertDescription>{toast.message}</AlertDescription>
+      </Alert>
     </motion.div>
   );
 }

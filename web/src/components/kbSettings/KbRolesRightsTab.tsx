@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type React from 'react';
 import { Check, Crown, Eye, Info, Lock, Pencil, Shield, UserPlus } from 'lucide-react';
 import {
-    Button, Checkbox, HoverCard, HoverCardContent, HoverCardTrigger, Notice, PanelSection, SegmentedControl, SettingsRow, Switch,
+    Button, Checkbox, HoverCard, HoverCardContent, HoverCardTrigger, Alert, AlertDescription, PanelSection, SegmentedControl, SettingsRow, Switch,
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -77,13 +77,15 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
 
     const [before, middle, after] = splitTemplate(t('rrAlwaysAll'));
     const alwaysAllHint = (
-        <Notice icon={<Lock />}>
-            <p className="m-0">
-                {before}<strong>{roleLabel('owner')}</strong>
-                {middle}<strong>{roleLabel('admin')}</strong>
-                {after}
-            </p>
-        </Notice>
+        <Alert icon={<Lock />}>
+            <AlertDescription>
+                <p>
+                    {before}<strong>{roleLabel('owner')}</strong>
+                    {middle}<strong>{roleLabel('admin')}</strong>
+                    {after}
+                </p>
+            </AlertDescription>
+        </Alert>
     );
 
     return (

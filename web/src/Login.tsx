@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
 
 import { useTheme } from './contexts/ThemeContext';
@@ -244,28 +244,19 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
             >
                 <Stack gap="md">
                     {error && (
-                        /* Form-level failure. There is no Alert component in
-                         * the design system, so this stays a plain <div> —
-                         * but its colours now come from the semantic tokens
-                         * the old inline style was bridging to
-                         * (--error-bg -> bg-error-container, --error-text ->
-                         * text-error/border-error), which also removes the
-                         * hardcoded `#fee2e2` fallback.
+                        /* Form-level failure, announced once on insertion
+                         * (`live="assertive"` renders role="alert").
                          *
                          * `id="login-error"` is gone with the two
                          * `aria-describedby` references that used to point at
                          * it: FieldRow's props type forbids `aria-describedby`
                          * and `aria-invalid` at a call site, because
                          * FormControl derives both from the row's own `error`.
-                         * `role="alert"` already announces this message once;
-                         * the old wiring additionally marked BOTH credential
+                         * The old wiring additionally marked BOTH credential
                          * fields invalid for a failure that names neither. */
-                        <div
-                            role="alert"
-                            className="rounded-lg border border-error bg-error-container px-4 py-3 text-center text-sm text-on-error-container"
-                        >
-                            {error}
-                        </div>
+                        <Alert tone="error" live="assertive">
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
                     )}
 
                     {hasPendingJoin && (

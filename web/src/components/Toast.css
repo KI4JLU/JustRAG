@@ -51,62 +51,10 @@
   width: calc(100vw - 48px);
 }
 
-/* Individual toast */
+/* Individual toast: the box itself is the DS Alert (ToastContainer.tsx);
+ * the wrapper only takes the clicks back from the click-through container. */
 .toast {
   pointer-events: auto;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  box-shadow: var(--shadow-lg);
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: var(--text-primary);
-}
-
-/* Left accent border per variant */
-.toast--success { border-left: 3px solid var(--success-text); }
-.toast--error   { border-left: 3px solid var(--error-text); }
-.toast--info    { border-left: 3px solid var(--accent-primary); }
-.toast--warning { border-left: 3px solid #e67e22; }
-
-/* Icon colors */
-.toast__icon--success { color: var(--success-text); }
-.toast__icon--error   { color: var(--error-text); }
-.toast__icon--info    { color: var(--accent-primary); }
-.toast__icon--warning { color: #e67e22; }
-
-.toast__icon {
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.toast__message {
-  flex: 1;
-  word-break: break-word;
-}
-
-.toast__close {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-secondary);
-  padding: 2px;
-  border-radius: var(--shape-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s, background 0.15s;
-  margin-top: -2px;
-}
-
-.toast__close:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
 }
 
 /* Mobile: full-width, and deliberately still BOTTOM-anchored.
