@@ -6,11 +6,9 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/prompts"
-	"github.com/justrag/go-backend/internal/splitter"
 )
 
 // ---------------------------------------------------------------------------
@@ -265,28 +263,19 @@ func GenerateMultiQueriesWithModel(ctx context.Context, resolver *ConfigResolver
 	return queries, nil
 }
 
-// contextualPrefixDocBudget is the cl100k_base token budget for the document
-// portion of the Contextual Retrieval prompt. The document is the cacheable
-// prefix shared across every chunk-context call for one file, so it pays to
-// include as much as the model can comfortably handle while keeping the
-// per-call cost bounded.
-const contextualPrefixDocBudget = 8000
-
 // GenerateChunkContext returns an Anthropic-style 1-sentence context line
-// situating chunk inside its source document. The full document is sent
-// each call (truncated to ~8k cl100k_base tokens) so the model has the
-// global picture; the chunk goes at the end of the user message so that
-// OpenAI-compatible automatic prompt caching (OpenAI ≥1024-tok prefix,
-// DeepSeek auto, vLLM prefix caching, …) can re-use the document prefix
-// across all chunks of one file — the ~90 % cost reduction Anthropic's
-// cookbook quotes.
+// situating chunk inside its source document. The document is sent each
+// call (cut once per file to ~8k cl100k_base tokens, see ContextDoc) so the
+// model has the global picture; the chunk goes at the end of the user
+// message so that OpenAI-compatible automatic prompt caching (OpenAI
+// ≥1024-tok prefix, DeepSeek auto, vLLM prefix caching, …) can re-use the
+// document prefix across all chunks of one file — the ~90 % cost reduction
+// Anthropic's cookbook quotes.
 //
 // modelOverride picks a non-default chat model; empty string uses the
 // resolver's configured ChatModel.
-func GenerateChunkContext(ctx context.Context, resolver *ConfigResolver, fileName, document, chunk, kbID, modelOverride string) (string, error) {
-	truncatedDoc := truncateToTokens(document, contextualPrefixDocBudget)
-
-	userPrompt := prompts.ContextualPrefixUser(fileName, truncatedDoc, chunk)
+func GenerateChunkContext(ctx context.Context, resolver *ConfigResolver, fileName string, doc ContextDoc, chunk, kbID, modelOverride string) (string, error) {
+	userPrompt := prompts.ContextualPrefixUser(fileName, doc.Text(), chunk)
 	result, err := GenerateCompletionWithModel(ctx, resolver, userPrompt, prompts.ContextualPrefixSystem(), kbID, false, modelOverride)
 	if err != nil {
 		return "", err
@@ -303,45 +292,4 @@ func GenerateChunkContext(ctx context.Context, resolver *ConfigResolver, fileNam
 	}
 
 	return strings.TrimSpace(result.Content), nil
-}
-
-// truncateToTokens trims s so its cl100k_base token count does not exceed
-// budget. Falls back to a character estimate if the tokenizer is
-// unavailable. Head-only truncation (Anthropic cookbook strategy) — most
-// documents have their highest-signal context (titles, ToC, opening
-// paragraphs) at the start.
-func truncateToTokens(s string, budget int) string {
-	if budget <= 0 || s == "" {
-		return s
-	}
-	if splitter.CountTokens(s) <= budget {
-		return s
-	}
-	// Binary-search a byte cut-off (snapped to a UTF-8 rune boundary).
-	// Probing in the byte domain keeps each `s[:mid]` slice header-only —
-	// it shares the original string's backing array, avoiding the
-	// `[]rune(s)` materialization (≈4× the byte length on ASCII) and the
-	// `string(runes[:mid])` copy per probe that the previous rune-domain
-	// search incurred. For per-chunk contextual enrichment on a long
-	// document, that's GBs of short-lived heap saved per file.
-	lo, hi := 0, len(s)
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		// Snap mid down to a valid rune start. If mid lands inside a
-		// multi-byte rune, walk back until we hit a rune boundary so we
-		// never hand CountTokens an invalid UTF-8 string.
-		for mid > 0 && mid < len(s) && !utf8.RuneStart(s[mid]) {
-			mid--
-		}
-		if splitter.CountTokens(s[:mid]) <= budget {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	// Final boundary snap in case lo landed mid-rune via the hi=mid-1 path.
-	for lo > 0 && lo < len(s) && !utf8.RuneStart(s[lo]) {
-		lo--
-	}
-	return s[:lo]
 }

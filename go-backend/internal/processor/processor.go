@@ -1195,12 +1195,12 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 		sem := make(chan struct{}, maxEnrichConcurrency)
 
 		// Anthropic-style Contextual Retrieval: every per-chunk LLM call
-		// receives the FULL document as the cacheable prefix (truncated
-		// inside ai.GenerateChunkContext to ~8k cl100k_base tokens). With
-		// OpenAI-compatible automatic prompt caching the document prefix
-		// is paid for once per file; subsequent chunks read it from the
-		// cache. Hence no per-chunk surrounding-context construction here.
-		document := result.Text
+		// receives the document as the cacheable prefix, cut once here to
+		// ~8k cl100k_base tokens (ai.NewContextDoc). With OpenAI-compatible
+		// automatic prompt caching the document prefix is paid for once per
+		// file; subsequent chunks read it from the cache. Hence no per-chunk
+		// surrounding-context construction here.
+		doc := ai.NewContextDoc(result.Text)
 
 		// producerErr surfaces a panic in the spawn loop as a normal error
 		// instead of crashing the worker. The defer order below is critical
@@ -1272,7 +1272,7 @@ func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcom
 					defer safego.RecoverError(&subErr)
 
 					prefix := ""
-					contextStr, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, document, chunkText, kbID, enrichmentModel)
+					contextStr, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, doc, chunkText, kbID, enrichmentModel)
 					if err != nil {
 						markIngestDegraded(ctx)
 						logctx.From(ctx).Warn("processor: chunk enrichment failed, indexing original text only",
@@ -1844,12 +1844,14 @@ func (p *Processor) runHyPEGenerationStage(ctx context.Context, fileID, kbID, fi
 	model := resolveHyPEModel(ctx, p.siteConfigReader)
 	maxQ := chat.HyPEQuestionsPerChunk(ctx, p.siteConfigReader)
 
+	doc := ai.NewContextDoc(document)
+
 	totalQuestions := 0
 	for _, c := range chunks {
 		if ctx.Err() != nil {
 			break
 		}
-		questions, err := ai.GenerateHypotheticalQuestions(ctx, p.aiResolver, fileName, document, c.Content, kbID, maxQ, lang, model)
+		questions, err := ai.GenerateHypotheticalQuestions(ctx, p.aiResolver, fileName, doc, c.Content, kbID, maxQ, lang, model)
 		if err != nil {
 			markIngestDegraded(ctx)
 			logctx.From(ctx).Warn("hype: question generation failed; skipping chunk",
@@ -1944,12 +1946,12 @@ func (p *Processor) runParentChildIngest(
 			}
 			docB.WriteString(g.ParentText)
 		}
-		document := docB.String()
+		doc := ai.NewContextDoc(docB.String())
 		for i, g := range groups {
 			if ctx.Err() != nil {
 				return fmt.Errorf("processor: ctx cancelled during parent enrichment: %w", ctx.Err())
 			}
-			prefix, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, document, g.ParentText, kbID, enrichmentModel)
+			prefix, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, doc, g.ParentText, kbID, enrichmentModel)
 			if err != nil {
 				markIngestDegraded(ctx)
 				logctx.From(ctx).Warn("processor: parent enrichment failed, leaving prefix empty",
@@ -2215,7 +2217,7 @@ func (p *Processor) runLateChunkedIngest(
 	maxEnrichConcurrency := resolveEnrichConcurrency(ctx, p.siteConfigReader)
 	prefixes := make([]string, totalChunks)
 	if enrichmentEnabled {
-		document := fullText
+		doc := ai.NewContextDoc(fullText)
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, maxEnrichConcurrency)
 		for i, text := range chunks {
@@ -2245,7 +2247,7 @@ func (p *Processor) runLateChunkedIngest(
 							"panic", r)
 					}
 				}()
-				ctxStr, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, document, chunkText, kbID, enrichmentModel)
+				ctxStr, err := ai.GenerateChunkContext(ctx, p.aiResolver, fileName, doc, chunkText, kbID, enrichmentModel)
 				if err != nil {
 					markIngestDegraded(ctx)
 					logctx.From(ctx).Warn("processor: chunk enrichment failed (late-chunking path)",

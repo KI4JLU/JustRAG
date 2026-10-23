@@ -255,7 +255,7 @@ func TestGenerateHypotheticalQuestions_SendsStructuredOutputContract(t *testing.
 	resolver, captured := captureStructuredRequest(t, `["What is X?","Who owns Y?"]`)
 
 	questions, err := GenerateHypotheticalQuestions(context.Background(), resolver,
-		"doc.pdf", "document body", "chunk", "", 3, "en", "")
+		"doc.pdf", NewContextDoc("document body"), "chunk", "", 3, "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
