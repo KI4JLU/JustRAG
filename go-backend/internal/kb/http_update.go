@@ -86,22 +86,26 @@ func (u *KBUpdate) UnmarshalJSON(data []byte) error {
 
 // FileRow is the shape returned to API consumers for a file belonging to a KB.
 type FileRow struct {
-	ID                 string    `json:"id"                 db:"id"`
-	Name               string    `json:"name"               db:"name"`
-	Type               string    `json:"type"               db:"type"`
-	Size               *int      `json:"size"               db:"size"`
-	Status             string    `json:"status"             db:"status"`
-	Progress           int       `json:"progress"           db:"progress"`
-	Origin             string    `json:"origin"             db:"origin"`
-	ErrorStage         *string   `json:"errorStage,omitempty"   db:"error_stage"`
-	ErrorMessage       *string   `json:"errorMessage,omitempty" db:"error_message"`
-	CurrentStage       *string   `json:"currentStage,omitempty" db:"current_stage"`
-	StageIndex         *int      `json:"stageIndex,omitempty"   db:"stage_index"`
-	StageTotal         *int      `json:"stageTotal,omitempty"   db:"stage_total"`
-	StageDetail        *string   `json:"stageDetail,omitempty"  db:"stage_detail"`
-	RSSFeedID          *string   `json:"rssFeedId"          db:"rss_feed_id"`
-	ConfluenceSourceID *string   `json:"confluenceSourceId" db:"confluence_source_id"`
-	CreatedAt          time.Time `json:"createdAt"           db:"created_at"`
+	ID                 string  `json:"id"                 db:"id"`
+	Name               string  `json:"name"               db:"name"`
+	Type               string  `json:"type"               db:"type"`
+	Size               *int    `json:"size"               db:"size"`
+	Status             string  `json:"status"             db:"status"`
+	Progress           int     `json:"progress"           db:"progress"`
+	Origin             string  `json:"origin"             db:"origin"`
+	ErrorStage         *string `json:"errorStage,omitempty"   db:"error_stage"`
+	ErrorMessage       *string `json:"errorMessage,omitempty" db:"error_message"`
+	CurrentStage       *string `json:"currentStage,omitempty" db:"current_stage"`
+	StageIndex         *int    `json:"stageIndex,omitempty"   db:"stage_index"`
+	StageTotal         *int    `json:"stageTotal,omitempty"   db:"stage_total"`
+	StageDetail        *string `json:"stageDetail,omitempty"  db:"stage_detail"`
+	RSSFeedID          *string `json:"rssFeedId"          db:"rss_feed_id"`
+	ConfluenceSourceID *string `json:"confluenceSourceId" db:"confluence_source_id"`
+	// GitRepoSourceID names the git source a git file came from, as
+	// rssFeedId / confluenceSourceId do for theirs: the source list groups a
+	// source's files under its row (and includes or excludes them together).
+	GitRepoSourceID *string   `json:"gitRepoSourceId,omitempty" db:"git_repo_source_id"`
+	CreatedAt       time.Time `json:"createdAt"           db:"created_at"`
 	// InjectionFlag / InjectionDetail carry the ingest-time prompt-injection
 	// screening verdict (migration 0072, W5-R8). The flag is advisory: it
 	// never affected what was ingested, chunked or retrieved, it only tells

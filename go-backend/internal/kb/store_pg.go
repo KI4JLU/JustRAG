@@ -673,6 +673,7 @@ type fileDBRow struct {
 	StageDetail        *string   `db:"stage_detail"`
 	RSSFeedID          *string   `db:"rss_feed_id"`
 	ConfluenceSourceID *string   `db:"confluence_source_id"`
+	GitRepoSourceID    *string   `db:"git_repo_source_id"`
 	CreatedAt          time.Time `db:"created_at"`
 	// Ingest prompt-injection screening verdict (migration 0072). The flag
 	// is NOT NULL DEFAULT false, so false covers both "screened and clean"
@@ -698,7 +699,7 @@ func (s *PGStore) ListFiles(ctx context.Context, kbID string, limit, offset int)
 	const listSQL = `
 		SELECT f.id, f.name, f.type, f.size, f.status, f.progress, f.origin,
 		       f.error_stage, f.error_message, f.current_stage, f.stage_index, f.stage_total, f.stage_detail,
-		       f.rss_feed_id, f.confluence_source_id, f.created_at,
+		       f.rss_feed_id, f.confluence_source_id, f.git_repo_source_id, f.created_at,
 		       f.injection_flag, f.injection_detail,
 		       u.id::text AS uploader_id,
 		       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.username) AS uploader_display_name,
@@ -747,6 +748,7 @@ func (s *PGStore) ListFiles(ctx context.Context, kbID string, limit, offset int)
 			StageDetail:        r.StageDetail,
 			RSSFeedID:          r.RSSFeedID,
 			ConfluenceSourceID: r.ConfluenceSourceID,
+			GitRepoSourceID:    r.GitRepoSourceID,
 			CreatedAt:          r.CreatedAt,
 			InjectionFlag:      r.InjectionFlag,
 			InjectionDetail:    r.InjectionDetail,
