@@ -633,6 +633,60 @@ func (h *Handler) RenameChat(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type branchChatRequest struct {
+	MessageID string `json:"messageId"`
+}
+
+// BranchChat handles POST /api/chats/{id}/branch: copies the conversation up
+// to messageId into a new chat of the caller and returns it (201) with
+// copiedMessageId, the copy of messageId. Every way of taking a conversation
+// elsewhere opens one: "Verzweigen" on an answer branches at that answer,
+// "Antwort neu generieren" at its question (then answers it in the branch),
+// editing a question at the turn before it (then sends the edit there) — an
+// omitted messageId for the first question, an empty branch. 404 for a chat
+// that is not the caller's, an unknown id, or a message outside the chat —
+// one answer for all, so the route does not tell which chats exist.
+func (h *Handler) BranchChat(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	parsed, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+	chatID := parsed.String()
+
+	var body branchChatRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	messageID := ""
+	if body.MessageID != "" {
+		msg, err := uuid.Parse(body.MessageID)
+		if err != nil {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "messageId must be a message id")
+			return
+		}
+		messageID = msg.String()
+	}
+
+	row, err := h.store.BranchChat(r.Context(), chatID, messageID, user.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+			return
+		}
+		logctx.From(r.Context()).Error("chat.branch", "error", err, "chat_id", chatID, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to branch chat")
+		return
+	}
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusCreated, row)
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/kb/{id}/chats/{chatId}/messages/{messageId}/feedback
 // ---------------------------------------------------------------------------
