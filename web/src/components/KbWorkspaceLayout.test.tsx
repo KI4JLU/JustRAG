@@ -49,7 +49,6 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => {
 vi.mock('./sources/SourcesPanel', () => ({ SourcesPanel: () => <div data-testid="sources-panel" /> }));
 vi.mock('./history/HistoryPanel', () => ({ HistoryPanel: () => <div data-testid="history-panel" /> }));
 vi.mock('./ChatView', () => ({ ChatView: () => <div data-testid="chat-view" /> }));
-vi.mock('./KbHeaderTitle', () => ({ KbHeaderTitle: () => <span data-testid="kb-header-title" /> }));
 // The search reads four contexts of its own; its behaviour is
 // App.authenticated-workspace-search.test.tsx's subject, not this file's.
 vi.mock('./WorkspaceSearch', () => ({ WorkspaceSearch: () => <div data-testid="workspace-search" /> }));
@@ -187,10 +186,12 @@ describe('KbWorkspaceLayout Reiter-Ableitung', () => {
 });
 
 describe('KbWorkspaceLayout Chrome-Leiste', () => {
-  it('trägt Zurück-Knopf und KB-Namen, und keinen der abgelösten Kopfleisten-Knöpfe', () => {
+  it('trägt nur den Zurück-Knopf — keinen KB-Namen, keinen der abgelösten Kopfleisten-Knöpfe', () => {
     renderLayout();
-    render(<div>{shellProps.pageLabel}</div>);
-    expect(screen.getByTestId('kb-header-title')).toBeInTheDocument();
+    render(<div data-testid="page-label">{shellProps.pageLabel}</div>);
+    // Der KB-Name steht seit dem Redesign nicht mehr in der Leiste.
+    expect(screen.getByTestId('page-label')).not.toHaveTextContent('TEST');
+    expect(within(screen.getByTestId('page-label')).getAllByRole('button')).toHaveLength(1);
     const back = screen.getByRole('button', { name: 'backToOverview' });
     expect(back).toBeInTheDocument();
     // Der alte Reiter-Block (Chat / Bericht / Mindmap / Workspace) und die
@@ -217,10 +218,9 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
     expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'kbSettingsTitle' })]);
     expect(within(actions).queryByTestId('workspace-search')).toBeNull();
-    // Back + title stayed in `pageLabel`.
+    // Back stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
     expect(screen.getByRole('button', { name: 'backToOverview' })).toBeInTheDocument();
-    expect(screen.getByTestId('kb-header-title')).toBeInTheDocument();
   });
 
   it('zeigt dem Eigentümer das System-Prompt-Zahnrad und schaltet damit den Editor', async () => {
@@ -297,5 +297,18 @@ describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
   it('keeps the column for a backend without capabilities', () => {
     renderLayout();
     expect(shellProps.rightPanel).toBeDefined();
+  });
+
+  // Oracle: translations keys — the column's title sits in its header row
+  // (beside the collapse toggle) and names what the column offers: adding
+  // sources for a caller with addSources, the plain source list otherwise.
+  it.each([
+    [true, 'addSources'],
+    [false, 'sources'],
+  ])('titles the column header for addSources=%s with %s', (addSources, title) => {
+    kbExtra = { capabilities: { ...caps(true), addSources } };
+    renderLayout();
+    render(<div>{shellProps.rightPanel?.header}</div>);
+    expect(screen.getByRole('heading', { level: 2, name: title })).toBeInTheDocument();
   });
 });

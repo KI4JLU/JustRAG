@@ -19,6 +19,8 @@ interface SourcePanelProps {
     onClose: () => void;
     /** Moves to another cited passage (an index into target.source.passages). */
     onPassage: (passage: number) => void;
+    /** Shows another target — the ↑ / ↓ step to the previous / next chip of the answer. */
+    onNavigate: (target: SourcePanelTarget) => void;
     /** The file's origin (`files.origin`: confluence, rss, upload, …), when the source list is visible. */
     fileOrigin?: string;
     /** Opens the document preview modal (needs downloadSources). */
@@ -70,7 +72,7 @@ function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined,
  * light, with "1 von N" to step through them. ⤢ opens the full document
  * preview.
  */
-export function SourcePanel({ target, onClose, onPassage, fileOrigin, onPdfOpen, onPreviewSource, canDownload, fullScreen = false }: SourcePanelProps) {
+export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, onPdfOpen, onPreviewSource, canDownload, fullScreen = false }: SourcePanelProps) {
     const { t } = useTheme();
     const { source, passage, spans, citing, focus } = target;
     const originUrl = useOriginUrl(target, fileOrigin, canDownload);
@@ -80,8 +82,22 @@ export function SourcePanel({ target, onClose, onPassage, fileOrigin, onPdfOpen,
         .map((p, i) => ({ i, page: p.pages?.[0] ?? Number.MAX_SAFE_INTEGER }))
         .sort((a, b) => a.page - b.page || a.i - b.i)
         .map(x => x.i), [source]);
-    const position = Math.max(0, order.indexOf(passage));
     const total = order.length;
+
+    // ↑ / ↓ walk the answer's inline chips in reading order, across sources:
+    // the panel follows to that chip's source and passage, and the answer
+    // marks that chip's sentence. Opened from the source list (no chip), the
+    // walk starts at this source's first chip.
+    const markers = target.markers ?? [];
+    const markerIndex = target.occ != null
+        ? markers.findIndex(m => m.occ === target.occ)
+        : markers.findIndex(m => m.n === source.n);
+    const stepTo = (i: number) => {
+        const m = markers[i];
+        const cited = m && target.model?.cited[m.n - 1];
+        if (!m || !cited) return;
+        onNavigate({ ...target, source: cited, passage: Math.max(0, cited.rawNumbers.indexOf(m.raw)), occ: m.occ, focus: undefined });
+    };
 
     const refs = useRef<Map<number, HTMLElement>>(new Map());
     // Scroll to the first highlight of the active passage (the passage itself
@@ -140,15 +156,15 @@ export function SourcePanel({ target, onClose, onPassage, fileOrigin, onPdfOpen,
                 <span className="min-w-0 flex-1 truncate">
                     {total === 1 ? t('sourcePanelPassagesOne') : fillTemplate(t('sourcePanelPassages'), { count: total })}
                 </span>
-                {total > 1 && (
+                {markers.length > 1 && markerIndex >= 0 && (
                     <>
                         <span className="shrink-0 tabular-nums text-on-surface" aria-live="polite">
-                            {fillTemplate(t('sourcePanelPosition'), { current: position + 1, total })}
+                            {fillTemplate(t('sourcePanelMarker'), { current: markerIndex + 1, total: markers.length })}
                         </span>
-                        <Button type="button" variant="outline" size="icon" aria-label={t('sourcePanelPrevious')} disabled={position === 0} onClick={() => onPassage(order[position - 1])}>
+                        <Button type="button" variant="outline" size="icon" aria-label={t('sourcePanelPreviousMarker')} disabled={markerIndex === 0} onClick={() => stepTo(markerIndex - 1)}>
                             <ChevronUp className="size-4" aria-hidden="true" />
                         </Button>
-                        <Button type="button" variant="outline" size="icon" aria-label={t('sourcePanelNext')} disabled={position >= total - 1} onClick={() => onPassage(order[position + 1])}>
+                        <Button type="button" variant="outline" size="icon" aria-label={t('sourcePanelNextMarker')} disabled={markerIndex >= markers.length - 1} onClick={() => stepTo(markerIndex + 1)}>
                             <ChevronDown className="size-4" aria-hidden="true" />
                         </Button>
                     </>

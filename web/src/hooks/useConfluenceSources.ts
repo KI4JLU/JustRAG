@@ -3,7 +3,6 @@ import axios from 'axios';
 import type { KnowledgeBase, ConfluenceSource, ConfluenceConnectionInfo, ConfluenceSpace, ConfluencePage, ConfluencePageWithPath, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
-import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { getApiErrorMessage, isForbidden } from '../utils/apiError';
 import { unlistableKbId } from '../utils/kbAccess';
@@ -17,7 +16,6 @@ const POLL_INTERVAL_MS = 3000;
 
 export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSourcesParams) {
     const { t } = useTheme();
-    const { showConfirm } = useModalContext();
     const toast = useToast();
     const [confluenceSources, setConfluenceSources] = useState<ConfluenceSource[]>([]);
     const [confluenceConnection, setConfluenceConnection] = useState<ConfluenceConnectionInfo | null>(null);
@@ -160,22 +158,23 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
         }
     }, [currentKb, fetchSources, t, toast]);
 
-    const deleteSource = useCallback(async (sourceId: string) => {
-        if (!currentKb) return;
-        const confirmed = await showConfirm(t('deleteConfluenceSource'), t('deleteConfluenceSourceConfirm'));
-        if (!confirmed) return;
-
-        pendingSourceIdsRef.current.delete(sourceId);
-        setConfluenceSources(prev => prev.filter(s => s.id !== sourceId));
-        try {
-            await axios.delete(`${API_BASE_URL}/api/kb/${currentKb.id}/confluence-sources/${sourceId}`);
-            toast.success(t('confluenceSourceDeleted'));
-            await fetchFiles(currentKb.id);
-        } catch (err: unknown) {
+    /** Deletes the given Confluence sources with their pages. No confirmation
+     *  of its own: the source list's remove selection asks once for everything ticked. */
+    const deleteSources = useCallback(async (sourceIds: string[]) => {
+        if (!currentKb || sourceIds.length === 0) return;
+        const ids = new Set(sourceIds);
+        for (const id of sourceIds) pendingSourceIdsRef.current.delete(id);
+        setConfluenceSources(prev => prev.filter(s => !ids.has(s.id)));
+        const results = await Promise.allSettled(sourceIds.map(id => axios.delete(`${API_BASE_URL}/api/kb/${currentKb.id}/confluence-sources/${id}`)));
+        const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (failure) {
             await fetchSources();
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(getApiErrorMessage(failure.reason, t('error')));
+        } else {
+            toast.success(t('confluenceSourceDeleted'));
         }
-    }, [currentKb, fetchFiles, fetchSources, showConfirm, t, toast]);
+        await fetchFiles(currentKb.id);
+    }, [currentKb, fetchFiles, fetchSources, t, toast]);
 
     const syncNow = useCallback(async (sourceId: string) => {
         if (!currentKb) return;
@@ -234,7 +233,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
         fetchSources,
         addSource,
         updateSource,
-        deleteSource,
+        deleteSources,
         syncNow,
         fetchSpaces,
         fetchSpacePages,

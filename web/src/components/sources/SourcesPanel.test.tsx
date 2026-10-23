@@ -22,7 +22,11 @@ vi.mock('../../contexts/ModalContext', () => ({ useModalContext: () => ({ showCo
 const handleToggleFilesSelection = vi.fn();
 const deleteFiles = vi.fn(async () => undefined);
 const deleteRssFeeds = vi.fn(async () => undefined);
+const deleteConfluenceSources = vi.fn(async () => undefined);
+const deleteGitRepoSources = vi.fn(async () => undefined);
 let rssFeeds: Array<Record<string, unknown>> = [];
+let confluenceSources: Array<Record<string, unknown>> = [];
+let gitRepoSources: Array<Record<string, unknown>> = [];
 // The caller's role on the open KB, and the backend's resolved capabilities
 // (undefined = an older backend); the real kbSourceRights decides from them.
 let myRole: string | undefined = 'edit';
@@ -37,7 +41,7 @@ vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: { files, filesLoaded: true, retryAllFailed: vi.fn(), fileInputRef: { current: null }, showUploadModal: false, setShowUploadModal: vi.fn(), handleToggleFilesSelection, deleteFiles },
     webTools: { setToolTab: vi.fn(), searchResults: [], crawlResults: [], sourcesAddedCount: 0, setShowWebWorkspace: vi.fn() },
-    rssFeeds, deleteRssFeeds, confluenceSources: [], gitRepoSources: [],
+    rssFeeds, deleteRssFeeds, confluenceSources, deleteConfluenceSources, gitRepoSources, deleteGitRepoSources,
   }),
 }));
 
@@ -64,20 +68,22 @@ describe('SourcesPanel', () => {
   describe('edit controls follow the role', () => {
     beforeEach(() => { myRole = 'edit'; capabilities = undefined; isGlobal = false; files = [{ id: 'f1', name: 'a.pdf', status: 'error', origin: 'upload' }]; });
 
-    it('an editor gets the add-sources grid, the add title and retry-all', () => {
+    // The column's title („Quellen hinzufügen" / „Quellen") is no longer the
+    // panel's: it sits in the column header row KbWorkspaceLayout hands the
+    // shell (KbWorkspaceLayout.test) — the panel brings none of its own.
+    it('an editor gets the add-sources grid and retry-all, without a title of its own', () => {
       render(<SourcesPanel />);
       expect(screen.getByTestId('sources-grid')).toBeInTheDocument();
-      expect(screen.getByText('addSources')).toBeInTheDocument();
+      expect(screen.queryByText('addSources')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /retryAllFailedShort/ })).toBeInTheDocument();
       expect(sectionProps.canManage).toBe(true);
     });
 
-    it('a viewer gets the list only: no grid, no retry-all, the plain title', () => {
+    it('a viewer gets the list only: no grid, no retry-all', () => {
       myRole = 'view';
       render(<SourcesPanel />);
       expect(screen.queryByTestId('sources-grid')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /retryAllFailedShort/ })).not.toBeInTheDocument();
-      expect(screen.getByText('sources')).toBeInTheDocument();
       expect(screen.getByTestId('sources-section')).toBeInTheDocument();
       expect(sectionProps.canManage).toBe(false);
     });
@@ -97,22 +103,20 @@ describe('SourcesPanel', () => {
   describe('add and manage follow the two capabilities independently', () => {
     beforeEach(() => { isGlobal = false; files = [{ id: 'f1', name: 'a.pdf', status: 'error', origin: 'upload' }]; });
 
-    it('a viewer with addSources gets the add grid and title, but no delete/retry', () => {
+    it('a viewer with addSources gets the add grid, but no delete/retry', () => {
       myRole = 'view';
       capabilities = { seeSources: true, addSources: true, downloadSources: false, seeCitations: false, manageSources: false };
       render(<SourcesPanel />);
       expect(screen.getByTestId('sources-grid')).toBeInTheDocument();
-      expect(screen.getByText('addSources')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /retryAllFailedShort/ })).not.toBeInTheDocument();
       expect(sectionProps.canManage).toBe(false);
     });
 
-    it('an editor without addSources gets delete/retry, but no add grid and the plain title', () => {
+    it('an editor without addSources gets delete/retry, but no add grid', () => {
       myRole = 'edit';
       capabilities = { seeSources: true, addSources: false, downloadSources: true, seeCitations: true, manageSources: true };
       render(<SourcesPanel />);
       expect(screen.queryByTestId('sources-grid')).not.toBeInTheDocument();
-      expect(screen.getByText('sources')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /retryAllFailedShort/ })).toBeInTheDocument();
       expect(sectionProps.canManage).toBe(true);
     });
@@ -138,7 +142,6 @@ describe('SourcesPanel', () => {
       capabilities = { seeSources: true, addSources: true, downloadSources: true, seeCitations: true, manageSources: true };
       render(<SourcesPanel />);
       expect(screen.getByTestId('sources-grid')).toBeInTheDocument();
-      expect(screen.getByText('addSources')).toBeInTheDocument();
     });
 
     it('offers no add grid without addSources', () => {
@@ -178,7 +181,9 @@ describe('SourcesPanel modes', () => {
       { id: 'c1', name: 'page', status: 'completed', origin: 'confluence', selected: false },
     ];
     rssFeeds = [{ id: 'feed-1', title: 'Feed', url: 'https://x/feed' }];
+    confluenceSources = []; gitRepoSources = [];
     handleToggleFilesSelection.mockClear(); deleteFiles.mockClear(); deleteRssFeeds.mockClear(); showConfirm.mockClear();
+    deleteConfluenceSources.mockClear(); deleteGitRepoSources.mockClear();
   });
 
   it('both are off by default: no bar, and the list gets no selection', () => {
@@ -211,7 +216,7 @@ describe('SourcesPanel modes', () => {
       expect(handleToggleFilesSelection).not.toHaveBeenCalled();
     });
 
-    it('Confirm makes the ticked rows the chat filter; Confluence/git files stay as they were', async () => {
+    it('Confirm makes the ticked rows the chat filter; files of a source the list does not know stay as they were', async () => {
       render(<SourcesPanel />);
       startFilter();
       tick('file:f2', true);
@@ -242,7 +247,7 @@ describe('SourcesPanel modes', () => {
       expect(screen.getByRole('button', { name: 'confirmSourceSelection' })).toBeDisabled();
     });
 
-    it('can confirm while files the mode leaves alone (Confluence) stay selected', () => {
+    it('can confirm while files the mode leaves alone (a Confluence file without its space) stay selected', () => {
       files = files.map(f => f.id === 'c1' ? { ...f, selected: true } : f);
       render(<SourcesPanel />);
       startFilter();
@@ -307,6 +312,46 @@ describe('SourcesPanel modes', () => {
       startRemoval('file:f2');
       tick('file:f2', false);
       expect(screen.getByRole('button', { name: 'removeSelected' })).toBeDisabled();
+    });
+  });
+
+  // Confluence spaces and git repositories are rows of both modes now: a
+  // row stands for the files that carry its id (confluenceSourceId,
+  // gitRepoSourceId), exactly like an RSS feed's.
+  describe('Confluence and git rows', () => {
+    beforeEach(() => {
+      confluenceSources = [{ id: 'conf-1', spaceKey: 'HRZ' }];
+      gitRepoSources = [{ id: 'git-1', repoUrl: 'https://x/repo.git' }];
+      files = [
+        { id: 'f1', name: 'a.pdf', status: 'completed', origin: 'upload', selected: true },
+        { id: 'c1', name: 'page', status: 'completed', origin: 'confluence', confluenceSourceId: 'conf-1', selected: false },
+        { id: 'g1', name: 'README.md', status: 'completed', origin: 'git', gitRepoSourceId: 'git-1', selected: true },
+      ];
+      rssFeeds = [];
+    });
+
+    it('the filter mode opens with the synced rows the chat uses ticked, and Confirm writes their files', async () => {
+      render(<SourcesPanel />);
+      startFilter();
+      expect(keys()).toEqual(['file:f1', 'git:git-1']);
+      tick('confluence:conf-1', true);
+      tick('git:git-1', false);
+      await userEvent.click(screen.getByRole('button', { name: 'confirmSourceSelection' }));
+      expect(handleToggleFilesSelection).toHaveBeenCalledWith(['f1', 'c1'], true);
+      expect(handleToggleFilesSelection).toHaveBeenCalledWith(['g1'], false);
+    });
+
+    it('the remove mode removes the ticked spaces and repositories, after the files', async () => {
+      render(<SourcesPanel />);
+      startRemoval('confluence:conf-1');
+      tick('git:git-1', true);
+      tick('file:f1', true);
+      await userEvent.click(screen.getByRole('button', { name: 'removeSelected' }));
+      expect(showConfirm).toHaveBeenCalledWith(expect.stringContaining('removeSyncedSourcesNote'), 'removeSelected', expect.anything());
+      expect(deleteFiles).toHaveBeenCalledWith(['f1']);
+      expect(deleteConfluenceSources).toHaveBeenCalledWith(['conf-1']);
+      expect(deleteGitRepoSources).toHaveBeenCalledWith(['git-1']);
+      expect(deleteFiles.mock.invocationCallOrder[0]).toBeLessThan(deleteConfluenceSources.mock.invocationCallOrder[0]);
     });
   });
 });

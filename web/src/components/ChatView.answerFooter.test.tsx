@@ -25,7 +25,7 @@ vi.mock('../contexts/ToastContext', () => ({
 }));
 vi.mock('../contexts/MobileContext', () => ({
   // isMobile=true collapses most of ChatView's desktop-only chrome (theme/
-  // language toggles, BranchTreeNav, …) that this test has no reason to
+  // language toggles, …) that this test has no reason to
   // exercise or mock further.
   useIsMobileContext: () => true,
 }));
@@ -88,7 +88,6 @@ vi.mock('../contexts/KbChatContext', () => ({
       setActiveLeafId: vi.fn(),
       editingMessageId: null,
       setEditingMessageId: vi.fn(),
-      forkPointId: null,
       setForkPointId: vi.fn(),
       userMessageInput: '',
       setUserMessageInput: vi.fn(),
@@ -171,12 +170,16 @@ describe('ChatView — message footer', () => {
     for (const footer of footers) expect(footer).toHaveAttribute('data-revealed', 'false');
   });
 
-  it('while the latest answer streams: its sources pill is in its footer, no menu yet', () => {
+  // The source list and the actions wait for the saved answer: while the
+  // latest answer's text streams (temp id), its footer has neither the
+  // sources pill nor a menu — the earlier, saved answer keeps both.
+  it('while the latest answer streams: no sources pill in its footer, no menu yet', () => {
     loading = true;
     messages = [older, question, { ...answer, id: 'temp-ai-1' }];
     render(<ChatView />);
     const footers = screen.getAllByTestId('answer-footer');
-    expect(within(footers[1]).getByRole('button', { name: /answerSourcesToggle · 1/ })).toBeInTheDocument();
+    expect(within(footers[0]).getByRole('button', { name: /answerSourcesToggle · 1/ })).toBeInTheDocument();
+    expect(within(footers[1]).queryByRole('button', { name: /answerSourcesToggle/ })).toBeNull();
     fireEvent.contextMenu(screen.getAllByText(/Der Beitrag beträgt/).at(-1)!);
     expect(screen.queryByRole('menu')).toBeNull();
   });

@@ -7,6 +7,9 @@ import { useKbData } from '../../contexts/KbDataContext';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
 import { SourceHoverPreview } from './SourceHoverPreview';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
+import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
+import { openSourceDetails } from '../../hooks/sourceDetails';
+import { feedExcluded, syncedExcluded } from './sourceSelection';
 import { useKbSourceRights } from '../../hooks/useKbSourceRights';
 
 /** Same filter as the expanded list (SourcesSection): files, not feed/sync items. */
@@ -25,7 +28,14 @@ const NO_FILES: FileEntry[] = [];
  */
 export function SourcesRail() {
     const { t } = useTheme();
-    const { fileMgmt, webTools } = useKbData();
+    const { fileMgmt, webTools, rssFeeds, confluenceSources, gitRepoSources } = useKbData();
+    // The synced sources follow the files, as in the expanded list: a type
+    // chip each, opening the same details dialog.
+    const synced: SourceDetailsTarget[] = [
+        ...rssFeeds.map(source => ({ kind: 'rss' as const, source })),
+        ...confluenceSources.map(source => ({ kind: 'confluence' as const, source })),
+        ...gitRepoSources.map(source => ({ kind: 'git' as const, source })),
+    ];
     // Mounted only with seeSources (KbWorkspaceLayout). The "+" needs
     // addSources; opening and the hover preview need downloadSources (the
     // preview is the downloaded file) — without it an icon is display-only.
@@ -77,6 +87,23 @@ export function SourcesRail() {
                                     {icon}
                                 </SidebarRailItem>
                             )}
+                        </li>
+                    );
+                })}
+                {synced.map(target => {
+                    const name = sourceDetailsTitle(target);
+                    return (
+                        <li key={`${target.kind}-${target.source.id}`}>
+                            <SidebarRailItem
+                                onClick={() => openSourceDetails({ kind: target.kind, id: target.source.id })}
+                                // Greyed out like its row when none of its files is in the chat filter.
+                                muted={target.kind === 'rss'
+                                    ? feedExcluded(target.source.id, fileMgmt.files)
+                                    : syncedExcluded(target.kind, target.source.id, fileMgmt.files)}
+                                iconText={SOURCE_TYPE_CHIP[target.kind]}
+                                aria-label={name}
+                                title={name}
+                            />
                         </li>
                     );
                 })}

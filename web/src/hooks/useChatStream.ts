@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, ComparisonFinding, MessageConflict, MessageAttachment } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
@@ -39,8 +39,13 @@ interface UseChatStreamParams {
 /**
  * Hook for SSE streaming of chat messages.
  *
- * Owns the loading state, abort controller, current AI temp ID ref,
- * and sequential request counter for staleness detection.
+ * Owns the loading state, abort controllers and the sequential request
+ * counter for staleness detection.
+ *
+ * `loading` covers generation only: it ends with the `aiMessageId` frame, when
+ * the answer is saved. The stream then keeps running for the post-response
+ * frames (verification, follow-ups, conflicts), which land on that answer by
+ * id, while the composer is free for the next question.
  */
 export function useChatStream({
   currentKb, files, enhance,
@@ -51,9 +56,16 @@ export function useChatStream({
   t,
 }: UseChatStreamParams) {
   const [loading, setLoading] = useState(false);
+  // The stream that is still generating; a new send or a cancel aborts it.
   const chatAbortRef = useRef<AbortController | null>(null);
-  const currentAiTempIdRef = useRef<string>('');
+  // Streams whose answer is saved and that only wait for post-response
+  // frames. A new send leaves them running; unmount aborts them.
+  const finishingRef = useRef<Set<AbortController>>(new Set());
   const requestIdRef = useRef(0);
+  useEffect(() => {
+    const finishing = finishingRef.current;
+    return () => { finishing.forEach(c => c.abort()); };
+  }, []);
   // Optimistic questions of sends the server refused before storing them.
   // They stay on screen with their error bubble; the next send from below one
   // replaces it (removeSubtree), since the composer got its text back.
@@ -148,15 +160,19 @@ export function useChatStream({
     // The reason shown in the error bubble when the server refused the turn
     // for a cause the user can fix; anything else shows the generic error.
     let refusal: string | null = null;
+    // The tree node this request writes to: the temp id until the
+    // `aiMessageId` frame, the saved id after it. Request-local, so a stream
+    // still finishing writes to its own answer after the next send.
+    let aiNodeId = tempAiMsgId;
+    // True once the answer is saved (the `aiMessageId` frame).
+    let answerSaved = false;
+    // Abort a previous stream that is still generating; one that is only
+    // finishing keeps running.
+    chatAbortRef.current?.abort();
+    const abortController = new AbortController();
+    chatAbortRef.current = abortController;
 
     try {
-      // Abort any previous in-flight SSE request BEFORE updating the shared ref,
-      // so stale buffered events from the old stream cannot target the new message node.
-      chatAbortRef.current?.abort();
-      currentAiTempIdRef.current = tempAiMsgId;
-      const abortController = new AbortController();
-      chatAbortRef.current = abortController;
-
       const response = await authFetch(`${API_BASE_URL}/api/kb/${currentKb.id}/chat?stream=true`, {
         method: 'POST',
         headers: {
@@ -236,7 +252,7 @@ export function useChatStream({
         // generous. On timeout the parser cancels the stream and throws
         // SseIdleTimeoutError, which the catch below reports as a timeout.
         idleTimeoutMs: 120_000,
-        isStale: () => requestIdRef.current !== thisRequestId,
+        isStale: () => abortController.signal.aborted,
         onParseError: (e) => { console.error('Error parsing SSE data:', e); },
         onEvent: (data: unknown) => {
           const event = data as Record<string, unknown>;
@@ -248,7 +264,7 @@ export function useChatStream({
           if (event.enhancedQuery && !enhancedShown && !regenerateOf) {
             enhancedShown = true;
             const enhancedMsgId = `temp-enhanced-${Date.now()}`;
-            const aiTempId = currentAiTempIdRef.current;
+            const aiTempId = aiNodeId;
             setMessageTree(prev => {
               const tree = new Map(prev);
               const aiNode = tree.get(aiTempId);
@@ -278,7 +294,7 @@ export function useChatStream({
           }
 
           if (event.deepSearch) {
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               isDeepSearch: true,
             }));
           }
@@ -301,7 +317,7 @@ export function useChatStream({
             // newline-lossy (see go-backend refine_diff.go) and must NOT
             // be used to reconstruct the message body.
             const evt = event.agentTrajectory as TrajectoryEvent;
-            const aiTempId = currentAiTempIdRef.current;
+            const aiTempId = aiNodeId;
             setMessageTree(prev => {
               const node = prev.get(aiTempId);
               if (!node) return prev;
@@ -339,8 +355,8 @@ export function useChatStream({
           }
 
           if (event.aiMessageId) {
-            const prevAiTempId = currentAiTempIdRef.current;
-            currentAiTempIdRef.current = event.aiMessageId as string;
+            const prevAiTempId = aiNodeId;
+            aiNodeId = event.aiMessageId as string;
             // Atomically remap the tree node and update the active leaf in a single state update
             // to prevent an intermediate render where activeLeafId points to a non-existent node
             setMessageTree(prev => remapMessageId(prev, prevAiTempId, event.aiMessageId as string));
@@ -354,6 +370,14 @@ export function useChatStream({
               teamId: effectiveSelection?.teamId ?? null,
               agentId: effectiveSelection?.agentId ?? null,
             }));
+            // The answer is saved: free the composer and keep this stream
+            // for the post-response frames.
+            answerSaved = true;
+            if (chatAbortRef.current === abortController) {
+              chatAbortRef.current = null;
+              finishingRef.current.add(abortController);
+            }
+            if (requestIdRef.current === thisRequestId) setLoading(false);
           }
 
           if (event.error) {
@@ -361,7 +385,7 @@ export function useChatStream({
             // user sees a localized message, after whatever already streamed.
             console.error('[Chat] Server error:', event.error);
             const notice = t('errorAnswerFailed');
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               content: aiMessageContent ? `${aiMessageContent}\n\n${notice}` : notice,
             }));
           }
@@ -370,8 +394,8 @@ export function useChatStream({
           }
           if (event.reasoning) {
             setMessageTree(prev => {
-              const existing = prev.get(currentAiTempIdRef.current);
-              return updateMessageInTree(prev, currentAiTempIdRef.current, {
+              const existing = prev.get(aiNodeId);
+              return updateMessageInTree(prev, aiNodeId, {
                 reasoning: (existing?.reasoning || '') + (event.reasoning as string),
                 sources: aiSources,
               });
@@ -379,33 +403,33 @@ export function useChatStream({
           }
           if (event.content) {
             aiMessageContent += event.content as string;
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               content: aiMessageContent,
               sources: aiSources,
             }));
           }
           if (event.followUpQuestions) {
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               followUpQuestions: event.followUpQuestions as string[],
             }));
           }
           if (event.verification) {
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               verification: event.verification as MessageVerification,
             }));
           }
           if (event.structuredTable) {
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               structured_table: event.structuredTable as StructuredTable,
             }));
           }
           if (event.comparisonFindings) {
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               comparisonFindings: event.comparisonFindings as ComparisonFinding[],
             }));
           }
           if (event.conflicts) {
-            setMessageTree(prev => updateMessageInTree(prev, currentAiTempIdRef.current, {
+            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               conflicts: event.conflicts as MessageConflict[],
             }));
           }
@@ -420,6 +444,12 @@ export function useChatStream({
     } catch (err: unknown) {
       // Ignore abort errors (user navigated away or sent a new message)
       if (err instanceof DOMException && err.name === 'AbortError') return accepted;
+      // A failure after the answer was saved only costs the post-response
+      // frames; the answer stands and the next turn may already be running.
+      if (answerSaved) {
+        console.error('Chat post-response stream failed:', err);
+        return accepted;
+      }
       console.error('Chat failed:', err);
       if (!accepted && !regenerateOf) refusedQuestionIdsRef.current.add(tempUserMsgId);
       const errorMsgId = `temp-error-${Date.now()}`;
@@ -434,6 +464,8 @@ export function useChatStream({
       }));
       setActiveLeafId(errorMsgId);
     } finally {
+      finishingRef.current.delete(abortController);
+      if (chatAbortRef.current === abortController) chatAbortRef.current = null;
       // Only reset loading if this is still the active request.
       // Prevents a stale finally from an aborted request clearing loading
       // while a newer request is in-flight.

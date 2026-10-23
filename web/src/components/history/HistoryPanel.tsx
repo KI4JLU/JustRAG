@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
-    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil,
+    MessageSquare, Search, GraduationCap, FileText, GitBranch, Loader2, SquarePen, Trash2, ArrowLeft, Pencil,
 } from 'lucide-react';
 import {
     Button, SidebarAction, SidebarCard, SidebarCardList, SidebarRail, SidebarPanel, SidebarRailItem, SidebarSelectionBar,
@@ -19,6 +19,9 @@ import { splitLeadingEmoji } from './leadingEmoji';
 import '../sidebar-primitives.css';
 import './HistoryPanel.css';
 
+/* The icon of a row is its kind's — except a branched chat, which shows the
+   branch glyph instead: a branch chat (each branch is its own chat) and an
+   older chat that forks inside itself alike. */
 const KIND_ICON: Record<HistoryKind, typeof MessageSquare> = {
     chat: MessageSquare,
     artifact: FileText,
@@ -115,11 +118,11 @@ const HistoryPanelComp: React.FC = () => {
         return (
             <>
                 <SidebarRailItem variant="action" onClick={handleNewChat} title={t('newChat')} aria-label={t('newChat')}>
-                    <Plus aria-hidden="true" />
+                    <SquarePen aria-hidden="true" />
                 </SidebarRailItem>
                 <SidebarRail>
                 {items.map(item => {
-                    const Icon = KIND_ICON[item.kind];
+                    const Icon = item.branched ? GitBranch : KIND_ICON[item.kind];
                     const isActive = item.kind !== 'artifact' && item.id === activeChatId;
                     return (
                         <li key={`${item.kind}-${item.id}`}>
@@ -164,7 +167,7 @@ const HistoryPanelComp: React.FC = () => {
                     <>
                             {/* Full-width labelled action under the heading, its icon on the
                                 cards' icon axis; the collapsed rail keeps the icon-only form. */}
-                            <SidebarAction type="button" onClick={handleNewChat} icon={<Plus />}>
+                            <SidebarAction type="button" onClick={handleNewChat} icon={<SquarePen />}>
                                 {t('newChat')}
                             </SidebarAction>
                             {selecting && (
@@ -207,7 +210,7 @@ const HistoryPanelComp: React.FC = () => {
                             <h3 className="history-panel__group-label">{group.label}</h3>
                             <SidebarCardList>
                                 {group.items.map(item => {
-                                    const Icon = KIND_ICON[item.kind];
+                                    const Icon = item.branched ? GitBranch : KIND_ICON[item.kind];
                                     // A leading emoji in the title becomes the card's icon.
                                     const { emoji, text } = splitLeadingEmoji(item.title);
                                     return (

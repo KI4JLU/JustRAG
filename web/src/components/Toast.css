@@ -7,8 +7,8 @@
  * swallowed its clicks for the 4000-6000ms it lives, on the one view that
  * renders it. The developer chose to free that corner permanently.
  *
- * WHY 76px AND NOT 24px. AppShellLayout renders a 64px chrome bar above the
- * page content (`h-16` in the DS template). A toast at top:24 would land on it
+ * WHY NOT 24px. AppShellLayout renders a chrome bar above the page content
+ * (64px `h-16` when this was written; 56px now, see below). A toast at top:24 would land on it
  * - the same defect in a new corner. 76px = 64px bar + a 12px gap.
  *
  * RE-MEASURED ON design-system 0.26.0 (card KI-788), because that release
@@ -30,6 +30,9 @@
  * `AppShellGeometry` play function (which also reports the bar 943px wide and
  * the search field 448px, centred with a 0px offset). 76px = 64 + 12 stands.
  *
+ * THE BAR IS 56px SINCE THE SIDEBAR REDESIGN (`h-14`), so the offset is
+ * 68px = 56 + 12. `AppShellGeometry` re-measures the bar.
+ *
  * `flex-direction` is deliberately NOT changed: with the box anchored at the
  * top it makes the newest toast appear at the anchored edge and push older
  * ones down, which is the conventional top-anchored behaviour (and what the
@@ -37,7 +40,7 @@
  */
 .toast-container {
   position: fixed;
-  top: 76px;
+  top: 68px;
   right: 24px;
   z-index: 4000;
   display: flex;

@@ -1,7 +1,7 @@
 import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain, ArrowUp,
-  X, GitBranch, Check,
+  X, Check,
   Globe, WandSparkles, Loader2, FileText, Bot, Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -32,13 +32,12 @@ import {
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
-import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
+import { getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../utils/kbAccess';
 import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
-import { BranchTreeNav } from './BranchTreeNav';
 import { SourcePanel } from './sources/SourcePanel';
 import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
 import { MessageSkeleton } from './Skeleton';
@@ -343,47 +342,6 @@ const ChatViewComp = () => {
                   footer={siteConfigs.chat_footer || t('chatFooter')}
                   composer={(
                   <div className="input-container">
-                    {chat.forkPointId && (
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        padding: '6px 12px',
-                        marginBottom: '0.5rem',
-                        background: 'var(--tag-bg)',
-                        border: '1px solid var(--accent-primary)',
-                        borderRadius: '8px',
-                        fontSize: '0.8rem',
-                        color: 'var(--accent-primary)',
-                      }}>
-                        <GitBranch size={14} />
-                        <span>{language === 'en' ? 'Branching — type a different follow-up' : 'Abzweigung — gib eine andere Frage ein'}</span>
-                        <button
-                          onClick={() => {
-                            chat.setForkPointId(null);
-                            const leaf = findDefaultLeaf(chat.messageTree);
-                            if (leaf) chat.setActiveLeafId(leaf);
-                          }}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'var(--text-secondary)',
-                            padding: '2px',
-                            minWidth: '44px',
-                            minHeight: '44px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginLeft: '4px',
-                          }}
-                          title={language === 'en' ? 'Cancel fork' : 'Abzweigung abbrechen'}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    )}
                     <PromptInput
                       id="chat-composer"
                       multiple
@@ -741,21 +699,12 @@ const ChatViewComp = () => {
                     target={sourcePanelTarget}
                     onClose={sourcePanelApi.close}
                     onPassage={(passage) => setSourcePanelTarget(prev => (prev ? { ...prev, passage } : prev))}
+                    onNavigate={setSourcePanelTarget}
                     fileOrigin={sourcePanelOrigin}
                     onPdfOpen={handlePdfSourceOpen}
                     onPreviewSource={handlePreviewSource}
                     canDownload={sourceRights.downloadSources}
                     fullScreen={isMobile}
-                  />
-                )}
-                {!isMobile && (
-                  <BranchTreeNav
-                    messageTree={chat.messageTree}
-                    activeLeafId={chat.activeLeafId}
-                    onSelectBranch={(leafId) => {
-                      chat.setActiveLeafId(leafId);
-                      chat.setForkPointId(null);
-                    }}
                   />
                 )}
               </div>

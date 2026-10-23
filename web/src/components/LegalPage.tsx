@@ -6,7 +6,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import type { Language } from '../translations';
 
-type LegalPageType = 'terms' | 'privacy' | 'accessibility';
+export type LegalPageType = 'terms' | 'privacy' | 'accessibility';
 
 interface LegalPageProps {
   page: LegalPageType;

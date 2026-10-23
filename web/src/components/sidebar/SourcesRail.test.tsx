@@ -7,6 +7,8 @@ import { SourcesRail } from './SourcesRail';
 const handlePreviewSource = vi.fn();
 const setShowUploadModal = vi.fn();
 const handleToggleFilesSelection = vi.fn();
+const openSourceDetails = vi.hoisted(() => vi.fn());
+vi.mock('../../hooks/sourceDetails', () => ({ openSourceDetails }));
 // The caller's role on the open KB, and the backend's resolved capabilities
 // (undefined = an older backend). The real kbSourceRights decides from them.
 let myRole: string | undefined = 'edit';
@@ -39,23 +41,50 @@ vi.mock('../../contexts/KbDataContext', () => ({
       files: [
         { id: 'f1', name: 'a.pdf', origin: 'upload', status: 'completed', selected: true },
         { id: 'f2', name: 'b.pdf', origin: 'upload', status: 'completed', selected: false },
-        { id: 'r1', name: 'feed item', origin: 'rss', status: 'completed' },
+        { id: 'r1', name: 'feed item', origin: 'rss', status: 'completed', rssFeedId: 'feed1' },
+        // The Confluence space's only file is left out of the chat filter.
+        { id: 'c1f', name: 'Seite', origin: 'confluence', status: 'completed', confluenceSourceId: 'conf1', selected: false },
       ],
     },
     webTools: { handlePreviewSource },
+    rssFeeds: [{ id: 'feed1', title: 'CERT-Bund', url: 'https://wid.cert-bund.de/feed' }],
+    confluenceSources: [{ id: 'conf1', spaceKey: 'HRZ', rootPageTitle: 'Handbuch' }],
+    gitRepoSources: [{ id: 'git1', repoUrl: 'https://github.com/KI4JLU/JustRAG.git', branch: 'main' }],
   }),
 }));
 
 beforeEach(() => { vi.clearAllMocks(); myRole = 'edit'; capabilities = undefined; });
 
 // Oracle: the fixture above — two listed files, one feed item that the
-// expanded list also leaves out, one excluded file.
+// expanded list also leaves out, one excluded file; then one RSS feed, one
+// Confluence space and one git repository, each a type-chip entry after the
+// files, named like their row in the expanded list.
 describe('SourcesRail', () => {
   it('shows one icon per listed source, not feed items', () => {
     render(<SourcesRail />);
     expect(screen.getByRole('button', { name: 'a.pdf' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'b.pdf' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'feed item' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Seite' })).not.toBeInTheDocument();
+  });
+
+  it('follows the files with one type chip per RSS feed, Confluence space and git repository', () => {
+    render(<SourcesRail />);
+    const rail = screen.getByRole('list', { name: 'sources' });
+    expect([...rail.querySelectorAll('li')].map(li => li.querySelector('[aria-label]')?.getAttribute('aria-label'))).toEqual([
+      'a.pdf', 'b.pdf', 'CERT-Bund', 'HRZ / Handbuch', 'KI4JLU/JustRAG @ main',
+    ]);
+    expect(screen.getByRole('button', { name: 'CERT-Bund' })).toHaveTextContent('RSS');
+    expect(screen.getByRole('button', { name: 'HRZ / Handbuch' })).toHaveTextContent('COL');
+    expect(screen.getByRole('button', { name: 'KI4JLU/JustRAG @ main' })).toHaveTextContent('GIT');
+  });
+
+  it('opens a synced source\'s details and dims one left out of the chat', async () => {
+    render(<SourcesRail />);
+    await userEvent.click(screen.getByRole('button', { name: 'HRZ / Handbuch' }));
+    expect(openSourceDetails).toHaveBeenCalledWith({ kind: 'confluence', id: 'conf1' });
+    expect(screen.getByRole('button', { name: 'HRZ / Handbuch' })).toHaveClass('opacity-50');
+    expect(screen.getByRole('button', { name: 'CERT-Bund' })).not.toHaveClass('opacity-50');
   });
 
   it('opens the preview on click and dims excluded sources', async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import MessageContent from './MessageContent';
 import type { TrajectoryEvent } from '../types';
+import { SourcePanelContext, type SourcePanelApi } from '../contexts/SourcePanelContext';
 import { translations } from '../translations';
 import * as ThemeContext from '../contexts/ThemeContext';
 
@@ -266,33 +267,52 @@ describe('MessageContent source preview (fine pointer: popover)', () => {
 
     const chip = (name: RegExp) => screen.getByRole('button', { name });
 
+    // The compact popover: one head row (icon, title, type chip, „Open in
+    // source") and the cited lines under it. The number/type/page line is no
+    // longer printed — it rides the title's tooltip. „All N sources" is gone
+    // (the footer's source list is right under the answer).
     it('opens the preview on click, pinned, with head, rendered excerpt and actions', () => {
         render(<MessageContent content="Claim [1]. More [2]." sources={sources} onOpenPanel={vi.fn()} onShowAllSources={vi.fn()} />);
         fireEvent.click(chip(/Source 1: bericht/));
         const dialog = screen.getByRole('dialog', { name: 'Source 1: bericht' });
-        expect(dialog).toHaveTextContent('Source 1 · PDF · p. 7');
+        expect(dialog).toHaveTextContent('bericht');
+        expect(dialog).toHaveTextContent('PDF');
+        expect(dialog.querySelector('[title="bericht · Source 1 · PDF · p. 7"]')).not.toBeNull();
         expect(dialog.querySelector('strong')?.textContent).toBe('zitierte');
         expect(dialog).not.toHaveTextContent('**');
         expect(chip(/Source 1: bericht/)).toHaveAttribute('aria-expanded', 'true');
-        expect(screen.getByRole('button', { name: 'All 2 sources' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Open in source' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /All 2 sources|Show list/ })).toBeNull();
     });
 
-    it('"Open in source" hands the display number and the raw citation to the panel', () => {
+    // The last argument is the chip's occurrence (`data-occ`): the answer's
+    // only chip is occurrence 0.
+    it('"Open in source" hands the display number, the raw citation and the chip to the panel', () => {
         const onOpenPanel = vi.fn();
         render(<MessageContent content="Claim [2]." sources={sources} onOpenPanel={onOpenPanel} />);
         fireEvent.click(chip(/Source 1: anhang/));
         fireEvent.click(screen.getByRole('button', { name: 'Open in source' }));
-        expect(onOpenPanel).toHaveBeenCalledWith(1, 2, expect.any(String));
+        expect(onOpenPanel).toHaveBeenCalledWith(1, 2, expect.any(String), 0);
         expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('"All N sources" asks for the source list', () => {
-        const onShowAll = vi.fn();
-        render(<MessageContent content="Claim [1] [2]." sources={sources} onShowAllSources={onShowAll} />);
-        fireEvent.click(chip(/Source 1: bericht/));
-        fireEvent.click(screen.getByRole('button', { name: 'All 2 sources' }));
-        expect(onShowAll).toHaveBeenCalledTimes(1);
+    // With the source panel already open, a chip moves the panel straight to
+    // its passage — no popover in between. Second chip of the answer → occ 1.
+    it('while the source panel is open, a chip click goes straight to the panel', () => {
+        const onOpenPanel = vi.fn();
+        const panel: SourcePanelApi = {
+            target: { messageKey: 'other', source: {} as never, passage: 0 },
+            open: vi.fn(),
+            close: vi.fn(),
+        };
+        render(
+            <SourcePanelContext.Provider value={panel}>
+                <MessageContent content="Claim [1]. More [2]." sources={sources} onOpenPanel={onOpenPanel} />
+            </SourcePanelContext.Provider>,
+        );
+        fireEvent.click(chip(/Source 2: anhang/));
+        expect(onOpenPanel).toHaveBeenCalledWith(2, 2, expect.any(String), 1);
+        expect(screen.queryByRole('dialog')).toBeNull();
     });
 
     it('closes on Escape and returns focus to the chip', async () => {
@@ -326,7 +346,8 @@ describe('MessageContent source preview (fine pointer: popover)', () => {
         expect([...dialog.querySelectorAll('dt')].map(d => d.textContent)).toEqual(['ID', 'Status']);
         expect([...dialog.querySelectorAll('dd')].map(d => d.textContent)).toEqual(['F-06b', 'Offen']);
         expect(dialog.querySelector('mark')?.textContent).toBe('Offen');
-        expect(dialog).toHaveTextContent('Source 1 · Spreadsheet');
+        expect(dialog).toHaveTextContent('XLSX');
+        expect(dialog.querySelector('[title="Anforderungen · Source 1 · Spreadsheet"]')).not.toBeNull();
     });
 
     it('offers no actions without handlers', () => {

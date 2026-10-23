@@ -20,6 +20,9 @@ import { useTheme } from './contexts/ThemeContext';
 import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
 import { withoutCitations } from './utils/citations';
 import { buildCitationModel, citingTextByRaw, type CitedSource } from './utils/sourceDisplay';
+import { citationMarkers } from './utils/citationRefs';
+import { isTempMessageId } from './utils/messageTree';
+import { normalizeMathDelimiters } from './utils/markdownMath';
 import { SourceList } from './components/sources/SourceList';
 import { useSourcePanel } from './contexts/SourcePanelContext';
 
@@ -128,6 +131,11 @@ function citationSpanMap(v: MessageVerification | null | undefined): Map<number,
 const fill = (text: string, values: Record<string, number>) =>
     text.replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m));
 
+// The footer's toggles (confidence, conflicts) read like the „Quellen" trigger
+// beside them: text with a chevron, no grey box on hover — the hover is a
+// slight fade, the open state the rotated chevron.
+const footerChipClass = 'group h-8 gap-1 px-1 py-0 hover:bg-transparent hover:opacity-80 active:scale-100';
+
 const chevronClass = 'size-3.5 transition-transform motion-reduce:transition-none group-aria-expanded:rotate-180';
 
 // ConfidenceChip is the answer-footer chip ("✓ Geprüft · 92%"). Clicking it
@@ -136,7 +144,7 @@ function ConfidenceChip({ verification, t, open, onToggle }: ConfidenceProps & {
     const { verified, score } = verification;
     const c = confidenceTone(verification);
     return (
-        <Button type="button" variant="ghost" size="sm" className="group" onClick={onToggle} aria-expanded={open}>
+        <Button type="button" variant="ghost" size="sm" className={footerChipClass} onClick={onToggle} aria-expanded={open}>
             <Badge appearance="text" tone={c.tone}>
                 <Check className="size-3.5" aria-hidden="true" />
                 {t(c.labelKey)}{verified ? ` · ${score}%` : ''}
@@ -190,7 +198,7 @@ function ConflictsChip({ count, t, open, onToggle }: { count: number; t: (key: s
             type="button"
             variant="ghost"
             size="sm"
-            className="group"
+            className={footerChipClass}
             onClick={onToggle}
             aria-expanded={open}
             aria-label={t('conflictsBadge')}
@@ -290,9 +298,11 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     // like a popover, so the toggle that closes it stays next to what it opened.
     const sectionExpanded = sourcesExpanded || confOpen || conflictsExpanded;
     const footerShown = (isLatest && !isMobile) || actionPopoverOpen || sectionExpanded || showActions;
-    // Actions that need the saved message wait for the end of the stream; the
-    // information around them (sources, confidence, conflicts) does not.
-    const actionsReady = !isStreaming && !!message.id;
+    // The actions need the saved message: they appear once the answer is
+    // saved (its aiMessageId arrives right after the last token), not at the
+    // end of the turn — the checks after it (citations, fact check) can take
+    // a while and join the footer when they finish.
+    const actionsReady = !!message.id && !isTempMessageId(message.id);
     // A question carries its bubble inside the row, with its action row below it.
     const isQuestion = message.role === 'user' && !message.isEnhanced;
     const revealClass = 'transition-[opacity,visibility] duration-150 motion-reduce:transition-none data-[revealed=false]:invisible data-[revealed=false]:opacity-0';
@@ -325,21 +335,26 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     // "In Quelle öffnen": the source panel next to the answer (chat view), or
     // the document itself where there is no panel (comparison view).
     const sourcePanel = useSourcePanel();
-    const openPanel = useCallback((source: CitedSource, passage: number, focus?: string) => {
+    // The same text MessageContent hands to addCitationRefs, so `occ` matches the chips.
+    const markers = useMemo(() => citationMarkers(normalizeMathDelimiters(message.content), citationModel), [message.content, citationModel]);
+    const openPanel = useCallback((source: CitedSource, passage: number, focus?: string, occ?: number) => {
         if (sourcePanel && sectionKey) {
-            sourcePanel.open({ messageKey: sectionKey, source, passage, spans, citing: citingTextByRaw(message.content), focus });
+            sourcePanel.open({
+                messageKey: sectionKey, source, passage, spans, citing: citingTextByRaw(message.content), focus,
+                model: citationModel, markers, occ,
+            });
             return;
         }
         if (source.fileId) openSourceByFile(source.fileName, source.fileId, source.passages[passage]?.pages?.[0] || 1);
-    }, [sourcePanel, sectionKey, spans, openSourceByFile, message.content]);
+    }, [sourcePanel, sectionKey, spans, openSourceByFile, message.content, citationModel, markers]);
     const canOpenPanel = !!sourcePanel || canOpenSources;
-    const handleOpenPanel = useCallback((n: number, raw: number, focus?: string) => {
+    const handleOpenPanel = useCallback((n: number, raw: number, focus?: string, occ?: number) => {
         const source = citationModel.cited[n - 1];
-        if (source) openPanel(source, Math.max(0, source.rawNumbers.indexOf(raw)), focus);
+        if (source) openPanel(source, Math.max(0, source.rawNumbers.indexOf(raw)), focus, occ);
     }, [citationModel, openPanel]);
     const panelTarget = sourcePanel?.target && sourcePanel.target.messageKey === sectionKey ? sourcePanel.target : null;
     const activeCitation = useMemo(() => (panelTarget
-        ? { n: panelTarget.source.n, raw: panelTarget.source.rawNumbers[panelTarget.passage] }
+        ? { n: panelTarget.source.n, raw: panelTarget.source.rawNumbers[panelTarget.passage], occ: panelTarget.occ }
         : null), [panelTarget]);
 
     // "Alle N Quellen": opens the source list and brings it into view.
@@ -402,9 +417,10 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
             enabled={actionsReady && !message.isEnhanced}
             onOpenChange={handleMenuOpenChange}
             onEdit={message.role === 'user' && onEdit ? () => onEdit(message.id!, message.content) : undefined}
-            onFork={message.role === 'ai' && onFork ? () => onFork(message.id!) : undefined}
+            // Fork and regenerate start a new turn: not while this one still runs.
+            onFork={message.role === 'ai' && onFork && !isLatest && !isStreaming ? () => onFork(message.id!) : undefined}
             onCompare={message.role === 'ai' && onCompare ? () => onCompare(message.id!) : undefined}
-            onRegenerate={onRegenerate ? () => onRegenerate(message.id!) : undefined}
+            onRegenerate={onRegenerate && !isStreaming ? () => onRegenerate(message.id!) : undefined}
             onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
             onViewGraph={onViewGraph && citationModel.cited.length > 0 ? () => onViewGraph(message.id!) : undefined}
             contentRef={message.role === 'ai' ? contentRef : undefined}
@@ -481,18 +497,27 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                 ) : isQuestion ? (
                     <>
                         <div className="message-bubble message-user">
-                            {branchInfo && onSwitchBranch && (
-                                <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
-                            )}
                             {questionBody}
                         </div>
-                        {actionsReady && !isMobile && (
-                            <div data-testid="question-actions" data-revealed={footerShown} className={`mt-1 ${revealClass}`}>
-                                <MessageActions
-                                    message={message}
-                                    canCopy
-                                    onEdit={onEdit ? () => onEdit(message.id!, message.content) : undefined}
-                                />
+                        {/* Under the bubble, shown with the other controls (hover,
+                            focus, tap): the question's actions and, for an
+                            edited question, its version selector. */}
+                        {((branchInfo && onSwitchBranch && branchInfo.total > 1) || (actionsReady && !isMobile)) && (
+                            <div
+                                data-testid="question-actions"
+                                data-revealed={footerShown}
+                                className={`mt-1 flex items-center justify-end gap-1 ${revealClass}`}
+                            >
+                                {actionsReady && !isMobile && (
+                                    <MessageActions
+                                        message={message}
+                                        canCopy
+                                        onEdit={onEdit ? () => onEdit(message.id!, message.content) : undefined}
+                                    />
+                                )}
+                                {branchInfo && onSwitchBranch && branchInfo.total > 1 && (
+                                    <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
+                                )}
                             </div>
                         )}
                     </>
@@ -503,8 +528,8 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                 )}
 
                 {/* §8 answer footer: shown on hover, focus inside the answer or a tap,
-                    keeping its space while hidden. Sources, versions and checks are in it
-                    as soon as they arrive; the actions wait for the saved answer. */}
+                    keeping its space while hidden. The source list and the actions wait for
+                    the saved answer; checks and versions join as they arrive. */}
                 {message.role === 'ai' && !message.isEnhanced && (!isStreaming || message.content || message.reasoning) && (
                     <Sources
                         className="mb-0"
@@ -522,13 +547,15 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                                     {attributionName}
                                 </Badge>
                             )}
-                            {citationModel.cited.length > 0 ? (
+                            {/* The source list joins the footer with the saved answer, not
+                                while the text still streams. */}
+                            {!actionsReady ? null : citationModel.cited.length > 0 ? (
                                 <SourcesTrigger count={citationModel.cited.length}>
                                     <FileText className="size-4" aria-hidden="true" />
                                     <span className="font-medium">{t('answerSourcesToggle')} · {citationModel.cited.length}</span>
                                     <ChevronDown className="size-4 transition-transform motion-reduce:transition-none group-data-[state=open]:rotate-180" aria-hidden="true" />
                                 </SourcesTrigger>
-                            ) : !isStreaming && (
+                            ) : (
                                 // An answer without a cited source (a follow-up question, say).
                                 <Badge appearance="text" tone="neutral" data-testid="no-sources">
                                     <Info className="size-3.5" aria-hidden="true" />
@@ -568,11 +595,18 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                                     </MessageBranchSelector>
                                 </MessageBranch>
                             )}
+                            {/* Shown once the answer is saved — not during generation;
+                                sources, checks and versions join the footer as they
+                                arrive. While the turn's checks still run, the actions
+                                that start a new turn wait for it. */}
                             {actionsReady && !isMobile && (
                                 <div data-testid="answer-actions" className="min-w-0">
                                     <MessageActions
                                         message={message}
-                                        onFork={onFork ? () => onFork(message.id!) : undefined}
+                                        turnRunning={!!isStreaming}
+                                        // Branching from the last answer would copy the whole chat:
+                                        // the action is offered on earlier answers only.
+                                        onFork={onFork && !isLatest ? () => onFork(message.id!) : undefined}
                                         onCompare={onCompare ? () => onCompare(message.id!) : undefined}
                                         onRegenerate={onRegenerate ? () => onRegenerate(message.id!) : undefined}
                                         onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
@@ -594,7 +628,7 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                             <ConflictsDetails conflicts={message.conflicts} t={t} />
                         )}
 
-                        {citationModel.cited.length > 0 && (
+                        {actionsReady && citationModel.cited.length > 0 && (
                             <SourcesContent className="w-full" ref={sourceListRef}>
                                 <SourceList
                                     sources={citationModel.cited}

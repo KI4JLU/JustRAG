@@ -9,6 +9,9 @@ export interface HistoryItem {
   createdAt: string;
   /** Nur bei kind === 'artifact': der Artefakttyp für Icon und Label. */
   artifactType?: GeneratedContent['type'];
+  /** Nur bei Chats: der Chat ist ein Zweig eines anderen, oder er verzweigt
+   *  sich in sich (Versionen aus der Zeit vor den Zweig-Chats). */
+  branched?: boolean;
   /** Die Rohdaten für den Klick-Handler. */
   source: ChatEntry | GeneratedContent;
 }
@@ -37,6 +40,7 @@ export function buildHistoryItems(input: {
       kind: chatKind((c as { type?: string }).type),
       title: c.title,
       createdAt: c.createdAt,
+      branched: !!c.branchedFromChatId || c.hasBranches === true,
       source: c,
     })),
     ...input.generatedContent.map(g => ({

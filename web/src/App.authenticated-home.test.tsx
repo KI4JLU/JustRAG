@@ -270,7 +270,8 @@ describe('App — the KB overview on the authenticated home route', () => {
   /* -----------------------------------------------------------------------
    * The appearance preferences live in the settings window (developer,
    * 24.09.2026), opened from the user menu's „Einstellungen" item: colour
-   * scheme, Style and language under General, the account under Profile.
+   * scheme, contrast, accent and language under General (the Style row is
+   * gone since the sidebar redesign), the account under Profile.
    * Asserted on the real route because this is the app's only colour-scheme
    * control — if it went missing, no type error or build step would notice.
    *
@@ -285,17 +286,20 @@ describe('App — the KB overview on the authenticated home route', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
     const menu = within(await screen.findByRole('menu'));
-    // profile, admin settings, settings, logout.
-    expect(menu.getAllByRole('menuitem')).toHaveLength(4);
+    // profile, admin settings, settings, the „Hilfe" submenu trigger (legal
+    // pages — a Radix sub-trigger is a menuitem too), logout.
+    expect(menu.getAllByRole('menuitem')).toHaveLength(5);
+    expect(menu.getByRole('menuitem', { name: translations.help.de })).toBeInTheDocument();
     await userEvent.click(menu.getByRole('menuitem', { name: translations.settings.de }));
 
     const dialog = within(await screen.findByRole('dialog', { name: translations.settings.de }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsGeneral.de })).toBeInTheDocument();
     expect(dialog.getByRole('combobox', { name: translations.appearance.de })).toHaveTextContent(translations.themeSystemShort.de);
-    expect(dialog.getByRole('combobox', { name: translations.uiShape.de })).toHaveTextContent(translations.uiShapeRounded.de);
     expect(dialog.getByRole('combobox', { name: translations.languageLabel.de })).toHaveTextContent('Deutsch');
     expect(dialog.getByRole('combobox', { name: translations.contrast.de })).toHaveTextContent(translations.themeSystemShort.de);
     expect(dialog.getByRole('combobox', { name: translations.accentColor.de })).toHaveTextContent(translations.accent_standard.de);
+    // Exactly those four choices — no Style (uiShape) row any more.
+    expect(dialog.getAllByRole('combobox')).toHaveLength(4);
 
     await userEvent.click(dialog.getByRole('button', { name: translations.settingsProfile.de }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsProfile.de })).toBeInTheDocument();

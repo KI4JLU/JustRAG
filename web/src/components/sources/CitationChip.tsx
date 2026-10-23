@@ -32,9 +32,14 @@ export function CitationChip({ n, raws, occ }: { n: number; raws: number[]; occ:
     const handleOpenChange = (next: boolean) => {
         const chip = triggerRef.current;
         if (next && chip) {
+            const block = chip.closest(CITED_BLOCK_SELECTOR);
+            // The panel is already open: the chip moves it, no popover in between.
+            if (ctx?.panelOpen && ctx.onOpenPanel && source) {
+                ctx.onOpenPanel(n, raw, block?.textContent ?? undefined, occ);
+                return;
+            }
             const c = chip.getBoundingClientRect();
             const a = anchorRect(chip);
-            const block = chip.closest(CITED_BLOCK_SELECTOR);
             setPlacement({ alignOffset: a.left - c.left, sideOffset: a.bottom - c.bottom + 8, width: a.width, focus: block?.textContent ?? '' });
         }
         setOpen(next);
@@ -93,7 +98,7 @@ export function CitationChip({ n, raws, occ }: { n: number; raws: number[]; occ:
                 sideOffset={placement?.sideOffset ?? 8}
                 collisionPadding={16}
                 aria-label={label}
-                className="max-w-[calc(100vw-2rem)] p-4"
+                className="max-w-[calc(100vw-2rem)] rounded-[var(--ui-radius-box)] px-4 pt-3 pb-3"
                 style={placement ? { width: placement.width } : undefined}
             >
                 <SourcePreview
@@ -104,7 +109,7 @@ export function CitationChip({ n, raws, occ }: { n: number; raws: number[]; occ:
                     notice={notice}
                     totalSources={ctx.model.cited.length}
                     onShowAll={ctx.onShowAll ? () => { close(); ctx.onShowAll?.(); } : undefined}
-                    onOpenSource={ctx.onOpenPanel ? () => { close(); ctx.onOpenPanel?.(n, raw, placement?.focus); } : undefined}
+                    onOpenSource={ctx.onOpenPanel ? () => { close(); ctx.onOpenPanel?.(n, raw, placement?.focus, occ); } : undefined}
                 />
             </InlineCitationCardBody>
         </InlineCitationCard>

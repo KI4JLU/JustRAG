@@ -537,7 +537,7 @@ button.source-card {
   min-width: 0;
 }
 
-/* Chat-Zeile (Nachrichtenspalte + BranchTreeNav) und Nachrichtenspalte. Der
+/* Chat-Zeile (Nachrichtenspalte + Quellen-Panel) und Nachrichtenspalte. Der
    Scroller darunter ist die VOLLE Spaltenbreite; die 80%-Lesespalte liegt auf
    seinen Kindern (`> *`). Vorher trug der Scroller selbst `max-width: 80%;
    margin: 0 auto` — das Mausrad über den seitlichen Rändern traf dann nur den
@@ -1151,11 +1151,13 @@ button.source-card {
   backdrop-filter: blur(4px);
 }
 
+/* The legacy hand-built dialogs, on the DS Dialog's look: 24px inset, the
+   box radius, the lowest surface. New dialogs use the DS Dialog itself. */
 .modal-content {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-xl);
-  padding: 2rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--ui-radius-box);
+  padding: 1.5rem;
   width: 100%;
   max-width: min(450px, 90vw);
   box-shadow: var(--shadow-xl);
@@ -2066,7 +2068,7 @@ button.source-card {
 
   .modal-content {
     max-width: 95vw;
-    padding: 1.5rem;
+    padding: 1.25rem;
   }
 
   .follow-up-chip {
@@ -2330,4 +2332,11 @@ button.source-card {
 .btn--icon.btn--destructive:hover:not(:disabled) {
   background: var(--error-bg);
   color: var(--error-text);
+}
+
+/* The answer's sentences that cite the passage the source panel shows
+   (MessageContent, CSS Custom Highlight "citation-focus"): a gentle amber,
+   the warm highlighter look — distinct from the blue chips and selections. */
+::highlight(citation-focus) {
+  background-color: var(--color-warning-container);
 }
