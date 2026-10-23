@@ -110,3 +110,44 @@ func TestListFilesReturnsUserFileID(t *testing.T) {
 		}
 	}
 }
+
+// TestListFilesReturnsGitRepoSourceID pins the f.git_repo_source_id round
+// trip: a git file names its source (as RSS and Confluence files do theirs),
+// any other file names none.
+func TestListFilesReturnsGitRepoSourceID(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	var kbID, srcID string
+	if err := pool.QueryRow(ctx, `INSERT INTO knowledge_bases (name) VALUES ('kb-gitsrc') RETURNING id::text`).Scan(&kbID); err != nil {
+		t.Fatalf("seed kb: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, kbID) }) //nolint:errcheck
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO git_repo_sources (kb_id, repo_url) VALUES ($1::uuid, 'https://example.org/r.git') RETURNING id::text`,
+		kbID).Scan(&srcID); err != nil {
+		t.Fatalf("seed git source: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO files (kb_id, name, type, status, storage_path, origin, git_repo_source_id)
+		VALUES ($1::uuid, 'README.md', 'text/markdown', 'completed', 'p', 'git', $2::uuid),
+		       ($1::uuid, 'upload.txt', 'text/plain', 'completed', 'q', 'upload', NULL)`,
+		kbID, srcID); err != nil {
+		t.Fatalf("seed files: %v", err)
+	}
+
+	rows, _, err := kb.NewStore(pool).ListFiles(ctx, kbID, 50, 0)
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	got := map[string]*string{}
+	for _, r := range rows {
+		got[r.Name] = r.GitRepoSourceID
+	}
+	if g := got["README.md"]; g == nil || *g != srcID {
+		t.Errorf("git file source = %v, want %s", g, srcID)
+	}
+	if g := got["upload.txt"]; g != nil {
+		t.Errorf("upload source = %v, want nil", *g)
+	}
+}
