@@ -279,7 +279,6 @@ export const translations = {
     settingsChat: { de: 'Chat', en: 'Chat' },
     appearance: { de: 'Darstellung', en: 'Appearance' },
     contrast: { de: 'Kontrast', en: 'Contrast' },
-    contrastHint: { de: 'Mittel: grauer Hintergrund. Hoch: dazu deutliche Fokusrahmen und kräftigere Linien. „System" folgt der Kontrasteinstellung deines Geräts.', en: 'Medium: grey background. High: also clear focus rings and stronger lines. “System” follows your device\'s contrast setting.' },
     contrastNormal: { de: 'Standard', en: 'Standard' },
     contrastMedium: { de: 'Mittel', en: 'Medium' },
     contrastMore: { de: 'Hoch', en: 'High' },

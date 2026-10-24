@@ -96,7 +96,6 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                             <SettingsRow
                                 label={t('contrast')}
                                 labelId="settings-contrast"
-                                description={t('contrastHint')}
                                 control={(
                                     <Choice<ContrastChoice>
                                         id="settings-contrast"
