@@ -31,15 +31,33 @@ beforeEach(() => { vi.mocked(axios.get).mockReset(); toastError.mockReset(); });
 describe('useFileManagement.fetchFiles', () => {
   it('treats a 403 as an empty list, silently, and drops the previous KB\'s files', async () => {
     vi.mocked(axios.get).mockResolvedValueOnce({ data: [{ id: 'old', name: 'old.pdf' }] });
-    const { result } = renderHook(() => useFileManagement({ currentKb: kb }));
+    const { result, rerender } = renderHook(({ currentKb }) => useFileManagement({ currentKb }),
+      { initialProps: { currentKb: { ...kb, id: 'kb-1' } } });
     await act(async () => { await result.current.fetchFiles('kb-1'); });
     expect(result.current.files).toHaveLength(1);
 
+    rerender({ currentKb: kb });
     vi.mocked(axios.get).mockRejectedValueOnce(failWith(403));
     await act(async () => { await result.current.fetchFiles('kb-2'); });
     expect(result.current.files).toEqual([]);
     expect(result.current.filesLoaded).toBe(true);
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('drops the previous KB\'s files on any other failure too, but keeps its own on a failed refresh', async () => {
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: [{ id: 'old', name: 'old.pdf' }] });
+    const { result, rerender } = renderHook(({ currentKb }) => useFileManagement({ currentKb }),
+      { initialProps: { currentKb: { ...kb, id: 'kb-1' } } });
+    await act(async () => { await result.current.fetchFiles('kb-1'); });
+
+    vi.mocked(axios.get).mockRejectedValueOnce(failWith(500));
+    await act(async () => { await result.current.fetchFiles('kb-1'); });
+    expect(result.current.files).toHaveLength(1);
+
+    rerender({ currentKb: kb });
+    vi.mocked(axios.get).mockRejectedValueOnce(failWith(500));
+    await act(async () => { await result.current.fetchFiles('kb-2'); });
+    expect(result.current.files).toEqual([]);
   });
 
   it('still reports any other failure', async () => {

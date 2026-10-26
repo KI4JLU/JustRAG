@@ -8,6 +8,7 @@ export const translations = {
     download: { de: 'Herunterladen', en: 'Download' },
     sourceActions: { de: 'Aktionen für', en: 'Actions for' },
     fileStatusPending: { de: 'Wartet auf Verarbeitung', en: 'Waiting for processing' },
+    sourceUploading: { de: 'Wird hochgeladen', en: 'Uploading' },
     error: { de: 'Fehler', en: 'Error' },
     ok: { de: 'OK', en: 'OK' },
     save: { de: 'Speichern', en: 'Save' },
