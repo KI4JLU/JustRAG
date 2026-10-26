@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Alert, AlertDescription, Button, SegmentedControl } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../../api';
 
 // Distribution row mirroring adminagentmetrics.DecisionDistribution.
@@ -166,43 +167,22 @@ export default function AdminAgentMetricsCard({ kbId }: { kbId?: string }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h4 style={{ margin: 0 }}>Agent decisions (live)</h4>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    {WINDOWS.map(w => (
-                        <button
-                            key={w.value}
-                            type="button"
-                            onClick={() => setWindow(w.value)}
-                            style={{
-                                background: window === w.value ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-                                color: window === w.value ? 'var(--bg-primary)' : 'var(--text-primary)',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: '6px',
-                                padding: '0.3rem 0.7rem',
-                                cursor: 'pointer',
-                                fontSize: '0.85rem',
-                            }}
-                        >
-                            {w.label}
-                        </button>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={reload}
-                        disabled={loading}
-                        style={{
-                            background: 'transparent',
-                            color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '6px',
-                            padding: '0.3rem 0.7rem',
-                            cursor: loading ? 'wait' : 'pointer',
-                            fontSize: '0.85rem',
-                        }}
-                    >
+                    <SegmentedControl
+                        aria-label="Window"
+                        options={WINDOWS}
+                        value={window}
+                        onValueChange={next => setWindow(next as '1h' | '24h' | '7d')}
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={reload} disabled={loading}>
                         {loading ? '…' : 'Refresh'}
-                    </button>
+                    </Button>
                 </div>
             </div>
-            {error && <div style={{ color: 'var(--error-color, #c33)', fontSize: '0.85rem', marginBottom: '1rem' }}>Error: {error}</div>}
+            {error && (
+                <Alert tone="error" live="assertive" className="mb-4">
+                    <AlertDescription>Error: {error}</AlertDescription>
+                </Alert>
+            )}
             {data && (
                 <>
                     <DistributionBars title="Agentic chat" dist={data.agentic_chat} />

@@ -3,6 +3,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { openSettingsDialog } from './settingsDialog';
+import { openAdminDialog } from './adminDialog';
 import type { SearchDefaultGroup } from '../components/GlobalSearch';
 
 /**
@@ -14,7 +15,7 @@ import type { SearchDefaultGroup } from '../components/GlobalSearch';
 export function useAccountSearchGroup(): SearchDefaultGroup {
   const { t } = useTheme();
   const { user, logout } = useAuth();
-  const { onViewProfile, onViewAdmin } = useAppNav();
+  const { onViewProfile } = useAppNav();
   const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   return {
     heading: t('searchDefaultsAccount'),
@@ -22,7 +23,7 @@ export function useAccountSearchGroup(): SearchDefaultGroup {
       { id: 'settings', label: t('settings'), icon: <Settings aria-hidden="true" />, onSelect: () => openSettingsDialog() },
       { id: 'profile', label: t('profile'), icon: <User aria-hidden="true" />, onSelect: onViewProfile },
       ...(isSystemAdmin
-        ? [{ id: 'admin', label: t('adminSettings'), icon: <Shield aria-hidden="true" />, onSelect: onViewAdmin }]
+        ? [{ id: 'admin', label: t('adminSettings'), icon: <Shield aria-hidden="true" />, onSelect: () => openAdminDialog() }]
         : []),
       { id: 'logout', label: t('logout'), icon: <LogOut aria-hidden="true" />, onSelect: logout },
     ],

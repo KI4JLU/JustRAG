@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react-vite';
-import { expect } from 'storybook/test';
+import { expect, waitFor, within } from 'storybook/test';
 import { AuthProvider } from './contexts/AuthContext';
 import { translations } from './translations';
 import KBOverviewDashboard from './KBOverviewDashboard';
@@ -113,10 +113,28 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+/**
+ * The items of every row's ⋯ menu, one list per row (the actions are menu items, not buttons of their
+ * own; the menu is portaled to the body, so it is read from the document).
+ */
+async function rowMenuItems(
+  canvas: { getAllByRole: (role: string, o: { name: RegExp }) => HTMLElement[] },
+  userEvent: { click: (el: Element) => Promise<void>; keyboard: (k: string) => Promise<void> },
+): Promise<string[][]> {
+  const lists: string[][] = [];
+  for (const trigger of canvas.getAllByRole('button', { name: /^Aktionen: / })) {
+    await userEvent.click(trigger);
+    lists.push((await within(document.body).findAllByRole('menuitem')).map((i) => i.textContent ?? ''));
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+  }
+  return lists;
+}
+
 export const Superadmin: Story = {
   decorators: [authDecorator('superadmin')],
   parameters: { api: { kbOverview: OVERVIEW } },
-  play: async ({ canvas }) => {
+  play: async ({ canvas, userEvent }) => {
     // ORACLE 1: the accessibility tree. The page title is a real heading at
     // level 2 — `headingLevel={2}`, design-system v0.24.0 (card KI-743).
     // Level 2 and not 1 because this page is NESTED: AdminUI.tsx owns the
@@ -140,9 +158,10 @@ export const Superadmin: Story = {
     // delete are superadmin-only, so two private + one public rows must give
     // 2 publish, 2 transfer, 3 delete. The three controls became DS Buttons;
     // their accessible names are what the existing jsdom suite also keys on.
-    await expect(canvas.getAllByRole('button', { name: NAME.publish })).toHaveLength(2);
-    await expect(canvas.getAllByRole('button', { name: NAME.transfer })).toHaveLength(2);
-    await expect(canvas.getAllByRole('button', { name: NAME.delete })).toHaveLength(3);
+    const items = (await rowMenuItems(canvas, userEvent)).flat();
+    await expect(items.filter(i => i === NAME.publish)).toHaveLength(2);
+    await expect(items.filter(i => i === NAME.transfer)).toHaveLength(2);
+    await expect(items.filter(i => i === NAME.delete)).toHaveLength(3);
   },
 };
 
@@ -150,14 +169,15 @@ export const Superadmin: Story = {
 export const Admin: Story = {
   decorators: [authDecorator('admin')],
   parameters: { api: { kbOverview: OVERVIEW } },
-  play: async ({ canvas }) => {
+  play: async ({ canvas, userEvent }) => {
     await canvas.findByRole('heading', { level: 2 });
     // ORACLE: the backend's own route gating — POST /api/admin/kb/{id}/publish
     // sits on adminChain while delete/transfer are superadmin-only, so the
     // role in the provider decides exactly this set.
-    await expect(canvas.getAllByRole('button', { name: NAME.publish })).toHaveLength(2);
-    await expect(canvas.queryByRole('button', { name: NAME.delete })).toBeNull();
-    await expect(canvas.queryByRole('button', { name: NAME.transfer })).toBeNull();
+    const items = (await rowMenuItems(canvas, userEvent)).flat();
+    await expect(items.filter(i => i === NAME.publish)).toHaveLength(2);
+    await expect(items).not.toContain(NAME.delete);
+    await expect(items).not.toContain(NAME.transfer);
   },
 };
 

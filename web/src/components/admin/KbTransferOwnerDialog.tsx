@@ -3,6 +3,10 @@ import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import { API_BASE_URL } from '../../api';
 import { getApiErrorMessage } from '../../utils/apiError';
+import {
+    Alert, AlertDescription, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
+    DialogTitle, Input, Spinner,
+} from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export interface AdminUserOption {
@@ -76,84 +80,74 @@ export function KbTransferOwnerDialog({
     const selectionVisible = selectedId !== '' && candidates.some((u) => u.id === selectedId);
 
     return (
-        <div className="modal-overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="kb-transfer-title" style={{ maxWidth: '480px' }}>
-                <h3 id="kb-transfer-title" style={{ margin: '0 0 1rem' }}>{t('kbTransferTitle')}</h3>
+        <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
+            <DialogContent closeLabel={t('close')} className="max-w-md">
+                <DialogHeader className="pr-8">
+                    <DialogTitle>{t('kbTransferTitle')}</DialogTitle>
+                    <DialogDescription>{t('kbTransferIntro')}</DialogDescription>
+                </DialogHeader>
 
-                <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{kbName}</p>
-                <p style={{ margin: '0 0 0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                    {t('kbTransferCurrentOwner')}: {currentOwnerName || t('kbTransferNoOwner')}
-                </p>
-                <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{t('kbTransferIntro')}</p>
+                <div className="flex flex-col gap-3">
+                    <div>
+                        <p className="m-0 font-semibold text-on-surface">{kbName}</p>
+                        <p className="m-0 text-sm text-on-surface-variant">
+                            {t('kbTransferCurrentOwner')}: {currentOwnerName || t('kbTransferNoOwner')}
+                        </p>
+                    </div>
 
-                <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder={t('kbTransferSearchPlaceholder')}
-                    aria-label={t('kbTransferSearchPlaceholder')}
-                    style={{
-                        width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                        color: 'var(--text-primary)', padding: '0.5rem 0.75rem', borderRadius: 'var(--shape-md)',
-                        fontSize: '0.9rem', marginBottom: '0.75rem',
-                    }}
-                />
+                    <Input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder={t('kbTransferSearchPlaceholder')}
+                        aria-label={t('kbTransferSearchPlaceholder')}
+                    />
 
-                <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--shape-md)', marginBottom: '1rem' }}>
-                    {loading && (
-                        <div style={{ padding: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Loader2 size={15} className="spin" aria-hidden="true" /> {t('loading')}
-                        </div>
+                    <div className="max-h-56 overflow-y-auto rounded-lg border border-outline-variant">
+                        {loading && (
+                            <div className="flex items-center gap-2 p-3 text-on-surface-variant">
+                                <Spinner size="sm" label={t('loading')} />
+                                <span aria-hidden="true">{t('loading')}</span>
+                            </div>
+                        )}
+                        {!loading && candidates.length === 0 && (
+                            <div className="p-3 text-sm text-on-surface-variant">{t('kbTransferNoUsers')}</div>
+                        )}
+                        {candidates.map((u) => (
+                            <Button
+                                key={u.id}
+                                type="button"
+                                variant="ghost"
+                                className="w-full justify-start rounded-none"
+                                onClick={() => setSelectedId(u.id)}
+                                aria-pressed={selectedId === u.id}
+                            >
+                                {displayName(u)}
+                            </Button>
+                        ))}
+                    </div>
+
+                    {(error || loadError) && (
+                        <Alert tone="error" live="assertive">
+                            <AlertDescription>{error || loadError}</AlertDescription>
+                        </Alert>
                     )}
-                    {!loading && candidates.length === 0 && (
-                        <div style={{ padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{t('kbTransferNoUsers')}</div>
-                    )}
-                    {candidates.map((u) => (
-                        <button
-                            key={u.id}
-                            type="button"
-                            onClick={() => setSelectedId(u.id)}
-                            aria-pressed={selectedId === u.id}
-                            style={{
-                                display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
-                                padding: '0.5rem 0.75rem', fontSize: '0.9rem',
-                                background: selectedId === u.id ? 'var(--accent-primary)' : 'transparent',
-                                color: selectedId === u.id ? 'white' : 'var(--text-primary)',
-                            }}
-                        >
-                            {displayName(u)}
-                        </button>
-                    ))}
                 </div>
 
-                {(error || loadError) && (
-                    <p style={{ color: 'var(--error-text)', fontSize: '0.9rem', margin: '0 0 1rem' }}>{error || loadError}</p>
-                )}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <button type="button" onClick={onCancel} disabled={busy} style={{
-                        background: 'var(--bg-primary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)',
-                        padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', cursor: busy ? 'default' : 'pointer',
-                    }}>
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
                         {t('cancel')}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         type="button"
                         onClick={() => { if (selectionVisible) onConfirm(selectedId); }}
                         disabled={!selectionVisible || busy}
-                        style={{
-                            background: selectionVisible && !busy ? 'var(--accent-primary)' : 'var(--bg-primary)',
-                            border: '1px solid var(--border-color)', color: selectionVisible && !busy ? 'white' : 'var(--text-secondary)',
-                            padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)',
-                            cursor: selectionVisible && !busy ? 'pointer' : 'default',
-                            display: 'flex', alignItems: 'center', gap: '0.4rem',
-                        }}
                     >
-                        {busy && <Loader2 size={15} className="spin" aria-hidden="true" />}
+                        {busy && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
                         {t('kbTransferSubmit')}
-                    </button>
-                </div>
-            </div>
-        </div>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

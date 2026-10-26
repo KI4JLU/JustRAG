@@ -13,6 +13,7 @@ import { AppNavProvider } from '../contexts/AppNavContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbRemoval } from '../hooks/useKbRemoval';
 import { useKbSearchState } from '../hooks/useKbSearchState';
+import { openAdminDialog, setAdminDialogOpen } from '../hooks/adminDialog';
 
 /** Opens the topic card's ⋮ menu; the card actions live there. */
 async function kbMenu() {
@@ -22,6 +23,12 @@ async function kbMenu() {
 
 
 vi.mock('axios');
+
+// The console is covered by AdminUI.*.test.tsx and App.authenticated-home.test.tsx;
+// here it only has to open.
+vi.mock('../AdminUI', () => ({
+  default: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="admin console" /> : null),
+}));
 const mockedAxios = vi.mocked(axios, true);
 
 // Modal (behind ModalProvider) calls useReducedMotion, which reads
@@ -84,7 +91,7 @@ const NAV = {
   onViewDiscover: vi.fn(),
   onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
-  onViewAdmin: vi.fn(),
+  onEditGlobalKb: vi.fn(),
   onViewLegal: vi.fn(),
   // The header search's destinations (KI-837). No test here selects a hit.
   onOpenTopic: vi.fn(),
@@ -104,7 +111,7 @@ beforeEach(() => {
   NAV.onViewDiscover.mockClear();
   NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
-  NAV.onViewAdmin.mockClear();
+  setAdminDialogOpen(false);
   NAV.onOpenTopicSettings.mockClear();
 });
 
@@ -519,19 +526,33 @@ describe('AppChrome, through the view that mounts it', () => {
     expect(menu.getByRole('menuitem', { name: translations.profile.en })).toBeInTheDocument();
   });
 
-  it('offers the admin entry in the user menu for an admin, and it routes', async () => {
+  // ORACLE: the rights rule of the `?admin=` link: it is for system admins; for anyone else the parameter is
+  // ignored and removed from the URL, and no console opens.
+  it('ignores and strips ?admin for a user who is not a system admin', async () => {
+    authState.role = 'user';
+    openAdminDialog('users'); // as a link carrying ?admin=users would
+    expect(window.location.search).toBe('?admin=users');
+
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(screen.queryByRole('dialog', { name: 'admin console' })).toBeNull();
+  });
+
+  it('offers the admin entry in the user menu for an admin, and it opens the console', async () => {
     authState.role = 'admin';
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
     await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
     const menu = within(await screen.findByRole('menu'));
 
-    /* ORACLE: the NAV spy. Clicking is the assertion, not rendering: the
-       admin UI has had no other entry point since the floating admin button
-       was deleted, so an item that renders but reaches nothing would lock
-       admins out of the console entirely. */
+    /* ORACLE: the admin dialog's open state (AdminUI is stubbed above: this
+       suite pins the entry, `App.authenticated-home.test.tsx` the real
+       console). Clicking is the assertion, not rendering: the console has no
+       other entry point, so an item that renders but reaches nothing would
+       lock admins out of it entirely. */
     await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.en }));
-    expect(NAV.onViewAdmin).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('dialog', { name: 'admin console' })).toBeInTheDocument();
   });
 });
 

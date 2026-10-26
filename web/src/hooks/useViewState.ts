@@ -13,7 +13,7 @@ import { deriveActiveMobileTab } from '../utils/activeMobileTab';
  * There is no router here: a view is a member of this union, a render branch in
  * AuthenticatedApp, and a nav row wired through AppNavContext. The URL does not
  * change and no history entry is pushed — the existing architecture. */
-type ViewType = 'my-topics' | 'shared-topics' | 'discover' | 'tools' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility' | 'agents';
+type ViewType = 'my-topics' | 'shared-topics' | 'discover' | 'tools' | 'kb' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility' | 'agents';
 /* NUR 'chat' (Entwickler, 22.09.2026): die KB-Ansicht ist der Chat. Die
  * früheren Werte 'dashboard' | 'research' | 'academic_research' |
  * 'workspace' | 'mindmap' sind absichtlich aus dem Typ gestrichen — die

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import AdminAgentTab from './AdminAgentTab';
 import { translations } from '../../translations';
+import { controlByRowLabel, labelledControls } from '../../test/labelledControls';
 
 /* ---------------------------------------------------------------------------
  * This suite exists because of the design-system migration of this file (board
@@ -47,17 +48,12 @@ const STORAGE_KEY = 'admin-agent-sections-open-v1';
  * observable. `latest()` returns the current site_configs record.
  */
 /**
- * A labelled field, found through its own `<label for>`. ORACLE as with
- * getByLabelText — the visible label names the control — but without its cost:
- * getByLabelText scans every label and `aria-labelledby` in this tab's ~180
- * controls, ~1.9 s per call locally and past the 15 s test timeout on CI.
+ * A labelled field, found through its row's label. ORACLE as with getByLabelText — the
+ * visible label names the control — but without its cost: getByLabelText scans every
+ * `aria-labelledby` in this tab's ~180 controls, ~1.9 s per call locally and past the 15 s
+ * test timeout on CI.
  */
-function fieldByLabel(text: string): HTMLElement {
-    const label = screen.getByText(text, { selector: 'label' });
-    const el = document.getElementById(label.getAttribute('for') ?? '');
-    if (!el) throw new Error(`label "${text}" names no element`);
-    return el;
-}
+const fieldByLabel = controlByRowLabel;
 
 function renderTab(initial: Record<string, string> = {}) {
     const seen: { configs: Record<string, string> } = { configs: initial };
@@ -115,31 +111,15 @@ beforeEach(() => {
 });
 
 describe('AdminAgentTab — label/control pairing', () => {
-    it('resolves every label to a real, labelable control', () => {
-        // ORACLE: the HTML specification, applied by jsdom, not by this
-        // component. `label[for]` must name an element that exists and is
-        // labelable (button, input, meter, output, progress, select,
-        // textarea). Before the migration this held only because 143
-        // hand-written id/htmlFor pairs happened to agree; now FormControl
-        // injects the id, and this asserts the result rather than trusting it.
+    it('resolves every row label to the control it names', () => {
+        // ORACLE: WAI-ARIA's accessible-name computation (test/labelledControls.ts): each
+        // control's `aria-labelledby` must resolve to a label with text. Before the
+        // migration this held only because 143 hand-written id/htmlFor pairs happened to
+        // agree; now the row injects the ids, and this asserts the result.
         const { container } = renderTab();
 
-        const labels = Array.from(container.querySelectorAll('label[for]'));
-        expect(labels.length).toBeGreaterThan(140);
-
-        const LABELABLE = ['BUTTON', 'INPUT', 'METER', 'OUTPUT', 'PROGRESS', 'SELECT', 'TEXTAREA'];
-        const broken = labels
-            .map(l => {
-                const id = l.getAttribute('for')!;
-                const target = container.querySelector(`[id="${CSS.escape(id)}"]`);
-                if (!target) return `${l.textContent?.trim()} -> #${id} (no such element)`;
-                if (!LABELABLE.includes(target.tagName)) {
-                    return `${l.textContent?.trim()} -> <${target.tagName.toLowerCase()}> (not labelable)`;
-                }
-                return null;
-            })
-            .filter(Boolean);
-
+        const { controls, broken } = labelledControls(container);
+        expect(controls.length).toBeGreaterThan(140);
         expect(broken).toEqual([]);
     });
 
@@ -212,16 +192,36 @@ describe('AdminAgentTab — control census', () => {
         // The 4 old raw buttons were: the 20 section toggles (one component),
         // expand-all, collapse-all and submit. Every <button> in the tree must
         // now come from the DS, which is observable as the DS Button's base
-        // class (`rounded-action`) or as a Radix control's role.
+        // class (`rounded-action`), a Radix control's role, or the DS Collapsible
+        // trigger's data-slot (the section headers).
         const { container } = renderTab();
 
         const strays = Array.from(container.querySelectorAll('button')).filter(b => {
             if (b.getAttribute('role') === 'checkbox') return false; // DS Checkbox
             if (b.getAttribute('role') === 'combobox') return false; // DS SelectTrigger
+            if (b.getAttribute('data-slot') === 'collapsible-trigger') return false; // DS Collapsible: the section headers
             return !b.className.split(/\s+/).includes('rounded-action'); // DS Button
         });
 
         expect(strays.map(b => b.textContent?.trim())).toEqual([]);
+    });
+});
+
+describe('AdminAgentTab — section headers', () => {
+    it('toggle their section and carry no press animation', async () => {
+        // ORACLE: WAI-ARIA's disclosure pattern (aria-expanded flips, the body appears and goes),
+        // and the developer's report of 2026-10-26: a full-width header built as a DS Button shrank
+        // while pressed (`active:scale-95`) and felt squishy, so the header must not carry that class.
+        renderTab();
+        const header = screen.getByRole('button', { name: tMock('agentSectionGeneral') });
+        const wasOpen = header.getAttribute('aria-expanded') === 'true';
+        expect(screen.queryByText(tMock('defaultTopK')) !== null).toBe(wasOpen);
+
+        await userEvent.click(header);
+        expect(header).toHaveAttribute('aria-expanded', String(!wasOpen));
+        expect(screen.queryByText(tMock('defaultTopK')) !== null).toBe(!wasOpen);
+
+        expect(header.className).not.toMatch(/active:scale/);
     });
 });
 

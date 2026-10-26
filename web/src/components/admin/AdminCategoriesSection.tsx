@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Button } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -63,46 +64,46 @@ export default function AdminCategoriesSection() {
     };
 
     return (
-        <section className="admin-content" style={{ marginTop: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>{t('categories')}</h3>
-                <button onClick={handleCreate} style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
-                    <Plus size={16} /> {t('create')}
-                </button>
-            </div>
+        <section className="admin-content mt-8 flex flex-col gap-4">
+            <h3 className="m-0 text-on-surface">{t('categories')}</h3>
             {loading ? (
-                <p style={{ color: 'var(--text-secondary)' }}>{t('loading')}</p>
+                <p className="m-0 text-on-surface-variant">{t('loading')}</p>
             ) : categories.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{t('noCategories')}</p>
+                <p className="m-0 text-sm text-on-surface-variant">{t('noCategories')}</p>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div className="flex flex-col gap-2">
                     {categories.map(cat => (
-                        <div key={cat.id} style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '0.6rem 1rem', borderRadius: '8px',
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                        }}>
-                            <span style={{ fontSize: '0.9rem' }}>{cat.name}</span>
-                            <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                <button
+                        <div key={cat.id} className="result-card flex items-center justify-between gap-2 px-4 py-2.5">
+                            <span className="text-sm">{cat.name}</span>
+                            <div className="flex gap-1.5">
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
                                     onClick={() => handleRename(cat)}
                                     aria-label={`${t('edit')}: ${cat.name}`}
-                                    style={{ padding: '0.35rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                 >
                                     <Pencil size={14} />
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost-destructive"
+                                    size="icon"
                                     onClick={() => handleDelete(cat)}
                                     aria-label={`${t('delete')}: ${cat.name}`}
-                                    style={{ padding: '0.35rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                 >
                                     <Trash2 size={14} />
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     ))}
                 </div>
             )}
+            {/* Adding is an action inside the list, so it sits under it (as "Modell hinzufügen"
+              * does in the config form) rather than in the section header. */}
+            <Button type="button" variant="outline" size="sm" className="w-fit" onClick={handleCreate}>
+                <Plus size={16} /> {t('create')}
+            </Button>
         </section>
     );
 }

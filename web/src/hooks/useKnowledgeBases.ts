@@ -51,7 +51,7 @@ interface UseKnowledgeBasesParams {
   setIsPro: (isPro: boolean) => void;
   /** Nur 'chat' — siehe `KbViewType` in useViewState.ts (22.09.2026). */
   setKbView: (view: 'chat') => void;
-  setView: (view: 'my-topics' | 'kb' | 'admin' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
+  setView: (view: 'my-topics' | 'kb' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
   setSelectedContent: (content: GeneratedContent | null) => void;
   setGeneratedContent: (content: GeneratedContent[]) => void;
 }

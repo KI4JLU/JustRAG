@@ -50,7 +50,6 @@ import { chatWebSearchRequestField } from './utils/chatWebSearch';
 import { kbSourceRights } from './utils/kbAccess';
 
 // Lazy Loaded Components
-const AdminUI = lazy(() => import('./AdminUI'));
 const Profile = lazy(() => import('./Profile'));
 const AgentsView = lazy(() => import('./components/agents/AgentsView'));
 
@@ -282,7 +281,7 @@ function AuthenticatedAppInner() {
     onViewDiscover: () => setView('discover'),
     onViewTools: () => setView('tools'),
     onViewProfile: () => setView('profile'),
-    onViewAdmin: () => setView('admin'),
+    onEditGlobalKb: (kb) => kbMgmt.handleOpenGlobalKbSettings(kb as KnowledgeBase, { stopPropagation: () => { } } as React.MouseEvent),
     onViewLegal: (page) => setView(page),
     onOpenTopic: searchNav.openTopic,
     onOpenSource: (source) => { void searchNav.openSource(source); },
@@ -296,14 +295,6 @@ function AuthenticatedAppInner() {
   };
 
   // Early returns for non-KB views
-  if (view === 'admin') {
-    return (
-      <Suspense fallback={<LoadingFallback />}>
-        <AdminUI onBack={viewState.handleGoHome} user={user} onEditGlobalKb={(kb) => kbMgmt.handleOpenGlobalKbSettings(kb as KnowledgeBase, { stopPropagation: () => { } } as React.MouseEvent)} />
-      </Suspense>
-    );
-  }
-
   if (view === 'global-kb-settings' && currentKb?.isGlobal) {
     return (
       <Suspense fallback={<div className="loading-spinner"><Loader2 className="animate-spin" /></div>}>

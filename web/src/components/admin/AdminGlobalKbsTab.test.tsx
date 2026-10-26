@@ -33,6 +33,11 @@ vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => authMock }));
 describe('AdminGlobalKbsTab', () => {
     beforeEach(() => {
         vi.resetAllMocks();
+        // Radix's Select trigger measures and captures pointers; jsdom implements neither.
+        Element.prototype.hasPointerCapture = vi.fn(() => false);
+        Element.prototype.setPointerCapture = vi.fn();
+        Element.prototype.releasePointerCapture = vi.fn();
+        Element.prototype.scrollIntoView = vi.fn();
         mockedAxios.get.mockImplementation((url: string) => {
             if (url.includes('/unpublish-impact')) {
                 return Promise.resolve({
@@ -50,7 +55,7 @@ describe('AdminGlobalKbsTab', () => {
 
     it('states the subscriber count before unpublishing', async () => {
         renderTab();
-        await userEvent.click(await screen.findByRole('button', { name: /zurücknehmen|make private/i }));
+        await openUnpublishDialog();
         expect(await screen.findByText(/4/)).toBeInTheDocument();
     });
 
@@ -58,9 +63,9 @@ describe('AdminGlobalKbsTab', () => {
         mockedAxios.post.mockResolvedValue({ status: 204 });
         renderTab();
 
-        await userEvent.click(await screen.findByRole('button', { name: /zurücknehmen|make private/i }));
+        await openUnpublishDialog();
         const dialog = await screen.findByRole('dialog');
-        await userEvent.selectOptions(within(dialog).getByRole('combobox'), 'u1');
+        await chooseOwner(dialog, 'alice');
         await userEvent.click(within(dialog).getByRole('button', { name: /zurücknehmen|make private/i }));
 
         await waitFor(() => {
@@ -75,11 +80,17 @@ describe('AdminGlobalKbsTab', () => {
         expect(screen.queryByText('IT-Handbuch')).toBeNull();
     });
 
-    it('toggles auto_subscribe through the global-kbs PATCH', async () => {
+    // ORACLE: the developer's ruling of 2026-10-26: the „show in everyone's overview" switch is an entry of the
+    // row's ⋮ menu (a checked item is its current state), and the row says so with a badge.
+    it('toggles auto_subscribe from the row menu through the global-kbs PATCH', async () => {
         mockedAxios.patch.mockResolvedValue({ data: { id: 'kb-1', autoSubscribe: true } });
         renderTab();
 
-        await userEvent.click(await screen.findByRole('switch', { name: /übersichten|overview/i }));
+        await openRowMenu();
+        const item = await screen.findByRole('menuitem', { name: /overview/i });
+        expect(item).not.toHaveAttribute('aria-current');
+        expect(screen.queryByText(translations.autoSubscribeBadge.en)).toBeNull();
+        await userEvent.click(item);
 
         await waitFor(() => {
             expect(mockedAxios.patch).toHaveBeenCalledWith(
@@ -87,18 +98,64 @@ describe('AdminGlobalKbsTab', () => {
                 expect.objectContaining({ autoSubscribe: true })
             );
         });
+        // On now: the row carries the badge, and the menu item is the checked one.
+        expect(await screen.findByText(translations.autoSubscribeBadge.en)).toBeInTheDocument();
+        await openRowMenu();
+        expect(await screen.findByRole('menuitem', { name: /overview/i })).toHaveAttribute('aria-current', 'true');
+    });
+
+    // ORACLE: docs/kb-access.md — a staged public KB (is_published = false) is not live until an operator publishes it,
+    // and PATCH /api/admin/global-kbs/{id} accepts `isPublished`. The row says it is not live, and „Veröffentlichen" in the menu goes live.
+    it('shows a staged KB as not live and publishes it from the row menu', async () => {
+        mockedAxios.get.mockImplementation((url: string) => {
+            if (url.includes('/api/admin/kb-categories')) return Promise.resolve({ data: [] });
+            return Promise.resolve({
+                data: [{ id: 'kb-1', name: 'IT-Handbuch', createdAt: '2026-01-01T00:00:00Z', autoSubscribe: false, isPublished: false }],
+            });
+        });
+        mockedAxios.patch.mockResolvedValue({ data: {} });
+        renderTab();
+
+        expect(await screen.findByText(translations.kbStagedBadge.en)).toBeInTheDocument();
+        await openRowMenu();
+        await userEvent.click(await screen.findByRole('menuitem', { name: translations.kbActionPublishLive.en }));
+
+        await waitFor(() => {
+            expect(mockedAxios.patch).toHaveBeenCalledWith(
+                expect.stringContaining('/api/admin/global-kbs/kb-1'),
+                { isPublished: true },
+            );
+        });
+        await waitFor(() => expect(screen.queryByText(translations.kbStagedBadge.en)).toBeNull());
+    });
+
+    // ORACLE: a second change to the same KB while the first request is still in flight must not go out: on failure it
+    // would roll back to an optimistic value the server never had.
+    it('allows one change per KB at a time', async () => {
+        mockedAxios.patch.mockReturnValue(new Promise(() => {})); // never settles
+        renderTab();
+
+        await openRowMenu();
+        await userEvent.click(await screen.findByRole('menuitem', { name: translations.kbActionPublishLive.en }));
+        await waitFor(() => expect(mockedAxios.patch).toHaveBeenCalledTimes(1));
+
+        await openRowMenu();
+        const again = await screen.findByRole('menuitem', { name: translations.kbActionPublishLive.en });
+        expect(again).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(again); // bypassing the disabled state: the handler refuses as well
+        expect(mockedAxios.patch).toHaveBeenCalledTimes(1);
     });
 
     it('blocks confirmation until an owner is chosen when candidates exist', async () => {
         renderTab();
-        await userEvent.click(await screen.findByRole('button', { name: /zurücknehmen|make private/i }));
+        await openUnpublishDialog();
         const dialog = await screen.findByRole('dialog');
         await screen.findByText(/4/);
 
         const confirmButton = within(dialog).getByRole('button', { name: /zurücknehmen|make private/i });
         expect(confirmButton).toBeDisabled();
 
-        await userEvent.selectOptions(within(dialog).getByRole('combobox'), 'u1');
+        await chooseOwner(dialog, 'alice');
         expect(confirmButton).toBeEnabled();
     });
 
@@ -117,7 +174,7 @@ describe('AdminGlobalKbsTab', () => {
         mockedAxios.post.mockResolvedValue({ status: 204 });
         renderTab();
 
-        await userEvent.click(await screen.findByRole('button', { name: /zurücknehmen|make private/i }));
+        await openUnpublishDialog();
         const dialog = await screen.findByRole('dialog');
         await screen.findByText(translations.unpublishNoCandidates.en);
         expect(within(dialog).queryByRole('combobox')).toBeNull();
@@ -135,7 +192,7 @@ describe('AdminGlobalKbsTab', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     });
 
-    it('disables a row\'s category chips instead of risking a wipe when its assignment fetch fails', async () => {
+    it('disables a row\'s categories instead of risking a wipe when its assignment fetch fails', async () => {
         mockedAxios.get.mockImplementation((url: string) => {
             if (url.includes('/unpublish-impact')) {
                 return Promise.resolve({
@@ -154,27 +211,22 @@ describe('AdminGlobalKbsTab', () => {
         });
         renderTab();
 
-        // Scoped to the chip group: AdminCategoriesSection below renders its
-        // own "Edit: Security" / "Delete: Security" buttons for the same
-        // category, so an unscoped name match is ambiguous.
-        const chips = await screen.findByRole('group', { name: translations.categories.en });
-        const chip = within(chips).getByRole('button', { name: /Security/i });
-        await waitFor(() => expect(chip).toBeDisabled());
+        // The row says so, and its categories are not offered for change.
         expect(await screen.findByText(translations.categoriesLoadError.en)).toBeInTheDocument();
+        await openCategories();
+        const security = await screen.findByRole('menuitem', { name: /Security/i });
+        expect(security).toHaveAttribute('aria-disabled', 'true');
 
-        // Even a click that reaches the chip bypassing the disabled attribute
-        // (fireEvent dispatches directly on the node, unlike userEvent) must
-        // not be able to issue the wiping PUT — the handler itself refuses
-        // once the row is marked as failed-to-load.
-        fireEvent.click(chip);
+        // Even a click that reaches the item bypassing the disabled state (fireEvent dispatches directly
+        // on the node) must not be able to issue the wiping PUT: the handler itself refuses once the row
+        // is marked as failed-to-load.
+        fireEvent.click(security);
         expect(mockedAxios.put).not.toHaveBeenCalled();
     });
 
-    // The chips replaced a <select multiple> whose assigned entries could only
-    // be told apart by the browser's selection highlight and could only be
-    // dropped by ctrl-clicking them. Both directions are pinned here, since
-    // "assignments can be removed again" is the whole point of the change.
-    it('assigns a category on click and removes it on a second click', async () => {
+    // The chips replaced a <select multiple>; the submenu replaces the chips. Both directions are pinned,
+    // since "assignments can be removed again" is the whole point of the control.
+    it('assigns a category from the menu and removes it with a second choice', async () => {
         mockedAxios.get.mockImplementation((url: string) => {
             if (url.includes('/api/admin/kb-categories')) {
                 return Promise.resolve({ data: [{ id: 'cat-1', name: 'Security', sortOrder: 0 }] });
@@ -189,29 +241,53 @@ describe('AdminGlobalKbsTab', () => {
         mockedAxios.put.mockResolvedValue({ status: 204 });
         renderTab();
 
-        const chips = await screen.findByRole('group', { name: translations.categories.en });
-        const chip = within(chips).getByRole('button', { name: /Security/i });
-        await waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'false'));
-
-        await userEvent.click(chip);
+        await openCategories();
+        const security = await screen.findByRole('menuitem', { name: /Security/i });
+        expect(security).not.toHaveAttribute('aria-current');
+        await userEvent.click(security);
         await waitFor(() => {
             expect(mockedAxios.put).toHaveBeenCalledWith(
                 expect.stringContaining('/api/kb/kb-1/categories'),
                 { categoryIds: ['cat-1'] }
             );
         });
-        await waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'true'));
 
-        await userEvent.click(chip);
+        await openCategories();
+        const assigned = await screen.findByRole('menuitem', { name: /Security/i });
+        expect(assigned).toHaveAttribute('aria-current', 'true');
+        await userEvent.click(assigned);
         await waitFor(() => {
             expect(mockedAxios.put).toHaveBeenLastCalledWith(
                 expect.stringContaining('/api/kb/kb-1/categories'),
                 { categoryIds: [] }
             );
         });
-        await waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'false'));
     });
 });
+
+// Unpublish sits in the row's actions menu (Edit / Make private / Delete), so
+// the dialog is reached through the menu rather than a row-level button.
+async function openUnpublishDialog() {
+    await openRowMenu();
+    await userEvent.click(await screen.findByRole('menuitem', { name: /zurücknehmen|make private/i }));
+}
+
+/** Opens the ⋮ menu of the (only) row. */
+async function openRowMenu() {
+    await userEvent.click(await screen.findByRole('button', { name: /^(actions|aktionen)/i }));
+}
+
+/** Opens the row menu and its Categories submenu. */
+async function openCategories() {
+    await openRowMenu();
+    await userEvent.click(await screen.findByRole('menuitem', { name: new RegExp(translations.categories.en, 'i') }));
+}
+
+// The owner picker is a DS (Radix) Select: open the combobox, click the option.
+async function chooseOwner(dialog: HTMLElement, optionName: string) {
+    await userEvent.click(within(dialog).getByRole('combobox'));
+    await userEvent.click(await screen.findByRole('option', { name: optionName }));
+}
 
 // renderTab wraps the component in the same context mocks the sibling admin
 // tests use (KbAgentsSection.test.tsx / KbDeleteDialog.test.tsx) — the mocks

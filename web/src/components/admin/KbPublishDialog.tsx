@@ -1,4 +1,7 @@
 import { Globe, Loader2 } from 'lucide-react';
+import {
+    Alert, AlertDescription, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export interface KbPublishDialogProps {
@@ -26,39 +29,39 @@ export function KbPublishDialog({ kbName, busy, error, onCancel, onConfirm }: Kb
     const { t } = useTheme();
 
     return (
-        <div className="modal-overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="kb-publish-title" style={{ maxWidth: '480px' }}>
-                <h3 id="kb-publish-title" style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Globe size={18} aria-hidden="true" style={{ color: 'var(--accent-primary)' }} />
-                    {t('kbPublishTitle')}
-                </h3>
+        <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
+            <DialogContent closeLabel={t('close')} className="max-w-md" aria-describedby={undefined}>
+                <DialogHeader className="pr-8">
+                    <DialogTitle className="flex items-center gap-2">
+                        <Globe size={18} aria-hidden="true" className="shrink-0 text-primary" />
+                        {t('kbPublishTitle')}
+                    </DialogTitle>
+                </DialogHeader>
 
-                <p style={{ margin: '0 0 1rem', fontWeight: 600 }}>{kbName}</p>
+                <div className="flex flex-col gap-3">
+                    <p className="m-0 font-semibold text-on-surface">{kbName}</p>
 
-                <p style={{ margin: '0 0 1rem', color: 'var(--error-text)', fontSize: '0.9rem' }}>{t('kbPublishWarning')}</p>
-                <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{t('kbPublishStagedNote')}</p>
-                <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{t('kbPublishOwnerNote')}</p>
+                    <p className="m-0 text-sm text-error">{t('kbPublishWarning')}</p>
+                    <p className="m-0 text-sm text-on-surface-variant">{t('kbPublishStagedNote')}</p>
+                    <p className="m-0 text-sm text-on-surface-variant">{t('kbPublishOwnerNote')}</p>
 
-                {error && <p style={{ color: 'var(--error-text)', fontSize: '0.9rem', margin: '0 0 1rem' }}>{error}</p>}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <button type="button" onClick={onCancel} disabled={busy} style={{
-                        background: 'var(--bg-primary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)',
-                        padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', cursor: busy ? 'default' : 'pointer',
-                    }}>
-                        {t('cancel')}
-                    </button>
-                    <button type="button" onClick={onConfirm} disabled={busy} style={{
-                        background: busy ? 'var(--bg-primary)' : 'var(--accent-primary)',
-                        border: '1px solid var(--border-color)', color: busy ? 'var(--text-secondary)' : 'white',
-                        padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', cursor: busy ? 'default' : 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '0.4rem',
-                    }}>
-                        {busy && <Loader2 size={15} className="spin" aria-hidden="true" />}
-                        {t('kbActionPublish')}
-                    </button>
+                    {error && (
+                        <Alert tone="error" live="assertive">
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
                 </div>
-            </div>
-        </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
+                        {t('cancel')}
+                    </Button>
+                    <Button type="button" onClick={onConfirm} disabled={busy}>
+                        {busy && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
+                        {t('kbActionPublish')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

@@ -1,12 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { Plus, ChevronLeft, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
+import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
+import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
 import { useToast } from './contexts/ToastContext';
 import { useTheme } from './contexts/ThemeContext';
 import { useModalContext } from './contexts/ModalContext';
 import { useFormValidation } from './hooks/useFormValidation';
+import type { AdminSection } from './hooks/adminDialog';
+import { adminSectionKeywords } from './components/admin/adminSearchKeywords';
 import SystemHealthDashboard from './SystemHealthDashboard';
 import KBOverviewDashboard from './KBOverviewDashboard';
 import AdminConfigsTab from './components/admin/AdminConfigsTab';
@@ -52,6 +55,8 @@ interface User {
     role: string;
     firstName?: string;
     lastName?: string;
+    /** ISO timestamp the account was created (GET /api/admin/users). */
+    createdAt?: string;
 }
 
 interface LdapConfig {
@@ -87,19 +92,53 @@ export interface ChatModelOption {
     label: string;   // display text: "model-name (provider)"
 }
 
+type AdminTab = AdminSection;
+
+// The sections are defined with the dialog's open state (hooks/adminDialog.ts, which owns `?admin=`).
+export type { AdminSection };
+
 interface AdminUIProps {
-    onBack: () => void;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    section: AdminSection;
+    onSectionChange: (section: AdminSection) => void;
     user: User;
     onEditGlobalKb?: (kb: { id: string; name: string }) => void;
 }
 
-type AdminTab = 'configs' | 'auth' | 'users' | 'roles' | 'site' | 'search' | 'agent' | 'health' | 'kb-overview' | 'global-kbs' | 'eval';
-
-export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) {
+/**
+ * The admin console (user menu → „Admin-Einstellungen"), on the DS `SettingsDialog`
+ * like the user and KB settings. Sections sit under the old page's nav groups
+ * as dialog group headings: configuration, knowledge bases (overview, then
+ * public KBs), users, monitoring. A system admin sees what the routes
+ * let them use; the rest (authentication, search, agents, settings, eval) is
+ * superadmin-only.
+ *
+ * Mount it only while open: it fetches the open section's data on mount.
+ */
+export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb }: AdminUIProps) {
     const toast = useToast();
     const { t } = useTheme();
     const { showConfirm } = useModalContext();
-    const [activeTab, setActiveTab] = useState<AdminTab>('configs');
+
+    // Authentication, search, agents, settings and eval are superadmin-only
+    // (their routes sit on superadminChain); an admin would only collect 403s.
+    const isSuperadmin = user.role === 'superadmin';
+    const isAdmin = isSuperadmin || user.role === 'admin';
+    const visibleTabs: AdminTab[] = [
+        'configs',
+        ...(isSuperadmin ? ['auth', 'search', 'agent', 'site'] as const : []),
+        ...(isAdmin ? ['kb-overview'] as const : []),
+        'global-kbs',
+        ...(isAdmin ? ['users', 'roles', 'health'] as const : []),
+        ...(isSuperadmin ? ['eval'] as const : []),
+    ];
+    const activeTab: AdminTab = visibleTabs.includes(section) ? section : 'configs';
+    // A section this user may not see (a `?admin=auth` link opened by a plain admin) shows the first one;
+    // say so to the store, so the URL names what is on screen.
+    useEffect(() => {
+        if (section !== activeTab) onSectionChange(activeTab);
+    }, [section, activeTab, onSectionChange]);
     const [configs, setConfigs] = useState<AIConfig[]>([]);
     const [providers, setProviders] = useState<AuthProvider[]>([]);
     const [usersList, setUsersList] = useState<User[]>([]);
@@ -109,6 +148,8 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
     const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
+    // The dialog's footer, where an open add/edit form puts its actions (see KbSettingsDialog).
+    const [footerSlot, setFooterSlot] = useState<HTMLDivElement | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [connectionTest, setConnectionTest] = useState<{
         configId: string;
@@ -366,12 +407,10 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
         }
     };
 
-    // clearAll is a stable useCallback inside useFormValidation; depending on
-    // the destructured functions (not the hook objects) keeps resetForm stable.
     const { clearAll: clearConfigValidation } = configValidation;
     const { clearAll: clearAuthValidation } = authValidation;
 
-    const resetForm = useCallback(() => {
+    const resetForm = () => {
         setShowForm(false);
         setEditingId(null);
         setConfigFormData({
@@ -399,19 +438,7 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
         });
         clearConfigValidation();
         clearAuthValidation();
-    }, [clearConfigValidation, clearAuthValidation]);
-
-    useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                if (showForm) {
-                    resetForm();
-                }
-            }
-        };
-        window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-    }, [showForm, resetForm]);
+    };
 
     const handleDelete = async (id: string, type: 'config' | 'auth') => {
         if (!await showConfirm(type === 'config' ? t('confirmDeleteConfig') : t('confirmDeleteProvider'))) return;
@@ -448,308 +475,161 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
         setShowForm(true);
     };
 
-    const sectionTitle = activeTab === 'configs' ? t('aiConfigurations')
-        : activeTab === 'auth' ? t('authProviders')
-        : activeTab === 'site' ? t('siteSettings')
-        : activeTab === 'search' ? t('searchProviderConfig')
-        : activeTab === 'agent' ? t('agentConfig')
-        : activeTab === 'eval' ? t('evalRunner')
-        : activeTab === 'roles' ? t('adminTabRoles')
-        : t('userManagement');
-
-    const isDataTab = activeTab === 'health' || activeTab === 'kb-overview' || activeTab === 'users';
-
-    const navItem = (tab: AdminTab, Icon: typeof Cpu, label: string) => {
-        const active = activeTab === tab;
-        return (
-            <button
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`admin-nav-item ${active ? 'active' : ''}`}
-                aria-current={active ? 'page' : undefined}
-            >
-                <Icon size={18} />
-                <span>{label}</span>
-            </button>
-        );
+    const content = (tab: AdminTab): React.ReactNode => {
+        switch (tab) {
+            case 'configs':
+                return (
+                    <AdminConfigsTab
+                        configs={configs}
+                        showForm={showForm}
+                        editingId={editingId}
+                        configFormData={configFormData}
+                        setConfigFormData={setConfigFormData}
+                        connectionTest={connectionTest}
+                        setConnectionTest={setConnectionTest}
+                        handleConfigSubmit={handleConfigSubmit}
+                        startEditConfig={startEditConfig}
+                        handleDelete={handleDelete}
+                        handleActivate={handleActivate}
+                        resetForm={resetForm}
+                        configValidation={configValidation}
+                        loading={loading}
+                        siteConfigs={siteConfigs}
+                        setSiteConfigs={setSiteConfigs}
+                        onSiteConfigSubmit={handleSiteConfigSubmit}
+                        availableChatModels={availableChatModels}
+                        footerSlot={footerSlot}
+                    />
+                );
+            case 'auth':
+                return (
+                    <AdminAuthTab
+                        providers={providers}
+                        showForm={showForm}
+                        editingId={editingId}
+                        authFormData={authFormData}
+                        setAuthFormData={setAuthFormData}
+                        handleAuthSubmit={handleAuthSubmit}
+                        startEditAuth={startEditAuth}
+                        handleDelete={handleDelete}
+                        resetForm={resetForm}
+                        authValidation={authValidation}
+                        loading={loading}
+                        footerSlot={footerSlot}
+                    />
+                );
+            case 'users':
+                return (
+                    <AdminUsersTab
+                        usersList={usersList}
+                        currentUser={user}
+                        handleRoleChange={handleRoleChange}
+                        handleDeleteUser={handleDeleteUser}
+                        loading={loading}
+                    />
+                );
+            case 'roles':
+                return <AdminRolesTab users={loading || usersFetchFailed ? null : usersList} />;
+            case 'site':
+                return <AdminSiteTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
+            case 'search':
+                return <AdminSearchTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
+            case 'agent':
+                return <AdminAgentTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
+            case 'health':
+                return (
+                    <>
+                        <SystemHealthDashboard />
+                        {isSuperadmin && <ReembedSection />}
+                    </>
+                );
+            case 'kb-overview':
+                return <KBOverviewDashboard />;
+            case 'global-kbs':
+                // Editing a public KB is its own full-page view: close the
+                // console first so it is not left open behind that page.
+                return (
+                    <AdminGlobalKbsTab
+                        onEditGlobalKb={onEditGlobalKb && ((kb) => { onOpenChange(false); onEditGlobalKb(kb); })}
+                    />
+                );
+            case 'eval':
+                return <AdminEvalTab />;
+        }
     };
 
+    // The group is the heading over a run of sections: keep `visibleTabs` ordered by it.
+    const sectionMeta: Record<AdminTab, { icon: typeof Cpu; label: string; group: string }> = {
+        configs: { icon: Cpu, label: t('adminTabAiModels'), group: t('adminNavGroupConfig') },
+        auth: { icon: ShieldCheck, label: t('adminTabAuth'), group: t('adminNavGroupConfig') },
+        search: { icon: Search, label: t('adminTabSearch'), group: t('adminNavGroupConfig') },
+        agent: { icon: FileText, label: t('adminTabAgents'), group: t('adminNavGroupConfig') },
+        site: { icon: Settings, label: t('adminTabSettings'), group: t('adminNavGroupConfig') },
+        'kb-overview': { icon: Database, label: t('adminTabKbOverview'), group: t('adminNavGroupKbs') },
+        'global-kbs': { icon: Globe, label: t('adminTabGlobalKbs'), group: t('adminNavGroupKbs') },
+        users: { icon: UserPlus, label: t('adminTabUsers'), group: t('adminNavGroupUsers') },
+        roles: { icon: ShieldUser, label: t('adminTabRoles'), group: t('adminNavGroupUsers') },
+        health: { icon: Activity, label: t('adminTabHealth'), group: t('adminNavGroupMonitoring') },
+        eval: { icon: Activity, label: t('evalRunner'), group: t('adminNavGroupMonitoring') },
+    };
+
+    // The dialog's search finds a section by its name and by the labels of what is inside it.
+    const keywords = adminSectionKeywords(t);
+
+    const sections: SettingsSection[] = visibleTabs.map((tab) => {
+        const { icon: Icon, label, group } = sectionMeta[tab];
+        return {
+            value: tab,
+            label,
+            group,
+            keywords: keywords[tab],
+            icon: <Icon aria-hidden="true" />,
+            content: <div className="admin-section pt-6">{content(tab)}</div>,
+        };
+    });
+
+    // Every action of a section is a dialog action and sits in the footer, never in the section.
+    // The tabs portal their own into `footerSlot` (Speichern, or the open form's Abbrechen and
+    // Speichern); AdminUI adds „hinzufügen" to the two sections that list things.
+    const addLabel = activeTab === 'configs' ? t('addConfig') : activeTab === 'auth' ? t('addProvider') : null;
+    const hasFooterActions = addLabel !== null || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
+    const footerSlotElement = (
+        <div ref={setFooterSlot} className="ml-auto flex flex-col-reverse gap-2 sm:flex-row sm:justify-end" />
+    );
+    const footer = !hasFooterActions ? undefined : addLabel && !showForm ? (
+        <>
+            {/* Alone it is the section's primary action; next to the per-job Speichern it is secondary. */}
+            <Button
+                variant={activeTab === 'configs' ? 'outline' : 'default'}
+                onClick={() => { setShowForm(true); setEditingId(null); }}
+            >
+                <Plus size={16} aria-hidden="true" />
+                {addLabel}
+            </Button>
+            {activeTab === 'configs' && footerSlotElement}
+        </>
+    ) : footerSlotElement;
+
     return (
-        <div className={`admin-container${isDataTab ? ' admin-container--wide' : ''}`}>
-            <header className="header" style={{ display: 'flex', alignItems: 'center', gap: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem', marginBottom: '2rem' }}>
-                <button onClick={onBack} className="back-button" aria-label={t('back')}>
-                    <ChevronLeft size={24} />
-                </button>
-                <div style={{ textAlign: 'left' }}>
-                    <h1 style={{ color: 'var(--text-primary)', margin: 0 }}>{t('adminDashboard')}</h1>
-                    <p style={{ color: 'var(--text-secondary)', margin: 0 }}>{t('adminSubtitle')}</p>
-                </div>
-            </header>
-
-            <div className="admin-layout">
-                <nav className="admin-nav-rail" aria-label={t('adminDashboard')}>
-                    <div className="admin-nav-group">
-                        <div className="admin-nav-group-heading">{t('adminNavGroupConfig')}</div>
-                        {navItem('configs', Cpu, t('adminTabAiModels'))}
-                        {user.role === 'superadmin' && navItem('auth', ShieldCheck, t('adminTabAuth'))}
-                        {user.role === 'superadmin' && navItem('search', Search, t('adminTabSearch'))}
-                        {user.role === 'superadmin' && navItem('agent', FileText, t('adminTabAgents'))}
-                        {navItem('global-kbs', Globe, t('adminTabGlobalKbs'))}
-                        {user.role === 'superadmin' && navItem('site', Settings, t('adminTabSettings'))}
-                    </div>
-                    {(user.role === 'superadmin' || user.role === 'admin') && (
-                        <div className="admin-nav-group">
-                            <div className="admin-nav-group-heading">{t('adminNavGroupUsers')}</div>
-                            {navItem('users', UserPlus, t('adminTabUsers'))}
-                            {navItem('roles', ShieldUser, t('adminTabRoles'))}
-                        </div>
-                    )}
-                    {(user.role === 'superadmin' || user.role === 'admin') && (
-                        <div className="admin-nav-group">
-                            <div className="admin-nav-group-heading">{t('adminNavGroupMonitoring')}</div>
-                            {navItem('kb-overview', Database, t('adminTabKbOverview'))}
-                            {navItem('health', Activity, t('adminTabHealth'))}
-                            {user.role === 'superadmin' && navItem('eval', Activity, t('evalRunner'))}
-                        </div>
-                    )}
-                </nav>
-
-                <div className={`admin-content-col ${isDataTab ? 'admin-content-col--fluid' : 'admin-content-col--form'}`}>
-            {activeTab === 'health' ? (
-                <>
-                    <SystemHealthDashboard />
-                    {user.role === 'superadmin' && <ReembedSection />}
-                </>
-            ) : activeTab === 'kb-overview' ? (
-                <KBOverviewDashboard />
-            ) : activeTab === 'global-kbs' ? (
-                <AdminGlobalKbsTab onEditGlobalKb={onEditGlobalKb} />
-            ) : (
-                <section className="admin-content">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', alignItems: 'center' }}>
-                        <h2 style={{ color: 'var(--text-primary)', margin: 0 }}>
-                            {sectionTitle}
-                        </h2>
-                        {activeTab !== 'users' && activeTab !== 'roles' && activeTab !== 'site' && activeTab !== 'search' && activeTab !== 'agent' && (
-                            <button className="search-button" onClick={() => { setShowForm(true); setEditingId(null); }} style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                <Plus size={18} />
-                                {activeTab === 'configs' ? t('addConfig') : t('addProvider')}
-                            </button>
-                        )}
-                    </div>
-
-                    {activeTab === 'configs' && (
-                        <AdminConfigsTab
-                            configs={configs}
-                            showForm={showForm}
-                            editingId={editingId}
-                            configFormData={configFormData}
-                            setConfigFormData={setConfigFormData}
-                            connectionTest={connectionTest}
-                            setConnectionTest={setConnectionTest}
-                            handleConfigSubmit={handleConfigSubmit}
-                            startEditConfig={startEditConfig}
-                            handleDelete={handleDelete}
-                            handleActivate={handleActivate}
-                            resetForm={resetForm}
-                            configValidation={configValidation}
-                            loading={loading}
-                            siteConfigs={siteConfigs}
-                            setSiteConfigs={setSiteConfigs}
-                            onSiteConfigSubmit={handleSiteConfigSubmit}
-                            availableChatModels={availableChatModels}
-                        />
-                    )}
-
-                    {activeTab === 'auth' && (
-                        <AdminAuthTab
-                            providers={providers}
-                            showForm={showForm}
-                            editingId={editingId}
-                            authFormData={authFormData}
-                            setAuthFormData={setAuthFormData}
-                            handleAuthSubmit={handleAuthSubmit}
-                            startEditAuth={startEditAuth}
-                            handleDelete={handleDelete}
-                            resetForm={resetForm}
-                            authValidation={authValidation}
-                            loading={loading}
-                        />
-                    )}
-
-                    {activeTab === 'users' && (
-                        <AdminUsersTab
-                            usersList={usersList}
-                            currentUser={user}
-                            handleRoleChange={handleRoleChange}
-                            handleDeleteUser={handleDeleteUser}
-                            loading={loading}
-                        />
-                    )}
-
-                    {activeTab === 'roles' && <AdminRolesTab users={loading || usersFetchFailed ? null : usersList} />}
-
-                    {activeTab === 'site' && (
-                        <AdminSiteTab
-                            siteConfigs={siteConfigs}
-                            setSiteConfigs={setSiteConfigs}
-                            onSubmit={handleSiteConfigSubmit}
-                        />
-                    )}
-
-                    {activeTab === 'search' && (
-                        <AdminSearchTab
-                            siteConfigs={siteConfigs}
-                            setSiteConfigs={setSiteConfigs}
-                            onSubmit={handleSiteConfigSubmit}
-                        />
-                    )}
-
-                    {activeTab === 'agent' && (
-                        <AdminAgentTab
-                            siteConfigs={siteConfigs}
-                            setSiteConfigs={setSiteConfigs}
-                            onSubmit={handleSiteConfigSubmit}
-                        />
-                    )}
-
-                    {activeTab === 'eval' && <AdminEvalTab />}
-                </section>
-            )}
-                </div>
-            </div>
+        <>
+            <SettingsDialog
+                open={open}
+                onOpenChange={onOpenChange}
+                value={activeTab}
+                onValueChange={(v) => {
+                    resetForm();
+                    onSectionChange(v as AdminSection);
+                }}
+                size="xl"
+                title={t('adminDashboard')}
+                closeLabel={t('close')}
+                searchPlaceholder={t('settingsSearch')}
+                emptyLabel={t('settingsNoMatch')}
+                sections={sections}
+                footer={footer}
+            />
 
             <style>{`
-                .admin-container {
-                    margin: 0 auto;
-                    padding: 2rem clamp(1rem, 4vw, 3rem);
-                }
-                /* Data tabs render wide tables (the KB overview carries ten
-                   sortable columns plus an actions column, which the publish
-                   button pushed past the 1600px cap in index.css and into a
-                   horizontal scrollbar). They get the viewport instead; the
-                   form tabs keep the narrower reading measure. */
-                .admin-container--wide {
-                    max-width: min(2000px, 98vw);
-                    padding-inline: clamp(0.75rem, 2vw, 1.5rem);
-                }
-                .admin-layout {
-                    display: flex;
-                    gap: 2rem;
-                    align-items: flex-start;
-                }
-                .admin-nav-rail {
-                    flex: 0 0 220px;
-                    width: 220px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1.5rem;
-                    position: sticky;
-                    top: 1rem;
-                    max-height: calc(100vh - 2rem);
-                    overflow-y: auto;
-                }
-                .admin-content-col {
-                    flex: 1 1 auto;
-                    min-width: 0;
-                }
-                .admin-content-col--form {
-                    max-width: 760px;
-                    margin: 0 auto;
-                }
-                .admin-nav-group {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.25rem;
-                }
-                .admin-nav-group-heading {
-                    font-size: 0.7rem;
-                    font-weight: 600;
-                    letter-spacing: 0.05em;
-                    text-transform: uppercase;
-                    color: var(--text-secondary);
-                    padding: 0 0.75rem;
-                    margin-bottom: 0.25rem;
-                }
-                .admin-nav-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.6rem;
-                    width: 100%;
-                    padding: 0.55rem 0.75rem;
-                    background: none;
-                    border: none;
-                    border-left: 3px solid transparent;
-                    border-radius: 0 var(--shape-md) var(--shape-md) 0;
-                    cursor: pointer;
-                    color: var(--text-secondary);
-                    font-size: 0.9rem;
-                    font-family: inherit;
-                    text-align: left;
-                    transition: background 0.15s, color 0.15s, border-color 0.15s;
-                }
-                .admin-nav-item:hover {
-                    background: var(--tag-bg);
-                    color: var(--accent-primary);
-                }
-                .admin-nav-item.active {
-                    color: var(--accent-primary);
-                    font-weight: 600;
-                    border-left-color: var(--accent-primary);
-                    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
-                }
-                @media (max-width: 768px) {
-                    .admin-layout {
-                        flex-direction: column;
-                    }
-                    .admin-nav-rail {
-                        flex: 1 1 auto;
-                        width: 100%;
-                        position: static;
-                        max-height: none;
-                        flex-direction: row;
-                        flex-wrap: wrap;
-                    }
-                    .admin-content-col--form {
-                        max-width: none;
-                    }
-                }
-                .back-button {
-                    background: none;
-                    border: none;
-                    color: var(--text-primary);
-                    cursor: pointer;
-                    padding: 0.5rem;
-                    border-radius: var(--shape-full);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    transition: background 0.2s;
-                }
-                .back-button:hover {
-                    background: var(--tag-bg);
-                }
-                .form-grid {
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 1.5rem;
-                }
-                .input-group {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 0.5rem;
-                }
-                .input-group label {
-                    font-size: 0.9rem;
-                    color: var(--text-secondary);
-                }
-                .input-group input, .input-group select {
-                    background: var(--bg-primary);
-                    border: 1px solid var(--border-color);
-                    padding: 0.8rem;
-                    border-radius: var(--shape-md);
-                    color: var(--text-primary);
-                }
                 .result-card {
                     background: var(--bg-secondary);
                     border: 1px solid var(--border-color);
@@ -757,64 +637,16 @@ export default function AdminUI({ onBack, user, onEditGlobalKb }: AdminUIProps) 
                     padding: 1.5rem;
                     margin-bottom: 1rem;
                 }
-                .active-config {
-                    border-left: 4px solid var(--accent-primary);
-                }
-                .icon-button {
-                    background: var(--bg-primary);
-                    border: 1px solid var(--border-color);
-                    color: var(--text-primary);
-                    padding: 0.5rem;
-                    border-radius: var(--shape-md);
-                    cursor: pointer;
-                    transition: border-color 0.2s, color 0.2s, background 0.2s;
-                }
-                .icon-button:hover {
-                    background: var(--tag-bg);
-                }
-                .icon-button.delete:hover {
-                    background: var(--error-bg);
-                    color: var(--error-text);
-                    border-color: var(--error-text);
-                }
-                .icon-button.activate:hover {
-                    background: var(--success-bg);
-                    color: var(--success-text);
-                    border-color: var(--success-text);
-                }
-                .secondary-button {
-                    background: none;
-                    border: 1px solid var(--border-color);
-                    color: var(--text-primary);
-                    padding: 0.8rem 1.5rem;
-                    border-radius: var(--shape-md);
-                    cursor: pointer;
-                    font-family: inherit;
-                    transition: border-color 0.2s, color 0.2s, background 0.2s;
-                }
-                .secondary-button:hover {
-                    background: var(--tag-bg);
-                }
-                .config-form-overlay {
-                    margin-bottom: 2rem;
-                }
-                .configs-list {
-                    margin-top: 1rem;
-                }
-                h3 {
+                /* Scoped to the dialog's content (the dialog sits over the app, so
+                   a bare h3/p rule would recolour the page behind it); :where keeps
+                   the old rules' specificity, so DS utilities still win. */
+                :where(.admin-section) h3 {
                     color: var(--text-primary);
                 }
-                p {
+                :where(.admin-section) p {
                     color: var(--text-secondary);
                 }
-                .spin {
-                    animation: spin 1s linear infinite;
-                }
-                @keyframes spin {
-                    from { transform: rotate(0deg); }
-                    to { transform: rotate(360deg); }
-                }
             `}</style>
-        </div >
+        </>
     );
 }

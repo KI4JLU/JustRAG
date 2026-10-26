@@ -6,6 +6,7 @@ import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
 import { formatRelativeCoarse } from '../utils/dates';
+import { KbListRow } from './KbListRow';
 import { canOpenKbAdvancedSettings, canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
@@ -407,30 +408,27 @@ export function PrivateKbCard({
      asymmetric inset reads as a mistake rather than as rhythm. */
   if (compact) {
     return (
-      <div
-        className="flex cursor-pointer items-center gap-stack-md rounded-[var(--ui-radius-card)] border border-outline-variant bg-surface-container-lowest p-stack-md transition-colors hover:bg-secondary-container"
-        role="presentation"
+      <KbListRow
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-      >
-        {favStar}
-        <div className="flex min-w-0 flex-1 items-center font-body-base text-body-base text-on-surface">
-          <span className="truncate">{nameButton}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-stack-sm">
-          {/* No freshness chip in the row (KI-848). It used to show the
-              OLDEST file's date; the card's replacement, „Aktualisiert
-              {relative}", is text, and ~150px of text on top of the row's
-              existing „Zuletzt aktiv …" line pushes the worst-case row
-              (four-digit counts, processing chip, „Geteilt (12)") past its
-              width. The row keeps one date line, the card carries both. */}
-          <KbCardChips kb={kb} t={t} layout="row" />
-          <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
-            {lastActiveLabel(kb, rtf, t)}
-          </span>
-          <VisibilityBadge kb={kb} t={t} />
-          {menu}
-        </div>
-      </div>
+        leading={favStar}
+        name={<span className="truncate">{nameButton}</span>}
+        trailing={(
+          <>
+            {/* No freshness chip in the row. It used to show the
+                OLDEST file's date; the card's replacement, „Aktualisiert
+                {relative}", is text, and ~150px of text on top of the row's
+                existing „Zuletzt aktiv …" line pushes the worst-case row
+                (four-digit counts, processing chip, „Geteilt (12)") past its
+                width. The row keeps one date line, the card carries both. */}
+            <KbCardChips kb={kb} t={t} layout="row" />
+            <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
+              {lastActiveLabel(kb, rtf, t)}
+            </span>
+            <VisibilityBadge kb={kb} t={t} />
+            {menu}
+          </>
+        )}
+      />
     );
   }
 

@@ -42,8 +42,11 @@ export interface AppNavContextValue {
   onViewTools: () => void;
   /** The signed-in user's own profile screen. */
   onViewProfile: () => void;
-  /** The system-admin console. Rendered only for admin/superadmin. */
-  onViewAdmin: () => void;
+  /**
+   * Open a public topic's admin editor (the full-page GlobalKbSettings), from
+   * the admin dialog's „Öffentliche Wissensbasen" section.
+   */
+  onEditGlobalKb: (kb: { id: string; name: string }) => void;
   /** One of the legal pages, from the user menu's "Hilfe" submenu. */
   onViewLegal: (page: LegalPageType) => void;
   /*

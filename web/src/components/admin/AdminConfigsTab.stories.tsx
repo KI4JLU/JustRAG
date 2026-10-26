@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn, waitFor } from 'storybook/test';
+import { expect, fn, waitFor, within } from 'storybook/test';
 import AdminConfigsTab from './AdminConfigsTab';
 
 /* ---------------------------------------------------------------------------
@@ -57,13 +57,14 @@ import AdminConfigsTab from './AdminConfigsTab';
  *                      loading branch (AdminConfigsTab.tsx:551) renders an
  *                      EMPTY div, so in production the tab shows nothing at all
  *                      while it loads. Real defect; pinned in `Loading` below.
- *   .spin              IS defined — src/AdminUI.tsx:831, together with its
- *                      `@keyframes spin` at :833.
+ *   .spin              WAS defined — in AdminUI's page-owned <style> block. The
+ *                      connection-test icon now uses `animate-spin` instead,
+ *                      so no page-owned rule is left behind it.
  *
  * Those rules live in a `<style>` element inside AdminUI.tsx (the block opens
  * at :634), i.e. they are PAGE-OWNED: present only while AdminUI is mounted,
  * and therefore absent when this tab is mounted on its own. Four classes this
- * file uses are in that situation — `.spin`, `.active-config`
+ * file uses are in that situation — `.active-config`
  * (:772), `.config-form-overlay` (:819) and `.configs-list` (:822). `.result-card`
  * is the exception: index.css:2265 defines it globally, so the card surface
  * itself is right in a story.
@@ -312,20 +313,26 @@ type Story = StoryObj<typeof meta>;
  * catalogue to offer.
  */
 export const ConfigsList: Story = {
-    play: async ({ canvas }) => {
+    play: async ({ canvas, userEvent }) => {
         // ORACLE: the fixture. Both names come from CONFIGS above, and the
         // model line is the component's own join of chat + embedding models —
         // asserted against the strings this file put in, not against anything
-        // the component derived.
-        await expect(await canvas.findByRole('heading', { name: 'HRZ Produktion' })).toBeInTheDocument();
-        await expect(await canvas.findByRole('heading', { name: 'OpenAI (Fallback)' })).toBeInTheDocument();
+        // the component derived. A card title is not a heading (DS CardTitle).
+        await expect(await canvas.findByText('HRZ Produktion', { selector: 'span' })).toBeInTheDocument();
+        await expect(await canvas.findByText('OpenAI (Fallback)', { selector: 'span' })).toBeInTheDocument();
 
-        // ORACLE: WAI-ARIA accessible names. The active config offers edit +
-        // delete but NOT activate; the inactive one offers all three. That
-        // asymmetry (AdminConfigsTab.tsx:567) is the only thing distinguishing
-        // the two rows semantically.
-        await expect(canvas.getAllByRole('button', { name: 'Konfiguration aktivieren' })).toHaveLength(1);
-        await expect(canvas.getAllByRole('button', { name: 'Konfiguration bearbeiten' })).toHaveLength(2);
+        // ORACLE: WAI-ARIA names on the card's ⋮ menu (the app's card pattern; the menu is
+        // portaled to the body, so it is read from the document). The active config offers
+        // edit + delete but NOT activate; the inactive one offers all three. That asymmetry
+        // is the only thing distinguishing the two cards semantically.
+        const itemsOf = async (card: string) => {
+            await userEvent.click(canvas.getByRole('button', { name: `Aktionen: ${card}` }));
+            const items = (await within(document.body).findAllByRole('menuitem')).map(i => i.textContent);
+            await userEvent.keyboard('{Escape}');
+            return items;
+        };
+        await expect(await itemsOf('HRZ Produktion')).toEqual(['Konfiguration bearbeiten', 'Konfiguration löschen']);
+        await expect(await itemsOf('OpenAI (Fallback)')).toEqual(['Konfiguration aktivieren', 'Konfiguration bearbeiten', 'Konfiguration löschen']);
 
         /* The active marker is the DS Badge (primary tone), so it is styled
          * in a standalone mount too. ORACLE: Chromium's CSSOM — a filled Badge
@@ -500,10 +507,9 @@ export const FormValidationErrors: Story = {
  * ===================================================================== */
 
 /**
- * `testing` — the state whose spinning icon is the KI-692 finding. The icon
- * carries `className="spin"`, and `.spin` is styled at src/AdminUI.tsx:831
- * (page-owned), so it stands still here. See the file header: that is the
- * standalone mount, not production.
+ * `testing` — the state whose spinning icon used a page-owned `.spin` class
+ * and stood still outside AdminUI. It now uses
+ * the utility class `animate-spin`, which every mount has, so it turns here too.
  */
 export const ConnectionTesting: Story = {
     args: { initialConnectionTest: { configId: 'cfg-hrz', status: 'testing' } },
@@ -511,13 +517,10 @@ export const ConnectionTesting: Story = {
         // ORACLE: the German source string for `connectionTesting`.
         await expect(await canvas.findByText('Verbindung wird getestet...')).toBeInTheDocument();
 
-        /* ORACLE: Chromium's CSSOM. See the KNOWN-DEFECT PIN note in
-         * `ConfigsList` — same mechanism, same intended failure signal if
-         * `.spin` moves into a stylesheet or the icon is swapped for the DS
-         * Spinner. */
-        const icon = canvasElement.querySelector('.spin');
+        // ORACLE: Chromium's CSSOM — the icon is animated, not a still glyph.
+        const icon = canvasElement.querySelector('.animate-spin');
         await expect(icon).not.toBeNull();
-        await expect(getComputedStyle(icon as Element).animationName).toBe('none');
+        await expect(getComputedStyle(icon as Element).animationName).not.toBe('none');
     },
 };
 

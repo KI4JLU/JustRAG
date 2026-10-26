@@ -18,6 +18,20 @@ vi.mock('./contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) =>
 let mockRole = 'superadmin';
 vi.mock('./contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'op-1', role: mockRole } }) }));
 
+/** Opens a row's ⋯ menu (named after its KB; `t` is the identity here) and returns the item labels. */
+async function rowMenu(kbName: string) {
+    await userEvent.click(screen.getByRole('button', { name: `kbActions: ${kbName}` }));
+    return (await screen.findAllByRole('menuitem')).map(i => i.textContent);
+}
+
+beforeEach(() => {
+    // Radix's dropdown trigger measures and captures pointers; jsdom implements neither.
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+});
+
 const overview = {
     rows: [
         {
@@ -43,10 +57,14 @@ describe('KBOverviewDashboard superadmin actions', () => {
         mockedAxios.post = vi.fn().mockResolvedValue({ status: 204 });
     });
 
-    it('renders delete for every row and transfer only for personal KBs', async () => {
+    // ORACLE: the rules of the old icon buttons, now the items of the row's ⋯ menu: delete for every
+    // row, transfer and publish only for a personal (still private) KB, delete last.
+    it('offers delete for every row and transfer only for personal KBs', async () => {
         render(<KBOverviewDashboard />);
-        await waitFor(() => expect(screen.getAllByRole('button', { name: 'kbActionDelete' })).toHaveLength(2));
-        expect(screen.getAllByRole('button', { name: 'kbActionTransfer' })).toHaveLength(1);
+        await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
+        expect(await rowMenu('Alpha KB')).toEqual(['kbActionPublish', 'kbActionTransfer', 'kbActionDelete']);
+        await userEvent.keyboard('{Escape}');
+        expect(await rowMenu('Global KB')).toEqual(['kbActionDelete']);
     });
 
     // Delete und Transfer bleiben superadmin-only; Veroeffentlichen nicht — der
@@ -56,9 +74,10 @@ describe('KBOverviewDashboard superadmin actions', () => {
         mockRole = 'admin';
         render(<KBOverviewDashboard />);
         await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
-        expect(screen.queryByRole('button', { name: 'kbActionDelete' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'kbActionTransfer' })).toBeNull();
-        expect(screen.getAllByRole('button', { name: 'kbActionPublish' })).toHaveLength(1);
+        expect(await rowMenu('Alpha KB')).toEqual(['kbActionPublish']);
+        await userEvent.keyboard('{Escape}');
+        // Nothing to offer on a public KB, so it has no menu at all.
+        expect(screen.queryByRole('button', { name: 'kbActions: Global KB' })).toBeNull();
     });
 });
 
@@ -79,17 +98,18 @@ describe('KBOverviewDashboard publish action', () => {
         render(<KBOverviewDashboard />);
         await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
 
-        const buttons = screen.getAllByRole('button', { name: 'kbActionPublish' });
-        expect(buttons).toHaveLength(1);
-        // Die Schaltflaeche steht in der Zeile der privaten KB, nicht der globalen.
-        expect(buttons[0].closest('tr')?.textContent).toContain('Alpha KB');
+        // Die Aktion steht im Menue der privaten KB, nicht der globalen.
+        expect(await rowMenu('Alpha KB')).toContain('kbActionPublish');
+        await userEvent.keyboard('{Escape}');
+        expect(await rowMenu('Global KB')).not.toContain('kbActionPublish');
     });
 
     it('POSTs to the publish endpoint once the dialog is confirmed', async () => {
         render(<KBOverviewDashboard />);
         await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
 
-        await userEvent.click(screen.getByRole('button', { name: 'kbActionPublish' }));
+        await rowMenu('Alpha KB');
+        await userEvent.click(screen.getByRole('menuitem', { name: 'kbActionPublish' }));
         // Der Dialog muss die Folge benennen, bevor irgendetwas rausgeht.
         const dialog = await screen.findByRole('dialog');
         expect(within(dialog).getByText('kbPublishWarning')).toBeTruthy();
@@ -106,7 +126,8 @@ describe('KBOverviewDashboard publish action', () => {
         render(<KBOverviewDashboard />);
         await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
 
-        await userEvent.click(screen.getByRole('button', { name: 'kbActionPublish' }));
+        await rowMenu('Alpha KB');
+        await userEvent.click(screen.getByRole('menuitem', { name: 'kbActionPublish' }));
         const dialog = await screen.findByRole('dialog');
         await userEvent.click(within(dialog).getByRole('button', { name: 'cancel' }));
 
@@ -161,21 +182,36 @@ describe('KBOverviewDashboard Aktivität column', () => {
         mockRole = 'superadmin';
     });
 
-    it('renders Aktivität as web + API turns with the split in the tooltip', async () => {
+    // ORACLE: the fixture (webTurns 12, apiTurns 5) and the developer's ruling of 2026-10-26: no hover, both
+    // numbers in the cell itself, web then API, the two words said once in the header and not on every row.
+    it('shows the web and the API turns in the Aktivität cell, with no tooltip', async () => {
         installMemoryStorage();
         renderDashboard();
 
-        const cell = await screen.findByText('17');
-        expect(cell).toBeInTheDocument();
-        expect(cell.closest('td')).toHaveAttribute('title', 'Web: 12 · API: 5');
+        const cell = (await screen.findByText('12 · 5')).closest('td')!;
+        expect(cell).not.toHaveAttribute('title');
+        expect(cell.textContent).not.toMatch(/Web|API/);
+        expect(screen.getByRole('columnheader', { name: /colActivity/ })).toHaveTextContent('Web · API');
     });
 
-    it('Letzte Aktivität uses the newest of upload and turn timestamps', async () => {
-        installMemoryStorage();
-        renderDashboard();
+    // ORACLE: the fixture (upload 2026-08-01, newest turn 2026-08-17) against a clock held at 2026-08-20, and
+    // Intl.RelativeTimeFormat's own wording: the newer timestamp is 3 days back, the older one 19. The cell carries
+    // no tooltip (it used to hold the exact timestamp).
+    it('Letzte Aktivität shows the newest of upload and turn timestamps, without a tooltip', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] }); // the clock only: timers and promises keep running
+        vi.setSystemTime(new Date('2026-08-20T12:00:00Z'));
+        try {
+            installMemoryStorage();
+            renderDashboard();
 
-        const cells = await screen.findAllByTitle('2026-08-17T10:00:00Z');
-        expect(cells.length).toBeGreaterThan(0);
+            const row = (await screen.findByText('Alpha KB')).closest('tr')!;
+            expect(row).toHaveTextContent('3 days ago');
+            expect(row).not.toHaveTextContent('19 days ago');
+            const cell = Array.from(row.querySelectorAll('td')).find((td) => td.textContent === '3 days ago')!;
+            expect(cell).not.toHaveAttribute('title');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -236,12 +272,50 @@ describe('KBOverviewDashboard Aktivität sort', () => {
         // Default sort is by name ascending: Alpha, Beta, Gamma.
         expect(rowNames()).toEqual(['Alpha', 'Beta', 'Gamma']);
 
-        await userEvent.click(screen.getByRole('columnheader', { name: 'colActivity' }));
+        await userEvent.click(screen.getByRole('button', { name: /colActivity/ }));
 
         // Ascending by webTurns + apiTurns: Gamma(3), Beta(8), Alpha(10).
         // The fixture above is chosen so a sort keyed on webTurns alone
         // (Beta, Gamma, Alpha) or apiTurns alone (Alpha, Gamma, Beta) would
         // both produce a different order, so this only passes for the sum.
         expect(rowNames()).toEqual(['Gamma', 'Beta', 'Alpha']);
+    });
+});
+
+// ORACLE: docs/kb-access.md — `is_published` DEFAULTs to true (migration 0012) and only means something
+// for a public KB (publishing is staged: public, but not live until an operator flips the catalog toggle).
+// So the „Veröffentlicht" badge belongs to public KBs only, and a staged one says so.
+describe('KBOverviewDashboard badges', () => {
+    const row = (id: string, name: string, over: object) => ({
+        id, name, ownerName: 'Ada', isGlobal: false, isPublished: true, fileCount: 1, totalSizeBytes: 1,
+        failedFileCount: 0, processingFileCount: 0, webTurns: 0, apiTurns: 0, chatCount: 0, createdAt: '2026-01-01T00:00:00Z', ...over,
+    });
+
+    it('shows Global and Veröffentlicht on a live public KB, Global and Nicht live on a staged one, neither on a private KB', async () => {
+        mockRole = 'superadmin';
+        installMemoryStorage();
+        mockedAxios.get = vi.fn().mockResolvedValue({ data: {
+            rows: [
+                row('p', 'Private KB', {}),
+                row('l', 'Live KB', { isGlobal: true, isPublished: true }),
+                row('s', 'Staged KB', { isGlobal: true, isPublished: false }),
+            ],
+            queueSummary: {}, timestamp: '2026-01-01T00:00:00Z',
+        } });
+        render(<KBOverviewDashboard />);
+        const cellOf = async (name: string) => (await screen.findByText(name)).closest('td')!;
+
+        const priv = await cellOf('Private KB');
+        expect(priv).not.toHaveTextContent('globalBadge');
+        expect(priv).not.toHaveTextContent('published');
+
+        const live = await cellOf('Live KB');
+        expect(live).toHaveTextContent('globalBadge');
+        expect(live).toHaveTextContent('published');
+
+        const staged = await cellOf('Staged KB');
+        expect(staged).toHaveTextContent('globalBadge');
+        expect(staged).toHaveTextContent('kbStagedBadge');
+        expect(staged).not.toHaveTextContent(/^.*\bpublished\b/);
     });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import AdminUI from './AdminUI';
+import { AdminHarness } from './test/AdminHarness';
 
 /* ---------------------------------------------------------------------------
  * The Rollen tab's per-role user counts come from the same GET
@@ -36,7 +36,7 @@ function respondUsers(users: () => Promise<unknown>) {
 }
 
 async function openRolesTab() {
-    render(<AdminUI onBack={() => {}} user={{ id: 'op-1', username: 'ada', role: 'admin' }} />);
+    render(<AdminHarness userRole="admin" />);
     await userEvent.click(screen.getByRole('button', { name: 'adminTabRoles' }));
     await screen.findByRole('table', { name: 'arSystemRolesTitle' });
 }

@@ -1,3 +1,4 @@
+import { lazy, Suspense, useEffect } from 'react';
 import {
     DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
     SidebarUserMenu,
@@ -10,21 +11,31 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { UserSettingsModal } from './UserSettingsModal';
 import { openSettingsDialog, setSettingsDialogOpen, setSettingsDialogTab, useSettingsDialog } from '../hooks/settingsDialog';
+import { openAdminDialog, setAdminDialogOpen, setAdminDialogSection, stripAdminDialog, useAdminDialog } from '../hooks/adminDialog';
 import { roleLabel } from '../utils/roleLabel';
+
+// The admin console and its tabs load only when it is opened.
+const AdminUI = lazy(() => import('../AdminUI'));
 
 /**
  * The user menu of every sidebar (AppChrome's pages and the KB workspace):
  * account actions, „Einstellungen", which opens the settings window
- * (UserSettingsModal — colour scheme, language, profile), and „Hilfe" with
- * the legal pages. Before „Hilfe" those were linked only from the login
+ * (UserSettingsModal — colour scheme, language, profile), „Admin-Einstellungen"
+ * for system admins (AdminUI, the same dialog), and „Hilfe" with the legal
+ * pages. Before „Hilfe" those were linked only from the login
  * page's footer, so a signed-in user had no way to reach them.
  */
 export function AppUserMenu() {
     const { t } = useTheme();
     const settingsDialog = useSettingsDialog();
+    const adminDialog = useAdminDialog();
     const { user, logout } = useAuth();
-    const { onViewProfile, onViewAdmin, onViewLegal } = useAppNav();
+    const { onViewProfile, onViewLegal, onEditGlobalKb } = useAppNav();
     const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+    // `?admin=` is for system admins: for anyone else it is ignored and taken off the URL.
+    useEffect(() => {
+        if (user && !isSystemAdmin && adminDialog.open) stripAdminDialog();
+    }, [user, isSystemAdmin, adminDialog.open]);
 
 
     return (
@@ -40,7 +51,12 @@ export function AppUserMenu() {
             </DropdownMenuItem>
             {/* The ONLY route into the admin UI (KI-782). */}
             {isSystemAdmin && (
-                <DropdownMenuItem onSelect={onViewAdmin}>
+                <DropdownMenuItem
+                    onSelect={() => {
+                        // After the menu's own close, as for „Einstellungen".
+                        setTimeout(() => openAdminDialog(), 0);
+                    }}
+                >
                     <Shield size={16} aria-hidden="true" />
                     {t('adminSettings')}
                 </DropdownMenuItem>
@@ -91,6 +107,19 @@ export function AppUserMenu() {
             </DropdownMenuItem>
         </SidebarUserMenu>
         <UserSettingsModal open={settingsDialog.open} onOpenChange={setSettingsDialogOpen} tab={settingsDialog.tab} onTabChange={setSettingsDialogTab} />
+        {/* Mounted only while open: it fetches its section's data on mount. */}
+        {isSystemAdmin && user && adminDialog.open && (
+            <Suspense fallback={null}>
+                <AdminUI
+                    open
+                    onOpenChange={setAdminDialogOpen}
+                    section={adminDialog.section}
+                    onSectionChange={setAdminDialogSection}
+                    user={user}
+                    onEditGlobalKb={onEditGlobalKb}
+                />
+            </Suspense>
+        )}
         </>
     );
 }

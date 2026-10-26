@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
 import axios from 'axios';
-import { motion } from 'framer-motion';
 import { Play, RefreshCw, Download, Copy, Trash2, BarChart3, X, AlertCircle, Check, Upload } from 'lucide-react';
 import {
     Button,
@@ -14,10 +13,9 @@ import {
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
-import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { fetchKbAgents, type KbAgentOption } from '../agents/api';
-import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/FieldRow';
+import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/SettingsFieldRow';
 import { SyncScheduleSelect } from '../sidebar/SyncScheduleSelect';
 import type { SyncSchedule } from '../../types';
 
@@ -87,7 +85,6 @@ interface AdminEvalTabProps {
 }
 
 export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: AdminEvalTabProps) {
-    const reducedMotion = useReducedMotion();
     const { t } = useTheme();
     const toast = useToast();
 
@@ -444,8 +441,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
 
     // Render: three sections
     return (
-        <motion.div {...getMotionProps(reducedMotion)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="result-card" style={{ padding: '2rem' }}>
-            <h3 style={{ marginTop: 0 }}>{t('evalRunner')}</h3>
+        <>
             <p style={{ opacity: 0.7 }}>{t('evalRunnerDesc')}</p>
 
             {/* Golden sets panel */}
@@ -881,7 +877,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                     )}
                 </div>
             )}
-        </motion.div>
+        </>
     );
 }
 

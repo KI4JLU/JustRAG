@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, Globe, X } from 'lucide-react';
+import { Eye, Globe, Megaphone, Pencil, Tag, Trash2, Undo2 } from 'lucide-react';
+import {
+    ActionMenu, Badge, Grid, type ActionMenuItem,
+} from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -10,6 +13,7 @@ import { getApiErrorMessage } from '../../utils/apiError';
 import type { KbCategory } from '../../types';
 import { AdminUnpublishDialog } from './AdminUnpublishDialog';
 import AdminCategoriesSection from './AdminCategoriesSection';
+import { KbListRow } from '../KbListRow';
 
 interface GlobalKbRow {
     id: string;
@@ -17,90 +21,12 @@ interface GlobalKbRow {
     createdAt: string;
     headerText?: string;
     autoSubscribe: boolean;
+    /** Live: visible to everyone who may see public KBs. A staged public KB is not (docs/kb-access.md). Absent: live. */
+    isPublished?: boolean;
 }
 
 interface AdminGlobalKbsTabProps {
     onEditGlobalKb?: (kb: { id: string; name: string }) => void;
-}
-
-interface KbCategoryChipsProps {
-    kbId: string;
-    categories: KbCategory[];
-    assigned: string[];
-    loadFailed: boolean;
-    onChange: (kbId: string, categoryIds: string[]) => void;
-    t: (k: string) => string;
-}
-
-/**
- * Category assignment for one public KB, as toggle chips.
- *
- * This replaced a native `<select multiple>`, which read as a plain list: the
- * assigned entries were only distinguishable by the browser's selection
- * highlight, and *removing* one meant knowing to ctrl-click it — undiscoverable
- * enough that assignments were effectively write-once. Chips state each
- * category's membership on the chip itself and remove on a plain click.
- */
-function KbCategoryChips({ kbId, categories, assigned, loadFailed, onChange, t }: KbCategoryChipsProps) {
-    const toggle = (categoryId: string) => {
-        const next = assigned.includes(categoryId)
-            ? assigned.filter(id => id !== categoryId)
-            : [...assigned, categoryId];
-        onChange(kbId, next);
-    };
-
-    return (
-        <div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.15rem' }}>
-                {t('categories')}
-            </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 0.5rem' }}>
-                {t('categoriesAssignHint')}
-            </p>
-            <div
-                role="group"
-                aria-label={t('categories')}
-                style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', opacity: loadFailed ? 0.6 : 1 }}
-            >
-                {categories.map(cat => {
-                    const isAssigned = assigned.includes(cat.id);
-                    return (
-                        <button
-                            key={cat.id}
-                            type="button"
-                            aria-pressed={isAssigned}
-                            // The label spells out the state as well as the name, so a
-                            // screen-reader user does not depend on the ✓ / × glyph.
-                            aria-label={t(isAssigned ? 'categoryAssigned' : 'categoryNotAssigned').replace('{name}', cat.name)}
-                            disabled={loadFailed}
-                            onClick={() => toggle(cat.id)}
-                            style={{
-                                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                                padding: '0.25rem 0.6rem', borderRadius: '999px',
-                                fontSize: '0.8rem', cursor: loadFailed ? 'not-allowed' : 'pointer',
-                                border: `1px solid ${isAssigned ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                                background: isAssigned ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-                                color: isAssigned ? 'white' : 'var(--text-secondary)',
-                            }}
-                        >
-                            {isAssigned ? <X size={12} aria-hidden="true" /> : <Plus size={12} aria-hidden="true" />}
-                            {cat.name}
-                        </button>
-                    );
-                })}
-            </div>
-            {assigned.length === 0 && !loadFailed && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.4rem 0 0' }}>
-                    {t('categoriesNoneAssigned')}
-                </p>
-            )}
-            {loadFailed && (
-                <p style={{ color: 'var(--error-text)', fontSize: '0.75rem', margin: '0.4rem 0 0' }}>
-                    {t('categoriesLoadError')}
-                </p>
-            )}
-        </div>
-    );
 }
 
 /**
@@ -110,7 +36,7 @@ function KbCategoryChips({ kbId, categories, assigned, loadFailed, onChange, t }
  * list. That entry point belongs on the KB overview instead.
  */
 export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabProps) {
-    const { t } = useTheme();
+    const { t, language } = useTheme();
     const toast = useToast();
     const { showConfirm } = useModalContext();
     const { user } = useAuth();
@@ -190,7 +116,36 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
         }
     };
 
-    const handleToggleAutoSubscribe = async (kb: GlobalKbRow) => {
+    // One change per KB at a time: a second toggle while the first request is in flight would roll back to an
+    // optimistic value the server never had. The ref is the guard (it is current between renders), the state
+    // disables the menu items.
+    const inFlight = useRef(new Set<string>());
+    const [busyKbs, setBusyKbs] = useState<ReadonlySet<string>>(new Set());
+    const exclusive = async (kbId: string, change: () => Promise<void>) => {
+        if (inFlight.current.has(kbId)) return;
+        inFlight.current.add(kbId);
+        setBusyKbs(new Set(inFlight.current));
+        try {
+            await change();
+        } finally {
+            inFlight.current.delete(kbId);
+            setBusyKbs(new Set(inFlight.current));
+        }
+    };
+
+    const handleTogglePublished = (kb: GlobalKbRow) => exclusive(kb.id, async () => {
+        const previous = kb.isPublished ?? true;
+        setGlobalKbs(prev => prev.map(k => (k.id === kb.id ? { ...k, isPublished: !previous } : k)));
+        try {
+            await axios.patch(`${API_BASE_URL}/api/admin/global-kbs/${kb.id}`, { isPublished: !previous });
+        } catch (err: unknown) {
+            console.error(err);
+            toast.error(t('kbPublishFailed'));
+            setGlobalKbs(prev => prev.map(k => (k.id === kb.id ? { ...k, isPublished: previous } : k)));
+        }
+    });
+
+    const handleToggleAutoSubscribe = (kb: GlobalKbRow) => exclusive(kb.id, async () => {
         const next = !kb.autoSubscribe;
         setGlobalKbs(prev => prev.map(k => (k.id === kb.id ? { ...k, autoSubscribe: next } : k)));
         try {
@@ -200,9 +155,9 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
             toast.error(t('autoSubscribeError'));
             setGlobalKbs(prev => prev.map(k => (k.id === kb.id ? { ...k, autoSubscribe: kb.autoSubscribe } : k)));
         }
-    };
+    });
 
-    const handleCategoryChange = async (kbId: string, categoryIds: string[]) => {
+    const handleCategoryChange = (kbId: string, categoryIds: string[]) => exclusive(kbId, async () => {
         // Defense in depth alongside the disabled select below: a row whose
         // current assignments failed to load must never be saved over, even
         // if a change event reaches this handler some other way.
@@ -216,7 +171,7 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
             toast.error(t('categoriesAssignError'));
             setKbCategoryIds(prev => ({ ...prev, [kbId]: previous }));
         }
-    };
+    });
 
     const handleUnpublishConfirm = async (newOwnerId: string) => {
         if (!unpublishTarget) return;
@@ -235,95 +190,90 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
         }
     };
 
+    // The ⋮ menu carries every action of a public KB: edit, the settings (publish, show in all overviews, categories:
+    // each applied at once, a checked item being the current state), take it back, delete.
+    const actionsFor = (kb: GlobalKbRow): ActionMenuItem[] => {
+        const assigned = kbCategoryIds[kb.id] ?? [];
+        // A row whose assignment failed to load offers no categories: a toggle would PUT over the real ones.
+        const loadFailed = !!kbCategoryLoadFailed[kb.id];
+        return [
+            {
+                label: t('edit'),
+                icon: <Pencil className="size-4" aria-hidden="true" />,
+                onSelect: () => onEditGlobalKb?.(kb),
+            },
+            {
+                label: t('kbActionPublishLive'),
+                icon: <Megaphone className="size-4" aria-hidden="true" />,
+                checked: kb.isPublished ?? true,
+                disabled: busyKbs.has(kb.id),
+                onSelect: () => { void handleTogglePublished(kb); },
+            },
+            {
+                label: t('autoSubscribe'),
+                icon: <Eye className="size-4" aria-hidden="true" />,
+                checked: kb.autoSubscribe,
+                disabled: busyKbs.has(kb.id),
+                onSelect: () => { void handleToggleAutoSubscribe(kb); },
+            },
+            ...(categories.length > 0 ? [{
+                label: t('categories'),
+                icon: <Tag className="size-4" aria-hidden="true" />,
+                submenu: categories.map(cat => ({
+                    label: cat.name,
+                    checked: assigned.includes(cat.id),
+                    disabled: loadFailed || busyKbs.has(kb.id),
+                    onSelect: () => {
+                        void handleCategoryChange(
+                            kb.id,
+                            assigned.includes(cat.id) ? assigned.filter(id => id !== cat.id) : [...assigned, cat.id],
+                        );
+                    },
+                })),
+            }] : []),
+            {
+                label: t('unpublishKb'),
+                icon: <Undo2 className="size-4" aria-hidden="true" />,
+                separatorBefore: true,
+                onSelect: () => { setUnpublishError(null); setUnpublishTarget(kb); },
+            },
+            {
+                label: t('delete'),
+                icon: <Trash2 className="size-4" aria-hidden="true" />,
+                destructive: true,
+                onSelect: () => { void handleDelete(kb.id); },
+            },
+        ];
+    };
+
     return (
-        <section className="admin-content">
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', alignItems: 'center' }}>
-                <h2 style={{ color: 'var(--text-primary)', margin: 0 }}>{t('publicKnowledgeBases')}</h2>
-            </div>
+        <>
             {loading ? (
-                <p style={{ color: 'var(--text-secondary)' }}>{t('loading')}</p>
+                <p className="text-on-surface-variant">{t('loading')}</p>
             ) : globalKbs.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem' }}>{t('noGlobalKbs')}</p>
+                <p className="p-8 text-center text-on-surface-variant">{t('noGlobalKbs')}</p>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                // The home view's list rows (KbListRow); everything the old card carried is in the ⋮ menu.
+                <Grid cols={1} gap="sm">
                     {globalKbs.map(kb => (
-                        <div key={kb.id} style={{
-                            display: 'flex', flexDirection: 'column', gap: '0.75rem',
-                            padding: '1rem 1.25rem', borderRadius: '10px',
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Globe size={16} color="var(--accent-primary)" />
-                                        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{kb.name}</span>
-                                    </div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                        {new Date(kb.createdAt).toLocaleDateString()}
-                                        {kb.headerText && ` — ${kb.headerText.substring(0, 60)}${kb.headerText.length > 60 ? '...' : ''}`}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <button
-                                        onClick={() => onEditGlobalKb?.(kb)}
-                                        style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.8rem' }}
-                                    >
-                                        {t('edit')}
-                                    </button>
-                                    <button
-                                        onClick={() => { setUnpublishError(null); setUnpublishTarget(kb); }}
-                                        style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.8rem' }}
-                                    >
-                                        {t('unpublishKb')}
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(kb.id)}
-                                        style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', color: 'var(--text-secondary)' }}
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                                <button
-                                    type="button"
-                                    role="switch"
-                                    aria-checked={kb.autoSubscribe}
-                                    aria-label={t('autoSubscribe')}
-                                    onClick={() => handleToggleAutoSubscribe(kb)}
-                                    style={{
-                                        position: 'relative', width: '38px', height: '20px', borderRadius: '999px',
-                                        border: '1px solid var(--border-color)', cursor: 'pointer', padding: 0,
-                                        background: kb.autoSubscribe ? 'var(--accent-primary)' : 'var(--bg-secondary)',
-                                        flexShrink: 0,
-                                    }}
-                                >
-                                    <span aria-hidden="true" style={{
-                                        position: 'absolute', top: '1px', left: kb.autoSubscribe ? '19px' : '1px',
-                                        width: '16px', height: '16px', borderRadius: '50%', background: 'white',
-                                        transition: 'left 0.15s ease',
-                                    }} />
-                                </button>
-                                <div>
-                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{t('autoSubscribe')}</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{t('autoSubscribeHint')}</div>
-                                </div>
-                            </div>
-
-                            {categories.length > 0 && (
-                                <KbCategoryChips
-                                    kbId={kb.id}
-                                    categories={categories}
-                                    assigned={kbCategoryIds[kb.id] ?? []}
-                                    loadFailed={!!kbCategoryLoadFailed[kb.id]}
-                                    onChange={handleCategoryChange}
-                                    t={t}
-                                />
+                        <KbListRow
+                            key={kb.id}
+                            leading={<Globe size={16} className="shrink-0 text-primary" aria-hidden="true" />}
+                            name={<span className="truncate">{kb.name}</span>}
+                            trailing={(
+                                <>
+                                    {kbCategoryLoadFailed[kb.id] && <Badge tone="error">{t('categoriesLoadError')}</Badge>}
+                                    {kb.isPublished === false && <Badge tone="warning" title={t('kbStagedHint')}>{t('kbStagedBadge')}</Badge>}
+                                    {kb.autoSubscribe && <Badge tone="primary">{t('autoSubscribeBadge')}</Badge>}
+                                    <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
+                                        {new Date(kb.createdAt).toLocaleDateString(language, { dateStyle: 'medium' })}
+                                    </span>
+                                    <ActionMenu label={`${t('kbActions')}: ${kb.name}`} actions={actionsFor(kb)} align="end" />
+                                </>
                             )}
-                        </div>
+                        />
                     ))}
-                </div>
+                </Grid>
             )}
 
             {unpublishTarget && (
@@ -339,6 +289,6 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
             )}
 
             <AdminCategoriesSection />
-        </section>
+        </>
     );
 }

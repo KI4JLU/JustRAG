@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import AdminConfigsTab from './AdminConfigsTab';
 import { translations } from '../../translations';
+import { labelledControls } from '../../test/labelledControls';
 
 /* ---------------------------------------------------------------------------
  * This suite exists because of the design-system migration of this file (board
@@ -158,44 +159,43 @@ function renderTab({ errors = {}, siteConfigs = {}, showForm = true }: Overrides
     };
 }
 
+beforeEach(() => {
+    handleConfigSubmit.mockClear();
+    onSiteConfigSubmit.mockClear();
+    resetForm.mockClear();
+});
+
+/**
+ * The tab shows one of two screens: the list (with the per-job model form) or,
+ * with `showForm`, the add/edit form as a sub-screen. Pre-sub-screen both were
+ * on one page, so the census-style tests below look at both and add them up.
+ */
+function renderBothScreens(o: Overrides = {}) {
+    const form = renderTab({ ...o, showForm: true }).container;
+    const list = renderTab({ ...o, showForm: false }).container;
+    return [form, list];
+}
+
 describe('AdminConfigsTab — label/control pairing', () => {
     it('resolves every label to a real, labelable control', () => {
-        // ORACLE: the HTML specification, applied by jsdom. `label[for]` must
-        // name an element that exists and is labelable (button, input, meter,
-        // output, progress, select, textarea). Pre-migration five of the
-        // twelve `<label>`s in this file headed a model LIST and had no `for`
-        // and no nested control — they are fieldset/legend now, so every
-        // remaining label must resolve.
-        const { container } = renderTab();
+        // ORACLE: WAI-ARIA's accessible-name computation (test/labelledControls.ts): each
+        // row's control names its label through `aria-labelledby`, and that label has
+        // text. Pre-migration five of the twelve `<label>`s in this file headed a model
+        // LIST and named nothing — they are fieldset/legend now.
+        const screens = renderBothScreens().map(labelledControls);
 
-        const labels = Array.from(container.querySelectorAll('label[for]'));
-        // name, provider, api key, base url, one "Reasoning" per chat model (2),
-        // 8 MODEL_JOBS + model_tier_fast = 15.
-        expect(labels).toHaveLength(15);
-
-        const LABELABLE = ['BUTTON', 'INPUT', 'METER', 'OUTPUT', 'PROGRESS', 'SELECT', 'TEXTAREA'];
-        const broken = labels
-            .map(l => {
-                const id = l.getAttribute('for')!;
-                const target = container.querySelector(`[id="${CSS.escape(id)}"]`);
-                if (!target) return `${l.textContent?.trim()} -> #${id} (no such element)`;
-                if (!LABELABLE.includes(target.tagName)) {
-                    return `${l.textContent?.trim()} -> <${target.tagName.toLowerCase()}> (not labelable)`;
-                }
-                return null;
-            })
-            .filter(Boolean);
-
-        expect(broken).toEqual([]);
+        // The form screen: name, provider, api key, base url, one "Reasoning"
+        // per chat model (2) = 6. The list screen: 8 MODEL_JOBS +
+        // model_tier_fast = 9. Together the 15 the single page had.
+        expect(screens.flatMap(s => s.controls)).toHaveLength(15);
+        expect(screens.flatMap(s => s.broken)).toEqual([]);
     });
 
     it('leaves no label without a control at all', () => {
         // ORACLE: the HTML spec again — a <label> is defined by what it labels;
         // one with neither `for` nor a nested labelable descendant labels
         // nothing. The five model-list headings used to be exactly that.
-        const { container } = renderTab();
-
-        const orphans = Array.from(container.querySelectorAll('label'))
+        const orphans = renderBothScreens().flatMap(c => Array.from(c.querySelectorAll('label')))
             .filter(l => !l.hasAttribute('for'))
             .filter(l => !l.querySelector('button, input, meter, output, progress, select, textarea'))
             .map(l => l.textContent?.trim());
@@ -223,16 +223,15 @@ describe('AdminConfigsTab — label/control pairing', () => {
         // branches matter here: FormControl points it at the DESCRIPTION
         // normally and at the MESSAGE when a row carries an error, so this is
         // rendered with one of each.
-        const { container } = renderTab({ errors: { name: 'Name is required' } });
-
-        const dangling = Array.from(container.querySelectorAll('[aria-describedby]'))
-            .flatMap(el =>
+        const dangling = renderBothScreens({ errors: { name: 'Name is required' } }).flatMap(container =>
+            Array.from(container.querySelectorAll('[aria-describedby]')).flatMap(el =>
                 el
                     .getAttribute('aria-describedby')!
                     .split(/\s+/)
                     .filter(id => id && !container.querySelector(`[id="${CSS.escape(id)}"]`))
                     .map(id => `${el.tagName.toLowerCase()} -> #${id}`),
-            );
+            ),
+        );
 
         expect(dangling).toEqual([]);
     });
@@ -254,8 +253,9 @@ describe('AdminConfigsTab — control census', () => {
         //   text      : name + base url (2) and one field per model name
         //               (2 chat + embedding + rerank + tts + stt = 6)      = 8
         //   checkbox  : "Reasoning", one per chat model                   = 2
-        //   combobox  : provider + 8 MODEL_JOBS + model_tier_fast         = 10
-        const { container } = renderTab();
+        //   combobox  : provider (form screen) + 8 MODEL_JOBS +
+        //               model_tier_fast (list screen)                      = 1 + 9
+        const [container, list] = renderBothScreens();
 
         expect(container.querySelectorAll('input[type="password"]')).toHaveLength(1);
         expect(container.querySelectorAll('input[type="number"]')).toHaveLength(3);
@@ -263,7 +263,8 @@ describe('AdminConfigsTab — control census', () => {
         // as the pre-migration `<input id="config-name" …>` did.
         expect(container.querySelectorAll('input:not([type])')).toHaveLength(8);
         expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(2);
-        expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(10);
+        expect(container.querySelectorAll('[role="combobox"]')).toHaveLength(1);
+        expect(list.querySelectorAll('[role="combobox"]')).toHaveLength(9);
     });
 
     it('keeps every raw <button> out of the tab', () => {
@@ -274,11 +275,10 @@ describe('AdminConfigsTab — control census', () => {
         // The marker is `active:scale-95`, not `rounded-action`: `size="icon"`
         // adds `rounded-full`, and tailwind-merge resolves that conflict by
         // dropping `rounded-action` from the class list.
-        const { container } = renderTab();
-
-        const strays = Array.from(container.querySelectorAll('button')).filter(b => {
+        const strays = renderBothScreens().flatMap(c => Array.from(c.querySelectorAll('button'))).filter(b => {
             if (b.getAttribute('role') === 'checkbox') return false; // DS Checkbox
             if (b.getAttribute('role') === 'combobox') return false; // DS SelectTrigger
+            if (b.closest('[data-slot="breadcrumb"]')) return false; // DS BreadcrumbBack
             return !b.className.split(/\s+/).includes('active:scale-95'); // DS Button
         });
 
@@ -398,7 +398,7 @@ describe('AdminConfigsTab — per-job model selects', () => {
         // `shouldShowPlaceholder(value) => value === "" || value === undefined`).
         // The empty option is therefore expressed as the trigger placeholder;
         // the item with value '' still exists so the choice can be taken back.
-        renderTab();
+        renderTab({ showForm: false });
         expect(screen.getByRole('combobox', { name: tMock('cragGraderModel') }))
             .toHaveTextContent(tMock('useKbDefaultModel'));
     });
@@ -408,7 +408,7 @@ describe('AdminConfigsTab — per-job model selects', () => {
         // above it — "If the saved value isn't in the catalogue (model removed
         // or renamed), keep it as an extra option so it stays visible until the
         // admin actively changes it."
-        renderTab({ siteConfigs: { crag_grader_model: 'retired-model-v1' } });
+        renderTab({ showForm: false, siteConfigs: { crag_grader_model: 'retired-model-v1' } });
         expect(screen.getByRole('combobox', { name: tMock('cragGraderModel') }))
             .toHaveTextContent('retired-model-v1');
     });
@@ -419,7 +419,7 @@ describe('AdminConfigsTab — per-job model selects', () => {
         // backend's model resolution chain reads the per-task key as a model
         // NAME (CLAUDE.md, "Model tier resolution"). The control changed from a
         // native <select> to a Radix listbox, so this asserts the stored value.
-        const { latestSiteConfigs } = renderTab();
+        const { latestSiteConfigs } = renderTab({ showForm: false });
 
         await userEvent.click(screen.getByRole('combobox', { name: tMock('cragGraderModel') }));
         await userEvent.click(await screen.findByRole('option', { name: 'qwen3-32b (HRZ vLLM)' }));
@@ -436,7 +436,7 @@ describe('AdminConfigsTab — per-job model selects', () => {
         // twice; passing both through would produce a React duplicate-key
         // warning inside the Select and two simultaneously checked items. The
         // fixture contains that collision deliberately.
-        renderTab();
+        renderTab({ showForm: false });
 
         await userEvent.click(screen.getByRole('combobox', { name: tMock('modelTierFast') }));
         const options = await screen.findAllByRole('option');
@@ -452,7 +452,7 @@ describe('AdminConfigsTab — per-job model selects', () => {
         // migrated control must be able to write '' back — this is the reason
         // the empty option stays in the list instead of only being a
         // placeholder.
-        const { latestSiteConfigs } = renderTab({ siteConfigs: { model_tier_fast: 'qwen3-32b' } });
+        const { latestSiteConfigs } = renderTab({ showForm: false, siteConfigs: { model_tier_fast: 'qwen3-32b' } });
 
         await userEvent.click(screen.getByRole('combobox', { name: tMock('modelTierFast') }));
         await userEvent.click(await screen.findByRole('option', { name: tMock('useKbDefaultModel') }));
@@ -462,7 +462,7 @@ describe('AdminConfigsTab — per-job model selects', () => {
 });
 
 describe('AdminConfigsTab — submit', () => {
-    it('submits each form from its own button and nothing else', async () => {
+    it('submits the config form from its own button and nothing else', async () => {
         // ORACLE: HTML form semantics. The DS Checkbox and SelectTrigger are
         // <button>s inside a <form>; one that defaulted to type="submit" would
         // save on every click. Radix sets type="button", and the icon buttons
@@ -472,13 +472,40 @@ describe('AdminConfigsTab — submit', () => {
         await userEvent.click(screen.getAllByRole('checkbox', { name: tMock('reasoning') })[0]);
         await userEvent.click(screen.getAllByRole('button', { name: tMock('addModel') })[0]);
         expect(handleConfigSubmit).not.toHaveBeenCalled();
-        expect(onSiteConfigSubmit).not.toHaveBeenCalled();
 
         await userEvent.click(screen.getByRole('button', { name: new RegExp(tMock('saveConfig'), 'i') }));
         expect(handleConfigSubmit).toHaveBeenCalledTimes(1);
+        // The per-job form is not on this screen, so it cannot be submitted from it.
+        expect(onSiteConfigSubmit).not.toHaveBeenCalled();
+    });
+
+    it('submits the per-job model form from its own button and nothing else', async () => {
+        // ORACLE: HTML form semantics, as above, for the list screen.
+        renderTab({ showForm: false });
+
+        await userEvent.click(screen.getByRole('combobox', { name: tMock('modelTierFast') }));
+        await userEvent.click(await screen.findByRole('option', { name: tMock('useKbDefaultModel') }));
+        expect(onSiteConfigSubmit).not.toHaveBeenCalled();
 
         await userEvent.click(screen.getByRole('button', { name: new RegExp(tMock('saveSettings'), 'i') }));
         expect(onSiteConfigSubmit).toHaveBeenCalledTimes(1);
+        expect(handleConfigSubmit).not.toHaveBeenCalled();
+    });
+
+    it('is a sub-screen: the form replaces the list, and Abbrechen and the breadcrumb return', async () => {
+        // ORACLE: the KB settings' „Mitglieder hinzufügen" pattern (developer,
+        // 2026-10-26) — the form takes the section, a breadcrumb above its
+        // title leads back, Abbrechen does too. `resetForm` is the way back.
+        renderTab();
+
+        expect(screen.queryByText('gemma-4-26b (HRZ vLLM)')).toBeNull();
+        expect(screen.queryByRole('button', { name: tMock('editConfig') })).toBeNull();
+        expect(screen.getByRole('heading', { level: 3, name: tMock('newConfig') })).toBeInTheDocument();
+
+        await userEvent.click(screen.getByRole('button', { name: tMock('cancel') }));
+        expect(resetForm).toHaveBeenCalledTimes(1);
+        await userEvent.click(screen.getByRole('button', { name: new RegExp(`${tMock('backTo')}.*${tMock('adminTabAiModels')}`) }));
+        expect(resetForm).toHaveBeenCalledTimes(2);
     });
 
     it('reports no HTML constraint violation on the config form', () => {
@@ -491,14 +518,31 @@ describe('AdminConfigsTab — submit', () => {
         expect(invalid.map(i => i.getAttribute('aria-label') || i.id)).toEqual([]);
     });
 
-    it('offers activate, edit and delete per config row', () => {
-        // ORACLE: the pre-migration source — three icon buttons per row, with
-        // activate rendered only for an inactive config. All three carried an
-        // aria-label already; they must keep it as DS Buttons.
+    it('lists the provider configurations before the per-job model form', () => {
+        // ORACLE: the developer's ruling of 2026-10-26 — the provider configurations lead the
+        // KI-Modelle section, the per-job model choices follow. DOM order is the observable.
         renderTab({ showForm: false });
-        expect(screen.getByRole('button', { name: tMock('activateConfig') })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: tMock('editConfig') })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: tMock('deleteConfig') })).toBeInTheDocument();
+        const firstConfig = screen.getByRole('button', { name: `${tMock('kbActions')}: HRZ vLLM` });
+        const perJob = screen.getByRole('combobox', { name: tMock('cragGraderModel') });
+        expect(firstConfig.compareDocumentPosition(perJob) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('offers activate, edit and delete in the ⋮ menu of each config card', async () => {
+        // ORACLE: the card pattern of the app (topic cards): one ⋮ trigger named for its card
+        // opens a menu of labelled actions. The pre-card source had three icon buttons per row,
+        // activate only for an inactive config, each with an aria-label; those are the item
+        // names now, and delete (destructive) comes last.
+        renderTab({ showForm: false });
+        await userEvent.click(screen.getByRole('button', { name: `${tMock('kbActions')}: HRZ vLLM` }));
+        const items = (await screen.findAllByRole('menuitem')).map(i => i.textContent);
+        expect(items).toEqual([tMock('activateConfig'), tMock('editConfig'), tMock('deleteConfig')]);
+    });
+
+    it('runs the chosen card action with its config', async () => {
+        renderTab({ showForm: false });
+        await userEvent.click(screen.getByRole('button', { name: `${tMock('kbActions')}: HRZ vLLM` }));
+        await userEvent.click(await screen.findByRole('menuitem', { name: tMock('editConfig') }));
+        expect(startEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: 'cfg-1' }));
     });
 });
 

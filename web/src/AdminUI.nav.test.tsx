@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import axios from 'axios';
+import { AdminHarness } from './test/AdminHarness';
 import AdminUI from './AdminUI';
 
 /* ---------------------------------------------------------------------------
@@ -39,7 +40,7 @@ beforeEach(() => {
 });
 
 function renderAs(role: string) {
-    return render(<AdminUI onBack={() => {}} user={{ id: 'op-1', username: 'ada', role }} />);
+    return render(<AdminHarness userRole={role} />);
 }
 
 describe('AdminUI navigation — authentication providers', () => {
@@ -53,5 +54,53 @@ describe('AdminUI navigation — authentication providers', () => {
     it('shows the Authentication tab to a superadmin', () => {
         renderAs('superadmin');
         expect(screen.getByRole('button', { name: 'adminTabAuth' })).toBeTruthy();
+    });
+});
+
+/* ---------------------------------------------------------------------------
+ * The sections sit under group headings, KB overview before the public KBs.
+ *
+ * ORACLE: the old page's nav groups (configuration, users, monitoring) plus the
+ * developer's decision of 2026-10-26 that the two KB sections are one group,
+ * overview first; WAI-ARIA's group role for the heading. Needs design-system
+ * >= 0.67.0 (`SettingsSection.group`).
+ * ------------------------------------------------------------------------- */
+describe('AdminUI navigation — groups', () => {
+    const rowsOf = (group: string) =>
+        within(screen.getByRole('group', { name: group })).getAllByRole('button').map((b) => b.textContent);
+
+    it('groups the sections for a superadmin', () => {
+        renderAs('superadmin');
+        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels', 'adminTabAuth', 'adminTabSearch', 'adminTabAgents', 'adminTabSettings']);
+        expect(rowsOf('adminNavGroupKbs')).toEqual(['adminTabKbOverview', 'adminTabGlobalKbs']);
+        expect(rowsOf('adminNavGroupUsers')).toEqual(['adminTabUsers', 'adminTabRoles']);
+        expect(rowsOf('adminNavGroupMonitoring')).toEqual(['adminTabHealth', 'evalRunner']);
+    });
+
+    it('leaves out what an admin may not use, and keeps the groups', () => {
+        renderAs('admin');
+        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels']);
+        expect(rowsOf('adminNavGroupKbs')).toEqual(['adminTabKbOverview', 'adminTabGlobalKbs']);
+        expect(rowsOf('adminNavGroupMonitoring')).toEqual(['adminTabHealth']);
+    });
+});
+
+/* ---------------------------------------------------------------------------
+ * A link to a section the user may not see (`?admin=auth` for a plain admin) shows the first section, and
+ * the dialog reports that, so the URL names what is on screen. ORACLE: the route rule above (auth is
+ * superadmin-only) and the rights rule of the `?admin=` link.
+ * ------------------------------------------------------------------------- */
+describe('AdminUI navigation — a section the user may not see', () => {
+    it('falls back to the first section and says so', () => {
+        const onSectionChange = vi.fn();
+        render(<AdminUI open onOpenChange={() => {}} section="auth" onSectionChange={onSectionChange} user={{ id: 'op-1', username: 'ada', role: 'admin' }} />);
+        expect(onSectionChange).toHaveBeenCalledWith('configs');
+        expect(screen.getByRole('heading', { level: 2, name: 'adminTabAiModels' })).toBeTruthy();
+    });
+
+    it('leaves a visible section alone', () => {
+        const onSectionChange = vi.fn();
+        render(<AdminUI open onOpenChange={() => {}} section="auth" onSectionChange={onSectionChange} user={{ id: 'op-1', username: 'ada', role: 'superadmin' }} />);
+        expect(onSectionChange).not.toHaveBeenCalled();
     });
 });
