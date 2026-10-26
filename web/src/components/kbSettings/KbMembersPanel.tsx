@@ -17,6 +17,8 @@ import { useModalContext } from '../../contexts/ModalContext';
 import { useToast } from '../../contexts/ToastContext';
 import { splitUsernames } from '../../utils/splitUsernames';
 import { copyToClipboard } from '../../utils/clipboard';
+import { displayName, initialsOf } from '../../utils/personName';
+import { PersonList, PersonRow } from '../people/PersonList';
 
 // PendingInvite mirrors GET /api/kb/{id}/members' `pending` array
 // (kbmembers.PendingInvite: username/role/createdAt).
@@ -113,16 +115,6 @@ function RoleSelect({ id, wide, value, onChange, label, t, disabled }: RoleSelec
             </SelectContent>
         </Select>
     );
-}
-
-/** Two initials from the name, else from the username. */
-function initialsOf(firstName: string | null | undefined, lastName: string | null | undefined, username: string): string {
-    const fromName = `${firstName?.trim()[0] ?? ''}${lastName?.trim()[0] ?? ''}`;
-    return (fromName || username.slice(0, 2)).toUpperCase();
-}
-
-function displayName(firstName: string | null | undefined, lastName: string | null | undefined, username: string): string {
-    return [firstName, lastName].filter(Boolean).join(' ').trim() || username;
 }
 
 /** A user as GET /api/users/{username} returns them. */
@@ -522,14 +514,9 @@ export function KbMembersPanel({
                                 {loadingMembers && <Loader2 className="size-4 animate-spin text-on-surface-variant" aria-hidden="true" />}
                             </div>
                             {members.length > 0 && (
-                                <ul className="m-0 flex max-h-80 list-none flex-col divide-y divide-outline-variant overflow-y-auto rounded-xl border border-outline-variant p-0">
+                                <PersonList className="max-h-80 overflow-y-auto">
                                     {members.map(m => (
-                                        <li key={m.userId} data-testid={`member-row-${m.userId}`} className="flex items-center gap-3 px-4 py-3">
-                                            <Avatar initials={initialsOf(m.firstName, m.lastName, m.username)} />
-                                            <div className="min-w-0 flex-1">
-                                                <div className="truncate font-medium text-on-surface">{displayName(m.firstName, m.lastName, m.username)}</div>
-                                                <div className="truncate text-sm text-on-surface-variant">@{m.username}</div>
-                                            </div>
+                                        <PersonRow key={m.userId} data-testid={`member-row-${m.userId}`} firstName={m.firstName} lastName={m.lastName} username={m.username}>
                                             {m.role === 'owner' ? (
                                                 <Badge tone="warning" title={t('ownerLabel')}>
                                                     <Crown className="size-3" aria-hidden="true" />
@@ -550,9 +537,9 @@ export function KbMembersPanel({
                                                     />
                                                 </>
                                             )}
-                                        </li>
+                                        </PersonRow>
                                     ))}
-                                </ul>
+                                </PersonList>
                             )}
                         </section>
 

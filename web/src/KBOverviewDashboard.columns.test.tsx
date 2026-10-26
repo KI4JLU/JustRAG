@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import KBOverviewDashboard from './KBOverviewDashboard';
 
@@ -334,12 +335,12 @@ describe('KBOverviewDashboard last-sync sort (Wave-4 Task 7 fix round 1)', () =>
         // First click sorts ascending, which — by the ascending-rank /
         // descending-urgency convention compareSyncUrgency documents —
         // puts the worst kind first: never-succeeded, then failing, then ok.
-        fireEvent.click(screen.getByRole('columnheader', { name: /colLastSync/ }));
+        fireEvent.click(screen.getByRole('button', { name: /colLastSync/ }));
         const namesAsc = screen.getAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent);
         expect(namesAsc).toEqual(['KB Three', 'KB Two', 'KB One']);
 
         // A second click flips the direction: healthy first, never-succeeded last.
-        fireEvent.click(screen.getByRole('columnheader', { name: /colLastSync/ }));
+        fireEvent.click(screen.getByRole('button', { name: /colLastSync/ }));
         const namesDesc = screen.getAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent);
         expect(namesDesc).toEqual(['KB One', 'KB Two', 'KB Three']);
     });
@@ -402,16 +403,15 @@ describe('KBOverviewDashboard unknown sync kind (F5)', () => {
     });
 });
 
-// Wave-5 Task 6: the ingest prompt-injection screening count. It rides the
-// always-visible files column's tooltip rather than a column of its own — a
-// flag is advisory, so it must not cost table width.
+// Wave-5 Task 6: the ingest prompt-injection screening count. It was a tooltip on the files cell; since
+// 2026-10-26 (developer) it is a column of its own, so the number is on the page instead of behind a hover.
 describe('KBOverviewDashboard injection screening count', () => {
     const injectionOverview = {
         ...overview,
         rows: [
             { ...overview.rows[0], injectionFlagged: 3 },
             // kb-2 omits the field entirely, as a pod on the previous image
-            // would: the tooltip must read 0, not "undefined".
+            // would: the cell must read 0, not "undefined".
             overview.rows[1],
         ],
     };
@@ -424,27 +424,39 @@ describe('KBOverviewDashboard injection screening count', () => {
         mockedAxios.post = vi.fn().mockResolvedValue({ status: 204 });
     });
 
-    it('puts the flagged count in the files column tooltip', async () => {
+    /** The cell of `kbName`'s row under the column named `header` (identity `t`: the translation key). */
+    const cellUnder = (header: string, kbName: string) => {
+        const col = screen.getAllByRole('columnheader').findIndex((h) => h.textContent?.trim().startsWith(header));
+        const row = screen.getAllByRole('row').slice(1).find((r) => r.textContent?.includes(kbName))!;
+        return row.querySelectorAll('td')[col];
+    };
+
+    it('shows the flagged count in a column of its own, not in a tooltip', async () => {
         render(<KBOverviewDashboard />);
         await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
 
-        const rows = screen.getAllByRole('row').slice(1);
-        const alphaRow = rows.find((r) => r.textContent?.includes('Alpha KB'))!;
-        const alphaFilesCell = Array.from(alphaRow.querySelectorAll('td'))
-            .find((td) => td.getAttribute('title')?.startsWith('colInjectionFlagged'))!;
-        expect(alphaFilesCell.getAttribute('title')).toBe('colInjectionFlagged: 3');
-        // The cell still shows the file count itself — the tooltip is additive.
-        expect(alphaFilesCell.textContent).toBe('10');
+        expect(cellUnder('colSuspicious', 'Alpha KB')).toHaveTextContent('3');
+        // The files cell is just the file count now: no tooltip.
+        const files = cellUnder('tabFiles', 'Alpha KB');
+        expect(files.textContent).toBe('10');
+        expect(files).not.toHaveAttribute('title');
     });
 
     it('reads 0 for a row that sends no injectionFlagged field', async () => {
         render(<KBOverviewDashboard />);
         await waitFor(() => expect(screen.getByText('Beta KB')).toBeTruthy());
 
-        const rows = screen.getAllByRole('row').slice(1);
-        const betaRow = rows.find((r) => r.textContent?.includes('Beta KB'))!;
-        const betaFilesCell = Array.from(betaRow.querySelectorAll('td'))
-            .find((td) => td.getAttribute('title')?.startsWith('colInjectionFlagged'))!;
-        expect(betaFilesCell.getAttribute('title')).toBe('colInjectionFlagged: 0');
+        expect(cellUnder('colSuspicious', 'Beta KB').textContent).toBe('0');
+    });
+
+    it('sorts by the flagged count, a missing count counting as 0', async () => {
+        render(<KBOverviewDashboard />);
+        await waitFor(() => expect(screen.getByText('Alpha KB')).toBeTruthy());
+
+        await userEvent.click(screen.getByRole('button', { name: /colSuspicious/ }));
+        const order = () => screen.getAllByRole('row').slice(1).map((r) => r.textContent?.match(/(Alpha|Beta) KB/)?.[1]);
+        expect(order()).toEqual(['Beta', 'Alpha']); // 0 before 3
+        await userEvent.click(screen.getByRole('button', { name: /colSuspicious/ }));
+        expect(order()).toEqual(['Alpha', 'Beta']);
     });
 });

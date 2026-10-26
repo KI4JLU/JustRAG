@@ -211,12 +211,13 @@ describe('App — the KB overview on the authenticated home route', () => {
    *
    * The admin console has NO other entry point since Stage 7b deleted the
    * floating admin button, so the click path is exercised end to end rather
-   * than asserted as a rendered name: the item must reach `setView('admin')`
-   * and the admin view must actually come up.
+   * than asserted as a rendered name: the item must open the console, a
+   * dialog over the current view (like the settings window), and closing it
+   * must leave that view where it was.
    *
    * ORACLES, both independent of the code under change: src/translations.ts
    * for every accessible name (`adminSettings`, `adminDashboard`) and
-   * WAI-ARIA's button / menuitem / heading role mappings.
+   * WAI-ARIA's button / menuitem / dialog role mappings.
    *
    * („shows the agents row to a system admin" sat here and is deleted: the row
    * was removed from the nav on 18.09.2026. `AgentsView` keeps its two in-KB
@@ -233,17 +234,21 @@ describe('App — the KB overview on the authenticated home route', () => {
     const menu = within(await screen.findByRole('menu'));
     await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.de }));
 
-    /* ORACLE: translations.ts (`adminDashboard`) + the h1 mapping. `AdminUI`
+    /* ORACLE: translations.ts (`adminDashboard`) + the dialog mapping. `AdminUI`
      * is a lazy import behind a Suspense boundary, hence the same generous
      * timeout `findOverviewHeading` explains — a module fetch, not a
      * behaviour, is what is being waited for. */
-    expect(
-      await screen.findByRole(
-        'heading',
-        { level: 1, name: translations.adminDashboard.de },
-        { timeout: 15000 },
-      ),
-    ).toBeInTheDocument();
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: translations.adminDashboard.de },
+      { timeout: 15000 },
+    );
+    expect(dialog).toBeInTheDocument();
+
+    // Over the view, not instead of it: closing returns to where the user was.
+    await userEvent.click(within(dialog).getByRole('button', { name: translations.close.de }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await findOverviewHeading();
   });
 
   /* -----------------------------------------------------------------------

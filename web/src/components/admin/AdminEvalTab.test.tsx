@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import AdminEvalTab from './AdminEvalTab';
 import { translations } from '../../translations';
+import { labelledControls } from '../../test/labelledControls';
 
 /* ---------------------------------------------------------------------------
  * This suite exists because of the design-system migration of this file (board
@@ -128,35 +129,24 @@ async function renderTab(props: { kbId?: string } = {}) {
 }
 
 describe('AdminEvalTab — label/control pairing', () => {
-    it('resolves every label to a real, labelable control', async () => {
-        // ORACLE: the HTML specification, applied by jsdom. `label[for]` must
-        // name an element that exists and is labelable (button, input, meter,
-        // output, progress, select, textarea). Before the migration this held
-        // only because the hand-written id/htmlFor pairs happened to agree —
-        // and four fields had no label at all. Now FormControl injects the id,
-        // and this asserts the result rather than trusting it.
+    it('resolves every row label to the control it names', async () => {
+        // ORACLE: WAI-ARIA's accessible-name computation (test/labelledControls.ts): each
+        // row's control names its label through `aria-labelledby`, and that label has text.
+        // Before the migration this held only because the hand-written id/htmlFor pairs
+        // happened to agree — and four fields had no label at all.
         const { container } = await renderTab();
 
-        const labels = Array.from(container.querySelectorAll('label[for]'));
-        // 4 generate-counts + label + kb-id + golden-set + top-k + judge = 9,
-        // + one schedule select per golden-set row (upstream W7, the
-        // SyncScheduleSelect in the golden-set table) × 2 rows in GOLDEN_SETS = 11.
-        expect(labels).toHaveLength(11);
-
-        const LABELABLE = ['BUTTON', 'INPUT', 'METER', 'OUTPUT', 'PROGRESS', 'SELECT', 'TEXTAREA'];
-        const broken = labels
-            .map(l => {
-                const id = l.getAttribute('for')!;
-                const target = container.querySelector(`[id="${CSS.escape(id)}"]`);
-                if (!target) return `${l.textContent?.trim()} -> #${id} (no such element)`;
-                if (!LABELABLE.includes(target.tagName)) {
-                    return `${l.textContent?.trim()} -> <${target.tagName.toLowerCase()}> (not labelable)`;
-                }
-                return null;
-            })
-            .filter(Boolean);
-
+        // The rows hold the form's fields. The schedule selects of the golden-set table
+        // are not rows: they name themselves with a visible `<label for>`.
+        const { controls, broken } = labelledControls(container);
+        // 4 generate-counts + label + kb-id + golden-set + top-k + judge = 9.
+        expect(controls).toHaveLength(9);
         expect(broken).toEqual([]);
+
+        // Those table selects (one per golden-set row, 2 rows in GOLDEN_SETS) still pair by `for`.
+        const labels = Array.from(container.querySelectorAll('label[for]'));
+        expect(labels).toHaveLength(2);
+        expect(labels.filter(l => !container.querySelector(`[id="${CSS.escape(l.getAttribute('for')!)}"]`))).toEqual([]);
     });
 
     it('leaves no aria-describedby pointing at a missing element', async () => {

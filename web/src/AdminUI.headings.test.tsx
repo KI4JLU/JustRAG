@@ -2,35 +2,26 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import AdminUI from './AdminUI';
+import { AdminHarness } from './test/AdminHarness';
 
 /* ---------------------------------------------------------------------------
- * ONE `<h1>` per admin page (card KI-743).
+ * No `<h1>` inside the admin console.
  *
- * This is the only place in the suite that renders AdminUI together with the
- * two nested dashboards it actually mounts, and that composition is the whole
- * point: neither half can see the defect alone.
- *
- *   - AdminUI.tsx:497 renders the admin area's own `<h1>{t('adminDashboard')}`.
- *   - KI-714 put `KBOverviewDashboard` and `SystemHealthDashboard` on the
- *     design system's `DashboardLayout`, whose `PageHeader` rendered an `<h1>`
- *     at a level that was NOT a prop. Every render of those two tabs therefore
- *     produced a page with two top-level headings — recorded as an open
- *     question by KI-714's reviewer, because the fix was not available here.
- *   - Design-system v0.24.0 added `headingLevel`; the two call sites pass 2.
- *
- * The two components' own shell suites assert the other half (the nested page
- * contributes no `<h1>` of its own, and exactly one `<h2>`); the stories
- * cannot assert either, since a story renders one component under the
- * preview's decorators and never the admin route.
+ * The console is a dialog over a page that owns the `<h1>`; the DS
+ * `SettingsDialog` titles itself and its sections with `<h2>`s.
+ * `KBOverviewDashboard` and `SystemHealthDashboard` sit on the design system's
+ * `DashboardLayout`, whose `PageHeader` renders an `<h1>` unless
+ * `headingLevel` says otherwise (design-system v0.24.0); the two call sites
+ * pass 2. This is the only place in the suite that renders AdminUI together
+ * with those two nested dashboards, and that composition is the point: neither
+ * half can see the defect alone, and a story renders one component, never the
+ * console.
  *
  * ORACLE for both tests: WAI-ARIA's heading levels as computed by
- * @testing-library's role queries over jsdom's DOM — `getAllByRole('heading',
- * { level: 1 })`. Nothing in this repo derives that number, and the assertion
- * is a COUNT over the whole rendered tree, so it fails both ways: it goes to 2
- * if a nested page reintroduces a top-level heading, and to 0 if AdminUI ever
- * loses its own. Mutation-verified on this card by deleting `headingLevel={2}`
- * from the two call sites.
+ * @testing-library's role queries over jsdom's DOM. The assertion is a COUNT
+ * over the whole rendered tree, so it fails if a nested page reintroduces a
+ * top-level heading. Mutation-verified by deleting `headingLevel={2}` from the
+ * two call sites.
  * ------------------------------------------------------------------------- */
 
 vi.mock('axios', () => ({
@@ -112,33 +103,30 @@ beforeEach(() => {
 });
 
 function renderAdmin() {
-    return render(<AdminUI onBack={() => {}} user={{ id: 'op-1', username: 'ada', role: 'superadmin' }} />);
+    return render(<AdminHarness userRole="superadmin" />);
 }
 
-describe('AdminUI — one top-level heading per admin page', () => {
-    it('has exactly one <h1> on the KB overview tab, and the page title below it', async () => {
+describe('AdminUI — no top-level heading inside the console', () => {
+    it('adds no <h1> on the KB overview section', async () => {
         renderAdmin();
         await userEvent.click(screen.getByRole('button', { name: 'adminTabKbOverview' }));
 
         // The nested page has rendered before the count is taken — otherwise
-        // the assertion would pass on an empty tab.
-        const pageTitle = await screen.findByRole('heading', { level: 2, name: 'adminTabKbOverview' });
-        expect(pageTitle).toBeInTheDocument();
+        // the assertion would pass on an empty section. Its fixture row is not
+        // something the dialog itself can produce.
+        expect(await screen.findByText('Alpha KB')).toBeInTheDocument();
 
-        const topLevel = screen.getAllByRole('heading', { level: 1 });
-        expect(topLevel).toHaveLength(1);
-        expect(topLevel[0]).toHaveTextContent('adminDashboard');
+        expect(screen.queryAllByRole('heading', { level: 1 })).toHaveLength(0);
     });
 
-    it('has exactly one <h1> on the system health tab, and the page title below it', async () => {
+    it('adds no <h1> on the system health section', async () => {
         renderAdmin();
         await userEvent.click(screen.getByRole('button', { name: 'adminTabHealth' }));
 
-        const pageTitle = await screen.findByRole('heading', { level: 2, name: /System Health/ });
-        expect(pageTitle).toBeInTheDocument();
+        // „System Health" is the dashboard's own title; the dialog's section
+        // heading says adminTabHealth.
+        expect(await screen.findByRole('heading', { level: 2, name: /System Health/ })).toBeInTheDocument();
 
-        const topLevel = screen.getAllByRole('heading', { level: 1 });
-        expect(topLevel).toHaveLength(1);
-        expect(topLevel[0]).toHaveTextContent('adminDashboard');
+        expect(screen.queryAllByRole('heading', { level: 1 })).toHaveLength(0);
     });
 });

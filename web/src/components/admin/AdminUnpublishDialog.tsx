@@ -3,6 +3,10 @@ import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import { API_BASE_URL } from '../../api';
 import { getApiErrorMessage } from '../../utils/apiError';
+import {
+    Alert, AlertDescription, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Label,
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
+} from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export interface UnpublishCandidate {
@@ -77,82 +81,70 @@ export function AdminUnpublishDialog({
     const ready = impact !== null && (!hasCandidates || selectedOwnerId !== '');
 
     return (
-        <div className="modal-overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="admin-unpublish-title" style={{ maxWidth: '480px' }}>
-                <h3 id="admin-unpublish-title" style={{ margin: '0 0 1rem' }}>{t('unpublishTitle')}</h3>
+        <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
+            <DialogContent closeLabel={t('close')} className="max-w-md" aria-describedby={undefined}>
+                <DialogHeader className="pr-8">
+                    <DialogTitle>{t('unpublishTitle')}</DialogTitle>
+                </DialogHeader>
 
-                <p style={{ margin: '0 0 1rem', fontWeight: 600 }}>{kbName}</p>
+                <div className="flex flex-col gap-3">
+                    <p className="m-0 font-semibold text-on-surface">{kbName}</p>
 
-                {loading && (
-                    <div style={{ padding: '0.75rem 0', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Loader2 size={15} className="spin" aria-hidden="true" /> {t('loading')}
-                    </div>
-                )}
+                    {loading && (
+                        <div className="flex items-center gap-2 py-3 text-on-surface-variant">
+                            <Spinner size="sm" label={t('loading')} />
+                            <span aria-hidden="true">{t('loading')}</span>
+                        </div>
+                    )}
 
-                {impact && (
-                    <>
-                        <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                            {t('unpublishSubscriberWarning').replace('{count}', String(impact.subscribers))}
-                        </p>
-
-                        {hasCandidates ? (
-                            <>
-                                <label htmlFor="admin-unpublish-owner" style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem' }}>
-                                    {t('unpublishOwnerLabel')}
-                                </label>
-                                <select
-                                    id="admin-unpublish-owner"
-                                    aria-label={t('unpublishOwnerLabel')}
-                                    value={selectedOwnerId}
-                                    onChange={(e) => setSelectedOwnerId(e.target.value)}
-                                    style={{
-                                        width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                                        color: 'var(--text-primary)', padding: '0.5rem 0.75rem', borderRadius: 'var(--shape-md)',
-                                        fontSize: '0.9rem', marginBottom: '1rem',
-                                    }}
-                                >
-                                    <option value="" disabled>{t('unpublishOwnerLabel')}</option>
-                                    {impact.candidates.map((c) => (
-                                        <option key={c.userId} value={c.userId}>{displayName(c)}</option>
-                                    ))}
-                                </select>
-                            </>
-                        ) : (
-                            <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                {t('unpublishNoCandidates')}
+                    {impact && (
+                        <>
+                            <p className="m-0 text-sm text-on-surface-variant">
+                                {t('unpublishSubscriberWarning').replace('{count}', String(impact.subscribers))}
                             </p>
-                        )}
-                    </>
-                )}
 
-                {(error || loadError) && (
-                    <p style={{ color: 'var(--error-text)', fontSize: '0.9rem', margin: '0 0 1rem' }}>{error || loadError}</p>
-                )}
+                            {hasCandidates ? (
+                                <div className="flex flex-col gap-1.5">
+                                    <Label htmlFor="admin-unpublish-owner">{t('unpublishOwnerLabel')}</Label>
+                                    <Select value={selectedOwnerId} onValueChange={setSelectedOwnerId}>
+                                        <SelectTrigger id="admin-unpublish-owner" aria-label={t('unpublishOwnerLabel')}>
+                                            <SelectValue placeholder={t('unpublishOwnerLabel')} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {impact.candidates.map((c) => (
+                                                <SelectItem key={c.userId} value={c.userId}>{displayName(c)}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            ) : (
+                                <p className="m-0 text-sm text-on-surface-variant">{t('unpublishNoCandidates')}</p>
+                            )}
+                        </>
+                    )}
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <button type="button" onClick={onCancel} disabled={busy} style={{
-                        background: 'var(--bg-primary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)',
-                        padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', cursor: busy ? 'default' : 'pointer',
-                    }}>
+                    {(error || loadError) && (
+                        <Alert tone="error" live="assertive">
+                            <AlertDescription>{error || loadError}</AlertDescription>
+                        </Alert>
+                    )}
+                </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
                         {t('cancel')}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         type="button"
+                        variant="destructive"
                         onClick={() => { if (ready && !busy) onConfirm(selectedOwnerId); }}
                         disabled={!ready || busy}
-                        style={{
-                            background: ready && !busy ? 'var(--error-text)' : 'var(--bg-primary)',
-                            border: '1px solid var(--border-color)', color: ready && !busy ? 'white' : 'var(--text-secondary)',
-                            padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)',
-                            cursor: ready && !busy ? 'pointer' : 'default',
-                            display: 'flex', alignItems: 'center', gap: '0.4rem',
-                        }}
                     >
-                        {busy && <Loader2 size={15} className="spin" aria-hidden="true" />}
+                        {busy && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
                         {t('unpublishKb')}
-                    </button>
-                </div>
-            </div>
-        </div>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

@@ -1,9 +1,4 @@
 {
-  "src/AdminUI.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
   "src/AuthenticatedApp.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
@@ -207,71 +202,6 @@
   "src/components/WebWorkspace.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 8
-    }
-  },
-  "src/components/admin/AdminAgentMetricsCard.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/admin/AdminAuthTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 17
-    }
-  },
-  "src/components/admin/AdminCategoriesSection.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
-  "src/components/admin/AdminGlobalKbsTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
-    }
-  },
-  "src/components/admin/AdminMCPSection.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 4
-    }
-  },
-  "src/components/admin/AdminSearchTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 7
-    }
-  },
-  "src/components/admin/AdminSiteTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
-    }
-  },
-  "src/components/admin/AdminUnpublishDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/admin/AdminUsersTab.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/admin/KbDeleteDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
-  "src/components/admin/KbPublishDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/admin/KbTransferOwnerDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 4
-    }
-  },
-  "src/components/admin/ReembedSection.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/agents/AgentConfigFields.tsx": {

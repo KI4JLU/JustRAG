@@ -83,7 +83,7 @@ const NAV = {
   onViewDiscover: vi.fn(),
   onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
-  onViewAdmin: vi.fn(),
+  onEditGlobalKb: vi.fn(),
   onViewLegal: vi.fn(),
   // The header search's destinations (KI-837). No test here selects a hit.
   onOpenTopic: vi.fn(),
@@ -103,7 +103,6 @@ beforeEach(() => {
   NAV.onViewDiscover.mockClear();
   NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
-  NAV.onViewAdmin.mockClear();
   NAV.onOpenTopicSettings.mockClear();
 });
 

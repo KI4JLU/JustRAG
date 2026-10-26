@@ -2,7 +2,6 @@ import { MessageSquare, Settings, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
     SettingsDialog, SettingsRow, Switch, useAccent, useContrast,
     type AccentColor, type ContrastChoice,
 } from '@ki4jlu/design-system';
@@ -10,6 +9,7 @@ import type { Theme } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import ApiKeyManager from './ApiKeys/ApiKeyManager';
+import { Choice } from './form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
@@ -22,26 +22,6 @@ interface UserSettingsModalProps {
     onOpenChange: (open: boolean) => void;
     tab: SettingsTab;
     onTabChange: (tab: SettingsTab) => void;
-}
-
-/** A labelled choice for a SettingsRow; the row's label names the select.
- *  Ghost trigger (value + chevron, no frame): the row already says what it is. */
-function Choice<T extends string>({ id, value, onChange, options }: {
-    id: string;
-    value: T;
-    onChange: (v: T) => void;
-    options: [T, ReactNode][];
-}) {
-    return (
-        <Select value={value} onValueChange={(v) => onChange(v as T)}>
-            <SelectTrigger variant="ghost" aria-labelledby={id}>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-                {options.map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}
-            </SelectContent>
-        </Select>
-    );
 }
 
 /**

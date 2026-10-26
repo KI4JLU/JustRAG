@@ -181,7 +181,6 @@ interface MyTopicsViewStoryArgs {
   siteConfigs: Record<string, string>;
   removingKb: boolean;
   onViewProfile: () => void;
-  onViewAdmin: () => void;
   onViewSharedKbs: () => void;
   onLogout: () => void;
   onCreateKB: () => void;
@@ -241,7 +240,7 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
             onViewDiscover: idle(),
             onViewTools: idle(),
             onViewProfile: args.onViewProfile,
-            onViewAdmin: args.onViewAdmin,
+            onEditGlobalKb: idle(),
             onViewLegal: idle(),
             // The header search's destinations (KI-837).
             onOpenTopic: args.onOpenTopic,
@@ -505,7 +504,6 @@ const meta = {
     siteConfigs: SITE_CONFIGS,
     removingKb: false,
     onViewProfile: fn(),
-    onViewAdmin: fn(),
     onViewSharedKbs: fn(),
     onLogout: fn(),
     onCreateKB: fn(),

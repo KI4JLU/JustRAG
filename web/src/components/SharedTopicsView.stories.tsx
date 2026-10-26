@@ -184,7 +184,7 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
             onViewDiscover: args.onViewDiscover,
             onViewTools: idle(),
             onViewProfile: idle(),
-            onViewAdmin: idle(),
+            onEditGlobalKb: idle(),
             onViewLegal: idle(),
             // The header search's destinations (KI-837); no story here selects a hit.
             onOpenTopic: idle(),

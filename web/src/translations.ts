@@ -1502,6 +1502,7 @@ export const translations = {
 
     // Admin Nav Groups
     adminNavGroupConfig: { de: 'Konfiguration', en: 'Configuration' },
+    adminNavGroupKbs: { de: 'Themen', en: 'Topics' },
     adminNavGroupUsers: { de: 'Nutzer', en: 'Users' },
     adminNavGroupMonitoring: { de: 'Monitoring', en: 'Monitoring' },
 
@@ -1583,7 +1584,10 @@ export const translations = {
     colName: { de: 'Name', en: 'Name' },
     colOwner: { de: 'Besitzer', en: 'Owner' },
     colSize: { de: 'Größe', en: 'Size' },
-    colFailed: { de: 'Fehlgeschlagen', en: 'Failed' },
+    colFailed: { de: 'Fehler', en: 'Failed' },
+    kbActionPublishLive: { de: 'Veröffentlichen', en: 'Publish' },
+    kbStagedBadge: { de: 'Nicht live', en: 'Not live' },
+    kbStagedHint: { de: 'Öffentlich, aber noch nicht freigeschaltet: sichtbar nur für KB-Admins und Systemadmins.', en: 'Public, but not live yet: visible only to KB admins and system admins.' },
     colProcessing: { de: 'In Bearbeitung', en: 'Processing' },
     colChats: { de: 'Chats', en: 'Chats' },
     colCreated: { de: 'Erstellt', en: 'Created' },
@@ -1747,6 +1751,14 @@ export const translations = {
     // Users Tab
     userManagement: { de: 'Benutzerverwaltung', en: 'User Management' },
     noUsersFound: { de: 'Keine Benutzer gefunden.', en: 'No users found.' },
+    adminUsersSearch: { de: 'Benutzer suchen', en: 'Search users' },
+    userInfo: { de: 'Benutzerinfo', en: 'User info' },
+    userInfoId: { de: 'Benutzer-ID', en: 'User ID' },
+    userInfoMemberSince: { de: 'Mitglied seit', en: 'Member since' },
+    adminUsersFilterRole: { de: 'Rolle', en: 'Role' },
+    adminUsersAllRoles: { de: 'Alle Rollen', en: 'All roles' },
+    adminUsersNoMatch: { de: 'Kein Benutzer entspricht der Suche.', en: 'No user matches the search.' },
+    paginationRange: { de: '{from}–{to} von {total}', en: '{from}–{to} of {total}' },
 
     // Search Tab
     searchProviderConfig: { de: 'Suchanbieter-Konfiguration', en: 'Search Provider Configuration' },
@@ -1943,6 +1955,7 @@ export const translations = {
     fileInjectionSummaryOne: { de: '1 Datei mit verdächtigem Text', en: '1 file with suspicious text' },
     fileInjectionSummaryMany: { de: '{count} Dateien mit verdächtigem Text', en: '{count} files with suspicious text' },
     fileInjectionSummaryMore: { de: 'und {count} weitere', en: 'and {count} more' },
+    colSuspicious: { de: 'Verdächtig', en: 'Flagged' },
     colInjectionFlagged: { de: 'Dateien mit verdächtigem Text', en: 'Files with suspicious text' },
     ingestScreeningEnabled: { de: 'Prompt-Injection-Screening beim Import', en: 'Prompt-injection screening on ingest' },
     ingestScreeningEnabledHelp: { de: 'Prüft den geparsten Text von Dateien aus externen Quellen (RSS, Confluence, Git, Crawl) auf anweisungsartige Formulierungen und markiert Treffer. Rein informativ: der Import, das Chunking und die Suche bleiben unverändert, es wird nur ein Hinweis in der Quellenliste gesetzt. Eigene Uploads werden nie geprüft.', en: 'Screens the parsed text of files from external sources (RSS, Confluence, git, crawl) for instruction-shaped phrases and flags any hit. Advisory only: ingestion, chunking and retrieval are unchanged, a badge in the source list is the entire effect. Your own uploads are never screened.' },
@@ -2453,6 +2466,7 @@ export const translations = {
     unpublishSubscriberWarning: { de: '{count} Abonnenten verlieren den Zugriff.', en: '{count} subscribers will lose access.' },
     unpublishImpactLoadError: { de: 'Fehler beim Laden der Auswirkungen', en: 'Error loading the impact' },
     unpublishError: { de: 'Fehler beim Zurücknehmen der Wissensdatenbank', en: 'Error making the knowledge base private' },
+    autoSubscribeBadge: { de: 'In allen Übersichten', en: "In everyone's overview" },
     autoSubscribe: { de: 'In allen Übersichten anzeigen', en: "Show in everyone's overview" },
     autoSubscribeHint: { de: 'Ohne diese Option erscheint die KB nur im Katalog.', en: 'Without this, the KB appears only in the catalog.' },
     autoSubscribeError: { de: 'Fehler beim Aktualisieren der Einstellung', en: 'Error updating the setting' },
