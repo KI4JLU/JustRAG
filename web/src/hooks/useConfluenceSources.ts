@@ -41,14 +41,14 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             // 'error' — that's the failsafe-reconnect path), POST otherwise.
             // The backend rejects POST when a connection already exists for
             // the user, so the distinction is load-bearing here.
+            // Both answer the bare connection, not the GET's {connection,
+            // baseUrl, enabled} wrapper, so it is merged into the info. A save
+            // only succeeds while the integration is enabled.
             const existing = confluenceConnection?.connection;
-            if (existing) {
-                const res = await axios.put(`${API_BASE_URL}/api/confluence/connections/${existing.id}`, { token, displayName });
-                setConfluenceConnection(prev => prev ? { ...prev, connection: res.data } : prev);
-            } else {
-                const res = await axios.post(`${API_BASE_URL}/api/confluence/connections`, { token, displayName });
-                setConfluenceConnection(res.data);
-            }
+            const res = existing
+                ? await axios.put(`${API_BASE_URL}/api/confluence/connections/${existing.id}`, { token, displayName })
+                : await axios.post(`${API_BASE_URL}/api/confluence/connections`, { token, displayName });
+            setConfluenceConnection(prev => ({ baseUrl: null, ...prev, enabled: true, connection: res.data }));
             toast.success(t('confluenceConnected'));
         } catch (err: unknown) {
             toast.error(getApiErrorMessage(err, t('error')));
