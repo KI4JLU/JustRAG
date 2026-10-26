@@ -387,55 +387,66 @@ func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, use
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
+// downloadableFile resolves fileID to a stored file the authenticated caller
+// may download (canDownload), or writes the refusal and returns false: 404
+// for a missing file, KB or blob, 403 without downloadSources. The caller
+// has checked authentication. Shared by Download and Text, so the text
+// preview can never read what the download would refuse.
+func (h *Handler) downloadableFile(w http.ResponseWriter, r *http.Request, fileID string) (*FileInfo, bool) {
+	ctx := r.Context()
+	file, err := h.store.GetFileByID(ctx, fileID)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
+		return nil, false
+	}
+	if file == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "File not found")
+		return nil, false
+	}
+
+	kb, err := h.store.GetKBByID(ctx, file.KbID)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
+		return nil, false
+	}
+	if kb == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "Knowledge base not found")
+		return nil, false
+	}
+
+	ok, err := h.canDownload(ctx, kb, auth.UserFromContext(ctx))
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
+		return nil, false
+	}
+	if !ok {
+		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, "Access denied")
+		return nil, false
+	}
+
+	if file.StoragePath == nil || *file.StoragePath == "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "File has no storage path")
+		return nil, false
+	}
+	return file, true
+}
+
 // Download handles GET /api/files/{id}/download.
 // Requires authentication; the user must have at least view access to the
 // file's KB and the downloadSources capability on it (canDownload). The
 // in-app PDF preview reads through this route, so it follows the same gate.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	user := auth.UserFromContext(r.Context())
-	if user == nil {
+	if auth.UserFromContext(r.Context()) == nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
-
 	fileID := r.PathValue("id")
 	if fileID == "" {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Missing file ID")
 		return
 	}
-
-	file, err := h.store.GetFileByID(r.Context(), fileID)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if file == nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "File not found")
-		return
-	}
-
-	kb, err := h.store.GetKBByID(r.Context(), file.KbID)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if kb == nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "Knowledge base not found")
-		return
-	}
-
-	ok, err := h.canDownload(r.Context(), kb, user)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
+	file, ok := h.downloadableFile(w, r, fileID)
 	if !ok {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "Access denied")
-		return
-	}
-
-	if file.StoragePath == nil || *file.StoragePath == "" {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "File has no storage path")
 		return
 	}
 

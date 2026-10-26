@@ -31,3 +31,11 @@ func StubFetchForTest(body, contentType string) (restore func()) {
 	}
 	return func() { validateURL, fetchURL = oldV, oldF }
 }
+
+// SetTextPreviewMaxExpanded lowers the expanded-archive limit for a test and
+// returns the restore function.
+func SetTextPreviewMaxExpanded(n uint64) func() {
+	prev := textPreviewMaxExpanded
+	textPreviewMaxExpanded = n
+	return func() { textPreviewMaxExpanded = prev }
+}
