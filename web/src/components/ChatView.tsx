@@ -693,18 +693,19 @@ const ChatViewComp = () => {
                               const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
                               // Only until the first token (the "submitted" phase):
                               // once reasoning or answer text streams, that output
-                              // is the progress signal. A spinner, not a shimmering
-                              // label, so it does not read as the reasoning trigger.
+                              // is the progress signal. Loading dots (the "typing"
+                              // cue), not a shimmering label, so it does not read
+                              // as the reasoning trigger.
                               const showLoader = chat.loading && !lastMsg?.content && !lastMsg?.reasoning;
                               return showLoader && (
                                 <div className="message-ai chat-status-line flex items-center gap-2" data-testid="chat-status-line">
                                   {isDeepSearching ? (
                                     <>
-                                      <Spinner size="sm" label={t('searchingDeeper')} />
+                                      <Spinner size="sm" variant="dots" label={t('searchingDeeper')} />
                                       <span aria-hidden="true" className="text-sm text-on-surface-variant">{t('searchingDeeper')}</span>
                                     </>
                                   ) : (
-                                    <Spinner size="sm" label={t('preparingAnswer')} />
+                                    <Spinner size="sm" variant="dots" label={t('preparingAnswer')} />
                                   )}
                                 </div>
                               );

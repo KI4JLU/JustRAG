@@ -28,6 +28,15 @@ describe('sourceTypeLabel', () => {
     expect(sourceTypeLabel({ name: 'foto.jpeg' })).toBe('JPG');
   });
 
+  // Oracle: the preview calls a crawled page or URL import a web page, so the
+  // tile does too, whatever file the copy is stored as.
+  it('labels a web page WEB with the globe, whatever its stored file', () => {
+    expect(sourceTypeLabel({ name: 'Startseite_ab12cd34.md', origin: 'crawl' })).toBe('WEB');
+    expect(sourceTypeLabel({ name: 'Seite_ab12cd34.html', origin: 'url' })).toBe('WEB');
+    expect(sourceIconFor({ name: 'Startseite_ab12cd34.md', type: 'text/markdown', origin: 'crawl' })).toBe(Globe);
+    expect(sourceTypeLabel({ name: 'Notiz.md', origin: 'upload' })).toBe('MD');
+  });
+
   it('has no label for page titles or unknown extensions', () => {
     expect(sourceTypeLabel({ name: 'Startseite JLU' })).toBeNull();
     expect(sourceTypeLabel({ name: 'archiv.zip' })).toBeNull();

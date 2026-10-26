@@ -65,7 +65,7 @@ export function CitationChip({ n, raws, occ }: { n: number; raws: number[]; occ:
                 {...dataProps}
                 className={cn(
                     // align-[2px]: centred on the capitals beside it, like the DS chip (InlineCitationCardTrigger).
-                    'citation-chip ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-md px-1.5 align-[2px] text-[11px] leading-none font-semibold',
+                    'citation-chip ml-1 inline-flex h-5 min-w-5 cursor-pointer items-center justify-center rounded-md px-1.5 align-[2px] text-[11px] leading-none font-semibold',
                     'relative before:absolute before:-inset-3 before:content-[""]',
                     sheetOpen || filled ? chipActive : suspect ? chipSuspect : 'bg-primary-fixed text-on-primary-fixed-variant',
                 )}

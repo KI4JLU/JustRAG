@@ -5,6 +5,7 @@ import { preloadSourcePreview, useSourcePreview } from '../../hooks/sourcePrevie
 import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
 import { useSourceFacts } from '../sources/sourceFacts';
 import { SourceStatusDot } from '../sources/SourceStatusDot';
+import { sourceTypeLabel } from './sourceIconFor';
 
 type Trigger = React.ReactElement<React.HTMLAttributes<HTMLElement>>;
 
@@ -67,6 +68,7 @@ export function SourceHoverPreview({ file, children, showName = false }: SourceH
         <SourceHoverCard onWarmUp={warmUp} content={<>
             <FilePreview
                 filename={file.name}
+                badge={sourceTypeLabel(file) ?? undefined}
                 mediaType={image?.mediaType ?? file.type}
                 url={image?.url}
                 text={image?.text}

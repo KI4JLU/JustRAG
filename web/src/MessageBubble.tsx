@@ -509,7 +509,11 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                             <div
                                 data-testid="question-actions"
                                 data-revealed={footerShown}
-                                className={`mt-1 flex items-center justify-end gap-1 ${revealClass}`}
+                                // The row is as tall as its buttons from the start: copy
+                                // and edit appear only once the server confirms the
+                                // question (a real id, seconds after sending), and a row
+                                // growing then made the question jump.
+                                className={`mt-1 flex items-center justify-end gap-1 ${isMobile ? '' : 'min-h-8'} ${revealClass}`}
                             >
                                 {/* When the question was asked — the day stands on the separator above. */}
                                 {message.createdAt && (

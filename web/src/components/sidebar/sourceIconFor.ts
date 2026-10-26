@@ -31,18 +31,25 @@ const BY_ORIGIN: Record<string, LucideIcon> = {
     rss: Rss,
 };
 
+/** A stored copy of a web page (a crawled page, a URL import): labelled WEB, not by its .md / .html file. */
+const isWebPage = (origin: string | undefined) => origin === 'crawl' || origin === 'url';
+
 /**
  * The short type label shown in the icon tile when the name has a known
  * extension ("PDF", "DOCX", "XLSX"), the same wording as the preview card's
- * badge. `null` when there is none — the tile then shows `sourceIconFor`.
+ * badge; "WEB" for a web page, whatever file it is stored as (the preview
+ * calls it a web page too). `null` when there is none — the tile then shows
+ * `sourceIconFor`.
  */
-export function sourceTypeLabel(file: Pick<FileEntry, 'name'>): string | null {
+export function sourceTypeLabel(file: Pick<FileEntry, 'name'> & { origin?: string }): string | null {
+    if (isWebPage(file.origin)) return 'WEB';
     const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
     if (!BY_EXTENSION[ext]) return null;
     return (ext === 'markdown' ? 'md' : ext === 'jpeg' ? 'jpg' : ext === 'tiff' ? 'tif' : ext).toUpperCase();
 }
 
 export function sourceIconFor(file: Pick<FileEntry, 'name' | 'type' | 'origin'>): LucideIcon {
+    if (isWebPage(file.origin)) return Globe;
     const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
     if (BY_EXTENSION[ext]) return BY_EXTENSION[ext];
     const type = file.type ?? '';
