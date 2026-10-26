@@ -142,6 +142,9 @@ export function KbSettingsDialog({
     // Set once a close is confirmed, so the navigation that close makes (the
     // dialog lives in `?topic=`) is not asked about a second time.
     const leaving = useRef(false);
+    // New unsaved changes after a confirmed close that did not unmount the
+    // dialog re-arm the guard.
+    useEffect(() => { if (anyDirty) leaving.current = false; }, [anyDirty]);
     const requestClose = async () => {
         if (saving) return;
         if (anyDirty && !await confirmDiscard()) return;

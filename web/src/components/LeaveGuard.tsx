@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { useBlocker, useRouter } from '@tanstack/react-router';
 
 interface LeaveGuardProps {
@@ -24,13 +24,17 @@ export function LeaveGuard(props: LeaveGuardProps) {
 }
 
 function RouterLeaveGuard({ when, allow, confirm }: LeaveGuardProps) {
-  useBlocker({
-    shouldBlockFn: async ({ action }) => {
-      if (!when || allow.current) return false;
-      if (action !== 'BACK' && action !== 'FORWARD' && action !== 'GO') return false;
-      return !(await confirm());
-    },
-    enableBeforeUnload: false,
-  });
+  // Registered only while there are unsaved changes: any registered blocker
+  // makes the router's history writes asynchronous, which the URL dialogs'
+  // write-then-flush relies on not happening. The callback is stable (it reads
+  // `confirm` from a ref), so typing does not re-register it.
+  const confirmRef = useRef(confirm);
+  useEffect(() => { confirmRef.current = confirm; });
+  const shouldBlockFn = useCallback(async ({ action }: { action: string }) => {
+    if (allow.current) return false;
+    if (action !== 'BACK' && action !== 'FORWARD' && action !== 'GO') return false;
+    return !(await confirmRef.current());
+  }, [allow]);
+  useBlocker({ shouldBlockFn, disabled: !when, enableBeforeUnload: false });
   return null;
 }

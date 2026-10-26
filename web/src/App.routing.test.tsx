@@ -330,6 +330,20 @@ describe('App routing — chats', () => {
     await act(async () => { push('[DONE]'); ended = true; wake?.(); });
   });
 
+  it('keeps a chat link in the history when its lookup only failed (5xx), so back retries it', async () => {
+    const gets = mockedGet.getMockImplementation()!;
+    mockedGet.mockImplementation((url: string) => (String(url).endsWith(`/api/chats/${C7}`)
+      ? Promise.reject(Object.assign(new Error('unavailable'), { isAxiosError: true, response: { status: 503 } }))
+      : gets(url)));
+    window.history.replaceState(null, '', chatUrl(C7));
+    render(<App />);
+
+    expect(await heading('myTopics')).toBeInTheDocument();
+    await waitFor(() => expect(path()).toBe('/'));
+    await goBack();
+    await waitFor(() => expect(path()).toBe(chatUrl(C7)));
+  });
+
   it('sends a chat that is not the caller\'s (or gone) to the overview', async () => {
     window.history.replaceState(null, '', chatUrl(C404));
     render(<App />);

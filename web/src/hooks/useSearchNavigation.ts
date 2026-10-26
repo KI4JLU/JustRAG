@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
-import axios from 'axios';
-import { API_BASE_URL } from '../api';
 import type { ChatEntry, KnowledgeBase, SearchChatType } from '../types';
 import { kbSourceRights } from '../utils/kbAccess';
+import { fetchChat } from './useChatRoute';
 
 /**
  * Where a global-search hit takes you (card KI-837). A destination inside a
@@ -77,13 +76,8 @@ export function chatEntryFromTarget(target: SearchChatTarget): ChatEntry {
 }
 
 async function fetchChatEntry(chatId: string): Promise<ChatEntry | null> {
-  try {
-    const res = await axios.get<ChatEntry>(`${API_BASE_URL}/api/chats/${encodeURIComponent(chatId)}`);
-    const row: unknown = res?.data;
-    return row && typeof row === 'object' && (row as ChatEntry).id === chatId ? row as ChatEntry : null;
-  } catch {
-    return null;
-  }
+  const fetched = await fetchChat(chatId);
+  return fetched.kind === 'found' ? fetched.entry : null;
 }
 
 export function useSearchNavigation({ openKbById, previewSource, selectChat }: UseSearchNavigationParams) {

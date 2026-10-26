@@ -24,8 +24,9 @@ import { createBrowserHistory, type RouterHistory } from '@tanstack/react-router
  * called by App.tsx): a bare `window.history` call is invisible to the router,
  * whose idea of the location would then drift from the address bar. Until one
  * is bound, reads come from `window.location`; only a write before binding
- * (a store's unit test on its own) creates a browser history of its own, so
- * the app never runs a second one beside the router's.
+ * (a store's unit test on its own) creates a browser history of its own, and
+ * binding destroys it. App.tsx binds during its first render, before any
+ * child can write.
  *
  * Each write first flushes the history, then flushes again: the router's
  * browser history batches `pushState` into a microtask, so a navigation the
@@ -62,6 +63,10 @@ function location(): { pathname: string; search: string; hash: string; state: Re
 export function bindUrlDialogHistory(h: RouterHistory) {
   if (boundHistory === h) return;
   boundHistory = h;
+  // A history of its own (a write before any binding) is not needed beside
+  // the router's: drop it rather than leave its listeners on the page.
+  ownHistory?.destroy();
+  ownHistory = null;
   attachers.forEach((attach) => attach());
 }
 

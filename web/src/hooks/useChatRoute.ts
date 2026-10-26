@@ -16,13 +16,16 @@ export type ChatTopic =
   /** The lookup failed (network, 5xx). Already toasted; forgotten once the URL moves on, so a later visit asks again. */
   | { status: 'failed' };
 
-type FetchedChat = { kind: 'found'; entry: ChatEntry } | { kind: 'gone' } | { kind: 'failed' };
+export type FetchedChat = { kind: 'found'; entry: ChatEntry } | { kind: 'gone' } | { kind: 'failed' };
 
 /** GET /api/chats/{id}. Only a 404 means the chat is not there; anything else may pass. */
-async function fetchChat(chatId: string): Promise<FetchedChat> {
+export async function fetchChat(chatId: string): Promise<FetchedChat> {
   try {
     const res = await axios.get<ChatEntry>(`${API_BASE_URL}/api/chats/${encodeURIComponent(chatId)}`);
-    return res.data ? { kind: 'found', entry: res.data } : { kind: 'gone' };
+    const row: unknown = res.data;
+    return row && typeof row === 'object' && (row as ChatEntry).id === chatId
+      ? { kind: 'found', entry: row as ChatEntry }
+      : { kind: 'gone' };
   } catch (err: unknown) {
     return axios.isAxiosError(err) && err.response?.status === 404 ? { kind: 'gone' } : { kind: 'failed' };
   }
@@ -125,6 +128,10 @@ export function useChatRoute(p: UseChatRouteParams) {
 
   // undefined = never synced, so the URL a page loads with counts as a move.
   const synced = useRef<{ route: string | null | undefined; chat: string | null }>({ route: undefined, chat: p.activeChatId });
+  // The chat list as of the last sync: a chat that was in it and has left it
+  // was deleted (a chat never listed — a new one before the list refreshed,
+  // one opened from search — is not).
+  const listedBefore = useRef<ReadonlySet<string>>(new Set());
 
   const { kbId, routeChatId, activeChatId } = p;
   useEffect(() => {
@@ -141,11 +148,18 @@ export function useChatRoute(p: UseChatRouteParams) {
       const wanted = routeChatId;
       void (async () => {
         let entry = chats.find((c) => c.id === wanted) ?? (routeChatEntry?.id === wanted ? routeChatEntry : null);
+        let failed = false;
         if (!entry) {
           const fetched = await fetchChat(wanted);
           entry = fetched.kind === 'found' ? fetched.entry : null;
+          failed = fetched.kind === 'failed';
         }
         if (synced.current.route !== wanted) return; // the URL moved on meanwhile
+        if (failed) {
+          // Not an answer about the chat: keep its URL, so a reload retries.
+          latest.current.toast.error(latest.current.t('chatLoadError'));
+          return;
+        }
         if (!entry || (entry.type && entry.type !== 'chat')) {
           latest.current.toast.error(latest.current.t('chatLoadError'));
           navigateTo({ view: 'kb', kbId }, { replace: true });
@@ -166,10 +180,13 @@ export function useChatRoute(p: UseChatRouteParams) {
       } else {
         // A chat that just left the list was deleted: replace its URL, so
         // back does not return to it.
-        const deleted = last.chat !== null && !chats.some((c) => c.id === last.chat);
+        const deleted = last.chat !== null && listedBefore.current.has(last.chat) && !chats.some((c) => c.id === last.chat);
         navigateTo({ view: 'kb', kbId }, { replace: deleted });
       }
     }
     synced.current = { route: routeChatId, chat: activeChatId };
   }, [kbId, routeChatId, activeChatId]);
+
+  // After the sync above, so it compares against the list of the previous run.
+  useEffect(() => { listedBefore.current = new Set(p.chats.map((c) => c.id)); }, [p.chats]);
 }

@@ -8,7 +8,7 @@
  * it survives the round trip within the tab and nothing longer.
  */
 
-import { sessionStore as storage } from '../utils/sessionStore';
+import { sessionStore } from '../utils/sessionStore';
 
 export const POST_LOGIN_PATH_KEY = 'postLoginPath';
 
@@ -19,7 +19,7 @@ export function isAppPath(path: string): boolean {
 
 /** Parks `path` (pathname + search) for the login that follows. "/" needs no parking. */
 export function parkPostLoginPath(path: string): void {
-  const s = storage();
+  const s = sessionStore();
   if (!s) return;
   if (path === '/' || !isAppPath(path)) {
     s.removeItem(POST_LOGIN_PATH_KEY);
@@ -30,7 +30,7 @@ export function parkPostLoginPath(path: string): void {
 
 /** Returns the parked path and clears it, or null. */
 export function takePostLoginPath(): string | null {
-  const s = storage();
+  const s = sessionStore();
   if (!s) return null;
   const path = s.getItem(POST_LOGIN_PATH_KEY);
   s.removeItem(POST_LOGIN_PATH_KEY);

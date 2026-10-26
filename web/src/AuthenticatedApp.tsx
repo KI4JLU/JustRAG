@@ -264,13 +264,18 @@ function AuthenticatedAppInner() {
     : view === 'global-kb-settings' && !isSystemAdmin ? { view: 'my-topics' }
     : view === 'global-kb-settings' && routeKb && !routeKb.isGlobal ? { view: 'kb', kbId: routeKb.id }
     : null;
-  // Keyed on a string so the effect fires once per target, not per render;
-  // the target itself is read from a ref, typed.
-  const redirectRef = useRef(redirect);
-  useEffect(() => { redirectRef.current = redirect; });
-  const redirectKey = redirect ? `${redirect.view}:${'kbId' in redirect ? redirect.kbId : ''}` : null;
+  // A dead URL is replaced, so back does not return to it. A chat lookup that
+  // merely FAILED (network, 5xx) is pushed instead: the link stays in the
+  // history, and back retries it.
+  const redirectReplace = !(view === 'chat' && chatTopic.topic?.status === 'failed');
+  // Keyed on the serialised target so the effect fires once per target, not
+  // per render; the target itself is read from a ref, typed.
+  const redirectRef = useRef({ target: redirect, replace: redirectReplace });
+  useEffect(() => { redirectRef.current = { target: redirect, replace: redirectReplace }; });
+  const redirectKey = redirect ? JSON.stringify(redirect) : null;
   useEffect(() => {
-    if (redirectKey && redirectRef.current) navigateTo(redirectRef.current, { replace: true });
+    const { target, replace } = redirectRef.current;
+    if (redirectKey && target) navigateTo(target, { replace });
   }, [redirectKey, navigateTo]);
 
   // The chat on screen and the chat in the URL (/c/<id>, or /kb/<id> for a new chat).
