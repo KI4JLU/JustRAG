@@ -259,14 +259,18 @@ function AuthenticatedAppInner() {
   const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const redirect: Parameters<typeof navigateTo>[0] | null =
     view === 'not-found' ? { view: 'my-topics' }
-    // A chat that is not the caller's, gone, or a library chat (already toasted).
-    : view === 'chat' && chatTopic.topic?.status === 'missing' ? { view: 'my-topics' }
+    // A chat that is not the caller's, gone, a library chat, or whose lookup failed (already toasted).
+    : view === 'chat' && (chatTopic.topic?.status === 'missing' || chatTopic.topic?.status === 'failed') ? { view: 'my-topics' }
     : view === 'global-kb-settings' && !isSystemAdmin ? { view: 'my-topics' }
     : view === 'global-kb-settings' && routeKb && !routeKb.isGlobal ? { view: 'kb', kbId: routeKb.id }
     : null;
-  const redirectKey = redirect ? JSON.stringify(redirect) : null;
+  // Keyed on a string so the effect fires once per target, not per render;
+  // the target itself is read from a ref, typed.
+  const redirectRef = useRef(redirect);
+  useEffect(() => { redirectRef.current = redirect; });
+  const redirectKey = redirect ? `${redirect.view}:${'kbId' in redirect ? redirect.kbId : ''}` : null;
   useEffect(() => {
-    if (redirectKey) navigateTo(JSON.parse(redirectKey), { replace: true });
+    if (redirectKey && redirectRef.current) navigateTo(redirectRef.current, { replace: true });
   }, [redirectKey, navigateTo]);
 
   // The chat on screen and the chat in the URL (/c/<id>, or /kb/<id> for a new chat).

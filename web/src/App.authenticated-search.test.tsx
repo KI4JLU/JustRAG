@@ -96,13 +96,13 @@ function routeGets() {
     if (/\/api\/kb\/11111111-1111-4111-8111-111111111111$/.test(u)) {
       return new Promise((resolve) => setTimeout(() => resolve({ data: KB }), 80));
     }
-    if (u.endsWith('/api/kb/11111111-1111-4111-8111-111111111111/chats')) {
-      return Promise.resolve({
-        data: [{
-          id: '77777777-7777-4777-8777-777777777777', kbId: '11111111-1111-4111-8111-111111111111', userId: 'user-1', title: 'Prüfungsfragen', type: 'chat',
-          createdAt: '2026-09-20T09:00:00Z', updatedAt: '2026-09-20T10:00:00Z', teamId: null, agentId: null,
-        }],
-      });
+    // A chat hit is re-read through GET /api/chats/{id} (its sticky team/agent).
+    if (u.endsWith('/api/kb/11111111-1111-4111-8111-111111111111/chats') || u.endsWith('/api/chats/77777777-7777-4777-8777-777777777777')) {
+      const row = {
+        id: '77777777-7777-4777-8777-777777777777', kbId: '11111111-1111-4111-8111-111111111111', userId: 'user-1', title: 'Prüfungsfragen', type: 'chat',
+        createdAt: '2026-09-20T09:00:00Z', updatedAt: '2026-09-20T10:00:00Z', teamId: null, agentId: null,
+      };
+      return Promise.resolve({ data: u.endsWith('/chats') ? [row] : row });
     }
     if (u.endsWith('/api/chats/77777777-7777-4777-8777-777777777777/messages')) {
       return Promise.resolve({

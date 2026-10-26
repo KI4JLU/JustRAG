@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
+import { LeaveGuard } from './LeaveGuard';
 import { Check, Loader2, Shield, SlidersHorizontal, Trash2, Users } from 'lucide-react';
 import { Button, PanelSection, SettingsDialog, Textarea } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
@@ -135,11 +136,16 @@ export function KbSettingsDialog({
         return kbSaved && rolesSaved;
     };
 
+    const confirmDiscard = () => showConfirm(t('kbSettingsDiscardMessage'), t('kbSettingsDiscardTitle'), {
+        tone: 'destructive', confirmLabel: t('kbSettingsDiscardConfirm'),
+    });
+    // Set once a close is confirmed, so the navigation that close makes (the
+    // dialog lives in `?topic=`) is not asked about a second time.
+    const leaving = useRef(false);
     const requestClose = async () => {
         if (saving) return;
-        if (anyDirty && !await showConfirm(t('kbSettingsDiscardMessage'), t('kbSettingsDiscardTitle'), {
-            tone: 'destructive', confirmLabel: t('kbSettingsDiscardConfirm'),
-        })) return;
+        if (anyDirty && !await confirmDiscard()) return;
+        leaving.current = true;
         onClose();
     };
 
@@ -181,6 +187,8 @@ export function KbSettingsDialog({
     );
 
     return (
+        <>
+        <LeaveGuard when={anyDirty} allow={leaving} confirm={confirmDiscard} />
         <SettingsDialog
             open
             onOpenChange={(open) => { if (!open) void requestClose(); }}
@@ -267,5 +275,6 @@ export function KbSettingsDialog({
                 </>
             )}
         />
+        </>
     );
 }

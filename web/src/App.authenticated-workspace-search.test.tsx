@@ -120,6 +120,17 @@ function routeGets() {
       return Promise.resolve({ data: [chatEntry('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsfragen'), chatEntry('88888888-8888-4888-8888-888888888888', '11111111-1111-4111-8111-111111111111', 'Modulwahl')] });
     }
     if (u.endsWith('/api/kb/22222222-2222-4222-8222-222222222222/chats')) return Promise.resolve({ data: [chatEntry('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik-Grundlagen')] });
+    // A chat hit is re-read through GET /api/chats/{id} (its sticky team/agent).
+    const one = u.match(/\/api\/chats\/([0-9a-f-]{36})$/);
+    if (one) {
+      const rows = [
+        chatEntry('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsfragen'),
+        chatEntry('88888888-8888-4888-8888-888888888888', '11111111-1111-4111-8111-111111111111', 'Modulwahl'),
+        chatEntry('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik-Grundlagen'),
+      ];
+      const row = rows.find((c) => c.id === one[1]);
+      if (row) return Promise.resolve({ data: row });
+    }
     const msg = u.match(/\/api\/chats\/([0-9a-f-]{36})\/messages$/);
     if (msg && MESSAGES[msg[1]]) {
       const [user, ai] = MESSAGES[msg[1]];

@@ -8,16 +8,9 @@
  * it survives the round trip within the tab and nothing longer.
  */
 
-export const POST_LOGIN_PATH_KEY = 'postLoginPath';
+import { sessionStore as storage } from '../utils/sessionStore';
 
-function storage(): Storage | null {
-  try {
-    return window.sessionStorage;
-  } catch {
-    // Safari in private mode throws on access.
-    return null;
-  }
-}
+export const POST_LOGIN_PATH_KEY = 'postLoginPath';
 
 /** Only an in-app path: one leading slash (no `//host`), not an API route. */
 export function isAppPath(path: string): boolean {

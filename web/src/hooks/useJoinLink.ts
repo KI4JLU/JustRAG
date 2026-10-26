@@ -10,6 +10,8 @@
 // The SPA catch-all in the Go server (routes.go) already serves index.html
 // for /join/..., so no backend routing is involved.
 
+import { sessionStore as storage } from '../utils/sessionStore';
+
 export const JOIN_TOKEN_KEY = 'pendingJoinToken';
 
 // 43 base64url characters is what the backend mints; the range stays loose
@@ -17,14 +19,6 @@ export const JOIN_TOKEN_KEY = 'pendingJoinToken';
 // stray path never looks like a token.
 const JOIN_PATH = /^\/join\/([A-Za-z0-9_-]{20,64})$/;
 
-function storage(): Storage | null {
-    try {
-        return window.sessionStorage;
-    } catch {
-        // Safari in private mode throws on access.
-        return null;
-    }
-}
 
 /**
  * Reads a /join/<token> URL, parks the token for the post-login redemption,

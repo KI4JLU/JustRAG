@@ -12,14 +12,19 @@ export type ChatTopic =
   /** `entry` is the chat's row when it was fetched, null when the app made the URL itself. */
   | { status: 'found'; kbId: string; entry: ChatEntry | null }
   /** Not the caller's, gone, or not a topic's chat (a library chat). Already toasted. */
-  | { status: 'missing' };
+  | { status: 'missing' }
+  /** The lookup failed (network, 5xx). Already toasted; forgotten once the URL moves on, so a later visit asks again. */
+  | { status: 'failed' };
 
-async function fetchChat(chatId: string): Promise<ChatEntry | null> {
+type FetchedChat = { kind: 'found'; entry: ChatEntry } | { kind: 'gone' } | { kind: 'failed' };
+
+/** GET /api/chats/{id}. Only a 404 means the chat is not there; anything else may pass. */
+async function fetchChat(chatId: string): Promise<FetchedChat> {
   try {
     const res = await axios.get<ChatEntry>(`${API_BASE_URL}/api/chats/${encodeURIComponent(chatId)}`);
-    return res.data ?? null;
-  } catch {
-    return null;
+    return res.data ? { kind: 'found', entry: res.data } : { kind: 'gone' };
+  } catch (err: unknown) {
+    return axios.isAxiosError(err) && err.response?.status === 404 ? { kind: 'gone' } : { kind: 'failed' };
   }
 }
 
@@ -42,13 +47,24 @@ export function useChatTopic(routeChatId: string | null) {
   useEffect(() => {
     if (!routeChatId || knownRef.current.has(routeChatId)) return;
     let cancelled = false;
-    void fetchChat(routeChatId).then((entry) => {
+    void fetchChat(routeChatId).then((fetched) => {
       if (cancelled) return;
-      const topic: ChatTopic = entry?.kbId ? { status: 'found', kbId: entry.kbId, entry } : { status: 'missing' };
-      if (topic.status === 'missing') say.current.toast.error(say.current.t('chatLoadError'));
+      const topic: ChatTopic = fetched.kind === 'failed' ? { status: 'failed' }
+        : fetched.kind === 'found' && fetched.entry.kbId ? { status: 'found', kbId: fetched.entry.kbId, entry: fetched.entry }
+        : { status: 'missing' };
+      if (topic.status !== 'found') say.current.toast.error(say.current.t('chatLoadError'));
       setKnown((m) => new Map(m).set(routeChatId, topic));
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // A failed lookup is not an answer: the next visit asks again.
+      setKnown((m) => {
+        if (m.get(routeChatId)?.status !== 'failed') return m;
+        const next = new Map(m);
+        next.delete(routeChatId);
+        return next;
+      });
+    };
   }, [routeChatId]);
 
   const remember = useCallback((chatId: string, kbId: string) => {
@@ -124,8 +140,11 @@ export function useChatRoute(p: UseChatRouteParams) {
       }
       const wanted = routeChatId;
       void (async () => {
-        const entry = chats.find((c) => c.id === wanted)
-          ?? (routeChatEntry?.id === wanted ? routeChatEntry : await fetchChat(wanted));
+        let entry = chats.find((c) => c.id === wanted) ?? (routeChatEntry?.id === wanted ? routeChatEntry : null);
+        if (!entry) {
+          const fetched = await fetchChat(wanted);
+          entry = fetched.kind === 'found' ? fetched.entry : null;
+        }
         if (synced.current.route !== wanted) return; // the URL moved on meanwhile
         if (!entry || (entry.type && entry.type !== 'chat')) {
           latest.current.toast.error(latest.current.t('chatLoadError'));
@@ -141,9 +160,14 @@ export function useChatRoute(p: UseChatRouteParams) {
       const firstAnswer = last.chat === null && routeChatId === null && sending;
       if (activeChatId) {
         rememberTopic(activeChatId, kbId);
-        navigateTo({ view: 'chat', chatId: activeChatId }, { replace: firstAnswer });
+        // The first answer's URL change is not a step of the user's: it
+        // replaces the entry and keeps any dialog open over the chat.
+        navigateTo({ view: 'chat', chatId: activeChatId }, { replace: firstAnswer, keepSearch: firstAnswer });
       } else {
-        navigateTo({ view: 'kb', kbId });
+        // A chat that just left the list was deleted: replace its URL, so
+        // back does not return to it.
+        const deleted = last.chat !== null && !chats.some((c) => c.id === last.chat);
+        navigateTo({ view: 'kb', kbId }, { replace: deleted });
       }
     }
     synced.current = { route: routeChatId, chat: activeChatId };

@@ -8,9 +8,9 @@ import { createBrowserHistory, type RouterHistory } from '@tanstack/react-router
  * (`?topic=`) are built on it, each behind its own small store module whose
  * functions stay the only way callers touch the parameter.
  *
- *   - Read from the history's location, and again on every history change
- *     (back, forward, a navigation elsewhere — which drops the parameter, so
- *     the dialog closes with the page it was opened on).
+ *   - Read from the location, and again on every history change (back,
+ *     forward, a navigation elsewhere — which drops the parameter, so the
+ *     dialog closes with the page it was opened on).
  *   - Opening PUSHES the parameter, so the browser's back button closes it.
  *   - Switching sections REPLACES the URL: back must not step through every
  *     section before it closes, which would be a trap in a modal.
@@ -21,26 +21,48 @@ import { createBrowserHistory, type RouterHistory } from '@tanstack/react-router
  *   - The path, the other parameters and the hash are left as they are.
  *
  * Every write goes through the ROUTER'S history (`bindUrlDialogHistory`,
- * called once by App.tsx): a bare `window.history` call is invisible to the
- * router, whose idea of the location would then drift from the address bar.
- * Until one is bound (unit tests of a store on its own) a browser history of
- * its own is used. Each write is flushed: the router's browser history batches
- * `pushState` into a microtask, and the address bar should not lag the dialog.
+ * called by App.tsx): a bare `window.history` call is invisible to the router,
+ * whose idea of the location would then drift from the address bar. Until one
+ * is bound, reads come from `window.location`; only a write before binding
+ * (a store's unit test on its own) creates a browser history of its own, so
+ * the app never runs a second one beside the router's.
+ *
+ * Each write first flushes the history, then flushes again: the router's
+ * browser history batches `pushState` into a microtask, so a navigation the
+ * router queued in the same tick („Teilen": open the topic, then its
+ * settings) must land as its own entry before this one, and the address bar
+ * should not lag the dialog.
  */
 
 let boundHistory: RouterHistory | null = null;
-const rebinders = new Set<() => void>();
+let ownHistory: RouterHistory | null = null;
+const attachers = new Set<() => void>();
 
-function history(): RouterHistory {
-  if (!boundHistory) boundHistory = createBrowserHistory();
-  return boundHistory;
+/** The history writes go to; reads use it too once there is one. */
+function current(): RouterHistory | null {
+  return boundHistory ?? ownHistory;
 }
 
-/** Hands the router's history to every URL dialog. Called once, where the router is created. */
+function writable(): RouterHistory {
+  if (!current()) {
+    ownHistory = createBrowserHistory();
+    attachers.forEach((attach) => attach());
+  }
+  return current()!;
+}
+
+function location(): { pathname: string; search: string; hash: string; state: Record<string, unknown> } {
+  const h = current();
+  if (h) return { ...h.location, state: (h.location.state ?? {}) as unknown as Record<string, unknown> };
+  const { pathname, search, hash } = window.location;
+  return { pathname, search, hash, state: (window.history.state ?? {}) as Record<string, unknown> };
+}
+
+/** Hands the router's history to every URL dialog. Idempotent; called where the router is created. */
 export function bindUrlDialogHistory(h: RouterHistory) {
   if (boundHistory === h) return;
   boundHistory = h;
-  rebinders.forEach((rebind) => rebind());
+  attachers.forEach((attach) => attach());
 }
 
 export interface UrlDialogState<V extends string> {
@@ -64,16 +86,18 @@ export function createUrlDialog<V extends string>(param: string, values: readonl
   const marker = `urlDialog:${param}`;
   const isValue = (v: string | null): v is V => (values as readonly string[]).includes(v ?? '');
 
+  let state: UrlDialogState<V> = { open: false, value: first };
+
   function read(): UrlDialogState<V> {
-    const params = new URLSearchParams(history().location.search);
-    if (!params.has(param)) return { open: false, value: state?.value ?? first };
+    const params = new URLSearchParams(location().search);
+    if (!params.has(param)) return { open: false, value: state.value };
     const v = params.get(param);
     return { open: true, value: isValue(v) ? v : first };
   }
 
   /** The current location with the parameter set to `value`, or removed. Everything else stays. */
   function urlWith(value: V | null): string {
-    const { pathname, search, hash } = history().location;
+    const { pathname, search, hash } = location();
     const params = new URLSearchParams(search);
     if (value) params.set(param, value);
     else params.delete(param);
@@ -81,67 +105,74 @@ export function createUrlDialog<V extends string>(param: string, values: readonl
     return pathname + (q ? `?${q}` : '') + hash;
   }
 
-  function currentState(): Record<string, unknown> {
-    const { key: _key, __TSR_key: _tsrKey, __TSR_index: _index, ...rest } = history().location.state ?? {};
-    void _key; void _tsrKey; void _index;
+  /** The entry's own state, without the history's bookkeeping keys. */
+  function entryState(): Record<string, unknown> {
+    const rest = { ...location().state };
+    delete rest.key;
+    delete rest.__TSR_key;
+    delete rest.__TSR_index;
     return rest;
   }
 
-  let state: UrlDialogState<V> | undefined;
-  state = read();
   const listeners = new Set<() => void>();
-
   function set(next: UrlDialogState<V>) {
-    if (state && next.open === state.open && next.value === state.value) return;
+    if (next.open === state.open && next.value === state.value) return;
     state = next;
     listeners.forEach((l) => l());
   }
 
-  let unsubscribe = history().subscribe(() => set(read()));
-  rebinders.add(() => {
-    unsubscribe();
-    unsubscribe = history().subscribe(() => set(read()));
+  state = read();
+  let detach: (() => void) | null = null;
+  const attach = () => {
+    detach?.();
+    detach = current()?.subscribe(() => set(read())) ?? null;
     set(read());
-  });
+  };
+  attachers.add(attach);
+  attach();
+
+  /** A write, after any navigation still queued in this tick, flushed at once. */
+  function write(fn: (h: RouterHistory) => void) {
+    const h = writable();
+    h.flush();
+    fn(h);
+    h.flush();
+  }
 
   function open(value: V = first) {
-    if (state!.open) {
+    if (state.open) {
       setValue(value);
       return;
     }
-    history().push(urlWith(value), { ...currentState(), [marker]: true });
-    history().flush();
+    write((h) => h.push(urlWith(value), { ...entryState(), [marker]: true }));
   }
 
   function setValue(value: V) {
-    if (state!.open && state!.value !== value) {
-      history().replace(urlWith(value), currentState());
-      history().flush();
+    if (state.open && state.value !== value) {
+      write((h) => h.replace(urlWith(value), entryState()));
     }
-    set({ ...state!, value });
+    set({ ...state, value });
   }
 
   function setOpen(next: boolean) {
     if (next) {
-      open(state!.value);
+      open(state.value);
       return;
     }
-    if (!state!.open) return;
+    if (!state.open) return;
     // Close at once, so the dialog does not wait for the browser; the history
     // change re-reads the URL afterwards.
-    set({ ...state!, open: false });
-    if ((history().location.state as unknown as Record<string, unknown> | undefined)?.[marker]) {
-      history().back();
+    set({ ...state, open: false });
+    if (location().state[marker]) {
+      writable().back();
     } else {
-      history().replace(urlWith(null), currentState());
-      history().flush();
+      write((h) => h.replace(urlWith(null), entryState()));
     }
   }
 
   function strip() {
-    if (!state!.open) return;
-    history().replace(urlWith(null), currentState());
-    history().flush();
+    if (!state.open) return;
+    write((h) => h.replace(urlWith(null), entryState()));
   }
 
   function subscribe(listener: () => void) {
@@ -154,6 +185,6 @@ export function createUrlDialog<V extends string>(param: string, values: readonl
     setOpen,
     setValue,
     strip,
-    useDialogState: () => useSyncExternalStore(subscribe, () => state!),
+    useDialogState: () => useSyncExternalStore(subscribe, () => state),
   };
 }

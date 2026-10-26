@@ -19,18 +19,16 @@ import { kbSourceRights } from '../utils/kbAccess';
  * already toasted why). `App.authenticated-home.test.tsx` pins that the chosen
  * chat's messages are what ends up on screen.
  *
- * WHY A CHAT HIT IS RE-READ FROM `GET /api/kb/{id}/chats`. `handleSelectChat`
+ * WHY A CHAT HIT IS RE-READ FROM `GET /api/chats/{id}`. `handleSelectChat`
  * restores the chat's sticky team/agent from `ChatEntry.teamId/agentId`, and a
  * search hit carries neither. Built from the hit alone, a chat bound to a team
  * would open with the selection cleared — and the next turn would send no
  * team, which the backend persists as a cleared binding
- * (`UpdateChatAgentSelection`: NULLs clear it). The list is the sidebar's own
- * source for `ChatEntry`, fetched in parallel with the topic so it costs no
- * extra wait. If the chat is not in it (or the request fails), the hit's own
- * fields are used — `type` is what `handleSelectChat` needs to route research
- * sessions, and the backend returns it for exactly that reason.
- * // TODO: the list is fetched twice on this path (here and by
- * // useKbLifecycle's KB-change effect) — accepted for now, not yet measured.
+ * (`UpdateChatAgentSelection`: NULLs clear it). The route returns the chat's
+ * row, the same shape as the sidebar's list, and is fetched in parallel with
+ * the topic so it costs no extra wait. If it fails, the hit's own fields are
+ * used — `type` is what `handleSelectChat` needs to route research sessions,
+ * and the backend returns it for exactly that reason.
  *
  * Scrolling to the matched message is out of scope.
  * // TODO: jump to the message, not only the chat — not yet carded.
@@ -78,12 +76,11 @@ export function chatEntryFromTarget(target: SearchChatTarget): ChatEntry {
   };
 }
 
-async function fetchChatEntry(kbId: string, chatId: string): Promise<ChatEntry | null> {
+async function fetchChatEntry(chatId: string): Promise<ChatEntry | null> {
   try {
-    const res = await axios.get(`${API_BASE_URL}/api/kb/${kbId}/chats`);
-    const list: unknown = res?.data;
-    if (!Array.isArray(list)) return null;
-    return (list as ChatEntry[]).find((c) => c && c.id === chatId) ?? null;
+    const res = await axios.get<ChatEntry>(`${API_BASE_URL}/api/chats/${encodeURIComponent(chatId)}`);
+    const row: unknown = res?.data;
+    return row && typeof row === 'object' && (row as ChatEntry).id === chatId ? row as ChatEntry : null;
   } catch {
     return null;
   }
@@ -107,7 +104,7 @@ export function useSearchNavigation({ openKbById, previewSource, selectChat }: U
   const openChat = useCallback(async (target: SearchChatTarget) => {
     const [opened, listed] = await Promise.all([
       openKbById(target.kbId),
-      fetchChatEntry(target.kbId, target.chatId),
+      fetchChatEntry(target.chatId),
     ]);
     if (!opened) return;
     const entry: ChatEntry = listed ?? chatEntryFromTarget(target);

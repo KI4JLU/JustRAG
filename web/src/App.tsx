@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { captureJoinToken } from './hooks/useJoinLink';
 import { createAppRouter } from './routing/routes';
@@ -17,12 +17,11 @@ export default function App() {
   // mounts once; the route-level tests mount <App /> once per test after
   // setting the URL, and a module-level router would carry the previous
   // test's location into the next.
-  const [router] = useState(() => {
-    const r = createAppRouter({ rootComponent: AppRoot });
-    // The dialogs that live in a URL parameter (?admin=, ?settings=, ?topic=)
-    // write through the router's history, so the router sees every change.
-    bindUrlDialogHistory(r.history);
-    return r;
-  });
+  const [router] = useState(() => createAppRouter({ rootComponent: AppRoot }));
+  // The dialogs that live in a URL parameter (?admin=, ?settings=, ?topic=)
+  // write through the router's history, so the router sees every change. An
+  // effect, not the initializer above: StrictMode calls that twice and keeps
+  // one result, so a binding made there could name the discarded router.
+  useLayoutEffect(() => bindUrlDialogHistory(router.history), [router]);
   return <RouterProvider router={router} />;
 }

@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createMemoryHistory, type RouterHistory } from '@tanstack/react-router';
+import { createBrowserHistory, createMemoryHistory, type RouterHistory } from '@tanstack/react-router';
 import { openTopicSettings, useTopicSettings } from './useTopicSettings';
 import { bindUrlDialogHistory } from '../routing/urlDialog';
 
@@ -59,6 +59,29 @@ describe('useTopicSettings', () => {
     });
     expect(history.location.href).toBe('/kb/b?topic=members');
     expect(result.current).toMatchObject({ open: true, section: 'members' });
+  });
+
+  // The router's BROWSER history batches pushes made in one tick into one
+  // pushState; a memory history does not, so this case needs the real one.
+  it('gives Teilen two history entries on a batching browser history: back closes the settings first', async () => {
+    window.history.replaceState(null, '', '/');
+    const browser = createBrowserHistory();
+    act(() => bindUrlDialogHistory(browser));
+    const { result } = setup();
+    const before = window.history.length;
+    act(() => {
+      browser.push('/kb/b'); // the router's navigation, still queued
+      openTopicSettings('members');
+    });
+    expect(window.location.pathname + window.location.search).toBe('/kb/b?topic=members');
+    expect(window.history.length).toBe(before + 2);
+
+    // Closing goes back to the topic, not past it.
+    const popped = new Promise<void>((resolve) => window.addEventListener('popstate', () => resolve(), { once: true }));
+    act(() => result.current.setOpen(false));
+    await popped;
+    expect(window.location.pathname + window.location.search).toBe('/kb/b');
+    browser.destroy();
   });
 
   it('is never open on a page that is not a topic, whatever the URL says', () => {

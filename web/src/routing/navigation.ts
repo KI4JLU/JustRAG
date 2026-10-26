@@ -36,7 +36,14 @@ export type AppTarget =
   | { view: 'chat'; chatId: string }
   | { view: 'global-kb-settings'; kbId: string };
 
-export type AppNavigate = (target: AppTarget, opts?: { replace?: boolean }) => void;
+export interface AppNavigateOptions {
+  /** Replace the current history entry instead of adding one. */
+  replace?: boolean;
+  /** Keep the current URL parameters (an open `?topic=`/`?settings=`/`?admin=` dialog) — chat targets only. */
+  keepSearch?: boolean;
+}
+
+export type AppNavigate = (target: AppTarget, opts?: AppNavigateOptions) => void;
 
 /** Every route id of the tree (routes.ts), `__root__` included. */
 export type AppRouteId = keyof AppRouter['routesById'];
@@ -108,7 +115,7 @@ export function useAppRoute(): AppRoute {
  */
 export function useAppNavigate(): AppNavigate {
   const navigate = useNavigate();
-  return useCallback((target: AppTarget, opts?: { replace?: boolean }) => {
+  return useCallback((target: AppTarget, opts?: AppNavigateOptions) => {
     const replace = opts?.replace;
     switch (target.view) {
       case 'my-topics': void navigate({ to: '/', replace }); return;
@@ -124,7 +131,9 @@ export function useAppNavigate(): AppNavigate {
         void navigate({ to: '/kb/$kbId/admin', params: { kbId: toShortId(target.kbId) }, replace });
         return;
       case 'kb': void navigate({ to: '/kb/$kbId', params: { kbId: toShortId(target.kbId) }, replace }); return;
-      case 'chat': void navigate({ to: '/c/$chatId', params: { chatId: toShortId(target.chatId) }, replace }); return;
+      case 'chat':
+        void navigate({ to: '/c/$chatId', params: { chatId: toShortId(target.chatId) }, replace, ...(opts?.keepSearch ? { search: true } : {}) });
+        return;
       default: {
         const unreachable: never = target;
         throw new Error(`unknown view ${JSON.stringify(unreachable)}`);
