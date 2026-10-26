@@ -40,7 +40,7 @@ const SourcesPanelComp: React.FC = () => {
     } = useKbData();
 
     const {
-        files, filesLoaded, fileInputRef,
+        files, uploads, filesLoaded, fileInputRef,
         handleToggleFilesSelection,
         handleDownloadFile, handleDeleteFile, deleteFiles, handleFileUpload,
         retryFile,
@@ -73,7 +73,7 @@ const SourcesPanelComp: React.FC = () => {
     const fileDragActive = useWindowFileDrag(canAdd);
     // A KB with no sources at all keeps the dropzone as its list (the empty
     // workspace placeholder); it opens the file picker on click / Enter too.
-    const noSourcesYet = canAdd && filesLoaded && files.length === 0
+    const noSourcesYet = canAdd && filesLoaded && files.length === 0 && uploads.length === 0
         && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0;
     const handleOpenWorkspace = useCallback(() => setShowWebWorkspace(true), [setShowWebWorkspace]);
 
@@ -303,6 +303,7 @@ const SourcesPanelComp: React.FC = () => {
                 ) : (
                 <SourcesSection
                     files={files}
+                    uploads={uploads}
                     onPreviewSource={handlePreviewSource}
                     selection={mode?.keys ?? null}
                     selectionTone={mode?.kind === 'remove' ? 'destructive' : 'default'}

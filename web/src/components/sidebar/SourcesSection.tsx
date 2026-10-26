@@ -12,9 +12,12 @@ import { useSourcePreviews } from '../../hooks/sourcePreviews';
 import { cardFiles, confluenceKey, feedExcluded, feedKey, fileKey, gitKey, syncedExcluded, type SourceKey } from './sourceSelection';
 import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
 import { INGEST_STAGE_LABEL_KEYS } from '../../utils/ingestStages';
+import type { PendingUpload } from '../../hooks/useFileManagement';
 
 interface SourcesSectionProps {
     files: FileEntry[];
+    /** Files still uploading: busy rows above the list, display-only. */
+    uploads: PendingUpload[];
     onPreviewSource: (file: FileEntry) => void;
     /** The open mode's ticked rows (see sourceSelection.ts): null = no mode,
      *  and then no card carries a checkbox. */
@@ -75,7 +78,7 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // deliberately excluding .xlsm (macro-enabled workbooks, out of scope) — the
 // "Tabellen" file-detail button only makes sense for these.
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
-    files, onPreviewSource, selection, selectionTone, onStartSelection, onStartRemoval, onToggleSelected,
+    files, uploads, onPreviewSource, selection, selectionTone, onStartSelection, onStartRemoval, onToggleSelected,
     onDownloadFile, canManage, canDownload,
     rssFeeds, onUpdateRssFeed, onPollFeedNow, onViewSource,
     confluenceSources, onUpdateConfluenceSource, onSyncConfluenceNow,
@@ -165,6 +168,15 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 
     return (
         <SidebarCardList iconSlot="badge" className="sidebar-left__files-section">
+                {uploads.map(upload => (
+                    <SidebarCard
+                        key={upload.id}
+                        icon={createElement(sourceIconFor(upload), { 'aria-hidden': true })}
+                        iconText={sourceTypeLabel(upload) ?? undefined}
+                        title={upload.name}
+                        busy={t('sourceUploading')}
+                    />
+                ))}
                 {nonRssFiles.map(file => {
                     const card = (
                         <SidebarCard
@@ -329,7 +341,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                         />
                     );
                 })}
-            {nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (
+            {uploads.length === 0 && nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (
                 <li className="sidebar-left__empty sidebar-ui__empty">{t('noSources')}</li>
             )}
         </SidebarCardList>

@@ -15,6 +15,16 @@ interface UseFileManagementParams {
   currentKb: KnowledgeBase | null;
 }
 
+/** A file whose upload is still running: listed from the drop on, until its
+ *  POST returns and the server's row takes its place. */
+export interface PendingUpload {
+  id: string;
+  kbId: string;
+  name: string;
+  type: string;
+  origin: 'upload';
+}
+
 export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const { t, language } = useTheme();
   const { showConfirm } = useModalContext();
@@ -29,6 +39,18 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const [textSourceTitle, setTextSourceTitle] = useState('');
   const [textSourceContent, setTextSourceContent] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const uploadSeq = useRef(0);
+  // Bumped whenever a row is added locally: a list request started before
+  // that would drop the row again, so its response is discarded.
+  const listEpoch = useRef(0);
+  // The open KB: a list or upload response for another KB is dropped.
+  const openKbId = useRef(currentKb?.id);
+  useEffect(() => { openKbId.current = currentKb?.id; }, [currentKb?.id]);
+  // The KB whose list `files` holds (filesKbId, readable from callbacks).
+  const listKbId = useRef<string | null>(null);
+  // Files deleted here: an upload response arriving later must not bring one back.
+  const deletedIds = useRef(new Set<string>());
 
   const hasFiles = useMemo(() => files.some(f => f.status === 'completed'), [files]);
   const filesLoaded = !!currentKb && filesKbId === currentKb.id;
@@ -41,28 +63,36 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
       // Known-empty rather than unknown, and not the previous KB's list.
       setFiles([]);
       setFilesKbId(kbId);
+      listKbId.current = kbId;
       return;
     }
+    const epoch = listEpoch.current;
     try {
       // Request a high limit — the chat UI needs the full file list to show
       // accurate counts and let users select files. The backend defaults to
       // limit=50 which truncates KBs with large Confluence imports.
       const res = await axios.get(`${API_BASE_URL}/api/kb/${kbId}/files?limit=10000`, { signal });
+      if (epoch !== listEpoch.current || kbId !== openKbId.current) return;
       const filesWithSelection = res.data.map((file: FileEntry) => ({
         ...file,
         selected: file.selected !== undefined ? file.selected : true
       }));
       setFiles(filesWithSelection);
       setFilesKbId(kbId);
+      listKbId.current = kbId;
     } catch (err: unknown) {
-      if (axios.isCancel(err)) return;
+      if (axios.isCancel(err) || kbId !== openKbId.current) return;
+      // A failed refresh keeps this KB's list; another KB's list goes.
+      const otherKbList = listKbId.current !== kbId;
       setFilesKbId(kbId);
+      listKbId.current = kbId;
       // No seeSources on this KB: no list, and nothing to report. Clearing
       // also drops the previous KB's list.
       if (isForbidden(err)) {
         setFiles([]);
         return;
       }
+      if (otherKbList) setFiles([]);
       console.error('Failed to fetch files:', err);
       toast.error(t('filesFetchError'));
     }
@@ -85,8 +115,10 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const uploadFilesBatch = useCallback(async (filesToUpload: File[]) => {
     if (!currentKb || filesToUpload.length === 0) return;
 
+    const kbId = currentKb.id;
     const fileLimit = currentKb.isGlobal ? MAX_FILES_PER_GLOBAL_KB : MAX_FILES_PER_KB;
-    const remaining = Math.max(0, fileLimit - files.length);
+    const inFlight = pendingUploads.filter(u => u.kbId === kbId).length;
+    const remaining = Math.max(0, fileLimit - files.length - inFlight);
     const eligible = filesToUpload.slice(0, remaining);
 
     if (eligible.length < filesToUpload.length) {
@@ -94,34 +126,55 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     }
     if (eligible.length === 0) return;
 
+    // Every file is listed right away; on a slow uplink the uploads alone
+    // can take tens of seconds.
+    const batch = eligible.map(file => ({
+      file,
+      row: { id: `upload-${++uploadSeq.current}`, kbId, name: file.name, type: file.type, origin: 'upload' as const },
+    }));
+    setPendingUploads(prev => [...batch.map(b => b.row), ...prev]);
+
     setUploading(true);
     try {
       const UPLOAD_CONCURRENCY = 3;
       let nextIndex = 0;
       const failures: { name: string; err: unknown }[] = [];
       const worker = async () => {
-        while (nextIndex < eligible.length) {
-          const file = eligible[nextIndex++];
+        while (nextIndex < batch.length) {
+          const { file, row } = batch[nextIndex++];
           const formData = new FormData();
           formData.append('file', file);
           try {
-            await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/files`, formData);
+            const res = await axios.post<FileEntry>(`${API_BASE_URL}/api/kb/${kbId}/files`, formData);
+            const created = res.data;
+            if (openKbId.current === kbId && listKbId.current === kbId && !deletedIds.current.has(created.id)) {
+              listEpoch.current++;
+              // Newest first, as the list endpoint orders them.
+              setFiles(prev => prev.some(f => f.id === created.id) ? prev : [{ ...created, selected: true }, ...prev]);
+            }
           } catch (err: unknown) {
             console.error('Upload failed:', err);
             failures.push({ name: file.name, err });
+          } finally {
+            setPendingUploads(prev => prev.filter(u => u.id !== row.id));
           }
         }
       };
-      const workerCount = Math.min(UPLOAD_CONCURRENCY, eligible.length);
+      const workerCount = Math.min(UPLOAD_CONCURRENCY, batch.length);
       await Promise.all(Array.from({ length: workerCount }, worker));
       if (failures.length > 0) {
         toast.error(uploadFailureMessage(failures, t, language));
       }
-      await fetchFiles(currentKb.id);
+      if (openKbId.current === kbId) await fetchFiles(kbId);
     } finally {
       setUploading(false);
     }
-  }, [currentKb, files.length, fetchFiles, t, language, toast]);
+  }, [currentKb, files.length, pendingUploads, fetchFiles, t, language, toast]);
+
+  const uploads = useMemo(
+    () => pendingUploads.filter(u => u.kbId === currentKb?.id),
+    [pendingUploads, currentKb?.id],
+  );
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
@@ -137,10 +190,12 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const deleteFiles = useCallback(async (fileIds: string[]) => {
     if (fileIds.length === 0) return;
     const ids = new Set(fileIds);
+    fileIds.forEach(id => deletedIds.current.add(id));
     let snapshot: FileEntry[] = [];
     setFiles(prev => { snapshot = prev; return prev.filter(f => !ids.has(f.id)); });
     const results = await Promise.allSettled(fileIds.map(id => axios.delete(`${API_BASE_URL}/api/files/${id}`)));
     const failed = new Set(fileIds.filter((_, i) => results[i].status === 'rejected'));
+    failed.forEach(id => deletedIds.current.delete(id));
     if (failed.size === 0) return;
     // Snapshot order for what was there before, then anything that arrived
     // meanwhile (a poll, an upload).
@@ -293,7 +348,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   }, [currentKb, textSourceTitle, textSourceContent, fetchFiles, t, toast]);
 
   return useMemo(() => ({
-    files, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
+    files, uploads, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
     fetchFiles, uploadFiles, handleFileUpload, deleteFiles, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
     showUploadModal, setShowUploadModal,
@@ -301,7 +356,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     textSourceContent, setTextSourceContent,
     handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd,
   }), [
-    files, uploading, hasFiles, filesLoaded, selectedFileCount,
+    files, uploads, uploading, hasFiles, filesLoaded, selectedFileCount,
     showUploadModal, isDragging, textSourceTitle, textSourceContent,
     fetchFiles, uploadFiles, handleFileUpload, deleteFiles, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
     handleDownloadFile, openUploadModal, retryFile, retryAllFailed,

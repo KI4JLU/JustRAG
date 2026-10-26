@@ -67,6 +67,7 @@ const makeGitRepoSource = (over: Partial<GitRepoSource> = {}): GitRepoSource => 
 });
 
 const baseProps = {
+  uploads: [],
   onPreviewSource: vi.fn(),
   selection: null,
   selectionTone: 'default' as const,
@@ -119,6 +120,16 @@ describe('SourcesSection error display + retry', () => {
     expect(screen.queryByText(/completed/)).not.toBeInTheDocument();
     expect(screen.queryByText(/upload/)).not.toBeInTheDocument();
     expect(screen.getByText('fileStatusPending')).toBeInTheDocument();
+  });
+
+  it('lists a file still uploading above the list, display-only', () => {
+    const upload = { id: 'upload-1', kbId: 'kb-1', name: 'new.pdf', type: 'application/pdf', origin: 'upload' as const };
+    render(<SourcesSection {...baseProps} uploads={[upload]} files={[]} />);
+    expect(screen.getByText('new.pdf')).toBeInTheDocument();
+    expect(screen.getByText('sourceUploading')).toBeInTheDocument();
+    expect(screen.queryByText('noSources')).not.toBeInTheDocument();
+    // No actions menu, no open link: nothing exists to act on yet.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('keeps download and remove behind the per-file actions menu', async () => {
