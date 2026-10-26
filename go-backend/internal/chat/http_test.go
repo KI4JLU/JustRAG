@@ -40,6 +40,7 @@ type mockStore struct {
 	branchCalled                          bool
 
 	// captured args from the most recent UpdateMessageFeedback call
+	lastChatID   string
 	lastUserID   string
 	lastFeedback *string
 	lastComment  *string
@@ -49,7 +50,8 @@ func (m *mockStore) GetChats(_ context.Context, _, _ string) ([]chat.ChatRow, er
 	return m.chats, m.err
 }
 
-func (m *mockStore) GetChatByID(_ context.Context, _ string) (*chat.ChatRow, error) {
+func (m *mockStore) GetChatByID(_ context.Context, id string) (*chat.ChatRow, error) {
+	m.lastChatID = id
 	return m.chat, m.err
 }
 
@@ -260,6 +262,82 @@ func TestGetMessages_OtherUserChat_404(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: GetChat
+// ---------------------------------------------------------------------------
+
+func getChatRequest(id string, user *auth.Claims) *http.Request {
+	req := withUser(newRequest(http.MethodGet, "/api/chats/"+id, nil), user)
+	req.SetPathValue("id", id)
+	return req
+}
+
+// Oracle: the stored row — the caller gets it back as is (topic, sticky
+// team/agent), looked up by the canonical form of the path id.
+func TestGetChat_OwnChat_OK(t *testing.T) {
+	chatRow := makeChat(renameChatIDCanonical, "kb-1", "user-1")
+	team := "team-1"
+	chatRow.TeamID = &team
+	store := &mockStore{chat: &chatRow}
+	h := chat.NewHandler(store, nil, nil)
+
+	rr := httptest.NewRecorder()
+	h.GetChat(rr, getChatRequest(renameChatID, testUser()))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.lastChatID != renameChatIDCanonical {
+		t.Errorf("store looked up %q, want %q", store.lastChatID, renameChatIDCanonical)
+	}
+	var got chat.ChatRow
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.ID != renameChatIDCanonical || got.KbID != "kb-1" || got.TeamID == nil || *got.TeamID != "team-1" {
+		t.Errorf("got %+v, want the stored row", got)
+	}
+	if rr.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("expected Cache-Control: no-cache header")
+	}
+}
+
+// Oracle: the messages route's rule — another user's chat, a missing one and
+// a malformed id are indistinguishable 404s.
+func TestGetChat_NotFound(t *testing.T) {
+	own := makeChat(renameChatIDCanonical, "kb-1", "user-1")
+	cases := []struct {
+		name string
+		id   string
+		chat *chat.ChatRow
+		user *auth.Claims
+	}{
+		{"another user's chat", renameChatID, &own, otherUser()},
+		{"missing chat", renameChatID, nil, testUser()},
+		{"malformed id", "not-a-uuid", &own, testUser()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := chat.NewHandler(&mockStore{chat: tc.chat}, nil, nil)
+			rr := httptest.NewRecorder()
+			h.GetChat(rr, getChatRequest(tc.id, tc.user))
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("expected 404, got %d", rr.Code)
+			}
+		})
+	}
+}
+
+// Oracle: a store failure is the server's fault, not a missing chat.
+func TestGetChat_StoreError_500(t *testing.T) {
+	h := chat.NewHandler(&mockStore{err: errors.New("db down")}, nil, nil)
+	rr := httptest.NewRecorder()
+	h.GetChat(rr, getChatRequest(renameChatID, testUser()))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rr.Code)
 	}
 }
 

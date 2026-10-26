@@ -465,6 +465,42 @@ func (h *Handler) ListChats(w http.ResponseWriter, r *http.Request) {
 // GetMessages handles GET /api/chats/{id}/messages.
 // Returns all messages for the specified chat, verified to belong to the caller.
 // Auth is enforced by middleware in main.go.
+// GetChat answers GET /api/chats/{id}: one chat of the caller's, as a row of
+// the chat list (GET /api/kb/{id}/chats) without `hasBranches`. It exists so a
+// link names a chat by its id alone: the row carries the topic (`kbId`, ""
+// for a library chat) and the sticky team/agent the client restores. Another
+// user's chat, a missing one and a malformed id are all 404, as for
+// GET /api/chats/{id}/messages, so the route says nothing about chats that
+// are not the caller's.
+func (h *Handler) GetChat(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	parsed, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+	chatID := parsed.String()
+
+	chat, err := h.store.GetChatByID(r.Context(), chatID)
+	if err != nil {
+		logctx.From(r.Context()).Error("chat.get_chat", "error", err, "chat_id", chatID, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to fetch chat")
+		return
+	}
+	if chat == nil || chat.UserID != user.ID {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-cache")
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, chat)
+}
+
 func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
