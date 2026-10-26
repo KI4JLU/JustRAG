@@ -86,7 +86,8 @@ const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ o
             // Audio and video have no viewer toolbar of their own: the same
             // 48px row as the image, PDF and text viewers carries the back
             // link and the download.
-            toolbar={kind !== 'image' && (
+            // An image's row is the ImageViewer's own, once it is there.
+            toolbar={(kind !== 'image' || !url || error) && (
                 <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">
                     {backLink}
                     <div className="ml-auto flex items-center gap-1">{download}</div>

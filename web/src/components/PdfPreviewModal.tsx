@@ -65,6 +65,9 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
         <PreviewDialog
             onClose={onClose}
             kind="pdf"
+            // While the viewer is not there (loading, failed) its toolbar
+            // row is, so the way back stays.
+            toolbar={backLink && (!blobUrl || error) ? <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">{backLink}</div> : undefined}
             title={fileName}
             subtitle={pageCount === null
                 ? t('previewPdfSubtitle')
