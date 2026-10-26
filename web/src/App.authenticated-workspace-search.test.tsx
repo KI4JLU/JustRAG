@@ -67,8 +67,8 @@ const kb = (id: string, name: string) => ({
   createdAt: '2026-01-01T00:00:00Z', isPro: false, isGlobal: false, myRole: 'owner',
   aiConfigId: null, chatModel: null, embeddingModel: null, rerankModel: null, ttsModel: null,
 });
-const KB1 = kb('kb-1', 'Prüfungsordnungen');
-const KB2 = kb('kb-2', 'Statistik');
+const KB1 = kb('11111111-1111-4111-8111-111111111111', 'Prüfungsordnungen');
+const KB2 = kb('22222222-2222-4222-8222-222222222222', 'Statistik');
 
 const chatEntry = (id: string, kbId: string, title: string) => ({
   id, kbId, userId: 'user-1', title, type: 'chat',
@@ -80,28 +80,28 @@ const chatHit = (id: string, kbId: string, kbName: string, title: string) => ({
 
 /** chat id → [user turn, AI turn]; each body appears in exactly one response. */
 const MESSAGES: Record<string, [string, string]> = {
-  'chat-7': ['Wie lange dauert die mündliche Prüfung?', 'Die mündliche Prüfung dauert 30 Minuten.'],
-  'chat-8': ['Welche Module sind Pflicht?', 'Pflicht sind die Module A und B.'],
-  'chat-9': ['Was ist ein Median?', 'Der Median ist der mittlere Wert.'],
+  '77777777-7777-4777-8777-777777777777': ['Wie lange dauert die mündliche Prüfung?', 'Die mündliche Prüfung dauert 30 Minuten.'],
+  '88888888-8888-4888-8888-888888888888': ['Welche Module sind Pflicht?', 'Pflicht sind die Module A und B.'],
+  '99999999-9999-4999-8999-999999999999': ['Was ist ein Median?', 'Der Median ist der mittlere Wert.'],
 };
 const PREVIEW_BODY = 'Paragraph 12 regelt die Wiederholung von Prüfungen.';
 
 const empty = { topics: [], sources: [], chats: [], messages: [] };
 /** Header search (no kb_id), used to enter the workspace. */
-const ENTRY_SEARCH = { query: 'Prüf', kbId: null, ...empty, chats: [chatHit('chat-7', 'kb-1', 'Prüfungsordnungen', 'Prüfungsfragen')] };
+const ENTRY_SEARCH = { query: 'Prüf', kbId: null, ...empty, chats: [chatHit('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsordnungen', 'Prüfungsfragen')] };
 /** Scoped to kb-1: a second chat and a markdown source of the same topic. */
 const SCOPED_SEARCH = {
-  query: 'x', kbId: 'kb-1', ...empty,
+  query: 'x', kbId: '11111111-1111-4111-8111-111111111111', ...empty,
   // A topic hit for kb-1 too: scoped mode must not render it.
-  topics: [{ id: 'kb-1', name: 'Prüfungsordnungen', description: null, visibility: 'private', role: 'owner', match: 'prefix' }],
-  sources: [{ id: 'f-1', name: 'Wiederholung.md', type: 'md', kbId: 'kb-1', kbName: 'Prüfungsordnungen', match: 'prefix' }],
-  chats: [chatHit('chat-8', 'kb-1', 'Prüfungsordnungen', 'Modulwahl')],
+  topics: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Prüfungsordnungen', description: null, visibility: 'private', role: 'owner', match: 'prefix' }],
+  sources: [{ id: 'f-1', name: 'Wiederholung.md', type: 'md', kbId: '11111111-1111-4111-8111-111111111111', kbName: 'Prüfungsordnungen', match: 'prefix' }],
+  chats: [chatHit('88888888-8888-4888-8888-888888888888', '11111111-1111-4111-8111-111111111111', 'Prüfungsordnungen', 'Modulwahl')],
 };
 /** Widened (no kb_id, q=Stat): a topic and a chat in ANOTHER topic. */
 const WIDE_SEARCH = {
   query: 'Stat', kbId: null, ...empty,
-  topics: [{ id: 'kb-2', name: 'Statistik', description: null, visibility: 'private', role: 'owner', match: 'prefix' }],
-  chats: [chatHit('chat-9', 'kb-2', 'Statistik', 'Statistik-Grundlagen')],
+  topics: [{ id: '22222222-2222-4222-8222-222222222222', name: 'Statistik', description: null, visibility: 'private', role: 'owner', match: 'prefix' }],
+  chats: [chatHit('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik', 'Statistik-Grundlagen')],
 };
 
 let scopedSearch: () => Promise<unknown> = () => Promise.resolve({ data: SCOPED_SEARCH });
@@ -111,16 +111,16 @@ function routeGets() {
     const u = String(url);
     if (u.includes('/api/search?')) {
       const params = new URLSearchParams(u.slice(u.indexOf('?') + 1));
-      if (params.get('kb_id') === 'kb-1') return scopedSearch();
+      if (params.get('kb_id') === '11111111-1111-4111-8111-111111111111') return scopedSearch();
       return Promise.resolve({ data: params.get('q') === 'Stat' ? WIDE_SEARCH : ENTRY_SEARCH });
     }
-    if (/\/api\/kb\/kb-1$/.test(u)) return Promise.resolve({ data: KB1 });
-    if (/\/api\/kb\/kb-2$/.test(u)) return Promise.resolve({ data: KB2 });
-    if (u.endsWith('/api/kb/kb-1/chats')) {
-      return Promise.resolve({ data: [chatEntry('chat-7', 'kb-1', 'Prüfungsfragen'), chatEntry('chat-8', 'kb-1', 'Modulwahl')] });
+    if (/\/api\/kb\/11111111-1111-4111-8111-111111111111$/.test(u)) return Promise.resolve({ data: KB1 });
+    if (/\/api\/kb\/22222222-2222-4222-8222-222222222222$/.test(u)) return Promise.resolve({ data: KB2 });
+    if (u.endsWith('/api/kb/11111111-1111-4111-8111-111111111111/chats')) {
+      return Promise.resolve({ data: [chatEntry('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsfragen'), chatEntry('88888888-8888-4888-8888-888888888888', '11111111-1111-4111-8111-111111111111', 'Modulwahl')] });
     }
-    if (u.endsWith('/api/kb/kb-2/chats')) return Promise.resolve({ data: [chatEntry('chat-9', 'kb-2', 'Statistik-Grundlagen')] });
-    const msg = u.match(/\/api\/chats\/(chat-\d+)\/messages$/);
+    if (u.endsWith('/api/kb/22222222-2222-4222-8222-222222222222/chats')) return Promise.resolve({ data: [chatEntry('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik-Grundlagen')] });
+    const msg = u.match(/\/api\/chats\/([0-9a-f-]{36})\/messages$/);
     if (msg && MESSAGES[msg[1]]) {
       const [user, ai] = MESSAGES[msg[1]];
       return Promise.resolve({
@@ -169,7 +169,7 @@ async function enterWorkspace() {
   await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
   await userEvent.type(screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de }), 'Prüf');
   await userEvent.click(await screen.findByRole('option', { name: /Prüfungsfragen/ }, { timeout: 2000 }));
-  await screen.findByText(MESSAGES['chat-7'][1], {}, { timeout: 5000 });
+  await screen.findByText(MESSAGES['77777777-7777-4777-8777-777777777777'][1], {}, { timeout: 5000 });
   return screen.getByRole('combobox', { name: scopedName });
 }
 
@@ -188,7 +188,7 @@ describe('App — the workspace header search, scoped to the open topic', () => 
 
     // ORACLE: the recorded URL. One scoped request, for the final text.
     expect(searchUrls().filter((u) => u.includes('kb_id='))).toEqual([
-      expect.stringMatching(/\/api\/search\?q=Modul&kb_id=kb-1$/),
+      expect.stringMatching(/\/api\/search\?q=Modul&kb_id=11111111-1111-4111-8111-111111111111$/),
     ]);
     // The fixture carries a topic hit; scoped mode shows no Topics group.
     expect(within(listbox).queryByRole('group', { name: translations.globalSearchGroupTopics.de })).toBeNull();
@@ -197,7 +197,7 @@ describe('App — the workspace header search, scoped to the open topic', () => 
 
   it('swaps to a chat of the SAME topic without reopening the topic', async () => {
     const field = await enterWorkspace();
-    const topicOpens = count(/\/api\/kb\/kb-1$/);
+    const topicOpens = count(/\/api\/kb\/11111111-1111-4111-8111-111111111111$/);
     expect(topicOpens).toBe(1);
 
     await userEvent.type(field, 'Modul');
@@ -210,14 +210,14 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     // ORACLE: chat-8's bodies replace chat-7's — the chosen chat, not an
     // empty new one — and the topic was NOT requested a second time, i.e.
     // `handleOpenKbById` (and with it `handleNewChat`) did not run.
-    expect(await screen.findByText(MESSAGES['chat-8'][1], {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.queryByText(MESSAGES['chat-7'][1])).toBeNull();
-    expect(count(/\/api\/kb\/kb-1$/)).toBe(topicOpens);
+    expect(await screen.findByText(MESSAGES['88888888-8888-4888-8888-888888888888'][1], {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGES['77777777-7777-4777-8777-777777777777'][1])).toBeNull();
+    expect(count(/\/api\/kb\/11111111-1111-4111-8111-111111111111$/)).toBe(topicOpens);
   }, 30000);
 
   it('opens a source of the SAME topic in the preview and keeps the chat on screen', async () => {
     const field = await enterWorkspace();
-    const topicOpens = count(/\/api\/kb\/kb-1$/);
+    const topicOpens = count(/\/api\/kb\/11111111-1111-4111-8111-111111111111$/);
 
     await userEvent.type(field, 'Wied');
     await userEvent.click(await screen.findByRole('option', { name: /Wiederholung\.md/ }));
@@ -225,9 +225,9 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     // ORACLE: the file body, which only `GET /api/files/f-1/download` carries…
     expect(await screen.findByText(PREVIEW_BODY, {}, { timeout: 5000 })).toBeInTheDocument();
     // …while chat-7 is still the chat (a reopen would have emptied it)…
-    expect(screen.getByText(MESSAGES['chat-7'][1])).toBeInTheDocument();
+    expect(screen.getByText(MESSAGES['77777777-7777-4777-8777-777777777777'][1])).toBeInTheDocument();
     // …and the topic was not requested again.
-    expect(count(/\/api\/kb\/kb-1$/)).toBe(topicOpens);
+    expect(count(/\/api\/kb\/11111111-1111-4111-8111-111111111111$/)).toBe(topicOpens);
   }, 30000);
 
   it('widens the same text to all topics with the caret kept, and a hit elsewhere navigates there', async () => {
@@ -255,8 +255,8 @@ describe('App — the workspace header search, scoped to the open topic', () => 
 
     // A hit in ANOTHER topic navigates like the header: topic, then chat.
     await userEvent.click(widened);
-    expect(await screen.findByText(MESSAGES['chat-9'][1], {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(count(/\/api\/kb\/kb-2$/)).toBe(1);
+    expect(await screen.findByText(MESSAGES['99999999-9999-4999-8999-999999999999'][1], {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(count(/\/api\/kb\/22222222-2222-4222-8222-222222222222$/)).toBe(1);
     // …and the field now names the new topic.
     expect(screen.getByRole('combobox', {
       name: translations.workspaceSearchPlaceholder.de.replace('{topic}', 'Statistik'),
@@ -276,7 +276,7 @@ describe('App — the workspace header search, scoped to the open topic', () => 
 
     // ORACLE: the next request is scoped again, for the same text.
     await waitFor(() => expect(searchUrls().length).toBe(before + 1));
-    expect(searchUrls().at(-1)).toMatch(/\/api\/search\?q=Stat&kb_id=kb-1$/);
+    expect(searchUrls().at(-1)).toMatch(/\/api\/search\?q=Stat&kb_id=11111111-1111-4111-8111-111111111111$/);
     expect(field).toHaveAccessibleName(scopedName);
     expect(document.activeElement).toBe(field);
   }, 30000);

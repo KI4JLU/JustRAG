@@ -8,7 +8,7 @@ import type { LegalPageType } from '../components/LegalPage';
  * rather than from page content — today the overview's action row, from KI-696
  * onwards the shell's sidebar.
  *
- * WHAT BELONGS HERE. Exactly the `setView(...)` jumps that are rendered by the
+ * WHAT BELONGS HERE. Exactly the view jumps (router navigations) that are rendered by the
  * shell's sidebar rather than by a page's body. A sidebar owned by the shell
  * cannot receive a callback threaded through the page's props without the
  * shell becoming a second prop-drilling layer, which is the problem KI-770
@@ -20,7 +20,7 @@ import type { LegalPageType } from '../components/LegalPage';
  * rather than an exception to the rule. „Geteilte Knowledge Bases" became a
  * top-level view, so the sidebar now has a second destination AND — because
  * the sidebar is drawn on both views by one `AppChrome` — a way back to the
- * overview. Both are chrome-rendered `setView(...)` jumps, i.e. the criterion
+ * overview. Both are chrome-rendered view jumps, i.e. the criterion
  * above verbatim. The alternative was a prop on `HomeView`, which is precisely
  * the drilling layer KI-770 removed.
  *

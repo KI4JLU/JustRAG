@@ -7,6 +7,7 @@ import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbRemoval } from './useKbRemoval';
 import { userErrorMessage } from '../utils/userErrors';
+import type { AppNavigate } from '../routing/navigation';
 
 /* `GET /api/kb` is paged (API.md: `?limit=` default 50, clamped to 100, and
  * `?offset=`). The overview needs EVERY row, not the first page: the
@@ -51,14 +52,15 @@ interface UseKnowledgeBasesParams {
   setIsPro: (isPro: boolean) => void;
   /** Nur 'chat' — siehe `KbViewType` in useViewState.ts (22.09.2026). */
   setKbView: (view: 'chat') => void;
-  setView: (view: 'my-topics' | 'kb' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility') => void;
+  /** Router navigation by view (routing/navigation.ts). */
+  navigateTo: AppNavigate;
   setSelectedContent: (content: GeneratedContent | null) => void;
   setGeneratedContent: (content: GeneratedContent[]) => void;
 }
 
 export function useKnowledgeBases({
   onKBSelected, handleGoHome,
-  setCurrentKb, setIsPro, setKbView, setView, setSelectedContent, setGeneratedContent,
+  setCurrentKb, setIsPro, setKbView, navigateTo, setSelectedContent, setGeneratedContent,
 }: UseKnowledgeBasesParams) {
   const { t } = useTheme();
   const { showConfirm, showPrompt } = useModalContext();
@@ -97,15 +99,23 @@ export function useKnowledgeBases({
     return () => clearInterval(id);
   }, [anyProcessing, fetchKBs]);
 
-  const handleSelectKB = useCallback((kb: KnowledgeBase) => {
+  /* Makes `kb` the open topic: the state half of opening one, without the
+   * navigation. Two callers: handleSelectKB below (a click — state, then the
+   * URL), and the authenticated app when the URL names a topic that is not the
+   * open one (a deep link, a reload, back/forward — the URL is already there). */
+  const applyKbSelection = useCallback((kb: KnowledgeBase) => {
     setCurrentKb(kb);
     setIsPro(kb.isPro);
     setKbView('chat');
-    setView('kb');
     setSelectedContent(null);
     setGeneratedContent([]);
     onKBSelected();
-  }, [onKBSelected, setCurrentKb, setIsPro, setKbView, setView, setSelectedContent, setGeneratedContent]);
+  }, [onKBSelected, setCurrentKb, setIsPro, setKbView, setSelectedContent, setGeneratedContent]);
+
+  const handleSelectKB = useCallback((kb: KnowledgeBase) => {
+    applyKbSelection(kb);
+    navigateTo({ view: 'kb', kbId: kb.id });
+  }, [applyKbSelection, navigateTo]);
 
   // Opens a KB known only by id. The discovery panel's rows are a thin
   // catalog projection (id/name/description/subscribed), while handleSelectKB
@@ -129,6 +139,25 @@ export function useKnowledgeBases({
       return null;
     }
   }, [handleSelectKB, toast, t]);
+
+  /* The full row of the topic a URL names. A loaded list row is used as is —
+   * the cards open topics from the same rows — so the common back/forward
+   * between topics costs no request. Otherwise (a deep link before the lists
+   * arrived, an unsubscribed public topic, a topic shared since) it is
+   * GET /api/kb/{id}, view-gated server-side. Resolves null when the topic
+   * cannot be opened; the error has been toasted, the caller leaves the URL. */
+  const resolveKbForRoute = useCallback(async (id: string): Promise<KnowledgeBase | null> => {
+    const known = kbs.find(k => k.id === id) ?? globalKbs.find(k => k.id === id);
+    if (known) return known;
+    try {
+      const res = await axios.get<KnowledgeBase>(`${API_BASE_URL}/api/kb/${encodeURIComponent(id)}`);
+      return res.data;
+    } catch (err: unknown) {
+      console.error('Failed to open KB from URL:', err);
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'kbFetchError' }));
+      return null;
+    }
+  }, [kbs, globalKbs, toast, t]);
 
   const handleCreateKB = async () => {
     const name = await showPrompt(t('enterKBName'));
@@ -286,24 +315,16 @@ export function useKnowledgeBases({
     }
   }, [showConfirm, t, handleGoHome, toast]);
 
-  const handleOpenGlobalKbSettings = (kb: KnowledgeBase, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCurrentKb(kb);
-    setView('global-kb-settings');
-  };
-
-  // Per-KB RAG settings / evals / workflow (KbSettingsPanel). Same shape as
-  // handleOpenGlobalKbSettings above — the panel's endpoints are all
-  // kbAdminChain, so the caller side gates on myRole admin|owner.
-  const handleOpenKbSettings = (kb: KnowledgeBase, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCurrentKb(kb);
-    setView('kb-settings');
-  };
+  /* The admin console's editor for a public topic. Navigates by id only: the
+   * admin tab's row is a thin projection, so the authenticated app loads the
+   * full row for the URL (resolveKbForRoute) like any deep link. */
+  const handleOpenGlobalKbSettings = useCallback((kbId: string) => {
+    navigateTo({ view: 'global-kb-settings', kbId });
+  }, [navigateTo]);
 
   return {
     kbs, setKbs, globalKbs, setGlobalKbs,
-    fetchKBs, handleCreateKB, handleSelectKB, handleOpenKbById, handleRenameKB, saveKbSettings, handleDeleteKB, removingKb,
-    handleToggleFavorite, handleDeleteGlobalKB, handleOpenGlobalKbSettings, handleOpenKbSettings,
+    fetchKBs, handleCreateKB, applyKbSelection, handleSelectKB, handleOpenKbById, resolveKbForRoute, handleRenameKB, saveKbSettings, handleDeleteKB, removingKb,
+    handleToggleFavorite, handleDeleteGlobalKB, handleOpenGlobalKbSettings,
   };
 }

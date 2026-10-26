@@ -88,7 +88,7 @@ const ChatViewComp = () => {
   // AuthenticatedApp).
   const webSearchAvailable = isChatWebSearchAvailable(siteConfigs);
   const webSearchOn = webSearchAvailable && webSearch;
-  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection } = useKbLayout();
+  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection, setSystemPromptSection } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
   const kbAgentOptions = useKbAgents(currentKb?.id);
@@ -780,7 +780,8 @@ const ChatViewComp = () => {
           flags={flagsDraft}
           onFlagsChange={setFlagsDraft}
           kb={currentKb}
-          initialSection={systemPromptSection}
+          section={systemPromptSection}
+          onSectionChange={setSystemPromptSection}
           dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
             || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
           onSave={async () => {

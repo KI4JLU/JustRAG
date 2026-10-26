@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import Login from './Login';
+import { withRouter } from './test/withRouter';
 
 vi.mock('axios', () => ({
   default: { get: vi.fn(), post: vi.fn() },
@@ -32,7 +33,7 @@ function mockProviders(data: { providers: Array<{ id: string; type: string; name
 }
 
 function renderLogin() {
-  return render(<Login onLogin={vi.fn()} siteConfigs={{}} />);
+  return render(withRouter(<Login onLogin={vi.fn()} siteConfigs={{}} />));
 }
 
 describe('Login visibility', () => {

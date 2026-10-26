@@ -77,7 +77,7 @@ function setup() {
     setCurrentKb,
     setIsPro: vi.fn(),
     setKbView: vi.fn(),
-    setView: vi.fn(),
+    navigateTo: vi.fn(),
     setSelectedContent: vi.fn(),
     setGeneratedContent: vi.fn(),
   }));

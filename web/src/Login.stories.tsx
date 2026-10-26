@@ -18,14 +18,13 @@ import Login from './Login';
  *
  * `siteConfigs` IS a prop and is a genuine story arg.
  *
- * isAdminRoute: Login reads `window.location.pathname === '/admin'` and, when
- * true, hard-hides the SSO button and force-shows the password form. Storybook
- * serves stories from /iframe.html and the Vitest browser runner from its own
- * path, so `isAdminRoute` is false in every story below — which is the branch
- * these six states are about. The /admin breakglass view cannot be reached
- * from a story without navigating the page and is deliberately not covered
- * here; it is what `Login.test.tsx` already asserts in jsdom, where the
- * pathname can be pushed.
+ * isAdminRoute: Login reads the router's location (`pathname === '/admin'`)
+ * and, when true, hard-hides the SSO button and force-shows the password
+ * form. Every story runs inside the memory router of .storybook/preview.tsx,
+ * which starts at `parameters.route` — "/" unless a story says otherwise —
+ * so `isAdminRoute` is false in every story below, which is the branch these
+ * six states are about. The /admin breakglass is what `Login.test.tsx`
+ * asserts; a story for it would only need `parameters: { route: '/admin' }`.
  *
  * Light mode only: no story pins a theme. The toolbar's Theme switch renders
  * any story dark without reloading — see .storybook/preview.tsx. Dark-mode

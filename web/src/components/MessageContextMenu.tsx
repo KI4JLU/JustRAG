@@ -34,8 +34,6 @@ export function MessageContextMenu({ message, kbId, questionText, enabled, onOpe
     const { onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph } = handlers;
     const { traceUrl } = rules;
 
-    if (!enabled) return <>{children}</>;
-
     const rate = (rating: 'positive' | 'negative') => {
         triggerHaptic(HAPTIC_PATTERNS.action);
         onFeedback?.(message.feedback === rating ? null : rating);
@@ -43,8 +41,12 @@ export function MessageContextMenu({ message, kbId, questionText, enabled, onOpe
 
     return (
         <ContextMenu onOpenChange={(open) => { if (open) triggerHaptic(HAPTIC_PATTERNS.reveal); onOpenChange?.(open); }}>
-            <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-            <ContextMenuContent aria-label={t('messageActions')}>
+            {/* The same tree whether or not the menu is available yet: a question
+                gets its actions once the server confirms it, and wrapping it in a
+                trigger only then would remount the bubble and replay its entrance
+                animation. Disabled, the trigger is inert and no content exists. */}
+            <ContextMenuTrigger asChild disabled={!enabled}>{children}</ContextMenuTrigger>
+            {enabled && <ContextMenuContent aria-label={t('messageActions')}>
                 <ContextMenuItem onSelect={() => void exporter.copy()}>
                     <Copy aria-hidden="true" />{t('copy')}
                 </ContextMenuItem>
@@ -103,7 +105,7 @@ export function MessageContextMenu({ message, kbId, questionText, enabled, onOpe
                         <ExternalLink aria-hidden="true" />{t('viewTrace')}
                     </ContextMenuItem>
                 )}
-            </ContextMenuContent>
+            </ContextMenuContent>}
         </ContextMenu>
     );
 }

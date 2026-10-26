@@ -5,12 +5,13 @@ import type { KbSettingsSection } from '../types';
 export interface KbLayoutContextValue {
   sidebar: ReturnType<typeof useSidebarResize>;
   /** The Thema-Einstellungen dialog: opened from the chrome bar
-   *  (KbWorkspaceLayout), rendered by ChatView — hence shared here. Closed
-   *  whenever the open topic changes (AuthenticatedApp). */
+   *  (KbWorkspaceLayout), rendered by ChatView — hence shared here. Open while
+   *  the topic's URL carries `?topic=` (useTopicSettings). */
   systemPromptOpen: boolean;
   setSystemPromptOpen: (open: boolean) => void;
-  /** The section it opens on: Verhalten from the gear, Mitglieder from „Teilen". */
+  /** Its open section — `?topic=<section>` in the URL: Verhalten from the gear, Mitglieder from „Teilen". */
   systemPromptSection: KbSettingsSection;
+  setSystemPromptSection: (section: KbSettingsSection) => void;
 }
 
 const KbLayoutContext = createContext<KbLayoutContextValue | null>(null);

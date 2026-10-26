@@ -5,9 +5,10 @@ import type { ChatEntry, KnowledgeBase, SearchChatType } from '../types';
 import { kbSourceRights } from '../utils/kbAccess';
 
 /**
- * Where a global-search hit takes you (card KI-837). The app has no router —
- * every destination is state in `AuthenticatedApp` — so these are sequences of
- * the existing hook calls, in the one order that works.
+ * Where a global-search hit takes you (card KI-837). A destination inside a
+ * topic is the topic's URL plus state in `AuthenticatedApp` (the open chat,
+ * the source preview), so these are sequences of the existing hook calls, in
+ * the one order that works.
  *
  * THE ORDERING TRAP. Opening a topic (`handleOpenKbById` → `handleSelectKB`)
  * calls `onKBSelected`, which is `useChat.handleNewChat`: it resets the active

@@ -1,50 +1,69 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-import { useTopicSettings } from './useTopicSettings';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createMemoryHistory, type RouterHistory } from '@tanstack/react-router';
+import { openTopicSettings, useTopicSettings } from './useTopicSettings';
+import { bindUrlDialogHistory } from '../routing/urlDialog';
 
 // Oracle: the acceptance rules for Thema-Einstellungen — open per topic, a
-// topic change lands in the new topic's chat, and „Teilen" on a card opens
-// its topic directly on Mitglieder.
-describe('useTopicSettings', () => {
-  const setup = (kbId: string | undefined) =>
-    renderHook(({ id }) => useTopicSettings(id), { initialProps: { id: kbId } });
+// topic change lands in the new topic's chat, „Teilen" on a card opens its
+// topic directly on Mitglieder — plus the URL rules (`?topic=<section>`):
+// opening pushes, switching replaces, closing removes it. Observed through
+// the history the store is bound to, as the router's is in the app.
+let history: RouterHistory;
 
-  it('opens on Verhalten from the gear and closes again', () => {
-    const { result } = setup('a');
+function bindAt(url: string) {
+  history = createMemoryHistory({ initialEntries: [url] });
+  act(() => bindUrlDialogHistory(history));
+}
+
+beforeEach(() => bindAt('/kb/a'));
+
+const setup = (onTopic = true) =>
+  renderHook(({ on }) => useTopicSettings(on), { initialProps: { on: onTopic } });
+
+describe('useTopicSettings', () => {
+  it('opens on Verhalten from the gear, in the URL, and closes again', () => {
+    const { result } = setup();
     expect(result.current.open).toBe(false);
     act(() => result.current.setOpen(true));
     expect(result.current).toMatchObject({ open: true, section: 'behavior' });
+    expect(history.location.search).toBe('?topic=behavior');
     act(() => result.current.setOpen(false));
     expect(result.current.open).toBe(false);
+    expect(history.location.href).toBe('/kb/a');
   });
 
-  it('closes when the topic changes, and stays closed on the way back', () => {
-    const { result, rerender } = setup('a');
+  it('switches sections without a history entry of its own', () => {
+    const { result } = setup();
     act(() => result.current.setOpen(true));
-    rerender({ id: 'b' });
-    expect(result.current.open).toBe(false);
-    rerender({ id: 'a' });
+    const length = history.length;
+    act(() => result.current.setSection('roles'));
+    expect(result.current.section).toBe('roles');
+    expect(history.location.search).toBe('?topic=roles');
+    expect(history.length).toBe(length);
+  });
+
+  it('closes when the topic changes', () => {
+    const { result } = setup();
+    act(() => result.current.setOpen(true));
+    act(() => history.push('/kb/b'));
     expect(result.current.open).toBe(false);
   });
 
-  it('keeps a request for the topic it is about to open (Teilen → Mitglieder)', () => {
-    const { result, rerender } = setup('a');
-    act(() => result.current.openFor('b', 'members'));
-    // Not shown over the topic still open.
-    expect(result.current.open).toBe(false);
-    rerender({ id: 'b' });
+  it('opens a topic directly on Mitglieder (Teilen): the topic first, then its settings', () => {
+    bindAt('/');
+    const { result } = setup();
+    act(() => {
+      history.push('/kb/b');
+      openTopicSettings('members');
+    });
+    expect(history.location.href).toBe('/kb/b?topic=members');
     expect(result.current).toMatchObject({ open: true, section: 'members' });
   });
 
-  it('opens a request for the topic already open at once', () => {
-    const { result } = setup('a');
-    act(() => result.current.openFor('a', 'members'));
-    expect(result.current).toMatchObject({ open: true, section: 'members' });
-  });
-
-  it('does nothing from the gear with no topic open', () => {
-    const { result } = setup(undefined);
-    act(() => result.current.setOpen(true));
+  it('is never open on a page that is not a topic, whatever the URL says', () => {
+    bindAt('/shared?topic=members');
+    const { result } = setup(false);
     expect(result.current.open).toBe(false);
   });
 });

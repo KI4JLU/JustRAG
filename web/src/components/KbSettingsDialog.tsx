@@ -31,6 +31,9 @@ interface KbSettingsDialogProps {
     kb: KnowledgeBase;
     /** The section it opens on: the gear opens Verhalten, „Teilen" Mitglieder. */
     initialSection?: KbSettingsSection;
+    /** The open section, when the caller owns it (the app: `?topic=<section>`). Without it the dialog keeps its own. */
+    section?: KbSettingsSection;
+    onSectionChange?: (section: KbSettingsSection) => void;
     /** The prompt draft or the flags changed: enables Speichern (so do role drafts, held here). */
     dirty: boolean;
 }
@@ -61,11 +64,13 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
  * overlay and Abbrechen close it, and with unsaved changes they ask first.
  */
 export function KbSettingsDialog({
-    fitTo, kb, initialSection = 'behavior', draft, onDraftChange, onSave, onDelete, onClose, flags, onFlagsChange, dirty,
+    fitTo, kb, initialSection = 'behavior', section: ownedSection, onSectionChange, draft, onDraftChange, onSave, onDelete, onClose, flags, onFlagsChange, dirty,
 }: KbSettingsDialogProps) {
     const { t, language } = useTheme();
     const { showConfirm } = useModalContext();
-    const [section, setSection] = useState<KbSettingsSection>(initialSection);
+    const [localSection, setLocalSection] = useState<KbSettingsSection>(initialSection);
+    const section = ownedSection ?? localSection;
+    const setSection = onSectionChange ?? setLocalSection;
     const [status, setStatus] = useState<SaveStatus>('idle');
     const saving = status === 'saving';
 

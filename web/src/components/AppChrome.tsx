@@ -89,7 +89,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
   // The header search, which lives in the chrome bar since KI-787 and is the
   // global search since KI-837. Read from a context for the same reason
   // everything else here is: this component takes no props from the page.
-  const { query, setQuery, applyCatalogQuery, focusPending, requestFocus, consumeFocus } = useKbSearch();
+  const { query, setQuery, applyCatalogQuery, focusPendingFor, requestFocus, consumeFocus } = useKbSearch();
   const searchRef = useRef<HTMLInputElement>(null);
   /* The minimise toggle's state (card KI-789). `Sidebar` is controlled and
      remembers nothing by design, so the app owns this and persists it — see
@@ -137,14 +137,15 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    * jump; `focus()` alone selects nothing and would leave it at position 0 in
    * some browsers, i.e. the next letter would land in front of the first. */
   useEffect(() => {
-    if (!focusPending) return;
+    // Only the destination's chrome: the one being left renders first.
+    if (focusPendingFor !== active) return;
     const el = searchRef.current;
     if (el) {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
     consumeFocus();
-  }, [focusPending, consumeFocus]);
+  }, [focusPendingFor, active, consumeFocus]);
 
   /* The `logo` slot: the design system's wordmark, built from the product name
      („JLU [RAG]"), always.
@@ -327,7 +328,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
           applyCatalogQuery(q);
           if (active !== 'discover') {
             onViewDiscover();
-            requestFocus();
+            requestFocus('discover');
           }
         }}
       />

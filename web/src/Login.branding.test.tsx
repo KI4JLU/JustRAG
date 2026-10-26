@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import axios from 'axios';
 import { Button, Logo } from '@ki4jlu/design-system';
 import Login from './Login';
+import { withRouter } from './test/withRouter';
 import { API_BASE_URL } from './api';
 
 /* ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ function renderReference(node: React.ReactElement): HTMLElement {
 }
 
 function renderLogin(siteConfigs: Record<string, string> = {}) {
-  return render(<Login onLogin={vi.fn()} siteConfigs={siteConfigs} />);
+  return render(withRouter(<Login onLogin={vi.fn()} siteConfigs={siteConfigs} />));
 }
 
 beforeEach(() => {

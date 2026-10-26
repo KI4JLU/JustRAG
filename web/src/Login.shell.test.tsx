@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import Login from './Login';
+import { withRouter } from './test/withRouter';
 import { API_BASE_URL } from './api';
 import { translations } from './translations';
 
@@ -72,7 +73,7 @@ const USERNAME_LABEL = translations.username.en;
 const PASSWORD_LABEL = translations.password.en;
 
 function renderLogin() {
-  return render(<Login onLogin={vi.fn()} siteConfigs={{}} />);
+  return render(withRouter(<Login onLogin={vi.fn()} siteConfigs={{}} />));
 }
 
 /** Local username/password login enabled, no SSO provider. */
