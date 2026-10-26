@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import { setPdfWorkerSrc } from '@ki4jlu/design-system'
+import { setPdfWorkerSrc, TitleTooltips } from '@ki4jlu/design-system'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   shouldReloadForChunkError,
@@ -31,5 +31,7 @@ setPdfWorkerSrc(pdfWorkerUrl);
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    {/* Every native `title` renders as a DS tooltip (design-system catch-all). */}
+    <TitleTooltips />
   </StrictMode>,
 )

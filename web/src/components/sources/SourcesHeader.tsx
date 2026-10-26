@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Button } from '@ki4jlu/design-system';
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@ki4jlu/design-system';
 import { RefreshCw, ShieldAlert } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKbData } from '../../contexts/KbDataContext';
@@ -35,6 +35,8 @@ import './SourcesPanel.css';
  * size="sm"`), kein `.text-button`: der las sich wie ein Link, nicht wie eine
  * Aktion. Rahmen ja, Betonung einer Primäraktion nein.
  * ------------------------------------------------------------------------- */
+const INJECTION_TOOLTIP_MAX_FILES = 5;
+
 const SourcesHeaderComp: React.FC = () => {
     const { t } = useTheme();
     const { fileMgmt } = useKbData();
@@ -55,7 +57,15 @@ const SourcesHeaderComp: React.FC = () => {
     // Uploads are excluded: they are never screened, so a flagged one can only
     // be a leftover from before an origin change — and it already has its own
     // row and its own badge. Counting it here would double-report it.
-    const injectionFlaggedCount = files.filter(f => f.injectionFlag && f.origin !== 'upload').length;
+    const injectionFlagged = files.filter(f => f.injectionFlag && f.origin !== 'upload');
+    const injectionFlaggedCount = injectionFlagged.length;
+    // The tooltip names the files, since their rows are folded away: the first
+    // few, then "and N more" so a large Confluence space stays readable.
+    const injectionListed = injectionFlagged.slice(0, INJECTION_TOOLTIP_MAX_FILES);
+    const injectionRest = injectionFlaggedCount - injectionListed.length;
+    const injectionTitle = injectionFlaggedCount === 1
+        ? t('fileInjectionSummaryOne')
+        : t('fileInjectionSummaryMany').replace('{count}', String(injectionFlaggedCount));
 
     // Only when there is something to act on — an empty row would add height
     // to the head.
@@ -76,14 +86,36 @@ const SourcesHeaderComp: React.FC = () => {
                 </Button>
             )}
             {injectionFlaggedCount > 0 && (
-                <span
-                    className="sidebar-left__injection-summary"
-                    title={t('fileInjectionFlaggedHelp')}
-                    aria-label={`${t('fileInjectionFlagged')} (${injectionFlaggedCount})`}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', color: 'var(--warning-text, var(--text-secondary))', fontSize: '0.75rem' }}
-                >
-                    <ShieldAlert size={12} aria-hidden="true" /> {injectionFlaggedCount}
-                </span>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        {/* A DS button so the tooltip opens from the keyboard
+                            too; it has no action of its own. */}
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="sidebar-left__injection-summary"
+                            aria-label={`${t('fileInjectionFlagged')} (${injectionFlaggedCount})`}
+                            style={{ color: 'var(--warning-text, var(--text-secondary))' }}
+                        >
+                            <ShieldAlert size={12} aria-hidden="true" /> {injectionFlaggedCount}
+                        </Button>
+                    </TooltipTrigger>
+                    {/* File names come from external documents: rendered as
+                        text, never as markup. */}
+                    <TooltipContent className="max-w-72">
+                        <div className="font-medium">{injectionTitle}</div>
+                        <div>{t('fileInjectionFlaggedHelp')}</div>
+                        <ul className="mt-1 list-disc pl-4">
+                            {injectionListed.map(f => (
+                                <li key={f.id} className="truncate">{f.name}</li>
+                            ))}
+                            {injectionRest > 0 && (
+                                <li>{t('fileInjectionSummaryMore').replace('{count}', String(injectionRest))}</li>
+                            )}
+                        </ul>
+                    </TooltipContent>
+                </Tooltip>
             )}
         </div>
     );
