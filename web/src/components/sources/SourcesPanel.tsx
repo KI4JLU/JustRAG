@@ -113,7 +113,8 @@ const SourcesPanelComp: React.FC = () => {
 
     const handleSourceSelect = useCallback((type: SourceType) => {
         if (type === 'upload') {
-            setShowUploadModal(true);
+            // Straight to the system file picker; the panel itself is the drop target.
+            fileInputRef.current?.click();
             return;
         }
         if (type === 'confluence') {
@@ -128,7 +129,7 @@ const SourcesPanelComp: React.FC = () => {
             setToolTab(type);
         }
         setActiveSourceModal(type);
-    }, [setKbView, setShowUploadModal, setToolTab]);
+    }, [setKbView, fileInputRef, setToolTab]);
 
     const closeSourceModal = useCallback(() => setActiveSourceModal(null), []);
 
@@ -287,7 +288,9 @@ const SourcesPanelComp: React.FC = () => {
                 {fileDragActive || noSourcesYet ? (
                     <FileDropzone
                         id="sources-dropzone"
-                        className="h-full min-h-48"
+                        // 10px below the source buttons — the grid's own gap
+                        // (the head's 4px bottom inset + 6px).
+                        className="mt-1.5 h-[calc(100%-0.375rem)] min-h-48"
                         title={fileDragActive ? t('dropFilesHere') : t('dropzoneTitle')}
                         hint={t('dropzoneTypes')}
                         onFiles={uploadFiles}
