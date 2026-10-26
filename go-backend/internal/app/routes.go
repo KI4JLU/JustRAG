@@ -1454,6 +1454,7 @@ func registerAgentTeamRoutes(rc *routeCtx) {
 
 func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/files/{id}/download", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Download)))
+	rc.mux.Handle("GET /api/files/{id}/text", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Text)))
 	rc.mux.Handle("DELETE /api/files/{id}", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Delete)))
 	rc.mux.Handle("POST /api/files/{id}/retry", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Retry)))
 	rc.mux.Handle("POST /api/kb/{id}/files", rc.kbAddSourcesChain(rc.filesHandler.Upload))

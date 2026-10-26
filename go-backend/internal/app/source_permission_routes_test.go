@@ -22,7 +22,7 @@ import (
 //   - kbManageSourcesChain (manageSources, gated at edit): every change /
 //     sync / poll / delete / retry route.
 //
-// GET /api/files/{id}/download, DELETE /api/files/{id} and
+// GET /api/files/{id}/download, GET /api/files/{id}/text, DELETE /api/files/{id} and
 // POST /api/files/{id}/retry have no {id} KB in the path; their gates are
 // handler-internal and pinned in internal/files. POST
 // /api/academic-research/{researchId}/papers/add carries its KB in the body
