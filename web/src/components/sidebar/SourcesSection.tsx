@@ -7,12 +7,13 @@ import { Button, SidebarCard, SidebarCardList, type ActionMenuItem } from '@ki4j
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
-import { SourceHoverPreview } from './SourceHoverPreview';
+import { SourceHoverPreview, SyncedSourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
 import { cardFiles, confluenceKey, feedExcluded, feedKey, fileKey, gitKey, syncedExcluded, type SourceKey } from './sourceSelection';
 import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
 import { INGEST_STAGE_LABEL_KEYS } from '../../utils/ingestStages';
 import type { PendingUpload } from '../../hooks/useFileManagement';
+import { fillTemplate } from '../../utils/sourceDisplay';
 
 interface SourcesSectionProps {
     files: FileEntry[];
@@ -44,6 +45,8 @@ interface SourcesSectionProps {
      *  the same reason as canManage. */
     canDownload: boolean;
     rssFeeds: RssFeed[];
+    /** Feeds whose "poll now" is still running: their row shows the spinner. */
+    pollingFeedIds?: Set<string>;
     onUpdateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
     onPollFeedNow: (feedId: string) => void;
     /** Opens a synced source's details (state, counts, sync times, entries). */
@@ -80,7 +83,7 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     files, uploads, onPreviewSource, selection, selectionTone, onStartSelection, onStartRemoval, onToggleSelected,
     onDownloadFile, canManage, canDownload,
-    rssFeeds, onUpdateRssFeed, onPollFeedNow, onViewSource,
+    rssFeeds, pollingFeedIds, onUpdateRssFeed, onPollFeedNow, onViewSource,
     confluenceSources, onUpdateConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onSyncGitRepoNow,
     onRetryFile
@@ -130,6 +133,13 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
         if (!file.currentStage) return t('fileStatusPending');
         const label = t(INGEST_STAGE_LABEL_KEYS[file.currentStage] ?? 'ingestStageGeneric');
         return file.stageIndex && file.stageTotal ? `${file.stageIndex}/${file.stageTotal} ${label}` : label;
+    };
+    // A synced source in progress — syncing, polling, or with entries still
+    // being ingested — shows the same spinner on its tile as a file does.
+    const syncedBusy = (syncing: boolean, entries: FileEntry[]) => {
+        if (syncing) return t('syncing');
+        const n = entries.filter(f => f.status === 'pending' || f.status === 'processing').length;
+        return n > 0 ? fillTemplate(t('sourceEntriesProcessing'), { count: n }) : undefined;
     };
     const errorOf = (source: { status: string; errorMessage?: string | null }) => (source.status === 'error'
         ? (source.errorMessage || t('feedError'))
@@ -247,12 +257,13 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                 {rssFeeds.map(feed => {
                     const target: SourceDetailsTarget = { kind: 'rss', source: feed };
                     return (
+                        <SyncedSourceHoverPreview key={`rss-${feed.id}`} target={target}>
                         <SidebarCard
-                            key={`rss-${feed.id}`}
                             iconText={SOURCE_TYPE_CHIP.rss}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
                             error={errorOf(feed)}
+                            busy={errorOf(feed) ? undefined : syncedBusy(pollingFeedIds?.has(feed.id) ?? false, files.filter(f => f.rssFeedId === feed.id))}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -277,18 +288,20 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             onSelectedChange={(sel) => onToggleSelected(feedKey(feed.id), sel)}
                             selectLabel={t('selectSource')}
                         />
+                        </SyncedSourceHoverPreview>
                     );
                 })}
 
                 {confluenceSources.map(source => {
                     const target: SourceDetailsTarget = { kind: 'confluence', source };
                     return (
+                        <SyncedSourceHoverPreview key={`confluence-${source.id}`} target={target}>
                         <SidebarCard
-                            key={`confluence-${source.id}`}
                             iconText={SOURCE_TYPE_CHIP.confluence}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
                             error={errorOf(source)}
+                            busy={errorOf(source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.confluenceSourceId === source.id))}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -308,18 +321,20 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             muted={!selecting && syncedExcluded('confluence', source.id, files)}
                             {...selectableRow(confluenceKey(source.id))}
                         />
+                        </SyncedSourceHoverPreview>
                     );
                 })}
 
                 {gitRepoSources.map(source => {
                     const target: SourceDetailsTarget = { kind: 'git', source };
                     return (
+                        <SyncedSourceHoverPreview key={`gitrepo-${source.id}`} target={target}>
                         <SidebarCard
-                            key={`gitrepo-${source.id}`}
                             iconText={SOURCE_TYPE_CHIP.git}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
                             error={errorOf(source)}
+                            busy={errorOf(source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.gitRepoSourceId === source.id))}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -339,6 +354,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             muted={!selecting && syncedExcluded('git', source.id, files)}
                             {...selectableRow(gitKey(source.id))}
                         />
+                        </SyncedSourceHoverPreview>
                     );
                 })}
             {uploads.length === 0 && nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (

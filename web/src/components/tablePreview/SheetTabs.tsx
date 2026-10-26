@@ -19,6 +19,8 @@ interface SheetTabsProps {
     end?: React.ReactNode;
     /** Row actions at the far right (download, fullscreen). */
     actions?: React.ReactNode;
+    /** Leads the row, before the tabs (the preview's back link). */
+    start?: React.ReactNode;
 }
 
 /**
@@ -30,7 +32,7 @@ interface SheetTabsProps {
  * the active tab is kept in view, also when it changes by keyboard inside the
  * tablist. Overflow state follows a ResizeObserver plus the scroll position.
  */
-export const SheetTabs: React.FC<SheetTabsProps> = ({ tabs, active, end, actions }) => {
+export const SheetTabs: React.FC<SheetTabsProps> = ({ tabs, active, end, actions, start }) => {
     const { t } = useTheme();
     const ref = useRef<HTMLDivElement>(null);
     const [edge, setEdge] = useState({ left: false, right: false });
@@ -71,6 +73,7 @@ export const SheetTabs: React.FC<SheetTabsProps> = ({ tabs, active, end, actions
         // Every control here is exactly a tab's height (h-8), bottom-aligned.
         // The last action ends on the dialog's close button edge (DS Dialog `--dialog-close-inset`).
         <div className="flex shrink-0 items-end gap-1 pl-2 pr-[var(--dialog-close-inset,0.5rem)] shadow-[inset_0_-1px_0_var(--color-outline-variant)]">
+            {start && <div className="flex h-8 shrink-0 items-center">{start}</div>}
             {overflow && (
                 <Button
                     variant="ghost"

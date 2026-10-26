@@ -145,9 +145,10 @@ function AuthenticatedAppInner() {
   const webTools = useWebTools({
     currentKb,
     fetchFiles: fileMgmt.fetchFiles,
+    files: fileMgmt.files,
   });
 
-  const { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow } = useRssFeeds({
+  const { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow, pollingFeedIds } = useRssFeeds({
     currentKb,
     fetchFiles: fileMgmt.fetchFiles,
   });
@@ -545,6 +546,7 @@ function AuthenticatedAppInner() {
     updateRssFeed,
     deleteRssFeeds,
     pollFeedNow,
+    pollingFeedIds,
     confluenceSources: confluenceHook.confluenceSources,
     confluenceConnection: confluenceHook.confluenceConnection,
     confluenceLoading: confluenceHook.confluenceLoading,

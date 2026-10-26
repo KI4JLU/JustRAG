@@ -1,11 +1,11 @@
 import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, ChevronDown, Check, Users, Bot, AlertTriangle, Paperclip, Info } from 'lucide-react';
+import { FileText, ChevronDown, Check, Users, Bot, AlertTriangle, Info } from 'lucide-react';
 import {
     Badge, Button, MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
     MessageToolbar, Sources, SourcesContent, SourcesTrigger,
 } from '@ki4jlu/design-system';
-import type { Message, BranchInfo, MessageVerification, MessageConflict } from './types';
+import type { Message, BranchInfo, MessageAttachment, MessageVerification, MessageConflict } from './types';
 import { flaggedClaimsFor } from './utils/verification';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 import { BranchIndicator } from './components/BranchIndicator';
@@ -26,6 +26,8 @@ import { normalizeMathDelimiters } from './utils/markdownMath';
 import { SourceList } from './components/sources/SourceList';
 import { useSourcePanel } from './contexts/SourcePanelContext';
 import { formatMessageTime } from './utils/chatDates';
+import { previewKindOf } from './utils/previewKind';
+import { AttachmentChipItem } from './components/AttachmentChipItem';
 
 interface MessageBubbleProps {
     message: Message;
@@ -45,6 +47,8 @@ interface MessageBubbleProps {
     isEditing?: boolean;
     onEditCancel?: () => void;
     onPreviewSource?: (fileId: string, fileName: string) => void;
+    /** Opens a chat attachment (the user's own file) in the preview window. */
+    onPreviewAttachment?: (attachment: MessageAttachment) => void;
     onViewGraph?: (messageId: string) => void;
     animationDelay?: number;
     kbId?: string;
@@ -243,7 +247,7 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
     );
 }
 
-function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
     const { t, language } = useTheme();
     // An answer without its citations for a caller who may not see them.
     // Everything below — rendering, copy and export — reads this one object.
@@ -318,8 +322,9 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     // the text-preview handler, depending on file type.
     const openSourceByFile = useCallback((fileName: string, fileId?: string, firstPage = 1) => {
         if (!fileId) return;
-        const isPdf = fileName.toLowerCase().endsWith('.pdf');
-        if (isPdf && onPdfOpen) onPdfOpen(fileId, fileName, firstPage);
+        // A PDF opens at its first cited page; every other kind is resolved
+        // by the preview handler (utils/previewKind).
+        if (previewKindOf({ name: fileName }) === 'pdf' && onPdfOpen) onPdfOpen(fileId, fileName, firstPage);
         else if (onPreviewSource) onPreviewSource(fileId, fileName);
     }, [onPdfOpen, onPreviewSource]);
 
@@ -387,27 +392,23 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
         );
     }
 
+    // Files attached to this question (chat attachments as context): the
+    // composer's chips (DS AttachmentChip), read-only, above the bubble.
+    const attachmentChips = message.attachments && message.attachments.length > 0 && (
+        <ul
+            aria-label={t('chatAttachmentsLabel')}
+            className="m-0 mb-1.5 flex max-w-full list-none flex-wrap justify-end gap-2 p-0"
+        >
+            {message.attachments.map(a => (
+                <li key={a.userFileId} className="min-w-0 max-w-full">
+                    <AttachmentChipItem attachment={a} onOpen={onPreviewAttachment} />
+                </li>
+            ))}
+        </ul>
+    );
+
     const questionBody = (
         <>
-            {/* Files attached to this question (chat attachments as context),
-                styled like the answer's attribution chip. */}
-            {message.attachments && message.attachments.length > 0 && (
-                <ul
-                    aria-label={t('chatAttachmentsLabel')}
-                    style={{ listStyle: 'none', margin: '0 0 0.5rem', padding: 0, display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.75rem' }}
-                >
-                    {message.attachments.map(a => (
-                        <li
-                            key={a.userFileId}
-                            title={a.name}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', minWidth: 0, maxWidth: '100%', fontSize: '0.75rem', opacity: 0.85 }}
-                        >
-                            <Paperclip size={12} aria-hidden="true" style={{ flexShrink: 0 }} />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                        </li>
-                    ))}
-                </ul>
-            )}
             {message.content}
         </>
     );
@@ -497,6 +498,7 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                     </div>
                 ) : isQuestion ? (
                     <>
+                        {attachmentChips}
                         <div className="message-bubble message-user">
                             {questionBody}
                         </div>
@@ -528,7 +530,7 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                             </div>
                         )}
                     </>
-                ) : questionBody}
+                ) : <>{attachmentChips}{questionBody}</>}
 
                 {message.role === 'ai' && message.comparisonFindings && message.comparisonFindings.length > 0 && (
                     <ComparisonFindings findings={message.comparisonFindings} t={t} />

@@ -20,6 +20,7 @@ import { SheetTable } from './SheetTable';
 import { SheetTabs } from './SheetTabs';
 import { ViewMenu } from './ViewMenu';
 import type { DetailMode, ViewColumn, ViewRow } from './types';
+import { usePreviewBackLink, type PreviewBack } from '../PreviewHeader';
 
 interface TablePreviewDialogProps {
     show: boolean;
@@ -29,6 +30,8 @@ interface TablePreviewDialogProps {
     /** The file's ingest status; undefined (unknown) is treated as done. */
     status?: FileEntry['status'];
     onClose: () => void;
+    /** Back to the list it was opened from (a synced source's entries). */
+    back?: PreviewBack;
 }
 
 type ContentProps = Omit<TablePreviewDialogProps, 'show'>;
@@ -55,9 +58,10 @@ const SEARCH_DEBOUNCE_MS = 250;
  * scrolls. Opens like every other source preview (row click,
  * `useWebTools.handlePreviewSource`).
  */
-const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose }) => {
+const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose, back }) => {
     const { t, language } = useTheme();
     const toast = useToast();
+    const backLink = usePreviewBackLink(back, 'h-8');
     const locale = language === 'de' ? 'de-DE' : 'en-US';
 
     const [tables, setTables] = useState<TabularTable[] | null>(null);
@@ -238,10 +242,16 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                         .replace('{sheets}', plural('tpSheetsOne', 'tpSheetsMany', tables?.length ?? 0))}
             toolbar={body
                 // Nothing to tab through: the window actions alone.
-                ? <div className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">{actions}</div>
+                ? (
+                    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">
+                        {backLink}
+                        <div className="ml-auto flex items-center gap-1">{actions}</div>
+                    </div>
+                )
                 : (
                     <>
                         <SheetTabs
+                            start={backLink}
                             active={active}
                             tabs={shownTables.map(tbl => ({
                                 value: tbl.table_name,

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { preloadPdfjs, renderPdfFirstPage } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../api';
 import type { FileEntry } from '../types';
+import { hasThumbnail, previewKindOf } from '../utils/previewKind';
 
 /**
  * Pre-rendered hover previews for the sources list.
@@ -20,28 +21,64 @@ import type { FileEntry } from '../types';
  * past the cap still warm up on pointer-enter.
  */
 export interface PreviewImage {
-    url: string;
-    mediaType: string;
+    /** A picture: the image itself or a PDF's rendered first page. */
+    url?: string;
+    mediaType?: string;
+    /** The start of a text, Markdown or document source (its extracted text). */
+    text?: string;
 }
+
+/** How much of a text source the 160×192 card can show. */
+const SNIPPET_CHARS = 1200;
 
 /** Same box as DS `FilePreview`. */
 const PREVIEW_W = 160;
 const PREVIEW_H = 192;
 const PRELOAD_LIMIT = 40;
 
+// Which files get a thumbnail is the shared preview decision (previewKindOf),
+// so a file with a thumbnail always opens in the preview on click too.
 export const canPreviewSource = (file: FileEntry) =>
-    file.status === 'completed' && !!file.type && (file.type.startsWith('image/') || file.type === 'application/pdf');
+    file.status === 'completed' && hasThumbnail(previewKindOf(file));
+
+// The list preloads pictures only. A text snippet means downloading the whole
+// file (or extracting a document), so text kinds build on hover.
+const preloads = (file: FileEntry) => {
+    const kind = previewKindOf(file);
+    return kind === 'pdf' || kind === 'image';
+};
+
+/** The snippet a card shows: Markdown's heading marks dropped, whitespace runs folded. */
+function snippet(text: string, markdown: boolean): string {
+    const head = text.slice(0, SNIPPET_CHARS * 2);
+    const plain = markdown ? head.replace(/^#{1,6}\s+/gm, '').replace(/\*\*|__/g, '') : head;
+    return plain.replace(/\n{3,}/g, '\n\n').trim().slice(0, SNIPPET_CHARS);
+}
 
 const pending = new Map<string, Promise<PreviewImage | null>>();
+// Image sources by file id: the thumbnail IS the original file, so the click
+// preview shows this URL instead of downloading the image again. PDFs keep
+// only their rendered first page (the original can be large), so their
+// preview fetches the file.
+const originals = new Map<string, string>();
 const resolved = new Map<string, PreviewImage | null>();
 const listeners = new Map<string, Set<() => void>>();
 
 const notify = (id: string) => listeners.get(id)?.forEach(fn => fn());
 
 async function build(file: FileEntry): Promise<PreviewImage | null> {
+    const kind = previewKindOf(file);
+    if (kind === 'document') {
+        const res = await axios.get<{ text: string; markdown: boolean }>(`${API_BASE_URL}/api/files/${file.id}/text`);
+        return { text: snippet(res.data.text, res.data.markdown) };
+    }
+    if (kind === 'markdown' || kind === 'text') {
+        const res = await axios.get<string>(`${API_BASE_URL}/api/files/${file.id}/download`, { responseType: 'text' });
+        return { text: snippet(String(res.data), kind === 'markdown') };
+    }
     const res = await axios.get(`${API_BASE_URL}/api/files/${file.id}/download`, { responseType: 'blob' });
     const blob = res.data as Blob;
-    if (file.type === 'application/pdf') {
+    if (previewKindOf(file) === 'pdf') {
         const blobUrl = URL.createObjectURL(blob);
         try {
             return { url: await renderPdfFirstPage(blobUrl, PREVIEW_W, PREVIEW_H), mediaType: 'image/png' };
@@ -49,7 +86,14 @@ async function build(file: FileEntry): Promise<PreviewImage | null> {
             URL.revokeObjectURL(blobUrl);
         }
     }
-    return { url: URL.createObjectURL(blob), mediaType: file.type };
+    const url = URL.createObjectURL(blob);
+    originals.set(file.id, url);
+    return { url, mediaType: blob.type || file.type || 'image/png' };
+}
+
+/** The already-downloaded image of an image source, if its thumbnail was built. */
+export function cachedSourceImage(fileId: string): string | undefined {
+    return originals.get(fileId);
 }
 
 /** Starts (or joins) the preview build for one file; idempotent. */
@@ -57,7 +101,7 @@ export function preloadSourcePreview(file: FileEntry): Promise<PreviewImage | nu
     if (!canPreviewSource(file)) return Promise.resolve(null);
     const hit = pending.get(file.id);
     if (hit) return hit;
-    if (file.type === 'application/pdf') preloadPdfjs();
+    if (previewKindOf(file) === 'pdf') preloadPdfjs();
     const p = build(file)
         .catch(() => null)
         .then(img => { resolved.set(file.id, img); notify(file.id); return img; });
@@ -69,7 +113,7 @@ export function preloadSourcePreview(file: FileEntry): Promise<PreviewImage | nu
 export function useSourcePreviews(files: FileEntry[]): void {
     useEffect(() => {
         let cancelled = false;
-        const queue = files.filter(f => canPreviewSource(f) && !pending.has(f.id)).slice(0, PRELOAD_LIMIT);
+        const queue = files.filter(f => canPreviewSource(f) && preloads(f) && !pending.has(f.id)).slice(0, PRELOAD_LIMIT);
         (async () => {
             for (const file of queue) {
                 if (cancelled) return;

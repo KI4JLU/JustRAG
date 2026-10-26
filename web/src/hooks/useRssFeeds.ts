@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import type { KnowledgeBase, RssFeed, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
@@ -6,6 +6,27 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { getApiErrorMessage, isForbidden } from '../utils/apiError';
 import { unlistableKbId } from '../utils/kbAccess';
+
+const POLL_REFRESH_MS = 3000;
+// A poll that has not reported back by then stops spinning; the feed's own
+// status (error) or the next refresh tells the rest.
+const POLL_WAIT_MS = 120_000;
+
+type Polls = Record<string, { since: string | null; until: number }>;
+
+/** Drops the polls that have landed (a newer lastPolledAt, or the feed is gone) or timed out; the same object when nothing changed. */
+function settledPolls(prev: Polls, feeds: RssFeed[] | null): Polls {
+    const now = Date.now();
+    let changed = false;
+    const next: Polls = {};
+    for (const [id, p] of Object.entries(prev)) {
+        const feed = feeds?.find(f => f.id === id);
+        const landed = feeds !== null && (!feed || feed.lastPolledAt !== p.since);
+        if (landed || now > p.until) { changed = true; continue; }
+        next[id] = p;
+    }
+    return changed ? next : prev;
+}
 
 interface UseRssFeedsParams {
     currentKb: KnowledgeBase | null;
@@ -17,6 +38,12 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
     const toast = useToast();
     const [rssFeeds, setRssFeeds] = useState<RssFeed[]>([]);
     const [rssLoading, setRssLoading] = useState(false);
+    // Feeds with a poll in flight: id → the feed's lastPolledAt when the poll
+    // was asked for, and when to give up waiting. A poll runs in the worker;
+    // it is done once the feed reports a newer lastPolledAt.
+    const [polling, setPolling] = useState<Record<string, { since: string | null; until: number }>>({});
+    const feedsRef = useRef(rssFeeds);
+    useEffect(() => { feedsRef.current = rssFeeds; }, [rssFeeds]);
 
     // No seeSources on the open KB: its feed list is never requested.
     const unlistable = unlistableKbId(currentKb);
@@ -29,7 +56,9 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
         }
         try {
             const res = await axios.get(`${API_BASE_URL}/api/kb/${id}/rss`, { signal });
-            setRssFeeds(Array.isArray(res.data) ? res.data : []);
+            const feeds: RssFeed[] = Array.isArray(res.data) ? res.data : [];
+            setRssFeeds(feeds);
+            setPolling(prev => settledPolls(prev, feeds));
         } catch (err: unknown) {
             if (axios.isCancel(err)) return;
             // No seeSources on this KB: no list, and nothing to report.
@@ -100,14 +129,29 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
         try {
             await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/rss/${feedId}/poll`);
             toast.success(t('rssPollTriggered'));
-            setTimeout(() => {
-                fetchRssFeeds();
-                fetchFiles(currentKb.id);
-            }, 5000);
+            const since = feedsRef.current.find(f => f.id === feedId)?.lastPolledAt ?? null;
+            setPolling(prev => ({ ...prev, [feedId]: { since, until: Date.now() + POLL_WAIT_MS } }));
         } catch (err: unknown) {
             toast.error(getApiErrorMessage(err, t('error')));
         }
-    }, [currentKb, fetchFiles, fetchRssFeeds, t, toast]);
+    }, [currentKb, t, toast]);
 
-    return { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow };
+    // While a poll is in flight, the feed and its new items are re-read
+    // every few seconds, so the row's spinner stops when the poll lands and
+    // the new items show up as they are ingested.
+    const kbId = currentKb?.id;
+    const anyPolling = Object.keys(polling).length > 0;
+    useEffect(() => {
+        if (!anyPolling || !kbId) return;
+        const timer = setInterval(() => {
+            setPolling(prev => settledPolls(prev, null));
+            fetchRssFeeds();
+            fetchFiles(kbId);
+        }, POLL_REFRESH_MS);
+        return () => clearInterval(timer);
+    }, [anyPolling, kbId, fetchRssFeeds, fetchFiles]);
+
+    const pollingFeedIds = useMemo(() => new Set(Object.keys(polling)), [polling]);
+
+    return { rssFeeds, rssLoading, fetchRssFeeds, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow, pollingFeedIds };
 }

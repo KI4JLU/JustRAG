@@ -1,5 +1,5 @@
 import type { MessageSource } from '../types';
-import { isSpreadsheetFile } from './fileTypes';
+import { previewKindOf } from './previewKind';
 import { formatPageRanges, sourceForCitation } from './citations';
 import { MATH_SPAN_RE } from './markdownMath';
 
@@ -11,7 +11,7 @@ import { MATH_SPAN_RE } from './markdownMath';
  * `message.sources`); only the display is renumbered.
  */
 
-export type SourceKind = 'pdf' | 'table' | 'markdown' | 'text' | 'word' | 'slides' | 'document';
+export type SourceKind = 'pdf' | 'table' | 'markdown' | 'text' | 'word' | 'slides' | 'image' | 'audio' | 'video' | 'document';
 
 /** The translation key of each kind's label ("Tabelle", "PDF", …). */
 export const SOURCE_KIND_LABEL_KEY: Record<SourceKind, string> = {
@@ -21,18 +21,32 @@ export const SOURCE_KIND_LABEL_KEY: Record<SourceKind, string> = {
     text: 'sourceKindText',
     word: 'sourceKindWord',
     slides: 'sourceKindSlides',
+    image: 'sourceKindImage',
+    audio: 'sourceKindAudio',
+    video: 'sourceKindVideo',
     document: 'sourceKindDocument',
 };
 
+/**
+ * A cited file's kind for its label and tile, by name (citations carry no
+ * MIME type). The type decision is the preview's (utils/previewKind); this
+ * only splits its `document` into Word and slides for the label, and keeps
+ * a name without an extension a plain "Dokument".
+ */
 export function sourceKind(fileName: string): SourceKind {
     const lower = fileName.toLowerCase();
-    if (lower.endsWith('.pdf')) return 'pdf';
-    if (isSpreadsheetFile(lower)) return 'table';
-    if (/\.(md|markdown)$/.test(lower)) return 'markdown';
-    if (lower.endsWith('.txt')) return 'text';
     if (/\.(docx?|odt|rtf)$/.test(lower)) return 'word';
     if (/\.(pptx?|odp)$/.test(lower)) return 'slides';
-    return 'document';
+    switch (previewKindOf({ name: fileName })) {
+        case 'pdf': return 'pdf';
+        case 'spreadsheet': return 'table';
+        case 'markdown': return 'markdown';
+        case 'image': return 'image';
+        case 'audio': return 'audio';
+        case 'video': return 'video';
+        case 'text': return /\.[a-z0-9]+$/.test(lower) ? 'text' : 'document';
+        default: return 'document';
+    }
 }
 
 /** A file name as a title: no extension, underscores as spaces. */

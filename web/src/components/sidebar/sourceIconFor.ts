@@ -6,7 +6,7 @@ import type { FileEntry } from '../../types';
 
 /**
  * Glyph by file type, keyed on the extensions the upload accepts
- * (ACCEPTED_FILE_TYPES in constants.ts). An unknown extension falls back to
+ * (go-backend/internal/parser/supported.go). An unknown extension falls back to
  * the MIME type, then to the origin (web search, crawl, research, feed),
  * whose entries often carry a page title rather than a file name.
  */

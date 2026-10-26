@@ -260,8 +260,8 @@ const ChatViewComp = () => {
     open: setSourcePanelTarget,
     close: () => setSourcePanelTarget(null),
   }), [sourcePanelTarget]);
-  const sourcePanelOrigin = sourcePanelTarget?.source.fileId
-    ? fileMgmt.files.find(f => f.id === sourcePanelTarget.source.fileId)?.origin
+  const sourcePanelFile = sourcePanelTarget?.source.fileId
+    ? fileMgmt.files.find(f => f.id === sourcePanelTarget.source.fileId)
     : undefined;
 
   const handleEditCancel = useCallback(() => chat.setEditingMessageId(null), [chat]);
@@ -326,6 +326,7 @@ const ChatViewComp = () => {
                       chat.setComparisonLeafId(null);
                     }}
                     onPdfOpen={handlePdfSourceOpen}
+                    onPreviewSource={handlePreviewSource}
                     showCitations={sourceRights.seeCitations}
                   />
                   </SourcePanelContext.Provider>
@@ -673,6 +674,7 @@ const ChatViewComp = () => {
                                     isEditing={chat.editingMessageId === msg.id}
                                     onEditCancel={handleEditCancel}
                                     onPreviewSource={handlePreviewSource}
+                                    onPreviewAttachment={webTools.handlePreviewUserFile}
                                     showCitations={sourceRights.seeCitations}
                                     kbId={currentKb?.id}
                                     questionText={questionText}
@@ -721,7 +723,8 @@ const ChatViewComp = () => {
                     onClose={sourcePanelApi.close}
                     onPassage={(passage) => setSourcePanelTarget(prev => (prev ? { ...prev, passage } : prev))}
                     onNavigate={setSourcePanelTarget}
-                    fileOrigin={sourcePanelOrigin}
+                    fileOrigin={sourcePanelFile?.origin}
+                    fileType={sourcePanelFile?.type}
                     onPdfOpen={handlePdfSourceOpen}
                     onPreviewSource={handlePreviewSource}
                     canDownload={sourceRights.downloadSources}

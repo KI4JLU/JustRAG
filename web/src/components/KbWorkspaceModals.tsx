@@ -9,6 +9,7 @@ const ChartModal = lazy(() => import('./ChartModal').then(module => ({ default: 
 const AbstractGenerationModal = lazy(() => import('./AbstractGenerationModal').then(module => ({ default: module.AbstractGenerationModal })));
 const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(module => ({ default: module.TextSourceViewer })));
 const PdfPreviewModal = lazy(() => import('./PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
+const MediaPreviewModal = lazy(() => import('./MediaPreviewModal').then(module => ({ default: module.MediaPreviewModal })));
 const TablePreviewDialog = lazy(() => import('./tablePreview/TablePreviewDialog').then(module => ({ default: module.TablePreviewDialog })));
 const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ default: module.WebWorkspace })));
 
@@ -56,14 +57,16 @@ export function KbWorkspaceModals() {
       </Suspense>
 
       <Suspense fallback={null}>
-        {/* A .md/.txt source opens read-only in the text editor's window, the
-            PDF preview's twin (TextSourceModal.tsx). */}
+        {/* A text source — and a document's extracted text — opens read-only in
+            the text editor's window, the PDF preview's twin (TextSourceModal.tsx). */}
         {webTools.showPreviewModal && webTools.previewPage && <TextSourceViewer
           show={webTools.showPreviewModal}
           onClose={() => webTools.setShowPreviewModal(false)}
           fileName={webTools.previewPage.title}
           content={webTools.previewPage.content}
           format={webTools.previewPage.format ?? 'markdown'}
+          extractedFrom={webTools.previewPage.extractedFrom}
+          origin={webTools.previewPage.origin}
           back={webTools.previewPage.back && {
             trail: webTools.previewPage.back.trail,
             onBack: () => { webTools.setShowPreviewModal(false); webTools.previewPage?.back?.onBack(); },
@@ -106,6 +109,26 @@ export function KbWorkspaceModals() {
           fileId={webTools.pdfPreview?.fileId || ''}
           fileName={webTools.pdfPreview?.fileName || ''}
           page={webTools.pdfPreview?.page || 1}
+          downloadPath={webTools.pdfPreview?.downloadPath}
+          back={webTools.pdfPreview?.back && {
+            trail: webTools.pdfPreview.back.trail,
+            onBack: () => { webTools.setShowPdfPreview(false); webTools.pdfPreview?.back?.onBack(); },
+          }}
+        />}
+      </Suspense>
+
+      <Suspense fallback={null}>
+        {webTools.mediaPreview && <MediaPreviewModal
+          show
+          onClose={webTools.closeMediaPreview}
+          fileId={webTools.mediaPreview.fileId}
+          fileName={webTools.mediaPreview.fileName}
+          kind={webTools.mediaPreview.kind}
+          userFileId={webTools.mediaPreview.userFileId}
+          back={webTools.mediaPreview.back && {
+            trail: webTools.mediaPreview.back.trail,
+            onBack: () => { webTools.closeMediaPreview(); webTools.mediaPreview?.back?.onBack(); },
+          }}
         />}
       </Suspense>
 
@@ -119,6 +142,10 @@ export function KbWorkspaceModals() {
           // Live from the polled file list, so the preview loads by itself
           // once an ingest that was still running finishes.
           status={fileMgmt.files.find(f => f.id === webTools.tabularFile?.fileId)?.status}
+          back={webTools.tabularFile?.back && {
+            trail: webTools.tabularFile.back.trail,
+            onBack: () => { webTools.setShowTabularModal(false); webTools.tabularFile?.back?.onBack(); },
+          }}
         />}
       </Suspense>
     </>
