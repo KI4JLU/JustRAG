@@ -20,7 +20,6 @@ import { FileUploadModal } from '../sidebar/FileUploadModal';
 import { TextSourceModal } from '../sidebar/TextSourceModal';
 import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
-import { ACCEPTED_FILE_TYPES } from '../../constants';
 import { useKbSourceRights } from '../../hooks/useKbSourceRights';
 import { deleteTargets, filterKeepsFiles, filterKeys, filterUpdate, liveSelection, selectableKeys, type SourceKey } from '../sidebar/sourceSelection';
 import './SourcesPanel.css';
@@ -31,7 +30,7 @@ const SourcesPanelComp: React.FC = () => {
     const { showConfirm } = useModalContext();
     const {
         fileMgmt, webTools,
-        rssFeeds, rssLoading, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow,
+        rssFeeds, rssLoading, addRssFeed, updateRssFeed, deleteRssFeeds, pollFeedNow, pollingFeedIds,
         confluenceSources, updateConfluenceSource, deleteConfluenceSources, syncConfluenceNow,
         confluenceConnection, confluenceLoading,
         gitRepoSources, gitRepoLoading, addGitRepoSource, updateGitRepoSource, deleteGitRepoSources, syncGitRepoNow,
@@ -54,7 +53,7 @@ const SourcesPanelComp: React.FC = () => {
         setToolTab, toolInput, setToolInput,
         crawlMaxPages, setCrawlMaxPages,
         toolLoading, handleToolSubmit, crawlResults, searchResults,
-        handlePreviewSource, fetchFileContent,
+        handlePreviewSource,
         webResearchRunning, webResearchStatus, webResearchProgress, handleCancelWebResearch,
         setShowWebWorkspace, sourcesAddedCount,
     } = webTools;
@@ -103,18 +102,13 @@ const SourcesPanelComp: React.FC = () => {
         : target.kind === 'confluence' ? files.filter(f => f.confluenceSourceId === target.source.id)
         : files.filter(f => f.gitRepoSourceId === target.source.id);
 
-    // A synced entry shows what was ingested, not its original (a web page,
-    // a Confluence page, a repository file the reader may not reach): RSS
-    // items and Confluence pages are stored as Markdown, git files as text
-    // whatever their extension — the stored copy is the ingested text. Other
-    // stored types (a Confluence attachment) take the normal preview.
-    // The text preview links back to the source's entry list.
+    // A synced entry opens in its preview like any source (the stored copy:
+    // RSS items and Confluence pages as Markdown, git files as text whatever
+    // their extension, a Confluence attachment by its type), with a link back
+    // to the source's entry list.
     const openSyncedEntry = (file: FileEntry, from: SourceDetailsTarget) => {
         const ref = { kind: from.kind, id: from.source.id };
-        const back = { trail: [sourceDetailsTitle(from)], onBack: () => openSourceDetails(ref) };
-        if (file.type === 'text/markdown') fetchFileContent(file.id, file.name, 'markdown', back);
-        else if (file.type?.startsWith('text/')) fetchFileContent(file.id, file.name, 'text', back);
-        else handlePreviewSource(file);
+        handlePreviewSource(file, undefined, { back: { trail: [sourceDetailsTitle(from)], onBack: () => openSourceDetails(ref) } });
     };
 
     const handleSourceSelect = useCallback((type: SourceType) => {
@@ -314,6 +308,7 @@ const SourcesPanelComp: React.FC = () => {
                     canManage={canManage}
                     canDownload={canDownload}
                     rssFeeds={rssFeeds}
+                    pollingFeedIds={pollingFeedIds}
                     onUpdateRssFeed={updateRssFeed}
                     onPollFeedNow={pollFeedNow}
                     onViewSource={(target) => openSourceDetails({ kind: target.kind, id: target.source.id })}
@@ -333,7 +328,8 @@ const SourcesPanelComp: React.FC = () => {
                 ref={fileInputRef}
                 className="sidebar-left__hidden-file-input"
                 onChange={handleFileUpload}
-                accept={ACCEPTED_FILE_TYPES}
+                // No `accept` list: the hint names the kinds that work, the
+                // server decides and explains a refusal (unsupported_file_type).
                 multiple
             />
 

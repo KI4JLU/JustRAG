@@ -1,18 +1,24 @@
-import { ExternalLink, FileSpreadsheet, FileText, FileType, Presentation, type LucideIcon } from 'lucide-react';
+import {
+    ExternalLink, FileAudio, FileImage, FilePen, FileSpreadsheet, FileText, FileType, FileVideo, Presentation, type LucideIcon,
+} from 'lucide-react';
 import { Button, cn } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { MessageSource } from '../../types';
 import { fillTemplate, sourceMeta, type CitedSource, type SourceKind } from '../../utils/sourceDisplay';
 import { SourceExcerpt } from './SourceExcerpt';
 
+// The same glyph per type as the source list (sidebar/sourceIconFor) and the preview header.
 const KIND_ICON: Record<SourceKind, LucideIcon> = {
-    pdf: FileType,
+    pdf: FileText,
     table: FileSpreadsheet,
-    markdown: FileText,
-    text: FileText,
-    word: FileText,
+    markdown: FileType,
+    text: FileType,
+    word: FilePen,
     slides: Presentation,
-    document: FileText,
+    image: FileImage,
+    audio: FileAudio,
+    video: FileVideo,
+    document: FilePen,
 };
 
 /** The 36px type tile every document source shares (preview, panel, modal). */

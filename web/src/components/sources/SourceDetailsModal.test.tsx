@@ -72,7 +72,7 @@ describe('SourceDetailsModal facts and entries', () => {
     render(<SourceDetailsModal target={{ kind: 'rss', source: makeRssFeed({ syncSchedule: 'weekly', itemCount: 12, lastPolledAt: '2026-10-23T08:26:00Z' }) }} onClose={vi.fn()} />);
     // The kind icon is decoration: the dialog is named by the title alone.
     screen.getByRole('dialog', { name: 'Feed' });
-    expect(screen.getByTestId('source-details-summary')).toHaveTextContent('sourceKindRss·12 items·active');
+    expect(screen.getByTestId('source-details-summary')).toHaveTextContent('sourceKindRss · 12 items · active');
     expect(syncStrip()).toContain('syncScheduleWeekly');
     expect(syncStrip()).toContain('lastPolled');
     expect(syncStrip()).toMatch(/23\.10\.2026/);

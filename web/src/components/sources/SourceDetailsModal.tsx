@@ -1,10 +1,19 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpen, FileText, GitBranch, Maximize2, Minimize2, RefreshCw, Rss, Trash2 } from 'lucide-react';
-import { Button, Dialog, DialogContent, DialogTitle, cn } from '@ki4jlu/design-system';
-import type { FileEntry, SyncSchedule } from '../../types';
+import React, { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import { BookOpen, GitBranch, Maximize2, Minimize2, RefreshCw, Rss, Trash2 } from 'lucide-react';
+import { Button, Dialog, DialogContent, cn } from '@ki4jlu/design-system';
+import type { FileEntry } from '../../types';
 import { sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IngestStageIndicator } from '../sidebar/IngestStageIndicator';
+import { PreviewHeaderBand } from '../PreviewDialog';
+import { sourceIconFor } from '../sidebar/sourceIconFor';
+import { useSourceFacts } from './sourceFacts';
+import { SourceStatusDot, type SourceTone } from './SourceStatusDot';
+
+/** An entry's file-type glyph, as in the source list. */
+function EntryIcon({ file }: { file: FileEntry }) {
+    return createElement(sourceIconFor(file), { className: 'size-[18px]', 'aria-hidden': true });
+}
 
 interface SourceDetailsModalProps {
     target: SourceDetailsTarget;
@@ -19,24 +28,6 @@ interface SourceDetailsModalProps {
 }
 
 const KIND_ICON = { rss: Rss, confluence: BookOpen, git: GitBranch } as const;
-const KIND_LABEL = { rss: 'sourceKindRss', confluence: 'sourceKindConfluence', git: 'sourceKindGit' } as const;
-
-type Tone = 'ok' | 'error' | 'busy';
-
-/** A coloured status dot: green done, red failed, amber still running. */
-function Dot({ tone }: { tone: Tone }) {
-    return (
-        <span
-            aria-hidden="true"
-            data-tone={tone}
-            className={cn(
-                'inline-block size-2 shrink-0 rounded-full',
-                tone === 'ok' ? 'bg-success' : tone === 'error' ? 'bg-error' : 'bg-warning',
-            )}
-        />
-    );
-}
-
 /**
  * Everything about a synced source (RSS feed, Confluence space, git
  * repository) that the source list does not show: a header with its kind,
@@ -68,33 +59,12 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
     useEffect(() => () => observerRef.current?.disconnect(), []);
     const s = target.source;
     const locale = language === 'en' ? 'en-GB' : 'de-DE';
-    const dateTime = (iso: string | null) => (iso
-        ? new Date(iso).toLocaleString(locale, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '–');
     const day = (iso: string) => new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const scheduleLabel: Record<SyncSchedule, string> = {
-        manual: t('syncScheduleManual'),
-        daily: t('syncScheduleDaily'),
-        weekly: t('syncScheduleWeekly'),
-    };
-    const statusLabel = s.status === 'active' ? t('active')
-        : s.status === 'paused' ? t('paused')
-        : s.status === 'syncing' ? t('syncing')
-        : t('feedError');
-    const statusTone: Tone = s.status === 'error' ? 'error' : s.status === 'active' ? 'ok' : 'busy';
+    const {
+        kindLabel, count, countLabel, statusLabel, statusTone, progress, schedule, lastLabel, lastAt, nextAt, dateTime,
+    } = useSourceFacts(target);
 
-    const [count, countLabel, lastLabel, lastAt] = target.kind === 'rss'
-        ? [target.source.itemCount, t('items'), t('lastPolled'), target.source.lastPolledAt]
-        : target.kind === 'confluence'
-            ? [target.source.pageCount, t('pages'), t('lastSynced'), target.source.lastSyncedAt]
-            : [target.source.fileCount, t('gitFiles'), t('lastSynced'), target.source.lastSyncedAt];
-    const progress = (target.kind === 'confluence' || target.kind === 'git') && target.source.status === 'syncing' && target.source.syncTotal > 0
-        ? `${target.source.syncProgress}/${target.source.syncTotal} ${t('filesProcessed')}`
-        : null;
-    // Only a scheduled source has a next run; a manual one may still carry a stale value.
-    const nextAt = s.syncSchedule !== 'manual' ? s.nextSyncAt : null;
-
-    const entryStatus = (f: FileEntry): [string, Tone] =>
+    const entryStatus = (f: FileEntry): [string, SourceTone] =>
         f.status === 'completed' ? [t('entryStatusCompleted'), 'ok']
         : f.status === 'error' ? [t('entryStatusError'), 'error']
         : f.status === 'processing' ? [t('entryStatusProcessing'), 'busy']
@@ -111,52 +81,53 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
                     maximized ? 'h-[92vh] w-[96vw]' : 'h-[min(80vh,760px)] w-[min(90vw,880px)]',
                 )}
                 closeLabel={t('close')}
-                aria-describedby={undefined}
             >
-                {/* Header actions and the strip's last button align with the dialog's close
-                    button through its custom properties (DS Dialog): the header keeps
-                    `--dialog-close-reserve` clear, the strip ends at `--dialog-close-inset`. */}
-                <div className="flex items-center gap-3 pt-5 pr-[calc(var(--dialog-close-reserve)_+_0.5rem)] pb-4 pl-6">
-                    <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-primary-fixed text-primary">
-                        <Icon className="size-5" />
-                    </span>
-                    <div className="min-w-0">
-                        <DialogTitle className="truncate">{sourceDetailsTitle(target)}</DialogTitle>
-                        <p className="m-0 flex flex-wrap items-center gap-x-1.5 text-sm text-on-surface-variant" data-testid="source-details-summary">
-                            <span>{t(KIND_LABEL[target.kind])}</span>
-                            <span aria-hidden="true">·</span>
-                            <span>{count} {countLabel}</span>
-                            <span aria-hidden="true">·</span>
-                            <span className="inline-flex items-center gap-1.5"><Dot tone={statusTone} />{statusLabel}</span>
-                            {progress && <><span aria-hidden="true">·</span><span>{progress}</span></>}
-                        </p>
-                    </div>
-                </div>
-
-                <div className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-1 border-y border-outline-variant py-1.5 pr-[var(--dialog-close-inset)] pl-6 text-sm" data-testid="source-details-sync">
-                    <span className="inline-flex items-center gap-2 text-on-surface">
-                        <RefreshCw className="size-4 text-on-surface-variant" aria-hidden="true" />
-                        {scheduleLabel[s.syncSchedule]}
-                    </span>
-                    {sep}
-                    <span className="text-on-surface-variant">{lastLabel} <span className="text-on-surface">{dateTime(lastAt)}</span></span>
-                    {nextAt && (
-                        <>
-                            {sep}
-                            <span className="text-on-surface-variant">{t('nextRun')} <span className="text-on-surface">{dateTime(nextAt)}</span></span>
-                        </>
+                {/* The same header band as every preview (PreviewHeaderBand): the
+                    entry list of a feed, a Confluence space or a repository reads
+                    like the previews it opens. The strip's last button aligns with
+                    the dialog's close button (DS Dialog `--dialog-close-inset`). */}
+                <PreviewHeaderBand
+                    kind="text"
+                    icon={Icon}
+                    title={sourceDetailsTitle(target)}
+                    fileTitle={false}
+                    subtitle={(
+                        <span data-testid="source-details-summary">
+                            {kindLabel}
+                            <span aria-hidden="true"> · </span>
+                            {count} {countLabel}
+                            <span aria-hidden="true"> · </span>
+                            <span className="inline-flex items-center gap-1.5 align-middle"><SourceStatusDot tone={statusTone} />{statusLabel}</span>
+                            {progress && <><span aria-hidden="true"> · </span>{progress}</>}
+                        </span>
                     )}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="ml-auto text-on-surface-variant"
-                        onClick={() => setMaximized(m => !m)}
-                        aria-label={maximized ? t('dialogRestore') : t('dialogMaximize')}
-                        title={maximized ? t('dialogRestore') : t('dialogMaximize')}
-                    >
-                        {maximized ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize2 className="size-4" aria-hidden="true" />}
-                    </Button>
-                </div>
+                    toolbar={(
+                        <div className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-1 border-y border-outline-variant py-1.5 pr-[var(--dialog-close-inset)] pl-5 text-sm" data-testid="source-details-sync">
+                            <span className="inline-flex items-center gap-2 text-on-surface">
+                                <RefreshCw className="size-4 text-on-surface-variant" aria-hidden="true" />
+                                {schedule}
+                            </span>
+                            {sep}
+                            <span className="text-on-surface-variant">{lastLabel} <span className="text-on-surface">{dateTime(lastAt)}</span></span>
+                            {nextAt && (
+                                <>
+                                    {sep}
+                                    <span className="text-on-surface-variant">{t('nextRun')} <span className="text-on-surface">{dateTime(nextAt)}</span></span>
+                                </>
+                            )}
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="ml-auto text-on-surface-variant"
+                                onClick={() => setMaximized(m => !m)}
+                                aria-label={maximized ? t('dialogRestore') : t('dialogMaximize')}
+                                title={maximized ? t('dialogRestore') : t('dialogMaximize')}
+                            >
+                                {maximized ? <Minimize2 className="size-4" aria-hidden="true" /> : <Maximize2 className="size-4" aria-hidden="true" />}
+                            </Button>
+                        </div>
+                    )}
+                />
 
                 {s.status === 'error' && s.errorMessage && (
                     <p className="m-0 border-b border-outline-variant bg-error/10 px-6 py-2 text-sm text-error">{s.errorMessage}</p>
@@ -186,7 +157,7 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
                                             onClick={onOpenFile ? () => onOpenFile(file) : undefined}
                                         >
                                             <td className="py-3 pr-3 pl-6 align-middle text-on-surface-variant">
-                                                <FileText className="size-[18px]" aria-hidden="true" />
+                                                <EntryIcon file={file} />
                                             </td>
                                             <td className="max-w-0 py-3 align-middle">
                                                 {onOpenFile ? (
@@ -214,7 +185,7 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
                                             </td>
                                             <td className="px-4 py-3 align-middle">
                                                 <span className={cn('inline-flex items-center gap-2 text-xs whitespace-nowrap', tone === 'error' ? 'text-error' : 'text-on-surface-variant')}>
-                                                    <Dot tone={tone} />{label} · {day(file.createdAt)}
+                                                    <SourceStatusDot tone={tone} />{label} · {day(file.createdAt)}
                                                 </span>
                                             </td>
                                             <td className="py-2 pr-[calc(var(--dialog-close-inset)_-_var(--scrollbar-w,0px))] text-right align-middle">

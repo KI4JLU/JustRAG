@@ -1,17 +1,15 @@
 import React from 'react';
-import { Dialog, DialogContent, cn } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { PreviewHeader, type PreviewHeaderProps } from './PreviewHeader';
-import { previewDialogClass } from './tablePreview/layout';
+import {
+    PreviewDialog as DsPreviewDialog,
+    PreviewHeaderBand as DsPreviewHeaderBand,
+} from '@ki4jlu/design-system';
+import { useDsHeaderProps, type PreviewHeaderProps } from './PreviewHeader';
 
 export interface PreviewDialogProps extends PreviewHeaderProps {
     onClose: () => void;
     /** Default true; a caller that keeps the dialog mounted passes its open state. */
     open?: boolean;
-    /**
-     * `document` — a reading window (PDF, text), 900px wide and 85% high;
-     * `wide` — the table window, nearly the whole viewport, with `fullscreen`.
-     */
+    /** `document` — a reading window (PDF, text, image); `wide` — the table window, with `fullscreen`. */
     size?: 'document' | 'wide';
     /** `wide` only: the whole viewport, no frame. */
     fullscreen?: boolean;
@@ -20,37 +18,38 @@ export interface PreviewDialogProps extends PreviewHeaderProps {
     onEscapeKeyDown?: (e: KeyboardEvent) => void;
     /** The document or table, on the page colour below the header band. */
     children: React.ReactNode;
+    /** The dialog's actions (a `DialogFooter`), below the body — never in the header. */
+    footer?: React.ReactNode;
 }
 
 /**
- * The ONE frame of every source preview (PDF, text, spreadsheet, a chat
- * table): the dialog box, the header band — `PreviewHeader` plus the
- * preview's own toolbar rows, all on the chrome surface (`bg-surface`) — and
- * the body below it on the page colour. A preview never builds its own
- * DialogContent or header, so their look cannot drift apart. The DS viewers
- * (`PdfViewer`, `RichTextEditor`) bring their toolbar inside the body; it sits
- * on the same `surface`.
+ * The header band alone, for a dialog with its own frame (a synced source's
+ * entry list): DS `PreviewHeaderBand` with the app's kinds and labels.
+ */
+export function PreviewHeaderBand({ toolbar, ...header }: PreviewHeaderProps & { toolbar?: React.ReactNode }) {
+    return <DsPreviewHeaderBand {...useDsHeaderProps(header)} toolbar={toolbar} />;
+}
+
+/**
+ * The ONE frame of every source preview (PDF, text, image, audio, video,
+ * spreadsheet, a chat table, „Text einfügen"): DS `PreviewDialog`, fed with
+ * the app's preview kind, file-name title and translated labels.
  */
 export function PreviewDialog({
-    onClose, open = true, size = 'document', fullscreen = false, toolbar, onEscapeKeyDown, children,
-    ...header
+    onClose, open, size, fullscreen, toolbar, onEscapeKeyDown, children, footer, ...header
 }: PreviewDialogProps) {
-    const { t } = useTheme();
     return (
-        <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-            <DialogContent
-                closeLabel={t('close')}
-                onEscapeKeyDown={onEscapeKeyDown}
-                className={size === 'wide'
-                    ? previewDialogClass(fullscreen)
-                    : cn('flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0')}
-            >
-                <div data-slot="preview-header-band" className="shrink-0 bg-surface">
-                    <PreviewHeader {...header} />
-                    {toolbar}
-                </div>
-                {children}
-            </DialogContent>
-        </Dialog>
+        <DsPreviewDialog
+            {...useDsHeaderProps(header)}
+            onClose={onClose}
+            open={open}
+            size={size}
+            fullscreen={fullscreen}
+            toolbar={toolbar}
+            onEscapeKeyDown={onEscapeKeyDown}
+            footer={footer}
+        >
+            {children}
+        </DsPreviewDialog>
     );
 }

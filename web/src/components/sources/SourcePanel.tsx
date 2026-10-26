@@ -11,6 +11,7 @@ import { formatPageRanges } from '../../utils/citations';
 import { SOURCE_KIND_LABEL_KEY, fillTemplate, originUrlOf } from '../../utils/sourceDisplay';
 import { SourceExcerpt } from './SourceExcerpt';
 import { SourceNumber } from './SourcePreview';
+import { previewKindOf } from '../../utils/previewKind';
 
 const PANEL_WIDTH = 480;
 
@@ -23,6 +24,8 @@ interface SourcePanelProps {
     onNavigate: (target: SourcePanelTarget) => void;
     /** The file's origin (`files.origin`: confluence, rss, upload, …), when the source list is visible. */
     fileOrigin?: string;
+    /** The cited file's stored MIME type, when the KB's file list has it. */
+    fileType?: string;
     /** Opens the document preview modal (needs downloadSources). */
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
     onPreviewSource?: (fileId: string, fileName: string) => void;
@@ -72,7 +75,7 @@ function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined,
  * light, with "1 von N" to step through them. ⤢ opens the full document
  * preview.
  */
-export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, onPdfOpen, onPreviewSource, canDownload, fullScreen = false }: SourcePanelProps) {
+export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, fileType, onPdfOpen, onPreviewSource, canDownload, fullScreen = false }: SourcePanelProps) {
     const { t } = useTheme();
     const { source, passage, spans, citing, focus } = target;
     const originUrl = useOriginUrl(target, fileOrigin, canDownload);
@@ -115,15 +118,14 @@ export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin
     }, [passage, source, focus]);
 
     const activePages = source.passages[passage]?.pages;
-    // The full view (preview modal) renders PDF, spreadsheet, Markdown and plain
-    // text only; for Word, slides and other files ⤢ would just raise the
-    // "no preview" toast, so it is not offered and the panel stays the view.
-    const FULL_VIEW_KINDS = ['pdf', 'table', 'markdown', 'text'];
-    const canFullView = !!source.fileId && FULL_VIEW_KINDS.includes(source.kind)
-        && (source.kind === 'pdf' ? !!onPdfOpen : !!onPreviewSource);
+    // ⤢ opens the full preview when the file has one (the shared decision,
+    // utils/previewKind); a file without one keeps the panel as its view.
+    const previewKind = previewKindOf({ name: source.fileName, type: fileType });
+    const canFullView = !!source.fileId && previewKind !== null
+        && (previewKind === 'pdf' ? !!onPdfOpen : !!onPreviewSource);
     const openFullView = () => {
         if (!source.fileId) return;
-        if (source.kind === 'pdf') onPdfOpen?.(source.fileId, source.fileName, activePages?.[0] || 1);
+        if (previewKind === 'pdf') onPdfOpen?.(source.fileId, source.fileName, activePages?.[0] || 1);
         else onPreviewSource?.(source.fileId, source.fileName);
     };
     const canDownloadFile = canDownload && !!source.fileId;

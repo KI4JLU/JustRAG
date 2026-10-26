@@ -20,6 +20,7 @@ import { SheetTable } from './SheetTable';
 import { SheetTabs } from './SheetTabs';
 import { ViewMenu } from './ViewMenu';
 import type { DetailMode, ViewColumn, ViewRow } from './types';
+import type { PreviewBack } from '../PreviewHeader';
 
 interface TablePreviewDialogProps {
     show: boolean;
@@ -29,6 +30,8 @@ interface TablePreviewDialogProps {
     /** The file's ingest status; undefined (unknown) is treated as done. */
     status?: FileEntry['status'];
     onClose: () => void;
+    /** Back to the list it was opened from (a synced source's entries). */
+    back?: PreviewBack;
 }
 
 type ContentProps = Omit<TablePreviewDialogProps, 'show'>;
@@ -55,7 +58,7 @@ const SEARCH_DEBOUNCE_MS = 250;
  * scrolls. Opens like every other source preview (row click,
  * `useWebTools.handlePreviewSource`).
  */
-const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose }) => {
+const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose, back }) => {
     const { t, language } = useTheme();
     const toast = useToast();
     const locale = language === 'de' ? 'de-DE' : 'en-US';
@@ -232,6 +235,7 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                     if (selectedId !== null) { e.preventDefault(); setSelectedId(null); }
                 }}
             kind="spreadsheet"
+                    back={back}
                     title={fileName}
                     subtitle={t('tpSubtitle')
                         .replace('{kind}', fileKind(fileName))

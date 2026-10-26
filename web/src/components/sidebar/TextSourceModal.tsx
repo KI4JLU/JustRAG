@@ -1,29 +1,34 @@
-import React, { memo, useId } from 'react';
-import { Download, ExternalLink } from 'lucide-react';
+import React, { memo, useId, useState } from 'react';
+import { BookOpen, Download, ExternalLink, Globe, Rss, type LucideIcon } from 'lucide-react';
 import {
-    Button, Dialog, DialogContent, DialogTitle, Input, RichTextEditor, buttonVariants, type RichTextEditorLabels,
+    Button, DialogFooter, Input, RichTextEditor, buttonVariants, type RichTextEditorLabels,
 } from '@ki4jlu/design-system';
-import { fillTemplate, originUrlOf, withoutOriginLine } from '../../utils/sourceDisplay';
+import axios from 'axios';
+import { API_BASE_URL } from '../../api';
+import { SOURCE_KIND_LABEL_KEY, fillTemplate, originUrlOf, sourceKind, withoutOriginLine } from '../../utils/sourceDisplay';
 import { renderHtmlBlocks } from '../../utils/htmlBlocks';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useToast } from '../../contexts/ToastContext';
 import { useFormValidation } from '../../hooks/useFormValidation';
 import { type PreviewBack } from '../PreviewHeader';
 import { PreviewDialog } from '../PreviewDialog';
 
 /**
- * Text sources in the DS `RichTextEditor` (Tiptap, markdown in and out), in a
- * window that is the PDF preview's twin (`PdfPreviewModal`): the same dialog
- * size, the same 56px header row with the title and the close button, and
- * the editor's own PdfViewer-style toolbar and page below it.
+ * Text sources in the DS `RichTextEditor` (Tiptap, markdown in and out), in
+ * the frame every source preview shares (`PreviewDialog`): the same dialog
+ * size and header band, and the editor's own PdfViewer-style toolbar and page
+ * below it.
  *
  *  - `TextSourceModal` — „Text einfügen": a new text source. The title is an
- *    inline field in the header, „Text hinzufügen" sits beside it, and the
- *    body is stored via `POST /api/kb/{id}/text`. Its own entry in the
+ *    inline field in the header, „Abbrechen" / „Text hinzufügen" sit in the
+ *    footer, and the body is stored via `POST /api/kb/{id}/text`. Its own entry in the
  *    sources grid; it used to be a second mode hidden behind „Datei
  *    hochladen".
- *  - `TextSourceViewer` — an existing .md/.txt source, read-only. Markdown
- *    (.md — which „Text einfügen" appends on save) is rendered, other text
- *    literally; the caller decides (`useWebTools.handlePreviewSource`). There is no
+ *  - `TextSourceViewer` — an existing text source, read-only: Markdown
+ *    (.md — which „Text einfügen" appends on save) rendered, other text
+ *    (code, config, HTML as source) literally, and a Word / slides / EPUB /
+ *    TeX document as the text the server extracts from it; the caller
+ *    decides (`useWebTools.handlePreviewSource`). There is no
  *    endpoint to change a stored file's content yet, so editing stays with
  *    new text (decided 2026-10-12).
  */
@@ -63,35 +68,6 @@ interface TextSourceModalProps {
     setTextSourceContent: (v: string) => void;
 }
 
-/**
- * „Text einfügen"'s frame: the preview window's size (`PreviewDialog`
- * `document`) with the editor's own 56px header row (title field + action).
- * The read-only viewer below is a `PreviewDialog`.
- */
-function EditorDialog({ open, onClose, header, children }: {
-    open: boolean;
-    onClose: () => void;
-    header: React.ReactNode;
-    children: React.ReactNode;
-}) {
-    const { t } = useTheme();
-    return (
-        <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-            <DialogContent
-                closeLabel={t('close')}
-                className="flex h-[85vh] w-[min(900px,90vw)] max-w-none flex-col gap-0 overflow-hidden p-0"
-                // The editor's header has no DialogDescription, so it opts out of one.
-                aria-describedby={undefined}
-            >
-                <div className="flex h-14 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-5">
-                    {header}
-                </div>
-                {children}
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 function useEditorLabels(): RichTextEditorLabels | undefined {
     const { language } = useTheme();
     return language === 'en' ? EDITOR_LABELS_EN : undefined;
@@ -116,36 +92,53 @@ const TextSourceModalComp: React.FC<TextSourceModalProps> = ({
     const submit = () => {
         if (validate({ title: textSourceTitle, content: textSourceContent })) onTextSourceAdd();
     };
-    // One slot in the 56px header row; each invalid control points at it. The
-    // DS turns the borderless title's and the bare editor's placeholder red.
+    // One slot in the header's subtitle line; each invalid control points at
+    // it. The DS turns the borderless title's and the bare editor's placeholder red.
     const errorText = [errors.title, errors.content].filter(Boolean).join(' · ');
+    // The word / character count sits in the footer, left of the actions,
+    // not in the editor's toolbar (where it crowded the formatting controls).
+    const [count, setCount] = useState({ words: 0, characters: 0 });
 
     return (
-        <EditorDialog
+        // The same frame and header as every source preview: the Markdown
+        // tile, the title as an editable field, a subtitle line that carries
+        // the validation message, and the actions in the footer.
+        <PreviewDialog
             open={show}
             onClose={onClose}
-            header={(
-                <>
-                    <DialogTitle className="sr-only">{t('insertText')}</DialogTitle>
-                    <div className="min-w-0 flex-1">
-                        <Input
-                            // `title`: the PDF preview heading's type (`text-base font-semibold`), editable.
-                            variant="title"
-                            aria-label={t('textTitle')}
-                            placeholder={t('textTitle')}
-                            value={textSourceTitle}
-                            onChange={(e) => { setTextSourceTitle(e.target.value); clearError('title'); }}
-                            aria-invalid={errors.title ? true : undefined}
-                            aria-describedby={errors.title ? errorId : undefined}
-                        />
-                    </div>
-                    {errorText && <span id={errorId} className="field-error shrink-0" role="alert">{errorText}</span>}
-                    <Button size="sm" onClick={submit}>{t('addTextSource')}</Button>
-                </>
+            kind="markdown"
+            title={t('insertText')}
+            titleField={(
+                <Input
+                    // `title`: the preview heading's type (`text-base font-semibold`), editable.
+                    variant="title"
+                    aria-label={t('textTitle')}
+                    placeholder={t('textTitle')}
+                    value={textSourceTitle}
+                    onChange={(e) => { setTextSourceTitle(e.target.value); clearError('title'); }}
+                    aria-invalid={errors.title ? true : undefined}
+                    aria-describedby={errors.title ? errorId : undefined}
+                />
+            )}
+            subtitle={errorText
+                ? <span id={errorId} className="text-error" role="alert">{errorText}</span>
+                : t('previewNewTextSubtitle')}
+            footer={(
+                <DialogFooter className="items-center">
+                    <span className="text-sm tabular-nums text-on-surface-variant sm:mr-auto" aria-live="polite">
+                        {fillTemplate(t('editorCount'), count)}
+                    </span>
+                    <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
+                    <Button onClick={submit}>{t('addTextSource')}</Button>
+                </DialogFooter>
             )}
         >
             <RichTextEditor
                 bare
+                // The page on the page colour, edge to edge, like the read-only viewer.
+                plain
+                count="none"
+                onCountChange={setCount}
                 className="min-h-0 flex-1"
                 aria-label={t('textContent')}
                 placeholder={t('textContent')}
@@ -157,7 +150,7 @@ const TextSourceModalComp: React.FC<TextSourceModalProps> = ({
                 // eslint-disable-next-line jsx-a11y/no-autofocus -- the body is what the dialog is for; focus it on open (WAI-ARIA dialog pattern)
                 autoFocus
             />
-        </EditorDialog>
+        </PreviewDialog>
     );
 };
 
@@ -173,14 +166,35 @@ interface TextSourceViewerProps {
     format: 'markdown' | 'text';
     /** Back to the list it was opened from (a synced source's entries). */
     back?: PreviewBack;
+    /** Set when `content` was extracted from a document (`GET /api/files/{id}/text`): the download is that file, not the text. */
+    extractedFrom?: string;
+    /** `files.origin`: a crawled / imported page, a feed item or a Confluence page is labelled as what it is, not as Markdown. */
+    origin?: string;
 }
 
-/** An existing .md/.txt source in the same window, read-only, with a download like the PDF preview's. */
-const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format, back }) => {
+/** A stored copy of something on the web: its label, glyph, and that its heading is its title. */
+type WebKind = 'web' | 'rss' | 'confluence';
+const WEB_KIND: Record<WebKind, { icon: LucideIcon; subtitle: string }> = {
+    web: { icon: Globe, subtitle: 'previewWebSubtitle' },
+    rss: { icon: Rss, subtitle: 'previewRssItemSubtitle' },
+    confluence: { icon: BookOpen, subtitle: 'previewConfluencePageSubtitle' },
+};
+
+function webKindOf(origin: string | undefined, originUrl: string | undefined): WebKind | null {
+    if (origin === 'rss') return 'rss';
+    if (origin === 'confluence') return 'confluence';
+    if (origin === 'crawl' || origin === 'url') return 'web';
+    // Opened without its file entry (a citation before the list loaded): the "Source:" line tells.
+    if (!origin && originUrl) return CONFLUENCE_URL_RE.test(originUrl) ? 'confluence' : 'web';
+    return null;
+}
+
+/** An existing text source in the same window, read-only, with a download like the PDF preview's. */
+const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format, back, extractedFrom, origin }) => {
     const { t } = useTheme();
-    const baseLabels = useEditorLabels();
-    // The word count moves into the header's meta line.
-    const labels = { ...baseLabels, count: '' };
+    const toast = useToast();
+    // The word count is in the header's meta line, not the toolbar (`count="none"`).
+    const labels = useEditorLabels();
     const isMarkdown = format === 'markdown';
     // An imported page's or feed item's "Source: <url>" line is a header action, not body text.
     const originUrl = originUrlOf(content.slice(0, 4000));
@@ -188,10 +202,17 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
     // Markup left in a stored page or feed item reads as its content, not as code.
     const shown = isMarkdown ? renderHtmlBlocks(stripped) : stripped;
     const words = shown.split(/\s+/).filter(Boolean).length;
+    // A page or feed item is stored as "# <title>" + "Source: <url>"; its
+    // heading is the real title (the file name is a sanitised, hashed copy).
+    const webKind = extractedFrom ? null : webKindOf(origin, originUrl);
+    const heading = webKind ? /^#\s+(.+)$/m.exec(stripped.slice(0, 2000))?.[1]?.trim() : undefined;
     // The object URL is made on click and revoked right after, so no URL
     // outlives the download (and none is held in state).
-    const download = () => {
-        const url = URL.createObjectURL(new Blob([content], { type: `${isMarkdown ? 'text/markdown' : 'text/plain'};charset=utf-8` }));
+    const download = async () => {
+        const blob = extractedFrom
+            ? (await axios.get(`${API_BASE_URL}/api/files/${extractedFrom}/download`, { responseType: 'blob' })).data as Blob
+            : new Blob([content], { type: `${isMarkdown ? 'text/markdown' : 'text/plain'};charset=utf-8` });
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = fileName;
@@ -203,10 +224,15 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
         <PreviewDialog
             open={show}
             onClose={onClose}
-            kind="text"
+            kind={extractedFrom ? 'document' : isMarkdown ? 'markdown' : 'text'}
+            icon={webKind ? WEB_KIND[webKind].icon : undefined}
             back={back}
-            title={fileName}
-            subtitle={`${t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')} · ${fillTemplate(t('previewWordCount'), { count: words })}`}
+            title={heading ?? fileName}
+            fileTitle={!heading}
+            subtitle={`${extractedFrom
+                ? fillTemplate(t('previewDocumentSubtitle'), { kind: t(SOURCE_KIND_LABEL_KEY[sourceKind(fileName)]) })
+                : webKind ? t(WEB_KIND[webKind].subtitle)
+                : t(isMarkdown ? 'previewMarkdownSubtitle' : 'previewTextSubtitle')} · ${fillTemplate(t('previewWordCount'), { count: words })}`}
             actions={originUrl && (
                 <a href={originUrl} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                     <ExternalLink size={14} aria-hidden="true" />
@@ -220,13 +246,14 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
                 bare
                 plain
                 readOnly
+                count="none"
                 format={format}
                 className="min-h-0 flex-1"
                 aria-label={fileName}
                 value={shown}
                 labels={labels}
                 toolbarEnd={(
-                    <Button variant="ghost" size="icon" onClick={download} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
+                    <Button variant="ghost" size="icon" onClick={() => { void download().catch(() => toast.error(t('previewLoadError'))); }} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
                         <Download size={16} aria-hidden="true" />
                     </Button>
                 )}

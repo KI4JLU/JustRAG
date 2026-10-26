@@ -17,6 +17,8 @@ export interface KbDataContextValue {
   /** Deletes without a confirm dialog — the caller has asked. */
   deleteRssFeeds: (feedIds: string[]) => Promise<void>;
   pollFeedNow: (feedId: string) => void;
+  /** Feeds whose "poll now" is still running in the worker. */
+  pollingFeedIds: Set<string>;
   // Confluence
   confluenceSources: ConfluenceSource[];
   confluenceConnection: ConfluenceConnectionInfo | null;
