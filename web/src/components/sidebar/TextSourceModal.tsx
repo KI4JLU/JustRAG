@@ -10,7 +10,7 @@ import { renderHtmlBlocks } from '../../utils/htmlBlocks';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormValidation } from '../../hooks/useFormValidation';
-import { type PreviewBack } from '../PreviewHeader';
+import { usePreviewBackLink, type PreviewBack } from '../PreviewHeader';
 import { PreviewDialog } from '../PreviewDialog';
 
 /**
@@ -202,6 +202,7 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
     // Markup left in a stored page or feed item reads as its content, not as code.
     const shown = isMarkdown ? renderHtmlBlocks(stripped) : stripped;
     const words = shown.split(/\s+/).filter(Boolean).length;
+    const backLink = usePreviewBackLink(back);
     // A page or feed item is stored as "# <title>" + "Source: <url>"; its
     // heading is the real title (the file name is a sanitised, hashed copy).
     const webKind = extractedFrom ? null : webKindOf(origin, originUrl);
@@ -226,7 +227,6 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
             onClose={onClose}
             kind={extractedFrom ? 'document' : isMarkdown ? 'markdown' : 'text'}
             icon={webKind ? WEB_KIND[webKind].icon : undefined}
-            back={back}
             title={heading ?? fileName}
             fileTitle={!heading}
             subtitle={`${extractedFrom
@@ -247,6 +247,7 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
                 plain
                 readOnly
                 count="none"
+                toolbarStart={backLink}
                 format={format}
                 className="min-h-0 flex-1"
                 aria-label={fileName}

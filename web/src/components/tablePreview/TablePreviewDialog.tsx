@@ -20,7 +20,7 @@ import { SheetTable } from './SheetTable';
 import { SheetTabs } from './SheetTabs';
 import { ViewMenu } from './ViewMenu';
 import type { DetailMode, ViewColumn, ViewRow } from './types';
-import type { PreviewBack } from '../PreviewHeader';
+import { usePreviewBackLink, type PreviewBack } from '../PreviewHeader';
 
 interface TablePreviewDialogProps {
     show: boolean;
@@ -61,6 +61,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose, back }) => {
     const { t, language } = useTheme();
     const toast = useToast();
+    const backLink = usePreviewBackLink(back, 'h-8');
     const locale = language === 'de' ? 'de-DE' : 'en-US';
 
     const [tables, setTables] = useState<TabularTable[] | null>(null);
@@ -235,17 +236,22 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
                     if (selectedId !== null) { e.preventDefault(); setSelectedId(null); }
                 }}
             kind="spreadsheet"
-                    back={back}
                     title={fileName}
                     subtitle={t('tpSubtitle')
                         .replace('{kind}', fileKind(fileName))
                         .replace('{sheets}', plural('tpSheetsOne', 'tpSheetsMany', tables?.length ?? 0))}
             toolbar={body
                 // Nothing to tab through: the window actions alone.
-                ? <div className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">{actions}</div>
+                ? (
+                    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">
+                        {backLink}
+                        <div className="ml-auto flex items-center gap-1">{actions}</div>
+                    </div>
+                )
                 : (
                     <>
                         <SheetTabs
+                            start={backLink}
                             active={active}
                             tabs={shownTables.map(tbl => ({
                                 value: tbl.table_name,

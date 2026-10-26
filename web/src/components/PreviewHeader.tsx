@@ -1,8 +1,8 @@
-import type React from 'react';
+import React from 'react';
 import {
     FileAudio, FileImage, FilePen, FileSpreadsheet, FileText, FileType, FileVideo, type LucideIcon,
 } from 'lucide-react';
-import type { PreviewBack, PreviewHeaderProps as DsPreviewHeaderProps } from '@ki4jlu/design-system';
+import { PreviewBackLink, type PreviewBack, type PreviewHeaderProps as DsPreviewHeaderProps } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { cleanSourceTitle } from '../utils/sourceDisplay';
 import type { PreviewKind } from '../utils/previewKind';
@@ -39,8 +39,6 @@ export interface PreviewHeaderProps {
     subtitle: React.ReactNode;
     /** Header actions left of the dialog's close button ("In Confluence öffnen"). */
     actions?: React.ReactNode;
-    /** The way back to the list this preview was opened from ("‹ Aktuelles (HRZ)"), above the title. */
-    back?: PreviewBack;
 }
 
 /** Maps the app's header props onto the DS header's, with translated labels. */
@@ -53,4 +51,15 @@ export function useDsHeaderProps({ kind, icon, title, fileTitle = true, ...rest 
         titleTooltip: fileTitle ? title : undefined,
         labels: { close: t('close'), nav: t('breadcrumbNav'), back: t('backTo') },
     };
+}
+
+/**
+ * The way back to the list a preview was opened from ("‹ Aktuelles (HRZ)"),
+ * for the start of the preview's subheader (a viewer's `toolbarStart`, or the
+ * first item of its own toolbar row) — DS `PreviewBackLink`. Null without one.
+ */
+export function usePreviewBackLink(back: PreviewBack | undefined, className?: string): React.ReactNode {
+    const { t } = useTheme();
+    if (!back) return null;
+    return <PreviewBackLink back={back} className={className} labels={{ nav: t('breadcrumbNav'), back: t('backTo') }} />;
 }

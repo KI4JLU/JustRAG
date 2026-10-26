@@ -7,7 +7,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { cachedSourceImage } from '../hooks/sourcePreviews';
 import { loadUserFileUrl } from '../hooks/userFileUrls';
 import { PreviewDialog } from './PreviewDialog';
-import type { PreviewBack } from './PreviewHeader';
+import { usePreviewBackLink, type PreviewBack } from './PreviewHeader';
 
 export type MediaKind = 'image' | 'audio' | 'video';
 
@@ -68,20 +68,29 @@ const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ o
         };
     }, [cached, fileId, userFileId]);
 
+    const backLink = usePreviewBackLink(back);
+    const download = url && (
+        <Button variant="ghost" size="icon" asChild>
+            <a href={url} download={fileName} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
+                <Download size={16} aria-hidden="true" />
+            </a>
+        </Button>
+    );
+
     return (
         <PreviewDialog
             onClose={onClose}
             kind={kind}
-            back={back}
             title={fileName}
             subtitle={t(SUBTITLE_KEY[kind])}
-            // An image carries its download in the viewer's toolbar, like the PDF and text previews.
-            actions={url && kind !== 'image' && (
-                <Button variant="ghost" size="icon" asChild>
-                    <a href={url} download={fileName} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
-                        <Download size={16} aria-hidden="true" />
-                    </a>
-                </Button>
+            // Audio and video have no viewer toolbar of their own: the same
+            // 48px row as the image, PDF and text viewers carries the back
+            // link and the download.
+            toolbar={kind !== 'image' && (
+                <div className="flex h-12 shrink-0 items-center gap-1 border-b border-outline-variant pl-2 pr-[var(--dialog-close-inset,0.5rem)]">
+                    {backLink}
+                    <div className="ml-auto flex items-center gap-1">{download}</div>
+                </div>
             )}
         >
             {kind === 'image' && url && !error ? (
@@ -100,13 +109,8 @@ const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ o
                         exitFullscreen: t('exitFullscreen'),
                         loadError: t('previewLoadError'),
                     }}
-                    toolbarEnd={(
-                        <Button variant="ghost" size="icon" asChild>
-                            <a href={url} download={fileName} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
-                                <Download size={16} aria-hidden="true" />
-                            </a>
-                        </Button>
-                    )}
+                    toolbarStart={backLink}
+                    toolbarEnd={download}
                 />
             ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6">

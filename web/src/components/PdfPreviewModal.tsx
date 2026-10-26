@@ -8,7 +8,7 @@ import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { PreviewDialog } from './PreviewDialog';
-import type { PreviewBack } from './PreviewHeader';
+import { usePreviewBackLink, type PreviewBack } from './PreviewHeader';
 
 interface PdfPreviewModalProps {
     show: boolean;
@@ -37,6 +37,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [pageCount, setPageCount] = useState<number | null>(null);
+    const backLink = usePreviewBackLink(back);
 
     useEffect(() => {
         if (!fileId) return;
@@ -64,7 +65,6 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
         <PreviewDialog
             onClose={onClose}
             kind="pdf"
-            back={back}
             title={fileName}
             subtitle={pageCount === null
                 ? t('previewPdfSubtitle')
@@ -87,6 +87,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                         src={blobUrl}
                         initialPage={page}
                         onLoad={setPageCount}
+                        toolbarStart={backLink}
                         className="min-h-0 flex-1"
                         labels={{
                             zoomIn: t('zoomIn'),
