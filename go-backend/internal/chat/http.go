@@ -462,9 +462,6 @@ func (h *Handler) ListChats(w http.ResponseWriter, r *http.Request) {
 // GET /api/chats/{id}/messages
 // ---------------------------------------------------------------------------
 
-// GetMessages handles GET /api/chats/{id}/messages.
-// Returns all messages for the specified chat, verified to belong to the caller.
-// Auth is enforced by middleware in main.go.
 // GetChat answers GET /api/chats/{id}: one chat of the caller's, as a row of
 // the chat list (GET /api/kb/{id}/chats) without `hasBranches`. It exists so a
 // link names a chat by its id alone: the row carries the topic (`kbId`, ""
@@ -501,6 +498,9 @@ func (h *Handler) GetChat(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, chat)
 }
 
+// GetMessages handles GET /api/chats/{id}/messages.
+// Returns all messages for the specified chat, verified to belong to the caller.
+// Auth is enforced by middleware in main.go.
 func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
