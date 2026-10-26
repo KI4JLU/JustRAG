@@ -75,7 +75,21 @@ describe('SourcesHeader injection screening summary', () => {
     render(<SourcesHeader />);
     expect(screen.getByLabelText('fileInjectionFlagged (2)')).toBeInTheDocument();
     // Nothing failed, so the retry button stays away.
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retryAllFailedShort/ })).not.toBeInTheDocument();
+  });
+
+  // Oracle: seven flagged files, the tooltip lists five by name and folds the
+  // remaining two (hand-counted) into "and N more".
+  it('names the flagged files in a keyboard-reachable tooltip', async () => {
+    files = Array.from({ length: 7 }, (_, i) =>
+      makeFile({ id: `c${i}`, name: `Seite ${i}`, origin: 'confluence', injectionFlag: true }));
+    render(<SourcesHeader />);
+    await userEvent.tab();
+    const tip = await screen.findByRole('tooltip');
+    expect(tip).toHaveTextContent('fileInjectionSummaryMany');
+    expect(tip).toHaveTextContent('Seite 4');
+    expect(tip).not.toHaveTextContent('Seite 5');
+    expect(tip).toHaveTextContent('fileInjectionSummaryMore');
   });
 
   it('renders no summary when nothing is flagged', () => {
