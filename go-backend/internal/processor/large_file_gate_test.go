@@ -62,7 +62,7 @@ func TestLargeFileGateAcquireReleaseSerialisesAtCapacity(t *testing.T) {
 // TestLargeFileGateAcquireRespectsContextCancellation verifies Acquire is
 // ctx-aware: a canceled context unblocks a waiting Acquire with an error
 // instead of hanging forever (this is what lets ProcessFile's cancellation
-// path — markTerminalError with stage "canceled" — actually fire while
+// path — markFailed with stage "canceled" — actually fire while
 // queued for a slot).
 func TestLargeFileGateAcquireRespectsContextCancellation(t *testing.T) {
 	gate := NewLargeFileGate(1)
