@@ -61,7 +61,7 @@ function memoryStorage(): Storage {
 /* -- Fixtures ------------------------------------------------------------- */
 
 const KB = {
-  id: 'kb-1', name: 'Prüfungsordnungen', description: null, userId: 'user-1',
+  id: '11111111-1111-4111-8111-111111111111', name: 'Prüfungsordnungen', description: null, userId: 'user-1',
   createdAt: '2026-01-01T00:00:00Z', isPro: false, isGlobal: false, myRole: 'owner',
   aiConfigId: null, chatModel: null, embeddingModel: null, rerankModel: null, ttsModel: null,
 };
@@ -73,11 +73,11 @@ const AI_TURN = 'Die mündliche Prüfung dauert 30 Minuten.';
 const SEARCH = {
   query: 'Prüf', kbId: null, topics: [], sources: [],
   chats: [{
-    id: 'chat-7', title: 'Prüfungsfragen', type: 'chat', kbId: 'kb-1',
+    id: '77777777-7777-4777-8777-777777777777', title: 'Prüfungsfragen', type: 'chat', kbId: '11111111-1111-4111-8111-111111111111',
     kbName: 'Prüfungsordnungen', updatedAt: '2026-09-20T10:00:00Z', match: 'prefix',
   }],
   messages: [{
-    id: 'm2', chatId: 'chat-7', chatTitle: 'Prüfungsfragen', chatType: 'chat', kbId: 'kb-1',
+    id: 'm2', chatId: '77777777-7777-4777-8777-777777777777', chatTitle: 'Prüfungsfragen', chatType: 'chat', kbId: '11111111-1111-4111-8111-111111111111',
     kbName: 'Prüfungsordnungen', role: 'ai',
     snippet: 'Die mündliche Prüfung dauert <30> Minuten',
     createdAt: '2026-09-20T10:00:00Z',
@@ -93,18 +93,18 @@ function routeGets() {
   mockedGet.mockImplementation((url: string) => {
     const u = String(url);
     if (u.includes('/api/search')) return Promise.resolve({ data: SEARCH });
-    if (/\/api\/kb\/kb-1$/.test(u)) {
+    if (/\/api\/kb\/11111111-1111-4111-8111-111111111111$/.test(u)) {
       return new Promise((resolve) => setTimeout(() => resolve({ data: KB }), 80));
     }
-    if (u.endsWith('/api/kb/kb-1/chats')) {
-      return Promise.resolve({
-        data: [{
-          id: 'chat-7', kbId: 'kb-1', userId: 'user-1', title: 'Prüfungsfragen', type: 'chat',
-          createdAt: '2026-09-20T09:00:00Z', updatedAt: '2026-09-20T10:00:00Z', teamId: null, agentId: null,
-        }],
-      });
+    // A chat hit is re-read through GET /api/chats/{id} (its sticky team/agent).
+    if (u.endsWith('/api/kb/11111111-1111-4111-8111-111111111111/chats') || u.endsWith('/api/chats/77777777-7777-4777-8777-777777777777')) {
+      const row = {
+        id: '77777777-7777-4777-8777-777777777777', kbId: '11111111-1111-4111-8111-111111111111', userId: 'user-1', title: 'Prüfungsfragen', type: 'chat',
+        createdAt: '2026-09-20T09:00:00Z', updatedAt: '2026-09-20T10:00:00Z', teamId: null, agentId: null,
+      };
+      return Promise.resolve({ data: u.endsWith('/chats') ? [row] : row });
     }
-    if (u.endsWith('/api/chats/chat-7/messages')) {
+    if (u.endsWith('/api/chats/77777777-7777-4777-8777-777777777777/messages')) {
       return Promise.resolve({
         data: [
           { id: 'm1', parentMessageId: null, role: 'user', content: USER_TURN },
@@ -171,8 +171,8 @@ describe('App — the header global search on the authenticated route', () => {
 
     // ...and the topic was opened BEFORE the chat's messages were requested.
     const urls = mockedGet.mock.calls.map(([u]) => String(u));
-    const kbIdx = urls.findIndex((u) => /\/api\/kb\/kb-1$/.test(u));
-    const msgIdx = urls.findIndex((u) => u.endsWith('/api/chats/chat-7/messages'));
+    const kbIdx = urls.findIndex((u) => /\/api\/kb\/11111111-1111-4111-8111-111111111111$/.test(u));
+    const msgIdx = urls.findIndex((u) => u.endsWith('/api/chats/77777777-7777-4777-8777-777777777777/messages'));
     expect(kbIdx).toBeGreaterThanOrEqual(0);
     expect(msgIdx).toBeGreaterThan(kbIdx);
   }, 30000);

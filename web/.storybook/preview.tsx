@@ -1,6 +1,7 @@
 import type { Decorator, Preview } from '@storybook/react-vite';
 import { ThemeProvider } from '../src/contexts/ThemeContext';
 import { ToastProvider } from '../src/contexts/ToastContext';
+import { RouterHarness } from '../src/test/router';
 import { installApiMock, type ApiMockParameters } from './mockApi';
 import './preview.css';
 
@@ -73,7 +74,14 @@ const withAppShell: Decorator = (Story, context) => {
         * toasts appear in unrelated stories' screenshots.
         */}
       <ToastProvider>
-        <Story />
+        {/* The app mounts its router at the root, around every route
+          * (App.tsx), so this mirrors production like the providers above.
+          * A story that cares where it is sets `parameters.route` (default
+          * "/"); Login reads it for the legal pages and the /admin
+          * breakglass. */}
+        <RouterHarness path={typeof context.parameters.route === 'string' ? context.parameters.route : '/'}>
+          <Story />
+        </RouterHarness>
       </ToastProvider>
     </ThemeProvider>
   );

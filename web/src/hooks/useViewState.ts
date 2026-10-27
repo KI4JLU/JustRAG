@@ -2,18 +2,8 @@ import { useState, useCallback, useMemo } from 'react';
 import { type MobileTab } from '../components/MobileTabBar';
 import { useSwipeGesture } from './useSwipeGesture';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
+import type { AppNavigate } from '../routing/navigation';
 
-/* The four content views of the app shell, then the rest.
- *
- * RENAMED 18.09.2026: 'home' -> 'my-topics', 'shared-kbs' -> 'shared-topics',
- * and 'discover' / 'tools' are new. „Home" named a SCREEN, but the screen is
- * `AppChrome` — the shell every one of these mounts. These name the CONTENT of
- * its main area, which is what actually differs between them.
- *
- * There is no router here: a view is a member of this union, a render branch in
- * AuthenticatedApp, and a nav row wired through AppNavContext. The URL does not
- * change and no history entry is pushed — the existing architecture. */
-type ViewType = 'my-topics' | 'shared-topics' | 'discover' | 'tools' | 'kb' | 'profile' | 'global-kb-settings' | 'kb-settings' | 'terms' | 'privacy' | 'accessibility' | 'agents';
 /* NUR 'chat' (Entwickler, 22.09.2026): die KB-Ansicht ist der Chat. Die
  * früheren Werte 'dashboard' | 'research' | 'academic_research' |
  * 'workspace' | 'mindmap' sind absichtlich aus dem Typ gestrichen — die
@@ -24,7 +14,8 @@ type ViewType = 'my-topics' | 'shared-topics' | 'discover' | 'tools' | 'kb' | 'p
 type KbViewType = 'chat';
 
 interface UseViewStateParams {
-  setView: React.Dispatch<React.SetStateAction<ViewType>>;
+  /** Router navigation by view (routing/navigation.ts). */
+  navigateTo: AppNavigate;
   setKbView: React.Dispatch<React.SetStateAction<KbViewType>>;
   setShowSettings: (val: boolean) => void;
   /**
@@ -35,9 +26,9 @@ interface UseViewStateParams {
   showFilesTab?: boolean;
 }
 
-export type { ViewType, KbViewType };
+export type { KbViewType };
 
-export function useViewState({ setView, setKbView, setShowSettings, showFilesTab = true }: UseViewStateParams) {
+export function useViewState({ navigateTo, setKbView, setShowSettings, showFilesTab = true }: UseViewStateParams) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
 
   const TAB_ORDER: MobileTab[] = useMemo(
@@ -73,10 +64,10 @@ export function useViewState({ setView, setKbView, setShowSettings, showFilesTab
   const handleGoHome = useCallback(() => {
     setShowSettings(false);
     setKbView('chat');
-    setView('my-topics');
-  }, [setShowSettings, setKbView, setView]);
+    navigateTo({ view: 'my-topics' });
+  }, [setShowSettings, setKbView, navigateTo]);
 
-  const handleViewHome = useCallback(() => setView('my-topics'), [setView]);
+  const handleViewHome = useCallback(() => navigateTo({ view: 'my-topics' }), [navigateTo]);
 
   return {
     mobileTab, setMobileTab,

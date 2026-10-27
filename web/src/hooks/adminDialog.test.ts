@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /*
- * The admin dialog's open state is the URL (`?admin=<section>`), and hooks/adminDialog.ts is the
- * only file that touches it, so a router can replace that one file. ORACLES: the rules in the
+ * The admin dialog's open state is the URL (`?admin=<section>`); hooks/adminDialog.ts names the
+ * parameter and routing/urlDialog.ts applies the rules. ORACLES: the rules in the
  * card, one per test, observed through `window.location` and `window.history` (jsdom's real
  * history), never through the store's own state alone.
  */
@@ -47,15 +47,22 @@ describe('reading the URL', () => {
         expect(result.current).toEqual({ open: true, section });
     });
 
-    it('re-reads the URL on popstate', async () => {
+    it('follows every change of the history it is bound to (the router\'s, in the app)', async () => {
         const store = await load('/');
+        const { bindUrlDialogHistory } = await import('../routing/urlDialog');
+        const { createMemoryHistory } = await import('@tanstack/react-router');
         const { renderHook, act } = await import('@testing-library/react');
+        const routerHistory = createMemoryHistory({ initialEntries: ['/'] });
+        act(() => bindUrlDialogHistory(routerHistory));
         const { result } = renderHook(() => store.useAdminDialog());
         expect(result.current.open).toBe(false);
 
-        window.history.replaceState(null, '', '/?admin=users');
-        act(() => { window.dispatchEvent(new PopStateEvent('popstate')); });
+        // A navigation the store did not make, e.g. a link carrying the parameter.
+        act(() => routerHistory.push('/kb/1?admin=users'));
         expect(result.current).toEqual({ open: true, section: 'users' });
+        // A navigation elsewhere drops the parameter, and the dialog with it.
+        act(() => routerHistory.push('/shared'));
+        expect(result.current.open).toBe(false);
     });
 });
 

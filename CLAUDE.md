@@ -131,7 +131,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 
 ## Architecture
 
-- `go-backend/` (Go-only runtime; entrypoints `cmd/server`, `cmd/worker`, `cmd/migrate`; wiring `internal/app/`; config `internal/config/`; migrations `migrations/main/` + `migrations/vector/`), `web/` (React 19 + Vite 7, built into `web/dist`).
+- `go-backend/` (Go-only runtime; entrypoints `cmd/server`, `cmd/worker`, `cmd/migrate`; wiring `internal/app/`; config `internal/config/`; migrations `migrations/main/` + `migrations/vector/`), `web/` (React 19 + Vite 7, built into `web/dist`; TanStack Router — every view and chat is a URL (`/kb/<id>`, `/c/<chat>`, ids as 22-char base64url via `routing/shortId.ts`), table in `web/src/routing/routes.ts`; dialogs live in URL parameters `?admin=`, `?settings=`, `?topic=` via `web/src/routing/urlDialog.ts`).
 - Storage: main Postgres, vector Postgres (dim-keyed tables `document_chunks_<dim>`; switching the embedder needs a re-ingest), Redis, filesystem or S3.
 
 ### Internal package map (`go-backend/internal/`)

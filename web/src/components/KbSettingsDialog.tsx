@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
+import { LeaveGuard } from './LeaveGuard';
 import { Check, Loader2, Shield, SlidersHorizontal, Trash2, Users } from 'lucide-react';
 import { Button, PanelSection, SettingsDialog, Textarea } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
@@ -31,6 +32,9 @@ interface KbSettingsDialogProps {
     kb: KnowledgeBase;
     /** The section it opens on: the gear opens Verhalten, „Teilen" Mitglieder. */
     initialSection?: KbSettingsSection;
+    /** The open section, when the caller owns it (the app: `?topic=<section>`). Without it the dialog keeps its own. */
+    section?: KbSettingsSection;
+    onSectionChange?: (section: KbSettingsSection) => void;
     /** The prompt draft or the flags changed: enables Speichern (so do role drafts, held here). */
     dirty: boolean;
 }
@@ -61,11 +65,13 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
  * overlay and Abbrechen close it, and with unsaved changes they ask first.
  */
 export function KbSettingsDialog({
-    fitTo, kb, initialSection = 'behavior', draft, onDraftChange, onSave, onDelete, onClose, flags, onFlagsChange, dirty,
+    fitTo, kb, initialSection = 'behavior', section: ownedSection, onSectionChange, draft, onDraftChange, onSave, onDelete, onClose, flags, onFlagsChange, dirty,
 }: KbSettingsDialogProps) {
     const { t, language } = useTheme();
     const { showConfirm } = useModalContext();
-    const [section, setSection] = useState<KbSettingsSection>(initialSection);
+    const [localSection, setLocalSection] = useState<KbSettingsSection>(initialSection);
+    const section = ownedSection ?? localSection;
+    const setSection = onSectionChange ?? setLocalSection;
     const [status, setStatus] = useState<SaveStatus>('idle');
     const saving = status === 'saving';
 
@@ -130,11 +136,19 @@ export function KbSettingsDialog({
         return kbSaved && rolesSaved;
     };
 
+    const confirmDiscard = () => showConfirm(t('kbSettingsDiscardMessage'), t('kbSettingsDiscardTitle'), {
+        tone: 'destructive', confirmLabel: t('kbSettingsDiscardConfirm'),
+    });
+    // Set once a close is confirmed, so the navigation that close makes (the
+    // dialog lives in `?topic=`) is not asked about a second time.
+    const leaving = useRef(false);
+    // New unsaved changes after a confirmed close that did not unmount the
+    // dialog re-arm the guard.
+    useEffect(() => { if (anyDirty) leaving.current = false; }, [anyDirty]);
     const requestClose = async () => {
         if (saving) return;
-        if (anyDirty && !await showConfirm(t('kbSettingsDiscardMessage'), t('kbSettingsDiscardTitle'), {
-            tone: 'destructive', confirmLabel: t('kbSettingsDiscardConfirm'),
-        })) return;
+        if (anyDirty && !await confirmDiscard()) return;
+        leaving.current = true;
         onClose();
     };
 
@@ -176,6 +190,8 @@ export function KbSettingsDialog({
     );
 
     return (
+        <>
+        <LeaveGuard when={anyDirty} allow={leaving} confirm={confirmDiscard} />
         <SettingsDialog
             open
             onOpenChange={(open) => { if (!open) void requestClose(); }}
@@ -262,5 +278,6 @@ export function KbSettingsDialog({
                 </>
             )}
         />
+        </>
     );
 }

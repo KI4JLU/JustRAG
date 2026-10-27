@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import type { AppChromeView } from '../components/AppChrome';
 
 /**
  * The header search's state: the field text, the query handed to „Entdecken",
@@ -52,10 +53,15 @@ export interface KbSearchContextValue {
    * field, and any ref pointing at it — is unmounted and rebuilt. This flag
    * survives the remount because, like `query` itself, it is held one level
    * above both branches.
+   *
+   * WHY IT NAMES THE VIEW. Since the router, the jump is a navigation that
+   * lands a render later than the request: the chrome being LEFT still sees
+   * the flag first. Naming the destination lets only that view's chrome take
+   * the caret.
    */
-  focusPending: boolean;
-  /** Ask for the caret after the next mount (chrome -> chrome, across a jump). */
-  requestFocus: () => void;
+  focusPendingFor: AppChromeView | null;
+  /** Ask for the caret in `view`'s chrome once it mounts (chrome -> chrome, across a jump). */
+  requestFocus: (view: AppChromeView) => void;
   /** Clear it; the chrome calls this once it has moved the caret. */
   consumeFocus: () => void;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { KbSearchContextValue } from '../contexts/KbSearchContext';
+import type { AppChromeView } from '../components/AppChrome';
 
 /**
  * The state behind `KbSearchContext` (cards KI-787, KI-837).
@@ -21,11 +22,11 @@ import type { KbSearchContextValue } from '../contexts/KbSearchContext';
 export function useKbSearchState(): KbSearchContextValue {
   const [query, setQueryRaw] = useState('');
   const [catalogQuery, setCatalogQuery] = useState('');
-  /* See `KbSearchContext.focusPending`: a jump between the top-level views
+  /* See `KbSearchContext.focusPendingFor`: a jump between the top-level views
      rebuilds the chrome, so „keep the caret in the field" cannot be a ref. */
-  const [focusPending, setFocusPending] = useState(false);
-  const requestFocus = useCallback(() => setFocusPending(true), []);
-  const consumeFocus = useCallback(() => setFocusPending(false), []);
+  const [focusPendingFor, setFocusPendingFor] = useState<AppChromeView | null>(null);
+  const requestFocus = useCallback((view: AppChromeView) => setFocusPendingFor(view), []);
+  const consumeFocus = useCallback(() => setFocusPendingFor(null), []);
 
   const setQuery = useCallback((next: string) => {
     setQueryRaw(next);
@@ -39,7 +40,7 @@ export function useKbSearchState(): KbSearchContextValue {
   const applyCatalogQuery = useCallback((next: string) => setCatalogQuery(next.trim()), []);
 
   return useMemo(
-    () => ({ query, setQuery, catalogQuery, applyCatalogQuery, focusPending, requestFocus, consumeFocus }),
-    [query, setQuery, catalogQuery, applyCatalogQuery, focusPending, requestFocus, consumeFocus],
+    () => ({ query, setQuery, catalogQuery, applyCatalogQuery, focusPendingFor, requestFocus, consumeFocus }),
+    [query, setQuery, catalogQuery, applyCatalogQuery, focusPendingFor, requestFocus, consumeFocus],
   );
 }

@@ -10,21 +10,14 @@
 // The SPA catch-all in the Go server (routes.go) already serves index.html
 // for /join/..., so no backend routing is involved.
 
+import { sessionStore } from '../utils/sessionStore';
+
 export const JOIN_TOKEN_KEY = 'pendingJoinToken';
 
 // 43 base64url characters is what the backend mints; the range stays loose
 // enough to survive a future token-length change but tight enough that a
 // stray path never looks like a token.
 const JOIN_PATH = /^\/join\/([A-Za-z0-9_-]{20,64})$/;
-
-function storage(): Storage | null {
-    try {
-        return window.sessionStorage;
-    } catch {
-        // Safari in private mode throws on access.
-        return null;
-    }
-}
 
 /**
  * Reads a /join/<token> URL, parks the token for the post-login redemption,
@@ -33,18 +26,18 @@ function storage(): Storage | null {
 export function captureJoinToken(): void {
     const match = JOIN_PATH.exec(window.location.pathname);
     if (!match) return;
-    storage()?.setItem(JOIN_TOKEN_KEY, match[1]);
+    sessionStore()?.setItem(JOIN_TOKEN_KEY, match[1]);
     window.history.replaceState(null, '', '/');
 }
 
 /** Returns the parked token without consuming it. */
 export function peekJoinToken(): string | null {
-    return storage()?.getItem(JOIN_TOKEN_KEY) ?? null;
+    return sessionStore()?.getItem(JOIN_TOKEN_KEY) ?? null;
 }
 
 /** Returns the parked token and clears it, so it is redeemed at most once. */
 export function takeJoinToken(): string | null {
-    const s = storage();
+    const s = sessionStore();
     if (!s) return null;
     const token = s.getItem(JOIN_TOKEN_KEY);
     s.removeItem(JOIN_TOKEN_KEY);
@@ -58,7 +51,7 @@ export function takeJoinToken(): string | null {
  * Not for the 404 case: a genuinely invalid/revoked token must stay cleared.
  */
 export function parkJoinToken(token: string): void {
-    storage()?.setItem(JOIN_TOKEN_KEY, token);
+    sessionStore()?.setItem(JOIN_TOKEN_KEY, token);
 }
 
 // Attempt budget for re-parked tokens. Re-parking is unconditional for every
@@ -76,7 +69,7 @@ export const MAX_JOIN_ATTEMPTS = 2;
  * Returns true while the budget lasts, false once it is spent.
  */
 export function recordJoinAttempt(): boolean {
-    const s = storage();
+    const s = sessionStore();
     if (!s) return false;
     const attempts = Number(s.getItem(JOIN_ATTEMPTS_KEY) ?? '0') + 1;
     if (attempts >= MAX_JOIN_ATTEMPTS) {
@@ -89,5 +82,5 @@ export function recordJoinAttempt(): boolean {
 
 /** Clears the attempt budget — on success, and on a terminal 404. */
 export function clearJoinAttempts(): void {
-    storage()?.removeItem(JOIN_ATTEMPTS_KEY);
+    sessionStore()?.removeItem(JOIN_ATTEMPTS_KEY);
 }

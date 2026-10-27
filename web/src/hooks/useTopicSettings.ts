@@ -1,35 +1,33 @@
-import { useCallback, useState } from 'react';
 import type { KbSettingsSection } from '../types';
+import { createUrlDialog } from '../routing/urlDialog';
 
 /**
  * Whether „Thema-Einstellungen" are open, and on which section.
  *
- * They belong to the topic they were opened for, so the state is a request
- * naming that topic: it shows only while that topic is open, and a topic
- * change by any route (sidebar, search, URL, back) drops it, so the new topic
- * opens in its chat. The one exception is the request that CAUSES the change —
- * „Teilen" on a card opens its topic and asks for Mitglieder in one step, so
- * `openFor` is called before the topic is selected. Dropped during render, not
- * in an effect, so the settings never render for the wrong topic even for one
- * commit.
+ * BACKED BY THE URL: `?topic=<section>` on a topic's URL (`/kb/<id>`), with
+ * the push/replace/back rules of `routing/urlDialog.ts` — the gear pushes it,
+ * switching sections replaces it, closing goes back. The parameter belongs to
+ * the topic URL it sits on, so a topic change by any route (sidebar, search,
+ * a link, back) drops it and the new topic opens in its chat. On a page that
+ * is not a topic it is ignored.
+ *
+ * „Teilen" on a card opens the topic and then its Mitglieder: two history
+ * entries, so back closes the settings first and then leaves the topic.
  */
-export function useTopicSettings(currentKbId: string | undefined) {
-  const [request, setRequest] = useState<{ kbId: string; section: KbSettingsSection } | null>(null);
-  const [seenKbId, setSeenKbId] = useState(currentKbId);
-  if (seenKbId !== currentKbId) {
-    setSeenKbId(currentKbId);
-    if (request && request.kbId !== currentKbId) setRequest(null);
-  }
+const SECTIONS = ['behavior', 'roles', 'members'] as const satisfies readonly KbSettingsSection[];
 
-  const open = !!currentKbId && request?.kbId === currentKbId;
-  /** The gear in the workspace header: open on Verhalten, or close. */
-  const setOpen = useCallback((next: boolean) => {
-    setRequest(next && currentKbId ? { kbId: currentKbId, section: 'behavior' } : null);
-  }, [currentKbId]);
-  /** Ask for `kbId`'s settings on `section`; they show once that topic is open. */
-  const openFor = useCallback((kbId: string, section: KbSettingsSection) => {
-    setRequest({ kbId, section });
-  }, []);
+const dialog = createUrlDialog<KbSettingsSection>('topic', SECTIONS);
 
-  return { open, section: request?.section ?? 'behavior', setOpen, openFor };
+/** Opens the open topic's settings on `section`. Call after navigating to the topic. */
+export const openTopicSettings = (section: KbSettingsSection) => dialog.open(section);
+
+export function useTopicSettings(onTopic: boolean) {
+  const { open, value } = dialog.useDialogState();
+  return {
+    open: onTopic && open,
+    section: value,
+    /** The gear in the workspace header: open on Verhalten, or close. */
+    setOpen: (next: boolean) => (next ? dialog.open('behavior') : dialog.setOpen(false)),
+    setSection: dialog.setValue,
+  };
 }

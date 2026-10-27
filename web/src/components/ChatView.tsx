@@ -88,7 +88,7 @@ const ChatViewComp = () => {
   // AuthenticatedApp).
   const webSearchAvailable = isChatWebSearchAvailable(siteConfigs);
   const webSearchOn = webSearchAvailable && webSearch;
-  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection } = useKbLayout();
+  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection, setSystemPromptSection } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
   const kbAgentOptions = useKbAgents(currentKb?.id);
@@ -174,6 +174,19 @@ const ChatViewComp = () => {
   const savedFlags = sourceFlagsOf(currentKb);
   const flagsResetKey = `${currentKb?.id ?? ''}\0${JSON.stringify(savedFlags)}`;
   const [flagsDraft, setFlagsDraft] = useState(savedFlags);
+  /* Fresh drafts on every opening of Thema-Einstellungen. The dialog lives in
+     the URL (`?topic=`), so it can also close without its onClose — browser
+     back, a navigation — and edits abandoned that way must not reappear as
+     unsaved changes next time. Adjusted during render, so the dialog never
+     shows them even for one commit. */
+  const [promptWasOpen, setPromptWasOpen] = useState(showSystemPrompt);
+  if (promptWasOpen !== showSystemPrompt) {
+    setPromptWasOpen(showSystemPrompt);
+    if (showSystemPrompt) {
+      setSystemPromptDraft(currentKb?.systemPrompt || '');
+      setFlagsDraft(savedFlags);
+    }
+  }
   const [prevFlagsResetKey, setPrevFlagsResetKey] = useState(flagsResetKey);
   if (prevFlagsResetKey !== flagsResetKey) {
     setPrevFlagsResetKey(flagsResetKey);
@@ -780,7 +793,8 @@ const ChatViewComp = () => {
           flags={flagsDraft}
           onFlagsChange={setFlagsDraft}
           kb={currentKb}
-          initialSection={systemPromptSection}
+          section={systemPromptSection}
+          onSectionChange={setSystemPromptSection}
           dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
             || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
           onSave={async () => {

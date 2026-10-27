@@ -42,7 +42,7 @@ function providedSearch(query: string) {
         setQuery: vi.fn(),
         catalogQuery: query,
         applyCatalogQuery: vi.fn(),
-        focusPending: false,
+        focusPendingFor: null,
         requestFocus: vi.fn(),
         consumeFocus: vi.fn(),
     };

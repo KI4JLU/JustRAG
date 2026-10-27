@@ -26,7 +26,7 @@ import { translations } from './translations';
  * assert that the sidebar row calls a spy; this file clicks the real row in the
  * real app and checks that the app actually arrives — the `ViewType` union
  * member, the render branch, and the `AppNavContext` wiring, in one path. A spy
- * cannot tell you that `setView('shared-kbs')` matches a branch.
+ * cannot tell you that the `/shared` route matches a branch.
  *
  * ONLY the network is stubbed (axios and `fetch`), plus the browser APIs jsdom
  * does not implement. No provider, no context and no hook is mocked — mocking
@@ -243,8 +243,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(current[0]).toHaveTextContent(translations.sharedTopics.de);
 
     // ORACLE: translations.ts. The way back exists, is not current, and works —
-    // without it this view would be a dead end in an app that has no router and
-    // therefore no browser Back.
+    // in the page itself, not only through the browser's Back (App.routing.test.tsx).
     const overview = screen.getByRole('button', { name: translations.myTopics.de });
     expect(overview).not.toHaveAttribute('aria-current');
     await userEvent.click(overview);
@@ -351,10 +350,11 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
       .toHaveAttribute('aria-expanded', 'false');
 
-    // The reload. A fresh tree, the same storage.
+    // The reload. A fresh tree, the same storage — and the same URL, which
+    // since the router names the view: the reload lands back on „Geteilt".
     first.unmount();
     render(<App />);
-    await findOverviewHeading();
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de }, { timeout: 15000 });
     expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
       .toHaveAttribute('aria-expanded', 'false');
 
@@ -395,7 +395,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
    * right here and the view stays put. „Entdecken" is reached WITH the query
    * through the Topics group's „show all matching topics in Discover" row —
    * which is the one selection that rebuilds the chrome with the field still
-   * in it, so KI-787's caret handoff (`focusPending`) is pinned on that path.
+   * in it, so KI-787's caret handoff (`focusPendingFor`) is pinned on that path.
    *
    * ORACLES: translations.ts for every accessible name, WAI-ARIA's h1 mapping
    * for which page is on screen, `document.activeElement` for where the caret
