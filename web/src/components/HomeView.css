@@ -7,7 +7,7 @@
   padding: 0;
 }
 
-/* Tiles follow the app-wide Style (rounded / pill) via the DS box radius. */
+/* Tiles take the DS box radius. */
 .source-card.home-view__kb-card {
   cursor: pointer;
   border-radius: var(--ui-radius-box);
@@ -21,14 +21,15 @@
   flex-direction: column;
 }
 
-/* Hover: the navigation items' tint (DS NavItem `hover:bg-secondary-container`),
-   no lift, no shadow, no accent border — overrides `.source-card:hover`. */
+/* Hover: the selection colour — the accent at 10 %, as on the active sidebar
+   row (DS NavItem / SidebarCard `bg-primary/10`) — no lift, no shadow, no
+   accent border; overrides `.source-card:hover`. */
 @media (hover: hover) {
   .source-card.home-view__kb-card:hover,
   .source-card.home-view__create-card:hover {
     transform: none;
     box-shadow: none;
-    background: var(--color-secondary-container);
+    background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface-container-lowest));
   }
 
   .source-card.home-view__kb-card:hover {
@@ -99,7 +100,7 @@
 }
 
 .home-view__create-row:hover:not(:disabled) {
-  background: var(--color-secondary-container);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface-container-lowest));
 }
 
 .home-view__create-row:disabled {

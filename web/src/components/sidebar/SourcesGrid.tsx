@@ -1,5 +1,8 @@
 import React, { memo, useMemo, useState, useCallback } from 'react';
-import { Search, Globe, Rss, Upload, Type, GraduationCap, BookOpen, Loader2, X, ArrowRight, GitBranch } from 'lucide-react';
+import { Search, Globe, Rss, Upload, Type, GraduationCap, BookOpen, Loader2, X, ArrowRight, GitBranch, Telescope, ChevronDown, Check } from 'lucide-react';
+import {
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Tooltip, TooltipContent, TooltipTrigger,
+} from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import './SourcesGrid.css';
@@ -86,16 +89,42 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
                                 <Search size={13} aria-hidden="true" />
                                 {t('websearch')}
                             </span>
-                            <select
-                                value={mode}
-                                onChange={e => handleModeChange(e.target.value as SearchMode)}
-                                disabled={webSearch.toolLoading || webSearch.webResearchRunning}
-                                className="sources-grid__search-mode"
-                                aria-label={t('searchMode')}
-                            >
-                                <option value="fast">{t('websearchFast')}</option>
-                                <option value="deep">{t('websearchDeep')}</option>
-                            </select>
+                            {/* The mode: a DS dropdown with a line of explanation per mode. */}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    {/* eslint-disable-next-line design-system/no-raw-ui-elements -- the header's compact mode pill (26px), styled in SourcesGrid.css */}
+                                    <button
+                                        type="button"
+                                        className="sources-grid__search-mode"
+                                        disabled={webSearch.toolLoading || webSearch.webResearchRunning}
+                                        aria-label={`${t('searchMode')}: ${mode === 'fast' ? t('websearchFast') : t('websearchDeep')}`}
+                                    >
+                                        {mode === 'fast' ? t('websearchFast') : t('websearchDeep')}
+                                        <ChevronDown size={14} aria-hidden="true" />
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-72">
+                                    {([
+                                        ['fast', Search, 'websearchFastTitle', 'websearchFastHint'],
+                                        ['deep', Telescope, 'websearchDeepTitle', 'websearchDeepHint'],
+                                    ] as const).map(([value, Icon, title, hint]) => (
+                                        <DropdownMenuItem
+                                            key={value}
+                                            onSelect={() => handleModeChange(value)}
+                                            aria-checked={mode === value}
+                                            role="menuitemradio"
+                                            className="items-start"
+                                        >
+                                            <Icon aria-hidden="true" className="mt-0.5" />
+                                            <span className="flex min-w-0 flex-1 flex-col">
+                                                <span className="font-medium">{t(title)}</span>
+                                                <span className="text-xs text-on-surface-variant">{t(hint)}</span>
+                                            </span>
+                                            {mode === value && <Check aria-hidden="true" className="mt-0.5 text-primary" />}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                         <div className="sources-grid__search-input-row">
                             <input
@@ -110,14 +139,19 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
                             {webSearch.toolLoading ? (
                                 <Loader2 size={14} className="animate-spin sources-grid__search-spinner" />
                             ) : (
-                                <button
-                                    onClick={handleSubmit}
-                                    disabled={!webSearch.toolInput.trim() || webSearch.webResearchRunning}
-                                    className="sources-grid__search-submit"
-                                    aria-label={t('websearch')}
-                                >
-                                    <ArrowRight size={14} />
-                                </button>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            onClick={handleSubmit}
+                                            disabled={!webSearch.toolInput.trim() || webSearch.webResearchRunning}
+                                            className="sources-grid__search-submit"
+                                            aria-label={mode === 'fast' ? t('startWebsearch') : t('startResearch')}
+                                        >
+                                            <ArrowRight size={14} />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{mode === 'fast' ? t('startWebsearch') : t('startResearch')}</TooltipContent>
+                                </Tooltip>
                             )}
                         </div>
                         {webSearch.hasResults && webSearch.onOpenWorkspace && (
@@ -128,28 +162,36 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
                                 {t('openWorkspace')}
                             </button>
                         )}
+                        {/* A running research report belongs to this box: its status
+                            line under the input, its progress a bar on the box's
+                            bottom edge. */}
+                        {(webSearch.webResearchRunning || webSearch.webResearchStatus) && (
+                            <div className="sources-grid__research-progress">
+                                <div className="sources-grid__research-track">
+                                    <div
+                                        className="sources-grid__research-fill"
+                                        style={{ width: `${Math.max(5, (webSearch.webResearchProgress.step / (webSearch.webResearchProgress.total || 1)) * 100)}%` }}
+                                    />
+                                </div>
+                                <div className="sources-grid__research-row">
+                                    <span className="sources-grid__research-text">
+                                        {webSearch.webResearchStatus}
+                                        {webSearch.webResearchProgress.step > 0 && ` (${webSearch.webResearchProgress.step}/${webSearch.webResearchProgress.total})`}
+                                    </span>
+                                    {webSearch.webResearchRunning && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button onClick={webSearch.onCancelWebResearch} className="sources-grid__research-cancel" aria-label={t('cancelResearch')}>
+                                                    <X size={12} />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{t('cancelResearch')}</TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    {(webSearch.webResearchRunning || webSearch.webResearchStatus) && (
-                        <div className="sources-grid__research-progress">
-                            <div className="sources-grid__research-track">
-                                <div
-                                    className="sources-grid__research-fill"
-                                    style={{ width: `${Math.max(5, (webSearch.webResearchProgress.step / (webSearch.webResearchProgress.total || 1)) * 100)}%` }}
-                                />
-                            </div>
-                            <div className="sources-grid__research-row">
-                                <span className="sources-grid__research-text">
-                                    {webSearch.webResearchStatus}
-                                    {webSearch.webResearchProgress.step > 0 && ` (${webSearch.webResearchProgress.step}/${webSearch.webResearchProgress.total})`}
-                                </span>
-                                {webSearch.webResearchRunning && (
-                                    <button onClick={webSearch.onCancelWebResearch} className="sources-grid__research-cancel" title={t('cancelResearch')}>
-                                        <X size={12} />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    )}
                 </>
             )}
 

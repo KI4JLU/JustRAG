@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { PrivateKbCard } from './KbCard';
 import { translations, type Language } from '../translations';
 import type { KnowledgeBase } from '../types';
@@ -109,5 +110,83 @@ describe('PrivateKbCard meta lines', () => {
     expect(within(footer).getByText(translations.visibilityPersonal.de)).toBeInTheDocument();
     // The oldest date (400 days ago) is shown nowhere any more.
     expect(container.textContent).not.toMatch(/letztes Jahr|Ältester/);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * „Teilen" in the card menu.
+ *
+ * It opens the topic's Thema-Einstellungen on Mitglieder, so it is offered to
+ * exactly the callers who may open that window: the effective KB roles admin
+ * and owner (its routes sit on kbAdminChain) — a superadmin resolves to owner
+ * on every KB — plus the legacy owner column for a row that arrives without a
+ * membership role.
+ *
+ * ORACLE: the server's role ladder (kbaccess.EffectiveRole in
+ * go-backend/internal/kbaccess/middleware.go) applied to each fixture by hand,
+ * and translations.ts for the item's name. The caller is 'user-1' throughout;
+ * every fixture but the legacy one is owned by 'user-9', so the owner column
+ * decides nothing there.
+ * ------------------------------------------------------------------------- */
+describe('PrivateKbCard share item', () => {
+  // Radix's dropdown measures and captures pointers, which jsdom lacks, and
+  // its open path waits on real timers.
+  beforeEach(() => {
+    vi.useRealTimers();
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  async function shareItem(item: KnowledgeBase, systemRole: string, onOpenShare = vi.fn()) {
+    const t = tFor('en');
+    render(
+      <PrivateKbCard
+        kb={item}
+        currentUserId="user-1"
+        systemRole={systemRole}
+        removingKb={false}
+        rtf={new Intl.RelativeTimeFormat('en', { numeric: 'auto' })}
+        t={t}
+        language="en"
+        onSelectKB={vi.fn()}
+        onOpenShare={onOpenShare}
+        onToggleFavorite={vi.fn()}
+        onOpenKbSettings={vi.fn()}
+        onRenameKB={vi.fn()}
+        onDeleteKB={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: new RegExp(`^${translations.kbActions.en}: `) }));
+    // The favorite toggle is ungated, so the menu opens in every case.
+    const menu = within(await screen.findByRole('menu'));
+    return menu.queryByRole('menuitem', { name: translations.share.en });
+  }
+
+  const othersKb = (over: Partial<KnowledgeBase>) => kb({ userId: 'user-9', ...over });
+
+  it.each(['owner', 'admin'] as const)('offers it to a caller whose myRole is %s', async (myRole) => {
+    expect(await shareItem(othersKb({ myRole }), 'user')).not.toBeNull();
+  });
+
+  it.each(['edit', 'view'] as const)('withholds it from a caller whose myRole is %s', async (myRole) => {
+    expect(await shareItem(othersKb({ myRole }), 'user')).toBeNull();
+  });
+
+  it('offers it to a superadmin whose own KB role is only view', async () => {
+    expect(await shareItem(othersKb({ myRole: 'view' }), 'superadmin')).not.toBeNull();
+  });
+
+  it('offers it on a row without myRole whose owner column is the caller', async () => {
+    expect(await shareItem(kb({ myRole: undefined }), 'user')).not.toBeNull();
+  });
+
+  it('hands the card\'s topic to onOpenShare', async () => {
+    const onOpenShare = vi.fn();
+    const item = othersKb({ myRole: 'admin' });
+    await userEvent.click((await shareItem(item, 'user', onOpenShare))!);
+    expect(onOpenShare).toHaveBeenCalledTimes(1);
+    expect(onOpenShare).toHaveBeenCalledWith(item, expect.anything());
   });
 });

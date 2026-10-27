@@ -3,21 +3,22 @@ import type { RssFeed, GeneratedContent, ConfluenceSource, ConfluenceConnectionI
 import type { useFileManagement } from '../hooks/useFileManagement';
 import type { useWebTools } from '../hooks/useWebTools';
 import type { useGeneratedContent } from '../hooks/useGeneratedContent';
-import type { useSharing } from '../hooks/useSharing';
 
 export interface KbDataContextValue {
   fileMgmt: ReturnType<typeof useFileManagement>;
   webTools: ReturnType<typeof useWebTools>;
   content: ReturnType<typeof useGeneratedContent>;
-  sharing: ReturnType<typeof useSharing>;
   // RSS
   rssFeeds: RssFeed[];
   rssLoading: boolean;
   fetchRssFeeds: (kbId?: string) => void;
   addRssFeed: (url: string, syncSchedule: SyncSchedule, fetchFullText: boolean) => void;
   updateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused'; fetchFullText?: boolean }) => void;
-  deleteRssFeed: (feedId: string) => void;
+  /** Deletes without a confirm dialog — the caller has asked. */
+  deleteRssFeeds: (feedIds: string[]) => Promise<void>;
   pollFeedNow: (feedId: string) => void;
+  /** Feeds whose "poll now" is still running in the worker. */
+  pollingFeedIds: Set<string>;
   // Confluence
   confluenceSources: ConfluenceSource[];
   confluenceConnection: ConfluenceConnectionInfo | null;
@@ -27,7 +28,7 @@ export interface KbDataContextValue {
   saveConfluenceConnection: (token: string, displayName?: string) => Promise<void>;
   addConfluenceSource: (data: { connectionId: string; spaceKey: string; rootPageId?: string; rootPageTitle?: string; includeAttachments?: boolean; syncSchedule?: SyncSchedule }) => void;
   updateConfluenceSource: (sourceId: string, updates: { includeAttachments?: boolean; syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-  deleteConfluenceSource: (sourceId: string) => void;
+  deleteConfluenceSources: (sourceIds: string[]) => Promise<void>;
   syncConfluenceNow: (sourceId: string) => void;
   fetchConfluenceSpaces: () => Promise<ConfluenceSpace[]>;
   fetchConfluenceSpacePages: (spaceKey: string) => Promise<ConfluencePage[]>;
@@ -39,7 +40,7 @@ export interface KbDataContextValue {
   fetchGitRepoSources: (kbId?: string) => void;
   addGitRepoSource: (data: { repoUrl: string; isPrivate: boolean; accessToken?: string; branch?: string; syncSchedule?: SyncSchedule }) => void;
   updateGitRepoSource: (sourceId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-  deleteGitRepoSource: (sourceId: string) => void;
+  deleteGitRepoSources: (sourceIds: string[]) => Promise<void>;
   syncGitRepoNow: (sourceId: string) => void;
   // Actions
   handleSelectContent: (item: GeneratedContent) => void;

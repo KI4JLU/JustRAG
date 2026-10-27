@@ -8,6 +8,14 @@ vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string
 
 const retryAllFailed = vi.fn();
 let files: FileEntry[] = [];
+// The caller's role on the open KB, and the backend's resolved capabilities
+// (undefined = an older backend); the real kbSourceRights decides from them.
+let myRole: string | undefined = 'edit';
+let capabilities: Record<string, boolean> | undefined;
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'user' } }) }));
+vi.mock('../../contexts/KbCoreContext', () => ({
+  useKbCore: () => ({ currentKb: { id: 'kb1', isGlobal: false, visibility: 'private', userId: null, myRole, capabilities } }),
+}));
 
 vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({ fileMgmt: { files, retryAllFailed } }),
@@ -19,6 +27,8 @@ const makeFile = (over: Partial<FileEntry>): FileEntry => ({
 
 beforeEach(() => {
   files = [];
+  myRole = 'edit';
+  capabilities = undefined;
   vi.clearAllMocks();
 });
 
@@ -65,7 +75,21 @@ describe('SourcesHeader injection screening summary', () => {
     render(<SourcesHeader />);
     expect(screen.getByLabelText('fileInjectionFlagged (2)')).toBeInTheDocument();
     // Nothing failed, so the retry button stays away.
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retryAllFailedShort/ })).not.toBeInTheDocument();
+  });
+
+  // Oracle: seven flagged files, the tooltip lists five by name and folds the
+  // remaining two (hand-counted) into "and N more".
+  it('names the flagged files in a keyboard-reachable tooltip', async () => {
+    files = Array.from({ length: 7 }, (_, i) =>
+      makeFile({ id: `c${i}`, name: `Seite ${i}`, origin: 'confluence', injectionFlag: true }));
+    render(<SourcesHeader />);
+    await userEvent.tab();
+    const tip = await screen.findByRole('tooltip');
+    expect(tip).toHaveTextContent('fileInjectionSummaryMany');
+    expect(tip).toHaveTextContent('Seite 4');
+    expect(tip).not.toHaveTextContent('Seite 5');
+    expect(tip).toHaveTextContent('fileInjectionSummaryMore');
   });
 
   it('renders no summary when nothing is flagged', () => {
@@ -90,5 +114,42 @@ describe('SourcesHeader injection screening summary', () => {
     files = [makeFile({ origin: 'upload', injectionFlag: true })];
     render(<SourcesHeader />);
     expect(screen.queryByLabelText(/fileInjectionFlagged \(/)).not.toBeInTheDocument();
+  });
+
+  // Oracle: retry-all changes existing sources — capabilities.manageSources
+  // (backend contract 2026-10-16; an older backend: the edit chain,
+  // RequireKBRole("edit") in internal/app/routes.go). The injection summary
+  // only reads the file list a viewer already has.
+  it('offers a viewer no retry-all, but still shows the injection summary', () => {
+    myRole = 'view';
+    files = [
+      makeFile({ id: 'e1', status: 'error' }),
+      makeFile({ id: 'c1', name: 'page.html', origin: 'crawl', injectionFlag: true }),
+    ];
+    render(<SourcesHeader />);
+    expect(screen.queryByRole('button', { name: /retryAllFailedShort/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('fileInjectionFlagged (1)')).toBeInTheDocument();
+  });
+
+  it('renders nothing for a viewer when failed files are the only news', () => {
+    myRole = 'view';
+    files = [makeFile({ status: 'error' })];
+    const { container } = render(<SourcesHeader />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('offers no retry-all to a viewer even when the KB lets them add sources', () => {
+    myRole = 'view';
+    capabilities = { seeSources: true, addSources: true, downloadSources: false, seeCitations: false, manageSources: false };
+    files = [makeFile({ status: 'error' })];
+    render(<SourcesHeader />);
+    expect(screen.queryByRole('button', { name: /retryAllFailedShort/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps retry-all for an editor the KB denies adding', () => {
+    capabilities = { seeSources: true, addSources: false, downloadSources: true, seeCitations: true, manageSources: true };
+    files = [makeFile({ status: 'error' })];
+    render(<SourcesHeader />);
+    expect(screen.getByRole('button', { name: /retryAllFailedShort/ })).toBeInTheDocument();
   });
 });

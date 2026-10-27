@@ -62,7 +62,6 @@
 .wf-canvas__swatch--conditional { border-color: #b45309; background: #fef3c7; }
 
 .wf-canvas__surface { flex: 1 1 auto; position: relative; min-height: 0; }
-.wf-canvas__error { padding: 1rem; color: var(--error-text); font-size: 0.85rem; }
 
 /* Save bar: a sibling flex row after the surface (not an overlay inside it),
    so it never competes for space with the inspector, which already anchors

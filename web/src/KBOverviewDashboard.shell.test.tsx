@@ -131,24 +131,39 @@ describe('KBOverviewDashboard — the column picker survived the Popover swap', 
         expect(screen.queryByRole('checkbox', { name: 'colChats' })).toBeNull();
     });
 
-    it('adds exactly one column per box ticked', async () => {
-        // ORACLE: the pre-migration source's own column table, read out of
-        // git at the claim base (`git show
-        // 3c53aa6:web/src/KBOverviewDashboard.tsx`): ALL_COLUMNS has ten
-        // entries, three of them `optional: true`. With `showActions` true the
-        // header therefore starts at 7 + 1 = 8 cells and each ticked box adds
-        // one. The count is measured from the `columnheader` role, so it is
-        // independent of how the header is built.
+    it('draws the files, flagged and error columns as icons, still named for screen readers', async () => {
+        // ORACLE: the developer's ruling of 2026-10-26 (icons only for these three headers) and WAI-ARIA's
+        // accessible-name computation: the name comes from the hidden text, the tooltip from `title`.
         render(<KBOverviewDashboard />);
         await screen.findByRole('heading', { level: 2 });
-        expect(screen.getAllByRole('columnheader')).toHaveLength(8);
+
+        for (const [name, tooltip] of [['tabFiles', 'tabFiles'], ['colSuspicious', 'colInjectionFlagged'], ['colFailed', 'colFailed']]) {
+            const head = screen.getByRole('columnheader', { name: new RegExp(name) });
+            const sort = within(head).getByRole('button'); // the header's name is the sort button
+            expect(sort.querySelector('svg')).not.toBeNull();
+            expect(sort).toHaveAttribute('title', tooltip);
+            // No visible text: the label is the screen-reader-only one.
+            expect(sort.querySelector('.sr-only')?.textContent).toBe(name);
+        }
+        // Their neighbours keep their words.
+        expect(screen.getByRole('columnheader', { name: /colSize/ }).querySelector('svg')).toBeNull();
+    });
+
+    it('adds exactly one column per box ticked', async () => {
+        // ORACLE: the dashboard's own column table: eight default columns (name, owner, files, suspicious
+        // files, size, errors, activity, last activity) and the rest `optional: true`. With `showActions`
+        // true the header therefore starts at 8 + 1 = 9 cells and each ticked box adds one. The count is
+        // measured from the `columnheader` role, so it is independent of how the header is built.
+        render(<KBOverviewDashboard />);
+        await screen.findByRole('heading', { level: 2 });
+        expect(screen.getAllByRole('columnheader')).toHaveLength(9);
 
         await userEvent.click(screen.getByRole('button', { name: 'columnsToggle' }));
         await userEvent.click(await screen.findByRole('checkbox', { name: 'colProcessing' }));
-        await waitFor(() => expect(screen.getAllByRole('columnheader')).toHaveLength(9));
+        await waitFor(() => expect(screen.getAllByRole('columnheader')).toHaveLength(10));
 
         await userEvent.click(screen.getByRole('checkbox', { name: 'colChats' }));
-        await waitFor(() => expect(screen.getAllByRole('columnheader')).toHaveLength(10));
+        await waitFor(() => expect(screen.getAllByRole('columnheader')).toHaveLength(11));
     });
 });
 
@@ -237,11 +252,18 @@ describe('KBOverviewDashboard — the shell', () => {
     });
 });
 
-describe('KBOverviewDashboard — Stage 5 territory is untouched', () => {
-    it('leaves the overview as raw table markup', async () => {
-        // ORACLE: the pre-migration source's one `<table>` with `<thead>` and
-        // `<tbody>` (lines 440-548 at the claim base). Card KI-694 migrates it
-        // to `Table`/`TableLayout`; a premature swap changes these counts.
+describe('KBOverviewDashboard — the table', () => {
+    beforeEach(() => {
+        // The row menu is a Radix dropdown: jsdom implements neither pointer capture nor scrollIntoView.
+        Element.prototype.hasPointerCapture = vi.fn(() => false);
+        Element.prototype.setPointerCapture = vi.fn();
+        Element.prototype.releasePointerCapture = vi.fn();
+        Element.prototype.scrollIntoView = vi.fn();
+    });
+
+    it('is one table with a header and a body (the DS Table)', async () => {
+        // ORACLE: HTML table structure — one `<table>` with `<thead>` and `<tbody>`, now the DS `Table`
+        // (it was raw markup before the developer's restyle of 2026-10-26).
         const { container } = render(<KBOverviewDashboard />);
         // The heading renders before the rows arrive; wait for a row, or a slow
         // runner counts the loading state (CI saw 0 tables).
@@ -253,17 +275,14 @@ describe('KBOverviewDashboard — Stage 5 territory is untouched', () => {
     });
 
     it('keeps the row actions addressable by their accessible names', async () => {
-        // ORACLE: the `aria-label`/`title` strings in the pre-migration source
-        // (lines 509, 520, 531), which this card must preserve — the controls
-        // changed from raw <button> to the DS Button INSIDE the untouched
-        // <td>, so the swap must be invisible from the outside. The existing
-        // actions suite keys on the same names.
+        // ORACLE: the action names of the pre-migration icon buttons, which are the menu items' names now.
         render(<KBOverviewDashboard />);
         await screen.findByRole('heading', { level: 2 });
 
+        // The three actions are the items of the row's ⋯ menu now (one trigger per row, named after its KB).
         const row = screen.getByText('Alpha KB').closest('tr')!;
-        expect(within(row).getByRole('button', { name: 'kbActionPublish' })).toBeInTheDocument();
-        expect(within(row).getByRole('button', { name: 'kbActionTransfer' })).toBeInTheDocument();
-        expect(within(row).getByRole('button', { name: 'kbActionDelete' })).toBeInTheDocument();
+        await userEvent.click(within(row).getByRole('button', { name: 'kbActions: Alpha KB' }));
+        const items = (await screen.findAllByRole('menuitem')).map(i => i.textContent);
+        expect(items).toEqual(['kbActionPublish', 'kbActionTransfer', 'kbActionDelete']);
     });
 });

@@ -1,107 +1,63 @@
 // web/src/components/AnswerExportMenu.tsx
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Download } from 'lucide-react';
+import { MenuItem, MessageAction } from '@ki4jlu/design-system';
 import type { Message } from '../types';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { useToast } from '../contexts/ToastContext';
+import { useMessageExport } from '../hooks/useMessageActions';
 import { AnchoredPopover } from './AnchoredPopover';
-import {
-  copyAnswerWithCitations,
-  downloadAnswerMarkdown,
-  exportAnswerDocx,
-  printAnswerPdf,
-} from '../utils/exportAnswer';
 
 interface AnswerExportMenuProps {
   message: Message;
   kbId?: string;
   questionText?: string;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  buttonStyle: React.CSSProperties;
-  iconSize: number;
+  onOpenChange?: (open: boolean) => void;
   t: (key: string) => string;
 }
 
-export function AnswerExportMenu({ message, kbId, questionText, contentRef, buttonStyle, iconSize, t }: AnswerExportMenuProps) {
+export function AnswerExportMenu({ message, kbId, questionText, contentRef, onOpenChange, t }: AnswerExportMenuProps) {
   const [open, setOpen] = useState(false);
-  const toast = useToast();
+  const exporter = useMessageExport(message, kbId, questionText, contentRef);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  const heading = t('sourcesHeading');
+  useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
 
-  const handleCopy = async () => {
+  // Focus goes back to the trigger: the menu items are about to unmount.
+  const close = () => {
+    triggerRef.current?.focus();
     setOpen(false);
-    const ok = await copyAnswerWithCitations(message, heading);
-    if (ok) toast.success(t('answerCopied'));
-    else toast.error(t('exportFailed'));
   };
-  const handleMarkdown = () => {
-    setOpen(false);
-    downloadAnswerMarkdown(message, heading);
-  };
-  const handleDocx = async () => {
-    setOpen(false);
-    if (!kbId) return;
-    try {
-      await exportAnswerDocx(kbId, message, questionText || '', heading);
-    } catch {
-      toast.error(t('exportFailed'));
-    }
-  };
-  const handlePdf = () => {
-    setOpen(false);
-    printAnswerPdf(contentRef.current, questionText || t('exportAnswer'));
-  };
-
-  const itemStyle: React.CSSProperties = {
-    display: 'block',
-    width: '100%',
-    textAlign: 'left',
-    background: 'none',
-    border: 'none',
-    padding: '6px 10px',
-    cursor: 'pointer',
-    color: 'var(--text-primary)',
-    fontSize: '0.85rem',
-    borderRadius: '4px',
-  };
-  const hoverIn = (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = 'var(--tag-bg)'; };
-  const hoverOut = (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = 'none'; };
 
   return (
-    <div style={{ display: 'flex' }}>
-      <button
+    <>
+      <MessageAction
         ref={triggerRef}
-        type="button"
-        onClick={(e) => { e.stopPropagation(); triggerHaptic(HAPTIC_PATTERNS.action); setOpen((o) => !o); }}
-        style={buttonStyle}
-        title={t('exportAnswer')}
-        aria-label={t('exportAnswer')}
+        tooltip={t('exportAnswer')}
         aria-haspopup="menu"
         aria-expanded={open}
-        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'var(--tag-bg)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
+        onClick={() => { triggerHaptic(HAPTIC_PATTERNS.action); setOpen((o) => !o); }}
       >
-        <Download size={iconSize} />
-      </button>
+        <Download className="size-4" aria-hidden="true" />
+      </MessageAction>
       <AnchoredPopover
         open={open}
         triggerRef={triggerRef}
-        onClose={() => setOpen(false)}
+        onClose={close}
         align="start"
         width={180}
         role="menu"
         ariaLabel={t('exportAnswer')}
       >
-        <div style={{ padding: '4px' }}>
-          <button type="button" role="menuitem" style={itemStyle} onClick={handleCopy} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>{t('copyWithCitations')}</button>
-          <button type="button" role="menuitem" style={itemStyle} onClick={handleMarkdown} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>{t('exportMarkdown')}</button>
-          {kbId && (
-            <button type="button" role="menuitem" style={itemStyle} onClick={handleDocx} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>{t('exportDocx')}</button>
+        <div className="flex flex-col p-1">
+          <MenuItem type="button" role="menuitem" onClick={() => { close(); void exporter.copy(); }}>{t('copyWithCitations')}</MenuItem>
+          <MenuItem type="button" role="menuitem" onClick={() => { close(); void exporter.markdown(); }}>{t('exportMarkdown')}</MenuItem>
+          {exporter.docx && (
+            <MenuItem type="button" role="menuitem" onClick={() => { close(); void exporter.docx?.(); }}>{t('exportDocx')}</MenuItem>
           )}
-          <button type="button" role="menuitem" style={itemStyle} onClick={handlePdf} onMouseEnter={hoverIn} onMouseLeave={hoverOut}>{t('exportPdf')}</button>
+          <MenuItem type="button" role="menuitem" onClick={() => { close(); void exporter.pdf(); }}>{t('exportPdf')}</MenuItem>
         </div>
       </AnchoredPopover>
-    </div>
+    </>
   );
 }

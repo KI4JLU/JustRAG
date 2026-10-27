@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle2, AlertCircle, RefreshCw, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
-import { Badge } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, Badge, Button } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../../api';
+import { CheckboxFieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
 
 // Mirrors mcp.ServerSpec on the backend.
 interface ServerSpec {
@@ -98,24 +99,26 @@ function ServerCard({ s }: { s: ServerStatus }) {
             marginBottom: '0.5rem',
             background: 'var(--bg-secondary, transparent)',
         }}>
-            <button
+            <Button
                 type="button"
+                variant="ghost"
+                className="h-auto w-full justify-start gap-2 px-0 py-0 text-left font-normal"
+                aria-expanded={open}
                 onClick={() => setOpen(v => !v)}
-                style={{
-                    background: 'transparent', border: 'none', padding: 0,
-                    width: '100%', textAlign: 'left', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '0.5rem',
-                }}
             >
                 {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <strong>{s.name}</strong>
                 <span style={{ opacity: 0.7, fontSize: '0.85rem' }}>{s.url}</span>
                 <span style={{ flex: 1 }} />
                 <ServerStatusBadge s={s} />
-            </button>
+            </Button>
             {open && (
                 <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--border-color)' }}>
-                    {s.error && <div style={{ color: 'var(--error-color, #c33)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{s.error}</div>}
+                    {s.error && (
+                        <Alert tone="error" className="mb-2">
+                            <AlertDescription>{s.error}</AlertDescription>
+                        </Alert>
+                    )}
                     {s.reachable && <ToolList tools={s.tools ?? []} />}
                 </div>
             )}
@@ -195,81 +198,60 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
             </p>
 
             {/* Master switch */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', marginBottom: '1rem' }}>
-                <input
-                    type="checkbox"
+            <div className="mb-4">
+                <CheckboxFieldRow
+                    width="wide"
+                    label="Route plan-execute searches through the MCP registry (chat_use_mcp_tools)"
                     checked={useMCPNow}
-                    onChange={e => setSiteConfigs(prev => ({ ...prev, chat_use_mcp_tools: e.target.checked ? 'true' : 'false' }))}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_use_mcp_tools: checked ? 'true' : 'false' }))}
                 />
-                <span>Route plan-execute searches through the MCP registry (chat_use_mcp_tools)</span>
-            </label>
+            </div>
 
             {/* Server editor */}
-            <div style={{ marginBottom: '1rem' }}>
-                <label htmlFor="mcp-servers" style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 500 }}>
-                    Configured remote servers (mcp_servers, JSON array)
-                </label>
-                <textarea
-                    id="mcp-servers"
+            <div className="mb-4">
+                <TextareaFieldRow
+                    width="wide"
+                    label="Configured remote servers (mcp_servers, JSON array)"
                     value={editor}
                     onChange={e => onEditorChange(e.target.value)}
                     rows={Math.min(12, Math.max(4, editor.split('\n').length + 1))}
                     spellCheck={false}
-                    style={{
-                        width: '100%', padding: '0.75rem',
-                        background: 'var(--bg-primary)', color: 'var(--text-primary)',
-                        border: `1px solid ${editorErr ? 'var(--error-color, #c33)' : 'var(--border-color)'}`,
-                        borderRadius: '6px', fontSize: '0.85rem',
-                    }}
                     placeholder={`[\n  {"name": "fetch", "url": "https://my-mcp-server.example.com/mcp", "headers": {"Authorization": "Bearer …"}}\n]`}
+                    error={editorErr ? `Invalid JSON: ${editorErr}` : undefined}
+                    help={<>Format: <code>{`[{name, url, headers?}]`}</code>. Save the form to persist; click <em>Reload registry</em> below to apply without restarting.</>}
                 />
-                {editorErr && (
-                    <div style={{ color: 'var(--error-color, #c33)', fontSize: '0.85rem', marginTop: '0.4rem' }}>
-                        Invalid JSON: {editorErr}
-                    </div>
-                )}
-                <p style={{ fontSize: '0.8rem', opacity: 0.65, marginTop: '0.4rem' }}>
-                    Format: <code>{`[{name, url, headers?}]`}</code>. Save the form to persist; click <em>Reload registry</em> below to apply without restarting.
-                </p>
             </div>
 
             {/* Live status panel */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <strong>Live status</strong>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button
+                    <Button
                         type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={refreshStatus}
                         disabled={loading || reloading}
-                        style={{
-                            background: 'transparent', color: 'var(--text-primary)',
-                            border: '1px solid var(--border-color)', borderRadius: '6px',
-                            padding: '0.3rem 0.7rem', fontSize: '0.85rem',
-                            cursor: loading ? 'wait' : 'pointer',
-                        }}
                     >
                         {loading ? '…' : 'Refresh'}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         type="button"
+                        size="sm"
                         onClick={reload}
                         disabled={loading || reloading}
-                        style={{
-                            background: 'var(--accent-primary)', color: 'var(--bg-primary)',
-                            border: '1px solid var(--accent-primary)', borderRadius: '6px',
-                            padding: '0.3rem 0.7rem', fontSize: '0.85rem',
-                            cursor: reloading ? 'wait' : 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                        }}
                         title="Re-read mcp_servers from site_config and apply to the running registry"
                     >
                         <RefreshCw size={14} className={reloading ? 'animate-spin' : undefined} />
                         {reloading ? 'Applying…' : 'Reload registry'}
-                    </button>
+                    </Button>
                 </div>
             </div>
-            {error && <div style={{ color: 'var(--error-color, #c33)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Error: {error}</div>}
+            {error && (
+                <Alert tone="error" live="assertive" className="mb-2">
+                    <AlertDescription>Error: {error}</AlertDescription>
+                </Alert>
+            )}
             {status && (
                 <>
                     {/* Built-ins */}

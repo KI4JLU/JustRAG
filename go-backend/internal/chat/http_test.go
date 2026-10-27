@@ -34,7 +34,13 @@ type mockStore struct {
 	renamedID, renamedBy, renamedTo string
 	renameErr                       error
 
+	// args of the most recent BranchChat call; branchErr is returned
+	branchedChat, branchedMsg, branchedBy string
+	branchErr                             error
+	branchCalled                          bool
+
 	// captured args from the most recent UpdateMessageFeedback call
+	lastChatID   string
 	lastUserID   string
 	lastFeedback *string
 	lastComment  *string
@@ -44,7 +50,8 @@ func (m *mockStore) GetChats(_ context.Context, _, _ string) ([]chat.ChatRow, er
 	return m.chats, m.err
 }
 
-func (m *mockStore) GetChatByID(_ context.Context, _ string) (*chat.ChatRow, error) {
+func (m *mockStore) GetChatByID(_ context.Context, id string) (*chat.ChatRow, error) {
+	m.lastChatID = id
 	return m.chat, m.err
 }
 
@@ -97,6 +104,16 @@ func (m *mockStore) GetKBSystemPrompt(_ context.Context, _ string) (*string, err
 func (m *mockStore) UpdateChatTitle(_ context.Context, chatID, userID, title string) error {
 	m.renamedID, m.renamedBy, m.renamedTo = chatID, userID, title
 	return m.renameErr
+}
+
+func (m *mockStore) BranchChat(_ context.Context, chatID, messageID, userID string) (*chat.BranchResult, error) {
+	m.branchCalled = true
+	m.branchedChat, m.branchedMsg, m.branchedBy = chatID, messageID, userID
+	if m.branchErr != nil {
+		return nil, m.branchErr
+	}
+	origin := chatID
+	return &chat.BranchResult{ChatRow: chat.ChatRow{ID: "chat-new", UserID: userID, BranchedFromChatID: &origin}, CopiedMessageID: "copy-1"}, nil
 }
 
 func (m *mockStore) StarterContext(_ context.Context, _ string, _ int) (chat.StarterSource, error) {
@@ -245,6 +262,82 @@ func TestGetMessages_OtherUserChat_404(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: GetChat
+// ---------------------------------------------------------------------------
+
+func getChatRequest(id string, user *auth.Claims) *http.Request {
+	req := withUser(newRequest(http.MethodGet, "/api/chats/"+id, nil), user)
+	req.SetPathValue("id", id)
+	return req
+}
+
+// Oracle: the stored row — the caller gets it back as is (topic, sticky
+// team/agent), looked up by the canonical form of the path id.
+func TestGetChat_OwnChat_OK(t *testing.T) {
+	chatRow := makeChat(renameChatIDCanonical, "kb-1", "user-1")
+	team := "team-1"
+	chatRow.TeamID = &team
+	store := &mockStore{chat: &chatRow}
+	h := chat.NewHandler(store, nil, nil)
+
+	rr := httptest.NewRecorder()
+	h.GetChat(rr, getChatRequest(renameChatID, testUser()))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.lastChatID != renameChatIDCanonical {
+		t.Errorf("store looked up %q, want %q", store.lastChatID, renameChatIDCanonical)
+	}
+	var got chat.ChatRow
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.ID != renameChatIDCanonical || got.KbID != "kb-1" || got.TeamID == nil || *got.TeamID != "team-1" {
+		t.Errorf("got %+v, want the stored row", got)
+	}
+	if rr.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("expected Cache-Control: no-cache header")
+	}
+}
+
+// Oracle: the messages route's rule — another user's chat, a missing one and
+// a malformed id are indistinguishable 404s.
+func TestGetChat_NotFound(t *testing.T) {
+	own := makeChat(renameChatIDCanonical, "kb-1", "user-1")
+	cases := []struct {
+		name string
+		id   string
+		chat *chat.ChatRow
+		user *auth.Claims
+	}{
+		{"another user's chat", renameChatID, &own, otherUser()},
+		{"missing chat", renameChatID, nil, testUser()},
+		{"malformed id", "not-a-uuid", &own, testUser()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := chat.NewHandler(&mockStore{chat: tc.chat}, nil, nil)
+			rr := httptest.NewRecorder()
+			h.GetChat(rr, getChatRequest(tc.id, tc.user))
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("expected 404, got %d", rr.Code)
+			}
+		})
+	}
+}
+
+// Oracle: a store failure is the server's fault, not a missing chat.
+func TestGetChat_StoreError_500(t *testing.T) {
+	h := chat.NewHandler(&mockStore{err: errors.New("db down")}, nil, nil)
+	rr := httptest.NewRecorder()
+	h.GetChat(rr, getChatRequest(renameChatID, testUser()))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rr.Code)
 	}
 }
 
@@ -491,5 +584,78 @@ func TestSubmitFeedback_ClearWithComment_400(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func branchRequest(id string, body any, user *auth.Claims) *http.Request {
+	req := withUser(newRequest(http.MethodPost, "/api/chats/"+id+"/branch", body), user)
+	req.SetPathValue("id", id)
+	return req
+}
+
+const branchMessageID = "0f9ad1c4-5b1e-4b6c-9a51-6b8e1c7f2d10"
+
+// Oracle: the request's own inputs — the store gets the canonical chat id, the
+// message id and the caller; the response is the new chat, with its origin.
+func TestBranchChat_OK(t *testing.T) {
+	store := &mockStore{}
+	h := chat.NewHandler(store, nil, nil)
+	rr := httptest.NewRecorder()
+	h.BranchChat(rr, branchRequest(renameChatID, map[string]string{"messageId": branchMessageID}, testUser()))
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.branchedChat != renameChatIDCanonical || store.branchedMsg != branchMessageID || store.branchedBy != "user-1" {
+		t.Fatalf("store got (%q, %q, %q)", store.branchedChat, store.branchedMsg, store.branchedBy)
+	}
+	var got chat.BranchResult
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || got.ID != "chat-new" || got.BranchedFromChatID == nil || got.CopiedMessageID != "copy-1" {
+		t.Fatalf("body = %s (%v), want the new chat with branchedFromChatId and copiedMessageId", rr.Body.String(), err)
+	}
+}
+
+// Oracle: the request — no messageId is the empty branch (editing the first
+// question), passed on as an empty message id, not refused.
+func TestBranchChat_EmptyBranch(t *testing.T) {
+	store := &mockStore{}
+	h := chat.NewHandler(store, nil, nil)
+	rr := httptest.NewRecorder()
+	h.BranchChat(rr, branchRequest(renameChatID, map[string]string{}, testUser()))
+	if rr.Code != http.StatusCreated || !store.branchCalled || store.branchedMsg != "" {
+		t.Fatalf("got %d (store called %v with %q), want 201 and an empty message id", rr.Code, store.branchCalled, store.branchedMsg)
+	}
+}
+
+// Oracle: the maintainer's rule — validate before the store: a malformed
+// path id is a 404, a missing or malformed messageId a 400, and neither
+// reaches the store.
+func TestBranchChat_RejectsBeforeStore(t *testing.T) {
+	for _, tc := range []struct {
+		id   string
+		body any
+		want int
+	}{
+		{"chat-1", map[string]string{"messageId": branchMessageID}, http.StatusNotFound},
+		{renameChatID, map[string]string{"messageId": "msg-1"}, http.StatusBadRequest},
+		{renameChatID, "not an object", http.StatusBadRequest},
+	} {
+		store := &mockStore{}
+		h := chat.NewHandler(store, nil, nil)
+		rr := httptest.NewRecorder()
+		h.BranchChat(rr, branchRequest(tc.id, tc.body, testUser()))
+		if rr.Code != tc.want || store.branchCalled {
+			t.Fatalf("id %q body %v: got %d (store saw %q), want %d and no store call", tc.id, tc.body, rr.Code, store.branchedChat, tc.want)
+		}
+	}
+}
+
+// Oracle: store.ErrNotFound (not the caller's chat, message elsewhere) is a 404.
+func TestBranchChat_NotFound(t *testing.T) {
+	h := chat.NewHandler(&mockStore{branchErr: fmt.Errorf("x: %w", apperrors.ErrNotFound)}, nil, nil)
+	rr := httptest.NewRecorder()
+	h.BranchChat(rr, branchRequest(renameChatID, map[string]string{"messageId": branchMessageID}, testUser()))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("got %d, want 404", rr.Code)
 	}
 }

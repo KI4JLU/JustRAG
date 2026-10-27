@@ -1,44 +1,14 @@
+/* Width only — padding, radius and the title line are the DS Dialog's. */
 .source-modal {
     max-width: 480px;
     width: 90vw;
 }
 
-.source-modal__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.source-modal__title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.source-modal__close {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    background: none;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    color: var(--text-secondary);
-}
-
-.source-modal__close:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-}
-
 .source-modal__body {
-    padding: 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
 }
 
 .source-modal__mode-toggle {

@@ -20,8 +20,8 @@ function touchEnd(x: number): ReactTouchEvent {
 // a call to `setKbView` has to actually feed back into the next render for
 // the multi-swipe tests below to track real app behavior. `setKbViewSpy`
 // still lets tests assert on individual calls the way the plain vi.fn() did.
-function setup(initialKbView: KbViewType = 'chat') {
-  const setView = vi.fn();
+function setup(initialKbView: KbViewType = 'chat', showFilesTab = true) {
+  const navigateTo = vi.fn();
   const setKbViewSpy = vi.fn();
   const setShowSettings = vi.fn();
   const { result } = renderHook(() => {
@@ -31,9 +31,9 @@ function setup(initialKbView: KbViewType = 'chat') {
       setKbViewState(v);
     };
     void kbView;
-    return useViewState({ setView, setKbView, setShowSettings });
+    return useViewState({ navigateTo, setKbView, setShowSettings, showFilesTab });
   });
-  return { result, setKbView: setKbViewSpy };
+  return { result, setKbView: setKbViewSpy, navigateTo, setShowSettings };
 }
 
 // dx = end.x - start.x. dx < 0 (drag left) triggers onSwipeLeft, which in
@@ -108,5 +108,42 @@ describe('useViewState swipe navigation', () => {
     swipeLeft(result); // files -> files (Grenze)
     expect(result.current.mobileTab).toBe('files');
     expect(setKbView).not.toHaveBeenCalled();
+  });
+});
+
+// Oracle: without seeSources KbWorkspaceLayout renders only history and chat,
+// so the swipe order is exactly those two tabs — no swipe lands on 'files',
+// and one swipe right from chat opens history.
+describe('useViewState swipe without the files tab', () => {
+  it('Swipe links von chat ist ein No-op', () => {
+    const { result } = setup('chat', false);
+    swipeLeft(result);
+    expect(result.current.mobileTab).toBe('chat');
+  });
+
+  it('ein Swipe rechts von chat landet auf history', () => {
+    const { result } = setup('chat', false);
+    swipeLeft(result);
+    swipeRight(result);
+    expect(result.current.mobileTab).toBe('history');
+  });
+});
+
+// Oracle: leaving a topic is a navigation to the overview's URL, plus the two
+// resets the workspace needs on the way out.
+describe('useViewState home navigation', () => {
+  it('handleGoHome navigates to my-topics and closes the settings', () => {
+    const { result, navigateTo, setShowSettings, setKbView } = setup('chat');
+    act(() => result.current.handleGoHome());
+    expect(navigateTo).toHaveBeenCalledWith({ view: 'my-topics' });
+    expect(setShowSettings).toHaveBeenCalledWith(false);
+    expect(setKbView).toHaveBeenCalledWith('chat');
+  });
+
+  it('handleViewHome only navigates', () => {
+    const { result, navigateTo, setShowSettings } = setup('chat');
+    act(() => result.current.handleViewHome());
+    expect(navigateTo).toHaveBeenCalledWith({ view: 'my-topics' });
+    expect(setShowSettings).not.toHaveBeenCalled();
   });
 });

@@ -36,6 +36,29 @@ func TestDefaultCSPAllowsDataImages(t *testing.T) {
 	}
 }
 
+// TestDefaultCSPAllowsBlobConnect guards the PDF preview: PdfPreviewModal
+// passes pdf.js a blob: URL of the authenticated download, and pdf.js fetch()es
+// it. Without blob: in connect-src (which would otherwise inherit default-src
+// 'self'), the fetch is blocked and the viewer fails to load the PDF.
+func TestDefaultCSPAllowsBlobConnect(t *testing.T) {
+	var connectSrc string
+	for d := range strings.SplitSeq(DefaultCSP, ";") {
+		d = strings.TrimSpace(d)
+		if strings.HasPrefix(d, "connect-src") {
+			connectSrc = d
+			break
+		}
+	}
+	if connectSrc == "" {
+		t.Fatalf("DefaultCSP has no explicit connect-src directive; it would inherit default-src 'self' and block pdf.js fetching blob: URLs. CSP=%q", DefaultCSP)
+	}
+	for _, want := range []string{"'self'", "blob:"} {
+		if !strings.Contains(connectSrc, want) {
+			t.Errorf("connect-src must allow %s; got %q", want, connectSrc)
+		}
+	}
+}
+
 // TestSecurityHeadersEmitsCSP confirms the directive actually reaches the wire.
 func TestSecurityHeadersEmitsCSP(t *testing.T) {
 	h := SecurityHeaders(false, "")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

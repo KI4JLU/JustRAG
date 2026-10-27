@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import { useLocation, useRouter } from '@tanstack/react-router';
 import { KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
 
 import { useTheme } from './contexts/ThemeContext';
@@ -12,6 +13,8 @@ import { Footer } from './components/Footer';
 import { LegalPage } from './components/LegalPage';
 import { FieldRow } from './components/form/FieldRow';
 import { peekJoinToken } from './hooks/useJoinLink';
+import { useAppNavigate, useAppRoute } from './routing/navigation';
+import { parkPostLoginPath, takePostLoginPath } from './routing/postLoginPath';
 
 interface LoginProps {
     onLogin: (token: string, user: { id: string; username: string; role: string }) => void;
@@ -40,7 +43,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [legalPage, setLegalPage] = useState<'terms' | 'privacy' | 'accessibility' | null>(null);
+    // The legal pages are URLs (/terms, /privacy, /accessibility) before
+    // login as after it, so a link to one works for a visitor too.
+    const route = useAppRoute();
+    const legalPage = route.view === 'terms' || route.view === 'privacy' || route.view === 'accessibility' ? route.view : null;
+    const navigateTo = useAppNavigate();
+    // URL rewrites go through the router's history so its location stays in
+    // step; a bare window.history call would leave the router on the old URL.
+    const router = useRouter();
+    const { pathname } = useLocation();
     const [providers, setProviders] = useState<PublicAuthProvider[]>([]);
     const [localAuthEnabled, setLocalAuthEnabled] = useState(false);
     const [authConfigLoaded, setAuthConfigLoaded] = useState(false);
@@ -51,7 +62,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
 
     // The /admin path is the superadmin breakglass: it always shows the local
     // username/password form and never the SSO button.
-    const isAdminRoute = window.location.pathname === '/admin';
+    const isAdminRoute = pathname === '/admin';
 
     // Discover the public auth config so the page renders only the methods that
     // are actually enabled.
@@ -81,31 +92,41 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
 
     // OIDC callback drops the JWT + user JSON into the URL fragment so they
     // never reach server logs. Read it on mount, hand off to onLogin, and
-    // strip the fragment from the URL.
+    // strip the fragment from the URL. Once only: the router flushes the
+    // replace a tick later, so a re-run (StrictMode, a new onLogin) would still
+    // see the fragment, log in twice and replace the restored path with "/".
+    const oidcHandled = useRef(false);
     useEffect(() => {
+        if (oidcHandled.current) return;
         const hash = window.location.hash;
         if (!hash.startsWith('#oidc=')) {
             const params = new URLSearchParams(window.location.search);
             const oidcErr = params.get('oidc_error');
             if (oidcErr) {
+                oidcHandled.current = true;
+                // The SSO attempt is over: its parked path must not apply to a later login.
+                takePostLoginPath();
                 setError(`${t('oidcLoginFailed')} (${oidcErr})`);
                 params.delete('oidc_error');
                 const newSearch = params.toString();
-                window.history.replaceState(null, '', window.location.pathname + (newSearch ? '?' + newSearch : ''));
+                router.history.replace(window.location.pathname + (newSearch ? '?' + newSearch : ''));
             }
             return;
         }
+        oidcHandled.current = true;
         try {
             const encoded = hash.slice('#oidc='.length);
             const json = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
             const payload = JSON.parse(json) as { token: string; user: { id: string; username: string; role: string } };
-            window.history.replaceState(null, '', window.location.pathname);
+            // Back to where the SSO button was pressed (parked before the
+            // round trip), else the callback's own path without the fragment.
+            router.history.replace(takePostLoginPath() ?? window.location.pathname);
             onLogin(payload.token, payload.user);
         } catch (decodeErr) {
             console.error('OIDC fragment decode failed:', decodeErr);
             setError(t('oidcLoginFailed'));
         }
-    }, [onLogin, t]);
+    }, [onLogin, t, router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -121,7 +142,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
 
             const { token, user } = response.data;
             if (isAdminRoute) {
-                window.history.replaceState(null, '', '/');
+                router.history.replace('/');
             }
             onLogin(token, user);
         } catch (err: unknown) {
@@ -134,7 +155,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
     };
 
     if (legalPage) {
-        return <LegalPage page={legalPage} onBack={() => setLegalPage(null)} />;
+        return <LegalPage page={legalPage} onBack={() => navigateTo({ view: 'my-topics' })} />;
     }
 
     /* -----------------------------------------------------------------------
@@ -238,34 +259,25 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
                         >
                             {language.toUpperCase()}
                         </Button>
-                        <Footer onNavigate={setLegalPage} />
+                        <Footer onNavigate={(page) => navigateTo({ view: page })} />
                     </>
                 }
             >
                 <Stack gap="md">
                     {error && (
-                        /* Form-level failure. There is no Alert component in
-                         * the design system, so this stays a plain <div> —
-                         * but its colours now come from the semantic tokens
-                         * the old inline style was bridging to
-                         * (--error-bg -> bg-error-container, --error-text ->
-                         * text-error/border-error), which also removes the
-                         * hardcoded `#fee2e2` fallback.
+                        /* Form-level failure, announced once on insertion
+                         * (`live="assertive"` renders role="alert").
                          *
                          * `id="login-error"` is gone with the two
                          * `aria-describedby` references that used to point at
                          * it: FieldRow's props type forbids `aria-describedby`
                          * and `aria-invalid` at a call site, because
                          * FormControl derives both from the row's own `error`.
-                         * `role="alert"` already announces this message once;
-                         * the old wiring additionally marked BOTH credential
+                         * The old wiring additionally marked BOTH credential
                          * fields invalid for a failure that names neither. */
-                        <div
-                            role="alert"
-                            className="rounded-lg border border-error bg-error-container px-4 py-3 text-center text-sm text-on-error-container"
-                        >
-                            {error}
-                        </div>
+                        <Alert tone="error" live="assertive">
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
                     )}
 
                     {hasPendingJoin && (
@@ -316,7 +328,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
                          * as a button — the href, and with it the OIDC flow,
                          * is untouched. */
                         <Button asChild variant="default" className="w-full">
-                            <a href={`${API_BASE_URL}/api/auth/oidc/login`}>
+                            <a
+                                href={`${API_BASE_URL}/api/auth/oidc/login`}
+                                onClick={() => parkPostLoginPath(window.location.pathname + window.location.search)}
+                            >
                                 <KeyRound size={18} /> {oidcProvider.name || t('loginWithSso')}
                             </a>
                         </Button>

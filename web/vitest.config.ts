@@ -68,7 +68,10 @@ function storybookProject(name: string, configDir: string, tags?: { include: str
       // dev server, which cannot expose its named exports unless the package
       // is pre-bundled. Symptom without this: every *.stories.tsx fails with
       // "does not provide an export named 'elementRoles'".
-      include: ['aria-query', '@testing-library/dom', '@testing-library/user-event']
+      // @tanstack/react-router: discovered mid-run otherwise, and the re-optimise
+      // that follows reloads the page under the running stories with a second
+      // React copy ("Cannot read properties of null (reading 'useState')").
+      include: ['aria-query', '@testing-library/dom', '@testing-library/user-event', '@tanstack/react-router']
     },
     test: {
       name,

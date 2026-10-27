@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -333,13 +334,94 @@ func (d *Deleter) DeleteUserFile(ctx context.Context, ownerID, userFileID string
 		}
 	}
 
+	// Links to chat messages first (migration 0090; the FK cascades too, but
+	// the delete does not lean on it). A message keeps its text; the file
+	// just stops being its attachment.
+	if _, err := d.mainDB.Exec(ctx,
+		`DELETE FROM message_attachments WHERE user_file_id = $1::uuid`, userFileID); err != nil {
+		return fmt.Errorf("cascade DeleteUserFile: delete message links: %w", err)
+	}
 	if _, err := d.mainDB.Exec(ctx,
 		`DELETE FROM user_files WHERE id = $1::uuid AND owner_user_id = $2::uuid`, userFileID, ownerID); err != nil {
 		return fmt.Errorf("cascade DeleteUserFile: delete row: %w", err)
 	}
 
-	// Best-effort and after the row: an orphan blob is cheaper than a row
-	// pointing at nothing. Detached so a client disconnect cannot skip it.
+	d.deleteUserFileObjects(ctx, ownerID, userFileID, storagePath)
+	return nil
+}
+
+// DeleteChatAttachment removes a chat-scoped user file (migration 0090) only
+// if nothing references it: no message, KB copy or library chat. A non-zero
+// staleBefore additionally requires updated_at < staleBefore (the pending
+// sweep's grace). It reports whether the file was deleted.
+//
+// Unlike DeleteUserFile it never touches a KB copy or a message link: the
+// check and the row delete share one transaction that holds the row lock
+// first, so a message, KB copy or library promotion that races it either
+// committed before the check (and keeps the file) or blocks on the lock and
+// fails its FK afterwards. A check followed by DeleteUserFile could delete a
+// file that had just been sent or promoted, with its KB copies.
+func (d *Deleter) DeleteChatAttachment(ctx context.Context, ownerID, userFileID string, staleBefore time.Time) (bool, error) {
+	if _, err := uuid.Parse(userFileID); err != nil {
+		return false, nil
+	}
+	if _, err := uuid.Parse(ownerID); err != nil {
+		return false, nil
+	}
+	tx, err := d.mainDB.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("cascade DeleteChatAttachment: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	// Lock first, check second: the reference check is its own statement, so
+	// under READ COMMITTED it sees every reference committed before the lock
+	// was granted, and later FK inserts wait on the lock.
+	var storagePath string
+	err = tx.QueryRow(ctx, `
+		SELECT storage_path FROM user_files
+		 WHERE id = $1::uuid AND owner_user_id = $2::uuid AND scope = 'chat'
+		   AND ($3::timestamptz IS NULL OR updated_at < $3::timestamptz)
+		   FOR UPDATE`,
+		userFileID, ownerID, nullableTime(staleBefore)).Scan(&storagePath)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("cascade DeleteChatAttachment: lock: %w", err)
+	}
+	var referenced bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM message_attachments WHERE user_file_id = $1::uuid)
+		    OR EXISTS (SELECT 1 FROM files WHERE user_file_id = $1::uuid)
+		    OR EXISTS (SELECT 1 FROM chat_file_refs WHERE user_file_id = $1::uuid)`,
+		userFileID).Scan(&referenced); err != nil {
+		return false, fmt.Errorf("cascade DeleteChatAttachment: check references: %w", err)
+	}
+	if referenced {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM user_files WHERE id = $1::uuid`, userFileID); err != nil {
+		return false, fmt.Errorf("cascade DeleteChatAttachment: delete row: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("cascade DeleteChatAttachment: commit: %w", err)
+	}
+	d.deleteUserFileObjects(ctx, ownerID, userFileID, storagePath)
+	return true, nil
+}
+
+func nullableTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+// deleteUserFileObjects removes a deleted user file's blob and parse cache.
+// Best-effort and after the row: an orphan blob is cheaper than a row
+// pointing at nothing. Detached so a client disconnect cannot skip it.
+func (d *Deleter) deleteUserFileObjects(ctx context.Context, ownerID, userFileID, storagePath string) {
 	bctx := context.WithoutCancel(ctx)
 	if storagePath != "" {
 		if err := d.storage.DeleteFile(bctx, storagePath); err != nil {
@@ -354,7 +436,6 @@ func (d *Deleter) DeleteUserFile(ctx context.Context, ownerID, userFileID string
 		slog.WarnContext(bctx, "cascade: delete library parse cache (best-effort) — orphan objects possible",
 			"user_file_id", userFileID, "error", err)
 	}
-	return nil
 }
 
 func (d *Deleter) userFileIDsByOwner(ctx context.Context, ownerID string) ([]string, error) {
@@ -525,6 +606,14 @@ const (
 	agentRunsOfKBChats    = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
 	adkSessionsOfKBsChats = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
 	agentRunsOfKBsChats   = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
+
+	// Chat attachment links (migration 0090) of the KB's chats. They would
+	// also go with the messages (ON DELETE CASCADE); listed so the delete
+	// does not lean on it. The chat-scoped user files they pointed at are
+	// left for the userfiles pending sweep, which removes them with blob and
+	// caches.
+	attachmentsOfKBChats  = `DELETE FROM message_attachments WHERE message_id IN (SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.kb_id = $1)`
+	attachmentsOfKBsChats = `DELETE FROM message_attachments WHERE message_id IN (SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.kb_id = ANY($1::uuid[]))`
 )
 
 // txStep is one parameterised statement run inside a cascade transaction.
@@ -560,6 +649,7 @@ func kbDeleteSteps(kbID string) []txStep {
 		// Neither has a chats FK, so they go before the chats.
 		{adkSessionsOfKBChats, []any{kbID}},
 		{agentRunsOfKBChats, []any{kbID}},
+		{attachmentsOfKBChats, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_base_shares WHERE kb_id = $1`, []any{kbID}},
@@ -588,6 +678,7 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 			txStep{`DELETE FROM files WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{adkSessionsOfKBsChats, []any{kbIDs}},
 			txStep{agentRunsOfKBsChats, []any{kbIDs}},
+			txStep{attachmentsOfKBsChats, []any{kbIDs}},
 			txStep{`DELETE FROM chats WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM generated_content WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
 			txStep{`DELETE FROM knowledge_base_shares WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -648,6 +739,7 @@ func globalKBDeleteSteps(kbID string) []txStep {
 		// Neither has a chats FK, so they go before the chats.
 		{adkSessionsOfKBChats, []any{kbID}},
 		{agentRunsOfKBChats, []any{kbID}},
+		{attachmentsOfKBChats, []any{kbID}},
 		{`DELETE FROM chats WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM generated_content WHERE kb_id = $1`, []any{kbID}},
 		{`DELETE FROM knowledge_bases WHERE id = $1 AND visibility = 'public'`, []any{kbID}},

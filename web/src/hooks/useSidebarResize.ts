@@ -27,10 +27,9 @@ import { STORAGE_NAMESPACE } from './useStoredFlag';
  * (`useSidebarCollapse`) is the one open-state that IS remembered, and that
  * stays its own decision.
  *
- * DEFAULTS. Both 320px — the developer asked for the two columns to match,
- * with the right one narrower than its old 500 and the left wider than the
- * shell's 256 (2026-09-21). BOUNDS are the ones the old drag code enforced
- * (left 150–600; right 300–800, raised from 150 on 21.09.2026); they are the `ResizeHandle`'s
+ * DEFAULTS. Left 320px, wider than the shell's 256 (2026-09-21). Right 360px
+ * since 2026-10-12, see RIGHT_SIDEBAR_BOUNDS. BOUNDS are the ones the old drag
+ * code enforced (left 150–600; right 360–800); they are the `ResizeHandle`'s
  * `aria-valuemin/max` and what a stored value is clamped into on read.
  * ------------------------------------------------------------------------- */
 
@@ -38,12 +37,14 @@ export const LEFT_SIDEBAR_WIDTH_KEY = `${STORAGE_NAMESPACE}kb.sidebar.left.width
 export const RIGHT_SIDEBAR_WIDTH_KEY = `${STORAGE_NAMESPACE}kb.sidebar.right.width`;
 
 export const LEFT_SIDEBAR_BOUNDS = { min: 150, max: 600 } as const;
-// Right minimum 300 (developer, 21.09.2026): below that the source cards'
-// title, meta line and three row actions no longer fit on one row. A stored
-// narrower width from before this rule is clamped up on read.
-export const RIGHT_SIDEBAR_BOUNDS = { min: 300, max: 800 } as const;
+// Right minimum and default 360 (developer, 2026-10-12; was 300/320): the
+// "Quellen hinzufügen" tiles need it for their labels on one line — at 320 a
+// tile leaves 89px for a label and "Datei hochladen" takes 99px; 360 adds
+// headroom for other fonts. A stored narrower width is clamped up on read.
+export const RIGHT_SIDEBAR_BOUNDS = { min: 360, max: 800 } as const;
 
 const DEFAULT_SIDEBAR_WIDTH = 320;
+const DEFAULT_RIGHT_SIDEBAR_WIDTH = RIGHT_SIDEBAR_BOUNDS.min;
 
 export function useSidebarResize() {
   const [leftSidebarWidth, setLeftSidebarWidth] = usePersistedWidth(LEFT_SIDEBAR_WIDTH_KEY, {
@@ -52,7 +53,7 @@ export function useSidebarResize() {
     maxWidth: LEFT_SIDEBAR_BOUNDS.max,
   });
   const [rightSidebarWidth, setRightSidebarWidth] = usePersistedWidth(RIGHT_SIDEBAR_WIDTH_KEY, {
-    defaultWidth: DEFAULT_SIDEBAR_WIDTH,
+    defaultWidth: DEFAULT_RIGHT_SIDEBAR_WIDTH,
     minWidth: RIGHT_SIDEBAR_BOUNDS.min,
     maxWidth: RIGHT_SIDEBAR_BOUNDS.max,
   });

@@ -5,6 +5,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { Edge } from '@xyflow/react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { Save, Undo2 } from 'lucide-react';
 import type {
   AgentBindingOption, NodeActivation, WorkflowGraph, WorkflowLane, WorkflowNodeData,
@@ -706,9 +707,11 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
         </div>
 
         {error ? (
-          <p className="wf-canvas__error" role="alert">
-            Der Workflow konnte nicht geladen werden ({error}).
-          </p>
+          <div className="p-4">
+            <Alert tone="error" live="assertive">
+              <AlertDescription>Der Workflow konnte nicht geladen werden ({error}).</AlertDescription>
+            </Alert>
+          </div>
         ) : (
           <>
             {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- event delegation only: each interactive descendant (React Flow's own node wrapper — tabIndex=0, role="group" — and the inspector's close button) already owns real keyboard/focus semantics; giving this wrapper its own role/tabIndex would add a second, redundant tab stop over the whole canvas */}

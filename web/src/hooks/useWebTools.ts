@@ -1,18 +1,29 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import type { PreviewBack } from '../components/PreviewHeader';
 import axios from 'axios';
-import type { KnowledgeBase, FileEntry } from '../types';
+import type { FileEntry, KnowledgeBase } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { parseSseStream } from '../utils/sseParser';
 import { getApiErrorMessage } from '../utils/apiError';
+import { previewKindOf } from '../utils/previewKind';
+import { userErrorMessage } from '../utils/userErrors';
+import type { MediaKind } from '../components/MediaPreviewModal';
 
 interface UseWebToolsParams {
   currentKb: KnowledgeBase | null;
   fetchFiles: (kbId: string) => Promise<void>;
+  /** The KB's file list: a preview opened by id (a citation, a search hit) reads the stored MIME type from it. */
+  files?: FileEntry[];
 }
 
-export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
+/** Where a preview was opened from, for its back link. */
+export interface PreviewOptions {
+  back?: PreviewBack;
+}
+
+export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsParams) {
   const { language, t } = useTheme();
   const toast = useToast();
   const [toolTab, setToolTab] = useState<'websearch' | 'crawl' | 'research' | 'rss'>('websearch');
@@ -22,11 +33,15 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
   const [crawlResults, setCrawlResults] = useState<{ title: string; content: string; url: string; isEdited?: boolean }[]>([]);
   const [searchResults, setSearchResults] = useState<{ title: string; snippet: string; url: string; content?: string; isEdited?: boolean }[]>([]);
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text' } | null>(null);
+  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text'; back?: PreviewBack; extractedFrom?: string; origin?: string } | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number } | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number; back?: PreviewBack; downloadPath?: string } | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
-  const [tabularFile, setTabularFile] = useState<{ fileId: string; fileName: string } | null>(null);
+  const [tabularFile, setTabularFile] = useState<{ fileId: string; fileName: string; back?: PreviewBack } | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<{ fileId: string; fileName: string; kind: MediaKind; back?: PreviewBack; userFileId?: string } | null>(null);
+  // Read at call time, so the handlers stay stable while the list polls.
+  const filesRef = useRef(files);
+  useEffect(() => { filesRef.current = files; }, [files]);
   const [showTabularModal, setShowTabularModal] = useState(false);
   const [toolLoading, setToolLoading] = useState(false);
   const [showWebWorkspace, setShowWebWorkspace] = useState(false);
@@ -301,22 +316,23 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     }
   }, [toolTab, searchResults, crawlResults, currentKb, t, toast]);
 
-  const handlePdfSourceOpen = useCallback((fileId: string, fileName: string, page: number) => {
-    setPdfPreview({ fileId, fileName, page });
+  const handlePdfSourceOpen = useCallback((fileId: string, fileName: string, page: number, back?: PreviewBack) => {
+    setPdfPreview({ fileId, fileName, page, back });
     setShowPdfPreview(true);
   }, []);
 
-  const handleOpenTabular = useCallback((file: FileEntry) => {
-    setTabularFile({ fileId: file.id, fileName: file.name });
+  const handleOpenTabular = useCallback((fileId: string, fileName: string, back?: PreviewBack) => {
+    setTabularFile(back ? { fileId, fileName, back } : { fileId, fileName });
     setShowTabularModal(true);
   }, []);
 
-  const fetchFileContent = useCallback(async (fileId: string, fileName: string, format: 'markdown' | 'text' = 'markdown') => {
+  // `downloadPath` reads a file that is not a KB file (a chat attachment from the owner's library).
+  const fetchFileContent = useCallback(async (fileId: string, fileName: string, format: 'markdown' | 'text' = 'markdown', back?: PreviewBack, downloadPath?: string, origin?: string) => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, {
+      const res = await axios.get(`${API_BASE_URL}${downloadPath ?? `/api/files/${fileId}/download`}`, {
         responseType: 'text'
       });
-      setPreviewPage({ title: fileName, content: res.data, url: '', format });
+      setPreviewPage({ title: fileName, content: res.data, url: '', format, back, origin });
       setShowPreviewModal(true);
     } catch (err: unknown) {
       console.error('Failed to fetch file content:', err);
@@ -324,26 +340,88 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     }
   }, [t, toast]);
 
-  const handlePreviewSource = useCallback((fileOrId: import('../types').FileEntry | string, fileName?: string) => {
-    const id = typeof fileOrId === 'string' ? fileOrId : fileOrId.id;
-    const name = typeof fileOrId === 'string' ? fileName! : fileOrId.name;
-    const type = typeof fileOrId === 'string' ? undefined : fileOrId.type;
-
-    const lowerName = name.toLowerCase();
-    const isPdf = lowerName.endsWith('.pdf') || type === 'application/pdf';
-    const isTextOrMd = lowerName.endsWith('.md') || lowerName.endsWith('.txt') || type === 'text/markdown' || type === 'text/plain';
-
-    if (isPdf) {
-      handlePdfSourceOpen(id, name, 1);
-    } else if (isTextOrMd) {
-      // Markdown by name or type only: „Text einfügen" saves with a `.md`
-      // suffix (useFileManagement), so older plain-text sources stay literal.
-      const isMarkdown = /\.(md|markdown)$/.test(lowerName) || type === 'text/markdown';
-      fetchFileContent(id, name, isMarkdown ? 'markdown' : 'text');
-    } else {
-      toast.info(t('previewNotSupported'));
+  // A Word / slides / ODT / EPUB / TeX source: the text the server extracts
+  // from it, in the text viewer (the download stays the original file).
+  const fetchDocumentText = useCallback(async (fileId: string, fileName: string, back?: PreviewBack) => {
+    try {
+      const res = await axios.get<{ text: string; markdown: boolean }>(`${API_BASE_URL}/api/files/${fileId}/text`);
+      setPreviewPage({
+        title: fileName, content: res.data.text, url: '',
+        format: res.data.markdown ? 'markdown' : 'text', back, extractedFrom: fileId,
+      });
+      setShowPreviewModal(true);
+    } catch (err: unknown) {
+      console.error('Failed to fetch document text:', err);
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'previewLoadError' }));
     }
-  }, [handlePdfSourceOpen, fetchFileContent, t, toast]);
+  }, [t, toast]);
+
+  // Every way a source is opened lands here: the source list (a FileEntry),
+  // a citation, a source card, the source panel and a search hit (an id and a
+  // name; the MIME type is then read from the KB's file list when it has the
+  // file). The kind is the shared decision (utils/previewKind), the one the
+  // hover thumbnail reads too.
+  const handlePreviewSource = useCallback((fileOrId: FileEntry | string, fileName?: string, options?: PreviewOptions) => {
+    const entry = typeof fileOrId === 'string' ? filesRef.current.find(f => f.id === fileOrId) : fileOrId;
+    const id = typeof fileOrId === 'string' ? fileOrId : fileOrId.id;
+    const name = fileName ?? entry?.name ?? '';
+    const back = options?.back;
+    const kind = previewKindOf({ name, type: entry?.type });
+
+    switch (kind) {
+      case 'pdf':
+        handlePdfSourceOpen(id, name, 1, back);
+        break;
+      case 'spreadsheet':
+        handleOpenTabular(id, name, back);
+        break;
+      case 'markdown':
+        fetchFileContent(id, name, 'markdown', back, undefined, entry?.origin);
+        break;
+      case 'text':
+        fetchFileContent(id, name, 'text', back, undefined, entry?.origin);
+        break;
+      case 'document':
+        fetchDocumentText(id, name, back);
+        break;
+      case 'image':
+      case 'audio':
+      case 'video':
+        setMediaPreview({ fileId: id, fileName: name, kind, back });
+        break;
+      default:
+        toast.info(t('previewNotSupported'));
+    }
+  }, [handlePdfSourceOpen, handleOpenTabular, fetchFileContent, fetchDocumentText, t, toast]);
+
+  // A chat attachment: the caller's own user file, never a KB file (no KB
+  // file id), so it loads from the owner-only library route. Its kind is the
+  // same decision; Word-type documents and spreadsheets have no
+  // library-side extraction yet and get the "no preview" toast.
+  const handlePreviewUserFile = useCallback((file: { userFileId: string; name: string; mime?: string }) => {
+    const { userFileId: id, name } = file;
+    const downloadPath = `/api/library/files/${id}/download`;
+    const kind = previewKindOf({ name, type: file.mime });
+    switch (kind) {
+      case 'pdf':
+        setPdfPreview({ fileId: id, fileName: name, page: 1, downloadPath });
+        setShowPdfPreview(true);
+        break;
+      case 'markdown':
+      case 'text':
+        fetchFileContent(id, name, kind, undefined, downloadPath);
+        break;
+      case 'image':
+      case 'audio':
+      case 'video':
+        setMediaPreview({ fileId: id, fileName: name, kind, userFileId: id });
+        break;
+      default:
+        toast.info(t('previewNotSupported'));
+    }
+  }, [fetchFileContent, t, toast]);
+
+  const closeMediaPreview = useCallback(() => setMediaPreview(null), []);
 
   return useMemo(() => ({
     toolTab, setToolTab, toolInput, setToolInput,
@@ -352,21 +430,23 @@ export function useWebTools({ currentKb, fetchFiles }: UseWebToolsParams) {
     previewPage, showPreviewModal, setShowPreviewModal,
     pdfPreview, showPdfPreview, setShowPdfPreview,
     tabularFile, showTabularModal, setShowTabularModal,
+    mediaPreview, closeMediaPreview,
     toolLoading, showWebWorkspace, setShowWebWorkspace,
     webResearchRunning, webResearchStatus, webResearchProgress,
     handleWebResearch, handleCancelWebResearch, handleToolSubmit,
     handleAddSources, handleUpdateWebResult, handleStartEditWebResult,
-    handlePdfSourceOpen, fetchFileContent, handlePreviewSource, handleOpenTabular,
+    handlePdfSourceOpen, handlePreviewSource, handlePreviewUserFile,
   }), [
     toolTab, toolInput, crawlMaxPages, searchResultsCount,
     crawlResults, searchResults, selectedPages, sourcesAddedCount,
     previewPage, showPreviewModal,
     pdfPreview, showPdfPreview,
     tabularFile, showTabularModal,
+    mediaPreview, closeMediaPreview,
     toolLoading, showWebWorkspace,
     webResearchRunning, webResearchStatus, webResearchProgress,
     handleWebResearch, handleCancelWebResearch, handleToolSubmit,
     handleAddSources, handleUpdateWebResult, handleStartEditWebResult,
-    handlePdfSourceOpen, fetchFileContent, handlePreviewSource, handleOpenTabular
+    handlePdfSourceOpen, handlePreviewSource, handlePreviewUserFile
   ]);
 }

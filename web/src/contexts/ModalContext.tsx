@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import { useModal } from '../hooks/useModal';
+import { useModal, type ConfirmOptions } from '../hooks/useModal';
 import { Modal } from '../components/Modal';
 import type { ModalState } from '../components/Modal';
 
@@ -7,7 +7,8 @@ interface ModalContextValue {
   modal: ModalState;
   setModal: React.Dispatch<React.SetStateAction<ModalState>>;
   showAlert: (message: string, title?: string) => Promise<void>;
-  showConfirm: (message: string, title?: string) => Promise<boolean>;
+  /** Resolves true on confirm. Destructive actions pass `{ tone: 'destructive', confirmLabel }`. */
+  showConfirm: (message: string, title?: string, options?: ConfirmOptions) => Promise<boolean>;
   showPrompt: (message: string, defaultValue?: string, title?: string) => Promise<string | null>;
 }
 

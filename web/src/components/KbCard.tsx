@@ -6,7 +6,8 @@ import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
 import { formatRelativeCoarse } from '../utils/dates';
-import { canOpenKbAdvancedSettings, canRenameKb } from '../utils/kbAccess';
+import { KbListRow } from './KbListRow';
+import { canOpenKbAdvancedSettings, canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
@@ -88,15 +89,6 @@ function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
       {visibilityBadge(kb, t)}
     </Badge>
   );
-}
-
-// canManageMembers gates the members-dialog trigger: admins and owners
-// manage membership, edit/view callers don't. Checking myRole (not the
-// legacy kb.userId === user.id owner comparison) is what makes the admin
-// tier reachable from the UI at all — an admin who isn't the owner used to
-// have no way to open the dialog.
-function canManageMembers(kb: KnowledgeBase): boolean {
-  return kb.myRole === 'admin' || kb.myRole === 'owner';
 }
 
 // A scent chip shows icon + count only; the full phrase ("36 Dateien") is the
@@ -292,6 +284,7 @@ export interface PrivateKbCardProps {
   t: T;
   language: Language;
   onSelectKB: (kb: KnowledgeBase) => void;
+  /** „Teilen": opens the topic with Thema-Einstellungen on Mitglieder. */
   onOpenShare: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** One compact line instead of a card — the list view. */
@@ -309,9 +302,9 @@ export interface PrivateKbCardProps {
  * `React.MouseEvent`.
  */
 function kbCardActions({
-  kb, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
 }: Pick<PrivateKbCardProps,
-  'kb' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
+  'kb' | 'currentUserId' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
 ): ActionMenuItem[] {
   const asMouse = (e: Event) => e as unknown as React.MouseEvent;
   // The favorite is ungated — the caller's own flag, not a permission. Its
@@ -321,23 +314,33 @@ function kbCardActions({
     icon: <Star size={16} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />,
     onSelect: e => onToggleFavorite(kb, asMouse(e)),
   }];
-  if (canManageMembers(kb)) {
+  // Teilen opens Thema-Einstellungen → Mitglieder, so it is offered exactly
+  // where that window is: the same predicate as the workspace's gear.
+  if (canOpenKbTopicSettings(kb, systemRole, currentUserId)) {
     items.push({ label: t('share'), icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
   }
   // Rename: owner-only (superadmin resolves to owner), mirroring
   // kbaccess.CanRename on the server — a KB admin edits everything but the name.
   if (canRenameKb(kb, systemRole)) {
-    items.push({ label: t('renameKb'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
+    items.push({ label: t('rename'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
   }
   // RAG settings: kbAdvancedChain needs a system role in {api-user, admin,
-  // superadmin} on top of the KB admin role — not the members gate.
-  if (canOpenKbAdvancedSettings(kb, systemRole)) {
-    items.push({ label: t('kbAdvancedSettings'), icon: <SlidersHorizontal size={16} aria-hidden="true" />, onSelect: e => onOpenKbSettings(kb, asMouse(e)) });
+  // superadmin} on top of the KB admin role — not the members gate. The card
+  // offers it to system admins only (developer, 2026-10-13), badged as such;
+  // an api-user still passes the server gate but gets no entry here.
+  const isSystemAdmin = systemRole === 'admin' || systemRole === 'superadmin';
+  if (isSystemAdmin && canOpenKbAdvancedSettings(kb, systemRole)) {
+    items.push({
+      label: t('kbAdvancedSettings'),
+      badge: t('roleAdmin'),
+      icon: <SlidersHorizontal size={16} aria-hidden="true" />,
+      onSelect: e => onOpenKbSettings(kb, asMouse(e)),
+    });
   }
   // Owners delete the KB, everyone else only leaves it (useKbRemoval decides
   // the request). Disabled while any removal is in flight.
   items.push({
-    label: kb.myRole === 'owner' ? t('deleteKb') : t('removeFromMyView'),
+    label: kb.myRole === 'owner' ? t('delete') : t('removeFromMyView'),
     icon: <Trash2 size={16} aria-hidden="true" />,
     destructive: true,
     disabled: removingKb,
@@ -360,7 +363,7 @@ export function PrivateKbCard({
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
-      actions={kbCardActions({ kb, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
+      actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
       label={`${t('kbActions')}: ${kb.name}`}
       triggerClassName="size-6 rounded-[var(--ui-radius-control)]"
     />
@@ -405,30 +408,27 @@ export function PrivateKbCard({
      asymmetric inset reads as a mistake rather than as rhythm. */
   if (compact) {
     return (
-      <div
-        className="flex cursor-pointer items-center gap-stack-md rounded-[var(--ui-radius-card)] border border-outline-variant bg-surface-container-lowest p-stack-md transition-colors hover:bg-secondary-container"
-        role="presentation"
+      <KbListRow
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-      >
-        {favStar}
-        <div className="flex min-w-0 flex-1 items-center font-body-base text-body-base text-on-surface">
-          <span className="truncate">{nameButton}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-stack-sm">
-          {/* No freshness chip in the row (KI-848). It used to show the
-              OLDEST file's date; the card's replacement, „Aktualisiert
-              {relative}", is text, and ~150px of text on top of the row's
-              existing „Zuletzt aktiv …" line pushes the worst-case row
-              (four-digit counts, processing chip, „Geteilt (12)") past its
-              width. The row keeps one date line, the card carries both. */}
-          <KbCardChips kb={kb} t={t} layout="row" />
-          <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
-            {lastActiveLabel(kb, rtf, t)}
-          </span>
-          <VisibilityBadge kb={kb} t={t} />
-          {menu}
-        </div>
-      </div>
+        leading={favStar}
+        name={<span className="truncate">{nameButton}</span>}
+        trailing={(
+          <>
+            {/* No freshness chip in the row. It used to show the
+                OLDEST file's date; the card's replacement, „Aktualisiert
+                {relative}", is text, and ~150px of text on top of the row's
+                existing „Zuletzt aktiv …" line pushes the worst-case row
+                (four-digit counts, processing chip, „Geteilt (12)") past its
+                width. The row keeps one date line, the card carries both. */}
+            <KbCardChips kb={kb} t={t} layout="row" />
+            <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
+              {lastActiveLabel(kb, rtf, t)}
+            </span>
+            <VisibilityBadge kb={kb} t={t} />
+            {menu}
+          </>
+        )}
+      />
     );
   }
 

@@ -5,13 +5,11 @@ import { MyTopicsView } from './MyTopicsView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
-import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbSearchState } from '../hooks/useKbSearchState';
-import { useSharing } from '../hooks/useSharing';
 import type { SearchChatTarget } from '../hooks/useSearchNavigation';
 import { expectFooterInsideCard, expectUniformCardHeights } from '../test/kbCardGeometry';
-import type { KnowledgeBase, User } from '../types';
+import type { KbSettingsSection, KnowledgeBase, User } from '../types';
 
 /** Opens the (first) topic card's ⋮ menu — the card actions live there. The
  *  menu is portaled to <body>, so it is found through `screen`. */
@@ -44,23 +42,15 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
  *
  * WHAT THE HARNESS MAY NOT DO, and this is the part worth reading twice.
  * It supplies providers and it supplies data. It does not supply BEHAVIOUR.
- * The one place that distinction nearly broke down is `onOpenShare`: the
- * production handler (`useSharing.handleOpenShare`, src/hooks/useSharing.ts:26)
- * opens with `e.stopPropagation()`, and it has to, because the share button
- * sits inside a card whose own onClick selects the KB. `MyTopicsView` does not stop
- * that propagation itself — it delegates it to whoever supplies the handler.
- *
- * UPDATE (KI-770, the refactor this file was written to guard). The handler is
- * no longer a prop: it arrives through `SharingContext`, and the harness now
- * mounts the REAL `useSharing()` hook instead of the five `useState`s and the
- * hand-copied `stopPropagation()` line it used to carry. That removes the
- * mirror rather than re-pointing it — the story exercises production's own
- * handler, so the coupling can no longer be faithfully reproduced and wrong at
- * the same time. `SharingDoesNotAlsoOpenTheKb` is the story that pins it, and
- * it was the one behaviour named in advance as able to break silently. The
- * only members the harness still overrides are the clipboard pair,
- * `copyUserId` and `copySuccess` — see `StorySharingProvider` for why those
- * two cannot be the app's own in a test runner.
+ * The one place that distinction nearly broke down is „Teilen": the share
+ * item sits inside a card whose own onClick selects the KB, so the click has
+ * to be stopped before it reaches the card. That `e.stopPropagation()` now
+ * lives in `MyTopicsView`'s own `handleShare`, which then asks
+ * `AppNavContext.onOpenTopicSettings` for the topic's Thema-Einstellungen on
+ * Mitglieder. The harness supplies that jump as a spy (`onOpenTopicSettings`
+ * in `args`) and nothing else, so the propagation stop is production's own
+ * code. `SharingDoesNotAlsoOpenTheKb` is the story that pins it, and it was
+ * the one behaviour named in advance as able to break silently.
  *
  * UPDATE (KI-776, the SECOND refactor this file was written to guard — the move
  * onto `AppShellLayout` + `SectionedGridLayout`). The harness is unchanged: the
@@ -86,15 +76,18 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
  * The four behavioural oracles named in advance as MUST-NOT-CHANGE did not: the
  * owned/shared split, the unmount-on-collapse property including the second
  * `/api/kb/catalog` request, `SharingDoesNotAlsoOpenTheKb`, and the
- * single-`<h1>` count. `SharingDoesNotAlsoOpenTheKb` and
- * `ShareDialogLoadingFallback` are untouched byte-for-byte.
+ * single-`<h1>` count. `SharingDoesNotAlsoOpenTheKb` was rewritten when the
+ * members dialog left this view: „Teilen" now hands the topic to
+ * Thema-Einstellungen instead of opening a dialog here, so the story asserts
+ * that hand-off — what must still not happen, the card opening as well, is
+ * unchanged. The dialog-loading story (`ShareDialogOpensWithoutPlaceholder`)
+ * went with the dialog.
  *
  * MOCKING IS AT THE NETWORK BOUNDARY, per the pattern KI-728 established
- * (.storybook/mockApi.ts). `MyTopicsView` itself issues no request — its two KB
- * lists arrive as props — but two of its children do, and both are answered
- * there rather than replaced: the discovery panel (`/api/kb-categories`,
- * `/api/kb/catalog`) and the lazily loaded members dialog
- * (`/api/kb/{id}/members`, `/api/kb/{id}/invite-links`).
+ * (.storybook/mockApi.ts). `MyTopicsView` itself issues no request — its KB
+ * list arrives as a prop — but its children do, and they are answered there
+ * rather than replaced: the discovery panel (`/api/kb-categories`,
+ * `/api/kb/catalog`).
  *
  * THE TWO CONTEXTS ARE THE REAL ONES. `MyTopicsView` reads `useTheme` and
  * `useAuth`. `ThemeProvider` comes from .storybook/preview.tsx and runs the
@@ -186,11 +179,8 @@ interface MyTopicsViewStoryArgs {
   globalKbs: KnowledgeBase[];
   user: User;
   siteConfigs: Record<string, string>;
-  copySuccess: boolean;
   removingKb: boolean;
-  onCopyUserId: () => void;
   onViewProfile: () => void;
-  onViewAdmin: () => void;
   onViewSharedKbs: () => void;
   onLogout: () => void;
   onCreateKB: () => void;
@@ -200,37 +190,8 @@ interface MyTopicsViewStoryArgs {
   onOpenTopic: (kbId: string) => void;
   /** …and its chat destination, for chat AND message hits. */
   onOpenChat: (target: SearchChatTarget) => void;
-}
-
-/**
- * Runs the production `useSharing()` hook and publishes it, with the one
- * override a story needs to be able to drive.
- *
- * It is a separate component because the hook calls `useToast()` and
- * `useTheme()`, both of which .storybook/preview.tsx mounts ABOVE the story —
- * so the hook has to run inside that tree, not beside it.
- *
- * EXACTLY TWO MEMBERS ARE OVERRIDDEN, and both for the same reason: they are
- * the CLIPBOARD pair. `copyUserId` writes to `navigator.clipboard`, which the
- * runner does not grant and which would make the assertion a statement about
- * browser permissions; `copySuccess` is the 2s-timer flag that write sets, so
- * no interaction a story can perform reaches the confirmed state either. Both
- * were already spies/args before KI-770 and stay exactly as faithful as they
- * were. Everything else — `handleOpenShare` and its `e.stopPropagation()`
- * above all — is the app's own.
- */
-function StorySharingProvider({ username, copySuccess, onCopyUserId, children }: {
-  username: string;
-  copySuccess: boolean;
-  onCopyUserId: () => void;
-  children: React.ReactNode;
-}) {
-  const sharing = useSharing({ username });
-  return (
-    <SharingProvider value={{ ...sharing, copySuccess, copyUserId: onCopyUserId }}>
-      {children}
-    </SharingProvider>
-  );
+  /** Where „Teilen" leads: the topic's Thema-Einstellungen on a section. */
+  onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
 }
 
 /**
@@ -268,48 +229,44 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
       siteConfigs={args.siteConfigs}
     >
       <ModalProvider>
-        <StorySharingProvider
-          username={args.user.username}
-          copySuccess={args.copySuccess}
-          onCopyUserId={args.onCopyUserId}
+        <AppNavProvider
+          value={{
+            /* `onViewMyTopics` is an `idle()` spy and not an arg: on THIS
+               view its row is the current page, so pressing it is a no-op by
+               construction and no story has anything to assert about it. The
+               other three lead somewhere from here. */
+            onViewMyTopics: idle(),
+            onViewSharedTopics: args.onViewSharedKbs,
+            onViewDiscover: idle(),
+            onViewTools: idle(),
+            onViewProfile: args.onViewProfile,
+            onEditGlobalKb: idle(),
+            onViewLegal: idle(),
+            // The header search's destinations (KI-837).
+            onOpenTopic: args.onOpenTopic,
+            onOpenSource: idle(),
+            onOpenChat: args.onOpenChat,
+            onOpenTopicSettings: args.onOpenTopicSettings,
+          }}
         >
-          <AppNavProvider
-            value={{
-              /* `onViewMyTopics` is an `idle()` spy and not an arg: on THIS
-                 view its row is the current page, so pressing it is a no-op by
-                 construction and no story has anything to assert about it. The
-                 other three lead somewhere from here. */
-              onViewMyTopics: idle(),
-              onViewSharedTopics: args.onViewSharedKbs,
-              onViewDiscover: idle(),
-              onViewTools: idle(),
-              onViewProfile: args.onViewProfile,
-              onViewAdmin: args.onViewAdmin,
-              // The header search's destinations (KI-837).
-              onOpenTopic: args.onOpenTopic,
-              onOpenSource: idle(),
-              onOpenChat: args.onOpenChat,
-            }}
-          >
-            <StoryKbSearchProvider>
-            <MyTopicsView
-              kbs={args.kbs}
-              currentKb={null}
-              availableConfigs={[]}
-              onCreateKB={args.onCreateKB}
-              onSelectKB={args.onSelectKB}
-              onDeleteKB={idle()}
-              removingKb={args.removingKb}
-              onOpenKbSettings={idle()}
-              onRenameKB={idle()}
-          onToggleFavorite={idle()}
-              onUpdateKBSettings={idle()}
-              showSettings={showSettings}
-              setShowSettings={setShowSettings}
-            />
-            </StoryKbSearchProvider>
-          </AppNavProvider>
-        </StorySharingProvider>
+          <StoryKbSearchProvider>
+          <MyTopicsView
+            kbs={args.kbs}
+            currentKb={null}
+            availableConfigs={[]}
+            onCreateKB={args.onCreateKB}
+            onSelectKB={args.onSelectKB}
+            onDeleteKB={idle()}
+            removingKb={args.removingKb}
+            onOpenKbSettings={idle()}
+            onRenameKB={idle()}
+            onToggleFavorite={idle()}
+            onUpdateKBSettings={idle()}
+            showSettings={showSettings}
+            setShowSettings={setShowSettings}
+          />
+          </StoryKbSearchProvider>
+        </AppNavProvider>
       </ModalProvider>
     </AuthProvider>
   );
@@ -398,6 +355,9 @@ const USER_MENU_NAMES: (string | RegExp)[] = [
   'Mein Profil',
   // Opens the settings window with the appearance preferences (24.09.2026).
   'Einstellungen',
+  // The legal pages' submenu (a Radix sub-trigger is a menuitem too): before
+  // it they were linked from the login page's footer only.
+  'Hilfe',
   'Abmelden',
 ];
 
@@ -542,11 +502,8 @@ const meta = {
     globalKbs: [],
     user: USER,
     siteConfigs: SITE_CONFIGS,
-    copySuccess: false,
     removingKb: false,
-    onCopyUserId: fn(),
     onViewProfile: fn(),
-    onViewAdmin: fn(),
     onViewSharedKbs: fn(),
     onLogout: fn(),
     onCreateKB: fn(),
@@ -554,6 +511,7 @@ const meta = {
     onOpenKbById: fn(),
     onOpenTopic: fn(),
     onOpenChat: fn(),
+    onOpenTopicSettings: fn(),
   },
 } satisfies Meta<typeof MyTopicsViewHarness>;
 
@@ -726,7 +684,7 @@ export const OwnedOnly: Story = {
     await expect(badges).toHaveLength(3);
     await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(3);
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeInTheDocument();
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toBeInTheDocument();
     await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
@@ -795,7 +753,7 @@ export const RemovalInFlight: Story = {
      * reaches a removal control. */
     // The card actions are menu items now: Radix's `data-disabled` is the state.
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Knowledge Base löschen' })).toHaveAttribute('data-disabled');
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toHaveAttribute('data-disabled');
 
     // Controls that are NOT removals stay live, which is what makes the
     // assertion above about `removingKb` rather than about a disabled page.
@@ -821,122 +779,42 @@ export const RemovalInFlight: Story = {
 
 
 /* ===========================================================================
- * State 5 — the loading state
- * ======================================================================== */
-
-/**
- * `LoadingFallback` (MyTopicsView.tsx:65) — three `KBCardSkeleton`s in a list
- * marked `aria-busy`. It has exactly one trigger: the `Suspense` boundary
- * around the lazily imported members dialog, shown while that chunk is in
- * flight. So the honest way to reach it is to open the dialog, which is what
- * this story does; there is no state flag that produces it.
- *
- * WHY A MutationObserver AND NOT A QUERY. The fallback is transient by
- * definition — it is replaced the moment the dynamic import settles. A
- * `findBy*` would be a race between the assertion's first poll and a module
- * fetch, and it would pass or fail depending on whether another story had
- * already warmed that chunk. The observer is armed BEFORE the click and records
- * every mutation, so it sees the fallback whether it lived for one frame or
- * fifty. What it cannot do is prove how LONG it was shown, and that is not
- * pinned here.
- *
- * KNOWN-DEFECT PIN: `aria-label="Loading..."` is a bare English literal in a
- * view whose every other string goes through `t()`, so a German-language user
- * is announced an English word. Asserted as it stands, and written up on card
- * KI-774 rather than repaired here.
- */
-export const ShareDialogLoadingFallback: Story = {
-  args: { kbs: [OWNED_ONE] },
-  parameters: {
-    api: { kbMembers: { members: [], pending: [] }, kbInviteLinks: [] },
-  },
-  play: async ({ canvas, canvasElement, userEvent }) => {
-    const seen: Array<{ label: string | null; skeletons: number }> = [];
-    const observer = new MutationObserver(() => {
-      const busy = canvasElement.querySelector('[aria-busy="true"]');
-      if (busy !== null) {
-        seen.push({
-          label: busy.getAttribute('aria-label'),
-          skeletons: busy.querySelectorAll('.skeleton-kb-card').length,
-        });
-      }
-    });
-    observer.observe(canvasElement, { childList: true, subtree: true });
-
-    // Nothing is busy before the dialog is asked for.
-    await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
-
-    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
-
-    await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
-    });
-    observer.disconnect();
-
-    /* ORACLE: the DOM mutations the browser reported, captured independently of
-     * anything the component returns. Three skeleton cards and the untranslated
-     * label are the fallback's whole contract. */
-    await expect(seen.length).toBeGreaterThan(0);
-    await expect(seen[0].label).toBe('Loading...');
-    await expect(seen[0].skeletons).toBe(3);
-
-    // And the state it resolves into, so the story also pins that the fallback
-    // is a way-station rather than the end of the interaction.
-    await expect(canvas.getByRole('dialog')).toHaveAttribute(
-      'aria-labelledby',
-      'members-modal-title',
-    );
-    await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
-  },
-};
-
-/* ===========================================================================
  * The one behaviour KI-770 was told in advance it could break silently
  * ======================================================================== */
 
 /**
- * Clicking "Teilen" must open the members dialog and NOT also open the KB.
+ * Clicking "Teilen" must hand the topic to Thema-Einstellungen on Mitglieder
+ * and NOT also open the KB through the card.
  *
- * WHY THIS STORY EXISTS. The share button sits inside a `<li>` whose own
- * `onClick` calls `onSelectKB` (MyTopicsView.tsx, `PrivateKbCard`). `MyTopicsView`
- * never stops that propagation: the `e.stopPropagation()` that makes the two
- * actions distinguishable lives in `useSharing.handleOpenShare`
- * (src/hooks/useSharing.ts:27) — i.e. OUTSIDE the component, in the handler its
- * caller supplies. KI-774's review named this as the single place where moving
- * the sharing concern into context could change behaviour with every other
- * story still green, and it was right: nothing else in this file clicks that
- * button and then looks at what else fired.
+ * WHY THIS STORY EXISTS. The share item sits inside a card whose own
+ * `onClick` calls `onSelectKB` (`PrivateKbCard` in KbCard.tsx). The
+ * `e.stopPropagation()` that makes the two actions distinguishable lives in
+ * `MyTopicsView`'s `handleShare`, the handler it passes the card as
+ * `onOpenShare`. Nothing else in this file clicks that item and then looks at
+ * what else fired, so this is the story that would notice the stop going
+ * missing.
  *
  * ORACLE, and why it is independent of the code under test. The expectation is
  * not a number this view produces. It is the pair of `fn()` spies in `args`:
- * `onSelectKB` is the parent's callback, and the assertion is a count on it.
- * The handler doing the work is the production hook, mounted by
- * `StorySharingProvider` — so the story reads the real `useSharing` against a
- * spy the component cannot reach.
+ * `onSelectKB` is the parent's callback and `onOpenTopicSettings` the
+ * `AppNavContext` jump, and the assertions are counts and arguments on them —
+ * spies the component cannot reach or fake.
  *
  * THE CONTROL CLICK IS LOAD-BEARING. A bare "onSelectKB was not called" would
  * also pass if the card's own click handler had been lost, or the card never
  * rendered. So the card body is clicked FIRST and the count asserted at 1; the
  * share click then has to leave it at 1. One click reaches the parent, the
  * next one must not.
- *
- * Mutation-verified (card KI-770): deleting `e.stopPropagation()` from
- * useSharing.ts:27 fails this story with `expected 2 to be 1`, and fails no
- * other story in the suite.
  */
 export const SharingDoesNotAlsoOpenTheKb: Story = {
   args: { kbs: [OWNED_ONE] },
-  parameters: {
-    api: { kbMembers: { members: [], pending: [] }, kbInviteLinks: [] },
-  },
-  play: async ({ args, canvas, canvasElement, userEvent }) => {
+  play: async ({ args, canvas, userEvent }) => {
     const card = canvas.getAllByRole('button', { name: /^Aktionen: / })[0].closest('.home-view__kb-card');
     await expect(card).not.toBeNull();
 
-    /* The control: the „Genutzt" meta line (KI-848; it was the „Zuletzt
-     * aktiv" line) is inert markup inside the card, so a click on it can only
-     * reach the parent through the card's own handler. If this is ever 0, the
-     * assertion below stops meaning anything. */
+    /* The control: the „Genutzt" meta line is inert markup inside the card, so
+     * a click on it can only reach the parent through the card's own handler.
+     * If this is ever 0, the assertion below stops meaning anything. */
     const cardBody = (card as HTMLElement).querySelector('[data-testid="kb-meta-used"]');
     await expect(cardBody).not.toBeNull();
     await userEvent.click(cardBody as HTMLElement);
@@ -944,12 +822,11 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
 
     await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
-    // The dialog did open — so the click was delivered and this is a statement
-    // about propagation, not about a dead button.
-    await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
-    });
-    await expect(canvasElement.querySelector('[aria-busy="true"]')).toBeNull();
+    // The jump did fire, exactly once, for this topic and the Mitglieder
+    // section — so the click was delivered and this is a statement about
+    // propagation, not about a dead item.
+    await expect(args.onOpenTopicSettings).toHaveBeenCalledTimes(1);
+    await expect(args.onOpenTopicSettings).toHaveBeenCalledWith(OWNED_ONE, 'members');
 
     // And the KB was not opened on the way.
     await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
@@ -995,11 +872,13 @@ export const SettingsOpenFromTheUserMenu: Story = {
 };
 
 /**
- * The chrome bar is 64px tall, and the search field is centred in it.
+ * The chrome bar is 56px tall, and the search field is centred in it.
  *
- * WHY THE HEIGHT IS RE-MEASURED HERE (cards KI-788, then KI-787).
- * `.toast-container { top: 76px }` is 64px of chrome plus a 12px gap. 64px was
- * measured against design-system 0.25.0; 0.26.0 replaced the bar's hardcoded
+ * WHY THE HEIGHT IS RE-MEASURED HERE (cards KI-788, then KI-787, then the
+ * sidebar redesign). `.toast-container { top: 68px }` is 56px of chrome plus a
+ * 12px gap. The bar was 64px (`h-16`, `top: 76px`) until the redesign made it
+ * and the side-panel header rows `h-14`; 64px had been measured against
+ * design-system 0.25.0; 0.26.0 replaced the bar's hardcoded
  * `ThemeToggle` with the optional `headerActions` slot, and 0.29.0 made
  * `pageLabel` optional and renders NO element for it when omitted — which is
  * how this app draws the bar since KI-787. That is the bar rebuilt twice under
@@ -1034,7 +913,7 @@ export const SettingsOpenFromTheUserMenu: Story = {
  * dev-mode Tailwind emits `.lg:hidden` before `.flex`, so `AppShell`'s mobile
  * top bar stays visible here and pushes the bar down (MyTopicsView.test.tsx:241
  * records the same quirk). The HEIGHT is unaffected, and it is the only half
- * `top: 76px` depends on.
+ * `top: 68px` depends on.
  */
 export const AppShellGeometry: Story = {
   play: async ({ canvas }) => {
@@ -1047,11 +926,12 @@ export const AppShellGeometry: Story = {
     const bar = field.parentElement?.parentElement?.parentElement;
     await expect(bar).toBeDefined();
 
-    // ORACLE: Chromium's layout engine. 64px = `h-16`, the number Toast.css
-    // adds its 12px gap to. Re-measured against design-system 0.31.0, with no
-    // `pageLabel` and the field in the `search` region.
+    // ORACLE: Chromium's layout engine. 56px = `h-14`, the number Toast.css
+    // adds its 12px gap to (`top: 68px`). Re-measured against the redesign's
+    // design system (0.60.0), with no `pageLabel` and the field in the
+    // `search` region.
     const barRect = (bar as HTMLElement).getBoundingClientRect();
-    await expect(barRect.height).toBe(64);
+    await expect(barRect.height).toBe(56);
 
     // ORACLE: the bar's own centre. This is what fails if the field is handed
     // to `headerActions` instead of `search` — that region is `justify-end`.
@@ -1070,13 +950,13 @@ export const AppShellGeometry: Story = {
  * The same bar with the global-search dropdown OPEN (card KI-837), plus the
  * dropdown's keyboard contract and one navigation.
  *
- * WHY IT IS RE-MEASURED OPEN. `Toast.css`'s `top: 76px` needs the bar at 64px
+ * WHY IT IS RE-MEASURED OPEN. `Toast.css`'s `top: 68px` needs the bar at 56px
  * in every state, and a dropdown that rendered INSIDE the bar (instead of the
  * DS portalling it) would either grow the bar or be clipped by it. Both are
  * layout facts jsdom cannot see.
  *
  * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`) —
- * the bar, the popover and their boxes are the design system's, the 64 is the
+ * the bar, the popover and their boxes are the design system's, the 56 is the
  * constant in `Toast.css`; WAI-ARIA's combobox states read off the DOM
  * (`aria-expanded`, `aria-activedescendant`, `document.activeElement`); the
  * mocked `/api/search` body (API.md's shape) for option text; and the
@@ -1105,7 +985,7 @@ export const AppShellGeometryWithSearchOpen: Story = {
     const body = within(canvasElement.ownerDocument.body);
     const wrapper = canvas.getByTestId('app-chrome-search');
     const bar = wrapper.parentElement?.parentElement?.parentElement as HTMLElement;
-    await expect(bar.getBoundingClientRect().height).toBe(64);
+    await expect(bar.getBoundingClientRect().height).toBe(56);
 
     const input = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
     await userEvent.type(input, 'Prü');
@@ -1113,8 +993,8 @@ export const AppShellGeometryWithSearchOpen: Story = {
     const options = await within(listbox).findAllByRole('option');
     await expect(input).toHaveAttribute('aria-expanded', 'true');
 
-    // Open, the bar is still 64px, and the list is outside it and below it.
-    await expect(bar.getBoundingClientRect().height).toBe(64);
+    // Open, the bar is still 56px, and the list is outside it and below it.
+    await expect(bar.getBoundingClientRect().height).toBe(56);
     await expect(bar.contains(listbox)).toBe(false);
     const barBottom = bar.getBoundingClientRect().bottom;
     const last = options[options.length - 1];
@@ -1147,7 +1027,7 @@ export const AppShellGeometryWithSearchOpen: Story = {
     await expect(args.onOpenChat).toHaveBeenCalledWith({
       chatId: 'c-1', kbId: 'kb-1', title: 'Prüfungsfragen', type: 'chat', timestamp: '2026-09-20T10:00:00Z',
     });
-    await expect(bar.getBoundingClientRect().height).toBe(64);
+    await expect(bar.getBoundingClientRect().height).toBe(56);
   },
 };
 

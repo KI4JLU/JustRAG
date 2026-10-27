@@ -44,7 +44,6 @@
 /* Says WHICH configuration the per-card cost badge describes — the deployment
    defaults, not this KB. See PresetPicker's `lane` prop comment. */
 .wf-presets__note { margin: 0; font-size: 0.72rem; color: var(--text-secondary); max-width: 60ch; }
-.wf-presets__error { margin: 0; font-size: 0.8rem; color: var(--error-text); }
 
 .wf-presets__base {
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;

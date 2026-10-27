@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseSseStream } from './sseParser';
+import { parseSseStream, SseIdleTimeoutError } from './sseParser';
 
 
 // ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ describe('parseSseStream', () => {
         onEvent: vi.fn(),
         idleTimeoutMs: 5000,
       });
-      const expectation = expect(result).rejects.toThrow(/idle/i);
+      const expectation = expect(result).rejects.toBeInstanceOf(SseIdleTimeoutError);
 
       await vi.advanceTimersByTimeAsync(5000);
       await expectation;

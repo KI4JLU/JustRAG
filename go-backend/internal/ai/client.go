@@ -781,6 +781,12 @@ func drainAndClose(body io.ReadCloser) {
 // If body is nil a request without a body is sent (suitable for GET).
 // If result is nil the response body is discarded after status checking.
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, result any) error {
+	return c.doJSONURL(ctx, method, c.baseURL+path, body, result)
+}
+
+// doJSONURL is doJSON against a full URL, for the few endpoints that do not
+// live under the OpenAI-compatible base path (vLLM's /tokenize).
+func (c *Client) doJSONURL(ctx context.Context, method, url string, body any, result any) error {
 	CallCounterFrom(ctx).Inc()
 	// Optional process-wide cap on in-flight unary requests per endpoint
 	// (AI_MAX_CONCURRENT_REQUESTS; no-op when unset). See concurrency.go for
@@ -805,7 +811,6 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, resu
 		defer doJSONBufPool.Put(buf)
 	}
 
-	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return fmt.Errorf("ai: create request: %w", err)

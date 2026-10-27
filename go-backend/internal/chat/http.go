@@ -19,6 +19,7 @@ import (
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatattach"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/kg"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/longmem"
@@ -27,6 +28,7 @@ import (
 	"github.com/justrag/go-backend/internal/sessionmem"
 	"github.com/justrag/go-backend/internal/store"
 	"github.com/justrag/go-backend/internal/tabular"
+	"github.com/justrag/go-backend/internal/uploadcheck"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -104,6 +106,21 @@ type Handler struct {
 	libraryChats LibraryChatStore
 	libraryFiles LibraryFileGetter
 	libraryText  LibraryTextProvider
+	// Chat attachments (attachments_http.go, WithChatAttachments): the
+	// message links, the scoped ingest, the file deleter and the upload
+	// limits. They also need libraryFiles + libraryText (WithLibraryChat).
+	// Optional — without them POST /api/kb/{id}/chat/attachments answers 503
+	// and a send carrying attachmentIds is refused.
+	attachmentFiles AttachmentStore
+	attachIngester  AttachmentIngester
+	attachDeleter   UserFileDeleter
+	attachLimits    uploadcheck.Limits
+	attachTokens    *attachmentTokenCounter
+	// kbAccess resolves a reader's KB capabilities where the request did
+	// not pass RequireKBRole for that KB (citation visibility on stored
+	// messages and on KB-router turns, citation_visibility.go). Optional —
+	// when nil, citations are hidden on exactly those reads (fail closed).
+	kbAccess kbaccess.KBStore
 }
 
 // TabularQueryLogger is the persistence surface the chat handler uses to
@@ -175,6 +192,12 @@ type TabularCatalogSummariser interface {
 
 // HandlerOption is a functional option for NewHandler.
 type HandlerOption func(*Handler)
+
+// WithKBAccess sets the store citation visibility resolves capabilities
+// through outside the KB route chain (see Handler.kbAccess).
+func WithKBAccess(s kbaccess.KBStore) HandlerOption {
+	return func(h *Handler) { h.kbAccess = s }
+}
 
 // WithRedis attaches a Redis client to the Handler (used for deep chat relay).
 func WithRedis(rdb *redis.Client) HandlerOption {
@@ -393,6 +416,7 @@ func NewHandler(store Store, aiResolver *ai.ConfigResolver, searchService vector
 		aiResolver:    aiResolver,
 		searchService: searchService,
 		starterCache:  newStarterCache(starterCacheMaxEntries, starterCacheTTL, starterFailureTTL, starterGenerateTimeout),
+		attachTokens:  newAttachmentTokenCounter(),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -438,6 +462,42 @@ func (h *Handler) ListChats(w http.ResponseWriter, r *http.Request) {
 // GET /api/chats/{id}/messages
 // ---------------------------------------------------------------------------
 
+// GetChat answers GET /api/chats/{id}: one chat of the caller's, as a row of
+// the chat list (GET /api/kb/{id}/chats) without `hasBranches`. It exists so a
+// link names a chat by its id alone: the row carries the topic (`kbId`, ""
+// for a library chat) and the sticky team/agent the client restores. Another
+// user's chat, a missing one and a malformed id are all 404, as for
+// GET /api/chats/{id}/messages, so the route says nothing about chats that
+// are not the caller's.
+func (h *Handler) GetChat(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	parsed, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+	chatID := parsed.String()
+
+	chat, err := h.store.GetChatByID(r.Context(), chatID)
+	if err != nil {
+		logctx.From(r.Context()).Error("chat.get_chat", "error", err, "chat_id", chatID, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to fetch chat")
+		return
+	}
+	if chat == nil || chat.UserID != user.ID {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-cache")
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, chat)
+}
+
 // GetMessages handles GET /api/chats/{id}/messages.
 // Returns all messages for the specified chat, verified to belong to the caller.
 // Auth is enforced by middleware in main.go.
@@ -474,6 +534,13 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if messages == nil {
 		messages = []MessageRow{}
+	}
+	h.fillMessageAttachments(r.Context(), messages)
+	// Stored messages keep their sources; they are stripped here, for this
+	// reader and the KB's current flags (a library chat has no KB and keeps
+	// them — they are the reader's own files).
+	if chat.KbID != "" && !h.citationsVisible(r.Context(), chat.KbID, user) {
+		RedactMessagesForReader(messages)
 	}
 
 	w.Header().Set("Cache-Control", "no-cache")
@@ -512,11 +579,23 @@ func (h *Handler) DeleteChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The chat's own attachments are collected before the delete, while the
+	// message links still exist, and removed after it (attachments_http.go).
+	var attachmentRefs []userFileRef
+	if h.attachmentFiles != nil {
+		refs, err := h.attachmentFiles.ChatScopedAttachments(r.Context(), chatID)
+		if err != nil {
+			logctx.From(r.Context()).Warn("chat.delete: list attachments; the pending sweep removes them later", "error", err, "chat_id", chatID)
+		}
+		attachmentRefs = refs
+	}
+
 	if err := h.store.DeleteChat(r.Context(), chatID); err != nil {
 		logctx.From(r.Context()).Error("chat.delete: delete chat", "error", err, "chat_id", chatID, "user_id", user.ID)
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to delete chat")
 		return
 	}
+	h.cleanupChatAttachments(r.Context(), attachmentRefs)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -588,6 +667,60 @@ func (h *Handler) RenameChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type branchChatRequest struct {
+	MessageID string `json:"messageId"`
+}
+
+// BranchChat handles POST /api/chats/{id}/branch: copies the conversation up
+// to messageId into a new chat of the caller and returns it (201) with
+// copiedMessageId, the copy of messageId. Every way of taking a conversation
+// elsewhere opens one: "Verzweigen" on an answer branches at that answer,
+// "Antwort neu generieren" at its question (then answers it in the branch),
+// editing a question at the turn before it (then sends the edit there) — an
+// omitted messageId for the first question, an empty branch. 404 for a chat
+// that is not the caller's, an unknown id, or a message outside the chat —
+// one answer for all, so the route does not tell which chats exist.
+func (h *Handler) BranchChat(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	parsed, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+	chatID := parsed.String()
+
+	var body branchChatRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	messageID := ""
+	if body.MessageID != "" {
+		msg, err := uuid.Parse(body.MessageID)
+		if err != nil {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "messageId must be a message id")
+			return
+		}
+		messageID = msg.String()
+	}
+
+	row, err := h.store.BranchChat(r.Context(), chatID, messageID, user.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+			return
+		}
+		logctx.From(r.Context()).Error("chat.branch", "error", err, "chat_id", chatID, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to branch chat")
+		return
+	}
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusCreated, row)
 }
 
 // ---------------------------------------------------------------------------

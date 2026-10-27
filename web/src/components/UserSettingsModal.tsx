@@ -1,21 +1,21 @@
-import { MessageSquare, Settings, User } from 'lucide-react';
+import { MessageSquare, Plug, Settings, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-    SettingsDialog, SettingsRow, Switch, useAccent, useContrast, useUiShape,
-    type AccentColor, type ContrastChoice, type UiShape,
+    SettingsDialog, SettingsRow, Switch, useAccent, useContrast,
+    type AccentColor, type ContrastChoice,
 } from '@ki4jlu/design-system';
 import type { Theme } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import ApiKeyManager from './ApiKeys/ApiKeyManager';
+import { Choice } from './form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 
-export type SettingsTab = 'general' | 'chat' | 'profile';
+export type SettingsTab = 'general' | 'chat' | 'profile' | 'connectors';
 
 interface UserSettingsModalProps {
     open: boolean;
@@ -24,35 +24,15 @@ interface UserSettingsModalProps {
     onTabChange: (tab: SettingsTab) => void;
 }
 
-/** A labelled choice for a SettingsRow; the row's label names the select. */
-function Choice<T extends string>({ id, value, onChange, options }: {
-    id: string;
-    value: T;
-    onChange: (v: T) => void;
-    options: [T, ReactNode][];
-}) {
-    return (
-        <Select value={value} onValueChange={(v) => onChange(v as T)}>
-            <SelectTrigger aria-labelledby={id} className="w-48">
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-                {options.map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}
-            </SelectContent>
-        </Select>
-    );
-}
-
 /**
  * The user's settings window (user menu → „Einstellungen"), on the DS
- * `SettingsDialog`. General: colour scheme, Style, language. Chat: starter
+ * `SettingsDialog`. General: colour scheme, contrast, accent, language. Chat: starter
  * suggestions, follow-ups, autoscroll. Profile: the
- * account as the directory (LDAP) knows it — read-only — plus the API-key and
- * Confluence-token managers where they apply, as on the profile page.
+ * account as the directory (LDAP) knows it — read-only. Connectors: the API-key
+ * and Confluence-token managers, each disabled with its reason where it does not apply.
  */
 export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: UserSettingsModalProps) {
     const { t, theme, setTheme, language, setLanguage } = useTheme();
-    const { shape, setShape } = useUiShape();
     const [suggestionsEnabled, setSuggestionsEnabled] = usePromptSuggestionsEnabled();
     const [followUpsEnabled, setFollowUpsEnabled] = useFollowUpsEnabled();
     const [autoScrollEnabled, setAutoScrollEnabled] = useAutoScrollEnabled();
@@ -62,6 +42,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
 
     const readOnly = (value?: string) => <span className="text-on-surface-variant">{value || '–'}</span>;
     const canUseApiKeys = !!user && ['api-user', 'admin', 'superadmin'].includes(user.role);
+    const disabled = readOnly(t('connectorDisabled'));
 
     return (
         <SettingsDialog
@@ -78,7 +59,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'general',
                     label: t('settingsGeneral'),
                     icon: <Settings aria-hidden="true" />,
-                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('uiShape'), t('languageLabel')],
+                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('languageLabel')],
                     content: (
                         <>
                             <SettingsRow
@@ -96,13 +77,12 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                             <SettingsRow
                                 label={t('contrast')}
                                 labelId="settings-contrast"
-                                description={t('contrastHint')}
                                 control={(
                                     <Choice<ContrastChoice>
                                         id="settings-contrast"
                                         value={contrast}
                                         onChange={setContrast}
-                                        options={[['system', t('themeSystemShort')], ['normal', t('contrastNormal')], ['more', t('contrastMore')]]}
+                                        options={[['system', t('themeSystemShort')], ['normal', t('contrastNormal')], ['medium', t('contrastMedium')], ['more', t('contrastMore')]]}
                                     />
                                 )}
                             />
@@ -120,19 +100,6 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                                 {t(`accent_${a}`)}
                                             </span>
                                         )] as [AccentColor, ReactNode])}
-                                    />
-                                )}
-                            />
-                            <SettingsRow
-                                label={t('uiShape')}
-                                labelId="settings-ui-shape"
-                                description={t('uiShapeHint')}
-                                control={(
-                                    <Choice<UiShape>
-                                        id="settings-ui-shape"
-                                        value={shape}
-                                        onChange={setShape}
-                                        options={[['rounded', t('uiShapeRounded')], ['pill', t('uiShapePill')]]}
                                     />
                                 )}
                             />
@@ -183,7 +150,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'profile',
                     label: t('settingsProfile'),
                     icon: <User aria-hidden="true" />,
-                    keywords: [t('firstName'), t('lastName'), t('emailAddress'), 'API'],
+                    keywords: [t('firstName'), t('lastName'), t('emailAddress')],
                     content: (
                         <>
                             <SettingsRow label={t('username')} control={readOnly(user ? `@${user.username}` : undefined)} />
@@ -191,10 +158,23 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                             <SettingsRow label={t('lastName')} control={readOnly(user?.lastName)} />
                             <SettingsRow label={t('emailAddress')} control={readOnly(user?.email)} />
                             <SettingsRow label={t('role')} control={readOnly(roleLabel(user?.role, t))} description={t('ldapNotice')} />
-                            {canUseApiKeys && <SettingsRow label={t('apiKeys')}><ApiKeyManager /></SettingsRow>}
-                            {siteConfigs.confluence_enabled === 'true' && (
-                                <SettingsRow label="Confluence"><ConfluenceTokenManager /></SettingsRow>
-                            )}
+                        </>
+                    ),
+                },
+                {
+                    value: 'connectors',
+                    label: t('settingsConnectors'),
+                    icon: <Plug aria-hidden="true" />,
+                    keywords: [t('apiKeys'), 'API', 'Confluence'],
+                    // Always shown: a connector this user cannot use stays listed, disabled, with the reason.
+                    content: (
+                        <>
+                            {canUseApiKeys
+                                ? <SettingsRow label={t('apiKeys')}><ApiKeyManager /></SettingsRow>
+                                : <SettingsRow label={t('apiKeys')} description={t('connectorApiKeysUnavailable')} control={disabled} />}
+                            {siteConfigs.confluence_enabled === 'true'
+                                ? <SettingsRow label="Confluence"><ConfluenceTokenManager /></SettingsRow>
+                                : <SettingsRow label="Confluence" description={t('connectorConfluenceUnavailable')} control={disabled} />}
                         </>
                     ),
                 },

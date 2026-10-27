@@ -8,6 +8,7 @@ import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { chatEntryFromTarget, type SearchChatTarget, type SearchSourceTarget } from '../hooks/useSearchNavigation';
+import { useKbSourceRights } from '../hooks/useKbSourceRights';
 
 /* ---------------------------------------------------------------------------
  * The workspace header's topic-scoped search (card KI-838).
@@ -39,6 +40,10 @@ export interface WorkspaceSearchFieldProps {
   kbName: string;
   onOpenTopic: (kbId: string) => void;
   onOpenSource: (source: SearchSourceTarget) => void;
+  /** Whether a source hit of THIS topic can be opened (downloadSources);
+   *  without it the topic's own source hits are not listed. Hits of other
+   *  topics (a widened search) open that topic and stay. Default true. */
+  canOpenOwnSources?: boolean;
   onOpenChat: (target: SearchChatTarget) => void;
   /** What the empty field offers (see `GlobalSearchProps.defaultGroups`). */
   defaultGroups?: SearchDefaultGroup[];
@@ -46,7 +51,7 @@ export interface WorkspaceSearchFieldProps {
 
 export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearchFieldProps>(
   function WorkspaceSearchField(
-    { kbId, kbName, onOpenTopic, onOpenSource, onOpenChat, defaultGroups },
+    { kbId, kbName, onOpenTopic, onOpenSource, canOpenOwnSources = true, onOpenChat, defaultGroups },
     ref,
   ) {
     const [query, setQuery] = useState('');
@@ -67,6 +72,7 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
           defaultGroups={defaultGroups}
           onOpenTopic={(hit) => onOpenTopic(hit.id)}
           onOpenSource={(hit) => onOpenSource({ id: hit.id, name: hit.name, kbId: hit.kbId })}
+          canOpenSource={canOpenOwnSources ? undefined : (hit) => hit.kbId !== kbId}
           onOpenChat={(hit) => onOpenChat({
             chatId: hit.id, kbId: hit.kbId, title: hit.title, type: hit.type, timestamp: hit.updatedAt,
           })}
@@ -89,6 +95,8 @@ export function WorkspaceSearch() {
   const { t } = useTheme();
   const accountSearchGroup = useAccountSearchGroup();
   const { handlePreviewSource } = webTools;
+  // Opening a hit of this topic is the preview, which loads the file.
+  const { downloadSources } = useKbSourceRights();
 
   const openTopic = useCallback((id: string) => {
     if (id !== kbId) appNav.onOpenTopic(id);
@@ -157,6 +165,7 @@ export function WorkspaceSearch() {
       kbName={currentKb.name}
       onOpenTopic={openTopic}
       onOpenSource={openSource}
+      canOpenOwnSources={downloadSources}
       onOpenChat={openChat}
     />
   );

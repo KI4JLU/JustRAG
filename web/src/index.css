@@ -537,7 +537,7 @@ button.source-card {
   min-width: 0;
 }
 
-/* Chat-Zeile (Nachrichtenspalte + BranchTreeNav) und Nachrichtenspalte. Der
+/* Chat-Zeile (Nachrichtenspalte + Quellen-Panel) und Nachrichtenspalte. Der
    Scroller darunter ist die VOLLE Spaltenbreite; die 80%-Lesespalte liegt auf
    seinen Kindern (`> *`). Vorher trug der Scroller selbst `max-width: 80%;
    margin: 0 auto` — das Mausrad über den seitlichen Rändern traf dann nur den
@@ -551,7 +551,12 @@ button.source-card {
 }
 
 .chat-column {
-  --chat-column-max: 56rem;
+  /* One width for the transcript and the composer (`.input-container`): an
+     answer spans exactly the composer's box. cqw keeps both relative to this
+     column, whatever the scroller's scrollbar takes. */
+  container-type: inline-size;
+  --chat-column-width: 80cqw;
+  --chat-column-inset: 2rem;
   --chat-message-max: 700px;
   flex: 1;
   display: flex;
@@ -579,6 +584,9 @@ button.source-card {
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  /* Symmetric gutters keep the transcript centred on the column, as the
+     composer is, when the scrollbar takes space. */
+  scrollbar-gutter: stable both-edges;
   /* The scroller spans the FULL column width (the wheel works everywhere) and
      carries no horizontal padding; the reading column is one level down
      (`.transcript`), centred with `margin: 0 auto`. */
@@ -595,11 +603,11 @@ button.source-card {
 .messages-container > .empty-state {
   box-sizing: border-box;
   width: 100%;
-  max-width: var(--chat-column-max, 56rem);
+  max-width: var(--chat-column-width, 80%);
   margin-left: auto;
   margin-right: auto;
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
+  padding-left: var(--chat-column-inset, 2rem);
+  padding-right: var(--chat-column-inset, 2rem);
 }
 
 /* One row = one flex column so the bubble's `align-self` applies: user on
@@ -627,6 +635,16 @@ button.source-card {
   line-height: 1.6;
 }
 
+/* The bubble is focusable (tabIndex 0) only so keyboard users reach its
+   action row, which focus reveals — that row is the focus cue. The generic
+   :focus-visible ring would frame the whole answer, and browsers also match
+   it on a click after keyboard input (Enter to send), so it showed up as a
+   blue box around answers. data-contrast="more" still forces a ring. */
+.message-bubble:focus-visible,
+.message-question:focus-visible {
+  outline: none;
+}
+
 .message-user {
   align-self: flex-end;
   margin-left: auto;
@@ -639,6 +657,8 @@ button.source-card {
 .message-ai {
   align-self: flex-start;
   margin-right: auto;
+  /* The full column, unlike a question; wide tables and code scroll inside. */
+  max-width: 100%;
   color: var(--text-primary);
   background-color: transparent;
   padding: 0.75rem 1rem 0.75rem 1.25rem;
@@ -688,17 +708,27 @@ button.source-card {
   margin-bottom: 0.25rem;
 }
 
+/* Inline code: a quiet monospace token — a hairline frame on the faintest
+   container tint, so it reads as code without the weight of a filled grey
+   box, and stays apart from the filled citation chips beside it. Wrapped
+   lines keep the frame on each piece (box-decoration-break). */
 .markdown-content code {
-  background: var(--border-color);
-  padding: 0.2rem 0.4rem;
-  border-radius: var(--shape-sm);
-  /* Inline code keeps the body font: monospace is for code BOXES only
-     (`.markdown-content pre code` below). */
-  font-size: 0.85em;
-  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  /* Monospace runs large beside the body sans: 0.8em matches its x-height. */
+  font-size: 0.8em;
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 6px;
+  background: var(--color-surface-container-low);
+  color: var(--color-on-surface);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
-.markdown-content pre {
+/* `:not([class])`: a code fence is the DS CodeBlock (MessageContent), whose
+   classed <pre> must not take these unlayered rules over its utilities; they
+   keep styling the plain <pre>s that remain (e.g. a chart's raw JSON). */
+.markdown-content pre:not([class]) {
   background: var(--code-bg);
   color: var(--code-text);
   padding: 1rem;
@@ -719,7 +749,7 @@ button.source-card {
   height: auto;
 }
 
-.markdown-content pre code {
+.markdown-content pre:not([class]) code {
   background: transparent;
   padding: 0;
   color: inherit;
@@ -774,9 +804,20 @@ button.source-card {
   background: rgba(255, 255, 255, 0.02);
 }
 
-/* Per-table Excel export (generic Markdown tables in AI answers) */
-.md-table {
+/* Tables in AI answers (MarkdownTable): the table plus a footer with its size,
+   the xlsx download and "Maximize". The frame carries the card look (radius,
+   shadow, background) so the footer sits inside the same card as the table;
+   the table inside drops its own. */
+.md-table-frame {
+  position: relative;
   margin: 1rem 0;
+  background: var(--bg-secondary);
+  border-radius: var(--shape-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.md-table {
   /* Wide tables scroll inside the wrapper instead of widening the message. */
   max-width: 100%;
   overflow-x: auto;
@@ -784,27 +825,56 @@ button.source-card {
 
 .md-table>table {
   margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  /* Columns size to their content (prose capped by the cell max-width below);
+     a table wider than the message scrolls inside .md-table, a narrow one
+     still fills the width. Scoped to .md-table because the research reports
+     render markdown tables without this scroll wrapper. */
+  width: max-content;
+  min-width: 100%;
 }
 
-.md-table__toolbar {
+.md-table th,
+.md-table td {
+  vertical-align: top;
+  /* NOT the inherited `overflow-wrap: anywhere` of .markdown-content: in a
+     table it also shrinks every column's minimum width to one character, so a
+     wide table squeezes into the message letter by letter instead of
+     scrolling. Cells wrap between words (and break a single over-long word
+     only when it alone would not fit), and a prose column wraps at max-width
+     instead of running out to one long line. */
+  overflow-wrap: break-word;
+  word-break: normal;
+  max-width: 20rem;
+}
+
+/* Always visible and a fixed height: the message list is virtualized, so the
+   footer must not change the item's height on hover or remount. It stays put
+   while the table scrolls sideways (it is outside the scroller). The side and
+   bottom borders continue the table's cell grid; the table's last row
+   supplies the top one. */
+.md-table-frame__footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  margin-bottom: 0.35rem;
-}
-
-.md-table__toolbar button {
-  font-size: 0.78rem;
-  padding: 0.25rem 0.6rem;
+  gap: 0.25rem;
+  height: 2.5rem;
+  padding: 0 0.25rem 0 1rem;
   border: 1px solid var(--border-color);
-  border-radius: var(--shape-sm, 6px);
-  background: var(--bg-secondary);
+  border-top: none;
+  border-radius: 0 0 var(--shape-md) var(--shape-md);
+  background: var(--msg-ai-bg);
   color: var(--text-secondary);
-  cursor: pointer;
+  font-size: 0.8rem;
 }
 
-.md-table__toolbar button:hover {
-  color: var(--text-primary);
-  border-color: var(--accent-primary);
+.md-table-frame__size {
+  margin-right: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Dark mode polish — accent glow on interactive elements */
@@ -812,37 +882,12 @@ button.source-card {
   border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
 
-[data-theme='dark'] .markdown-content pre {
+[data-theme='dark'] .markdown-content pre:not([class]) {
   border-top: 1px solid color-mix(in srgb, var(--accent-primary) 15%, transparent);
 }
 
 .markdown-content tr:hover {
   background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
-}
-
-/* Per-answer "Wissensgraph" affordance: same accent-pill family as
-   .source-tag / .follow-up-chip / the §8 Quellen·N toggle. Token-driven, so it
-   recolours correctly in dark mode for free; accent-fill on hover mirrors
-   .source-tag-link:hover. */
-.graph-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border-radius: var(--shape-full);
-  background: var(--tag-bg);
-  color: var(--accent-primary);
-  border: none;
-  font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.graph-pill:hover {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
 }
 
 .source-ref {
@@ -856,6 +901,13 @@ button.source-card {
   border-radius: var(--shape-sm);
   padding: 0 5px;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+  /* A chip centred on the line's lowercase letters, not a raised superscript
+     (the base layer reverts <sup> to the UA's vertical-align: super) and not
+     on the baseline, where the smaller box hangs below the text. */
+  display: inline-block;
+  vertical-align: middle;
+  position: static;
+  line-height: 1.4;
 }
 
 .source-ref:hover {
@@ -872,7 +924,6 @@ button.source-card {
 .source-ref-suspect {
   color: var(--suspect-text);
   background: var(--suspect-bg);
-  border-bottom: 1.5px dashed var(--suspect-border);
 }
 
 .source-ref-suspect:hover {
@@ -893,12 +944,6 @@ button.source-card {
   /* Clickable like every other pill (it opens the source popover); the
      verification note stays available as the title tooltip. */
   cursor: pointer;
-}
-
-.source-ref-warn {
-  margin-left: 2px;
-  font-size: 0.85em;
-  vertical-align: baseline;
 }
 
 /* Factuality-verifier flagged claim (Phase 3 §3.3). Same amber dashed
@@ -944,33 +989,6 @@ button.source-card {
   /* improvement #4 — overline/label (QUELLEN) */
   letter-spacing: 0.05em;
   color: var(--text-secondary);
-}
-
-/* Conflicting-sources badge (Wave 5 conflict surfacing): the answer footer
-   chip that opens the per-conflict details list. Uses the --error-* tokens
-   (not the amber --suspect-* used by suspect citations/flagged claims)
-   because a genuine contradiction between two cited sources is a stronger
-   signal than a paraphrase mismatch and deliberately reads as such. */
-.conflict-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  border-radius: var(--shape-full);
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--error-bg);
-  color: var(--error-text);
-  border: none;
-  cursor: pointer;
-  user-select: none;
-  font-family: inherit;
-}
-
-.conflict-badge:hover,
-.conflict-badge:focus-visible {
-  outline: 2px solid var(--error-text);
-  outline-offset: 1px;
 }
 
 .conflict-details {
@@ -1048,8 +1066,8 @@ button.source-card {
 
 /* Input Bar */
 .input-container {
-  padding: 2rem;
-  max-width: 80%;
+  padding: 2rem var(--chat-column-inset, 2rem);
+  max-width: var(--chat-column-width, 80%);
   margin: 0 auto;
   width: 100%;
 }
@@ -1143,11 +1161,13 @@ button.source-card {
   backdrop-filter: blur(4px);
 }
 
+/* The legacy hand-built dialogs, on the DS Dialog's look: 24px inset, the
+   box radius, the lowest surface. New dialogs use the DS Dialog itself. */
 .modal-content {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-xl);
-  padding: 2rem;
+  background: var(--color-surface-container-lowest);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--ui-radius-box);
+  padding: 1.5rem;
   width: 100%;
   max-width: min(450px, 90vw);
   box-shadow: var(--shadow-xl);
@@ -1754,24 +1774,6 @@ button.source-card {
   word-break: break-word;
 }
 
-/* Error Display */
-.research-mode-error {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 1rem 2rem;
-  padding: 1rem;
-  background: var(--error-bg);
-  border: 1px solid var(--error-text);
-  border-radius: var(--shape-md);
-  color: var(--error-text);
-}
-
-.research-mode-error-icon {
-  display: inline-flex;
-  align-items: center;
-}
-
 /* Findings Section */
 .research-mode-findings-section {
   padding: 1.5rem 2rem;
@@ -2031,10 +2033,13 @@ button.source-card {
    Mobile Layout (< 1024px)
    ======================================== */
 @media (max-width: 1023px) {
-  .messages-container > .transcript,
-  .messages-container > .empty-state {
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+  .chat-column {
+    --chat-column-width: 100cqw;
+    --chat-column-inset: 0.75rem;
+  }
+
+  .messages-container {
+    scrollbar-gutter: auto;
   }
 
   .messages-container .transcript-row {
@@ -2042,9 +2047,7 @@ button.source-card {
   }
 
   .input-container {
-    max-width: 100%;
-    padding: 0.75rem;
-    padding-bottom: 0.75rem;
+    padding: 0.75rem var(--chat-column-inset, 0.75rem);
   }
 
   .message-user {
@@ -2057,7 +2060,7 @@ button.source-card {
 
   .modal-content {
     max-width: 95vw;
-    padding: 1.5rem;
+    padding: 1.25rem;
   }
 
   .follow-up-chip {
@@ -2306,10 +2309,6 @@ button.source-card {
   border-radius: 999px;
 }
 
-.form-hint--error {
-  color: var(--error-text);
-}
-
 /* .btn--icon (line 1243) and .btn--destructive (line 1229) are both single-class
    selectors (specificity 0-1-0), so source order alone decided and .btn--icon's
    `background: none; color: var(--text-secondary)` silently won over destructive's
@@ -2321,4 +2320,18 @@ button.source-card {
 .btn--icon.btn--destructive:hover:not(:disabled) {
   background: var(--error-bg);
   color: var(--error-text);
+}
+
+/* The answer's sentences that cite the passage the source panel shows
+   (MessageContent, CSS Custom Highlight "citation-focus"): a gentle amber,
+   the warm highlighter look — distinct from the blue chips and selections. */
+/* A sentence's last word gap, its citation chips and the punctuation after
+   them stay on one line (utils/citationRefs.ts). */
+.cite-glue {
+  white-space: nowrap;
+}
+
+::highlight(citation-focus) {
+  background-color: var(--color-warning-container);
+  color: var(--color-on-warning-container);
 }

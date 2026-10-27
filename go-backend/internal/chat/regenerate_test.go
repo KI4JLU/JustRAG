@@ -83,11 +83,6 @@ func TestResolveRegenerateTurn_RejectsInvalidTargets(t *testing.T) {
 		row("a0", "ai", "Antwort 0", nil),
 		row("a1", "ai", "Antwort 1", ptr("a0")),
 	}
-	normal := []MessageRow{
-		row("u1", "user", "Frage", nil),
-		row("a1", "ai", "Antwort", ptr("u1")),
-	}
-
 	tests := []struct {
 		name   string
 		rows   []MessageRow
@@ -97,7 +92,6 @@ func TestResolveRegenerateTurn_RejectsInvalidTargets(t *testing.T) {
 		// chat comes back as an empty chain. That must not fall through to a
 		// normal turn — it would answer under a foreign conversation.
 		{"message not in this chat", nil, "a1"},
-		{"target is a user message", normal, "u1"},
 		{"target is a root AI message", []MessageRow{row("a1", "ai", "Antwort", nil)}, "a1"},
 		{"parent is not in the chain", orphan, "a1"},
 		{"parent is not a user message", aiUnderAI, "a1"},
@@ -339,5 +333,29 @@ func TestSendMessage_RegenerateWithNonUUIDTargetIsRejected(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for a non-uuid target, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Oracle: the chain as written — naming the question answers it: the turn
+// hangs under that question, sees only the turns above it, and re-uses its
+// stored text (the second step of a branch copied up to a question).
+func TestResolveRegenerateTurn_NamingTheQuestionAnswersIt(t *testing.T) {
+	rows := []MessageRow{
+		row("u1", "user", "Frage 1", nil),
+		row("a1", "ai", "Antwort 1", ptr("u1")),
+		row("u2", "user", "Frage 2", ptr("a1")),
+	}
+	got, err := resolveRegenerateTurn(rows, "u2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.UserMsg.ID != "u2" || got.Question != "Frage 2" {
+		t.Fatalf("turn hangs under %q asking %q, want u2 / Frage 2", got.UserMsg.ID, got.Question)
+	}
+	if got.HistoryParentID == nil || *got.HistoryParentID != "a1" {
+		t.Fatalf("history parent = %v, want a1", got.HistoryParentID)
+	}
+	if len(got.HistoryRows) != 2 || got.HistoryRows[0].ID != "u1" || got.HistoryRows[1].ID != "a1" {
+		t.Fatalf("history = %+v, want u1, a1", got.HistoryRows)
 	}
 }

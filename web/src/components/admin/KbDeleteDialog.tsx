@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import {
+    Alert, AlertDescription, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label,
+} from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export interface KbDeleteDialogProps {
@@ -30,62 +33,57 @@ export function KbDeleteDialog({
     const armed = typed === kbName && !busy;
 
     return (
-        <div className="modal-overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-            <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="kb-delete-title" style={{ maxWidth: '480px' }}>
-                <h3 id="kb-delete-title" style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <AlertTriangle size={18} aria-hidden="true" style={{ color: 'var(--error-text)' }} />
-                    {t('kbDeleteTitle')}
-                </h3>
+        <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
+            <DialogContent closeLabel={t('close')} className="max-w-md" aria-describedby={undefined}>
+                <DialogHeader className="pr-8">
+                    <DialogTitle className="flex items-center gap-2">
+                        <AlertTriangle size={18} aria-hidden="true" className="shrink-0 text-error" />
+                        {t('kbDeleteTitle')}
+                    </DialogTitle>
+                </DialogHeader>
 
-                <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>{kbName}</p>
-                <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                    {t('kbDeleteStats')
-                        .replace('{files}', String(fileCount))
-                        .replace('{size}', sizeLabel)
-                        .replace('{chats}', String(chatCount))}
-                </p>
+                <div className="flex flex-col gap-3">
+                    <p className="m-0 font-semibold text-on-surface">{kbName}</p>
+                    <p className="m-0 text-sm text-on-surface-variant">
+                        {t('kbDeleteStats')
+                            .replace('{files}', String(fileCount))
+                            .replace('{size}', sizeLabel)
+                            .replace('{chats}', String(chatCount))}
+                    </p>
 
-                <p style={{ margin: '0 0 1rem', color: 'var(--error-text)', fontSize: '0.9rem' }}>{t('kbDeleteWarning')}</p>
-                {isGlobal && (
-                    <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{t('kbDeleteGlobalNote')}</p>
-                )}
+                    <p className="m-0 text-sm text-error">{t('kbDeleteWarning')}</p>
+                    {isGlobal && (
+                        <p className="m-0 text-sm text-on-surface-variant">{t('kbDeleteGlobalNote')}</p>
+                    )}
 
-                <label htmlFor="kb-delete-confirm" style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem' }}>
-                    {t('kbDeleteConfirmLabel')}
-                </label>
-                <input
-                    id="kb-delete-confirm"
-                    type="text"
-                    value={typed}
-                    onChange={(e) => setTyped(e.target.value)}
-                    autoComplete="off"
-                    style={{
-                        width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-                        color: 'var(--text-primary)', padding: '0.5rem 0.75rem', borderRadius: 'var(--shape-md)',
-                        fontSize: '0.9rem', marginBottom: '1rem',
-                    }}
-                />
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="kb-delete-confirm">{t('kbDeleteConfirmLabel')}</Label>
+                        <Input
+                            id="kb-delete-confirm"
+                            type="text"
+                            value={typed}
+                            onChange={(e) => setTyped(e.target.value)}
+                            autoComplete="off"
+                        />
+                    </div>
 
-                {error && <p style={{ color: 'var(--error-text)', fontSize: '0.9rem', margin: '0 0 1rem' }}>{error}</p>}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <button type="button" onClick={onCancel} disabled={busy} style={{
-                        background: 'var(--bg-primary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)',
-                        padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', cursor: busy ? 'default' : 'pointer',
-                    }}>
-                        {t('cancel')}
-                    </button>
-                    <button type="button" onClick={() => { if (armed) onConfirm(); }} disabled={!armed} style={{
-                        background: armed ? 'var(--error-text)' : 'var(--bg-primary)',
-                        border: '1px solid var(--border-color)', color: armed ? 'white' : 'var(--text-secondary)',
-                        padding: '0.5rem 1rem', borderRadius: 'var(--shape-md)', cursor: armed ? 'pointer' : 'default',
-                        display: 'flex', alignItems: 'center', gap: '0.4rem',
-                    }}>
-                        {busy && <Loader2 size={15} className="spin" aria-hidden="true" />}
-                        {t('delete')}
-                    </button>
+                    {error && (
+                        <Alert tone="error" live="assertive">
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
                 </div>
-            </div>
-        </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
+                        {t('cancel')}
+                    </Button>
+                    <Button type="button" variant="destructive" onClick={() => { if (armed) onConfirm(); }} disabled={!armed}>
+                        {busy && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
+                        {t('delete')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

@@ -11,9 +11,10 @@ import { setSettingsDialogOpen, setSettingsDialogTab } from './hooks/settingsDia
  * The test that KI-740's lesson demands for KI-770.
  *
  * KI-770 moved 20 of `HomeView`'s 38 props onto two NEW required contexts,
- * `SharingContext` and `AppNavContext`. Both `useSharingContext()` and
- * `useAppNav()` throw when their provider is missing, and the provider is
- * mounted in exactly one place: `AuthenticatedApp`'s `view === 'home'` branch.
+ * `SharingContext` and `AppNavContext`. `SharingContext` has since been
+ * deleted with the members dialog it fed; `useAppNav()` remains, throws when
+ * its provider is missing, and the provider is mounted only in
+ * `AuthenticatedApp`.
  *
  * Neither of the suites that guard `HomeView` can see that mount. The story
  * file supplies its own providers in a harness, and `HomeView.test.tsx`
@@ -28,7 +29,7 @@ import { setSettingsDialogOpen, setSettingsDialogTab } from './hooks/settingsDia
  * So this file asserts the WIRING, not the view: it renders the real `App`
  * with a token in storage, i.e. the real ErrorBoundary / ThemeProvider /
  * MobileProvider / ToastProvider composition, the real lazy `AuthenticatedApp`,
- * the real `useSharing()` and the real `HomeView`, and looks for the overview's
+ * and the real overview view, and looks for the overview's
  * own heading. No provider, no context and no hook is mocked — mocking them is
  * precisely what would hide the bug.
  *
@@ -147,9 +148,9 @@ describe('App — the KB overview on the authenticated home route', () => {
   it('mounts every provider HomeView consumes, so the overview renders', async () => {
     render(<App />);
 
-    // ORACLE: translations.ts + the ARIA mapping for h1. `HomeView` reached
-    // `useSharingContext()` and `useAppNav()` during this render; had either
-    // thrown, there would be no heading to find.
+    // ORACLE: translations.ts + the ARIA mapping for h1. The overview reached
+    // `useAppNav()` during this render; had it thrown, there would be no
+    // heading to find.
     expect(await findOverviewHeading()).toBeInTheDocument();
 
     // ORACLE: ErrorBoundary's own fallback copy. Belt and braces — a context
@@ -157,18 +158,19 @@ describe('App — the KB overview on the authenticated home route', () => {
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
   });
 
-  it('renders the action-row controls that read the two new contexts', async () => {
+  it('renders the user-menu controls that read AppNavContext and AuthContext', async () => {
     render(<App />);
 
     await findOverviewHeading();
 
-    /* ORACLE: translations.ts for each accessible name. These four are exactly
-     * the controls whose handlers stopped being props under KI-770 — the copy
-     * button reads `SharingContext`, profile and agents read `AppNavContext`,
-     * and logout reads `AuthContext.logout` instead of an `onLogout` prop. A
+    /* ORACLE: translations.ts for each accessible name. These are the
+     * controls whose handlers stopped being props under KI-770 — profile reads
+     * `AppNavContext` and logout reads `AuthContext.logout` instead of an
+     * `onLogout` prop. (The copy button, which read the since-deleted
+     * `SharingContext`, and the agents row are gone; see below.) A
      * provider mounted but empty, or a handler wired to the wrong member,
-     * still renders a control; what this pins is that the real app supplies all
-     * four sources on this route.
+     * still renders a control; what this pins is that the real app supplies
+     * both sources on this route.
      *
      * WHERE THEY ARE SINCE KI-776, and why the assertions had to change SHAPE
      * while the oracle did not. The shell moved them out of a flat action row:
@@ -209,12 +211,13 @@ describe('App — the KB overview on the authenticated home route', () => {
    *
    * The admin console has NO other entry point since Stage 7b deleted the
    * floating admin button, so the click path is exercised end to end rather
-   * than asserted as a rendered name: the item must reach `setView('admin')`
-   * and the admin view must actually come up.
+   * than asserted as a rendered name: the item must open the console, a
+   * dialog over the current view (like the settings window), and closing it
+   * must leave that view where it was.
    *
    * ORACLES, both independent of the code under change: src/translations.ts
    * for every accessible name (`adminSettings`, `adminDashboard`) and
-   * WAI-ARIA's button / menuitem / heading role mappings.
+   * WAI-ARIA's button / menuitem / dialog role mappings.
    *
    * („shows the agents row to a system admin" sat here and is deleted: the row
    * was removed from the nav on 18.09.2026. `AgentsView` keeps its two in-KB
@@ -231,44 +234,28 @@ describe('App — the KB overview on the authenticated home route', () => {
     const menu = within(await screen.findByRole('menu'));
     await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.de }));
 
-    /* ORACLE: translations.ts (`adminDashboard`) + the h1 mapping. `AdminUI`
+    /* ORACLE: translations.ts (`adminDashboard`) + the dialog mapping. `AdminUI`
      * is a lazy import behind a Suspense boundary, hence the same generous
      * timeout `findOverviewHeading` explains — a module fetch, not a
      * behaviour, is what is being waited for. */
-    expect(
-      await screen.findByRole(
-        'heading',
-        { level: 1, name: translations.adminDashboard.de },
-        { timeout: 15000 },
-      ),
-    ).toBeInTheDocument();
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: translations.adminDashboard.de },
+      { timeout: 15000 },
+    );
+    expect(dialog).toBeInTheDocument();
+
+    // Over the view, not instead of it: closing returns to where the user was.
+    await userEvent.click(within(dialog).getByRole('button', { name: translations.close.de }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await findOverviewHeading();
   });
 
-  /* Card KI-781 gave the onboarding-tour trigger a stable `id` so it can be
-   * addressed by the tour itself or by external scripting. An `id` is only
-   * worth anything if it resolves to exactly ONE element, and that is a
-   * property of the rendered DOCUMENT, not of the component: `AuthenticatedApp`
-   * could grow a second mount point, or another component could take the same
-   * id, and the component's own source would still look correct. This file is
-   * where that can be seen, because it renders the real `App` down to the real
-   * `view === 'home'` branch with only the network stubbed.
-   *
-   * ORACLES, both independent of the code under change:
-   *  - `document.querySelectorAll` / `getElementById` — the DOM's own id
-   *    semantics, supplied by jsdom, not by anything this card wrote. The
-   *    count is the assertion; a duplicated id makes it 2 and fails.
-   *  - `translations.ts` (`onboardingReopenTour`) for the accessible name,
-   *    which pins that the id landed on the TOUR trigger and not on some other
-   *    button that happens to exist on the overview.
-   *
-   * Deliberately NOT asserted: the corner it sits in. The position is inline
-   * CSS with no layout in jsdom, so any such assertion would only restate the
-   * style object back to itself — no independent oracle exists for it here,
-   * and a green assertion would be worse than none. */
   /* -----------------------------------------------------------------------
    * The appearance preferences live in the settings window (developer,
    * 24.09.2026), opened from the user menu's „Einstellungen" item: colour
-   * scheme, Style and language under General, the account under Profile.
+   * scheme, contrast, accent and language under General (the Style row is
+   * gone since the sidebar redesign), the account under Profile.
    * Asserted on the real route because this is the app's only colour-scheme
    * control — if it went missing, no type error or build step would notice.
    *
@@ -283,21 +270,57 @@ describe('App — the KB overview on the authenticated home route', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
     const menu = within(await screen.findByRole('menu'));
-    // profile, admin settings, settings, logout.
-    expect(menu.getAllByRole('menuitem')).toHaveLength(4);
+    // profile, admin settings, settings, the „Hilfe" submenu trigger (legal
+    // pages — a Radix sub-trigger is a menuitem too), logout.
+    expect(menu.getAllByRole('menuitem')).toHaveLength(5);
+    expect(menu.getByRole('menuitem', { name: translations.help.de })).toBeInTheDocument();
     await userEvent.click(menu.getByRole('menuitem', { name: translations.settings.de }));
 
     const dialog = within(await screen.findByRole('dialog', { name: translations.settings.de }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsGeneral.de })).toBeInTheDocument();
     expect(dialog.getByRole('combobox', { name: translations.appearance.de })).toHaveTextContent(translations.themeSystemShort.de);
-    expect(dialog.getByRole('combobox', { name: translations.uiShape.de })).toHaveTextContent(translations.uiShapeRounded.de);
     expect(dialog.getByRole('combobox', { name: translations.languageLabel.de })).toHaveTextContent('Deutsch');
     expect(dialog.getByRole('combobox', { name: translations.contrast.de })).toHaveTextContent(translations.themeSystemShort.de);
     expect(dialog.getByRole('combobox', { name: translations.accentColor.de })).toHaveTextContent(translations.accent_standard.de);
+    // Exactly those four choices — no Style (uiShape) row any more.
+    expect(dialog.getAllByRole('combobox')).toHaveLength(4);
 
     await userEvent.click(dialog.getByRole('button', { name: translations.settingsProfile.de }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsProfile.de })).toBeInTheDocument();
     expect(dialog.getByText('@grace')).toBeInTheDocument();
+  });
+
+  // ORACLE: translations.ts. „Mein Profil" used to open the standalone profile page; it is the
+  // settings window's Profil tab now.
+  it('opens „Mein Profil" as the settings window on its Profil tab', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.profile.de }));
+
+    const dialog = within(await screen.findByRole('dialog', { name: translations.settings.de }));
+    expect(dialog.getByRole('heading', { level: 2, name: translations.settingsProfile.de })).toBeInTheDocument();
+    expect(dialog.getByText('@grace')).toBeInTheDocument();
+  });
+
+  // ORACLE: translations.ts. The seeded user is an ordinary `user` and the site config enables no
+  // Confluence, so both connectors are listed but disabled, each with its reason.
+  it('always shows the Konnektoren tab, with the connectors this user cannot use disabled', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.settings.de }));
+    const dialog = within(await screen.findByRole('dialog', { name: translations.settings.de }));
+
+    await userEvent.click(dialog.getByRole('button', { name: translations.settingsConnectors.de }));
+    expect(dialog.getByRole('heading', { level: 2, name: translations.settingsConnectors.de })).toBeInTheDocument();
+    expect(dialog.getByText(translations.connectorApiKeysUnavailable.de)).toBeInTheDocument();
+    expect(dialog.getByText(translations.connectorConfluenceUnavailable.de)).toBeInTheDocument();
+    expect(dialog.getAllByText(translations.connectorDisabled.de)).toHaveLength(2);
   });
 
   // ORACLE: translations.ts, both languages.
@@ -312,35 +335,6 @@ describe('App — the KB overview on the authenticated home route', () => {
     const dialog = within(await screen.findByRole('dialog', { name: translations.settings.en }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsGeneral.en })).toBeInTheDocument();
     expect(dialog.queryByText(translations.settingsGeneral.de)).toBeNull();
-  });
-
-  // TEMPORARY, with the switch-off in AuthenticatedApp.tsx: remove or invert
-  // this test when the automatic tour comes back.
-  // A first login is storage with a token and a user and nothing else, which is
-  // what beforeEach leaves. ORACLE: translations.ts for both names, WAI-ARIA's
-  // dialog role.
-  it('opens no tour on a first login, and the help button still opens it', async () => {
-    render(<App />);
-    await findOverviewHeading();
-    expect(screen.queryByRole('dialog', { name: translations.onboardingWelcomeTitle.de })).toBeNull();
-
-    await userEvent.click(screen.getByRole('button', { name: translations.onboardingReopenTour.de }));
-    expect(await screen.findByRole('dialog', { name: translations.onboardingWelcomeTitle.de })).toBeInTheDocument();
-  });
-
-  it('renders the onboarding-tour trigger under exactly one stable id', async () => {
-    render(<App />);
-
-    await findOverviewHeading();
-
-    // ORACLE: the DOM's id semantics. Unique means exactly one, not >= one.
-    const matches = document.querySelectorAll('#onboarding-tour-trigger');
-    expect(matches).toHaveLength(1);
-
-    // ORACLE: translations.ts — the id is on the tour trigger specifically.
-    const trigger = document.getElementById('onboarding-tour-trigger');
-    expect(trigger?.tagName).toBe('BUTTON');
-    expect(trigger).toHaveAccessibleName(translations.onboardingReopenTour.de);
   });
 
   /* -------------------------------------------------------------------------

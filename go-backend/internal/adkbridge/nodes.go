@@ -12,6 +12,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/workflow"
 
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -87,13 +88,16 @@ func RetrieveNode(name string, dispatch DispatchFunc, topK int) workflow.Node {
 
 // Action is one suggestion offered in a pause (plan §6a).
 type Action struct {
-	ID           string         `json:"id"`
-	Tool         string         `json:"tool,omitempty"`
-	FrontendTool string         `json:"frontendTool,omitempty"`
-	Label        string         `json:"label"`
-	SideEffect   SideEffect     `json:"sideEffect,omitempty"`
-	RequiresRole string         `json:"requiresRole,omitempty"`
-	Args         map[string]any `json:"args,omitempty"`
+	ID           string     `json:"id"`
+	Tool         string     `json:"tool,omitempty"`
+	FrontendTool string     `json:"frontendTool,omitempty"`
+	Label        string     `json:"label"`
+	SideEffect   SideEffect `json:"sideEffect,omitempty"`
+	RequiresRole string     `json:"requiresRole,omitempty"`
+	// RequiresCapability is the kbaccess capability the action needs on
+	// top of RequiresRole (addSources for the KB-writing actions).
+	RequiresCapability kbaccess.Capability `json:"requiresCapability,omitempty"`
+	Args               map[string]any      `json:"args,omitempty"`
 }
 
 // VisibleActions keeps frontend actions and the server tools that are
@@ -108,10 +112,11 @@ func VisibleActions(sc Scope, actions []Action, allowed []string) []Action {
 		}
 		p := PolicyFor(a.Tool)
 		if !slices.Contains(allowed, a.Tool) || !RoleAtLeast(sc.Role, p.RequiresRole) ||
+			!capabilityAllowed(sc, p) ||
 			(privilegedInBridge(a.Tool) && !sc.AllowPrivileged) {
 			continue
 		}
-		a.SideEffect, a.RequiresRole = p.SideEffect, p.RequiresRole
+		a.SideEffect, a.RequiresRole, a.RequiresCapability = p.SideEffect, p.RequiresRole, p.RequiresCapability
 		out = append(out, a)
 	}
 	return out

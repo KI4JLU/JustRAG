@@ -4,41 +4,22 @@ import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
 
-const MembersModal = lazy(() => import('./MembersModal').then(module => ({ default: module.MembersModal })));
 const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
 const ChartModal = lazy(() => import('./ChartModal').then(module => ({ default: module.ChartModal })));
 const AbstractGenerationModal = lazy(() => import('./AbstractGenerationModal').then(module => ({ default: module.AbstractGenerationModal })));
 const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(module => ({ default: module.TextSourceViewer })));
 const PdfPreviewModal = lazy(() => import('./PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
-const TabularDetailModal = lazy(() => import('./TabularDetailModal').then(module => ({ default: module.TabularDetailModal })));
+const MediaPreviewModal = lazy(() => import('./MediaPreviewModal').then(module => ({ default: module.MediaPreviewModal })));
+const TablePreviewDialog = lazy(() => import('./tablePreview/TablePreviewDialog').then(module => ({ default: module.TablePreviewDialog })));
 const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ default: module.WebWorkspace })));
 
 export function KbWorkspaceModals() {
   const { currentKb, availableConfigs, handleUpdateKBSettings } = useKbCore();
   const { showSettings, setShowSettings } = useKbChat();
-  const { sharing, content, fileMgmt, webTools } = useKbData();
+  const { content, fileMgmt, webTools } = useKbData();
 
   return (
     <>
-      <Suspense fallback={null}>
-        {sharing.showShareModal && <MembersModal
-          show={sharing.showShareModal}
-          onClose={() => sharing.setShowShareModal(false)}
-          sharingKb={sharing.sharingKb}
-          shareUserId={sharing.shareUserId}
-          setShareUserId={sharing.setShareUserId}
-          shareTargetUser={sharing.shareTargetUser}
-          shareLoading={sharing.shareLoading}
-          sharePermission={sharing.sharePermission}
-          setSharePermission={sharing.setSharePermission}
-          onLookupUser={sharing.lookupUser}
-          onConfirmShare={sharing.confirmShare}
-          notFoundUsername={sharing.notFoundUsername}
-          onPendingInvited={sharing.clearNotFound}
-          myRole={currentKb?.myRole ?? 'view'}
-        />}
-      </Suspense>
-
       <Suspense fallback={null}>
         {showSettings && <SettingsModal
           show={showSettings}
@@ -76,14 +57,20 @@ export function KbWorkspaceModals() {
       </Suspense>
 
       <Suspense fallback={null}>
-        {/* A .md/.txt source opens read-only in the text editor's window, the
-            PDF preview's twin (TextSourceModal.tsx). */}
+        {/* A text source — and a document's extracted text — opens read-only in
+            the text editor's window, the PDF preview's twin (TextSourceModal.tsx). */}
         {webTools.showPreviewModal && webTools.previewPage && <TextSourceViewer
           show={webTools.showPreviewModal}
           onClose={() => webTools.setShowPreviewModal(false)}
           fileName={webTools.previewPage.title}
           content={webTools.previewPage.content}
           format={webTools.previewPage.format ?? 'markdown'}
+          extractedFrom={webTools.previewPage.extractedFrom}
+          origin={webTools.previewPage.origin}
+          back={webTools.previewPage.back && {
+            trail: webTools.previewPage.back.trail,
+            onBack: () => { webTools.setShowPreviewModal(false); webTools.previewPage?.back?.onBack(); },
+          }}
         />}
       </Suspense>
 
@@ -122,16 +109,43 @@ export function KbWorkspaceModals() {
           fileId={webTools.pdfPreview?.fileId || ''}
           fileName={webTools.pdfPreview?.fileName || ''}
           page={webTools.pdfPreview?.page || 1}
+          downloadPath={webTools.pdfPreview?.downloadPath}
+          back={webTools.pdfPreview?.back && {
+            trail: webTools.pdfPreview.back.trail,
+            onBack: () => { webTools.setShowPdfPreview(false); webTools.pdfPreview?.back?.onBack(); },
+          }}
         />}
       </Suspense>
 
       <Suspense fallback={null}>
-        {webTools.showTabularModal && currentKb && <TabularDetailModal
+        {webTools.mediaPreview && <MediaPreviewModal
+          show
+          onClose={webTools.closeMediaPreview}
+          fileId={webTools.mediaPreview.fileId}
+          fileName={webTools.mediaPreview.fileName}
+          kind={webTools.mediaPreview.kind}
+          userFileId={webTools.mediaPreview.userFileId}
+          back={webTools.mediaPreview.back && {
+            trail: webTools.mediaPreview.back.trail,
+            onBack: () => { webTools.closeMediaPreview(); webTools.mediaPreview?.back?.onBack(); },
+          }}
+        />}
+      </Suspense>
+
+      <Suspense fallback={null}>
+        {webTools.showTabularModal && currentKb && <TablePreviewDialog
           show={webTools.showTabularModal}
           onClose={() => webTools.setShowTabularModal(false)}
           kbId={currentKb.id}
           fileId={webTools.tabularFile?.fileId || ''}
           fileName={webTools.tabularFile?.fileName || ''}
+          // Live from the polled file list, so the preview loads by itself
+          // once an ingest that was still running finishes.
+          status={fileMgmt.files.find(f => f.id === webTools.tabularFile?.fileId)?.status}
+          back={webTools.tabularFile?.back && {
+            trail: webTools.tabularFile.back.trail,
+            onBack: () => { webTools.setShowTabularModal(false); webTools.tabularFile?.back?.onBack(); },
+          }}
         />}
       </Suspense>
     </>

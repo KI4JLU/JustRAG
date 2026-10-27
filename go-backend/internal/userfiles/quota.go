@@ -37,7 +37,10 @@ func EffectiveQuota(ctx context.Context, store Store, reader QuotaReader, ownerI
 }
 
 // QuotaError is returned by Ingest when the upload would exceed the quota.
-type QuotaError struct{ UsedBytes, QuotaBytes int64 }
+// ChatAttachmentBytes is the part of UsedBytes held by chat attachments: the
+// library list does not show them, so without it a user at quota could find
+// nothing to delete there.
+type QuotaError struct{ UsedBytes, QuotaBytes, ChatAttachmentBytes int64 }
 
 func (e *QuotaError) Error() string {
 	return fmt.Sprintf("library quota exceeded: %d of %d bytes used", e.UsedBytes, e.QuotaBytes)
@@ -61,6 +64,14 @@ func NewIngester(store Store, stor storage.Storage, quota QuotaReader) *Ingester
 // Ingest stores up as a library file of ownerID. The caller still owns (and
 // closes) up.File.
 func (in *Ingester) Ingest(ctx context.Context, ownerID string, up *uploadcheck.Upload) (*UserFile, bool, error) {
+	return in.IngestScoped(ctx, ownerID, up, ScopeLibrary)
+}
+
+// IngestScoped is Ingest with an explicit scope: ScopeChat stores a chat
+// attachment. Quota and dedup are shared by both scopes; a dedup hit returns
+// the existing row whatever its scope (a library upload promotes a chat row,
+// see PGStore.Insert).
+func (in *Ingester) IngestScoped(ctx context.Context, ownerID string, up *uploadcheck.Upload, scope string) (*UserFile, bool, error) {
 	size := up.Header.Size
 
 	quota, err := EffectiveQuota(ctx, in.store, in.quota, ownerID)
@@ -73,7 +84,13 @@ func (in *Ingester) Ingest(ctx context.Context, ownerID string, up *uploadcheck.
 			return nil, false, err
 		}
 		if used+size > quota {
-			return nil, false, &QuotaError{UsedBytes: used, QuotaBytes: quota}
+			qe := &QuotaError{UsedBytes: used, QuotaBytes: quota}
+			// Best effort: a failed breakdown must not turn the 413 into a 500.
+			if qe.ChatAttachmentBytes, err = in.store.ChatAttachmentBytes(ctx, ownerID); err != nil {
+				logctx.From(ctx).Warn("userfiles: read chat attachment bytes for the quota error", "error", err)
+				qe.ChatAttachmentBytes = 0
+			}
+			return nil, false, qe
 		}
 	}
 
@@ -94,6 +111,7 @@ func (in *Ingester) Ingest(ctx context.Context, ownerID string, up *uploadcheck.
 		Size:        size,
 		SHA256:      hex.EncodeToString(h.Sum(nil)),
 		StoragePath: path,
+		Scope:       scope,
 	})
 	if err != nil {
 		if delErr := in.stor.DeleteFile(ctx, path); delErr != nil {

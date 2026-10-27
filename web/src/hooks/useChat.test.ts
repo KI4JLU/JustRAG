@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import axios from 'axios';
 import { useChat, buildComparisonSend } from './useChat';
 import type { KnowledgeBase, FileEntry, ChatEntry } from '../types';
 import type { ChatAttachment } from './useChatAttachment';
 
-// handleSelectChat's reload path (GET /api/chats/:id/messages) is the only
-// place in this file that touches axios directly — everything else goes
-// through the mocked useChatStream/useChatAttachment sub-hooks above.
+// handleSelectChat's reload path (GET /api/chats/:id/messages) and the branch
+// call (POST /api/chats/:id/branch, which regenerate/edit/fork make before
+// they send) are the only places in this file that touch axios directly —
+// everything else goes through the mocked useChatStream/useChatAttachment
+// sub-hooks below.
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
 
@@ -278,6 +280,28 @@ describe('useChat.startComparison', () => {
   });
 });
 
+/**
+ * Every branch is a new chat: regenerate, edit and fork first POST
+ * /api/chats/{active}/branch (`{messageId}` to copy the chat up to that
+ * message, `{}` for an empty branch), add and select the returned chat (whose
+ * messages handleSelectChat then GETs), and only then send — in the branch.
+ * The response is a ChatRow plus `copiedMessageId`, the branch's copy of the
+ * message named in the request. This mocks that round trip with hand-picked
+ * ids so the assertions below can tell the original's ids from the copy's.
+ */
+const ORIGINAL_CHAT = 'chat-original';
+const BRANCH_CHAT = 'chat-branch';
+function mockBranch(copiedMessageId: string | undefined, branchMessages: unknown[]) {
+  mockedAxios.post.mockResolvedValueOnce({
+    data: {
+      id: BRANCH_CHAT, kbId: 'kb1', userId: 'u1', title: 'Chat', type: 'chat',
+      createdAt: '2026-01-01', updatedAt: '2026-01-01',
+      ...(copiedMessageId ? { copiedMessageId } : {}),
+    },
+  });
+  mockedAxios.get.mockResolvedValueOnce({ data: branchMessages });
+}
+
 // A regenerate must not travel through the composer. The old implementation
 // typed the question back into the input and re-sent it, which persisted a
 // second copy of the user's prompt — visible as the same question twice in
@@ -285,9 +309,12 @@ describe('useChat.startComparison', () => {
 describe('useChat.handleRegenerate', () => {
   const U1 = '11111111-1111-4111-8111-111111111111';
   const A1 = '22222222-2222-4222-8222-222222222222';
+  // The branch's copy of U1 (copiedMessageId).
+  const U1_COPY = '33333333-3333-4333-8333-333333333333';
 
   function withAnsweredTurn(result: { current: ReturnType<typeof useChat> }) {
     act(() => {
+      result.current.setActiveChatId(ORIGINAL_CHAT);
       result.current.setMessageTree(new Map([
         [U1, { id: U1, role: 'user', content: 'Wie funktioniert X?', childIds: [A1] }],
         [A1, { id: A1, role: 'ai', content: 'Antwort 1', parentMessageId: U1, childIds: [] }],
@@ -296,21 +323,45 @@ describe('useChat.handleRegenerate', () => {
     });
   }
 
+  // A new answer is a new branch: the chat is copied up to the question, and
+  // the branch then answers ITS copy of the question — so every id in the
+  // send is the copy's (U1_COPY), never the original's. The original chat
+  // keeps its answer untouched.
   it('sendet die gespeicherte Frage als Regeneration der genannten Antwort', async () => {
     const { result } = renderUseChat();
     withAnsweredTurn(result);
+    mockBranch(U1_COPY, [{ id: U1_COPY, role: 'user', content: 'Wie funktioniert X?' }]);
 
     await act(async () => {
       await result.current.handleRegenerate(A1);
     });
 
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining(`/api/chats/${ORIGINAL_CHAT}/branch`), { messageId: U1 });
+    expect(result.current.activeChatId).toBe(BRANCH_CHAT);
+    expect(result.current.chats.map(c => c.id)).toContain(BRANCH_CHAT);
+
     expect(streamSend).toHaveBeenCalledTimes(1);
-    const [, message, , editParentId, opts] = streamSend.mock.calls[0];
+    const [, message, leafId, editParentId, opts] = streamSend.mock.calls[0];
     expect(message).toBe('Wie funktioniert X?');
+    expect(leafId).toBe(U1_COPY);
     expect(opts).toEqual(expect.objectContaining({
-      regenerateOf: { aiMessageId: A1, userMessageId: U1 },
+      regenerateOf: { aiMessageId: U1_COPY, userMessageId: U1_COPY },
     }));
     expect(editParentId).toBeUndefined();
+  });
+
+  it('sendet nichts, wenn das Verzweigen scheitert', async () => {
+    const { result } = renderUseChat();
+    withAnsweredTurn(result);
+    mockedAxios.post.mockRejectedValueOnce(new Error('500'));
+
+    await act(async () => {
+      await result.current.handleRegenerate(A1);
+    });
+
+    expect(streamSend).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith('chatBranchFailed');
+    expect(result.current.activeChatId).toBe(ORIGINAL_CHAT);
   });
 
   // The old implementation typed the question into the composer and let the
@@ -336,7 +387,9 @@ describe('useChat.handleRegenerate', () => {
   // the regenerate has to hop over it to the persisted question.
   it('überspringt den Anzeige-Knoten eines Enhance-Turns', async () => {
     const { result } = renderUseChat();
+    mockBranch(U1_COPY, [{ id: U1_COPY, role: 'user', content: 'Wie funktioniert X?' }]);
     act(() => {
+      result.current.setActiveChatId(ORIGINAL_CHAT);
       result.current.setMessageTree(new Map([
         [U1, { id: U1, role: 'user', content: 'Wie funktioniert X?', childIds: ['temp-enhanced-1'] }],
         ['temp-enhanced-1', { id: 'temp-enhanced-1', role: 'user', content: '✨ Wie funktioniert X genau?', isEnhanced: true, parentMessageId: U1, childIds: [A1] }],
@@ -349,15 +402,18 @@ describe('useChat.handleRegenerate', () => {
       await result.current.handleRegenerate(A1);
     });
 
+    // The branch is cut at the persisted question U1, not at the display node.
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining('/branch'), { messageId: U1 });
     expect(streamSend).toHaveBeenCalledTimes(1);
     const [, message, , , opts] = streamSend.mock.calls[0];
-    expect(opts.regenerateOf.userMessageId).toBe(U1);
+    expect(opts.regenerateOf.userMessageId).toBe(U1_COPY);
     expect(message).toBe('Wie funktioniert X?');
   });
 
   it('sendet nichts für eine noch nicht gespeicherte Antwort', async () => {
     const { result } = renderUseChat();
     act(() => {
+      result.current.setActiveChatId(ORIGINAL_CHAT);
       result.current.setMessageTree(new Map([
         ['temp-user-1', { id: 'temp-user-1', role: 'user', content: 'Frage', childIds: ['temp-ai-1'] }],
         ['temp-ai-1', { id: 'temp-ai-1', role: 'ai', content: 'Antwort', parentMessageId: 'temp-user-1', childIds: [] }],
@@ -370,7 +426,9 @@ describe('useChat.handleRegenerate', () => {
     });
 
     // Posting a temp id would hit the uuid `messages` columns (SQLSTATE
-    // 22P02) and drop the whole conversation history.
+    // 22P02) and drop the whole conversation history — neither the branch
+    // call nor the send may carry it.
+    expect(mockedAxios.post).not.toHaveBeenCalled();
     expect(streamSend).not.toHaveBeenCalled();
   });
 });
@@ -379,12 +437,20 @@ describe('useChat.handleRegenerate', () => {
 // the root" — which must reach useChatStream as null, not be flattened to
 // undefined. Flattened, it fell through to the active leaf and appended the
 // edited question to the answer it was replacing.
+//
+// An edit is also a new branch: the chat is copied up to the turn before the
+// edited question — for the first question that is an EMPTY branch (POST
+// `{}`, no copiedMessageId) — and the edit is sent there.
 describe('useChat.handleEditSubmit', () => {
   const U1 = '11111111-1111-4111-8111-111111111111';
+  const A0 = '44444444-4444-4444-8444-444444444444';
+  const A0_COPY = '55555555-5555-4555-8555-555555555555';
 
   it('gibt für die erste Frage eines Chats null als Parent weiter', async () => {
     const { result } = renderUseChat();
+    mockBranch(undefined, []);
     act(() => {
+      result.current.setActiveChatId(ORIGINAL_CHAT);
       result.current.setMessageTree(new Map([
         [U1, { id: U1, role: 'user', content: 'Alte Frage', childIds: [] }],
       ]));
@@ -395,10 +461,99 @@ describe('useChat.handleEditSubmit', () => {
       result.current.handleEditSubmit(U1, 'Neu formulierte Frage');
     });
 
-    expect(streamSend).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1));
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining(`/api/chats/${ORIGINAL_CHAT}/branch`), {});
+    expect(result.current.activeChatId).toBe(BRANCH_CHAT);
     const [, message, , editParentId] = streamSend.mock.calls[0];
     expect(message).toBe('Neu formulierte Frage');
     expect(editParentId).toBeNull();
+  });
+
+  // A later question: the branch copies the chat up to the answer before it,
+  // and the edit hangs under the branch's COPY of that answer.
+  it('hängt eine spätere Frage an die Kopie der vorigen Antwort im neuen Zweig', async () => {
+    const { result } = renderUseChat();
+    mockBranch(A0_COPY, [{ id: A0_COPY, role: 'ai', content: 'Antwort 0' }]);
+    act(() => {
+      result.current.setActiveChatId(ORIGINAL_CHAT);
+      result.current.setMessageTree(new Map([
+        [A0, { id: A0, role: 'ai', content: 'Antwort 0', childIds: [U1] }],
+        [U1, { id: U1, role: 'user', content: 'Alte Frage', parentMessageId: A0, childIds: [] }],
+      ]));
+      result.current.setActiveLeafId(U1);
+    });
+
+    await act(async () => {
+      result.current.handleEditSubmit(U1, 'Neu formulierte Frage');
+    });
+
+    await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1));
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining('/branch'), { messageId: A0 });
+    const [, , , editParentId] = streamSend.mock.calls[0];
+    expect(editParentId).toBe(A0_COPY);
+  });
+
+  // Oracle: the send resolves when the server accepted the turn, not when
+  // the answer has finished streaming — PromptInput clears its attachment
+  // chips on that resolution.
+  it('meldet die Annahme, bevor die Antwort fertig gestreamt ist', async () => {
+    const { result } = renderUseChat();
+    streamSend.mockImplementationOnce((_e: unknown, _m: unknown, _l: unknown, _p: unknown, opts?: { onAccepted?: () => void }) => {
+      opts?.onAccepted?.();
+      return new Promise(() => {}); // the answer never finishes in this test
+    });
+    act(() => {
+      result.current.setUserMessageInput('Frage');
+    });
+    let sent: boolean | undefined;
+    await act(async () => {
+      sent = await result.current.handleSendMessage({ preventDefault: () => {} } as React.FormEvent);
+    });
+    expect(sent).toBe(true);
+  });
+
+  // Oracle: an edit is a new question about the same files — the original's
+  // attachments go with it, as ids for the request and chips for the bubble.
+  it('nimmt die Anhänge der bearbeiteten Frage mit', async () => {
+    const { result } = renderUseChat();
+    const attachments = [{ userFileId: 'uf-1', name: 'ordnung.pdf', mime: 'application/pdf', size: 3 }];
+    mockBranch(undefined, []);
+    act(() => {
+      result.current.setActiveChatId(ORIGINAL_CHAT);
+      result.current.setMessageTree(new Map([
+        [U1, { id: U1, role: 'user', content: 'Alte Frage', childIds: [], attachments }],
+      ]));
+      result.current.setActiveLeafId(U1);
+    });
+
+    await act(async () => {
+      result.current.handleEditSubmit(U1, 'Neu formulierte Frage');
+    });
+
+    await waitFor(() => expect(streamSend).toHaveBeenCalledTimes(1));
+    const [, , , , opts] = streamSend.mock.calls[0];
+    expect(opts).toMatchObject({ attachmentIds: ['uf-1'], attachments });
+  });
+});
+
+// „Verzweigen" on an answer opens a branch cut at that answer, ready for a
+// different follow-up — it sends nothing by itself.
+describe('useChat.handleForkFromMessage', () => {
+  const A1 = '22222222-2222-4222-8222-222222222222';
+
+  it('öffnet einen neuen Chat ab der Antwort, ohne etwas zu senden', async () => {
+    const { result } = renderUseChat();
+    mockBranch('66666666-6666-4666-8666-666666666666', [{ id: '66666666-6666-4666-8666-666666666666', role: 'ai', content: 'Antwort 1' }]);
+    act(() => { result.current.setActiveChatId(ORIGINAL_CHAT); });
+
+    await act(async () => {
+      await result.current.handleForkFromMessage(A1);
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining(`/api/chats/${ORIGINAL_CHAT}/branch`), { messageId: A1 });
+    expect(result.current.activeChatId).toBe(BRANCH_CHAT);
+    expect(result.current.messageTree.has('66666666-6666-4666-8666-666666666666')).toBe(true);
+    expect(streamSend).not.toHaveBeenCalled();
   });
 });
 

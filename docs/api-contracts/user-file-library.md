@@ -58,9 +58,11 @@ Query: `limit` (default 50, clamped 1..500), `offset` (default 0, negatives igno
 |---|---|
 | 201 | `UserFile` (new file) |
 | 200 | `UserFile` plus `"deduplicated": true`: this user already holds identical bytes; the existing file is returned, nothing is stored or charged to quota |
-| 400 | `{"error":"Invalid multipart form"}`, `"File field is required"`, `"File must not be empty"`, `"File type not allowed"`, `"File type not supported (.ext)"`, `"Filename must not exceed 255 bytes"` |
-| 413 | transport cap: `{"error":"File too large: the upload limit is 500 MiB"}`; spreadsheet gate: `{"error":"Spreadsheet too large (X): the limit is Y (tabular_max_file_bytes)"}` |
-| 413 | quota: `{"error":"quota_exceeded","usedBytes":1048576000,"quotaBytes":1073741824}` |
+| 400 | `{"error":"Invalid multipart form","code":"invalid_upload"}`, `"File field is required"` (`invalid_upload`), `"File must not be empty"` (`empty_file`), `"File type not allowed"` / `"File type not supported (.ext)"` (`unsupported_file_type`), `"Filename must not exceed 255 bytes"` (`file_name_too_long`) |
+| 413 | transport cap: `{"error":"File too large: the upload limit is 500 MiB","code":"file_too_large","limitBytes":524288000}`; spreadsheet gate: `{"error":"Spreadsheet too large (X): the limit is Y (tabular_max_file_bytes)","code":"file_too_large","limitBytes":Y}` |
+| 413 | quota: `{"error":"quota_exceeded","code":"quota_exceeded","usedBytes":1048576000,"quotaBytes":1073741824,"chatAttachmentBytes":0}` |
+
+Every refusal carries `code` (API.md § Error codes); a UI maps the code to its own message and never shows `error`.
 
 201 example:
 ```json
@@ -103,7 +105,7 @@ KBs currently holding a copy (impact preview for the delete dialog). `memberCoun
 
 ### GET /api/library/quota
 
-200: `{"usedBytes":1048576,"quotaBytes":0}`. `quotaBytes: 0` means **unlimited**. `usedBytes` sums the library files' sizes; a file added to N KBs counts once.
+200: `{"usedBytes":1048576,"quotaBytes":0,"chatAttachmentBytes":0}`. `quotaBytes: 0` means **unlimited**. `usedBytes` sums the user's files' sizes; a file added to N KBs counts once. Chat attachments count too, but the library list does not show them: `chatAttachmentBytes` is their part of `usedBytes`, and it is freed by deleting the chats they were sent in. The `413 quota_exceeded` body carries the same `chatAttachmentBytes`.
 
 ## KB endpoints
 
@@ -239,16 +241,17 @@ Errors:
 | 400 | any `regenerateOfMessageId` is rejected: `regenerateOfMessageId requires chatId` (no `chatId`), `regenerateOfMessageId must be a message id` (malformed id) — both from the shared KB body validation, checked first — else `regenerate is not supported for library chats` |
 | 400 | `at most 20 library files can be selected` |
 | 400 | `no library files selected` (new chat without `fileIds`, or all stored files deleted) |
-| 400 | `the file "<name>" cannot be read as text` (no parser, or the parser failed; the cause is never echoed) |
-| 400 | `the file "<name>" took too long to read` (the server-side parse of that file ran past 120 s; a later retry may succeed) |
-| 400 | `the selected files contain no text` |
-| 400 | `selected files are too large for one chat turn (<tokens> tokens, maximum <max>)`, or `(at least <tokens> tokens, maximum <max>)` when a cheap pre-check rejected the selection before counting exactly (`<tokens>` is then a lower bound) |
+| 415 | `the file "<name>" has an unsupported type`, code `unsupported_file_type` (no parser handles the format) |
+| 422 | `the file "<name>" cannot be read as text`, code `file_unreadable` (a parser handles the format but failed on the file; the cause is never echoed) |
+| 422 | `the file "<name>" took too long to read`, code `parse_timeout` (the server-side parse of that file ran past 120 s; a later retry may succeed) |
+| 400 | `the selected files contain no text`, code `no_text` |
+| 400 | `selected files are too large for one chat turn (<tokens> tokens, maximum <max>)`, or `(at least <tokens> tokens, maximum <max>)` when a cheap pre-check rejected the selection before counting exactly (`<tokens>` is then a lower bound); code `too_large_for_context` |
 | 404 | `chat not found`, `file not found` (also when a file is deleted in the instant between validation and saving the selection) |
 | 500 | `failed to fetch chat`, `failed to create chat`, `failed to save library files`, `failed to load library files`, `failed to read library file`, `failed to prepare context`, `failed to save user message` |
 
-**Where errors appear in stream mode.** The checks that need no file parsing — body validation, chat ownership, file ownership/selection (`invalid request body` … `no library files selected`, `chat not found`, a `file not found` for a body id, `failed to fetch chat`, `failed to load library files`) — answer with the status code and JSON body above in both modes. After them, a streaming request is committed to SSE (`200`, `text/event-stream`) and its first frame is `{"stage":"library_prepare"}` (a trajectory-event-shaped frame sent before the files are parsed, so a slow parse cannot idle-time-out a proxy). Every error from then on (`cannot be read as text`, `took too long to read`, `contain no text`, `too large`, the refs-race `file not found`, `failed to read library file`, `failed to prepare context`, `failed to create chat`, `failed to save library files`, `failed to save user message`, and the KB-path stream errors like `failed to start AI stream`) arrives as an SSE frame `{"error": "<same message>"}` followed by `[DONE]` — the KB chat's post-SSE error shape. Non-streaming requests return those as status code + JSON exactly as listed.
+**Where errors appear in stream mode.** The checks that need no file parsing — body validation, chat ownership, file ownership/selection (`invalid request body` … `no library files selected`, `chat not found`, a `file not found` for a body id, `failed to fetch chat`, `failed to load library files`) — answer with the status code and JSON body above in both modes. After them, a streaming request is committed to SSE (`200`, `text/event-stream`) and its first frame is `{"stage":"library_prepare"}` (a trajectory-event-shaped frame sent before the files are parsed, so a slow parse cannot idle-time-out a proxy). Every error from then on (`cannot be read as text`, `took too long to read`, `contain no text`, `too large`, the refs-race `file not found`, `failed to read library file`, `failed to prepare context`, `failed to create chat`, `failed to save library files`, `failed to save user message`, and the KB-path stream errors like `failed to start AI stream`) arrives as an SSE frame `{"error": "<same message>"}` (plus the same `code` where the JSON body has one) followed by `[DONE]` — the KB chat's post-SSE error shape. Non-streaming requests return those as status code + JSON exactly as listed.
 
-Audio files are **not supported**: library chat parses with the built-in parsers only (no Docling, no transcriber), so an audio file is `400 the file "<name>" cannot be read as text`.
+Audio files are **not supported**: library chat parses with the built-in parsers only (no Docling, no transcriber), so an audio file is `415 the file "<name>" has an unsupported type`.
 
 Parsing happens on demand the first time a file is used in a chat and is cached afterwards. A parse that finishes after the client disconnected is still cached, so retrying a turn on a large scanned PDF gets faster.
 

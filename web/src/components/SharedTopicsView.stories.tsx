@@ -4,12 +4,10 @@ import { SharedTopicsView } from './SharedTopicsView';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
-import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
-import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import { expectUniformCardHeights } from '../test/kbCardGeometry';
-import type { KnowledgeBase, User } from '../types';
+import type { KbSettingsSection, KnowledgeBase, User } from '../types';
 
 /** Opens the (first) topic card's ⋮ menu — the card actions live there. The
  *  menu is portaled to <body>, so it is found through `screen`. */
@@ -51,9 +49,9 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
  * `HomeView.stories.tsx` states, and the reason `App.authenticated-shared-kbs
  * .test.tsx` exists beside it: Storybook renders this component under the
  * providers the harness below mounts, so it can never tell you whether the
- * real app mounts them on the route this view is reached by. `AppChrome` calls
- * `useSharingContext()` and `useAppNav()`, both of which throw without a
- * provider, and this file would stay green if `AuthenticatedApp` forgot one.
+ * real app mounts them on the route this view is reached by. `AppChrome` and
+ * this view call `useAppNav()`, which throws without a provider, and this file
+ * would stay green if `AuthenticatedApp` forgot it.
  *
  * TIME-DEPENDENT OUTPUT IS NOT PINNED, for the reason the sibling file gives:
  * each card renders a relative „zuletzt aktiv" line derived from `Date.now()`,
@@ -115,10 +113,8 @@ const SHARED_VIEWER = privateKb({
 });
 
 /**
- * Shared, and the caller is a KB `admin` on it — the role that still offers the
- * share button. It is what makes the members dialog reachable from THIS view,
- * which is the whole reason that dialog is mounted in `AppChrome` rather than
- * on the overview page.
+ * Shared, and the caller is a KB `admin` on it — the role that still offers
+ * „Teilen". It is what makes that item reachable from THIS view at all.
  */
 const SHARED_ADMIN = privateKb({
   id: 'kb-shared-3',
@@ -136,12 +132,11 @@ const SHARED_NAMES = ['Fakultaetsprotokolle', 'Vorlesungsmitschriften'];
 /* ===========================================================================
  * The harness
  *
- * Providers and data, nothing else. The sharing concern is the REAL
- * `useSharing()` hook for the same reason the sibling file gives: the
- * `e.stopPropagation()` that keeps the share button from also opening the KB
- * lives inside that hook, so a stub would make every share assertion a
- * statement about the stub. Unlike the sibling file, the clipboard pair is not
- * overridden here — no story below touches it.
+ * Providers and data, nothing else. „Teilen" reaches the parent through
+ * `AppNavContext.onOpenTopicSettings`, which the harness supplies as the
+ * `onOpenTopicSettings` spy in `args`; the `e.stopPropagation()` that keeps the
+ * click from also opening the KB is the view's own `handleShare`, so no
+ * behaviour is supplied here.
  * ======================================================================== */
 
 /** Handlers no assertion reads. Spies so the Actions panel still shows them. */
@@ -156,13 +151,8 @@ interface SharedKbsStoryArgs {
   onViewHome: () => void;
   onViewSharedKbs: () => void;
   onViewDiscover: () => void;
-}
-
-function StorySharingProvider({ username, children }: { username: string; children: React.ReactNode }) {
-  // Runs inside the tree .storybook/preview.tsx mounts, because the hook calls
-  // useToast() and useTheme().
-  const sharing = useSharing({ username });
-  return <SharingProvider value={sharing}>{children}</SharingProvider>;
+  /** Where „Teilen" leads: the topic's Thema-Einstellungen on a section. */
+  onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
 }
 
 /**
@@ -187,34 +177,34 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
       siteConfigs={args.siteConfigs}
     >
       <ModalProvider>
-        <StorySharingProvider username={args.user.username}>
-          <AppNavProvider
-            value={{
-              onViewMyTopics: args.onViewHome,
-              onViewSharedTopics: args.onViewSharedKbs,
-              onViewDiscover: args.onViewDiscover,
-              onViewTools: idle(),
-              onViewProfile: idle(),
-              onViewAdmin: idle(),
-              // The header search's destinations (KI-837); no story here selects a hit.
-              onOpenTopic: idle(),
-              onOpenSource: idle(),
-              onOpenChat: idle(),
-            }}
-          >
-            <StoryKbSearchProvider>
-              <SharedTopicsView
-                kbs={args.kbs}
-                onSelectKB={args.onSelectKB}
-                onDeleteKB={idle()}
-                removingKb={args.removingKb}
-                onOpenKbSettings={idle()}
-                onRenameKB={idle()}
-                onToggleFavorite={idle()}
-              />
-            </StoryKbSearchProvider>
-          </AppNavProvider>
-        </StorySharingProvider>
+        <AppNavProvider
+          value={{
+            onViewMyTopics: args.onViewHome,
+            onViewSharedTopics: args.onViewSharedKbs,
+            onViewDiscover: args.onViewDiscover,
+            onViewTools: idle(),
+            onViewProfile: idle(),
+            onEditGlobalKb: idle(),
+            onViewLegal: idle(),
+            // The header search's destinations (KI-837); no story here selects a hit.
+            onOpenTopic: idle(),
+            onOpenSource: idle(),
+            onOpenChat: idle(),
+            onOpenTopicSettings: args.onOpenTopicSettings,
+          }}
+        >
+          <StoryKbSearchProvider>
+            <SharedTopicsView
+              kbs={args.kbs}
+              onSelectKB={args.onSelectKB}
+              onDeleteKB={idle()}
+              removingKb={args.removingKb}
+              onOpenKbSettings={idle()}
+              onRenameKB={idle()}
+              onToggleFavorite={idle()}
+            />
+          </StoryKbSearchProvider>
+        </AppNavProvider>
       </ModalProvider>
     </AuthProvider>
   );
@@ -306,6 +296,7 @@ const meta = {
     onViewHome: fn(),
     onViewSharedKbs: fn(),
     onViewDiscover: fn(),
+    onOpenTopicSettings: fn(),
   },
 } satisfies Meta<typeof SharedKbsHarness>;
 
@@ -450,45 +441,35 @@ export const NavRowIsCurrent: Story = {
  * ======================================================================== */
 
 /**
- * The members dialog opens from a card on THIS view.
+ * „Teilen" works from a card on THIS view: it hands the topic to
+ * Thema-Einstellungen on Mitglieder.
  *
- * WHY IT IS WORTH A STORY. The dialog is mounted by `AppChrome`, not by a
- * page. That placement is a decision this card made, and the failure it
- * prevents is silent in every other assertion here: leave the dialog on the
- * overview and this view still renders, still lists the right KBs, still has
- * one `<h1>` — and the share button on an `admin` card does nothing at all.
+ * WHY IT IS WORTH A STORY. The item reaches its destination through
+ * `AppNavContext`, not through a prop the parent passes this page. A view that
+ * rendered the item but wired it to nothing would still render, still list the
+ * right KBs, still have one `<h1>` — and „Teilen" on an `admin` card would do
+ * nothing at all.
  *
- * `SHARED_ADMIN` is the fixture because `canManageMembers` offers the button to
- * `admin` and `owner` only, and an owner row cannot appear on this page by
- * definition. So the shared-KB admin is the ONLY way this control is reachable
- * here, which also makes the story a check on that role tier.
+ * `SHARED_ADMIN` is the fixture because the card offers the item to KB
+ * `admin` and `owner` (and a superadmin, which `USER` is not), and an owner row
+ * cannot appear on this page by definition. So the shared-KB admin is the ONLY
+ * way this control is reachable here, which also makes the story a check on
+ * that role tier.
  *
- * ORACLE: the ARIA `dialog` role and the dialog's own `aria-labelledby`, plus
- * the `onSelectKB` spy for the propagation half — the control click reaches the
- * dialog and does NOT also open the KB, the behaviour that lives in the real
- * `useSharing.handleOpenShare` this harness mounts.
+ * ORACLE: the `fn()` spies in `args` — `onOpenTopicSettings` is called once
+ * with this topic and the Mitglieder section, and `onSelectKB` is not called
+ * at all: the click must not also open the KB through the card.
  */
-export const ShareDialogOpensFromASharedKb: Story = {
+export const ShareOpensTopicSettingsFromASharedKb: Story = {
   args: { kbs: [OWNED_ONE, SHARED_ADMIN] },
-  parameters: {
-    api: { kbMembers: { members: [], pending: [] }, kbInviteLinks: [] },
-  },
   play: async ({ args, canvas, userEvent }) => {
     // Only the shared KB is here, and only it can offer the control.
     await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(1);
 
     await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
 
-    await waitFor(async () => {
-      await expect(canvas.getByRole('dialog')).toBeInTheDocument();
-    });
-    await expect(canvas.getByRole('dialog')).toHaveAttribute(
-      'aria-labelledby',
-      'members-modal-title',
-    );
-
-    // ORACLE: the parent's spy. The share click must not also open the KB —
-    // the `e.stopPropagation()` in the production hook is what decides that.
+    await expect(args.onOpenTopicSettings).toHaveBeenCalledTimes(1);
+    await expect(args.onOpenTopicSettings).toHaveBeenCalledWith(SHARED_ADMIN, 'members');
     await expect(args.onSelectKB).not.toHaveBeenCalled();
   },
 };
@@ -513,12 +494,12 @@ export const ViewerSeesNoManagementControls: Story = {
   play: async ({ canvas, userEvent }) => {
     const cardMenu = await openKbMenu(canvas, userEvent);
     await expect(cardMenu.queryByRole('menuitem', { name: 'Teilen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base umbenennen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'RAG-Einstellungen und Workflow' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Umbenennen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: /RAG Konfiguration/ })).toBeNull();
     await expect(
       cardMenu.getByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' }),
     ).toBeInTheDocument();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Knowledge Base löschen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Löschen' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
     /* ORACLE: the fixture's `memberCount: 4` with a private visibility, which

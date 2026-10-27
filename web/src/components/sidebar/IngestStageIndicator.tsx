@@ -1,15 +1,7 @@
 import { Loader2 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { INGEST_STAGE_LABEL_KEYS as STAGE_LABEL_KEYS } from '../../utils/ingestStages';
 
-const STAGE_LABEL_KEYS: Record<string, string> = {
-    parse: 'ingestStageParse',
-    tabular: 'ingestStageTabular',
-    enrich: 'ingestStageEnrich',
-    embed: 'ingestStageEmbed',
-    kg: 'ingestStageKg',
-    hype: 'ingestStageHype',
-    raptor: 'ingestStageRaptor',
-};
 
 interface IngestStageIndicatorProps {
     stage: string;

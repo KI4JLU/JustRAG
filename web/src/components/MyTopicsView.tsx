@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo } from 'react';
 import type { KnowledgeBase, SafeAIConfig } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useSharingContext } from '../contexts/SharingContext';
+import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
 import { CreateCell, PrivateKbCard } from './KbCard';
@@ -75,10 +75,13 @@ export function MyTopicsView({
 }: MyTopicsViewProps) {
   const { language, t } = useTheme();
   const { user } = useAuth();
-  // The sharing concern, including the `handleOpenShare` whose
-  // `e.stopPropagation()` is what keeps the share button from also opening the
-  // card it sits in. See SharingContext's header.
-  const sharing = useSharingContext();
+  // „Teilen" opens the topic's Thema-Einstellungen on Mitglieder.
+  // stopPropagation keeps the menu click from also opening the card itself.
+  const { onOpenTopicSettings } = useAppNav();
+  const handleShare = (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenTopicSettings(kb, 'members');
+  };
   const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
   /* `splitKbsByOwnership` is the same predicate `SharedTopicsView` applies to
@@ -117,7 +120,7 @@ export function MyTopicsView({
             t={t}
             language={language}
             onSelectKB={onSelectKB}
-            onOpenShare={sharing.handleOpenShare}
+            onOpenShare={handleShare}
             onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}

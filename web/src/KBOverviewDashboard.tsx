@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import axios from 'axios';
-import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe, FileText, ShieldAlert } from 'lucide-react';
 import {
-    Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
-    PopoverContent, PopoverTrigger, Spinner, Stack, cn,
+    ActionMenu, Alert, AlertDescription, Badge, Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
+    PopoverContent, PopoverTrigger, Spinner, Stack, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
+    type ActionMenuItem,
 } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
+import { COMPACT_INPUT } from './components/form/SettingsFieldRow';
 import { formatRelative } from './utils/dates';
 import { translations } from './translations';
 import { API_BASE_URL } from './api';
@@ -31,17 +33,13 @@ import { KbTransferOwnerDialog } from './components/admin/KbTransferOwnerDialog'
  *   stats   -> the three queue-summary cards.
  *   children-> error, loading and the table.
  *
- * THE TABLE IS UNTOUCHED. Stage 5 (card KI-694) migrates `<table>` to
- * `Table`/`TableLayout`; this card is the outer page shell only, the same
- * discipline Stage 3b used for AdminEvalTab's tables. `thStyle`, `tdStyle`,
- * `cellStyle` and `rowStyle` therefore survive verbatim as TABLE styles, and
- * so do the two badge `<span>`s in `renderCell` — they are table cell content,
- * not page chrome. The three row-action `<button>`s DID become DS `Button`s:
- * swapping a control inside a `<td>` is not migrating the table markup.
+ * THE TABLE is the DS `Table` in a framed container (developer, 2026-10-26: the list follows the
+ * app's list style, and it has to fit the admin dialog's content pane): no inline style objects, the
+ * badges are DS `Badge`s, and the row actions are one ⋯ `ActionMenu` per row. The „Aktivität" cell
+ * shows its web and API turns itself (no tooltip); the column still sorts by their sum. The
+ * „Veröffentlicht" badge belongs to public KBs only: `is_published` defaults to true for every KB
+ * and only means something once a KB is public (docs/kb-access.md, staged publishing).
  *
- * THE HEADING LEVEL, and how it was resolved. KI-714 had to accept h2 -> h1,
- * because PageHeader rendered a real `<h1>` and the level was not a prop —
- * which gave this page two, since AdminUI.tsx owns the admin area's `<h1>`.
  * That open question is closed: design-system v0.24.0 added `headingLevel`,
  * this call site passes 2 (card KI-743), and `src/AdminUI.headings.test.tsx`
  * pins the count in the composition where it matters.
@@ -123,7 +121,7 @@ interface OverviewResponse {
 
 type SortKey = keyof Pick<KBRow,
     'name' | 'ownerName' | 'fileCount' | 'totalSizeBytes' | 'failedFileCount' |
-    'processingFileCount' | 'chatCount' | 'createdAt' |
+    'processingFileCount' | 'chatCount' | 'createdAt' | 'injectionFlagged' |
     'oldestFileAt' | 'staleShare' | 'lastSyncAt'>
     | 'lastActivity' | 'activity' | 'ragasN24h';
 
@@ -147,6 +145,14 @@ interface ColumnDef {
     label: string;
     numeric?: boolean;
     optional?: boolean;
+    /** The header is this icon alone; `label` stays its accessible name and `tooltip` (default: the label) its hover text. */
+    icon?: React.ReactNode;
+    tooltip?: string;
+    /**
+     * The words the header shows INSTEAD of the label, for a column whose cells hold a pair of figures
+     * (Web · API): the label stays the accessible name, hidden.
+     */
+    suffix?: string;
 }
 
 // Most-recent of lastFileUploadAt / lastTurnAt, as a timestamp (NaN if neither).
@@ -401,6 +407,11 @@ export default function KBOverviewDashboard() {
                 const cmp = turnTotal(a) - turnTotal(b);
                 return sortAsc ? cmp : -cmp;
             }
+            // A pod on the previous image sends no count: that reads as 0, not as "unknown, last".
+            if (sortKey === 'injectionFlagged') {
+                const cmp = (a.injectionFlagged ?? 0) - (b.injectionFlagged ?? 0);
+                return sortAsc ? cmp : -cmp;
+            }
             // 'lastSyncAt' sorts by the same worst-kind severity the cell
             // displays (never-succeeded > failing > ok), not the aggregate
             // MAX(success) timestamp — see compareSyncUrgency.
@@ -447,10 +458,11 @@ export default function KBOverviewDashboard() {
     const ALL_COLUMNS: ColumnDef[] = [
         { key: 'name', label: t('colName') },
         { key: 'ownerName', label: t('colOwner') },
-        { key: 'fileCount', label: t('tabFiles'), numeric: true },
+        { key: 'fileCount', label: t('tabFiles'), numeric: true, icon: <FileText size={16} aria-hidden="true" /> },
+        { key: 'injectionFlagged', label: t('colSuspicious'), numeric: true, icon: <ShieldAlert size={16} aria-hidden="true" />, tooltip: t('colInjectionFlagged') },
+        { key: 'failedFileCount', label: t('colFailed'), numeric: true, icon: <XCircle size={16} aria-hidden="true" /> },
         { key: 'totalSizeBytes', label: t('colSize'), numeric: true },
-        { key: 'failedFileCount', label: t('colFailed'), numeric: true },
-        { key: 'activity', label: t('colActivity'), numeric: true },
+        { key: 'activity', label: t('colActivity'), numeric: true, suffix: 'Web · API' },
         { key: 'lastActivity', label: t('colLastActivity') },
         { key: 'processingFileCount', label: t('colProcessing'), numeric: true, optional: true },
         { key: 'chatCount', label: t('colChats'), numeric: true, optional: true },
@@ -463,17 +475,36 @@ export default function KBOverviewDashboard() {
     const columns = ALL_COLUMNS.filter((c) => !c.optional || optionalVisible[c.key]);
     const optionalColumns = ALL_COLUMNS.filter((c) => c.optional);
 
-    /* SURVIVING INLINE STYLES — all four objects below style the `<table>`,
-     * which Stage 5 (KI-694) owns. Migrating them here would be migrating the
-     * table markup this card is explicitly told to leave alone. */
-    const thStyle: React.CSSProperties = {
-        textAlign: 'left', padding: '0.6rem 0.75rem', cursor: 'pointer',
-        color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap',
-        borderBottom: '1px solid var(--border-color)', userSelect: 'none',
-    };
-    const tdStyle: React.CSSProperties = {
-        padding: '0.6rem 0.75rem', color: 'var(--text-primary)',
-        borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap',
+    // One ⋯ menu per row, as on every list of the app. isGlobal is the generated mirror of
+    // (visibility = 'public'), so !isGlobal is exactly "still private" — the only state Publish accepts
+    // (it answers 409 otherwise); the reverse direction lives in the global-KB admin tab. Delete and
+    // transfer stay superadmin-only.
+    const rowActions = (row: KBRow): ActionMenuItem[] => {
+        const items: ActionMenuItem[] = [];
+        if (canPublish && !row.isGlobal) {
+            items.push({
+                label: t('kbActionPublish'),
+                icon: <Globe size={16} aria-hidden="true" />,
+                onSelect: () => { setActionError(null); setPublishTarget(row); },
+            });
+        }
+        if (canManage && !row.isGlobal) {
+            items.push({
+                label: t('kbActionTransfer'),
+                icon: <UserCog size={16} aria-hidden="true" />,
+                onSelect: () => { setActionError(null); setTransferTarget(row); },
+            });
+        }
+        if (canManage) {
+            items.push({
+                label: t('kbActionDelete'),
+                icon: <Trash2 size={16} aria-hidden="true" />,
+                destructive: true,
+                separatorBefore: items.length > 0,
+                onSelect: () => { setActionError(null); setDeleteTarget(row); },
+            });
+        }
+        return items;
     };
 
     const renderCell = (row: KBRow, key: SortKey): React.ReactNode => {
@@ -482,14 +513,22 @@ export default function KBOverviewDashboard() {
                 return (
                     <>
                         {row.name}
-                        {row.isGlobal && <span style={{ marginLeft: 6, fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--shape-sm)', background: 'var(--accent-primary)', color: 'white' }}>{t('globalBadge')}</span>}
-                        {row.isPublished && <span style={{ marginLeft: 6, fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 'var(--shape-sm)', border: '1px solid var(--border-color)' }}>{t('published')}</span>}
+                        {/* Only a public KB can be published: for a private one is_published is just its default (true). */}
+                        {row.isGlobal && <Badge tone="primary" className="ml-1.5">{t('globalBadge')}</Badge>}
+                        {row.isGlobal && (row.isPublished
+                            ? <Badge className="ml-1.5">{t('published')}</Badge>
+                            : <Badge tone="warning" className="ml-1.5" title={t('kbStagedHint')}>{t('kbStagedBadge')}</Badge>)}
                     </>
                 );
             case 'ownerName':
                 return row.ownerName ?? '—';
             case 'fileCount':
                 return row.fileCount;
+            case 'injectionFlagged': {
+                // Files the ingest screening flagged: advisory, so a warning pill only when there are any.
+                const n = row.injectionFlagged ?? 0;
+                return n > 0 ? <Badge tone="warning">{n}</Badge> : 0;
+            }
             case 'totalSizeBytes':
                 return formatBytes(row.totalSizeBytes);
             case 'failedFileCount':
@@ -500,7 +539,9 @@ export default function KBOverviewDashboard() {
                     </>
                 );
             case 'activity':
-                return turnTotal(row);
+                // Both numbers in the cell, web then API as the header says (no tooltip, no repeated words);
+                // the column still sorts by their sum.
+                return <span className="tabular-nums">{row.webTurns ?? 0} · {row.apiTurns ?? 0}</span>;
             case 'processingFileCount':
                 return row.processingFileCount;
             case 'chatCount':
@@ -586,6 +627,7 @@ export default function KBOverviewDashboard() {
                             placeholder={t('kbSearchPlaceholder')}
                             aria-label={t('kbSearchPlaceholder')}
                             leadingIcon={<Search size={16} />}
+                            className={COMPACT_INPUT}
                         />
                     }
                     filters={
@@ -603,8 +645,9 @@ export default function KBOverviewDashboard() {
                          * multi-select column picker, so Popover + Checkbox is
                          * the sanctioned composition instead. */
                         <Popover>
+                            {/* The trigger is 36px, the height of the compact search field next to it. */}
                             <PopoverTrigger asChild>
-                                <Button variant="outline" aria-label={t('columnsToggle')}>
+                                <Button variant="outline" size="sm" className="h-9" aria-label={t('columnsToggle')}>
                                     {t('columnsToggle')} <ChevronDown size={15} aria-hidden="true" />
                                 </Button>
                             </PopoverTrigger>
@@ -682,7 +725,9 @@ export default function KBOverviewDashboard() {
             }
         >
             {error && (
-                <div className="text-error">{error}</div>
+                <Alert tone="error" live="assertive">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
             {loading && (
                 <div className="flex items-center gap-2 text-on-surface-variant">
@@ -691,138 +736,101 @@ export default function KBOverviewDashboard() {
                 </div>
             )}
 
-            {/* ===== Stage 5 (KI-694) territory below: table markup untouched ===== */}
             {!loading && data && (
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                        <thead>
-                            <tr>
-                                {columns.map((c) => (
-                                    <th
-                                        key={c.key}
-                                        style={{ ...thStyle, textAlign: c.numeric ? 'right' : 'left' }}
+                // The DS table in a framed container, like the lists of the app (rounded border, hover-tinted
+                // rows); it scrolls sideways inside the frame when the columns do not fit.
+                <Table containerClassName="rounded-xl border border-outline-variant">
+                    <TableHeader>
+                        <TableRow className="hover:bg-transparent">
+                            {columns.map((c) => (
+                                <TableHead
+                                    key={c.key}
+                                    wrap="words"
+                                    aria-sort={sortKey === c.key ? (sortAsc ? 'ascending' : 'descending') : undefined}
+                                    className={`whitespace-nowrap ${c.numeric ? 'text-right' : 'text-left'}`}
+                                >
+                                    {/* The header's name is a button: it is what the keyboard reaches and activates to sort. */}
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-auto p-0 font-semibold"
+                                        title={c.icon ? (c.tooltip ?? c.label) : undefined}
                                         onClick={() => toggleSort(c.key)}
                                     >
-                                        {c.label}{sortKey === c.key ? (sortAsc ? ' ▲' : ' ▼') : ''}
-                                    </th>
-                                ))}
-                                {showActions && (
-                                    <th style={{ ...thStyle, textAlign: 'right', cursor: 'default' }}>{t('colActions')}</th>
-                                )}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedRows.map((row) => {
-                                const hasFailed = row.failedFileCount > 0;
-                                const rowStyle: React.CSSProperties = hasFailed
-                                    ? { background: 'rgba(224,57,57,0.06)' }
-                                    : {};
-                                return (
-                                    <tr key={row.id} style={rowStyle}>
-                                        {columns.map((c, idx) => {
-                                            const cellStyle: React.CSSProperties = {
-                                                ...tdStyle,
-                                                textAlign: c.numeric ? 'right' : 'left',
-                                            };
-                                            if (c.key === 'failedFileCount' && hasFailed) {
-                                                cellStyle.color = 'var(--error-text)';
-                                            }
-                                            if (c.key === 'processingFileCount' && row.processingFileCount > 0) {
-                                                cellStyle.color = 'var(--accent-primary)';
-                                            }
-                                            if (idx === 0 && hasFailed) {
-                                                cellStyle.borderLeft = '3px solid var(--error-text)';
-                                            }
-                                            // The name is the one free-text column; letting it
-                                            // wrap is what keeps a long KB name from widening
-                                            // the table past the viewport and pushing the
-                                            // actions column into a horizontal scroll.
-                                            if (c.key === 'name') {
-                                                cellStyle.whiteSpace = 'normal';
-                                                cellStyle.minWidth = '14rem';
-                                            }
-                                            // The files column doubles as the screening
-                                            // surface: a flagged file is advisory, so it
-                                            // gets a tooltip on a count that is already
-                                            // there rather than a column of its own.
-                                            const title = c.key === 'fileCount'
-                                                ? `${t('colInjectionFlagged')}: ${row.injectionFlagged ?? 0}`
-                                                : c.key === 'lastActivity'
-                                                    ? mergedActivityIso(row)
-                                                    : c.key === 'activity'
-                                                        ? `Web: ${row.webTurns ?? 0} · API: ${row.apiTurns ?? 0}`
-                                                        : c.key === 'createdAt'
-                                                            ? row.createdAt
-                                                            : c.key === 'oldestFileAt'
-                                                                ? row.oldestFileAt
-                                                                : c.key === 'staleShare'
-                                                                    ? `${row.staleFileCount ?? 0}/${row.fileCount} > ${data?.staleDays ?? 180}d`
-                                                                    : c.key === 'lastSyncAt'
-                                                                        ? syncTooltip(row, t)
-                                                                        : c.key === 'ragasN24h'
-                                                                            ? t('colRagasTooltip')
-                                                                            : undefined;
-                                            return (
-                                                <td key={c.key} style={cellStyle} title={title}>
-                                                    {renderCell(row, c.key)}
-                                                </td>
-                                            );
-                                        })}
-                                        {showActions && (
-                                            <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                {/* isGlobal is the generated mirror of (visibility = 'public'),
-                                                    so !isGlobal is exactly "still private" — the only state
-                                                    Publish accepts (it answers 409 otherwise). The reverse
-                                                    direction lives in the global-KB admin tab. */}
-                                                {canPublish && !row.isGlobal && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        type="button"
-                                                        aria-label={t('kbActionPublish')}
-                                                        title={t('kbActionPublish')}
-                                                        onClick={() => { setActionError(null); setPublishTarget(row); }}
-                                                    >
-                                                        <Globe size={16} aria-hidden="true" />
-                                                    </Button>
-                                                )}
-                                                {canManage && !row.isGlobal && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        type="button"
-                                                        aria-label={t('kbActionTransfer')}
-                                                        title={t('kbActionTransfer')}
-                                                        onClick={() => { setActionError(null); setTransferTarget(row); }}
-                                                    >
-                                                        <UserCog size={16} aria-hidden="true" />
-                                                    </Button>
-                                                )}
-                                                {canManage && (
-                                                    <Button
-                                                        variant="ghost-destructive"
-                                                        size="icon"
-                                                        type="button"
-                                                        aria-label={t('kbActionDelete')}
-                                                        title={t('kbActionDelete')}
-                                                        onClick={() => { setActionError(null); setDeleteTarget(row); }}
-                                                    >
-                                                        <Trash2 size={16} aria-hidden="true" />
-                                                    </Button>
-                                                )}
-                                            </td>
-                                        )}
-                                    </tr>
-                                );
-                            })}
-                            {sortedRows.length === 0 && (
-                                <tr><td style={tdStyle} colSpan={columns.length + (showActions ? 1 : 0)}>{t('kbNoKnowledgeBases')}</td></tr>
+                                        {c.icon
+                                            // An icon-only header keeps its name for screen readers.
+                                            ? <><span className="sr-only">{c.label}</span><span className="inline-flex align-middle">{c.icon}</span></>
+                                            : c.suffix
+                                                // The pair of figures names itself; „Aktivität" would only widen the column.
+                                                ? <><span className="sr-only">{c.label}</span>{c.suffix}</>
+                                                : c.label}
+                                        {sortKey === c.key ? (sortAsc ? ' ▲' : ' ▼') : ''}
+                                    </Button>
+                                </TableHead>
+                            ))}
+                            {showActions && (
+                                <TableHead className="w-12 text-right">
+                                    <span className="sr-only">{t('colActions')}</span>
+                                </TableHead>
                             )}
-                        </tbody>
-                    </table>
-                </div>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {sortedRows.map((row) => {
+                            const hasFailed = row.failedFileCount > 0;
+                            const actions = rowActions(row);
+                            return (
+                                <TableRow key={row.id} className={hasFailed ? 'bg-error/5' : undefined}>
+                                    {columns.map((c, idx) => {
+                                        const classes = [c.numeric ? 'text-right' : 'text-left'];
+                                        // The name is the one free-text column; letting it wrap is what keeps a
+                                        // long KB name from widening the table past its frame.
+                                        // The free-text columns (name, and the relative dates) may wrap; the figures never do.
+                                        classes.push(c.key === 'name' ? 'min-w-[9rem]' : c.key === 'lastActivity' ? 'min-w-[5.5rem]' : 'whitespace-nowrap');
+                                        if (c.key === 'failedFileCount' && hasFailed) classes.push('text-error');
+                                        if (c.key === 'processingFileCount' && row.processingFileCount > 0) classes.push('text-primary');
+                                        if (idx === 0 && hasFailed) classes.push('border-l-[3px] border-error');
+                                        // Tooltips only carry what a cell cannot show: the exact timestamp behind a
+                                        // relative date, the fraction behind a percentage. (Activity, last activity
+                                        // and the suspicious-file count have none.)
+                                        const title = c.key === 'createdAt'
+                                            ? row.createdAt
+                                            : c.key === 'oldestFileAt'
+                                                ? row.oldestFileAt
+                                                : c.key === 'staleShare'
+                                                    ? `${row.staleFileCount ?? 0}/${row.fileCount} > ${data?.staleDays ?? 180}d`
+                                                    : c.key === 'lastSyncAt'
+                                                        ? syncTooltip(row, t)
+                                                        : c.key === 'ragasN24h'
+                                                            ? t('colRagasTooltip')
+                                                            : undefined;
+                                        return (
+                                            <TableCell key={c.key} wrap={c.key === 'name' || c.key === 'lastActivity' ? 'words' : undefined} className={classes.join(' ')} title={title}>
+                                                {renderCell(row, c.key)}
+                                            </TableCell>
+                                        );
+                                    })}
+                                    {showActions && (
+                                        <TableCell className="text-right">
+                                            <ActionMenu
+                                                label={`${t('kbActions')}: ${row.name}`}
+                                                actions={actions}
+                                                align="end"
+                                            />
+                                        </TableCell>
+                                    )}
+                                </TableRow>
+                            );
+                        })}
+                        {sortedRows.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={columns.length + (showActions ? 1 : 0)}>{t('kbNoKnowledgeBases')}</TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
             )}
-            {/* ===== end Stage 5 territory ===== */}
 
             {deleteTarget && (
                 <KbDeleteDialog

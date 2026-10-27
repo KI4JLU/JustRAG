@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import type { KnowledgeBase, FileEntry, GlobalKbEditor, SafeAIConfig, RssFeed, ConfluenceSource, ConfluenceConnectionInfo, ConfluenceSpace, ConfluencePage, ConfluencePageWithPath, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
-import { MAX_FILES_PER_GLOBAL_KB, ACCEPTED_FILE_TYPES } from '../constants';
+import { MAX_FILES_PER_GLOBAL_KB } from '../constants';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormValidation } from '../hooks/useFormValidation';
@@ -14,6 +14,7 @@ import { useToast } from '../contexts/ToastContext';
 import { ConfluenceModal } from './sidebar/ConfluenceModal';
 import { SyncScheduleSelect } from './sidebar/SyncScheduleSelect';
 import { getApiErrorMessage } from '../utils/apiError';
+import { uploadFailureMessage, userErrorMessage } from '../utils/userErrors';
 
 interface GlobalKbSettingsProps {
     kb: KnowledgeBase;
@@ -23,7 +24,7 @@ interface GlobalKbSettingsProps {
 }
 
 export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, onOpenKb, onUpdate }) => {
-    const { t } = useTheme();
+    const { t, language } = useTheme();
     const { siteConfigs } = useAuth();
     const { errors, validate, clearError } = useFormValidation({
         name: (v) => !v.trim() && t('fieldRequired'),
@@ -102,7 +103,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
             setAvailableConfigs(res.data);
         } catch (err: unknown) {
             console.error('Failed to fetch configs:', err);
-            toast.error(t('configsFetchError'));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'configsFetchError' }));
         }
     }, [toast, t]);
 
@@ -148,18 +149,23 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
         if (!selectedFiles || selectedFiles.length === 0) return;
 
         setUploading(true);
+        const failures: { name: string; err: unknown }[] = [];
         try {
             for (const file of Array.from(selectedFiles)) {
-                if (files.length >= MAX_FILES_PER_GLOBAL_KB) break;
+                if (files.length >= MAX_FILES_PER_GLOBAL_KB) {
+                    toast.warning(`${t('fileLimitReached')} (${MAX_FILES_PER_GLOBAL_KB})`);
+                    break;
+                }
                 const formData = new FormData();
                 formData.append('file', file);
                 try {
                     await axios.post(`${API_BASE_URL}/api/kb/${kb.id}/files`, formData);
                 } catch (err: unknown) {
                     console.error('Upload failed:', err);
-                    toast.error(getApiErrorMessage(err, t('uploadFailed')));
+                    failures.push({ name: file.name, err });
                 }
             }
+            if (failures.length > 0) toast.error(uploadFailureMessage(failures, t, language));
         } finally {
             setUploading(false);
             fetchFiles();
@@ -601,7 +607,6 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                             <input
                                 type="file"
                                 multiple
-                                accept={ACCEPTED_FILE_TYPES}
                                 onChange={handleFileUpload}
                                 style={{ display: 'none' }}
                                 disabled={uploading}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Brain, Trash2, Download } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalContext } from '../../contexts/ModalContext';
@@ -107,7 +108,9 @@ export default function MemoryManager() {
             </div>
 
             {error && (
-                <div style={{ padding: '0.75rem 1rem', marginBottom: '1rem', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', fontSize: '0.9rem' }}>{error}</div>
+                <Alert tone="error" live="assertive" className="mb-4">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
             {loading ? (

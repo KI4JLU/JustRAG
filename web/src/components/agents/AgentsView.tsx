@@ -16,11 +16,16 @@ import ConfirmDialog from './ConfirmDialog';
 interface Props {
   onBack: () => void;
   availableModels?: string[];
+  /** The open tab, when the URL owns it (`/agents`, `/agents/teams`). Without it the page keeps its own. */
+  tab?: 'agents' | 'teams';
+  onTabChange?: (tab: 'agents' | 'teams') => void;
 }
 
-export default function AgentsView({ onBack, availableModels = [] }: Props) {
+export default function AgentsView({ onBack, availableModels = [], tab: ownedTab, onTabChange }: Props) {
   const { t } = useTheme();
-  const [tab, setTab] = useState<'agents' | 'teams'>('agents');
+  const [localTab, setLocalTab] = useState<'agents' | 'teams'>('agents');
+  const tab = ownedTab ?? localTab;
+  const setTab = onTabChange ?? setLocalTab;
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [teams, setTeams] = useState<TeamRecord[]>([]);
   const [registry, setRegistry] = useState<AgentRegistry>({ fields: [], tools: [] });

@@ -31,6 +31,7 @@ import {
     Ban,
     Circle,
 } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import type { LucideIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -857,9 +858,10 @@ function AcademicResearchMode({
 
             {/* Error Display */}
             {error && (
-                <div className="research-mode-error">
-                    <span className="research-mode-error-icon">{'\u274C'}</span>
-                    <span>{error}</span>
+                <div className="mx-8 my-4">
+                    <Alert tone="error" live="assertive">
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
                 </div>
             )}
 

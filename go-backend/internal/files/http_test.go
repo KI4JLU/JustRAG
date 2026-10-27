@@ -766,3 +766,50 @@ func TestUpload_RecordsUploader(t *testing.T) {
 		t.Fatalf("CreateFile got %+v, want UploadedBy=%q", store.created, ownerUser().ID)
 	}
 }
+
+// TestUpload_KBFullCarriesCode: both per-KB limits answer 400 with code
+// kb_full, the code clients map to the "topic full" message.
+func TestUpload_KBFullCarriesCode(t *testing.T) {
+	ownerID := "user-1"
+	kb := &kbaccess.KnowledgeBase{ID: "kb-1", UserID: &ownerID, IsGlobal: false}
+	cases := []struct {
+		name   string
+		limits *files.KBFileLimits
+	}{
+		{"file count", &files.KBFileLimits{FileCount: 500}},
+		{"total size", &files.KBFileLimits{TotalSize: 500 << 20}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := files.NewHandler(&mockStore{kbFileLimits: tc.limits}, &mockStorage{}, noopChunks())
+			req := withKBAccess(withUser(buildMultipartRequest(t, "document.pdf", []byte("PDF content")), ownerUser()), kb)
+			rr := httptest.NewRecorder()
+			h.Upload(rr, req)
+			var body map[string]string
+			if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if rr.Code != http.StatusBadRequest || body["code"] != "kb_full" {
+				t.Fatalf("got %d %v, want 400 code kb_full", rr.Code, body)
+			}
+		})
+	}
+}
+
+// TestUpload_UnsupportedExtensionCarriesCode: an extension no parser handles
+// answers with code unsupported_file_type (the uploadcheck refusal shape).
+func TestUpload_UnsupportedExtensionCarriesCode(t *testing.T) {
+	ownerID := "user-1"
+	kb := &kbaccess.KnowledgeBase{ID: "kb-1", UserID: &ownerID, IsGlobal: false}
+	h := files.NewHandler(&mockStore{}, &mockStorage{}, noopChunks())
+	req := withKBAccess(withUser(buildMultipartRequest(t, "malware.exe", []byte("MZ")), ownerUser()), kb)
+	rr := httptest.NewRecorder()
+	h.Upload(rr, req)
+	var body map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if rr.Code != http.StatusBadRequest || body["code"] != "unsupported_file_type" {
+		t.Fatalf("got %d %v, want 400 code unsupported_file_type", rr.Code, body)
+	}
+}

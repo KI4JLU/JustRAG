@@ -104,7 +104,7 @@ jobs:
       # with and is independent of the action's own runtime.
       - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24.22.1"
           cache: npm
       - run: npm ci --workspace=web
       - name: lint

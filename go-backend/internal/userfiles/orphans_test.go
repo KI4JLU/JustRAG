@@ -240,3 +240,92 @@ func TestSweepZeroModTimeIsTooYoung(t *testing.T) {
 		t.Fatalf("n=%d deleted=%v err=%v", n, sg.deleted, err)
 	}
 }
+
+type fakePendingStore struct {
+	files []PendingFile
+	err   error
+	limit int
+}
+
+func (f *fakePendingStore) PendingChatFiles(_ context.Context, _ time.Time, limit int) ([]PendingFile, error) {
+	f.limit = limit
+	return f.files, f.err
+}
+
+type fakeChatDeleter struct {
+	failID  string
+	keepID  string
+	stale   []time.Time
+	deleted []string
+}
+
+func (f *fakeChatDeleter) DeleteChatAttachment(_ context.Context, _, id string, staleBefore time.Time) (bool, error) {
+	f.stale = append(f.stale, staleBefore)
+	switch id {
+	case f.failID:
+		return false, errors.New("storage down")
+	case f.keepID:
+		return false, nil
+	}
+	f.deleted = append(f.deleted, id)
+	return true, nil
+}
+
+// The pending listing is only a candidate list: the delete gets the grace
+// cutoff for its own in-transaction re-check, and a file the delete keeps
+// (sent or promoted meanwhile) is not counted.
+func TestSweepChatAttachmentsPassCutoffAndCountOnlyDeletes(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	pending := &fakePendingStore{files: []PendingFile{{ID: uOld, OwnerID: tUID}, {ID: uKept, OwnerID: tUID}}}
+	del := &fakeChatDeleter{keepID: uKept}
+	s := NewOrphanSweeper(&fakeOrphanStore{}, &fakeOrphanStorage{}).WithPendingChatFiles(pending, del)
+	s.now = func() time.Time { return now }
+
+	n, err := s.RunOnce(context.Background())
+	if err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v, want 1 deletion", n, err)
+	}
+	for _, c := range del.stale {
+		if !c.Equal(now.Add(-OrphanGrace)) {
+			t.Fatalf("staleBefore %v, want now-OrphanGrace", c)
+		}
+	}
+}
+
+// A chat attachment that keeps failing, or a failed listing, must not stop
+// the blob/cache sweep, and the chat step does not use up its budget.
+func TestSweepChatAttachmentErrorsDoNotAbortBlobSweep(t *testing.T) {
+	blobs := func() *fakeOrphanStorage {
+		sg := &fakeOrphanStorage{}
+		for i := 0; i < 10; i++ {
+			sg.objs = append(sg.objs, obj(fmt.Sprintf("users/%s/00000000-0000-0000-0000-%012d", tUID, i), 48*time.Hour))
+		}
+		return sg
+	}
+	many := make([]PendingFile, OrphanMaxPerRun)
+	for i := range many {
+		many[i] = PendingFile{ID: fmt.Sprintf("99999999-0000-0000-0000-%012d", i), OwnerID: tUID}
+	}
+	cases := map[string]struct {
+		pending   *fakePendingStore
+		del       *fakeChatDeleter
+		wantTotal int
+	}{
+		"delete fails":    {&fakePendingStore{files: []PendingFile{{ID: uOld, OwnerID: tUID}, {ID: uYoung, OwnerID: tUID}}}, &fakeChatDeleter{failID: uOld}, 1 + 10},
+		"listing fails":   {&fakePendingStore{err: errors.New("db down")}, &fakeChatDeleter{}, 10},
+		"full chat batch": {&fakePendingStore{files: many}, &fakeChatDeleter{}, OrphanMaxPerRun + 10},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sg := blobs()
+			s := NewOrphanSweeper(&fakeOrphanStore{owners: []string{tUID}}, sg).WithPendingChatFiles(tc.pending, tc.del)
+			n, err := s.RunOnce(context.Background())
+			if err != nil {
+				t.Fatalf("err=%v", err)
+			}
+			if len(sg.deleted) != 10 || n != tc.wantTotal {
+				t.Fatalf("blob deletes=%d total=%d, want 10 / %d", len(sg.deleted), n, tc.wantTotal)
+			}
+		})
+	}
+}

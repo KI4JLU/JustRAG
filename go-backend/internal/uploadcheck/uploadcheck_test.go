@@ -44,6 +44,8 @@ func TestParse(t *testing.T) {
 		shrink  int64
 		status  int
 		message string
+		code    string
+		limit   int64
 	}{
 		{
 			name: "body over cap",
@@ -52,6 +54,7 @@ func TestParse(t *testing.T) {
 				return multipartReq(t, "file", "a.txt", bytes.Repeat([]byte("x"), 4096))
 			},
 			shrink: 1024, status: 413, message: "File too large: the upload limit is 1 KB",
+			code: uploadcheck.CodeFileTooLarge, limit: 1024,
 		},
 		{
 			name: "not multipart",
@@ -61,27 +64,27 @@ func TestParse(t *testing.T) {
 				r.Header.Set("Content-Type", "text/plain")
 				return r
 			},
-			status: 400, message: "Invalid multipart form",
+			status: 400, message: "Invalid multipart form", code: uploadcheck.CodeInvalidUpload,
 		},
 		{
 			name:   "missing field",
 			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "other", "a.pdf", []byte("x")) },
-			status: 400, message: "File field is required",
+			status: 400, message: "File field is required", code: uploadcheck.CodeInvalidUpload,
 		},
 		{
 			name:   "empty file",
 			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "file", "a.pdf", nil) },
-			status: 400, message: "File must not be empty",
+			status: 400, message: "File must not be empty", code: uploadcheck.CodeEmptyFile,
 		},
 		{
 			name:   "dangerous extension",
 			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "file", "a.exe", []byte("x")) },
-			status: 400, message: "File type not allowed",
+			status: 400, message: "File type not allowed", code: uploadcheck.CodeUnsupportedFileType,
 		},
 		{
 			name:   "unsupported extension",
 			req:    func(t *testing.T) *http.Request { t.Helper(); return multipartReq(t, "file", "a.doc", []byte("x")) },
-			status: 400, message: "File type not supported (.doc)",
+			status: 400, message: "File type not supported (.doc)", code: uploadcheck.CodeUnsupportedFileType,
 		},
 		{
 			name: "long filename",
@@ -89,7 +92,7 @@ func TestParse(t *testing.T) {
 				t.Helper()
 				return multipartReq(t, "file", strings.Repeat("a", 252)+".pdf", []byte("x"))
 			},
-			status: 400, message: "Filename must not exceed 255 bytes",
+			status: 400, message: "Filename must not exceed 255 bytes", code: uploadcheck.CodeFileNameTooLong,
 		},
 		{
 			name: "spreadsheet over cap",
@@ -99,6 +102,7 @@ func TestParse(t *testing.T) {
 			},
 			limits: fixedLimits(1024), status: 413,
 			message: "Spreadsheet too large (2 KB): the limit is 1 KB (tabular_max_file_bytes)",
+			code:    uploadcheck.CodeFileTooLarge, limit: 1024,
 		},
 	}
 	for _, tc := range tests {
@@ -119,6 +123,9 @@ func TestParse(t *testing.T) {
 			}
 			if ve.Status != tc.status || ve.Message != tc.message {
 				t.Fatalf("got %d %q, want %d %q", ve.Status, ve.Message, tc.status, tc.message)
+			}
+			if ve.Code != tc.code || ve.LimitBytes != tc.limit {
+				t.Fatalf("got code %q limit %d, want %q %d", ve.Code, ve.LimitBytes, tc.code, tc.limit)
 			}
 		})
 	}
@@ -157,5 +164,38 @@ func TestValidateName(t *testing.T) {
 		if (err == nil) != wantOK {
 			t.Errorf("ValidateName(%q) = %v, wantOK=%v", name, err, wantOK)
 		}
+	}
+}
+
+// TestErrorWrite pins the wire shape clients map to a localized message:
+// the status, the human message, the code and, for a size refusal, the limit.
+func TestErrorWrite(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *uploadcheck.Error
+		want string
+	}{
+		{
+			name: "with limit",
+			err:  &uploadcheck.Error{Status: 413, Code: uploadcheck.CodeFileTooLarge, Message: "too large", LimitBytes: 1024},
+			want: `{"error":"too large","code":"file_too_large","limitBytes":1024}`,
+		},
+		{
+			name: "without limit",
+			err:  &uploadcheck.Error{Status: 400, Code: uploadcheck.CodeEmptyFile, Message: "empty"},
+			want: `{"error":"empty","code":"empty_file"}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tc.err.Write(context.Background(), w)
+			if w.Code != tc.err.Status {
+				t.Fatalf("status %d, want %d", w.Code, tc.err.Status)
+			}
+			if got := strings.TrimSpace(w.Body.String()); got != tc.want {
+				t.Fatalf("body %s, want %s", got, tc.want)
+			}
+		})
 	}
 }

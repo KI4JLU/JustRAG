@@ -9,3 +9,5 @@ Applies to `POST /api/kb/{id}/chat?stream=true` when the KB has the flag on (def
 - A server panic after the stream has opened ends it without `data: [DONE]` (the 200 is already sent). Treat end-of-stream without `[DONE]` as an error.
 - On KB chat, `followUpQuestions` may now arrive before the `refine_start` / `refine_complete` trajectory frames (follow-ups no longer wait for the factcheck). This applies whether or not the early-open flag is on.
 - Suggested FE use: show the reasoning panel as soon as the first `stage` frame arrives.
+
+Citation visibility applies to these frames as to every other frame of the turn: for a caller without `capabilities.seeCitations`, the opening frame carries `"sources": []` and trajectory frames carry no `chunks` (API.md § Citations). The order and the heartbeat are unchanged.

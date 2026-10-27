@@ -13,7 +13,7 @@ import "net/http"
 //
 // Two hashes are listed:
 //
-//   - 'sha256-ghIKC6K2…' is the theme/language boot script in web/index.html
+//   - 'sha256-3CxrMFo1…' is the theme/language boot script in web/index.html
 //     (resolves data-theme before first paint, so dark-mode users get no white
 //     flash). TestDefaultCSPCoversIndexHTMLInlineScript recomputes it from that
 //     file on every `go test ./...`, so editing the script without regenerating
@@ -51,7 +51,14 @@ import "net/http"
 // data: URIs — web/vite.config.ts never inlines .woff2), so the absent
 // font-src falls back to default-src 'self'. Checked against a production
 // build: 60 KaTeX font files emitted, zero data: URLs in the CSS.
-const DefaultCSP = "default-src 'self'; script-src 'self' 'sha256-ghIKC6K2dzQnJQeXKhXi7iyrCfVnmWtdxiPWmgOzUW0=' 'sha256-ieoeWczDHkReVBsRBqaal5AFMlBtNjMzgwKvLqi/tSU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' blob:"
+//
+// connect-src permits blob: so the PDF preview works: PdfPreviewModal fetches
+// the file through the authenticated client and hands pdf.js a blob: URL,
+// which pdf.js fetch()es. Without this, connect-src inherits default-src
+// 'self', the fetch is blocked and the viewer shows its load error while the
+// download link (a navigation, not a fetch) still works. A blob: URL can only
+// be minted by this origin's own scripts, so it opens no outbound channel.
+const DefaultCSP = "default-src 'self'; script-src 'self' 'sha256-3CxrMFo10Il6rs6SwNVdIufNbbrWXrYeTmGKItFVR+c=' 'sha256-ieoeWczDHkReVBsRBqaal5AFMlBtNjMzgwKvLqi/tSU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; media-src 'self' blob:; connect-src 'self' blob:"
 
 // SecurityHeaders sets the standard security response headers. emitHSTS
 // gates Strict-Transport-Security: HSTS has no effect over plain HTTP, and

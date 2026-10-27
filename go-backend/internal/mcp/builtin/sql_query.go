@@ -3,12 +3,14 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/tabular/sqlcheck"
 )
@@ -121,9 +123,16 @@ const (
 //
 // pool MUST authenticate as a read-only Postgres role. The string
 // validator is defence-in-depth — the role's GRANTs are the
-// authoritative boundary.
-func NewSQLQuery(pool *pgxpool.Pool) mcp.Tool {
-	return newSQLQueryWithExecutor(&pgxPoolExecutor{pool: pool})
+// authoritative boundary. The validator has no function allowlist
+// (`query_to_xml('…'||'…')` runs arbitrary SQL with the role's grants),
+// so whatever that role can SELECT is reachable regardless of
+// allowedTablesDefault, across every user and KB.
+//
+// enabled is the global-only chat_sql_query_enabled gate, evaluated at
+// every invocation so an admin can flip it without a restart. nil means
+// disabled: the tool fails closed.
+func NewSQLQuery(pool *pgxpool.Pool, enabled func(ctx context.Context) bool) mcp.Tool {
+	return newSQLQueryWithExecutor(&pgxPoolExecutor{pool: pool}, enabled)
 }
 
 // NewSQLQueryUnconfigured returns the sql_query tool in a disabled state.
@@ -143,19 +152,34 @@ func NewSQLQueryUnconfigured() mcp.Tool {
 	}
 }
 
+// errSQLQueryUnavailable is the model-facing refusal while the gate is off.
+var errSQLQueryUnavailable = errors.New("sql_query: this tool is not available")
+
 // newSQLQueryWithExecutor is the test seam. Production callers use
 // NewSQLQuery; tests inject a fake SQLExecutor.
-func newSQLQueryWithExecutor(exec SQLExecutor) mcp.Tool {
+func newSQLQueryWithExecutor(exec SQLExecutor, enabled func(ctx context.Context) bool) mcp.Tool {
+	if enabled == nil {
+		enabled = func(context.Context) bool { return false }
+	}
 	return mcp.Tool{
 		Name:        "sql_query",
 		Description: "Run a read-only SQL SELECT against allowlisted JustRAG tables (messages, chats, files, agent_decisions). Use for meta-questions: 'when was X uploaded', 'how many messages this week', 'most-cited file last month'. Returns up to 100 rows.",
 		InputSchema: json.RawMessage(sqlQueryInputSchema),
-		Handler:     mcp.ToolHandlerFunc(sqlQueryHandler(exec)),
+		Handler:     mcp.ToolHandlerFunc(sqlQueryHandler(exec, enabled)),
 	}
 }
 
-func sqlQueryHandler(exec SQLExecutor) mcp.ToolHandlerFunc {
+func sqlQueryHandler(exec SQLExecutor, enabled func(ctx context.Context) bool) mcp.ToolHandlerFunc {
 	return func(ctx context.Context, raw json.RawMessage) (mcp.ToolResult, error) {
+		if !enabled(ctx) {
+			// The catalogs hide the tool while the gate is off, so a call
+			// here came from a model that was not offered it — worth a Warn.
+			// The returned text stays generic: the model may repeat it to
+			// the user, and the key names a switch documented as a
+			// cross-user read.
+			logctx.From(ctx).Warn("sql_query: called while chat_sql_query_enabled is off")
+			return mcp.ToolResult{}, errSQLQueryUnavailable
+		}
 		var args SQLQueryArgs
 		if err := json.Unmarshal(raw, &args); err != nil {
 			return mcp.ToolResult{}, fmt.Errorf("sql_query: parse args: %w", err)

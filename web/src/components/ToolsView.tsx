@@ -20,9 +20,9 @@ import { TextDocumentsTool } from './tools/TextDocumentsTool';
  * placeholder still holds — moving a further tool here is one more tile and
  * one more branch below, not a new screen or route.
  *
- * A TOOL OPENS IN PLACE. There is no router (see `useViewState`): the open
- * tool is local state of this view, so leaving the page and coming back
- * starts at the grid again — the same reset the filter chips have.
+ * A TOOL OPENS IN PLACE. The open tool is local state of this view, not part
+ * of the URL (`/tools` names the page only), so leaving the page and coming
+ * back starts at the grid again — the same reset the filter chips have.
  * ------------------------------------------------------------------------- */
 
 /** Anchors the skip link; must match the `contentId` handed to `AppChrome`. */

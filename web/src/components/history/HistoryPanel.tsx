@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
-    MessageSquare, Search, GraduationCap, FileText, Loader2, Plus, Trash2, ArrowLeft, Pencil, ListChecks,
+    MessageSquare, Search, GraduationCap, FileText, GitBranch, Loader2, SquarePen, Trash2, ArrowLeft, Pencil,
 } from 'lucide-react';
 import {
     Button, SidebarAction, SidebarCard, SidebarCardList, SidebarRail, SidebarPanel, SidebarRailItem, SidebarSelectionBar,
@@ -19,6 +19,9 @@ import { splitLeadingEmoji } from './leadingEmoji';
 import '../sidebar-primitives.css';
 import './HistoryPanel.css';
 
+/* The icon of a row is its kind's — except a branched chat, which shows the
+   branch glyph instead: a branch chat (each branch is its own chat) and an
+   older chat that forks inside itself alike. */
 const KIND_ICON: Record<HistoryKind, typeof MessageSquare> = {
     chat: MessageSquare,
     artifact: FileText,
@@ -38,7 +41,7 @@ const HistoryPanelComp: React.FC = () => {
     const { chat } = useKbChat();
     const { content } = useKbData();
 
-    const { chats, activeChatId, handleSelectChat, handleDeleteChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
+    const { chats, activeChatId, handleSelectChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
     const { generatedContent, generating, podcastProgress } = content;
 
     // Nur Chats (Entwickler, 22.09.2026). Artefakte öffneten die Workspace-
@@ -70,14 +73,9 @@ const HistoryPanelComp: React.FC = () => {
         setKbView('chat');
     }, [handleSelectChat, setKbView, activeChatId]);
 
-    // Radix hands `onSelect` a DOM Event; the handler only needs
-    // stopPropagation, which both share.
-    const deleteItem = useCallback((item: HistoryItem, e: Event) => {
-        handleDeleteChat(item.id, e as unknown as React.MouseEvent);
-    }, [handleDeleteChat]);
-
-    // Selection mode (batch actions): off by default, so the chat cards carry no
-    // checkbox. Started from a card's "Select" action with that card ticked.
+    // Delete mode, as in the sources list: off by default, so the chat cards
+    // carry no checkbox. A card's Delete action starts it with that card
+    // ticked, in the error colour; the bar's delete asks once for the batch.
     const [selection, setSelection] = useState<Set<string> | null>(null);
     const selecting = selection !== null;
     const toggleSelected = useCallback((id: string, on: boolean) => {
@@ -120,11 +118,11 @@ const HistoryPanelComp: React.FC = () => {
         return (
             <>
                 <SidebarRailItem variant="action" onClick={handleNewChat} title={t('newChat')} aria-label={t('newChat')}>
-                    <Plus aria-hidden="true" />
+                    <SquarePen aria-hidden="true" />
                 </SidebarRailItem>
                 <SidebarRail>
                 {items.map(item => {
-                    const Icon = KIND_ICON[item.kind];
+                    const Icon = item.branched ? GitBranch : KIND_ICON[item.kind];
                     const isActive = item.kind !== 'artifact' && item.id === activeChatId;
                     return (
                         <li key={`${item.kind}-${item.id}`}>
@@ -169,18 +167,18 @@ const HistoryPanelComp: React.FC = () => {
                     <>
                             {/* Full-width labelled action under the heading, its icon on the
                                 cards' icon axis; the collapsed rail keeps the icon-only form. */}
-                            <SidebarAction type="button" onClick={handleNewChat} icon={<Plus />}>
+                            <SidebarAction type="button" onClick={handleNewChat} icon={<SquarePen />}>
                                 {t('newChat')}
                             </SidebarAction>
                             {selecting && (
                                 <SidebarSelectionBar
-                                    aria-label={t('selectChats')}
+                                    aria-label={t('deleteChats')}
                                     countLabel={t('selectedCount').replace('{count}', String(selection.size))}
                                     onCancel={() => setSelection(null)}
                                     cancelLabel={t('cancel')}
                                 >
                                     <Button
-                                        variant="ghost"
+                                        variant="ghost-destructive"
                                         size="icon"
                                         onClick={deleteSelected}
                                         disabled={selection.size === 0}
@@ -212,7 +210,7 @@ const HistoryPanelComp: React.FC = () => {
                             <h3 className="history-panel__group-label">{group.label}</h3>
                             <SidebarCardList>
                                 {group.items.map(item => {
-                                    const Icon = KIND_ICON[item.kind];
+                                    const Icon = item.branched ? GitBranch : KIND_ICON[item.kind];
                                     // A leading emoji in the title becomes the card's icon.
                                     const { emoji, text } = splitLeadingEmoji(item.title);
                                     return (
@@ -226,11 +224,11 @@ const HistoryPanelComp: React.FC = () => {
                                             actionsLabel={t('chatActions')}
                                             actions={[
                                                 { label: t('renameChat'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: () => renameItem(item) },
-                                                { label: t('selectChats'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: () => setSelection(new Set([item.id])) },
-                                                { label: t('deleteItem'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true, onSelect: (e) => deleteItem(item, e) },
+                                                { label: t('deleteItem'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true, onSelect: () => setSelection(new Set([item.id])) },
                                             ]}
                                             selectable={selecting}
                                             selectionMode={selecting}
+                                            selectionTone="destructive"
                                             selected={selection?.has(item.id) ?? false}
                                             onSelectedChange={(on) => toggleSelected(item.id, on)}
                                             selectLabel={t('selectChat')}

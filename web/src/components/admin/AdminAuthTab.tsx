@@ -1,8 +1,10 @@
-import { Trash2, Settings, Save, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
-import { Badge } from '@ki4jlu/design-system';
+import { useId, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { Trash2, Pencil, Save } from 'lucide-react';
+import { Badge, BreadcrumbBack, Button } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
+import { FieldRow, SelectFieldRow } from '../form/SettingsFieldRow';
+import { AdminListCard } from './AdminListCard';
 
 interface LdapConfig {
     url: string;
@@ -47,12 +49,19 @@ interface AdminAuthTabProps {
         clearError: (field: string) => void;
     };
     loading: boolean;
+    /** The dialog's footer, where the form's actions go while the form is open. */
+    footerSlot?: HTMLElement | null;
 }
 
 type AuthValidation = AdminAuthTabProps['authValidation'];
 type SetForm = AdminAuthTabProps['setAuthFormData'];
 type FormData = Partial<AuthProvider>;
 type T = (key: string) => string;
+
+const PROVIDER_TYPES = [
+    { value: 'ldap', label: 'LDAP' },
+    { value: 'oidc', label: 'OIDC' },
+];
 
 function asLdap(c: ProviderConfig | undefined): LdapConfig {
     const o = (c as Partial<LdapConfig>) ?? {};
@@ -82,24 +91,32 @@ function renderLdapFields(form: FormData, setForm: SetForm, v: AuthValidation, t
     const cfg = asLdap(form.config);
     return (
         <>
-            <div className="input-group">
-                <label htmlFor="auth-url">{t('ldapUrl')}</label>
-                <input id="auth-url" value={cfg.url} onChange={e => { setForm({ ...form, config: { ...cfg, url: e.target.value } }); v.clearError('url'); }} placeholder="ldap://ldap.example.com" />
-                {v.errors.url && <span className="field-error" role="alert">{v.errors.url}</span>}
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-bind-dn">{t('bindDn')}</label>
-                <input id="auth-bind-dn" value={cfg.bindDN} onChange={e => setForm({ ...form, config: { ...cfg, bindDN: e.target.value } })} placeholder="cn=admin,dc=example,dc=com" />
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-bind-creds">{t('bindCredentials')}</label>
-                <input id="auth-bind-creds" type="password" value={cfg.bindCredentials} onChange={e => setForm({ ...form, config: { ...cfg, bindCredentials: e.target.value } })} />
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-search-base">{t('searchBaseDn')}</label>
-                <input id="auth-search-base" value={cfg.searchBase} onChange={e => { setForm({ ...form, config: { ...cfg, searchBase: e.target.value } }); v.clearError('searchBase'); }} placeholder="ou=users,dc=example,dc=com" />
-                {v.errors.searchBase && <span className="field-error" role="alert">{v.errors.searchBase}</span>}
-            </div>
+            <FieldRow
+                label={t('ldapUrl')}
+                value={cfg.url}
+                placeholder="ldap://ldap.example.com"
+                error={v.errors.url}
+                onChange={e => { setForm({ ...form, config: { ...cfg, url: e.target.value } }); v.clearError('url'); }}
+            />
+            <FieldRow
+                label={t('bindDn')}
+                value={cfg.bindDN}
+                placeholder="cn=admin,dc=example,dc=com"
+                onChange={e => setForm({ ...form, config: { ...cfg, bindDN: e.target.value } })}
+            />
+            <FieldRow
+                label={t('bindCredentials')}
+                type="password"
+                value={cfg.bindCredentials}
+                onChange={e => setForm({ ...form, config: { ...cfg, bindCredentials: e.target.value } })}
+            />
+            <FieldRow
+                label={t('searchBaseDn')}
+                value={cfg.searchBase}
+                placeholder="ou=users,dc=example,dc=com"
+                error={v.errors.searchBase}
+                onChange={e => { setForm({ ...form, config: { ...cfg, searchBase: e.target.value } }); v.clearError('searchBase'); }}
+            />
         </>
     );
 }
@@ -109,41 +126,55 @@ function renderOidcFields(form: FormData, setForm: SetForm, v: AuthValidation, t
     const scopesText = (cfg.scopes ?? []).join(', ');
     return (
         <>
-            <div className="input-group">
-                <label htmlFor="auth-issuer">{t('oidcIssuerUrl')}</label>
-                <input id="auth-issuer" value={cfg.issuerURL} onChange={e => { setForm({ ...form, config: { ...cfg, issuerURL: e.target.value } }); v.clearError('issuerURL'); }} placeholder={t('oidcIssuerUrlPlaceholder')} />
-                {v.errors.issuerURL && <span className="field-error" role="alert">{v.errors.issuerURL}</span>}
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-client-id">{t('oidcClientId')}</label>
-                <input id="auth-client-id" value={cfg.clientID} onChange={e => { setForm({ ...form, config: { ...cfg, clientID: e.target.value } }); v.clearError('clientID'); }} />
-                {v.errors.clientID && <span className="field-error" role="alert">{v.errors.clientID}</span>}
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-client-secret">{t('oidcClientSecret')}</label>
-                <input id="auth-client-secret" type="password" value={cfg.clientSecret} onChange={e => setForm({ ...form, config: { ...cfg, clientSecret: e.target.value } })} placeholder="********" />
-                <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{t('oidcClientSecretHelp')}</small>
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-scopes">{t('oidcScopes')}</label>
-                <input id="auth-scopes" value={scopesText} onChange={e => setForm({ ...form, config: { ...cfg, scopes: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })} placeholder={t('oidcScopesPlaceholder')} />
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-redirect-uri">{t('oidcRedirectUri')}</label>
-                <input id="auth-redirect-uri" value={cfg.redirectURI} onChange={e => { setForm({ ...form, config: { ...cfg, redirectURI: e.target.value } }); v.clearError('redirectURI'); }} placeholder={`${window.location.origin}/api/auth/oidc/callback`} />
-                <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{t('oidcRedirectUriHelp')}</small>
-                {v.errors.redirectURI && <span className="field-error" role="alert">{v.errors.redirectURI}</span>}
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-success-redirect">{t('oidcSuccessRedirect')}</label>
-                <input id="auth-success-redirect" value={cfg.successRedirect ?? ''} onChange={e => setForm({ ...form, config: { ...cfg, successRedirect: e.target.value } })} placeholder="/" />
-                <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{t('oidcSuccessRedirectHelp')}</small>
-            </div>
-            <div className="input-group">
-                <label htmlFor="auth-post-logout-redirect">{t('oidcPostLogoutRedirect')}</label>
-                <input id="auth-post-logout-redirect" value={cfg.postLogoutRedirectURI ?? ''} onChange={e => setForm({ ...form, config: { ...cfg, postLogoutRedirectURI: e.target.value } })} placeholder={`${window.location.origin}/`} />
-                <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{t('oidcPostLogoutRedirectHelp')}</small>
-            </div>
+            <FieldRow
+                label={t('oidcIssuerUrl')}
+                value={cfg.issuerURL}
+                placeholder={t('oidcIssuerUrlPlaceholder')}
+                error={v.errors.issuerURL}
+                onChange={e => { setForm({ ...form, config: { ...cfg, issuerURL: e.target.value } }); v.clearError('issuerURL'); }}
+            />
+            <FieldRow
+                label={t('oidcClientId')}
+                value={cfg.clientID}
+                error={v.errors.clientID}
+                onChange={e => { setForm({ ...form, config: { ...cfg, clientID: e.target.value } }); v.clearError('clientID'); }}
+            />
+            <FieldRow
+                label={t('oidcClientSecret')}
+                type="password"
+                value={cfg.clientSecret}
+                placeholder="********"
+                help={t('oidcClientSecretHelp')}
+                onChange={e => setForm({ ...form, config: { ...cfg, clientSecret: e.target.value } })}
+            />
+            <FieldRow
+                label={t('oidcScopes')}
+                value={scopesText}
+                placeholder={t('oidcScopesPlaceholder')}
+                onChange={e => setForm({ ...form, config: { ...cfg, scopes: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
+            />
+            <FieldRow
+                label={t('oidcRedirectUri')}
+                value={cfg.redirectURI}
+                placeholder={`${window.location.origin}/api/auth/oidc/callback`}
+                help={t('oidcRedirectUriHelp')}
+                error={v.errors.redirectURI}
+                onChange={e => { setForm({ ...form, config: { ...cfg, redirectURI: e.target.value } }); v.clearError('redirectURI'); }}
+            />
+            <FieldRow
+                label={t('oidcSuccessRedirect')}
+                value={cfg.successRedirect ?? ''}
+                placeholder="/"
+                help={t('oidcSuccessRedirectHelp')}
+                onChange={e => setForm({ ...form, config: { ...cfg, successRedirect: e.target.value } })}
+            />
+            <FieldRow
+                label={t('oidcPostLogoutRedirect')}
+                value={cfg.postLogoutRedirectURI ?? ''}
+                placeholder={`${window.location.origin}/`}
+                help={t('oidcPostLogoutRedirectHelp')}
+                onChange={e => setForm({ ...form, config: { ...cfg, postLogoutRedirectURI: e.target.value } })}
+            />
         </>
     );
 }
@@ -167,67 +198,84 @@ export default function AdminAuthTab({
     resetForm,
     authValidation,
     loading,
+    footerSlot,
 }: AdminAuthTabProps) {
-    const reducedMotion = useReducedMotion();
     const { t } = useTheme();
+    const formId = useId();
+    const renderActions = (actions: ReactNode) => footerSlot
+        ? createPortal(actions, footerSlot)
+        : <div className="flex flex-col-reverse gap-2 border-t border-outline-variant pt-4 sm:flex-row sm:justify-end">{actions}</div>;
+
+    // The add/edit form is a sub-screen of the section, as „Mitglieder hinzufügen" is of
+    // the KB settings: it replaces the list, a breadcrumb leads back, and its actions
+    // take the dialog's footer (`footerSlot`), falling back to the form's own bottom.
+    if (showForm) {
+        return (
+            <form id={formId} onSubmit={handleAuthSubmit} className="flex flex-col gap-6">
+                <div className="flex min-w-0 flex-col gap-1.5">
+                    <BreadcrumbBack
+                        trail={[t('adminTabAuth')]}
+                        labels={{ nav: t('breadcrumbNav'), back: t('backTo') }}
+                        onClick={resetForm}
+                    />
+                    <h3 className="m-0 text-lg font-semibold text-on-surface">{editingId ? t('editAuthProvider') : t('newAuthProvider')}</h3>
+                </div>
+                <div className="flex flex-col gap-5">
+                    <FieldRow
+                        label={t('providerName')}
+                        value={authFormData.name ?? ''}
+                        placeholder={t('providerNamePlaceholder')}
+                        error={authValidation.errors.name}
+                        onChange={e => { setAuthFormData({ ...authFormData, name: e.target.value }); authValidation.clearError('name'); }}
+                    />
+                    <SelectFieldRow
+                        label={t('providerType')}
+                        value={authFormData.type ?? 'ldap'}
+                        onValueChange={type => setAuthFormData({ ...authFormData, type })}
+                        options={PROVIDER_TYPES}
+                    />
+                    {authFormData.type === 'oidc' ? renderOidcFields(authFormData, setAuthFormData, authValidation, t) : renderLdapFields(authFormData, setAuthFormData, authValidation, t)}
+                </div>
+                {renderActions(
+                    <>
+                        <Button type="button" variant="outline" onClick={resetForm}>{t('cancel')}</Button>
+                        <Button type="submit" form={formId}><Save size={18} /> {t('saveProvider')}</Button>
+                    </>,
+                )}
+            </form>
+        );
+    }
 
     return (
         <>
-            <AnimatePresence>
-                {showForm && (
-                    <motion.div {...getMotionProps(reducedMotion)} initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="config-form-overlay">
-                        <form onSubmit={handleAuthSubmit} className="result-card" style={{ padding: '2rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-                                <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>{editingId ? t('editAuthProvider') : t('newAuthProvider')}</h3>
-                                <button type="button" onClick={resetForm} className="icon-button" style={{ color: 'var(--text-secondary)' }} aria-label={t('closeForm')}><X size={20} /></button>
-                            </div>
-                            <div className="form-grid">
-                                <div className="input-group">
-                                    <label htmlFor="auth-name">{t('providerName')}</label>
-                                    <input id="auth-name" value={authFormData.name} onChange={e => { setAuthFormData({ ...authFormData, name: e.target.value }); authValidation.clearError('name'); }} placeholder={t('providerNamePlaceholder')} />
-                                    {authValidation.errors.name && <span className="field-error" role="alert">{authValidation.errors.name}</span>}
-                                </div>
-                                <div className="input-group">
-                                    <label htmlFor="auth-type">{t('providerType')}</label>
-                                    <select id="auth-type" value={authFormData.type} onChange={e => setAuthFormData({ ...authFormData, type: e.target.value })}>
-                                        <option value="ldap">LDAP</option>
-                                        <option value="oidc">OIDC</option>
-                                    </select>
-                                </div>
-                                {authFormData.type === 'oidc' ? renderOidcFields(authFormData, setAuthFormData, authValidation, t) : renderLdapFields(authFormData, setAuthFormData, authValidation, t)}
-                            </div>
-                            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
-                                <button type="submit" className="search-button"><Save size={18} /> {t('saveProvider')}</button>
-                                <button type="button" className="secondary-button" onClick={resetForm}>{t('cancel')}</button>
-                            </div>
-                        </form>
-                    </motion.div>
-                )}
-            </AnimatePresence>
 
-            <div className="configs-list">
+            <div className="flex flex-col gap-3">
                 {loading ? (
                     <div className="loading-spinner"></div>
                 ) : providers.length === 0 ? (
-                    <p style={{ textAlign: 'center', opacity: 0.5, padding: '3rem', color: 'var(--text-secondary)' }}>{t('noProvidersFound')}</p>
+                    <p className="py-12 text-center text-on-surface-variant opacity-50">{t('noProvidersFound')}</p>
                 ) : (
                     providers.map(provider => (
-                        <motion.div key={provider.id} layout={!reducedMotion} className="result-card">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                        <h3 style={{ margin: 0 }}>{provider.name}</h3>
-                                        {provider.isActive && <Badge tone="success" className="uppercase">{t('enabled')}</Badge>}
-                                    </div>
-                                    <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>{t('providerType')}: {provider.type.toUpperCase()}</p>
-                                    <p style={{ opacity: 0.7, margin: '0.2rem 0' }}>URL: {providerSummary(provider)}</p>
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <button onClick={() => startEditAuth(provider)} className="icon-button" title={t('editProvider')} aria-label={t('editProvider')}><Settings size={20} /></button>
-                                    <button onClick={() => handleDelete(provider.id, 'auth')} className="icon-button delete" title={t('deleteProvider')} aria-label={t('deleteProvider')}><Trash2 size={20} /></button>
-                                </div>
-                            </div>
-                        </motion.div>
+                        <AdminListCard
+                            key={provider.id}
+                            title={provider.name}
+                            badge={provider.isActive && <Badge tone="success" className="uppercase">{t('enabled')}</Badge>}
+                            details={[
+                                `${t('providerType')}: ${provider.type.toUpperCase()}`,
+                                `URL: ${providerSummary(provider)}`,
+                            ]}
+                            actionsLabel={`${t('kbActions')}: ${provider.name}`}
+                            actions={[
+                                { label: t('editProvider'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: () => startEditAuth(provider) },
+                                {
+                                    label: t('deleteProvider'),
+                                    icon: <Trash2 size={16} aria-hidden="true" />,
+                                    destructive: true,
+                                    separatorBefore: true,
+                                    onSelect: () => handleDelete(provider.id, 'auth'),
+                                },
+                            ]}
+                        />
                     ))
                 )}
             </div>

@@ -1,4 +1,4 @@
-import { memo, lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { memo, lazy, Suspense, useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -6,16 +6,22 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { MATH_SPAN_RE, normalizeMathDelimiters } from '../utils/markdownMath';
-import { Brain, Loader2, FileText, ArrowRight } from 'lucide-react';
+import { normalizeMathDelimiters } from '../utils/markdownMath';
+import { Loader2, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import type { MessageSource, TrajectoryEvent, FlaggedClaimStatus } from '../types';
-import { formatPageRanges } from '../utils/citations';
-import { formatDate } from '../utils/dates';
-import { excerptAroundSpan, isValidSpan } from '../utils/verification';
-import { AnchoredPopover } from './AnchoredPopover';
+import { buildCitationModel, citingTextByRaw, fillTemplate, type CitationModel } from '../utils/sourceDisplay';
+import { PRESERVE_RE, addCitationRefs } from '../utils/citationRefs';
+import { useFinePointer } from '../hooks/useFinePointer';
+import { CitationChip } from './sources/CitationChip';
+import { CITED_BLOCK_SELECTOR, CitationChipContext, passageFor, type ChipSheet, type CitationChipContextValue } from './sources/citationChipContext';
+import { citingRange } from '../utils/citingRange';
+import { useSourcePanel } from '../contexts/SourcePanelContext';
+import { SourcePreview } from './sources/SourcePreview';
 import { TrajectoryPanel } from './TrajectoryPanel';
-import { Shimmer } from '@ki4jlu/design-system';
+import {
+    Button, CodeBlock, Drawer, DrawerClose, DrawerContent, DrawerTitle, Reasoning, ReasoningContent, ReasoningTrigger, Shimmer,
+} from '@ki4jlu/design-system';
 import { MarkdownTable } from './MarkdownTable';
 
 // Lazy load ChartRenderer
@@ -27,29 +33,19 @@ interface MessageContentProps {
     isThinking?: boolean;
     sources?: MessageSource[];
     /**
-     * 1-based citation numbers the deterministic n-gram validator marked as
-     * suspect. Each suspect [N] is rendered with a ⚠ marker and a tooltip.
-     * Pass undefined or empty when validation didn't run — citations render
-     * unchanged.
+     * Raw citation numbers the deterministic n-gram validator marked as
+     * suspect: their chips are amber (colour only, no icon). Undefined when
+     * validation didn't run.
      */
-    suspectCitations?: Map<number, string>; // n → reason ("no_overlap" / "out_of_range")
+    suspectCitations?: ReadonlyMap<number, 'out_of_range' | 'no_overlap'>;
     /**
-     * 1-based citation numbers verified by the semantic-similarity fallback
-     * (method = "semantic"). Rendered with a subtle solid underline and a
-     * tooltip explaining that the n-gram check failed but cosine similarity
-     * cleared the threshold. Pass undefined or empty to render those
-     * citations the same as ngram-verified (no badge).
-     */
-    semanticCitations?: Set<number>;
-    /**
-     * 1-based citation numbers with a verified span (method = "span"),
-     * mapped to the RUNE offsets into `sources[n-1].content`. When a pill's
-     * citation has an entry here, its source popover highlights the exact
-     * quoted passage with `<mark class="citation-span">` inside a windowed
-     * excerpt instead of the old flat 320-char snippet. Pass undefined or
-     * empty to render every popover the old way.
+     * Raw citation numbers with a verified span (method = "span"), mapped to
+     * the RUNE offsets into that source's `content`: the preview marks the
+     * quoted passage. Undefined renders every preview without a mark.
      */
     citationSpans?: Map<number, { start: number; end: number }>;
+    /** The answer's per-answer numbering (utils/sourceDisplay); built from content + sources when omitted. */
+    citationModel?: CitationModel;
     /**
      * Streaming trajectory: one entry per orchestrator decision point. When
      * present and non-empty, a collapsible "Reasoning steps" panel is rendered
@@ -64,14 +60,15 @@ interface MessageContentProps {
      * undefined skips the highlight pass entirely.
      */
     flaggedClaims?: FlaggedClaimStatus[];
+    /** "In Quelle öffnen" in a preview: the source panel at that passage. */
+    onOpenPanel?: (n: number, raw: number, focus?: string, occ?: number) => void;
+    /** "Alle N Quellen" in a preview: the answer's source list. */
+    onShowAllSources?: () => void;
     /**
-     * Opens the source behind a citation pill (PDF viewer or text preview).
-     * Clicking an inline [N] pill opens a source-preview popover (file · page ·
-     * cited passage snippet); this callback fires from the popover's
-     * "Im Dokument öffnen →" button, never from the pill itself. Threaded from
-     * MessageBubble, which owns the onPdfOpen / onPreviewSource dispatch.
+     * The passage the source panel shows, when it is this answer's: its chips
+     * stay filled and the paragraph citing it is marked.
      */
-    onOpenSource?: (source: MessageSource) => void;
+    activeCitation?: { n: number; raw: number; occ?: number } | null;
     /**
      * Whether the chain-of-thought panel is expanded. Controlled from the chat
      * view (keyed by message id) rather than left to the native <details> DOM
@@ -81,209 +78,6 @@ interface MessageContentProps {
      */
     reasoningOpen?: boolean;
     onToggleReasoning?: () => void;
-}
-
-/**
- * CitationPreview renders the body of the source popover for an inline [N]
- * citation pill: file name, page label, the cited passage, and the link that
- * actually opens the document. Positioning, portalling, outside-click and
- * Escape dismissal all belong to the AnchoredPopover wrapper around it.
- *
- * The popover is click-triggered. It used to open on hover, which left touch
- * users with no way to preview a source at all — a tap went straight into the
- * document instead.
- *
- * When `span` is present AND passes `isValidSpan` (the Wave-3 span verifier
- * matched this citation to an exact passage), the snippet becomes a windowed
- * excerpt around that span — up to 160 runes of context each side, ellipsis
- * when truncated — with the quoted passage itself wrapped in
- * `<mark class="citation-span">`. Without a span, or with one that fails
- * validation (out of range, backwards, non-integer — a bad extraction),
- * it falls back to the flat 320-char content slice, unchanged.
- */
-function CitationPreview({ source, span, t, language, onOpenSource }: {
-    source: MessageSource;
-    span?: { start: number; end: number };
-    t: (key: string) => string;
-    language: 'de' | 'en';
-    onOpenSource?: (source: MessageSource) => void;
-}) {
-    const pageLabel = source.pages && source.pages.length > 0 ? `S. ${formatPageRanges(source.pages)}` : '';
-    // publishedAt wins over createdAt (W3-R10/handoff): publishedAt is
-    // RSS-only, and when present is the more meaningful "freshness" date.
-    const dateIso = source.publishedAt ?? source.createdAt;
-    const dateLabel = dateIso ? formatDate(dateIso, language) : undefined;
-    // content is optional on the wire; one local fallback keeps every consumer
-    // below (isValidSpan / excerptAroundSpan both call Array.from, which throws
-    // on undefined) reading the same defined string.
-    const content = source.content ?? '';
-    const validSpan = span && isValidSpan(content, span) ? span : undefined;
-    const snippetNode = validSpan
-        ? (() => {
-            const { before, quote, after } = excerptAroundSpan(content, validSpan, 160);
-            return (
-                <>
-                    {before}
-                    <mark className="citation-span">{quote}</mark>
-                    {after}
-                </>
-            );
-        })()
-        : (content.length > 320 ? `${content.slice(0, 320)}…` : content);
-
-    return (
-        <div style={{ padding: '10px 12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.82rem' }}>
-                <FileText size={14} aria-hidden="true" style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.fileName}</span>
-            </div>
-            {pageLabel && (
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>{pageLabel}</div>
-            )}
-            {dateLabel && (
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                    {t('sourceDateLabel')} {dateLabel}
-                </div>
-            )}
-            {source.content && (
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45, maxHeight: '7.5em', overflow: 'hidden' }}>
-                    {snippetNode}
-                </div>
-            )}
-            {onOpenSource && source.fileId && (
-                <button
-                    type="button"
-                    onClick={() => onOpenSource(source)}
-                    style={{
-                        marginTop: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px',
-                        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                        color: 'var(--accent-primary)', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'inherit',
-                    }}
-                >
-                    {t('openInDocument')} <ArrowRight size={13} aria-hidden="true" />
-                </button>
-            )}
-        </div>
-    );
-}
-
-/**
- * Replace citation references [1], [2] etc. in markdown with styled superscript HTML.
- * Shows page numbers (e.g. [S. 12]) when source page info is available, falls back to [N].
- * Protects fenced code blocks and inline code spans from transformation.
- *
- * Suspect citations (per the n-gram validator) get a `data-suspect` attribute
- * and a ⚠ glyph appended; CSS in index.css colors them. The reason string is
- * surfaced via the `title` attribute for hover tooltips.
- */
-// Code spans and math spans are cut out before the citation / flagged-claim
-// rewriters run and restored afterwards: both inject raw HTML, which would
-// break code and formulas alike.
-const PRESERVE_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source, 'g');
-
-function addCitationRefs(content: string, sources?: MessageSource[], suspect?: Map<number, string>, semantic?: Set<number>, language: 'de' | 'en' = 'de'): string {
-    // Extract code blocks and inline code, replacing with collision-safe placeholders
-    const preserved: string[] = [];
-    const placeholder = (i: number) => `\x00CITE_PRESERVE_${i}\x00`;
-
-    // Replace fenced code blocks first (``` ... ```), then inline code (` ... `)
-    let safe = content.replace(PRESERVE_RE, (match) => {
-        const idx = preserved.length;
-        preserved.push(match);
-        return placeholder(idx);
-    });
-
-    // Apply citation regex on the safe text. This handles three shapes:
-    //   - single:     [1], [42]
-    //   - grouped:    [1, 2, 3]  (rendered as separate adjacent links)
-    //   - 3-digit:    [150]
-    // and tolerates markdown-escaped brackets (`\[1\]`) plus inner whitespace
-    // (`[ 1, 2 ]`). The optional `\\?` before each bracket handles the escape
-    // form some LLMs intermittently emit when generating prose.
-    //
-    // This MUST stay in sync with extractCitedSourceIndices() in
-    // utils/citations.ts, which drives the per-message source list. When the
-    // two diverged, grouped citations like "[1, 2]" — common on follow-up
-    // turns that synthesize across several chunks — listed their sources but
-    // left the inline marker as plain text with no click handler.
-    safe = safe.replace(
-        /(?<![`[])\\?\[\s*(\d{1,3}(?:\s*,\s*\d{1,3})*)\s*\\?\](?!\()/g,
-        (_match, group: string) => {
-            // Collapse indices in this marker that resolve to the same file.
-            // The model often cites several chunks of one document in a single
-            // marker ([1, 4, 13]); one link per chunk just repeats the same
-            // file. Keep the first index per file and merge the others' pages
-            // into its label so no page reference is lost. Distinct files (and
-            // any index whose source is unknown) are all kept, in order.
-            const byFile = new Map<string, { num: number; pages: number[] }>();
-            const order: string[] = [];
-            group.split(',').forEach((part, i) => {
-                const num = parseInt(part.trim(), 10);
-                if (isNaN(num)) return;
-                const src = sources?.[num - 1];
-                // Unknown sources get a per-occurrence key so they're never merged.
-                const key = src ? (src.fileId || src.fileName) : `\x00idx-${num}-${i}`;
-                let entry = byFile.get(key);
-                if (!entry) {
-                    entry = { num, pages: [] };
-                    byFile.set(key, entry);
-                    order.push(key);
-                }
-                if (src?.pages) entry.pages.push(...src.pages);
-            });
-            return order
-                .map((key) => {
-                    const { num, pages } = byFile.get(key)!;
-                    return renderCitation(num, pages, suspect, semantic, language);
-                })
-                .join('');
-        }
-    );
-
-    // Restore preserved code blocks
-    for (let i = 0; i < preserved.length; i++) {
-        safe = safe.replace(placeholder(i), () => preserved[i]);
-    }
-
-    return safe;
-}
-
-// renderCitation builds the <sup> HTML for one citation link. `pages` is the
-// merged page set for the file behind `num` (collapsed from same-file indices
-// in the marker — see addCitationRefs); empty means no page info, so the label
-// falls back to the bare index. Each distinct file in a marker emits one
-// independently clickable <sup> carrying its own data-source-index.
-// Attributes that make a citation pill a real control: it opens the source
-// popover on click or Enter/Space, so it has to be reachable by keyboard and
-// announced as a button, not as decorative superscript. Kept in one constant
-// because all three pill variants (plain, suspect, semantic) need them, and
-// each name has a matching entry in sanitizeSchema below.
-const CITATION_TRIGGER_ATTRS = 'role="button" tabindex="0" aria-haspopup="dialog"';
-
-function renderCitation(num: number, pages: number[], suspect: Map<number, string> | undefined, semantic: Set<number> | undefined, language: 'de' | 'en'): string {
-    const numStr = String(num);
-    const label = pages.length ? `S. ${formatPageRanges(pages)}` : numStr;
-
-    const suspectReason = suspect?.get(num);
-    if (suspectReason) {
-        const title = language === 'en'
-            ? (suspectReason === 'out_of_range'
-                ? `Citation [${num}] points to a source that does not exist.`
-                : `Citation [${num}] has no recognizable word overlap with the cited source.`)
-            : (suspectReason === 'out_of_range'
-                ? `Zitat [${num}] verweist auf eine nicht existierende Quelle.`
-                : `Zitat [${num}] hat keine erkennbare Wortüberlappung mit der zitierten Quelle.`);
-        return `<sup class="source-ref source-ref-suspect" ${CITATION_TRIGGER_ATTRS} data-source-index="${numStr}" data-suspect="${escapeAttr(suspectReason)}" title="${escapeAttr(title)}">[${label}]<span class="source-ref-warn" aria-hidden="true">⚠</span></sup>`;
-    }
-
-    if (semantic?.has(num)) {
-        const title = language === 'en'
-            ? `Citation [${num}] verified by semantic similarity (the wording differs from the source but the meaning matches).`
-            : `Zitat [${num}] über semantische Ähnlichkeit verifiziert (der Wortlaut weicht von der Quelle ab, die Bedeutung stimmt überein).`;
-        return `<sup class="source-ref source-ref-semantic" ${CITATION_TRIGGER_ATTRS} data-source-index="${numStr}" title="${escapeAttr(title)}">[${label}]</sup>`;
-    }
-
-    return `<sup class="source-ref" ${CITATION_TRIGGER_ATTRS} data-source-index="${numStr}">[${label}]</sup>`;
 }
 
 // escapeAttr keeps tooltip text safe to inline as an HTML attribute. The
@@ -345,21 +139,16 @@ function addFlaggedClaimHighlights(content: string, flagged?: FlaggedClaimStatus
 //
 // rehype-sanitize (via hast-util-sanitize 6.x) matches allowlist entries
 // against HAST property names, NOT raw HTML attribute names. HAST converts
-// `data-source-index` → `dataSourceIndex`, `aria-hidden` → `ariaHidden`,
-// `class` → `className`. Using the hyphenated form here silently strips the
-// attribute, which breaks citation click-to-open (reads `dataset.sourceIndex`)
-// and the suspect-citation tooltip. See hast-util-sanitize's default schema
-// for precedent (e.g. `section: ['dataFootnotes', ...]`).
-//
-// The same trap applies to the pill's control attributes: `ariaHasPopup` and
-// `tabIndex` must be spelled the HAST way or the pill silently drops out of
-// the tab order and stops announcing itself as a button.
+// `data-n` → `dataN`, `aria-hidden` → `ariaHidden`, `class` → `className`.
+// Using the hyphenated form here silently strips the attribute, which loses
+// the chip placeholder's numbers. See hast-util-sanitize's default schema for
+// precedent (e.g. `section: ['dataFootnotes', ...]`).
 const sanitizeSchema = {
     ...defaultSchema,
     tagNames: [...(defaultSchema.tagNames || []), 'sup', 'sub', 'details', 'summary', 'mark'],
     attributes: {
         ...defaultSchema.attributes,
-        sup: ['className', 'dataSourceIndex', 'dataSuspect', 'title', 'role', 'tabIndex', 'ariaHasPopup', 'ariaExpanded'],
+        sup: ['className', 'dataN', 'dataRaw', 'dataOcc'],
         mark: ['className', 'dataReason', 'title'],
         span: ['className', 'ariaHidden'],
         code: ['className'],
@@ -374,13 +163,64 @@ const sanitizeSchema = {
 const REMARK_PLUGINS: import('unified').PluggableList = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS: import('unified').PluggableList = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex];
 
+// A citation placeholder (addCitationRefs) becomes its chip; any other <sup>
+// stays one.
+function MarkdownSup(supProps: React.ComponentProps<'sup'> & ExtraProps) {
+    const { node, className, ...rest } = supProps;
+    void node;
+    const data = rest as Record<string, unknown>;
+    if (typeof className === 'string' && className.split(' ').includes('source-ref')) {
+        const n = parseInt(String(data['data-n'] ?? ''), 10);
+        const raws = String(data['data-raw'] ?? '').split(',').map(Number).filter(Number.isFinite);
+        const occ = parseInt(String(data['data-occ'] ?? ''), 10);
+        if (Number.isNaN(n)) return null;
+        return <CitationChip n={n} raws={raws} occ={occ} />;
+    }
+    return <sup className={className} {...rest} />;
+}
+
+/** The text of a hast node (a code fence's `<code>`), as written. */
+function hastText(node: { type: string; value?: string; children?: unknown[] }): string {
+    if (node.type === 'text') return node.value ?? '';
+    return (node.children ?? []).map(c => hastText(c as { type: string })).join('');
+}
+
 function buildMarkdownComponents(language: 'de' | 'en') {
     const loadingChartLabel = language === 'en' ? 'Loading chart...' : 'Lade Diagramm...';
-    const downloadXlsxLabel = language === 'en' ? 'Download .xlsx' : 'Als Excel (.xlsx) herunterladen';
+    const copyCodeLabel = language === 'en' ? 'Copy code' : 'Code kopieren';
+    const copiedCodeLabel = language === 'en' ? 'Copied' : 'Kopiert';
+    const collapseCodeLabel = language === 'en' ? 'Collapse code' : 'Code einklappen';
+    const expandCodeLabel = language === 'en' ? 'Expand code' : 'Code ausklappen';
     return {
+        sup: MarkdownSup,
+        // A code fence is the DS CodeBlock (editor look, copy button). A
+        // ```chart fence renders through `code` below (ChartRenderer), so its
+        // <pre> is dropped rather than framing the chart in a code box.
+        pre: (preProps: React.ComponentProps<'pre'> & ExtraProps) => {
+            const { node, children } = preProps;
+            const first = node?.children?.[0];
+            if (!first || first.type !== 'element' || first.tagName !== 'code') return <pre>{children}</pre>;
+            const cls = first.properties?.className;
+            const lang = Array.isArray(cls)
+                ? cls.map(String).find(c => c.startsWith('language-'))?.slice('language-'.length)
+                : undefined;
+            if (lang === 'chart') return <>{children}</>;
+            return (
+                <CodeBlock
+                    className="my-4"
+                    code={hastText(first).replace(/\n$/, '')}
+                    language={lang}
+                    collapsible
+                    copyLabel={copyCodeLabel}
+                    copiedLabel={copiedCodeLabel}
+                    collapseLabel={collapseCodeLabel}
+                    expandLabel={expandCodeLabel}
+                />
+            );
+        },
         table: (tableProps: React.ComponentProps<'table'> & ExtraProps) => {
             const { node, children } = tableProps;
-            return <MarkdownTable node={node} label={downloadXlsxLabel} filename="table.xlsx">{children}</MarkdownTable>;
+            return <MarkdownTable node={node} filename="table.xlsx">{children}</MarkdownTable>;
         },
         img: (imgProps: React.ComponentProps<'img'> & ExtraProps) => {
             // Strip the react-markdown AST `node` so it isn't spread onto the DOM element.
@@ -402,7 +242,8 @@ function buildMarkdownComponents(language: 'de' | 'en') {
             // then collapse — the same height churn this reservation exists to
             // prevent.
             const isChart = match?.[1] === 'chart';
-            return !inline && match ? (
+            // Other fences never reach here as blocks: `pre` above renders them.
+            return !inline && isChart ? (
                 <Suspense fallback={
                     // Reserves the same box the resolved chart occupies
                     // (.chart-container: min-height 350 + 1rem margins), so the
@@ -434,90 +275,74 @@ function buildMarkdownComponents(language: 'de' | 'en') {
     };
 }
 
-const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectCitations, semanticCitations, citationSpans, trajectory, flaggedClaims, onOpenSource, reasoningOpen = false, onToggleReasoning }: MessageContentProps) => {
+// KI-912 preview: English labels for the DS Reasoning trigger (its defaults are German).
+const englishThinkingMessage = (isStreaming: boolean, duration?: number) => {
+    if (isStreaming) return <Shimmer as="span" duration={1}>Thinking…</Shimmer>;
+    if (duration === undefined) return <span>Thought for a few seconds</span>;
+    if (duration < 1) return <span>Thought for less than a second</span>;
+    return <span>Thought for {duration === 1 ? '1 second' : `${duration} seconds`}</span>;
+};
+
+const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectCitations, citationSpans, citationModel, trajectory, flaggedClaims, onOpenPanel, onShowAllSources, activeCitation, reasoningOpen = false, onToggleReasoning }: MessageContentProps) => {
     const { language, t } = useTheme();
-    const reasoningLabel = language === 'en' ? 'Chain of Thought' : 'Gedankengang';
     const markdownComponents = useMemo(() => buildMarkdownComponents(language), [language]);
+    const finePointer = useFinePointer();
+    const model = useMemo(() => citationModel ?? buildCitationModel(content, sources), [citationModel, content, sources]);
+    const bodyRef = useRef<HTMLDivElement>(null);
+    const sourcePanel = useSourcePanel();
 
-    // Click-triggered source-preview popover (§8): a delegated click on the
-    // answer body detects an inline [N] pill and anchors the preview to it. The
-    // pill is raw HTML (rehype-raw), so the anchor is the live DOM node held in
-    // a ref rather than a React ref on a component.
-    //
-    // Clicking a pill used to open the document immediately, with the preview
-    // reachable only by hovering. The preview is now the click target and the
-    // document opens from inside it — one path instead of two, and the only
-    // path that works on touch.
-    const [openCitation, setOpenCitation] = useState<number | null>(null);
-    const citationTriggerRef = useRef<HTMLElement | null>(null);
+    // Touch: one bottom sheet per answer, for whichever chip was tapped.
+    const [sheet, setSheet] = useState<ChipSheet | null>(null);
+    const sheetSource = sheet ? model.cited[sheet.n - 1] : undefined;
 
-    const closePopover = useCallback(() => setOpenCitation(null), []);
+    const chipContext = useMemo<CitationChipContextValue>(() => ({
+        model,
+        spans: citationSpans,
+        suspect: suspectCitations,
+        activeN: activeCitation?.n ?? null,
+        panelOpen: !!sourcePanel?.target,
+        finePointer,
+        onOpenPanel,
+        onShowAll: onShowAllSources,
+        openSheet: setSheet,
+        sheetOcc: sheet?.occ ?? null,
+    }), [model, citationSpans, suspectCitations, activeCitation?.n, sourcePanel?.target, finePointer, onOpenPanel, onShowAllSources, sheet?.occ]);
 
-    // activateCitation toggles the popover for the pill the event came from.
-    // Returns true when the event hit a pill, so the caller knows whether to
-    // swallow it.
-    const activateCitation = useCallback((target: EventTarget | null) => {
-        const sup = (target as HTMLElement | null)?.closest?.('.source-ref') as HTMLElement | null;
-        if (!sup || !sources?.length) return false;
-        const idx = parseInt(sup.dataset.sourceIndex || '', 10);
-        if (Number.isNaN(idx) || idx < 1 || idx > sources.length) return false;
 
-        // Clicking the open pill closes it; clicking another switches to it.
-        const sameTrigger = citationTriggerRef.current === sup;
-        citationTriggerRef.current = sup;
-        setOpenCitation((prev) => (sameTrigger && prev === idx ? null : idx));
-        return true;
-    }, [sources]);
-
-    const handleBodyClick = useCallback((e: React.MouseEvent) => {
-        if (activateCitation(e.target)) e.stopPropagation();
-    }, [activateCitation]);
-
-    const handleBodyKeyDown = useCallback((e: React.KeyboardEvent) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return;
-        if (!(e.target as HTMLElement).closest('.source-ref')) return;
-        // Space would scroll the page, Enter could submit an enclosing form.
-        e.preventDefault();
-        if (activateCitation(e.target)) e.stopPropagation();
-    }, [activateCitation]);
-
-    // Cleared for the one dismissal that hands control to another surface (the
-    // document viewer), which focuses itself — see openSourceAndDismiss.
-    const restoreFocusOnCloseRef = useRef(true);
-
-    // Reflect the open state on the trigger, and hand focus back to it when the
-    // popover is dismissed from the keyboard. Focus is only restored when it
-    // would otherwise be lost inside the closing popover — returning it after an
-    // outside click would yank the caret away from whatever the user clicked.
+    // While the source panel shows one of this answer's citations, the
+    // sentences that cite that passage are highlighted in the answer — the
+    // panel marks the passage, this marks the claim, so the two read as one
+    // link. A CSS Custom Highlight (no DOM change); browsers without the API
+    // simply show no highlight.
+    // Opened from a chip (or stepped to one), the panel names that chip's
+    // occurrence: only its sentence is marked, and it is scrolled into view.
+    // Opened from the source list, every sentence citing the passage is.
+    const activeRaw = activeCitation?.raw;
+    const activeOcc = activeCitation?.occ;
     useEffect(() => {
-        const trigger = citationTriggerRef.current;
-        if (!trigger) return;
-        if (openCitation == null) return;
-        trigger.setAttribute('aria-expanded', 'true');
-        return () => {
-            trigger.removeAttribute('aria-expanded');
-            const restore = restoreFocusOnCloseRef.current;
-            restoreFocusOnCloseRef.current = true;
-            if (!restore) return;
-            if (document.activeElement === document.body || !document.body.contains(document.activeElement)) {
-                trigger.focus?.();
-            }
-        };
-    }, [openCitation]);
+        const root = bodyRef.current;
+        if (!root || activeOcc == null) return;
+        root.querySelector<HTMLElement>(`.citation-chip[data-occ="${activeOcc}"]`)?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    }, [activeOcc]);
+    useEffect(() => {
+        const root = bodyRef.current;
+        const highlights = typeof CSS !== 'undefined' ? (CSS as unknown as { highlights?: Map<string, unknown> }).highlights : undefined;
+        if (!root || activeRaw == null || !highlights || typeof Highlight === 'undefined') return;
+        const ranges = [...root.querySelectorAll<HTMLElement>('.citation-chip[data-raw]')]
+            .filter(chip => (activeOcc != null
+                ? chip.dataset.occ === String(activeOcc)
+                : (chip.dataset.raw ?? '').split(',').includes(String(activeRaw))))
+            .map(chip => citingRange(chip, CITED_BLOCK_SELECTOR, '.citation-chip'))
+            .filter((r): r is Range => r !== null);
+        if (ranges.length === 0) return;
+        highlights.set('citation-focus', new Highlight(...ranges));
+        return () => { highlights.delete('citation-focus'); };
+    }, [activeRaw, activeOcc, content]);
 
-    // Opening the document dismisses the popover: the viewer opens on top of the
-    // answer, and a popover left standing sits over the document the user just
-    // asked for.
-    const openSourceAndDismiss = useCallback((source: MessageSource) => {
-        // The viewer takes focus itself; pulling it back to the pill would drop
-        // the user out of the dialog that just opened.
-        restoreFocusOnCloseRef.current = false;
-        setOpenCitation(null);
-        onOpenSource?.(source);
-    }, [onOpenSource]);
-
-    const openSource = openCitation != null ? sources?.[openCitation - 1] : undefined;
-    const openSpan = openCitation != null ? citationSpans?.get(openCitation) : undefined;
+    const closeSheet = useCallback(() => setSheet(null), []);
+    const sheetPassage = sheet && sheetSource ? passageFor(sheetSource, sheet.raw) : undefined;
+    const sheetReason = sheet ? suspectCitations?.get(sheet.raw) : undefined;
+    const citing = useMemo(() => citingTextByRaw(content), [content]);
 
     return (
         <>
@@ -525,101 +350,72 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
                 <TrajectoryPanel trajectory={trajectory} language={language} />
             )}
             {reasoning && (
-                <details open={reasoningOpen || isThinking} style={{
-                    marginBottom: '1rem',
-                    background: 'var(--tag-bg)',
-                    borderRadius: '8px',
-                    padding: '0.5rem',
-                    border: '1px solid var(--border-color)'
-                }}>
-                    <summary
-                        // preventDefault suppresses the browser's own toggle so
-                        // `open` above is the single source of truth. Enter/Space
-                        // on a <summary> dispatch a click, so this covers the
-                        // keyboard path too.
-                        onClick={(e) => { e.preventDefault(); onToggleReasoning?.(); }}
-                        style={{
-                            cursor: 'pointer',
-                            fontSize: '0.8rem',
-                            fontWeight: 600,
-                            color: 'var(--accent-primary)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            listStyle: 'none'
-                        }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Brain size={16} />
-                            {isThinking ? <Shimmer as="span">{reasoningLabel}</Shimmer> : <span>{reasoningLabel}</span>}
-                        </div>
-                    </summary>
-                    <div className="markdown-content" style={{
-                        marginTop: '0.5rem',
-                        fontSize: '0.85rem',
-                        color: 'var(--text-secondary)',
-                        lineHeight: '1.5',
-                        borderLeft: '2px solid var(--accent-primary)',
-                        paddingLeft: '0.75rem',
-                        paddingBottom: '0.25rem'
-                    }}>
-                        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={markdownComponents}>
-                            {normalizeMathDelimiters(reasoning)}
-                        </ReactMarkdown>
-                        {isThinking && (
-                            <span style={{ animation: 'reasoning-cursor-blink 1s step-end infinite' }}>|</span>
-                        )}
-                    </div>
-                </details>
-            )}
-            {/* The handlers here are pure event delegation: citation pills are raw
-                HTML injected by rehype-raw, so no React handler can be attached to
-                them directly. The pills themselves carry the interactive semantics
-                (role="button", tabindex, Enter/Space), and this wrapper is marked
-                presentational so it adds none of its own. */}
-            <div
-                className="markdown-content"
-                role="presentation"
-                onClick={handleBodyClick}
-                onKeyDown={handleBodyKeyDown}
-            >
-                <ReactMarkdown
-                    remarkPlugins={REMARK_PLUGINS}
-                    rehypePlugins={REHYPE_PLUGINS}
-                    components={markdownComponents}
+                <Reasoning
+                    className="mb-4"
+                    isStreaming={!!isThinking}
+                    defaultOpen={reasoningOpen || !!isThinking}
+                    onOpenChange={(open) => { if (open !== reasoningOpen) onToggleReasoning?.(); }}
                 >
-                    {addFlaggedClaimHighlights(addCitationRefs(normalizeMathDelimiters(content), sources, suspectCitations, semanticCitations, language), flaggedClaims, language)}
-                </ReactMarkdown>
-            </div>
-            {/* Keyed on the citation so switching pills remounts the popover.
-                useAnchoredPosition measures in a layout effect keyed on `open`,
-                and citationTriggerRef is a mutable ref — moving it to another
-                pill would not re-measure on its own. A mouse switch happens to
-                survive (the outside-click handler closes the popover first), but
-                a keyboard switch keeps `open` true and would leave the popover
-                parked at the previously clicked pill. */}
-            <AnchoredPopover
-                key={openCitation ?? 'closed'}
-                open={openSource != null}
-                triggerRef={citationTriggerRef}
-                onClose={closePopover}
-                placement="bottom"
-                align="center"
-                width={320}
-                role="dialog"
-                ariaLabel={openSource?.fileName}
-            >
-                {openSource && (
-                    <CitationPreview
-                        source={openSource}
-                        span={openSpan}
-                        t={t}
-                        language={language}
-                        // Keep the prop optional-aware: CitationPreview renders the
-                        // open link only when a handler exists.
-                        onOpenSource={onOpenSource ? openSourceAndDismiss : undefined}
-                    />
-                )}
-            </AnchoredPopover>
+                    <ReasoningTrigger getThinkingMessage={language === 'en' ? englishThinkingMessage : undefined} />
+                    <ReasoningContent lang={/[äöüß]/i.test(reasoning) ? undefined : 'en'}>
+                        <div className="markdown-content">
+                            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={markdownComponents}>
+                                {normalizeMathDelimiters(reasoning)}
+                            </ReactMarkdown>
+                        </div>
+                    </ReasoningContent>
+                </Reasoning>
+            )}
+            <CitationChipContext.Provider value={chipContext}>
+                <div className="markdown-content" ref={bodyRef}>
+                    <ReactMarkdown
+                        remarkPlugins={REMARK_PLUGINS}
+                        rehypePlugins={REHYPE_PLUGINS}
+                        components={markdownComponents}
+                    >
+                        {addFlaggedClaimHighlights(addCitationRefs(normalizeMathDelimiters(content), model), flaggedClaims, language)}
+                    </ReactMarkdown>
+                </div>
+            </CitationChipContext.Provider>
+            {!finePointer && (
+                <Drawer open={sheetSource != null} onOpenChange={(open) => { if (!open) closeSheet(); }}>
+                    <DrawerContent
+                        aria-describedby={undefined}
+                        className="px-5 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+                        onCloseAutoFocus={(e) => {
+                            // No DrawerTrigger: hand focus back to the chip by hand.
+                            const occ = sheet?.occ;
+                            if (occ == null) return;
+                            e.preventDefault();
+                            bodyRef.current?.querySelector<HTMLElement>(`.citation-chip[data-occ="${occ}"]`)?.focus();
+                        }}
+                    >
+                        {sheetSource && sheet && sheetPassage && (
+                            <>
+                                <DrawerTitle className="sr-only">{fillTemplate(t('citationChipLabel'), { n: sheetSource.n, title: sheetSource.title })}</DrawerTitle>
+                                <div className="flex justify-end">
+                                    <DrawerClose asChild>
+                                        <Button type="button" variant="ghost" size="icon" aria-label={t('close')}>
+                                            <X className="size-5" aria-hidden="true" />
+                                        </Button>
+                                    </DrawerClose>
+                                </div>
+                                <SourcePreview
+                                    variant="sheet"
+                                    source={sheetSource}
+                                    passage={sheetSource.passages[sheetPassage.index]}
+                                    span={citationSpans?.get(sheetPassage.raw)}
+                                    focus={citing.get(sheetPassage.raw)}
+                                    notice={sheetReason ? t(sheetReason === 'out_of_range' ? 'citationSuspectOutOfRange' : 'citationSuspectNoOverlap') : undefined}
+                                    totalSources={model.cited.length}
+                                    onShowAll={onShowAllSources ? () => { closeSheet(); onShowAllSources(); } : undefined}
+                                    onOpenSource={onOpenPanel ? () => { closeSheet(); onOpenPanel(sheetSource.n, sheetPassage.raw, undefined, sheet.occ); } : undefined}
+                                />
+                            </>
+                        )}
+                    </DrawerContent>
+                </Drawer>
+            )}
         </>
     );
 });

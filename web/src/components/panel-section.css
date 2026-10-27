@@ -1,7 +1,7 @@
-/* One titled block of a settings-style panel (SystemPromptPanel, and
+/* One titled block of a settings-style panel (KbSettingsDialog, and
    KbAgentsSection wherever it is mounted): title row with an optional action
-   on the right, a muted hint, then the content. Every section of the system
-   prompt panel uses exactly this, so the panel reads as one form. */
+   on the right, a muted hint, then the content. Every section of the KB
+   settings dialog uses exactly this, so the panel reads as one form. */
 .panel-section {
   display: flex;
   flex-direction: column;

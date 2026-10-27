@@ -18,6 +18,7 @@ import (
 	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/kb"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/research"
 	"github.com/justrag/go-backend/internal/usage"
@@ -176,6 +177,10 @@ func (a chatStoreAdapter) UpdateChatTitle(_ context.Context, _, _, _ string) err
 	return fmt.Errorf("UpdateChatTitle: %w", errChatStoreUnsupported)
 }
 
+func (a chatStoreAdapter) BranchChat(_ context.Context, _, _, _ string) (*chat.BranchResult, error) {
+	return nil, fmt.Errorf("BranchChat: %w", errChatStoreUnsupported)
+}
+
 func (a chatStoreAdapter) StarterContext(_ context.Context, _ string, _ int) (chat.StarterSource, error) {
 	return chat.StarterSource{}, fmt.Errorf("StarterContext: %w", errChatStoreUnsupported)
 }
@@ -256,6 +261,10 @@ func (h *Handler) ListKBs(w http.ResponseWriter, r *http.Request) {
 	if kbs == nil {
 		kbs = []kb.KBRow{}
 	}
+	// The same capabilities object the session list carries, resolved for
+	// the API key's owner, so an integration can tell which sources it may
+	// list, add or download before it gets a 403.
+	kb.ResolveAllCapabilities(kbs, user.Role)
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, kbs)
 }
@@ -330,6 +339,11 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if messages == nil {
 		messages = []chat.MessageRow{}
+	}
+	// Stored sources are stripped on the way out, for this key owner and
+	// the KB's current flags.
+	if !kbaccess.HasCapability(r.Context(), kbaccess.CapSeeCitations) {
+		chat.RedactMessagesForReader(messages)
 	}
 
 	w.Header().Set("Cache-Control", "no-cache")
@@ -478,6 +492,13 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	enhancedQuery := chatCtx.EnhancedQuery
 	systemPrompt := chatCtx.SystemPrompt
 
+	// A key owner without seeCitations on this KB gets the answer without
+	// source attribution (chat.CitationFilter); what is stored is complete.
+	var citations *chat.CitationFilter
+	if !kbaccess.HasCapability(ctx, kbaccess.CapSeeCitations) {
+		citations = chat.NewCitationFilter()
+	}
+
 	// ------------------------------------------------------------------
 	// 7. Save user message
 	// ------------------------------------------------------------------
@@ -516,8 +537,20 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// ------------------------------------------------------------------
 	if streamMode {
 		httputil.EnableSSE(w)
+		// Every frame passes the citation filter (nil = citations visible).
+		send := func(data any) {
+			for _, frame := range citations.Frames(data) {
+				writeSSE(w, frame)
+			}
+		}
+		done := func() {
+			for _, frame := range citations.Flush() {
+				writeSSE(w, frame)
+			}
+			writeSSEDone(w)
+		}
 
-		writeSSE(w, map[string]any{
+		send(map[string]any{
 			"sources":       sources,
 			"enhancedQuery": enhancedQuery,
 			"chatId":        chatID,
@@ -534,8 +567,8 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 		events, err := ai.StreamCompletion(genCtx, h.aiResolver, body.Message, systemPrompt, kbID, reasoningLevel, ai.DefaultAnswerTemperature)
 		if err != nil {
-			writeSSE(w, map[string]string{"error": "failed to start AI stream"})
-			writeSSEDone(w)
+			send(map[string]string{"error": "failed to start AI stream"})
+			done()
 			return
 		}
 
@@ -560,12 +593,12 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 					cancelGen()
 					break
 				}
-				writeSSE(w, map[string]string{"content": event.Content})
+				send(map[string]string{"content": event.Content})
 				sentLen = len(fullResponse)
 			}
 			if event.Reasoning != "" {
 				fullReasoning += event.Reasoning
-				writeSSE(w, map[string]string{"reasoning": event.Reasoning})
+				send(map[string]string{"reasoning": event.Reasoning})
 			}
 		}
 		if tracker.Tripped() {
@@ -577,7 +610,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			guarded, appended := chat.GuardStreamedAnswer(fullResponse, fullResponse[:sentLen], tracker.Limit(), lang, "api_v1")
 			fullResponse = guarded
 			if appended != "" {
-				writeSSE(w, map[string]string{"content": appended})
+				send(map[string]string{"content": appended})
 			}
 			logctx.From(ctx).Warn("publicapi: degenerate answer run truncated",
 				"kbId", kbID, "limit", tracker.Limit(), "run_length", tracker.RunLength())
@@ -588,8 +621,8 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			// Mid-stream abort: fullResponse is truncated — don't persist it
 			// as a complete AI message.
 			logctx.From(ctx).Error("publicapi: AI stream aborted mid-answer", "error", streamErr, "kbId", kbID)
-			writeSSE(w, map[string]string{"error": "AI stream interrupted"})
-			writeSSEDone(w)
+			send(map[string]string{"error": "AI stream interrupted"})
+			done()
 			return
 		}
 
@@ -606,19 +639,19 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			ParentMessageID: &userMsg.ID,
 		})
 		if err != nil {
-			writeSSE(w, map[string]string{"error": "failed to save AI message"})
-			writeSSEDone(w)
+			send(map[string]string{"error": "failed to save AI message"})
+			done()
 			return
 		}
 
-		writeSSE(w, map[string]string{"aiMessageId": aiMsg.ID})
+		send(map[string]string{"aiMessageId": aiMsg.ID})
 
 		followUps, _ := ai.GenerateFollowUpQuestions(ctx, h.aiResolver, body.Message, fullResponse, kbID, lang, "")
 		if len(followUps) > 0 {
-			writeSSE(w, map[string]any{"followUpQuestions": followUps})
+			send(map[string]any{"followUpQuestions": followUps})
 		}
 
-		writeSSEDone(w)
+		done()
 		return
 	}
 
@@ -656,7 +689,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	followUps, _ := ai.GenerateFollowUpQuestions(ctx, h.aiResolver, body.Message, result.Content, kbID, lang, "")
 
-	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, citations.Payload(map[string]any{
 		"answer":            result.Content,
 		"reasoning":         result.Reasoning,
 		"sources":           sources,
@@ -665,7 +698,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		"userMessageId":     userMsg.ID,
 		"aiMessageId":       aiMsg.ID,
 		"followUpQuestions": followUps,
-	})
+	}))
 }
 
 // ---------------------------------------------------------------------------

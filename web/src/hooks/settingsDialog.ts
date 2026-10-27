@@ -1,41 +1,25 @@
-import { useSyncExternalStore } from 'react';
+import { createUrlDialog } from '../routing/urlDialog';
 import type { SettingsTab } from '../components/UserSettingsModal';
 
 /*
  * Open state of the user settings dialog (`UserSettingsModal`), shared by the
  * one component that renders it (`AppUserMenu`, mounted once per page) and any
  * control elsewhere that opens it — today the search field's default list
- * (⌘K → „Einstellungen"). A module store rather than a context: the dialog is
- * one per app, and a context would add a required field to every
- * `AppNavContext` fixture for a single boolean.
+ * (⌘K → „Einstellungen").
+ *
+ * BACKED BY THE URL: `?settings=<tab>` on any page, with the push/replace/back
+ * rules of `routing/urlDialog.ts` (shared with the admin console). A bare
+ * `?settings` opens the first tab.
  */
-type State = { open: boolean; tab: SettingsTab };
+const SETTINGS_TABS = ['general', 'chat', 'profile', 'connectors'] as const satisfies readonly SettingsTab[];
 
-let state: State = { open: false, tab: 'general' };
-const listeners = new Set<() => void>();
+const dialog = createUrlDialog<SettingsTab>('settings', SETTINGS_TABS);
 
-function set(next: State) {
-  state = next;
-  listeners.forEach((l) => l());
-}
+export const openSettingsDialog = (tab?: SettingsTab) => dialog.open(tab);
+export const setSettingsDialogOpen = dialog.setOpen;
+export const setSettingsDialogTab = dialog.setValue;
 
-export function openSettingsDialog(tab: SettingsTab = 'general') {
-  set({ open: true, tab });
-}
-
-export function setSettingsDialogOpen(open: boolean) {
-  set({ ...state, open });
-}
-
-export function setSettingsDialogTab(tab: SettingsTab) {
-  set({ ...state, tab });
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
-}
-
-export function useSettingsDialog(): State {
-  return useSyncExternalStore(subscribe, () => state);
+export function useSettingsDialog(): { open: boolean; tab: SettingsTab } {
+  const { open, value } = dialog.useDialogState();
+  return { open, tab: value };
 }

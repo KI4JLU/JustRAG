@@ -1,12 +1,14 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNavigation';
+import type { KbSettingsSection, KnowledgeBase } from '../types';
+import type { LegalPageType } from '../components/LegalPage';
 
 /**
  * Top-level navigation destinations that are reachable from a chrome element
  * rather than from page content — today the overview's action row, from KI-696
  * onwards the shell's sidebar.
  *
- * WHAT BELONGS HERE. Exactly the `setView(...)` jumps that are rendered by the
+ * WHAT BELONGS HERE. Exactly the view jumps (router navigations) that are rendered by the
  * shell's sidebar rather than by a page's body. A sidebar owned by the shell
  * cannot receive a callback threaded through the page's props without the
  * shell becoming a second prop-drilling layer, which is the problem KI-770
@@ -18,7 +20,7 @@ import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNav
  * rather than an exception to the rule. „Geteilte Knowledge Bases" became a
  * top-level view, so the sidebar now has a second destination AND — because
  * the sidebar is drawn on both views by one `AppChrome` — a way back to the
- * overview. Both are chrome-rendered `setView(...)` jumps, i.e. the criterion
+ * overview. Both are chrome-rendered view jumps, i.e. the criterion
  * above verbatim. The alternative was a prop on `HomeView`, which is precisely
  * the drilling layer KI-770 removed.
  *
@@ -38,10 +40,15 @@ export interface AppNavContextValue {
   onViewDiscover: () => void;
   /** „Werkzeuge" — placeholder for the workspace tools that move here. */
   onViewTools: () => void;
-  /** The signed-in user's own profile screen. */
+  /** „Mein Profil" — the settings window on its Profil tab. */
   onViewProfile: () => void;
-  /** The system-admin console. Rendered only for admin/superadmin. */
-  onViewAdmin: () => void;
+  /**
+   * Open a public topic's admin editor (the full-page GlobalKbSettings), from
+   * the admin dialog's „Öffentliche Wissensbasen" section.
+   */
+  onEditGlobalKb: (kb: { id: string; name: string }) => void;
+  /** One of the legal pages, from the user menu's "Hilfe" submenu. */
+  onViewLegal: (page: LegalPageType) => void;
   /*
    * KI-837: THE HEADER SEARCH'S DESTINATIONS. Same criterion as every row
    * above — a jump rendered by the chrome, not by page content — except that
@@ -55,6 +62,12 @@ export interface AppNavContextValue {
   onOpenSource: (source: SearchSourceTarget) => void;
   /** Open a chat or message hit: its topic, then that chat. */
   onOpenChat: (chat: SearchChatTarget) => void;
+  /**
+   * Open a topic with its „Thema-Einstellungen" on `section` — „Teilen" on the
+   * topic cards opens Mitglieder. The caller gates the entry point with
+   * canOpenKbTopicSettings; the workspace applies the same gate again.
+   */
+  onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
 }
 
 const AppNavContext = createContext<AppNavContextValue | null>(null);

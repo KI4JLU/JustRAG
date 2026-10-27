@@ -1,6 +1,6 @@
 module github.com/justrag/go-backend
 
-go 1.26.9
+go 1.26.10
 
 // The go directive started at 1.26.6 because google.golang.org/adk/v2
 // requires it. That floor also carries the crypto/x509, crypto/tls,
@@ -9,7 +9,8 @@ go 1.26.9
 // GO-2026-5856, and GO-2026-5026/5972/6088/6089/6090/6091/6218 — the seven
 // that 1.26.6 closes); 1.26.9 closes the net/http and net/textproto
 // advisories GO-2026-6607 … GO-2026-6617, together with golang.org/x/net
-// v0.60.0. Bump it as new stdlib advisories land — CI runs
+// v0.60.0; 1.26.10 closes the crypto/x509 advisory GO-2026-6809 (reached
+// through http.Server.ListenAndServe). Bump it as new stdlib advisories land — CI runs
 // `govulncheck ./...` and will fail if it falls behind. Every entry above
 // was *called* code, not a latent import.
 
@@ -36,7 +37,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/rs/cors v1.11.1
-	github.com/xuri/excelize/v2 v2.11.0
+	github.com/xuri/excelize/v2 v2.11.1-0.20261003002531-6258dcebc4e2
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0
@@ -177,7 +178,7 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.61.0 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
-	github.com/richardlehane/mscfb v1.0.7 // indirect
+	github.com/richardlehane/mscfb v1.0.8 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
@@ -197,7 +198,7 @@ require (
 	github.com/wasilibs/go-re2 v1.7.0 // indirect
 	github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
-	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/efp v0.0.2 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/yosssi/gohtml v0.0.0-20201013000340-ee4748c638f4 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect

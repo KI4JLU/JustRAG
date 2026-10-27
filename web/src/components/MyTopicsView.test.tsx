@@ -10,11 +10,10 @@ import { translations } from '../translations';
 import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
-import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 import { useKbRemoval } from '../hooks/useKbRemoval';
-import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
+import { openAdminDialog, setAdminDialogOpen } from '../hooks/adminDialog';
 
 /** Opens the topic card's ⋮ menu; the card actions live there. */
 async function kbMenu() {
@@ -24,6 +23,12 @@ async function kbMenu() {
 
 
 vi.mock('axios');
+
+// The console is covered by AdminUI.*.test.tsx and App.authenticated-home.test.tsx;
+// here it only has to open.
+vi.mock('../AdminUI', () => ({
+  default: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="admin console" /> : null),
+}));
 const mockedAxios = vi.mocked(axios, true);
 
 // Modal (behind ModalProvider) calls useReducedMotion, which reads
@@ -86,11 +91,15 @@ const NAV = {
   onViewDiscover: vi.fn(),
   onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
-  onViewAdmin: vi.fn(),
+  onEditGlobalKb: vi.fn(),
+  onViewLegal: vi.fn(),
   // The header search's destinations (KI-837). No test here selects a hit.
   onOpenTopic: vi.fn(),
   onOpenSource: vi.fn(),
   onOpenChat: vi.fn(),
+  // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
+  // Mitglieder through this jump.
+  onOpenTopicSettings: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
@@ -102,25 +111,15 @@ beforeEach(() => {
   NAV.onViewDiscover.mockClear();
   NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
-  NAV.onViewAdmin.mockClear();
+  setAdminDialogOpen(false);
+  NAV.onOpenTopicSettings.mockClear();
 });
-
-// The REAL useSharing hook, published on the context HomeView now reads. It
-// runs in its own component because it calls useToast() and therefore has to
-// sit under ToastProvider, and it is the real hook rather than a stub because
-// the share button's "don't also open the KB" behaviour lives inside it
-// (useSharing.ts:27) — a stub would make every share assertion in this file a
-// statement about the stub.
-function SharingHarness({ children }: { children: React.ReactNode }) {
-  const sharing = useSharing({ username: 'grace' });
-  return <SharingProvider value={sharing}>{children}</SharingProvider>;
-}
 
 /**
  * The REAL `useKbSearchState`, published on the context the chrome's search
  * field reads (cards KI-787, KI-837).
  *
- * Real, not a stub, for the same reason `SharingHarness` is: the field's text
+ * Real, not a stub: the field's text
  * and the caret handoff live INSIDE the hook, and a stubbed
  * `{ query, setQuery }` would turn every assertion that touches the header
  * into a statement about the stub. (KI-837 removed the „KBs entdecken"
@@ -155,11 +154,9 @@ function renderView(ui: React.ReactElement) {
     <DesignSystemThemeProvider>
       <ToastProvider>
         <ModalProvider>
-          <SharingHarness>
-            <AppNavProvider value={NAV}>
-              <KbSearchHarness>{ui}</KbSearchHarness>
-            </AppNavProvider>
-          </SharingHarness>
+          <AppNavProvider value={NAV}>
+            <KbSearchHarness>{ui}</KbSearchHarness>
+          </AppNavProvider>
         </ModalProvider>
       </ToastProvider>
     </DesignSystemThemeProvider>
@@ -386,7 +383,7 @@ describe('AppChrome, through the view that mounts it', () => {
        `aria-current`), and this is the cost of it. */
     const navRows = () =>
       within(screen.getByRole('navigation', { name: translations.mainNavigation.en }));
-    const ROWS = [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en, translations.tools.en];
+    const ROWS = [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en];
 
     // Expanded: the visible text IS the name, so there is no aria-label to
     // override it (and none to drift from it).
@@ -442,7 +439,7 @@ describe('AppChrome, through the view that mounts it', () => {
        minimised: no `aria-label`, i.e. the visible text is still their name.
        `NavItem` takes that from `SidebarCollapsedContext`, which the narrow
        arrangement does not provide — the column is not a `SidePanel` there. */
-    for (const name of [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en, translations.tools.en]) {
+    for (const name of [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en]) {
       expect(column.getByRole('button', { name })).not.toHaveAttribute('aria-label');
     }
 
@@ -481,8 +478,8 @@ describe('AppChrome, through the view that mounts it', () => {
     await userEvent.click(screen.getByRole('button', { name: translations.discoverTopics.en }));
     expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(screen.getByRole('button', { name: translations.tools.en }));
-    expect(NAV.onViewTools).toHaveBeenCalledTimes(1);
+    // „Werkzeuge" is hidden until the tools section is finished (AppChrome's SHOW_TOOLS_NAV).
+    expect(screen.queryByRole('button', { name: translations.tools.en })).toBeNull();
 
     /* KI-783's new destination, asserted the same way: the row has to reach
        the jump, not merely exist. This is what makes „the sidebar row has a
@@ -514,10 +511,10 @@ describe('AppChrome, through the view that mounts it', () => {
 
     /* Every nav row is unconditional now — „Meine Agenten" was the only gated
        one and it is gone (18.09.2026) — so what this test still checks is the
-       ADMIN ENTRY's gate, below. The four rows are asserted first so a failure
+       ADMIN ENTRY's gate, below. The three rows are asserted first so a failure
        says "the nav did not render" rather than "the gate ate a row". */
     for (const name of [translations.myTopics.en, translations.sharedTopics.en,
-                        translations.discoverTopics.en, translations.tools.en]) {
+                        translations.discoverTopics.en]) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
 
@@ -529,46 +526,80 @@ describe('AppChrome, through the view that mounts it', () => {
     expect(menu.getByRole('menuitem', { name: translations.profile.en })).toBeInTheDocument();
   });
 
-  it('offers the admin entry in the user menu for an admin, and it routes', async () => {
+  // ORACLE: the rights rule of the `?admin=` link: it is for system admins; for anyone else the parameter is
+  // ignored and removed from the URL, and no console opens.
+  it('ignores and strips ?admin for a user who is not a system admin', async () => {
+    authState.role = 'user';
+    openAdminDialog('users'); // as a link carrying ?admin=users would
+    expect(window.location.search).toBe('?admin=users');
+
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(screen.queryByRole('dialog', { name: 'admin console' })).toBeNull();
+  });
+
+  it('offers the admin entry in the user menu for an admin, and it opens the console', async () => {
     authState.role = 'admin';
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
     await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
     const menu = within(await screen.findByRole('menu'));
 
-    /* ORACLE: the NAV spy. Clicking is the assertion, not rendering: the
-       admin UI has had no other entry point since the floating admin button
-       was deleted, so an item that renders but reaches nothing would lock
-       admins out of the console entirely. */
+    /* ORACLE: the admin dialog's open state (AdminUI is stubbed above: this
+       suite pins the entry, `App.authenticated-home.test.tsx` the real
+       console). Clicking is the assertion, not rendering: the console has no
+       other entry point, so an item that renders but reaches nothing would
+       lock admins out of it entirely. */
     await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.en }));
-    expect(NAV.onViewAdmin).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('dialog', { name: 'admin console' })).toBeInTheDocument();
   });
 });
 
-// The members-dialog trigger used to be gated on kb.userId === user.id
-// (owner-only), which made the whole `admin` tier unreachable from the UI —
-// a KB admin who isn't the owner could never open the dialog to manage
-// members or hand out roles. It must key on myRole instead.
-describe('MyTopicsView members-dialog trigger', () => {
-
+// „Teilen" opens the topic's Thema-Einstellungen on Mitglieder, so the card
+// offers it exactly to the callers who may open that window: KB admin and
+// owner (the routes behind it sit on kbAdminChain), and a superadmin, whom
+// kbaccess.EffectiveRole resolves to owner on every KB. This page lists only
+// topics whose myRole is owner (splitKbsByOwnership), so the owner case is the
+// only one it can render; the admin / edit / view / superadmin cases live in
+// SharedTopicsView.test.tsx, which renders the rest.
+//
+// ORACLE: that role ladder (go-backend/internal/kbaccess/middleware.go) and
+// translations.ts for the item's name — not the predicate under test.
+describe('MyTopicsView share trigger', () => {
   it('shows the trigger for a caller whose myRole is owner', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
     expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
-
+  /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
+     destination — this topic, Mitglieder — and the click must not also reach
+     the card it sits in — the settings jump opens the topic itself. */
+  it('opens the topic settings on Mitglieder without also opening the card', async () => {
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
 });
 
 // KbSettingsPanel (RAG settings / evals / workflow) is the KB "advanced
 // settings" surface, and its endpoints sit on kbAdvancedChain: a system role in
 // {api-user, admin, superadmin} AND KB role admin or better. The trigger must
 // therefore be hidden in exactly the cases the server refuses — both terms, not
-// the members button's KB-role-only gate, which is what it wrongly shared
-// before. The share button beside it deliberately keeps that looser gate, and
-// the last case here pins the two apart.
+// the share item's KB-role gate, which is what it wrongly shared before.
+// The share item beside it deliberately keeps that looser gate, and the
+// plain-owner case here pins the two apart.
+//
+// On top of that the card offers it to system admins only, badged "Admin"
+// (developer, 2026-10-13): an api-user passes the server gate but gets no entry.
 describe('MyTopicsView KB-settings trigger', () => {
-  const label = translations.kbAdvancedSettings.en;
+  // The DS ActionMenu badge is part of the item's name.
+  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
 
   it('hides the trigger from a plain user who OWNS the KB', async () => {
     authState.role = 'user';
@@ -577,15 +608,22 @@ describe('MyTopicsView KB-settings trigger', () => {
     expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
   });
 
-  it('still offers the plain owner the members dialog — only the advanced surface is gated', async () => {
+  it('still offers the plain owner „Teilen" — only the advanced surface is gated', async () => {
     authState.role = 'user';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
     expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
-  it('shows the trigger for an api-user who owns the KB, and hands the KB to the callback', async () => {
+  it('hides the trigger from an api-user who owns the KB, though the server would let them in', async () => {
     authState.role = 'api-user';
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
+    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
+  });
+
+  it('shows the trigger for a system admin who owns the KB, and hands the KB to the callback', async () => {
+    authState.role = 'admin';
     const onOpenKbSettings = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onOpenKbSettings={onOpenKbSettings} />);
@@ -607,7 +645,7 @@ describe('MyTopicsView KB-settings trigger', () => {
 // canRenameKb here). The pencil must not appear on a shared card whose caller
 // is a mere admin member — that role edits everything else, not the name.
 describe('MyTopicsView rename trigger', () => {
-  const label = translations.renameKb.en;
+  const label = translations.rename.en;
 
   it('shows the pencil to the owner and hands the KB to onRenameKB', async () => {
     authState.role = 'user';

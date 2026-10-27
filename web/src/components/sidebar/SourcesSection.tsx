@@ -1,43 +1,72 @@
 import React, { createElement, memo } from 'react';
 import {
-    Download, Trash2,
-    Rss, RefreshCw, Pause, Play, Eye, BookOpen, GitBranch, Table as TableIcon, ShieldAlert
+    Download, Trash2, ListChecks,
+    RefreshCw, Pause, Play, Info, ShieldAlert, CalendarClock,
 } from 'lucide-react';
-import { Button, Checkbox, SidebarCard, SidebarCardList } from '@ki4jlu/design-system';
+import { Button, SidebarCard, SidebarCardList, type ActionMenuItem } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
-import { IngestStageIndicator } from './IngestStageIndicator';
-import { SyncScheduleSelect } from './SyncScheduleSelect';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
-import { SourceHoverPreview } from './SourceHoverPreview';
+import { SourceHoverPreview, SyncedSourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
+import { cardFiles, confluenceKey, feedExcluded, feedKey, fileKey, gitKey, syncedExcluded, type SourceKey } from './sourceSelection';
+import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
+import { INGEST_STAGE_LABEL_KEYS } from '../../utils/ingestStages';
+import type { PendingUpload } from '../../hooks/useFileManagement';
+import { fillTemplate } from '../../utils/sourceDisplay';
 
 interface SourcesSectionProps {
     files: FileEntry[];
+    /** Files still uploading: busy rows above the list, display-only. */
+    uploads: PendingUpload[];
     onPreviewSource: (file: FileEntry) => void;
-    onToggleFilesSelection: (fileIds: string[], selected: boolean) => void;
+    /** The open mode's ticked rows (see sourceSelection.ts): null = no mode,
+     *  and then no card carries a checkbox. */
+    selection: ReadonlySet<SourceKey> | null;
+    /** `destructive` while the mode is a remove selection: ticked rows read red. */
+    selectionTone: 'default' | 'destructive';
+    /** Opens the filter mode ("Auswählen"). */
+    onStartSelection: () => void;
+    /** Opens the remove mode with this row ticked (a row's "Entfernen"). */
+    onStartRemoval: (key: SourceKey) => void;
+    onToggleSelected: (key: SourceKey, selected: boolean) => void;
     onDownloadFile: (id: string) => void;
-    onDeleteFile: (id: string, e: React.MouseEvent) => void;
+    /** Whether the caller may change the KB's existing sources
+     *  (capabilities.manageSources — role edit or better). false hides delete,
+     *  retry, sync, pause and the schedule picker: the backend would refuse
+     *  each of them with a 403. Required, so a new call site cannot forget it
+     *  and show a viewer dead controls. */
+    canManage: boolean;
+    /** Whether the caller may download the KB's sources
+     *  (capabilities.downloadSources). false drops the Download action, the
+     *  hover preview (it is built from the downloaded file) and the preview on
+     *  click — the card is then display-only (DS SidebarCard without onOpen:
+     *  the title is plain text); in selection mode a click still ticks it. Required for
+     *  the same reason as canManage. */
+    canDownload: boolean;
     rssFeeds: RssFeed[];
+    /** Feeds whose "poll now" is still running: their row shows the spinner. */
+    pollingFeedIds?: Set<string>;
     onUpdateRssFeed: (feedId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-    onDeleteRssFeed: (feedId: string) => void;
     onPollFeedNow: (feedId: string) => void;
-    onViewFeed: (feed: RssFeed) => void;
+    /** Opens a synced source's details (state, counts, sync times, entries). */
+    onViewSource: (target: SourceDetailsTarget) => void;
     confluenceSources: ConfluenceSource[];
     onUpdateConfluenceSource: (sourceId: string, updates: { includeAttachments?: boolean; syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-    onDeleteConfluenceSource: (sourceId: string) => void;
     onSyncConfluenceNow: (sourceId: string) => void;
     gitRepoSources: GitRepoSource[];
     onUpdateGitRepoSource: (sourceId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
-    onDeleteGitRepoSource: (sourceId: string) => void;
     onSyncGitRepoNow: (sourceId: string) => void;
     onRetryFile: (id: string) => void;
-    onOpenTabular: (file: FileEntry) => void;
 }
 
+// Stable empty list for useSourcePreviews when nothing may be previewed.
+const NO_FILES: FileEntry[] = [];
+
 // Maps files.error_stage values (backend vocabulary, see
-// files.PGStore.MarkFileError) to translation keys. Unknown stages fall
-// back to the raw errorMessage, then to fileErrorUnknown.
+// files.PGStore.MarkFileError) to translation keys. An unknown stage shows
+// fileErrorUnknown: errorMessage is the backend's technical text and is
+// never shown.
 const ERROR_STAGE_KEYS: Record<string, string> = {
     unsupported_type: 'fileErrorUnsupportedType',
     parse: 'fileErrorParse',
@@ -51,27 +80,21 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // Extensions the spreadsheet parser handles (parser.SpreadsheetParser),
 // deliberately excluding .xlsm (macro-enabled workbooks, out of scope) — the
 // "Tabellen" file-detail button only makes sense for these.
-const SPREADSHEET_EXTENSIONS = ['.xlsx', '.xls', '.ods', '.csv', '.tsv'];
-const isSpreadsheetFile = (name: string): boolean => {
-    const lower = name.toLowerCase();
-    return SPREADSHEET_EXTENSIONS.some(ext => lower.endsWith(ext));
-};
-
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
-    files, onPreviewSource, onToggleFilesSelection,
-    onDownloadFile, onDeleteFile,
-    rssFeeds, onUpdateRssFeed, onDeleteRssFeed, onPollFeedNow, onViewFeed,
-    confluenceSources, onUpdateConfluenceSource, onDeleteConfluenceSource, onSyncConfluenceNow,
-    gitRepoSources, onUpdateGitRepoSource, onDeleteGitRepoSource, onSyncGitRepoNow,
-    onRetryFile, onOpenTabular
+    files, uploads, onPreviewSource, selection, selectionTone, onStartSelection, onStartRemoval, onToggleSelected,
+    onDownloadFile, canManage, canDownload,
+    rssFeeds, pollingFeedIds, onUpdateRssFeed, onPollFeedNow, onViewSource,
+    confluenceSources, onUpdateConfluenceSource, onSyncConfluenceNow,
+    gitRepoSources, onUpdateGitRepoSource, onSyncGitRepoNow,
+    onRetryFile
 }) => {
     const { t } = useTheme();
+    const selecting = selection !== null;
 
-
-    const nonRssFiles = files.filter(f => f.origin !== 'rss' && f.origin !== 'confluence' && f.origin !== 'git');
-    // Hover previews are prepared ahead of the hover (see sourcePreviews.ts).
-    useSourcePreviews(nonRssFiles);
-    const rssFeedFiles = (feedId: string) => files.filter(f => f.rssFeedId === feedId);
+    const nonRssFiles = cardFiles(files);
+    // Hover previews are prepared ahead of the hover (see sourcePreviews.ts) —
+    // only for a caller who may download, since the preview IS the download.
+    useSourcePreviews(canDownload ? nonRssFiles : NO_FILES);
 
     // Untrusted, document-derived text: it goes into title/aria-label as a
     // plain string and is never rendered as markup. The per-KB count of
@@ -82,29 +105,101 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     };
     const errorLabel = (file: FileEntry) => {
         if (file.errorStage && ERROR_STAGE_KEYS[file.errorStage]) return t(ERROR_STAGE_KEYS[file.errorStage]);
-        return file.errorMessage || t('fileErrorUnknown');
+        return t('fileErrorUnknown');
     };
 
+    /* A Confluence / git row in either mode: ticked like any row. */
+    const selectableRow = (key: SourceKey) => ({
+        selectable: selecting,
+        selectionMode: selecting,
+        selectionTone,
+        selected: selection?.has(key) ?? false,
+        onSelectedChange: (sel: boolean) => onToggleSelected(key, sel),
+        selectLabel: t('selectSource'),
+    });
+
+    const scheduleLabel: Record<SyncSchedule, string> = {
+        manual: t('syncScheduleManual'),
+        daily: t('syncScheduleDaily'),
+        weekly: t('syncScheduleWeekly'),
+    };
+
+    /* A synced source's row is its type chip and title; everything else
+       (state, counts, sync times, entries) is in its details dialog. Only a
+       failure shows on the row — tinted red, the message as its tooltip —
+       because it needs acting on. */
+    // The tooltip of a row in progress: "3/4 Embeddings werden erzeugt", or queued.
+    const busyLabel = (file: FileEntry) => {
+        if (!file.currentStage) return t('fileStatusPending');
+        const label = t(INGEST_STAGE_LABEL_KEYS[file.currentStage] ?? 'ingestStageGeneric');
+        return file.stageIndex && file.stageTotal ? `${file.stageIndex}/${file.stageTotal} ${label}` : label;
+    };
+    // A synced source in progress — syncing, polling, or with entries still
+    // being ingested — shows the same spinner on its tile as a file does.
+    const syncedBusy = (syncing: boolean, entries: FileEntry[]) => {
+        if (syncing) return t('syncing');
+        const n = entries.filter(f => f.status === 'pending' || f.status === 'processing').length;
+        return n > 0 ? fillTemplate(t('sourceEntriesProcessing'), { count: n }) : undefined;
+    };
+    const errorOf = (source: { status: string; errorMessage?: string | null }) => (source.status === 'error'
+        ? (source.errorMessage || t('feedError'))
+        : undefined);
+
+    /* The management actions of a synced source, in its ⋯ menu: sync now,
+       pause/resume, the schedule as a submenu, remove. */
+    const manageActions = ({ status, schedule, onSync, syncLabel, onToggle, toggleDisabled, onSchedule, onRemove }: {
+        status: string;
+        schedule: SyncSchedule;
+        onSync: () => void;
+        syncLabel: string;
+        onToggle: () => void;
+        toggleDisabled?: boolean;
+        onSchedule: (s: SyncSchedule) => void;
+        onRemove: () => void;
+    }): ActionMenuItem[] => [
+        { label: syncLabel, icon: <RefreshCw size={16} aria-hidden="true" />, onSelect: onSync, separatorBefore: true },
+        {
+            label: status === 'active' ? t('pause') : t('resume'),
+            icon: status === 'active' ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />,
+            onSelect: onToggle,
+            disabled: toggleDisabled,
+        },
+        {
+            label: t('syncScheduleLabel'),
+            icon: <CalendarClock size={16} aria-hidden="true" />,
+            submenu: (['manual', 'daily', 'weekly'] as const).map((v) => ({
+                label: scheduleLabel[v],
+                checked: v === schedule,
+                onSelect: () => onSchedule(v),
+            })),
+        },
+        { label: t('removeSource'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true, onSelect: onRemove },
+    ];
+
     return (
-        <SidebarCardList className="sidebar-left__files-section">
-                {nonRssFiles.map(file => (
-                    <SourceHoverPreview key={file.id} file={file}>
+        <SidebarCardList iconSlot="badge" className="sidebar-left__files-section">
+                {uploads.map(upload => (
+                    <SidebarCard
+                        key={upload.id}
+                        icon={createElement(sourceIconFor(upload), { 'aria-hidden': true })}
+                        iconText={sourceTypeLabel(upload) ?? undefined}
+                        title={upload.name}
+                        busy={t('sourceUploading')}
+                    />
+                ))}
+                {nonRssFiles.map(file => {
+                    const card = (
                         <SidebarCard
+                            key={file.id}
                             icon={createElement(sourceIconFor(file), { 'aria-hidden': true })}
                             iconText={sourceTypeLabel(file) ?? undefined}
                             title={file.name}
-                            onOpen={() => onPreviewSource(file)}
+                            // A failed ingest: the row is tinted red, the message is its tooltip.
+                            error={file.status === 'error' ? errorLabel(file) : undefined}
+                            // Queued or ingesting: a spinner on the tile, the stage as its tooltip.
+                            busy={file.status === 'pending' || file.status === 'processing' ? busyLabel(file) : undefined}
+                            onOpen={canDownload ? () => onPreviewSource(file) : undefined}
                             meta={<>
-                                {/* Status only when it is news: queued or failed. A finished
-                                    upload says nothing — the card being there is the status. */}
-                                {file.status === 'pending' && !file.currentStage && (
-                                    <div className="source-meta sidebar-left__file-meta">{t('fileStatusPending')}</div>
-                                )}
-                                {file.status === 'error' && (
-                                    <div className="sidebar-left__rss-feed-error" title={file.errorMessage || undefined}>
-                                        {errorLabel(file)}
-                                    </div>
-                                )}
                                 {file.injectionFlag && (
                                     <div
                                         className="sidebar-left__file-injection"
@@ -115,18 +210,9 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <ShieldAlert size={12} aria-hidden="true" /> {t('fileInjectionFlagged')}
                                     </div>
                                 )}
-                                {file.currentStage && (
-                                    <IngestStageIndicator
-                                        stage={file.currentStage}
-                                        index={file.stageIndex}
-                                        total={file.stageTotal}
-                                        fileName={file.name}
-                                        detail={file.stageDetail}
-                                    />
-                                )}
                             </>}
                             extra={<>
-                                {file.status === 'error' && (
+                                {canManage && file.status === 'error' && (
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -137,221 +223,141 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                                         <RefreshCw size={16} aria-hidden="true" />
                                     </Button>
                                 )}
-                                {file.status === 'completed' && isSpreadsheetFile(file.name) && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => { e.stopPropagation(); onOpenTabular(file); }}
-                                        title={t('tabularPanelOpen')}
-                                        aria-label={`${t('tabularPanelOpen')} ${file.name}`}
-                                    >
-                                        <TableIcon size={16} aria-hidden="true" />
-                                    </Button>
-                                )}
                             </>}
                             actionsLabel={t('sourceActions')}
                             actions={[
-                                { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
-                                { label: t('delete'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
-                                  onSelect: (e) => onDeleteFile(file.id, e as unknown as React.MouseEvent) },
+                                { label: t('selectSources'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: onStartSelection },
+                                ...(canDownload ? [
+                                    { label: t('download'), icon: <Download size={16} aria-hidden="true" />, onSelect: () => onDownloadFile(file.id) },
+                                ] : []),
+                                ...(canManage ? [
+                                    { label: t('removeSource'), icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, separatorBefore: true,
+                                      onSelect: () => onStartRemoval(fileKey(file.id)) },
+                                ] : []),
                             ]}
-                            selectable
-                            selected={file.selected !== false}
-                            onSelectedChange={(sel) => onToggleFilesSelection([file.id], sel)}
+                            // Outside selection mode the chat filter shows as a
+                            // greyed-out card: the checkboxes that used to say it
+                            // are gone (the count in the prompt bar sums it up).
+                            muted={!selecting && file.selected === false}
+                            selectable={selecting}
+                            selectionMode={selecting}
+                            selectionTone={selectionTone}
+                            selected={selection?.has(fileKey(file.id)) ?? false}
+                            onSelectedChange={(sel) => onToggleSelected(fileKey(file.id), sel)}
                             selectLabel={t('selectSource')}
                         />
-                    </SourceHoverPreview>
-                ))}
+                    );
+                    // A row in progress or failed shows its status tooltip instead of the preview.
+                    const ready = file.status !== 'error' && file.status !== 'pending' && file.status !== 'processing';
+                    return canDownload && ready
+                        ? <SourceHoverPreview key={file.id} file={file}>{card}</SourceHoverPreview>
+                        : card;
+                })}
 
-                {rssFeeds.map(feed => (
-                    <li key={`rss-${feed.id}`} className="source-card sidebar-left__file-card">
-                        <div className="sidebar-left__file-row">
-                            <div className="sidebar-left__file-origin-icon">
-                                <Rss size={18} aria-hidden="true" />
-                            </div>
-                            <div className="sidebar-left__file-main sidebar-ui__item-main">
-                                <div className="sidebar-left__file-top-row sidebar-ui__item-row">
-                                    <span className="text-button source-title sidebar-left__file-name sidebar-ui__item-title">
-                                        {feed.title || feed.url}
-                                    </span>
-                                    <span className={`sidebar-left__rss-feed-status sidebar-left__rss-feed-status--${feed.status}`}>
-                                        {feed.status === 'active' ? t('active') : feed.status === 'paused' ? t('paused') : t('feedError')}
-                                    </span>
-                                </div>
-                                <div className="sidebar-left__file-meta-row">
-                                    <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
-                                        {feed.itemCount > 0 && <span>{feed.itemCount} {t('items')}</span>}
-                                        {feed.lastPolledAt && <span>{t('lastPolled')}: {new Date(feed.lastPolledAt).toLocaleString()}</span>}
-                                        {feed.syncSchedule !== 'manual' && feed.nextSyncAt && (
-                                            <span>{t('nextSync')}: {new Date(feed.nextSyncAt).toLocaleString()}</span>
-                                        )}
-                                    </div>
-                                </div>
-                                {feed.status === 'error' && feed.errorMessage && (
-                                    <div className="sidebar-left__rss-feed-error">{feed.errorMessage}</div>
-                                )}
-                                <SyncScheduleSelect
-                                    id={`rss-row-schedule-${feed.id}`}
-                                    value={feed.syncSchedule}
-                                    onChange={(syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule })}
-                                />
-                                <div className="sidebar-left__rss-feed-actions">
-                                    <button onClick={() => onPollFeedNow(feed.id)} title={t('pollNow')} aria-label={t('pollNow')}>
-                                        <RefreshCw size={14} />
-                                    </button>
-                                    <button onClick={() => onUpdateRssFeed(feed.id, {
-                                        status: feed.status === 'active' ? 'paused' : 'active'
-                                    })} title={feed.status === 'active' ? t('pause') : t('resume')} aria-label={feed.status === 'active' ? t('pause') : t('resume')}>
-                                        {feed.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-                                    </button>
-                                    <button onClick={() => onViewFeed(feed)} title={t('rssViewEntries')} aria-label={t('rssViewEntries')}>
-                                        <Eye size={14} />
-                                    </button>
-                                    <button onClick={() => onDeleteRssFeed(feed.id)} title={t('delete')} aria-label={`${t('delete')} ${feed.title || feed.url}`}>
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                            </div>
-                            <Checkbox
-                                checked={rssFeedFiles(feed.id).length > 0 && rssFeedFiles(feed.id).every(f => f.selected !== false)}
-                                onCheckedChange={() => {
-                                    const feedFileList = rssFeedFiles(feed.id);
-                                    const allSelected = feedFileList.every(f => f.selected !== false);
-                                    onToggleFilesSelection(feedFileList.map(f => f.id), !allSelected);
-                                }}
-                                aria-label={`${t('selectSource')} ${feed.title || feed.url}`}
-                            />
-                        </div>
-                    </li>
-                ))}
-
-                {confluenceSources.map(source => (
-                    <li key={`confluence-${source.id}`} className="source-card sidebar-left__file-card">
-                        <div className="sidebar-left__file-row">
-                            <div className="sidebar-left__file-origin-icon">
-                                <BookOpen size={18} aria-hidden="true" />
-                            </div>
-                            <div className="sidebar-left__file-main sidebar-ui__item-main">
-                                <div className="sidebar-left__file-top-row sidebar-ui__item-row">
-                                    <span className="text-button source-title sidebar-left__file-name sidebar-ui__item-title">
-                                        {source.spaceKey}{source.rootPageTitle ? ` / ${source.rootPageTitle}` : ''}
-                                    </span>
-                                    <span className={`sidebar-left__rss-feed-status sidebar-left__rss-feed-status--${source.status}`}>
-                                        {source.status === 'active' ? t('active') : source.status === 'syncing' ? t('syncing') : source.status === 'paused' ? t('paused') : t('feedError')}
-                                    </span>
-                                </div>
-                                <div className="sidebar-left__file-meta-row">
-                                    <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
-                                        {source.pageCount > 0 && <span>{source.pageCount} {t('pages')}</span>}
-                                        {source.lastSyncedAt && <span>{t('lastSynced')}: {new Date(source.lastSyncedAt).toLocaleString()}</span>}
-                                        {source.syncSchedule !== 'manual' && source.nextSyncAt && (
-                                            <span>{t('nextSync')}: {new Date(source.nextSyncAt).toLocaleString()}</span>
-                                        )}
-                                    </div>
-                                </div>
-                                {source.status === 'syncing' && source.syncTotal > 0 && (
-                                    <div style={{ marginTop: 4 }}>
-                                        <div style={{
-                                            height: 6, borderRadius: 3, background: 'var(--bg-tertiary)', overflow: 'hidden',
-                                        }}>
-                                            <div style={{
-                                                height: '100%', borderRadius: 3, background: 'var(--accent-primary)',
-                                                width: `${Math.round((source.syncProgress / source.syncTotal) * 100)}%`,
-                                                transition: 'width 0.3s ease',
-                                            }} />
-                                        </div>
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                            {source.syncProgress}/{source.syncTotal} {t('filesProcessed')}
-                                        </span>
-                                    </div>
-                                )}
-                                {source.status === 'error' && source.errorMessage && (
-                                    <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
-                                )}
-                                <SyncScheduleSelect
-                                    id={`confluence-row-schedule-${source.id}`}
-                                    value={source.syncSchedule}
-                                    onChange={(syncSchedule) => onUpdateConfluenceSource(source.id, { syncSchedule })}
-                                />
-                                <div className="sidebar-left__rss-feed-actions">
-                                    <button onClick={() => onSyncConfluenceNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
-                                        <RefreshCw size={14} />
-                                    </button>
-                                    <button onClick={() => onUpdateConfluenceSource(source.id, {
-                                        status: source.status === 'active' ? 'paused' : 'active'
-                                    })} title={source.status === 'active' ? t('pause') : t('resume')} aria-label={source.status === 'active' ? t('pause') : t('resume')}>
-                                        {source.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-                                    </button>
-                                    <button onClick={() => onDeleteConfluenceSource(source.id)} title={t('delete')} aria-label={`${t('delete')} ${source.spaceKey}`}>
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </li>
-                ))}
-
-                {gitRepoSources.map(source => {
-                    const repoName = source.repoUrl.replace(/\.git$/, '').split('/').slice(-2).join('/');
+                {rssFeeds.map(feed => {
+                    const target: SourceDetailsTarget = { kind: 'rss', source: feed };
                     return (
-                        <li key={`gitrepo-${source.id}`} className="source-card sidebar-left__file-card">
-                            <div className="sidebar-left__file-row">
-                                <div className="sidebar-left__file-origin-icon">
-                                    <GitBranch size={18} aria-hidden="true" />
-                                </div>
-                                <div className="sidebar-left__file-main sidebar-ui__item-main">
-                                    <div className="sidebar-left__file-top-row sidebar-ui__item-row">
-                                        <span className="text-button source-title sidebar-left__file-name sidebar-ui__item-title">
-                                            {repoName}{source.branch ? ` @ ${source.branch}` : ''}
-                                        </span>
-                                        <span className={`sidebar-left__rss-feed-status sidebar-left__rss-feed-status--${source.status}`}>
-                                            {source.status === 'active' ? t('active') : source.status === 'syncing' ? t('syncing') : source.status === 'paused' ? t('paused') : t('feedError')}
-                                        </span>
-                                    </div>
-                                    <div className="sidebar-left__file-meta-row">
-                                        <div className="source-meta sidebar-left__file-meta sidebar-ui__item-meta">
-                                            {source.fileCount > 0 && <span>{source.fileCount} {t('gitFiles')}</span>}
-                                            {source.lastSyncedAt && <span>{t('lastSynced')}: {new Date(source.lastSyncedAt).toLocaleString()}</span>}
-                                            {source.syncSchedule !== 'manual' && source.nextSyncAt && (
-                                                <span>{t('nextSync')}: {new Date(source.nextSyncAt).toLocaleString()}</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {source.status === 'syncing' && source.syncTotal > 0 && (
-                                        <div style={{ marginTop: 4 }}>
-                                            <div style={{ height: 6, borderRadius: 3, background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
-                                                <div style={{ height: '100%', borderRadius: 3, background: 'var(--accent-primary)', width: `${Math.round((source.syncProgress / source.syncTotal) * 100)}%`, transition: 'width 0.3s ease' }} />
-                                            </div>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                {source.syncProgress}/{source.syncTotal} {t('filesProcessed')}
-                                            </span>
-                                        </div>
-                                    )}
-                                    {source.status === 'error' && source.errorMessage && (
-                                        <div className="sidebar-left__rss-feed-error">{source.errorMessage}</div>
-                                    )}
-                                    <SyncScheduleSelect
-                                        id={`gitrepo-row-schedule-${source.id}`}
-                                        value={source.syncSchedule}
-                                        onChange={(syncSchedule) => onUpdateGitRepoSource(source.id, { syncSchedule })}
-                                    />
-                                    <div className="sidebar-left__rss-feed-actions">
-                                        <button onClick={() => onSyncGitRepoNow(source.id)} title={t('pollNow')} aria-label={t('pollNow')}>
-                                            <RefreshCw size={14} />
-                                        </button>
-                                        <button onClick={() => onUpdateGitRepoSource(source.id, { status: source.status === 'active' ? 'paused' : 'active' })} disabled={source.status === 'syncing'} title={source.status === 'active' ? t('pause') : t('resume')} aria-label={source.status === 'active' ? t('pause') : t('resume')}>
-                                            {source.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-                                        </button>
-                                        <button onClick={() => onDeleteGitRepoSource(source.id)} title={t('delete')} aria-label={`${t('delete')} ${repoName}`}>
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </li>
+                        <SyncedSourceHoverPreview key={`rss-${feed.id}`} target={target}>
+                        <SidebarCard
+                            iconText={SOURCE_TYPE_CHIP.rss}
+                            title={sourceDetailsTitle(target)}
+                            onOpen={() => onViewSource(target)}
+                            error={errorOf(feed)}
+                            busy={errorOf(feed) ? undefined : syncedBusy(pollingFeedIds?.has(feed.id) ?? false, files.filter(f => f.rssFeedId === feed.id))}
+                            actionsLabel={t('sourceActions')}
+                            actions={[
+                                { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
+                                { label: t('selectSources'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: onStartSelection },
+                                ...(canManage ? manageActions({
+                                    status: feed.status,
+                                    schedule: feed.syncSchedule,
+                                    onSync: () => onPollFeedNow(feed.id),
+                                    syncLabel: t('pollNow'),
+                                    onToggle: () => onUpdateRssFeed(feed.id, { status: feed.status === 'active' ? 'paused' : 'active' }),
+                                    onSchedule: (syncSchedule) => onUpdateRssFeed(feed.id, { syncSchedule }),
+                                    // A feed is removed through the remove selection, like a file.
+                                    onRemove: () => onStartRemoval(feedKey(feed.id)),
+                                }) : []),
+                            ]}
+                            // Greyed out when none of the feed's files is in the chat filter.
+                            muted={!selecting && feedExcluded(feed.id, files)}
+                            selectable={selecting}
+                            selectionMode={selecting}
+                            selectionTone={selectionTone}
+                            selected={selection?.has(feedKey(feed.id)) ?? false}
+                            onSelectedChange={(sel) => onToggleSelected(feedKey(feed.id), sel)}
+                            selectLabel={t('selectSource')}
+                        />
+                        </SyncedSourceHoverPreview>
                     );
                 })}
-            {nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (
+
+                {confluenceSources.map(source => {
+                    const target: SourceDetailsTarget = { kind: 'confluence', source };
+                    return (
+                        <SyncedSourceHoverPreview key={`confluence-${source.id}`} target={target}>
+                        <SidebarCard
+                            iconText={SOURCE_TYPE_CHIP.confluence}
+                            title={sourceDetailsTitle(target)}
+                            onOpen={() => onViewSource(target)}
+                            error={errorOf(source)}
+                            busy={errorOf(source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.confluenceSourceId === source.id))}
+                            actionsLabel={t('sourceActions')}
+                            actions={[
+                                { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
+                                { label: t('selectSources'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: onStartSelection },
+                                ...(canManage ? manageActions({
+                                    status: source.status,
+                                    schedule: source.syncSchedule,
+                                    onSync: () => onSyncConfluenceNow(source.id),
+                                    syncLabel: t('pollNow'),
+                                    onToggle: () => onUpdateConfluenceSource(source.id, { status: source.status === 'active' ? 'paused' : 'active' }),
+                                    onSchedule: (syncSchedule) => onUpdateConfluenceSource(source.id, { syncSchedule }),
+                                    // Removed through the remove selection, like every source.
+                                    onRemove: () => onStartRemoval(confluenceKey(source.id)),
+                                }) : []),
+                            ]}
+                            // Greyed out when none of its files is in the chat filter.
+                            muted={!selecting && syncedExcluded('confluence', source.id, files)}
+                            {...selectableRow(confluenceKey(source.id))}
+                        />
+                        </SyncedSourceHoverPreview>
+                    );
+                })}
+
+                {gitRepoSources.map(source => {
+                    const target: SourceDetailsTarget = { kind: 'git', source };
+                    return (
+                        <SyncedSourceHoverPreview key={`gitrepo-${source.id}`} target={target}>
+                        <SidebarCard
+                            iconText={SOURCE_TYPE_CHIP.git}
+                            title={sourceDetailsTitle(target)}
+                            onOpen={() => onViewSource(target)}
+                            error={errorOf(source)}
+                            busy={errorOf(source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.gitRepoSourceId === source.id))}
+                            actionsLabel={t('sourceActions')}
+                            actions={[
+                                { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
+                                { label: t('selectSources'), icon: <ListChecks size={16} aria-hidden="true" />, onSelect: onStartSelection },
+                                ...(canManage ? manageActions({
+                                    status: source.status,
+                                    schedule: source.syncSchedule,
+                                    onSync: () => onSyncGitRepoNow(source.id),
+                                    syncLabel: t('pollNow'),
+                                    // Pausing mid-sync is refused by the backend.
+                                    toggleDisabled: source.status === 'syncing',
+                                    onToggle: () => onUpdateGitRepoSource(source.id, { status: source.status === 'active' ? 'paused' : 'active' }),
+                                    onSchedule: (syncSchedule) => onUpdateGitRepoSource(source.id, { syncSchedule }),
+                                    onRemove: () => onStartRemoval(gitKey(source.id)),
+                                }) : []),
+                            ]}
+                            muted={!selecting && syncedExcluded('git', source.id, files)}
+                            {...selectableRow(gitKey(source.id))}
+                        />
+                        </SyncedSourceHoverPreview>
+                    );
+                })}
+            {uploads.length === 0 && nonRssFiles.length === 0 && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0 && (
                 <li className="sidebar-left__empty sidebar-ui__empty">{t('noSources')}</li>
             )}
         </SidebarCardList>

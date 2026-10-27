@@ -48,7 +48,7 @@ const files = [{ id: 'f1', selected: true }] as FileEntry[];
 
 /** Minimal stand-in for the tree-state slice `useMessageTree` normally owns,
  * so `result.current.messageTree` reflects what `handleSendMessage` wrote. */
-function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string }; webSearchEnabled?: boolean | undefined } = {}) {
+function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string }; webSearchEnabled?: boolean | undefined; kb?: KnowledgeBase; files?: FileEntry[] } = {}) {
   const [messageTree, setMessageTree] = useState<Map<string, Message>>(new Map());
   const messageTreeRef = useRef(messageTree);
   useEffect(() => { messageTreeRef.current = messageTree; }, [messageTree]);
@@ -56,8 +56,8 @@ function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: s
   const setActiveChatId = (id: string | null) => { activeChatIdRef.current = id; };
 
   const stream = useChatStream({
-    currentKb: kb,
-    files,
+    currentKb: overrides.kb ?? kb,
+    files: overrides.files ?? files,
     enhance: null,
     reasoningEnabled: false,
     webSearchEnabled: 'webSearchEnabled' in overrides ? overrides.webSearchEnabled : false,
@@ -436,5 +436,126 @@ describe('useChatStream.handleSendMessage — webSearch field', () => {
     const body = await sentBody(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'webSearch')).toBe(true);
     expect(body.webSearch).toBe(false);
+  });
+});
+
+// Oracle: the backend contract of 2026-10-16: selection is no permission of
+// its own. A caller who sees the source list (capabilities.seeSources) narrows
+// the turn to the selection; one who does not sends no selectedFileIds and is
+// answered from the whole KB, whatever the (unloadable) list holds.
+describe('useChatStream.handleSendMessage — source selection follows seeSources', () => {
+  const caps = (seeSources: boolean) => ({
+    seeSources, addSources: false, downloadSources: false, seeCitations: false, manageSources: false,
+  });
+  const send = async (result: { current: ReturnType<typeof useHarness> }) => {
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Frage', null);
+    });
+  };
+
+  it('sends no selectedFileIds without the source list — and sends at all with an empty list', async () => {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
+    const viewerKb = { ...kb, capabilities: caps(false) } as KnowledgeBase;
+    const { result } = renderHook(() => useHarness({ kb: viewerKb, files: [] }));
+    await send(result);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect('selectedFileIds' in body).toBe(false);
+  });
+
+  it('still sends the selection with the source list, and refuses an empty one', async () => {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
+    const editorKb = { ...kb, capabilities: caps(true) } as KnowledgeBase;
+    const { result } = renderHook(() => useHarness({ kb: editorKb }));
+    await send(result);
+    const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.selectedFileIds).toEqual(['f1']);
+
+    authFetchMock.mockClear();
+    const { result: empty } = renderHook(() => useHarness({ kb: editorKb, files: [] }));
+    await send(empty);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// Oracle: the error-case list in docs/user-error-messages.md. The harness
+// translator echoes the key, so the bubble names the message that was chosen.
+describe('useChatStream.handleSendMessage — refusal messages', () => {
+  const refuse = async (response: unknown) => {
+    authFetchMock.mockImplementationOnce(async () => {
+      if (response instanceof Error) throw response;
+      return response as Response;
+    });
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage(
+        { preventDefault: () => {} } as React.FormEvent, 'Frage', null, undefined, {});
+    });
+    return [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'))?.content;
+  };
+
+  it.each([
+    ['a file refusal naming the file', { ok: false, status: 422, json: async () => ({ code: 'file_unreadable', fileName: 'a.pdf' }) },
+      'errorFileUnreadable chatAttachmentRemoveHint'],
+    ['a file refusal without a name', { ok: false, status: 415, json: async () => ({ code: 'unsupported_file_type' }) },
+      'chatAttachmentsUnusable'],
+    ['403', { ok: false, status: 403, json: async () => ({ error: 'access denied' }) }, 'errorForbidden'],
+    ['429', { ok: false, status: 429, json: async () => ({}) }, 'errorRateLimited'],
+    ['an uncoded 400', { ok: false, status: 400, json: async () => ({ error: 'message is required' }) }, 'chatSendError'],
+    ['a network failure', new TypeError('Failed to fetch'), 'errorServiceUnavailable'],
+  ])('shows the right message for %s', async (_name, response, want) => {
+    expect(await refuse(response)).toBe(want);
+  });
+});
+
+// A refused send (the server answered 4xx before storing the question) gives
+// the text and files back to the composer. The optimistic question and its
+// error bubble stay visible so the user sees why, but a retry must replace
+// them: left in the tree they were a second, never-stored copy of the
+// question in a sibling branch that vanished on reload.
+describe('useChatStream.handleSendMessage — retry after a refused send', () => {
+  it('ersetzt die abgelehnte Frage beim erneuten Senden, statt eine Kopie daneben zu legen', async () => {
+    authFetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ error: 'too_large_for_context' }),
+    } as unknown as Response);
+    authFetchMock.mockResolvedValueOnce(okResponse([{ userMessageId: 'u-real', aiMessageId: 'a-real' }]));
+    const { result } = renderHook(() => useHarness());
+    const send = (leaf: string | null) => result.current.stream.handleSendMessage(
+      { preventDefault: () => {} } as React.FormEvent, 'Fasse die Datei zusammen.', leaf, undefined, {});
+
+    let accepted: boolean | undefined;
+    await act(async () => { accepted = await send(null); });
+    expect(accepted).toBe(false);
+    const errorNode = [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'));
+    expect(errorNode?.content).toBe('chatAttachmentsTooLongTogether');
+
+    await act(async () => { await send(errorNode?.id ?? null); });
+    const questions = [...result.current.messageTree.values()].filter(m => m.role === 'user');
+    expect(questions.map(q => q.id)).toEqual(['u-real']);
+    expect([...result.current.messageTree.keys()].some(id => id.startsWith('temp-error-'))).toBe(false);
+  });
+
+  it('lässt eine angenommene Frage stehen, auch wenn ihr Stream danach abbricht', async () => {
+    // Accepted, then the stream fails before the userMessageId frame: the
+    // question IS stored server-side, so a retry must not hide it.
+    // Temp ids carry Date.now(); two sends in one millisecond would share
+    // them, so the clock ticks per call here.
+    let now = 1_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => ++now);
+    authFetchMock.mockResolvedValueOnce({ ok: true, body: { getReader: () => ({
+      read: async () => { throw new Error('network'); }, releaseLock: () => {}, cancel: async () => {},
+    }) } } as unknown as Response);
+    authFetchMock.mockResolvedValueOnce(okResponse([{ userMessageId: 'u-2', aiMessageId: 'a-2' }]));
+    const { result } = renderHook(() => useHarness());
+    const send = (leaf: string | null) => result.current.stream.handleSendMessage(
+      { preventDefault: () => {} } as React.FormEvent, 'Frage', leaf, undefined, {});
+
+    await act(async () => { await send(null); });
+    const errorNode = [...result.current.messageTree.values()].find(m => m.id?.startsWith('temp-error-'));
+    await act(async () => { await send(errorNode?.id ?? null); });
+    expect([...result.current.messageTree.values()].filter(m => m.role === 'user')).toHaveLength(2);
+    clock.mockRestore();
   });
 });

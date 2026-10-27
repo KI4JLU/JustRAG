@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import type { KnowledgeBase } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useSharingContext } from '../contexts/SharingContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
@@ -62,8 +61,9 @@ import { useTopicFilters } from '../hooks/useTopicFilters';
  * „Mein Wissen" rather than back here: `handleDeleteKB` calls `handleGoHome()`
  * after a successful delete/leave/unsubscribe (useKnowledgeBases.ts:166), and
  * the `kb-settings` Back button calls it too. The action always succeeds — only
- * the landing place is wrong. Fixing it means remembering where the user came
- * from, i.e. a return-view stack or a router, and there is no router here.
+ * the landing place is wrong. The router keeps where the user came from (the
+ * browser's Back returns here), but these handlers still navigate to „Mein
+ * Wissen" explicitly rather than back.
  * // TODO: "back" from a removal or the settings panel lands on „Mein Wissen",
  * // not on this view — not yet confirmed with the developer. On KI-783.
  * ------------------------------------------------------------------------- */
@@ -93,11 +93,14 @@ export function SharedTopicsView({
 }: SharedTopicsViewProps) {
   const { language, t } = useTheme();
   const { user } = useAuth();
-  // A shared topic whose `myRole` is `admin` still offers the share button, so
-  // this view needs the same handler, from the same single `useSharing()` call.
-  const sharing = useSharingContext();
   // The same jump the „Entdecken" nav row uses — one destination, one handler.
-  const { onViewDiscover } = useAppNav();
+  // „Teilen" (a shared topic the caller administers) opens its
+  // Thema-Einstellungen on Mitglieder, as on „Mein Wissen".
+  const { onViewDiscover, onOpenTopicSettings } = useAppNav();
+  const handleShare = (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenTopicSettings(kb, 'members');
+  };
   const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
   const { sharedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
@@ -133,7 +136,7 @@ export function SharedTopicsView({
             t={t}
             language={language}
             onSelectKB={onSelectKB}
-            onOpenShare={sharing.handleOpenShare}
+            onOpenShare={handleShare}
             onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
             onOpenKbSettings={onOpenKbSettings}

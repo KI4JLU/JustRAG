@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import AgentConfigFields from './AgentConfigFields';
 import type { AgentRecord, AgentUpsert, AgentConfigField } from './api';
@@ -88,7 +89,11 @@ export default function AgentForm({ initial, registry, availableTools, available
             return next;
           })} />
       )}
-      {error && <div role="alert" className="form-hint form-hint--error">{error}</div>}
+      {error && (
+        <Alert tone="error" live="assertive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
         <button type="button" className="btn btn--tertiary" onClick={onCancel}>{t('cancel')}</button>
         <button type="submit" className="btn btn--primary" disabled={saving || !name.trim()}>{t('save')}</button>

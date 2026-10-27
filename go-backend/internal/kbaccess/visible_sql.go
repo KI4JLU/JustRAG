@@ -28,7 +28,9 @@ import "github.com/justrag/go-backend/internal/auth"
 // every (caller, KB) pair. It lives in that package because
 // internal/globalsearch is in CI's integration package list.
 //
-// Columns: id, name, description, header_text, visibility, role.
+// Columns: id, name, description, header_text, visibility, role, and the
+// raw flags viewer_see_sources and editor_see_sources (read by SeeSourcesSQL
+// below — the CTE itself never filters on them).
 //
 // Parameters: $1 caller user id, $2 caller system role (from the auth claims,
 // as RequireKBRole passes it), $3 scoping kb id or NULL for all KBs. A
@@ -58,6 +60,7 @@ import "github.com/justrag/go-backend/internal/auth"
 const VisibleKBsCTE = `
 	visible_kbs AS (
 		SELECT kb.id, kb.name, kb.description, kb.header_text, kb.visibility,
+		       kb.viewer_see_sources, kb.editor_see_sources,
 		       CASE
 		         WHEN $2 = '` + auth.RoleSuperAdmin + `' THEN '` + RoleOwner + `'
 		         WHEN m.role IN ('` + RoleView + `', '` + RoleEdit + `', '` +
@@ -69,3 +72,32 @@ const VisibleKBsCTE = `
 		LEFT JOIN kb_members m ON m.kb_id = kb.id AND m.user_id = $1::uuid
 		WHERE ($3::uuid IS NULL OR kb.id = $3::uuid)
 	)`
+
+// SeeSourcesSQL is the SQL mirror of CapabilitiesFor(kb, role).SeeSources
+// over a visible_kbs row (VisibleKBsCTE) aliased alias: a boolean expression
+// that is true when the row's resolved role may see the KB's sources. It
+// mirrors only the flag step — the role it reads is the CTE's mirror of
+// EffectiveRole — so the ladder still has exactly one SQL copy.
+//
+// KEEP IN SYNC WITH CapabilitiesFor (middleware.go), case for case:
+//
+//   - admin, owner -> true, whatever the flags say
+//   - edit         -> editor_see_sources
+//   - view         -> viewer_see_sources
+//   - no role      -> false (NULL IN (...) is NULL; callers already filter
+//     on role IS NOT NULL, and a NULL predicate drops the row like false)
+//
+// A change to CapabilitiesFor's seeSources rule must be made here in the
+// same commit. The parity test is TestVisibilityAgreesWithEffectiveRole in
+// internal/globalsearch/store_pg_integration_test.go: for every (caller, KB)
+// pair of its fixture matrix — which flips viewer_see_sources and
+// editor_see_sources against each other, so a swapped column fails it —
+// it requires the KB's file to appear in the search exactly when the real
+// EffectiveRole plus the real CapabilitiesFor grant seeSources.
+//
+// Role literals are spliced in from the Go constants, as in VisibleKBsCTE.
+func SeeSourcesSQL(alias string) string {
+	return `(` + alias + `.role IN ('` + RoleAdmin + `', '` + RoleOwner + `')
+	        OR (` + alias + `.role = '` + RoleEdit + `' AND ` + alias + `.editor_see_sources)
+	        OR (` + alias + `.role = '` + RoleView + `' AND ` + alias + `.viewer_see_sources))`
+}

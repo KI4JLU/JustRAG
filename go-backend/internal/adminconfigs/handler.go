@@ -12,6 +12,7 @@ import (
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/redact"
 	"github.com/justrag/go-backend/internal/store"
 )
 
@@ -24,6 +25,9 @@ type AIModelInput struct {
 	Name        string `json:"name"`
 	IsReasoning bool   `json:"isReasoning"`
 	Dimensions  int    `json:"dimensions,omitempty"` // for embedding models
+	// ContextWindow is the chat model's context window in tokens; 0 or
+	// absent = unknown. Ignored for every other model category.
+	ContextWindow int `json:"contextWindow,omitempty"`
 }
 
 // AIModelRow is the response shape for a single AI model.
@@ -36,6 +40,9 @@ type AIModelRow struct {
 	IsTts       bool   `json:"isTts"       db:"is_tts"`
 	IsStt       bool   `json:"isStt"       db:"is_stt"`
 	Dimensions  int    `json:"dimensions,omitempty" db:"dimensions"`
+	// ContextWindow is ai_models.context_window (chat models); omitted when
+	// unknown.
+	ContextWindow int `json:"contextWindow,omitempty" db:"context_window"`
 }
 
 // AIConfigResponse is the full config shape returned to API consumers (key masked).
@@ -218,6 +225,10 @@ func (h *Handler) CreateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if msg := validateContextWindows(body.ChatModels, body.ReasoningModels); msg != "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, msg)
+		return
+	}
 
 	input := CreateAIConfigInput{
 		Name:            name,
@@ -266,6 +277,10 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "embedding model dimensions must be >= 0")
 			return
 		}
+	}
+	if msg := validateContextWindows(body.ChatModels, body.ReasoningModels); msg != "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, msg)
+		return
 	}
 
 	input := UpdateAIConfigInput(body)
@@ -369,7 +384,7 @@ func (h *Handler) TestConfig(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{
 			"status":    "unhealthy",
 			"latencyMs": latencyMs,
-			"error":     listErr.Error(),
+			"error":     redact.Secrets(listErr.Error()),
 		})
 		return
 	}
@@ -378,4 +393,52 @@ func (h *Handler) TestConfig(w http.ResponseWriter, r *http.Request) {
 		"status":    "healthy",
 		"latencyMs": latencyMs,
 	})
+}
+
+// ModelInfo handles GET /api/admin/configs/{id}/model-info: the provider's
+// GET /models listing with each model's context window where the server
+// reports one (vLLM: max_model_len), for the admin panel's "detect" action.
+// Read-only; the admin saves the values through UpdateConfig. A provider that
+// cannot be reached answers 502 with the provider's error, credentials masked
+// (a *url.Error carries the request URL, and a provider body may echo it).
+func (h *Handler) ModelInfo(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "missing config id")
+		return
+	}
+	provider, err := h.store.GetAIProviderByID(ctx, id)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch config")
+		return
+	}
+	if provider == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "config not found")
+		return
+	}
+	models, err := ai.NewClient(provider.BaseURL, provider.APIKey).ModelInfos(ctx)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadGateway, redact.Secrets(err.Error()))
+		return
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{"models": models})
+}
+
+// maxContextWindow bounds an admin-entered context window. Ten million
+// tokens is an order of magnitude above the largest window in use (1M); a
+// larger number is a typo, not a model.
+const maxContextWindow = 10_000_000
+
+// validateContextWindows returns a 400 message for a chat model whose
+// context window is negative or implausibly large, or "" when all are valid.
+func validateContextWindows(lists ...[]AIModelInput) string {
+	for _, list := range lists {
+		for _, m := range list {
+			if m.ContextWindow < 0 || m.ContextWindow > maxContextWindow {
+				return "chat model contextWindow must be between 0 and 10000000"
+			}
+		}
+	}
+	return ""
 }

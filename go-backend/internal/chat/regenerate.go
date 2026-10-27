@@ -23,7 +23,9 @@ import (
 // A regenerate therefore does not carry a question of its own: it names the AI
 // message to replace, and the new answer is hung under that message's existing
 // user row as a sibling. The question is stored exactly once and the
-// `‹1/2›` branch switcher lands on the answers, where it belongs.
+// `‹1/2›` branch switcher lands on the answers, where it belongs. It may also
+// name the question itself, which then gets an answer under it — the second
+// step of a branch that was copied up to a question.
 
 // regenerateTurn is a resolved regenerate request: everything the answer path
 // needs in order to run a turn without inserting a question.
@@ -66,6 +68,24 @@ func resolveRegenerateTurn(rows []MessageRow, aiMessageID string) (*regenerateTu
 	target, ok := byID[aiMessageID]
 	if !ok {
 		return nil, errNoRegenerateTarget
+	}
+	// The question itself: answer it (again). This is how a branch that ends
+	// at a question — "Antwort neu generieren" opens a new chat copied up to
+	// the question (POST /api/chats/{id}/branch) — gets its answer, without a
+	// second copy of the question.
+	if target.Role == "user" {
+		history := make([]MessageRow, 0, len(rows))
+		for _, r := range rows {
+			if r.ID != target.ID {
+				history = append(history, r)
+			}
+		}
+		return &regenerateTurn{
+			UserMsg:         target,
+			HistoryParentID: target.ParentMessageID,
+			HistoryRows:     history,
+			Question:        target.Content,
+		}, nil
 	}
 	if target.Role != "ai" {
 		return nil, fmt.Errorf("regenerate: message %s is a %s message, not an answer", aiMessageID, target.Role)

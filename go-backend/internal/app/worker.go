@@ -20,6 +20,7 @@ import (
 	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/canonicalize"
+	"github.com/justrag/go-backend/internal/cascade"
 	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/community"
 	"github.com/justrag/go-backend/internal/config"
@@ -568,6 +569,10 @@ func RunWorker(cfg *config.Config) error {
 	// deferred DB-pool teardown below cannot race in-flight queries.
 	var stopMaintenance func()
 	if cfg.WorkerMaintenance {
+		// The library orphan sweep also removes chat attachments nothing
+		// references any more (migration 0090), through the cascade deleter.
+		userFileSweeper := userfiles.NewOrphanSweeper(userfiles.NewOrphanStore(db.Main), stor).
+			WithPendingChatFiles(userfiles.NewOrphanStore(db.Main), cascade.New(db.Main, db.Vector, stor))
 		bm25Refresher := vector.NewBM25StatsRefresher(db.Vector, db.Main)
 		bm25Refresher.ModeEnabled = bm25ScoringModeEnabledAnywhere(db.Main)
 		stopMaintenance = worker.StartMaintenance(ctx, worker.MaintenanceConfig{
@@ -575,7 +580,7 @@ func RunWorker(cfg *config.Config) error {
 			VectorDB:              db.Vector,
 			StuckFileTimeout:      cfg.StuckFileTimeout,
 			TabularOrphanSweeper:  tabular.NewOrphanSweeper(db.Main),
-			UserFileOrphanSweeper: userfiles.NewOrphanSweeper(userfiles.NewOrphanStore(db.Main), stor),
+			UserFileOrphanSweeper: userFileSweeper,
 			AgentRunExpirer:       adkbridge.NewRunStore(db.Main, 24*time.Hour),
 			BM25StatsRefresher:    bm25Refresher,
 			RagasStore:            ragasStore,

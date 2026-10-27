@@ -5,6 +5,7 @@ import {
     Type, Layout, Mic, Check,
     FileText, Loader2, Newspaper, HelpCircle, GraduationCap, Clock, ListChecks, BarChart3, Paperclip
 } from 'lucide-react';
+import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import type { GeneratedContent } from '../../types';
 import { isMarkdownArtifact } from '../../utils/artifactTypes';
 import { QuizView } from './QuizView';
@@ -260,8 +261,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 </header>
 
                 {degradedReason && (
-                    <div className="workspace-degraded" role="status">
-                        {t('analysisDegradedNoAgent')}
+                    <div className="mx-8 mb-4">
+                        <Alert tone="warning" live="polite">
+                            <AlertDescription>{t('analysisDegradedNoAgent')}</AlertDescription>
+                        </Alert>
                     </div>
                 )}
 

@@ -1,7 +1,7 @@
-import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain, ArrowUp,
-  X, GitBranch, Check,
+  X, Check,
   Globe, WandSparkles, Loader2, FileText, Bot, Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -12,30 +12,36 @@ import { useIsMobileContext } from '../contexts/MobileContext';
 import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
-import { SystemPromptPanel } from './SystemPromptPanel';
+import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
-import { useMessageSections } from '../hooks/useMessageSections';
+import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
+import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
+import { toMessageAttachments } from '../utils/chatAttachments';
+import { useToast } from '../contexts/ToastContext';
 import {
   InputGroupAddon,
   ChatStage, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
-  Shimmer,
+  Spinner,
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
-import { findDefaultLeaf, getBranchInfo } from '../utils/messageTree';
+import { getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { hasKbAdminRole } from '../utils/kbAccess';
+import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../utils/kbAccess';
+import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
-import { BranchTreeNav } from './BranchTreeNav';
+import { SourcePanel } from './sources/SourcePanel';
+import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
 import { MessageSkeleton } from './Skeleton';
+import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
 
 const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
@@ -74,12 +80,15 @@ const ChatViewComp = () => {
     agentSelection, setAgentSelection,
   } = useKbChat();
   const { fileMgmt, webTools } = useKbData();
+  const toast = useToast();
+  // Composer files are uploaded as chat attachments as soon as they are attached.
+  const composerUploads = useComposerUploads(currentKb?.id, t, language);
   // Per-turn web search is offered only when the admin gate is on; a state
   // left over from when it was on shows nothing (and is not sent, see
   // AuthenticatedApp).
   const webSearchAvailable = isChatWebSearchAvailable(siteConfigs);
   const webSearchOn = webSearchAvailable && webSearch;
-  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt } = useKbLayout();
+  const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection, setSystemPromptSection } = useKbLayout();
 
   // Agent/team picker options for this KB; refreshes on KB switch.
   const kbAgentOptions = useKbAgents(currentKb?.id);
@@ -160,6 +169,30 @@ const ChatViewComp = () => {
     setSystemPromptDraft(currentKb?.systemPrompt || '');
   }
 
+  // The "Rollen & Rechte" draft: the KB's source flags, reset the same way
+  // whenever the KB (or its stored flags) changes.
+  const savedFlags = sourceFlagsOf(currentKb);
+  const flagsResetKey = `${currentKb?.id ?? ''}\0${JSON.stringify(savedFlags)}`;
+  const [flagsDraft, setFlagsDraft] = useState(savedFlags);
+  /* Fresh drafts on every opening of Thema-Einstellungen. The dialog lives in
+     the URL (`?topic=`), so it can also close without its onClose — browser
+     back, a navigation — and edits abandoned that way must not reappear as
+     unsaved changes next time. Adjusted during render, so the dialog never
+     shows them even for one commit. */
+  const [promptWasOpen, setPromptWasOpen] = useState(showSystemPrompt);
+  if (promptWasOpen !== showSystemPrompt) {
+    setPromptWasOpen(showSystemPrompt);
+    if (showSystemPrompt) {
+      setSystemPromptDraft(currentKb?.systemPrompt || '');
+      setFlagsDraft(savedFlags);
+    }
+  }
+  const [prevFlagsResetKey, setPrevFlagsResetKey] = useState(flagsResetKey);
+  if (prevFlagsResetKey !== flagsResetKey) {
+    setPrevFlagsResetKey(flagsResetKey);
+    setFlagsDraft(savedFlags);
+  }
+
   // The advanced settings (KbSettingsPanel) trigger. Shares its predicate with
   // HomeView's sliders icon so the two entry points cannot drift: system role
   // in {api-user, admin, superadmin} AND effective KB role admin or better.
@@ -173,18 +206,28 @@ const ChatViewComp = () => {
   // through.
   // System prompt: owners and KB admins (the gear in the chrome bar,
   // KbWorkspaceLayout, uses the same predicate).
-  const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
+  const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
 
   const {
     hasFiles, filesLoaded, selectedFileCount,
   } = fileMgmt;
-  const { handlePreviewSource, handlePdfSourceOpen } = webTools;
+  // What the caller may do with the KB's sources (backend capabilities).
+  // Opening a source from an answer loads the file, so the two open handlers
+  // go to the answers only with downloadSources; citations need seeCitations.
+  const sourceRights = kbSourceRights(currentKb, user?.role, user?.id);
+  const { handlePreviewSource: previewSource, handlePdfSourceOpen: pdfSourceOpen } = webTools;
+  const handlePreviewSource = sourceRights.downloadSources ? previewSource : undefined;
+  const handlePdfSourceOpen = sourceRights.downloadSources ? pdfSourceOpen : undefined;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
   // Only once this KB's file list has arrived: before that it is unknown, and
   // flashing the onboarding for a split second on every KB open was the bug.
-  const noSources = filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // A caller who may not see the source list (capabilities.seeSources off) gets
+  // an empty list from a 403 — that is not "this KB has no sources".
+  const noSources = sourceRights.seeSources && filesLoaded && !hasFiles && !currentKb?.isGlobal;
+  // What a turn sends about the selection, and whether it can go at all.
+  const sourceSelection = chatSourceSelection(currentKb, fileMgmt.files);
   // Starter prompts under the composer of an empty chat: the global KB's own,
   // then the site's, then the built-in pair.
   // Generated from the KB's documents, only while an empty chat can use them.
@@ -217,6 +260,23 @@ const ChatViewComp = () => {
   // transcript so it survives the scroller remount on chat switch.
   const messageSections = useMessageSections();
 
+  // „In Quelle öffnen": one cited source beside the answers, closed again
+  // whenever another chat's transcript is loaded.
+  const [sourcePanelTarget, setSourcePanelTarget] = useState<SourcePanelTarget | null>(null);
+  const [panelTranscriptKey, setPanelTranscriptKey] = useState(chat.transcriptKey);
+  if (panelTranscriptKey !== chat.transcriptKey) {
+    setPanelTranscriptKey(chat.transcriptKey);
+    setSourcePanelTarget(null);
+  }
+  const sourcePanelApi = useMemo<SourcePanelApi>(() => ({
+    target: sourcePanelTarget,
+    open: setSourcePanelTarget,
+    close: () => setSourcePanelTarget(null),
+  }), [sourcePanelTarget]);
+  const sourcePanelFile = sourcePanelTarget?.source.fileId
+    ? fileMgmt.files.find(f => f.id === sourcePanelTarget.source.fileId)
+    : undefined;
+
   const handleEditCancel = useCallback(() => chat.setEditingMessageId(null), [chat]);
 
   // Resolves a message's teamId/agentId (Task 5 backend fields, stamped by
@@ -231,8 +291,21 @@ const ChatViewComp = () => {
   }, [kbAgentOptions]);
 
 
+  // The region the Thema-Einstellungen dialog covers (DS `fitTo`): the shell's
+  // content column — header bar plus chat — found from the chat area; the
+  // chat area itself outside an AppShell. Read when the dialog measures, so a
+  // getter, not a value captured at render.
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const settingsAreaRef = useMemo<React.RefObject<HTMLElement | null>>(() => ({
+    get current() {
+      const area = chatAreaRef.current;
+      return area?.closest<HTMLElement>('[data-slot="app-shell-content"]') ?? area;
+    },
+  }), []);
+
   return (
-    <div className="chat-area">
+    <SourcePanelContext.Provider value={sourcePanelApi}>
+    <div className="chat-area" ref={chatAreaRef}>
       {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
           Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
           „Hauptinhalt"-Sprungziel für Screenreader. Die eigene Höhenrechnung
@@ -247,31 +320,11 @@ const ChatViewComp = () => {
           Anbindung als Tools. `KbViewType` ist auf 'chat' verengt, also gibt
           es nichts mehr zu verzweigen. */}
       {
-            showSystemPrompt && currentKb && canEditSystemPrompt ? (
-              // The KB behaviour editor takes the whole content area while open.
-              <SystemPromptPanel
-                draft={systemPromptDraft}
-                onDraftChange={setSystemPromptDraft}
-                onSave={() => {
-                  const newValue = systemPromptDraft || null;
-                  if (newValue !== (currentKb.systemPrompt || null)) {
-                    handleUpdateKBSettings({ systemPrompt: newValue });
-                  }
-                  setShowSystemPrompt(false);
-                }}
-                onDelete={() => {
-                  setSystemPromptDraft('');
-                  handleUpdateKBSettings({ systemPrompt: null });
-                  setShowSystemPrompt(false);
-                }}
-                onClose={() => {
-                  setSystemPromptDraft(currentKb.systemPrompt || '');
-                  setShowSystemPrompt(false);
-                }}
-              />
-            ) : chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
+            chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
                 <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  {/* No source panel here: sources open the document, as without the chat view. */}
+                  <SourcePanelContext.Provider value={null}>
                   <ComparisonView
                     messageTree={chat.messageTree}
                     leafIdA={chat.activeLeafId}
@@ -286,7 +339,10 @@ const ChatViewComp = () => {
                       chat.setComparisonLeafId(null);
                     }}
                     onPdfOpen={handlePdfSourceOpen}
+                    onPreviewSource={handlePreviewSource}
+                    showCitations={sourceRights.seeCitations}
                   />
+                  </SourcePanelContext.Provider>
                 </div>
               </Suspense>
             ) : (
@@ -301,57 +357,45 @@ const ChatViewComp = () => {
                   footer={siteConfigs.chat_footer || t('chatFooter')}
                   composer={(
                   <div className="input-container">
-                    {chat.forkPointId && (
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        padding: '6px 12px',
-                        marginBottom: '0.5rem',
-                        background: 'var(--tag-bg)',
-                        border: '1px solid var(--accent-primary)',
-                        borderRadius: '8px',
-                        fontSize: '0.8rem',
-                        color: 'var(--accent-primary)',
-                      }}>
-                        <GitBranch size={14} />
-                        <span>{language === 'en' ? 'Branching — type a different follow-up' : 'Abzweigung — gib eine andere Frage ein'}</span>
-                        <button
-                          onClick={() => {
-                            chat.setForkPointId(null);
-                            const leaf = findDefaultLeaf(chat.messageTree);
-                            if (leaf) chat.setActiveLeafId(leaf);
-                          }}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'var(--text-secondary)',
-                            padding: '2px',
-                            minWidth: '44px',
-                            minHeight: '44px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginLeft: '4px',
-                          }}
-                          title={language === 'en' ? 'Cancel fork' : 'Abzweigung abbrechen'}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    )}
                     <PromptInput
                       id="chat-composer"
                       multiple
-                      onSubmit={(_message, e) => chat.handleSendMessage(e)}
+                      dropLabel={t('chatDropFiles')}
+                      // Lights up for a file drag anywhere in the app, like the sources dropzone.
+                      dropZoneScope="page"
+                      // The composer's files go with the message as chat
+                      // attachments, uploaded when they were attached. A send
+                      // that does not happen throws, so PromptInput keeps the
+                      // files (it clears them only after a submit that
+                      // resolved): one still uploading or refused holds it.
+                      onSubmit={async (_message, e) => {
+                        const ready = composerUploads.readiness();
+                        if (ready.uploading || ready.failed) {
+                          toast.error(t(ready.uploading ? 'chatAttachmentsStillUploading' : 'chatAttachmentsRemoveFailed'));
+                          throw new Error('attachments not ready');
+                        }
+                        if (!(await chat.handleSendMessage(e, undefined, toMessageAttachments(ready.uploaded)))) {
+                          throw new Error('message not sent');
+                        }
+                      }}
                       className={noSources ? 'pointer-events-none opacity-55' : undefined}
                       aria-disabled={noSources || undefined}
                     >
-                      {/* Attached files: a header row above the input line, present only while files are attached */}
+                      {/* Attached files: a header row above the input line, present only while files are attached.
+                          Each is uploaded as it is attached; the chip shows the upload and a refusal. */}
+                      <ComposerUploadSync onFiles={composerUploads.sync} />
                       <PromptInputAttachments id="chat-composer-attachments" className="order-first basis-full flex-nowrap overflow-x-auto border-b border-outline-variant px-3 pt-3 pb-2">
-                        {(file) => <PromptInputAttachment data={file} className="shrink-0" />}
+                        {(file) => {
+                          const upload = composerUploads.uploads[file.id];
+                          return (
+                            <PromptInputAttachment
+                              data={file}
+                              className="shrink-0"
+                              status={upload?.status === 'uploading' || upload?.status === 'error' ? upload.status : undefined}
+                              statusMessage={upload?.status === 'error' ? upload.message : upload?.status === 'uploading' ? t('chatAttachmentUploading') : undefined}
+                            />
+                          );
+                        }}
                       </PromptInputAttachments>
                       <InputGroupAddon id="chat-composer-actions" align="inline-start" ref={observeNotch('left')} className="absolute bottom-1 left-3 p-0">
                         {/* + — attach photos or files (menu grows with further actions) */}
@@ -475,8 +519,10 @@ const ChatViewComp = () => {
                             ))}
                           </PromptInputActionMenuContent>
                         </PromptInputActionMenu>
-                        {/* N sources active — a label, not a control */}
-                        <span
+                        {/* N sources active — a label, not a control. Absent when the
+                            caller cannot see the source list (seeSources): the
+                            answer then uses the whole KB. */}
+                        {sourceSelection.selectedFileIds && <span
                           id="chat-composer-sources-count"
                           className="inline-flex items-center gap-1 whitespace-nowrap px-2 text-sm text-on-surface-variant"
                           title={t('activeSources')}
@@ -484,7 +530,7 @@ const ChatViewComp = () => {
                         >
                           <FileText size={16} aria-hidden="true" />
                           <span aria-hidden="true">{selectedFileCount}</span>
-                        </span>
+                        </span>}
                         {noSources ? (
                           // Why sending is off, on the send button. aria-disabled, not
                           // disabled: a disabled button takes no hover or focus, so the
@@ -509,7 +555,7 @@ const ChatViewComp = () => {
                             id="chat-composer-submit"
                             className="size-10"
                             status={chat.loading ? 'submitted' : undefined}
-                            disabled={chat.loading || selectedFileCount === 0 || !chat.userMessageInput.trim()}
+                            disabled={chat.loading || !sourceSelection.canSend || !chat.userMessageInput.trim()}
                             aria-label={t('sendMessage')}
                           >
                             <ArrowUp aria-hidden="true" />
@@ -565,9 +611,10 @@ const ChatViewComp = () => {
                             {siteConfigs.kb_header}
                           </div>
                         ) : null}
-                        {noSources ? (
+                        {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
-                          // dropzone while the KB is empty — the centre only says so.
+                          // dropzone while the KB is empty — the centre only says so. A
+                          // caller who cannot add is not asked to.
                           <>
                             <h1>{t('emptyAddFirstSourceTitle')}</h1>
                             <p>{t('emptyAddFirstSourceSubtitle')}</p>
@@ -595,6 +642,18 @@ const ChatViewComp = () => {
                               const questionText = msg.role === 'ai' && msg.parentMessageId
                                 ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
                                 : '';
+                              // The answer being prepared has no row yet: until its first
+                              // token the status line below stands in for it. An empty row
+                              // here added a blank gap above the spinner that collapsed
+                              // once the text streamed in.
+                              const awaitingFirstToken = chat.loading && index === chat.messages.length - 1
+                                && msg.role === 'ai' && !msg.content && !msg.reasoning && !msg.trajectory?.length;
+                              if (awaitingFirstToken) return null;
+                              // A day separator above the first message of each day.
+                              const prevAt = chat.messages.slice(0, index).reverse().find((m: Message) => m.createdAt)?.createdAt;
+                              const daySeparator = msg.createdAt && (!prevAt || !sameLocalDay(prevAt, msg.createdAt))
+                                ? formatDaySeparator(msg.createdAt, language)
+                                : null;
                               return (
                                 <MessageScrollerItem
                                   // renderKey survives the temp→DB id remap mid-stream;
@@ -605,9 +664,15 @@ const ChatViewComp = () => {
                                   scrollAnchor={msg.role === 'user'}
                                   className="transcript-row"
                                 >
+                                  {daySeparator && (
+                                    <div data-testid="day-separator" className="mb-4 text-center text-sm text-on-surface-variant">
+                                      {daySeparator}
+                                    </div>
+                                  )}
                                   <MessageBubble
                                     message={msg}
                                     isStreaming={chat.loading && index === chat.messages.length - 1}
+                                    isLatest={index === chat.messages.length - 1}
                                     onPdfOpen={handlePdfSourceOpen}
                                     onFollowUpClick={chat.handleFollowUpClick}
                                     showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
@@ -622,13 +687,15 @@ const ChatViewComp = () => {
                                     isEditing={chat.editingMessageId === msg.id}
                                     onEditCancel={handleEditCancel}
                                     onPreviewSource={handlePreviewSource}
+                                    onPreviewAttachment={webTools.handlePreviewUserFile}
+                                    showCitations={sourceRights.seeCitations}
                                     kbId={currentKb?.id}
                                     questionText={questionText}
                                     resolveAttribution={resolveAttribution}
-                                    reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                                    sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                                    confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                                    conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
+                                    reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
+                                    sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
+                                    confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}
+                                    conflictsOpen={messageSections.isOpen(messageSectionKey(msg), 'conflicts')}
                                     onToggleSection={messageSections.toggle}
                                   />
                                 </MessageScrollerItem>
@@ -639,14 +706,20 @@ const ChatViewComp = () => {
                               const isDeepSearching = lastMsg?.isDeepSearch && !lastMsg?.content;
                               // Only until the first token (the "submitted" phase):
                               // once reasoning or answer text streams, that output
-                              // is the progress signal, and reasoning has its own
-                              // shimmering label.
+                              // is the progress signal. Loading dots (the "typing"
+                              // cue), not a shimmering label, so it does not read
+                              // as the reasoning trigger.
                               const showLoader = chat.loading && !lastMsg?.content && !lastMsg?.reasoning;
                               return showLoader && (
-                                <div className="message-ai chat-status-line">
-                                  <Shimmer as="span">
-                                    {isDeepSearching ? t('searchingDeeper') : t('thinking')}
-                                  </Shimmer>
+                                <div className="message-ai chat-status-line flex items-center gap-2" data-testid="chat-status-line">
+                                  {isDeepSearching ? (
+                                    <>
+                                      <Spinner size="sm" variant="dots" label={t('searchingDeeper')} />
+                                      <span aria-hidden="true" className="text-sm text-on-surface-variant">{t('searchingDeeper')}</span>
+                                    </>
+                                  ) : (
+                                    <Spinner size="sm" variant="dots" label={t('preparingAnswer')} />
+                                  )}
                                 </div>
                               );
                             })()}
@@ -658,14 +731,18 @@ const ChatViewComp = () => {
                   )}
 
                 </ChatStage>
-                {!isMobile && (
-                  <BranchTreeNav
-                    messageTree={chat.messageTree}
-                    activeLeafId={chat.activeLeafId}
-                    onSelectBranch={(leafId) => {
-                      chat.setActiveLeafId(leafId);
-                      chat.setForkPointId(null);
-                    }}
+                {sourcePanelTarget && (
+                  <SourcePanel
+                    target={sourcePanelTarget}
+                    onClose={sourcePanelApi.close}
+                    onPassage={(passage) => setSourcePanelTarget(prev => (prev ? { ...prev, passage } : prev))}
+                    onNavigate={setSourcePanelTarget}
+                    fileOrigin={sourcePanelFile?.origin}
+                    fileType={sourcePanelFile?.type}
+                    onPdfOpen={handlePdfSourceOpen}
+                    onPreviewSource={handlePreviewSource}
+                    canDownload={sourceRights.downloadSources}
+                    fullScreen={isMobile}
                   />
                 )}
               </div>
@@ -706,7 +783,43 @@ const ChatViewComp = () => {
           </div>
         </div>
       )}
+      {showSystemPrompt && currentKb && canEditSystemPrompt && (
+        // Modal over the chat: the chat stays where it was underneath and the
+        // rest of the app is inert until the dialog closes.
+        <KbSettingsDialog
+          fitTo={settingsAreaRef}
+          draft={systemPromptDraft}
+          onDraftChange={setSystemPromptDraft}
+          flags={flagsDraft}
+          onFlagsChange={setFlagsDraft}
+          kb={currentKb}
+          section={systemPromptSection}
+          onSectionChange={setSystemPromptSection}
+          dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
+            || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
+          onSave={async () => {
+            // One PATCH for both tabs: only the fields that changed. On
+            // success the KB row is replaced, which resets both drafts to the
+            // stored values (the reset keys above), so the dialog reads clean.
+            const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };
+            const newValue = systemPromptDraft || null;
+            if (newValue !== (currentKb.systemPrompt || null)) update.systemPrompt = newValue;
+            return Object.keys(update).length ? handleUpdateKBSettings(update) : true;
+          }}
+          onDelete={async () => {
+            const ok = await handleUpdateKBSettings({ systemPrompt: null });
+            if (ok) setSystemPromptDraft('');
+            return ok;
+          }}
+          onClose={() => {
+            setSystemPromptDraft(currentKb.systemPrompt || '');
+            setFlagsDraft(savedFlags);
+            setShowSystemPrompt(false);
+          }}
+        />
+      )}
     </div>
+    </SourcePanelContext.Provider>
   );
 };
 

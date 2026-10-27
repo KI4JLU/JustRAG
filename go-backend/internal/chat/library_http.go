@@ -14,6 +14,7 @@ import (
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/parser"
+	"github.com/justrag/go-backend/internal/uploadcheck"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/userfiles"
 )
@@ -51,7 +52,8 @@ type LibraryFileGetter interface {
 }
 
 // LibraryTextProvider turns a library file into parsed text. Satisfied by
-// *LibraryTextSource; ErrUnparseable marks a parser failure.
+// *LibraryTextSource; ErrUnsupportedType marks a format no parser handles,
+// ErrUnparseable a parser failure.
 type LibraryTextProvider interface {
 	Text(ctx context.Context, uf *userfiles.UserFile) (*parser.ParseResult, error)
 }
@@ -266,6 +268,10 @@ func (h *Handler) resolveLibraryFiles(ctx context.Context, w http.ResponseWriter
 		}
 		seen[id] = true
 		uf, err := h.libraryFiles.Get(ctx, userID, id)
+		if err == nil && !uf.IsLibrary() {
+			// A chat attachment is not a library file (migration 0090).
+			err = userfiles.ErrNotFound
+		}
 		switch {
 		case errors.Is(err, userfiles.ErrNotFound) && fromBody:
 			httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "file not found")
@@ -303,17 +309,32 @@ func (lr *libraryReply) openStream(ctx context.Context) {
 }
 
 func (lr libraryReply) fail(ctx context.Context, status int, msg string) {
+	lr.failCode(ctx, status, "", msg)
+}
+
+// failCode is fail with a machine-readable error code ({"error", "code"}, in
+// the JSON body or the SSE frame); an empty code is left out.
+func (lr libraryReply) failCode(ctx context.Context, status int, code, msg string) {
 	if lr.streaming {
-		writeSSE(ctx, lr.w, map[string]string{"error": msg})
+		frame := map[string]string{"error": msg}
+		if code != "" {
+			frame["code"] = code
+		}
+		writeSSE(ctx, lr.w, frame)
 		writeSSEDone(ctx, lr.w)
+		return
+	}
+	if code != "" {
+		httputil.WriteCodedErrorCtx(ctx, lr.w, status, code, msg)
 		return
 	}
 	httputil.WriteErrorCtx(ctx, lr.w, status, msg)
 }
 
-// loadLibraryTexts parses every selected file. A parser failure or parse
-// timeout is a 400 naming the file (the cause is never echoed); anything else
-// is a 500. Parses run detached (see LibraryTextSource.Text), so a file whose
+// loadLibraryTexts parses every selected file. A format no parser handles is
+// a 415, a parser failure or parse timeout a 422, each naming the file (the
+// cause is never echoed) and carrying the code the chat attachments use;
+// anything else is a 500. Parses run detached (see LibraryTextSource.Text), so a file whose
 // parse finished is cached even if the client left; the loop itself stops at
 // the next file once the request is gone.
 func (h *Handler) loadLibraryTexts(ctx context.Context, reply libraryReply, files []*userfiles.UserFile) ([]LibraryFile, bool) {
@@ -329,11 +350,14 @@ func (h *Handler) loadLibraryTexts(ctx context.Context, reply libraryReply, file
 		}
 		parsed, err := h.libraryText.Text(ctx, uf)
 		switch {
+		case errors.Is(err, ErrUnsupportedType):
+			reply.failCode(ctx, http.StatusUnsupportedMediaType, uploadcheck.CodeUnsupportedFileType, "the file \""+uf.Name+"\" has an unsupported type")
+			return nil, false
 		case errors.Is(err, ErrUnparseable):
-			reply.fail(ctx, http.StatusBadRequest, "the file \""+uf.Name+"\" cannot be read as text")
+			reply.failCode(ctx, http.StatusUnprocessableEntity, uploadcheck.CodeFileUnreadable, "the file \""+uf.Name+"\" cannot be read as text")
 			return nil, false
 		case errors.Is(err, ErrLibraryParseTimeout):
-			reply.fail(ctx, http.StatusBadRequest, "the file \""+uf.Name+"\" took too long to read")
+			reply.failCode(ctx, http.StatusUnprocessableEntity, uploadcheck.CodeParseTimeout, "the file \""+uf.Name+"\" took too long to read")
 			return nil, false
 		case err != nil:
 			logctx.From(ctx).Error("chat.library: read library file", "error", err, "user_file_id", uf.ID)
@@ -351,9 +375,9 @@ func writeLibraryContextError(ctx context.Context, reply libraryReply, err error
 	var tooLarge *ErrLibraryTooLarge
 	switch {
 	case errors.As(err, &tooLarge):
-		reply.fail(ctx, http.StatusBadRequest, tooLarge.Error())
+		reply.failCode(ctx, http.StatusBadRequest, "too_large_for_context", tooLarge.Error())
 	case errors.Is(err, ErrLibraryNoText):
-		reply.fail(ctx, http.StatusBadRequest, "the selected files contain no text")
+		reply.failCode(ctx, http.StatusBadRequest, uploadcheck.CodeNoText, "the selected files contain no text")
 	default:
 		logctx.From(ctx).Error("chat.library: build context", "error", err)
 		reply.fail(ctx, http.StatusInternalServerError, "failed to prepare context")

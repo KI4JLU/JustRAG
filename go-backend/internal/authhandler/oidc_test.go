@@ -25,6 +25,7 @@ type fakeOIDCStore struct {
 	getExternalErr error
 	getUsernameErr error
 	linkErr        error
+	linkGuarded    bool // LinkUserExternalID reports the guarded UPDATE matching no row
 	createErr      error
 
 	appliedInvitesFor string
@@ -77,6 +78,9 @@ func (f *fakeOIDCStore) GetUsersByUsername(ctx context.Context, username string)
 func (f *fakeOIDCStore) LinkUserExternalID(ctx context.Context, userID, externalID string) (*users.UserRow, error) {
 	if f.linkErr != nil {
 		return nil, f.linkErr
+	}
+	if f.linkGuarded {
+		return nil, nil
 	}
 	for _, list := range f.byUsername {
 		for _, u := range list {
@@ -142,7 +146,7 @@ func TestResolveOIDCUser_ByExternalID(t *testing.T) {
 // Branch 2: LDAP→OIDC migration — single preferred_username match, link
 // preserves users.id (and survives an email change at the IdP).
 func TestResolveOIDCUser_LinksExistingByUsername(t *testing.T) {
-	existing := &users.UserRow{ID: "u-42", Username: "alice", AuthMethod: "ldap", Email: ptr("alice.old@example.com")}
+	existing := &users.UserRow{ID: "u-42", Username: "alice", AuthMethod: "ldap", Role: "user", Email: ptr("alice.old@example.com")}
 	store := &fakeOIDCStore{
 		byExternalID: map[string]*users.UserRow{},
 		byUsername: map[string][]*users.UserRow{
@@ -236,3 +240,53 @@ func TestResolveOIDCUser_FallsBackToEmailLocalPart(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+// Branch 2 must never hand an IdP identity an account it cannot prove it
+// owns. A preferred_username is chosen by whoever runs the IdP (or, with
+// self-service rename, by its users), so the link is refused for local
+// accounts (the LDAP path refuses those too), for admin/superadmin rows, and
+// for rows already linked to another sub — and nothing is created instead.
+func TestResolveOIDCUser_RefusesUnsafeUsernameLinks(t *testing.T) {
+	other := "sub-someone-else"
+	cases := map[string]*users.UserRow{
+		"local account":  {ID: "u-1", Username: "alice", AuthMethod: "local", Role: "user"},
+		"admin account":  {ID: "u-2", Username: "alice", AuthMethod: "ldap", Role: "admin"},
+		"superadmin":     {ID: "u-3", Username: "alice", AuthMethod: "oidc", Role: "superadmin"},
+		"already linked": {ID: "u-4", Username: "alice", AuthMethod: "oidc", Role: "user", ExternalID: &other},
+	}
+	for name, row := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := &fakeOIDCStore{
+				byExternalID: map[string]*users.UserRow{},
+				byUsername:   map[string][]*users.UserRow{"alice": {row}},
+			}
+			got, err := resolveOIDCUser(context.Background(), store, sampleClaims())
+			if !errors.Is(err, ErrOIDCLinkRefused) {
+				t.Fatalf("want ErrOIDCLinkRefused, got user=%v err=%v", got, err)
+			}
+			if len(store.linked) != 0 || len(store.created) != 0 {
+				t.Fatalf("refused link must neither link nor create (linked=%d created=%d)", len(store.linked), len(store.created))
+			}
+		})
+	}
+}
+
+// The SQL guard in LinkUserExternalID is the real gate (it also covers a row
+// changed between the lookup and the UPDATE); a guarded no-op must surface as
+// a refusal, not as a nil user or a fresh account.
+func TestResolveOIDCUser_GuardedLinkIsRefused(t *testing.T) {
+	store := &fakeOIDCStore{
+		byExternalID: map[string]*users.UserRow{},
+		byUsername: map[string][]*users.UserRow{
+			"alice": {{ID: "u-5", Username: "alice", AuthMethod: "ldap", Role: "user"}},
+		},
+		linkGuarded: true,
+	}
+	got, err := resolveOIDCUser(context.Background(), store, sampleClaims())
+	if !errors.Is(err, ErrOIDCLinkRefused) || got != nil {
+		t.Fatalf("want ErrOIDCLinkRefused and no user, got user=%v err=%v", got, err)
+	}
+	if len(store.created) != 0 {
+		t.Fatalf("guarded link must not fall through to create, got %d", len(store.created))
+	}
+}

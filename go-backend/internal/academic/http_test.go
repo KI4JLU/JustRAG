@@ -31,6 +31,7 @@ type stubStore struct {
 	createErr  error
 	fileErr    error
 	kbRole     string
+	sources    kbaccess.SourcePermissions
 }
 
 func newStubStore(enabled bool, baseURL string) *stubStore {
@@ -44,7 +45,8 @@ func newStubStore(enabled bool, baseURL string) *stubStore {
 	// GetKBByID below always returns a KB owned by "user-1" (the caller in
 	// every AddPapers test); kbRole mirrors the kb_members row a real owner
 	// has (migration 0064's owner-mirror trigger) so kbaccess.EffectiveRole
-	// grants edit access the same way the old kb.UserID-equality check did.
+	// grants the owner's full access (addSources included, whatever the
+	// source flags say) the same way the old kb.UserID-equality check did.
 	return &stubStore{siteConfig: cfg, kbRole: kbaccess.RoleOwner}
 }
 
@@ -91,7 +93,7 @@ func (s *stubStore) CreateFile(_ context.Context, data files.CreateFileData) (*f
 
 func (s *stubStore) GetKBByID(_ context.Context, id string) (*kbaccess.KnowledgeBase, error) {
 	userID := "user-1"
-	return &kbaccess.KnowledgeBase{ID: id, UserID: &userID, IsGlobal: false}, nil
+	return &kbaccess.KnowledgeBase{ID: id, UserID: &userID, IsGlobal: false, Sources: s.sources}, nil
 }
 
 func (s *stubStore) GetKBRole(_ context.Context, kbID, userID string) (string, error) {
@@ -259,6 +261,66 @@ func TestAddPapers_StoresPDF(t *testing.T) {
 	failed := result["failed"].([]any)
 	if len(failed) != 1 {
 		t.Errorf("expected 1 failed (SSRF blocks localhost), got %d added / %d failed", len(added), len(failed))
+	}
+}
+
+// TestAddPapers_AddSourcesGate pins the add-sources permission on the one
+// add route whose KB is in the body rather than the path: a viewer never
+// adds, even with every flag on; an editor only with editor_see_sources and
+// editor_add_sources (adding requires seeing the sources). A refusal
+// happens before any side effect.
+//
+// Oracle: the status codes are written by hand from the spec ("viewers can
+// never add sources" and "add requires seeSources"); "before side effects"
+// is the stub store's CreateFile log and the stub storage's object map, both
+// of which must stay empty on a 403. An allowed request reaches the fetch
+// loop, where the SSRF guard fails the localhost URL (200 with the paper
+// under "failed").
+func TestAddPapers_AddSourcesGate(t *testing.T) {
+	every := kbaccess.SourcePermissions{
+		ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+		EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true, EditorSeeCitations: true,
+	}
+	cases := []struct {
+		name  string
+		role  string
+		flags kbaccess.SourcePermissions
+		want  int
+	}{
+		{"viewer_every_flag_on", kbaccess.RoleView, every, http.StatusForbidden},
+		{"viewer_no_flags", kbaccess.RoleView, kbaccess.SourcePermissions{}, http.StatusForbidden},
+		{"editor_flag_off", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, ViewerSeeSources: true}, http.StatusForbidden},
+		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, EditorAddSources: true}, http.StatusOK},
+		{"editor_flag_on_see_off", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorAddSources: true, EditorDownloadSources: true}, http.StatusForbidden},
+		{"kb_admin_no_flags", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusOK},
+		{"no_role", "", every, http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newStubStore(true, "http://justfind.example.com")
+			store.kbRole = tc.role
+			store.sources = tc.flags
+			stor := newStubStorage()
+			h := academic.NewHandler(store, nil, nil, stor, nil, nil)
+
+			bodyBytes, _ := json.Marshal(map[string]any{
+				"kbId":   "kb-1",
+				"papers": []map[string]any{{"id": "p1", "title": "T", "pdfUrl": "http://127.0.0.1:1/p.pdf"}},
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/academic-research/r1/papers/add", bytes.NewReader(bodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("researchId", "r1")
+			req = withUser(req, "user-2")
+			w := httptest.NewRecorder()
+			h.AddPapers(w, req)
+
+			if w.Code != tc.want {
+				t.Fatalf("status %d, want %d: %s", w.Code, tc.want, w.Body.String())
+			}
+			if tc.want == http.StatusForbidden && (len(store.created) != 0 || len(stor.stored) != 0) {
+				t.Fatalf("refused request left side effects: %d files rows, %d stored objects", len(store.created), len(stor.stored))
+			}
+		})
 	}
 }
 

@@ -9,7 +9,7 @@
 # For the legacy Node.js backend, see Dockerfile.legacy.
 
 # ── Stage 1: Build the React frontend ────────────────────────────────────────
-FROM node:24-alpine AS frontend
+FROM node:24.22.1-alpine AS frontend
 WORKDIR /app
 
 # git is required to resolve the @ki4jlu/design-system dependency, which is
@@ -31,7 +31,7 @@ COPY web/ ./web/
 RUN cd web && npm run build
 
 # ── Stage 2: Build the Go binaries ───────────────────────────────────────────
-FROM golang:1.26.9-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 WORKDIR /build
 
 # Default to a mirror that serves module zips directly. Networks here block

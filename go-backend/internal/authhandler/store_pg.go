@@ -156,17 +156,25 @@ func (s *PGStore) GetUsersByUsername(ctx context.Context, username string) ([]*u
 
 // LinkUserExternalID stamps an existing user row with an OIDC `sub` and flips
 // its auth_method to 'oidc'. Used for the LDAP→OIDC migration link step.
-// Returns the updated row.
+// Returns the updated row, or (nil, nil) when the row does not exist or is
+// not linkable (already linked, local account, admin/superadmin role).
 func (s *PGStore) LinkUserExternalID(ctx context.Context, userID, externalID string) (*users.UserRow, error) {
+	// The WHERE clause is the gate (oidcLinkRefusal only names the reason):
+	// an unlinked ldap/oidc row with a non-privileged role, checked in the
+	// same statement that writes, so a row changed since the lookup is not
+	// linked either.
 	const sql = `UPDATE users SET external_id = $2, auth_method = 'oidc'
 	             WHERE id = $1
+	               AND external_id IS NULL
+	               AND auth_method IN ('ldap', 'oidc')
+	               AND role IN ('user', 'api-user')
 	             RETURNING id, username, password_hash, auth_method, first_name, last_name, email, role, external_id, created_at`
 	row, err := pgxutil.QueryOne[userDBRow](ctx, s.pool, sql, userID, externalID)
 	if err != nil {
 		return nil, err
 	}
 	if row == nil {
-		return nil, fmt.Errorf("LinkUserExternalID: user %s not found", userID)
+		return nil, nil
 	}
 	return toUserRow(*row), nil
 }

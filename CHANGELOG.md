@@ -11,19 +11,21 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
-## Unreleased
+## v26.10.0 — 2026-10-27
 
 ### ⚠ Upgrade notes
 
+- **Migrations 0075 – 0091; the highest is 0091.** Production is on v0.11.2, which ended at 0074. v0.12.0 was cut as `v0.12.0-rc.1` but never promoted, so its notes are part of this release (below the notes new since then). Compose applies the migrations through the `migrate` one-shot service; on Kubernetes run `/app/migrate` out of the RC image first (`docs/runbooks/release.md`). No one-step rollback.
+- **Migration 0089 — per-KB source permissions; viewers lose source access on deploy.** Seven new `knowledge_bases` columns, catalog-only `ADD COLUMN` (no rewrite, no re-ingest). The viewer flags `viewer_see_sources`, `viewer_download_sources` and `viewer_see_citations` default to **false on every KB, existing ones included**; the four editor flags `editor_see_sources`, `editor_add_sources`, `editor_download_sources` and `editor_see_citations` default to **true**, so editors keep what they had. Download, add and edit (change/sync/delete/retry — the edit role, no flag) all require seeing the sources, so a KB admin who switches `editor_see_sources` off also takes those away from editors. Adding sources stays with the edit role and is now also switchable per KB (`editor_add_sources`): the add routes (upload, text, URL, crawl, from-library, add-sources, creating RSS/Confluence/git sources, academic `papers/add`) and the agent chat's KB-writing actions need the `addSources` capability on top of KB edit. Viewers can never add or delete sources. Selecting files for a chat or research turn is not gated. So after the deploy, viewers of published global KBs (and `view` members of any KB) get 403 on the source lists, on source downloads and the spreadsheet preview, and lose citations (see the next note) — until a KB admin turns the flags back on per KB (`PATCH /api/kb/{id}`, see `API.md` § Source permissions). Deploy the backend together with the UI that reads the new `capabilities` object: the current chat UI only sends a turn when the source list is non-empty, so without that UI change a viewer without `seeSources` cannot chat. KB owners, KB admins, superadmins and system admins on global KBs are unaffected.
+- **Viewers without `seeCitations` now get answers without source attribution — on every chat surface, effective on deploy.** No migration, no re-ingest. With `viewer_see_citations` at its default (false), a `view` member or implicit viewer of a published global KB receives `"sources": []`, no conflict findings, no per-citation verification, no retrieved-chunk previews and no `[n]` markers — in the web chat (SSE and JSON), the agent chat, `GET /api/chats/{id}/messages`, `/api/v1` chat and messages, KB-as-MCP `ask_kb` and OpenAI-compat (no `context.citations`, no `annotations`). API keys follow the **key owner's** role on the KB, so an integration whose owner is only a viewer loses its source cards and citation annotations until a KB admin turns the flag on. Nothing is refused, and nothing stored changes: sources and markers are written in full and stripped per response, so turning the flag on later restores the citations of the existing history. Not covered yet: research reports, generated content and `/owui` (see `API.md` § Citations).
 - **Migration 0088** (three new tables `owui_knowledge`, `owui_files`, `owui_knowledge_files`; widened `usage_events_surface_check`). No re-ingest. The Open WebUI surface for the ILIAS LfAssistant plugin stays off until `owui_compat_enabled = true`; setup in `docs/feature-recipes.md`. Alert on `rag_owui_kb_files_error > 0` (needs `WORKER_MAINTENANCE`).
 - **Check `model_tier_fast` before deploying: five chat-path helper calls now carry an output cap and resolve through the fast-tier chain.** Condense (256 `max_tokens`), complexity classifier (64), follow-up questions (300) and chat factcheck (1024) are capped; enumeration extraction is re-routed only. Model chain per call: `chat_condense_model`, `chat_classify_model`, `chat_followups_model`, `factcheck_model`, `chat_enumeration_model` → `model_tier_fast` → the KB's main model. The caps assume a model that does not think by default. A reasoning-by-default fast model (e.g. Qwen3 behind a vLLM reasoning parser) spends the cap on reasoning: the 64-token classifier then silently reads as "simple" and complex turns stop reaching the orchestrators. After deploying, watch the `ai.helper.truncated` log line (fields `task`, `model`, `max_tokens`). A cut-off or empty condense falls back to the raw follow-up message (`chat.condense.fallback_raw`).
 - **Scope of the new helper-call routing.** The caps apply on every surface (web chat, public API, OpenAI-compat, the ILIAS `/owui` surface, eval). The fast-tier model applies only where a site-config reader is available: condense on web chat and agent chat; classifier, follow-ups and factcheck on web chat; enumeration extraction on web chat, agent chat, KB-as-MCP `ask_kb` and `cmd/eval --production-context`. Public API and OpenAI-compat (condense, follow-ups, enumeration), `/owui` (condense) and the eval condense/classifier adapters stay on the main model. **If `model_tier_fast` is set, those calls move to it on deploy.** The five keys have no admin-UI field; to pin one back to the main model, set the `site_config` key to the main model name via SQL or the generic site-config editor (same as the `chat_compare_*` keys).
-
-## v0.12.0 — 2026-10-12
-
-### ⚠ Upgrade notes
-
-- **Migrations 0075 – 0087; the highest is 0087.** v0.11.2 ended at 0074. Compose applies them through the `migrate` one-shot service; on Kubernetes run `/app/migrate` out of the RC image first (`docs/runbooks/release.md`). No one-step rollback. Per-migration notes follow.
+- **Security: the `sql_query` answer/planner tool is now off unless `chat_sql_query_enabled = true`** (new global-only key, default off, no admin-UI field yet; set it through the generic site-config editor or SQL). Its allowlisted tables (`messages`, `chats`, `files`, `agent_decisions`) are not scoped to the asking user or KB, so a plain `SELECT content FROM messages` returns every user's chat messages; and its validator never limited which functions a query may call, so `query_to_xml(...)` reaches anything else the `JUSTRAG_DB_URL_READONLY` role can read, every KB's spreadsheet tables included. A prompt-injected document could trigger either. While the flag is off the tool is also left out of the planner and answer-tool catalogs. Deployments that relied on `sql_query` lose it on upgrade; turn it back on only where every user may see everything that role can read. `table_query` and the spreadsheet router are unaffected.
+- **Security: login providers are superadmin-only, and OIDC no longer takes over existing accounts by username.** `/api/admin/auth-providers` (list, create, edit, delete) moved from admin to superadmin, and the admin panel hides the Authentication tab from admins. An admin could previously register an OIDC issuer or LDAP server of their own and sign in as any account, superadmins included. On OIDC login, a `preferred_username` match now links only an unlinked LDAP/OIDC account with role user or api-user; a local account, an admin/superadmin, or an account already linked to another subject is refused (the login fails, logged as `oidc_link_refused`) instead of being taken over.
+- **Switching the OIDC provider now needs an operator step.** Accounts already linked to the old provider are no longer re-linked automatically when the new provider issues different subjects. Before switching, run `UPDATE users SET external_id = NULL WHERE auth_method = 'oidc' AND role IN ('user', 'api-user');` so those accounts re-link on their next login, and link admins/superadmins by hand (`UPDATE users SET external_id = '<sub>' WHERE id = '<user id>';`). The same manual link is now the only way to move an LDAP admin or superadmin to OIDC.
+- **Migration 0090 — chat attachments, live on deploy (no feature gate).** `user_files.scope` (constant default, catalog-only) and the new `message_attachments` table; `ai_models.context_window`. Users can attach files in the web chat composer as answer context right after the deploy; attachments share the user file quota and are never indexed. Three new global-only keys `chat_attachments_context_share` (0.5), `chat_attachments_fallback_context_window` (32768), `chat_attachments_max_per_message` (10). The context budget comes from `ai_models.context_window`, else the provider's reported window (vLLM `max_model_len` / LiteLLM `/model/info`), else the fallback; set the window per model in the admin provider panel if the provider reports none. Unsent and orphaned attachments are deleted by `userfiles_orphan_sweep` (needs `WORKER_MAINTENANCE`), metric `rag_user_file_orphans_deleted_total{kind="chat_attachment"}`.
+- **Migration 0091 — branched chats.** One nullable column `chats.branched_from_chat_id` (catalog-only, no backfill). "Verzweigen" on an answer, regenerate and edit now copy the conversation into a new chat.
 - Invite links: migration **0087** adds `kb_invite_link_redemptions` (one row per link and person). A link's `redemptionCount` now counts the **people** who joined through it, not the visits: a person opening the same link again no longer adds to it. No backfill — counts from before this release are kept as they were and grow by the new rule from now on. `last_used_at` still moves on every redemption.
 - **Web UI on `@ki4jlu/design-system` 0.46.0** (#6): app shell, topic overview, chat workspace, global search, settings window and sources panel are rebuilt on the design system. No operator action; the CSP hash in `middleware/security.go` follows `web/index.html`'s theme script.
 - **The onboarding tour no longer opens on first login** (temporary). It still opens from its help button.
@@ -52,9 +54,21 @@ one-step rollback** (`cmd/migrate` is up-only).
 - Developer note: bump `parseCacheVersion` (`internal/processor/parsecache.go`) when parser or page-rebuild output changes, `fingerprintVersion` (`internal/processor/fingerprint.go`) on any index-shaping code change, and `prompts.KGPromptVersion` on KG prompt changes.
 - Global search (`GET /api/search`): migrations **0084** (`CREATE EXTENSION pg_trgm` + five GIN trigram indexes on `knowledge_bases`, `files`, `chats`) and **0085** (a GIN full-text expression index over all of `messages.content`). Both build `CONCURRENTLY` (no write lock), but on a large `messages` table 0085 can run for a long time, and each build waits for every older open transaction. **The migrating role needs the CREATE privilege on the database** for `pg_trgm` (a trusted extension, no superuser) — otherwise create the extension once as an operator and re-run. Run a **single** `cmd/migrate` instance (on k8s, the one `kubectl run … /app/migrate` step, with no short timeout): two concurrent migrators deadlock on the concurrent builds (40P01) and leave an invalid index that the migration file explains how to drop.
 - Per-user topic filters (favorites, own categories): migration **0086** adds `kb_favorites`, `kb_user_categories` and `kb_user_category_links` (three new tables, no backfill). KB rows gain `isFavorite`, `userCategoryIds` and `lastIngestedAt`; `PATCH /api/kb/{id}` now returns the KB in the `GET /api/kb/{id}` shape. Unpublishing a KB drops the favorites and category assignments of users who lose access.
-
-
 ### Documentation
+- Keep the messages route's doc comment on its handler (eaea4d9)
+- Slim claude.md into an index, move detail to docs (01ce751)
+- Catalog of user-facing error messages (0927135)
+- Chat attachments in API.md and CLAUDE.md (d17489b)
+- Document lookup links (6d4813f)
+- Document branches, staging and calver versioning (42e2348)
+- List every route in API.md and guard it in CI (a515a60)
+- Add /owui to openapi, readmes and surface lists (64f3e38)
+- Document cascade 500s, 401 before gate, title usage (3c2984f)
+- Drop deleted items at plugin cut-over (7e17cac)
+- Inline the plugin cut-over reset (beae9cc)
+- Add contract, recipe and upgrade note (b2bae63)
+- Correct helper-call upgrade notes and sse contract (45f06fc)
+- Changelog and version for v0.12.0 (0f8e7f4)
 - Contract and mechanism notes for the final-review fixes (f70b251)
 - User file library phase 4 — adoption, orphan sweep, metrics (b565a37)
 - Library chat contract fixes, request-path bounds and sql_query privacy warning (b66e7d1)
@@ -74,6 +88,68 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 
 ### Features
+- A url for every view, chat and settings dialog (1507f0a)
+- Get one chat by id, for chat links without the topic (b673eeb)
+- Admin console as a settings dialog, ds v0.68.0 (8f66bcf)
+- Preview back link in the subheader, ds v0.66.0 (5424f1d)
+- One preview for every source type, ds v0.65.0 (bbb4235)
+- List dropped sources while they upload (b81a37c)
+- Text preview endpoint for office documents (371f313)
+- Design-system tooltips for native titles (ds v0.64.0) (257aaf7)
+- Injection badge tooltip names the flagged files (e1511e5)
+- Field focus follows contrast, design system 0.63.0 (aa18f3c)
+- Status messages and toasts on the ds alert, ds 0.62.0 (a6041aa)
+- Source rows and web search polish on design system 0.61.2 (970cc03)
+- Redesign polish on design system 0.61.1 (50895d5)
+- Chatgpt-style sidebar redesign on design system 0.60.0 (e24fff4)
+- Branch on regenerate and edit, keep older branches marked (b5f4529)
+- Branch an answer into a new chat (1bc77a6)
+- Flag branched chats in the chat list (321e79b)
+- Answer footer, source preview and panel on DS 0.59.1 (cf8bfce)
+- Source filter and remove modes, red chat delete selection (091702f)
+- Footer with download and maximize on answer tables (cbcfd3e)
+- Error codes on upload and file-read refusals (c36066f)
+- Localized error messages for uploads and chat (25feb4e)
+- Topic settings as a modal window with a members section (defcaf6)
+- Confirm dialog names destructive actions, no icon (6fcc65b)
+- Adopt design system 0.56 search panel and TokenInput (95a212e)
+- Read-only roles and rights overview in the admin panel (e4be02d)
+- Context windows and attachment settings in admin (c39c52d)
+- Attach files in the chat composer as context (e698d96)
+- Keep a reader's own attachment citations visible (7e39f66)
+- Attached files as context in the answer prompt (6df9340)
+- Per-model context windows, provider window and token lookup (df6f32f)
+- Chat-scoped user files, message links, pending sweep (5d730c8)
+- Rights tab follows the add-sources pyramid (6441bb0)
+- Rebuild the roles and rights tab after the new mockup (5e13766)
+- Roles and rights tab in the topic settings (2e0e801)
+- Hide citations from readers without the citation right (d16d943)
+- Add-sources right and pyramid, drop selection permission (03c6847)
+- Editor source flags, manage sources by edit role only (d27e0d1)
+- Per-kb source permissions for viewers and editors (1a66e06)
+- Spreadsheet preview with sheet tabs, search and lookups (db23603)
+- Icon-only hover download in the chat table corner (46b4c35)
+- Spreadsheet sources open in the shared preview frame (3f21cc4)
+- Short card menu labels, rag configuration for admins only (47a8231)
+- Breadcrumb back navigation, link uses counted as people (902fa72)
+- Usernames as chips, each checked by exact lookup (3bc8706)
+- Segmented add tabs, field-sized create button (b925c4b)
+- Member list and separate add view, per the new mockups (187be5e)
+- Lists only on invite tabs, focus the username field (6c35b93)
+- Rebuild the members modal on the design system (6ee2d6c)
+- Link lookup tables to the columns that use them (f9ac0a3)
+- Search, sort and empty-row filter for preview rows (bdcc331)
+- Add chat completions with sources frame (dcd0741)
+- Render the open webui sources frame (2a121eb)
+- Add knowledge api mapped to private kbs (b744ca9)
+- Add files api over the user library (297613d)
+- Add gated handler, models route, wiring (8d869ca)
+- Flag files rejected for their own content (2aa604c)
+- Add handle and knowledge store (7bf9bec)
+- Add schema for the open webui surface (ee44e93)
+- Open the sse stream before retrieval behind a flag (24f73f4)
+- Add an sse turn writer with a heartbeat (91f0969)
+- Add time-to-first-token metrics for streaming chat (7e79b36)
 - No automatic tour on first login, temporarily (6fefecb)
 - Follow the split backend PRs on favorites and web search (0deeef5)
 - GET /api/search over topics, sources and own chats (047a778)
@@ -177,6 +253,60 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 
 ### Fixes
+- Stop the enrichment document cut from looping forever (0cb434f)
+- Replace failed chat links, run the sso callback once (adb8099)
+- Second review pass on url dialogs and chat links (36342b5)
+- Review fixes for url dialogs and chat links (3e0ded9)
+- Keep confluence enabled after the first token save (3e4aae9)
+- Source and chat polish, ds v0.67.0 (fe3eccd)
+- Keep the preview back link while a viewer loads (032aa93)
+- File list returns gitRepoSourceId (894438e)
+- Count enhanced questions when flagging in-chat branches (de290cc)
+- Kb settings delete renders destructive (8f6a481)
+- Bump go to 1.26.10 for GO-2026-6809 (cfdbb66)
+- Bump excelize past GO-2026-6684/6685/6688/6689 (5d34ca7)
+- Restrict login-provider admin and oidc username linking (d691fa6)
+- Hide disabled sql_query from planner and answer catalogs (cd479d2)
+- Gate sql_query behind chat_sql_query_enabled (8ba7aa2)
+- Split login providers out of the admin rights matrix (acf737e)
+- Replace a refused question on retry (ee64d52)
+- Address attachment review findings (4aca57c)
+- Guard chat attachment deletes against races (a943eb4)
+- Clear composer attachments when the turn is accepted (a6218cf)
+- No focus ring around answer bubbles (9df0bf3)
+- Mobile swipe skips the hidden files tab (9c5ccab)
+- Keep latex math when hiding citations (e47a31f)
+- Source controls follow the kb capabilities (8b853d5)
+- Chat follows the kb source rights (6e9bf53)
+- Editor source flags in the kb type (99fcf15)
+- Send no source selection without the select right (354515a)
+- Hide source edit controls from kb viewers (0de34ed)
+- Drop oversized markers, redact refine diffs across markers (6bc703d)
+- Guard sheet pages per run, keep big ints, dark pill contrast (fc013e7)
+- Let wide chat tables scroll instead of squeezing columns (5cbc2ee)
+- Allow blob: in connect-src for the pdf preview (c8411e0)
+- Pdf.js worker from the app build, design-system 0.51.0 (fc75d13)
+- Confirm on the DS Dialog, clickable inside other dialogs (8b50d34)
+- One chip per person, accounts only on an exact username (4c1c878)
+- Add button in the dialog footer, not the header (c9c4c41)
+- A general placeholder for the invite link title (b5bb839)
+- No skeleton cards while the members dialog loads (cc77567)
+- Escape closing a select or menu no longer closes the modal (1f92422)
+- Source tiles stay in their panel, right sidebar 360px (ad911fd)
+- Harden lookup links after review (2e980b0)
+- Link only exact, unambiguous lookups within a budget (a6723cc)
+- Stop bm25 floor returning a pooled slice (a3da33f)
+- Sort preview rows by the typed column, keep empty_columns (8d94b55)
+- Count degenerate-guard trips on /owui (afdc880)
+- Keep handle and link until the cascade succeeds (9b91b78)
+- Spool unseekable bodies before s3 put (ed312b3)
+- Bump go modules flagged by govulncheck (eb01ded)
+- Count the people who used a link, not the visits (15e36c3)
+- Label truncated helper calls and log condense errors (7e01084)
+- Fall back to the raw follow-up when condense is cut off (52f41bd)
+- Stop retrying completion errors that cannot succeed (cf2eec4)
+- Mask mcp server credentials and redact secrets in errors (49a61c8)
+- Send the google api key in a header, not the url (2634ee8)
 - Text source dialog warns about a missing title (f7061cb)
 - Keep renamed chat titles on one line and cap the rename body (99d057a)
 - Pin builder to golang:1.26.9-alpine (6c55f0d)
@@ -250,10 +380,15 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 
 ### Performance
+- Stream follow-up suggestions before the factcheck ends (da77784)
+- Condense from the history the turn already loaded (972bbe1)
+- Cap helper llm calls and route them via the fast tier (57a1284)
+- Fetch neighbor chunks for different files in parallel (db5ea6c)
 - Reject over-budget library selections before tokenizing (b3a4207)
 
 
 ### Refactoring
+- Export message helpers (fa5957b)
 - Extract import and add-from-library logic for reuse by agent chat (de82c63)
 - Share scope-id injection; tighten DecodeChoice and precedence test (1e3e98f)
 - Extract parse step and RAPTOR tail from processFile (e52e5a9)

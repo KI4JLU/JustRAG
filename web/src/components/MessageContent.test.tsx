@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import MessageContent from './MessageContent';
 import type { TrajectoryEvent } from '../types';
+import { SourcePanelContext, type SourcePanelApi } from '../contexts/SourcePanelContext';
+import { translations } from '../translations';
 import * as ThemeContext from '../contexts/ThemeContext';
 
 // Mock the module
@@ -20,7 +22,12 @@ describe('MessageContent', () => {
         // Reset mock before each test
         vi.resetAllMocks();
         // Default mock implementation
-        vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'en' } as ReturnType<typeof ThemeContext.useTheme>);
+        // `t` resolves the real English strings: the table footer (MarkdownTable)
+        // reads its labels through it.
+        vi.mocked(ThemeContext.useTheme).mockReturnValue({
+            language: 'en',
+            t: (k: string) => translations[k as keyof typeof translations]?.en ?? k,
+        } as unknown as ReturnType<typeof ThemeContext.useTheme>);
     });
 
     it('renders content correctly', () => {
@@ -28,28 +35,26 @@ describe('MessageContent', () => {
         expect(screen.getByText('Hello world')).toBeInTheDocument();
     });
 
-    it('renders reasoning when provided', () => {
+    // Oracle: the DS Reasoning disclosure (collapsed once the stream is over,
+    // open while thinking) with the app's English labels and the DS German ones.
+    it('renders reasoning behind a collapsed trigger when provided', async () => {
         render(<MessageContent content="Hello" reasoning="Thinking process" />);
-        expect(screen.getByText('Thinking process')).toBeInTheDocument();
-        // Default language 'en' -> 'Chain of Thought'
-        expect(screen.getByText('Chain of Thought')).toBeInTheDocument();
+        const trigger = screen.getByRole('button', { name: /Thought for a few seconds/ });
+        expect(trigger).toHaveAttribute('aria-expanded', 'false');
+        fireEvent.click(trigger);
+        expect(await screen.findByText('Thinking process')).toBeInTheDocument();
     });
 
-    it('renders reasoning with correct label for German', () => {
-        // Override mock for this test
+    it('renders reasoning with the German label', () => {
         vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'de' } as ReturnType<typeof ThemeContext.useTheme>);
-
         render(<MessageContent content="Hallo" reasoning="Denkprozess" />);
-        expect(screen.getByText('Gedankengang')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Nachgedacht/ })).toBeInTheDocument();
     });
 
-    it('shows thinking indicator when isThinking is true', () => {
-        const { container } = render(<MessageContent content="" reasoning="Thinking..." isThinking={true} />);
-        // Check if details is open
-        const details = container.querySelector('details');
-        expect(details).toHaveAttribute('open');
-        // Check for cursor blink span which contains '|'
-        expect(screen.getByText('|')).toBeInTheDocument();
+    it('shows the reasoning open with a thinking label while thinking', () => {
+        render(<MessageContent content="" reasoning="Thinking..." isThinking={true} />);
+        expect(screen.getByRole('button', { name: /Thinking/ })).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('Thinking...')).toBeInTheDocument();
     });
 
     it('renders markdown content', () => {
@@ -58,77 +63,103 @@ describe('MessageContent', () => {
         expect(screen.getByText('Bold').tagName).toBe('STRONG');
     });
 
-    it('wraps plain [N] citations in a clickable source-ref sup', () => {
-        const sources = [{ index: 1, fileName: 'doc.pdf', fileId: 'f1', content: '', score: 0.9, pages: [4] }];
+    const chips = (container: HTMLElement) => [...container.querySelectorAll<HTMLButtonElement>('button.citation-chip')];
+
+    it('renders a citation marker as a numbered chip button named after its source', () => {
+        const sources = [{ index: 1, fileName: 'Anforderungen_JLU_RAG.xlsx', fileId: 'f1', content: '', score: 0.9, pages: [4] }];
         const { container } = render(<MessageContent content="Claim [1]." sources={sources} />);
-        const sup = container.querySelector('sup.source-ref');
-        expect(sup).not.toBeNull();
-        expect(sup?.getAttribute('data-source-index')).toBe('1');
+        const [chip] = chips(container);
+        expect(chip.textContent).toBe('1');
+        expect(chip).toHaveAccessibleName('Source 1: Anforderungen JLU RAG');
+        expect(container.textContent).not.toContain('[1]');
     });
 
-    it('wraps markdown-escaped \\[N\\] citations the same as plain ones', () => {
-        // Some LLMs intermittently escape markdown brackets ("\[1\]") when
-        // generating prose. Without this tolerance the citation would render
-        // as plain text and lose its click-to-open-PDF handler.
-        const sources = [{ index: 1, fileName: 'doc.pdf', fileId: 'f1', content: '', score: 0.9, pages: [4] }];
+    it('treats markdown-escaped \\[N\\] like a plain marker', () => {
+        const sources = [{ index: 1, fileName: 'doc.pdf', fileId: 'f1', content: '', score: 0.9 }];
         const { container } = render(<MessageContent content="Claim \[1\]." sources={sources} />);
-        const sup = container.querySelector('sup.source-ref');
-        expect(sup).not.toBeNull();
-        expect(sup?.getAttribute('data-source-index')).toBe('1');
+        expect(chips(container).map(c => c.textContent)).toEqual(['1']);
     });
 
-    it('wraps grouped [1, 2] citations as separate clickable source-refs', () => {
-        // Follow-up turns commonly synthesize across several chunks and emit
-        // grouped citations. Each index must become its own clickable sup so
-        // it opens the right source — and the marker must not be left as
-        // plain text (the original single-index regex missed this entirely).
+    it('numbers the sources by first appearance in the answer, without gaps', () => {
         const sources = [
-            { index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9, pages: [4] },
-            { index: 2, fileName: 'b.pdf', fileId: 'f2', content: '', score: 0.8, pages: [7] },
+            { index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9 },
+            { index: 2, fileName: 'b.pdf', fileId: 'f2', content: '', score: 0.8 },
+            { index: 3, fileName: 'c.pdf', fileId: 'f3', content: '', score: 0.7 },
         ];
-        const { container } = render(<MessageContent content="Both reports agree [1, 2]." sources={sources} />);
-        const sups = container.querySelectorAll('sup.source-ref');
-        expect(sups.length).toBe(2);
-        expect(sups[0].getAttribute('data-source-index')).toBe('1');
-        expect(sups[1].getAttribute('data-source-index')).toBe('2');
+        const { container } = render(<MessageContent content={'First [3].\n\nSecond [1].'} sources={sources} />);
+        const cs = chips(container);
+        expect(cs.map(c => c.textContent)).toEqual(['1', '2']);
+        expect(cs[0]).toHaveAccessibleName('Source 1: c');
+        expect(cs[1]).toHaveAccessibleName('Source 2: a');
     });
 
-    it('collapses same-file indices in a marker into a single link with merged pages', () => {
-        // The model often cites several chunks of one document in one marker
-        // ([1, 4, 13]). Rendering three links to the same file is confusing —
-        // collapse to one link, keeping the first index and merging the pages.
+    it('renders a grouped or comma-separated marker as chips side by side, without commas', () => {
+        const sources = [
+            { index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9 },
+            { index: 2, fileName: 'b.pdf', fileId: 'f2', content: '', score: 0.8 },
+        ];
+        const { container } = render(<MessageContent content="Both agree [1, 2]. Again [2], [1]" sources={sources} />);
+        expect(chips(container).map(c => c.textContent)).toEqual(['2', '1']);
+        expect(container.querySelector('p')?.textContent).toBe('Both agree. Again 21');
+    });
+
+    it('collapses several chunks of one file into one chip', () => {
         const sources = [
             { index: 1, fileName: 'report.pdf', fileId: 'f1', content: '', score: 0.9, pages: [4] },
             { index: 2, fileName: 'other.pdf', fileId: 'f2', content: '', score: 0.8, pages: [2] },
             { index: 3, fileName: 'report.pdf', fileId: 'f1', content: '', score: 0.7, pages: [9] },
         ];
         const { container } = render(<MessageContent content="See the analysis [1, 3]." sources={sources} />);
-        const sups = container.querySelectorAll('sup.source-ref');
-        // [1, 3] are both report.pdf → one link, not two.
-        expect(sups.length).toBe(1);
-        expect(sups[0].getAttribute('data-source-index')).toBe('1');
-        // Pages from both chunks (4 and 9) merge into the label.
-        expect(sups[0].textContent).toContain('4, 9');
+        const cs = chips(container);
+        expect(cs.length).toBe(1);
+        expect(cs[0].dataset.raw).toBe('1,3');
     });
 
-    it('keeps distinct-file indices in a marker as separate links', () => {
+    it('marks a source once per paragraph, at its last citation', () => {
         const sources = [
-            { index: 1, fileName: 'report.pdf', fileId: 'f1', content: '', score: 0.9, pages: [4] },
-            { index: 2, fileName: 'other.pdf', fileId: 'f2', content: '', score: 0.8, pages: [2] },
+            { index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9 },
+            { index: 2, fileName: 'b.pdf', fileId: 'f2', content: '', score: 0.8 },
         ];
-        const { container } = render(<MessageContent content="Two docs [1, 2]." sources={sources} />);
-        const sups = container.querySelectorAll('sup.source-ref');
-        expect(sups.length).toBe(2);
+        const { container } = render(<MessageContent content={'One [1]. Two [2]. Three [1].\n\nFour [1].'} sources={sources} />);
+        const [p1, p2] = [...container.querySelectorAll('p')];
+        expect(p1.textContent).toBe('One. Two 2. Three 1.');
+        expect(p2.textContent).toBe('Four 1.');
     });
 
-    it('wraps 3-digit [150] citations in a clickable source-ref sup', () => {
+    it('drops a marker that points at no source', () => {
+        const sources = [{ index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9 }];
+        const { container } = render(<MessageContent content="Claim [9]." sources={sources} />);
+        expect(chips(container)).toHaveLength(0);
+        expect(container.textContent).toBe('Claim.');
+    });
+
+    it('resolves 3-digit markers', () => {
         const sources = Array.from({ length: 150 }, (_, i) => ({
             index: i + 1, fileName: `doc${i + 1}.pdf`, fileId: `f${i + 1}`, content: '', score: 0.5,
         }));
         const { container } = render(<MessageContent content="Per the appendix [150]." sources={sources} />);
-        const sup = container.querySelector('sup.source-ref');
-        expect(sup).not.toBeNull();
-        expect(sup?.getAttribute('data-source-index')).toBe('150');
+        expect(chips(container).map(c => c.textContent)).toEqual(['1']);
+        expect(chips(container)[0]).toHaveAccessibleName('Source 1: doc150');
+    });
+
+    it('colours a suspect citation, without an icon', () => {
+        const sources = [{ index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9 }];
+        const { container } = render(<MessageContent content="Claim [1]." sources={sources} suspectCitations={new Map([[1, 'no_overlap' as const]])} />);
+        const [chip] = chips(container);
+        expect(chip.className).toContain('bg-warning-container');
+        expect(chip.textContent).toBe('1');
+    });
+
+    it('leaves the answer unmarked while the source panel shows a passage', () => {
+        const sources = [
+            { index: 1, fileName: 'a.pdf', fileId: 'f1', content: '', score: 0.9 },
+            { index: 2, fileName: 'b.pdf', fileId: 'f2', content: '', score: 0.8 },
+        ];
+        const { container } = render(
+            <MessageContent content={'One [1].\n\nTwo [2].'} sources={sources} activeCitation={{ n: 2, raw: 2 }} />,
+        );
+        // Owner decision: the highlight belongs on the cited source text in the panel, not on the answer.
+        expect(container.querySelector('[data-cited-active]')).toBeNull();
     });
 
     it('hides the trajectory panel when no trajectory is provided', () => {
@@ -187,8 +218,8 @@ describe('MessageContent', () => {
     });
 
     // The per-answer knowledge-graph control moved out of MessageContent into
-    // the MessageBubble §8 footer (rendered as the .graph-pill next to
-    // "Quellen · N"), so its tests now live with MessageBubble's footer.
+    // the MessageBubble §8 footer's action row, so its tests now live with
+    // MessageBubble's footer.
 
     it('strips citation markers from exported table cells', async () => {
         const { exportRowsToXlsx } = await import('../utils/exportXlsx');
@@ -209,329 +240,148 @@ describe('MessageContent', () => {
     });
 });
 
-describe('MessageContent citation source popover', () => {
+// A mouse or trackpad: the chip opens the DS InlineCitation popover.
+function stubFinePointer(fine: boolean) {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query.includes('pointer: fine') ? fine : false,
+        media: query, onchange: null,
+        addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {},
+        dispatchEvent: () => false,
+    }));
+}
+
+describe('MessageContent source preview (fine pointer: popover)', () => {
     const sources = [
-        { index: 1, fileName: 'bericht.pdf', fileId: 'f1', content: 'Der zitierte Absatz.', score: 0.9, pages: [7] },
+        { index: 1, fileName: 'bericht.pdf', fileId: 'f1', content: 'Der **zitierte** Absatz.', score: 0.9, pages: [7] },
         { index: 2, fileName: 'anhang.pdf', fileId: 'f2', content: 'Zweite Quelle.', score: 0.8, pages: [2] },
     ];
 
     beforeEach(() => {
         vi.resetAllMocks();
-        // The popover renders localized labels, so `t` must be present here —
-        // unlike the bare `language`-only stub the other suites use.
+        stubFinePointer(true);
         vi.mocked(ThemeContext.useTheme).mockReturnValue({
             language: 'en',
-            t: (key: string) => key,
+            t: (k: string) => translations[k as keyof typeof translations]?.en ?? k,
         } as unknown as ReturnType<typeof ThemeContext.useTheme>);
     });
 
-    const firstPill = (container: HTMLElement) => container.querySelector('sup.source-ref') as HTMLElement;
+    const chip = (name: RegExp) => screen.getByRole('button', { name });
 
-    it('opens the source popover when a citation pill is clicked', () => {
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
+    // The compact popover: one head row (icon, title, type chip, „Open in
+    // source") and the cited lines under it. The number/type/page line is no
+    // longer printed — it rides the title's tooltip. „All N sources" is gone
+    // (the footer's source list is right under the answer).
+    it('opens the preview on click, pinned, with head, rendered excerpt and actions', () => {
+        render(<MessageContent content="Claim [1]. More [2]." sources={sources} onOpenPanel={vi.fn()} onShowAllSources={vi.fn()} />);
+        fireEvent.click(chip(/Source 1: bericht/));
+        const dialog = screen.getByRole('dialog', { name: 'Source 1: bericht' });
+        expect(dialog).toHaveTextContent('bericht');
+        expect(dialog).toHaveTextContent('PDF');
+        expect(dialog.querySelector('[title="bericht · Source 1 · PDF · p. 7"]')).not.toBeNull();
+        expect(dialog.querySelector('strong')?.textContent).toBe('zitierte');
+        expect(dialog).not.toHaveTextContent('**');
+        expect(chip(/Source 1: bericht/)).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByRole('button', { name: 'Open in source' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /All 2 sources|Show list/ })).toBeNull();
+    });
+
+    // The last argument is the chip's occurrence (`data-occ`): the answer's
+    // only chip is occurrence 0.
+    it('"Open in source" hands the display number, the raw citation and the chip to the panel', () => {
+        const onOpenPanel = vi.fn();
+        render(<MessageContent content="Claim [2]." sources={sources} onOpenPanel={onOpenPanel} />);
+        fireEvent.click(chip(/Source 1: anhang/));
+        fireEvent.click(screen.getByRole('button', { name: 'Open in source' }));
+        expect(onOpenPanel).toHaveBeenCalledWith(1, 2, expect.any(String), 0);
         expect(screen.queryByRole('dialog')).toBeNull();
+    });
 
-        fireEvent.click(firstPill(container));
+    // With the source panel already open, a chip moves the panel straight to
+    // its passage — no popover in between. Second chip of the answer → occ 1.
+    it('while the source panel is open, a chip click goes straight to the panel', () => {
+        const onOpenPanel = vi.fn();
+        const panel: SourcePanelApi = {
+            target: { messageKey: 'other', source: {} as never, passage: 0 },
+            open: vi.fn(),
+            close: vi.fn(),
+        };
+        render(
+            <SourcePanelContext.Provider value={panel}>
+                <MessageContent content="Claim [1]. More [2]." sources={sources} onOpenPanel={onOpenPanel} />
+            </SourcePanelContext.Provider>,
+        );
+        fireEvent.click(chip(/Source 2: anhang/));
+        expect(onOpenPanel).toHaveBeenCalledWith(2, 2, expect.any(String), 1);
+        expect(screen.queryByRole('dialog')).toBeNull();
+    });
 
+    it('closes on Escape and returns focus to the chip', async () => {
+        render(<MessageContent content="Claim [1]." sources={sources} />);
+        chip(/Source 1/).focus();
+        fireEvent.click(chip(/Source 1/));
+        expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement);
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        expect(screen.queryByRole('dialog')).toBeNull();
+        await waitFor(() => expect(document.activeElement).toBe(chip(/Source 1/)));
+    });
+
+    it('marks the verified span of the passage', () => {
+        render(<MessageContent content="Claim [1]." sources={[{ ...sources[0], content: 'Vorher. Der zitierte Satz. Nachher.' }]} citationSpans={new Map([[1, { start: 8, end: 26 }]])} />);
+        fireEvent.click(chip(/Source 1/));
+        expect(screen.getByRole('dialog').querySelector('mark')?.textContent).toBe('Der zitierte Satz.');
+    });
+
+    it('ignores a malformed span', () => {
+        render(<MessageContent content="Claim [1]." sources={sources} citationSpans={new Map([[1, { start: 5, end: 999 }]])} />);
+        fireEvent.click(chip(/Source 1/));
+        expect(screen.getByRole('dialog').querySelector('mark')).toBeNull();
+    });
+
+    it('shows a spreadsheet chunk as label/value pairs of the cited row', () => {
+        const content = '### Anforderungen.xlsx › Liste\n[tabular.t rows 1–2]\nID: F-06a | Status: Erledigt\nID: F-06b | Status: Offen\n';
+        const start = Array.from(content).length - 'Offen\n'.length;
+        render(<MessageContent content="Claim [1]." sources={[{ index: 1, fileName: 'Anforderungen.xlsx', fileId: 'f1', content, score: 0.9 }]} citationSpans={new Map([[1, { start, end: start + 5 }]])} />);
+        fireEvent.click(chip(/Source 1/));
         const dialog = screen.getByRole('dialog');
-        expect(dialog).toHaveTextContent('bericht.pdf');
-        expect(dialog).toHaveTextContent('S. 7');
-        expect(dialog).toHaveTextContent('Der zitierte Absatz.');
+        expect([...dialog.querySelectorAll('dt')].map(d => d.textContent)).toEqual(['ID', 'Status']);
+        expect([...dialog.querySelectorAll('dd')].map(d => d.textContent)).toEqual(['F-06b', 'Offen']);
+        expect(dialog.querySelector('mark')?.textContent).toBe('Offen');
+        expect(dialog).toHaveTextContent('XLSX');
+        expect(dialog.querySelector('[title="Anforderungen · Source 1 · Spreadsheet"]')).not.toBeNull();
     });
 
-    it('does not open the popover on hover', () => {
-        // The whole point of the change: hover is no longer a trigger.
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.pointerOver(firstPill(container));
-        expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    it('does not open the document directly when a pill is clicked', () => {
-        // Previously a pill click jumped straight into the PDF. Now the click
-        // only reveals the popover; opening is an explicit second action.
-        const onOpenSource = vi.fn();
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={onOpenSource} />);
-
-        fireEvent.click(firstPill(container));
-
-        expect(onOpenSource).not.toHaveBeenCalled();
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-    });
-
-    it('opens the document from the popover button with the clicked source', () => {
-        const onOpenSource = vi.fn();
-        const { container } = render(<MessageContent content="Claim [2]." sources={sources} onOpenSource={onOpenSource} />);
-
-        fireEvent.click(firstPill(container));
-        fireEvent.click(screen.getByRole('button', { name: /openInDocument/i }));
-
-        expect(onOpenSource).toHaveBeenCalledTimes(1);
-        expect(onOpenSource).toHaveBeenCalledWith(expect.objectContaining({ fileId: 'f2', fileName: 'anhang.pdf' }));
-    });
-
-    it('dismisses the popover when the document is opened', () => {
-        // The document viewer opens on top of the answer; leaving the popover
-        // up parks it over the newly opened document.
-        const onOpenSource = vi.fn();
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={onOpenSource} />);
-
-        fireEvent.click(firstPill(container));
-        fireEvent.click(screen.getByRole('button', { name: /openInDocument/i }));
-
-        expect(onOpenSource).toHaveBeenCalledTimes(1);
-        expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    it('leaves focus alone when the document is opened', () => {
-        // Dismissal normally hands focus back to the pill (for Escape), but the
-        // document viewer is taking focus here — pulling it back would yank the
-        // user out of the dialog that just opened.
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        const pill = firstPill(container);
-
-        fireEvent.click(pill);
-        fireEvent.click(screen.getByRole('button', { name: /openInDocument/i }));
-
-        expect(document.activeElement).not.toBe(pill);
-    });
-
-    it('closes the popover when the same pill is clicked again', () => {
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        const pill = firstPill(container);
-
-        fireEvent.click(pill);
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-
-        fireEvent.click(pill);
-        expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    it('switches the popover to another citation when a different pill is clicked', () => {
-        const { container } = render(<MessageContent content="Both [1] and [2]." sources={sources} onOpenSource={vi.fn()} />);
-        const pills = container.querySelectorAll('sup.source-ref');
-
-        fireEvent.click(pills[0]);
-        expect(screen.getByRole('dialog')).toHaveTextContent('bericht.pdf');
-
-        fireEvent.click(pills[1]);
-        expect(screen.getByRole('dialog')).toHaveTextContent('anhang.pdf');
-    });
-
-    it('remounts the popover when switching pills from the keyboard', () => {
-        // A keyboard switch never closes the popover in between, so without a
-        // remount the anchored position would stay parked on the first pill:
-        // useAnchoredPosition measures in a layout effect keyed on `open`, and
-        // the trigger is a mutable ref it cannot observe. jsdom reports zero
-        // rects, so identity of the dialog node is what we can assert.
-        const { container } = render(<MessageContent content="Both [1] and [2]." sources={sources} onOpenSource={vi.fn()} />);
-        const pills = container.querySelectorAll('sup.source-ref');
-
-        fireEvent.keyDown(pills[0], { key: 'Enter' });
-        const first = screen.getByRole('dialog');
-        expect(first).toHaveTextContent('bericht.pdf');
-
-        fireEvent.keyDown(pills[1], { key: 'Enter' });
-        const second = screen.getByRole('dialog');
-        expect(second).toHaveTextContent('anhang.pdf');
-        expect(second).not.toBe(first);
-    });
-
-    it('closes the popover on Escape', () => {
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.click(firstPill(container));
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-
-        fireEvent.keyDown(document, { key: 'Escape' });
-
-        expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    it('closes the popover on an outside click', () => {
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.click(firstPill(container));
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-
-        fireEvent.mouseDown(document.body);
-
-        expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    it('opens the popover from the keyboard with Enter', () => {
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.keyDown(firstPill(container), { key: 'Enter' });
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-    });
-
-    it('exposes citation pills as focusable buttons', () => {
-        // These attributes have to survive rehype-sanitize: the schema matches
-        // HAST property names, so a hyphenated entry would be stripped silently
-        // and the pill would drop out of the tab order.
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        const pill = firstPill(container);
-        expect(pill.getAttribute('role')).toBe('button');
-        expect(pill.getAttribute('tabindex')).toBe('0');
-        expect(pill.getAttribute('aria-haspopup')).toBe('dialog');
-    });
-
-    it('renders the plain 320-char snippet with no <mark> when no span is available', () => {
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.click(firstPill(container));
-
-        const dialog = screen.getByRole('dialog');
-        expect(dialog).toHaveTextContent(sources[0].content);
-        expect(dialog.querySelector('mark.citation-span')).toBeNull();
-    });
-
-    describe('with a verified citation span', () => {
-        // Umlaut before the span, as the brief specifies; the rune-safety of
-        // the slicing itself is covered by excerptAroundSpan's own unit tests.
-        const spanContent = 'Die Übersicht zeigt: der zitierte Paragraph regelt die Kündigungsfrist ausführlich und gilt ab sofort für den gesamten Vertrag.';
-        const quotedText = 'zitierte Paragraph';
-        const start = spanContent.indexOf(quotedText);
-        const end = start + Array.from(quotedText).length;
-        const spanSources = [
-            { index: 1, fileName: 'vertrag.pdf', fileId: 'f9', content: spanContent, score: 0.9 },
-        ];
-
-        it('renders a <mark class="citation-span"> whose text is exactly the quoted span', () => {
-            const { container } = render(
-                <MessageContent
-                    content="Claim [1]."
-                    sources={spanSources}
-                    citationSpans={new Map([[1, { start, end }]])}
-                    onOpenSource={vi.fn()}
-                />,
-            );
-            fireEvent.click(firstPill(container));
-
-            const dialog = screen.getByRole('dialog');
-            const mark = dialog.querySelector('mark.citation-span');
-            expect(mark).not.toBeNull();
-            expect(mark).toHaveTextContent(Array.from(spanContent).slice(start, end).join(''));
-        });
-
-        it('shows at most 160 chars of context on each side, with an ellipsis when truncated', () => {
-            const long = 'x'.repeat(500) + 'ZIEL-SATZ' + 'y'.repeat(500);
-            const longSources = [
-                { index: 1, fileName: 'lang.pdf', fileId: 'f10', content: long, score: 0.9 },
-            ];
-            const { container } = render(
-                <MessageContent
-                    content="Claim [1]."
-                    sources={longSources}
-                    citationSpans={new Map([[1, { start: 500, end: 509 }]])}
-                    onOpenSource={vi.fn()}
-                />,
-            );
-            fireEvent.click(firstPill(container));
-
-            const dialog = screen.getByRole('dialog');
-            expect(dialog).toHaveTextContent(`…${'x'.repeat(160)}`);
-            expect(dialog).toHaveTextContent(`${'y'.repeat(160)}…`);
-            expect(dialog.querySelector('mark.citation-span')).toHaveTextContent('ZIEL-SATZ');
-        });
-
-        it('survives a source with no content at all', () => {
-            // MessageSource.content is optional on the wire; a span arriving
-            // alongside a content-less source must degrade to an empty snippet,
-            // never throw out of the render (Array.from(undefined) does).
-            const noContentSources = [
-                { index: 1, fileName: 'leer.pdf', fileId: 'f12', score: 0.9 } as (typeof spanSources)[number],
-            ];
-            const { container } = render(
-                <MessageContent
-                    content="Claim [1]."
-                    sources={noContentSources}
-                    citationSpans={new Map([[1, { start: 0, end: 5 }]])}
-                    onOpenSource={vi.fn()}
-                />,
-            );
-            fireEvent.click(firstPill(container));
-
-            const dialog = screen.getByRole('dialog');
-            expect(dialog).toHaveTextContent('leer.pdf');
-            expect(dialog.querySelector('mark.citation-span')).toBeNull();
-        });
-
-        it('falls back to the plain snippet, with no <mark>, when the span is malformed', () => {
-            // 29-char content, span end (5) < start (20): out of range / backwards.
-            const shortContent = 'Ein kurzer Beispieltext hier.';
-            const shortSources = [
-                { index: 1, fileName: 'kurz.pdf', fileId: 'f11', content: shortContent, score: 0.9 },
-            ];
-            const { container } = render(
-                <MessageContent
-                    content="Claim [1]."
-                    sources={shortSources}
-                    citationSpans={new Map([[1, { start: 20, end: 5 }]])}
-                    onOpenSource={vi.fn()}
-                />,
-            );
-            fireEvent.click(firstPill(container));
-
-            const dialog = screen.getByRole('dialog');
-            expect(dialog).toHaveTextContent(shortContent);
-            expect(dialog.querySelector('mark.citation-span')).toBeNull();
-        });
+    it('offers no actions without handlers', () => {
+        render(<MessageContent content="Claim [1]." sources={sources} />);
+        fireEvent.click(chip(/Source 1/));
+        expect(screen.queryByRole('button', { name: 'Open in source' })).toBeNull();
     });
 });
 
-// Wave-3 Task 6: source dates on the citation popover. createdAt/publishedAt
-// are both optional on the wire (old messages, non-RSS files), so the date
-// line must degrade to nothing rather than rendering "—" or "Invalid Date".
-describe('MessageContent citation popover source date', () => {
+describe('MessageContent source preview (touch: sheet)', () => {
     beforeEach(() => {
         vi.resetAllMocks();
+        stubFinePointer(false);
         vi.mocked(ThemeContext.useTheme).mockReturnValue({
             language: 'en',
-            t: (key: string) => key,
+            t: (k: string) => translations[k as keyof typeof translations]?.en ?? k,
         } as unknown as ReturnType<typeof ThemeContext.useTheme>);
     });
 
-    const firstPill = (container: HTMLElement) => container.querySelector('sup.source-ref') as HTMLElement;
-
-    it('shows the date line, with the real t() label, when createdAt is set', () => {
-        const sources = [
-            { index: 1, fileName: 'doc.pdf', fileId: 'f1', content: 'Body.', score: 0.9, createdAt: '2026-01-05T00:00:00Z' },
-        ];
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.click(firstPill(container));
-
-        const dialog = screen.getByRole('dialog');
-        expect(dialog).toHaveTextContent('sourceDateLabel');
-        expect(dialog).toHaveTextContent('01/05/2026');
-    });
-
-    it('omits the date line entirely when neither createdAt nor publishedAt is set', () => {
-        const sources = [
-            { index: 1, fileName: 'doc.pdf', fileId: 'f1', content: 'Body.', score: 0.9 },
-        ];
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.click(firstPill(container));
-
-        const dialog = screen.getByRole('dialog');
-        expect(dialog).not.toHaveTextContent('sourceDateLabel');
-    });
-
-    it('prefers publishedAt over createdAt when both are set', () => {
-        const sources = [
-            {
-                index: 1, fileName: 'feed-item.html', fileId: 'f1', content: 'Body.', score: 0.9,
-                createdAt: '2026-01-05T00:00:00Z', publishedAt: '2025-12-01T00:00:00Z',
-            },
-        ];
-        const { container } = render(<MessageContent content="Claim [1]." sources={sources} onOpenSource={vi.fn()} />);
-        fireEvent.click(firstPill(container));
-
-        const dialog = screen.getByRole('dialog');
-        expect(dialog).toHaveTextContent('12/01/2025');
-        expect(dialog).not.toHaveTextContent('01/05/2026');
+    it('opens the same preview in a bottom sheet', () => {
+        const sources = [{ index: 1, fileName: 'bericht.pdf', fileId: 'f1', content: 'Der Absatz.', score: 0.9, pages: [7] }];
+        render(<MessageContent content="Claim [1]." sources={sources} onOpenPanel={vi.fn()} />);
+        const chipEl = screen.getByRole('button', { name: /Source 1: bericht/ });
+        fireEvent.click(chipEl);
+        const dialog = screen.getByRole('dialog', { name: 'Source 1: bericht' });
+        expect(dialog).toHaveTextContent('Der Absatz.');
+        expect(dialog).toHaveTextContent('Source 1 · PDF · p. 7');
+        expect(chipEl).toHaveAttribute('aria-expanded', 'true');
     });
 });
 
 describe('MessageContent — math', () => {
     beforeEach(() => {
-        vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'de' } as ReturnType<typeof ThemeContext.useTheme>);
+        vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'de', t: (k: string) => k } as unknown as ReturnType<typeof ThemeContext.useTheme>);
     });
 
     it('renders display math with KaTeX', () => {
@@ -552,7 +402,7 @@ describe('MessageContent — math', () => {
     it('does not turn an index inside math into a citation pill', () => {
         const sources = [{ fileName: 'a.pdf', content: 'x' }] as never;
         const { container } = render(<MessageContent content={'Der Vektor $v[1]$ laut [1].'} sources={sources} />);
-        expect(container.querySelectorAll('sup[data-source-index]').length).toBe(1);
+        expect(container.querySelectorAll('button.citation-chip').length).toBe(1);
         // KaTeX keeps the TeX source in the MathML annotation; pill HTML
         // injected into the formula would show up there.
         expect(container.querySelector('.katex annotation')?.textContent).toBe('v[1]');
@@ -561,7 +411,7 @@ describe('MessageContent — math', () => {
     it('keeps escaped citations working', () => {
         const sources = [{ fileName: 'a.pdf', content: 'x' }] as never;
         const { container } = render(<MessageContent content={'Laut \\[1\\].'} sources={sources} />);
-        expect(container.querySelectorAll('sup[data-source-index]').length).toBe(1);
+        expect(container.querySelectorAll('button.citation-chip').length).toBe(1);
         expect(container.querySelector('.katex')).toBeNull();
     });
 

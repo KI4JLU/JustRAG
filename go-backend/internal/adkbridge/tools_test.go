@@ -15,6 +15,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/chatpolicy"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -65,7 +66,8 @@ func toolOutcome(evs []*session.Event, name string) (asked bool, refusal string)
 }
 
 // A call the scope can never run is refused before approval: the user is
-// not asked to approve something that would fail anyway.
+// not asked to approve something that would fail anyway. A viewer can
+// never run a KB write.
 func TestRoleRefusalPrecedesApproval(t *testing.T) {
 	rec := &recorder{}
 	imp := NewTool(ToolSpec{Name: "confluence_import", Policy: PolicyFor("confluence_import")}, rec.dispatch)
@@ -107,15 +109,40 @@ func TestDispatchWithoutScopeFails(t *testing.T) {
 	}
 }
 
-func TestRoleGateBlocksKBWriteForViewer(t *testing.T) {
-	rec := &recorder{}
-	imp := NewTool(ToolSpec{Name: "confluence_import", Policy: PolicyFor("confluence_import")}, rec.dispatch).(*dispatchTool)
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"})
-	if _, err := imp.dispatchChecked(ctx, map[string]any{"spaceKey": "X"}); err == nil || !strings.Contains(err.Error(), "requires role edit") {
-		t.Fatalf("err = %v", err)
+// TestKBWriteFollowsAddSources pins the KB-write gate: the edit role AND the
+// addSources capability. A viewer never writes — not even with a scope that
+// claims addSources (CapabilitiesFor never grants it to view; the role
+// floor is the second line) — an editor or owner without the capability
+// may not, and a scope without capabilities (zero value) fails closed.
+//
+// Oracle: the recorder's dispatch count, written out by hand per case from
+// the rule "a KB write needs edit and addSources; viewers never add".
+func TestKBWriteFollowsAddSources(t *testing.T) {
+	withAdd := kbaccess.Capabilities{SeeSources: true, AddSources: true}
+	cases := []struct {
+		name string
+		sc   Scope
+		ok   bool
+	}{
+		{"viewer_without_add", Scope{UserID: "u", KBID: "kb", Role: "view"}, false},
+		{"viewer_with_add", Scope{UserID: "u", KBID: "kb", Role: "view", Capabilities: withAdd}, false},
+		{"editor_without_add", Scope{UserID: "u", KBID: "kb", Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, ManageSources: true}}, false},
+		{"editor_with_add", Scope{UserID: "u", KBID: "kb", Role: "edit", Capabilities: withAdd}, true},
+		{"owner_zero_capabilities", Scope{UserID: "u", KBID: "kb", Role: "owner"}, false},
+		{"no_role_with_add", Scope{UserID: "u", KBID: "kb", Capabilities: withAdd}, false},
 	}
-	if rec.n != 0 {
-		t.Fatal("dispatched despite role gate")
+	for _, tc := range cases {
+		for _, tool := range []string{"confluence_import", "library_add_to_kb"} {
+			rec := &recorder{}
+			imp := NewTool(ToolSpec{Name: tool, Policy: PolicyFor(tool)}, rec.dispatch).(*dispatchTool)
+			_, err := imp.dispatchChecked(WithScope(context.Background(), tc.sc), map[string]any{"spaceKey": "X"})
+			if tc.ok != (err == nil) || tc.ok != (rec.n == 1) {
+				t.Errorf("%s/%s: err=%v dispatched=%d, want ok=%v", tc.name, tool, err, rec.n, tc.ok)
+			}
+			if !tc.ok && !errors.Is(err, ErrForbiddenTool) {
+				t.Errorf("%s/%s: err=%v, want ErrForbiddenTool", tc.name, tool, err)
+			}
+		}
 	}
 }
 
@@ -135,8 +162,8 @@ func TestPolicyDefaults(t *testing.T) {
 	for name, want := range map[string]ToolPolicy{
 		"kb_search":         {SideEffect: SideEffectNone, RequiresRole: "view", Approval: ApprovalNever},
 		"web_search":        {SideEffect: SideEffectExternalRead, RequiresRole: "view", Approval: ApprovalAlways},
-		"confluence_import": {SideEffect: SideEffectKBWrite, RequiresRole: "edit", Approval: ApprovalAlways},
-		"library_add_to_kb": {SideEffect: SideEffectKBWrite, RequiresRole: "edit", Approval: ApprovalAlways},
+		"confluence_import": {SideEffect: SideEffectKBWrite, RequiresRole: "edit", RequiresCapability: "addSources", Approval: ApprovalAlways},
+		"library_add_to_kb": {SideEffect: SideEffectKBWrite, RequiresRole: "edit", RequiresCapability: "addSources", Approval: ApprovalAlways},
 		"unknown_remote":    {SideEffect: SideEffectExternalWrite, RequiresRole: "edit", Approval: ApprovalAlways},
 	} {
 		if got := PolicyFor(name); got != want {
@@ -234,6 +261,12 @@ func TestPolicyRefusalStaysModelVisible(t *testing.T) {
 	got, _ := imp.result(ctx, map[string]any{"spaceKey": "X"})["error"].(string)
 	if !strings.Contains(got, "requires role edit") {
 		t.Fatalf("error = %q", got)
+	}
+	// An editor without the capability gets the capability refusal, also
+	// model-visible.
+	edCtx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
+	if got, _ := imp.result(edCtx, map[string]any{"spaceKey": "X"})["error"].(string); !strings.Contains(got, "requires the addSources permission") {
+		t.Fatalf("editor error = %q", got)
 	}
 	if got, _ := imp.result(context.Background(), map[string]any{})["error"].(string); got != ErrNoScope.Error() {
 		t.Fatalf("no-scope error = %q", got)

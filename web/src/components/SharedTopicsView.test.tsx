@@ -10,9 +10,7 @@ import { translations } from '../translations';
 import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
-import { SharingProvider } from '../contexts/SharingContext';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
-import { useSharing } from '../hooks/useSharing';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 
 /** Opens the topic card's ⋮ menu; the card actions live there. */
@@ -85,11 +83,15 @@ const NAV = {
   onViewDiscover: vi.fn(),
   onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
-  onViewAdmin: vi.fn(),
+  onEditGlobalKb: vi.fn(),
+  onViewLegal: vi.fn(),
   // The header search's destinations (KI-837). No test here selects a hit.
   onOpenTopic: vi.fn(),
   onOpenSource: vi.fn(),
   onOpenChat: vi.fn(),
+  // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
+  // Mitglieder through this jump.
+  onOpenTopicSettings: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
@@ -101,25 +103,14 @@ beforeEach(() => {
   NAV.onViewDiscover.mockClear();
   NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
-  NAV.onViewAdmin.mockClear();
+  NAV.onOpenTopicSettings.mockClear();
 });
-
-// The REAL useSharing hook, published on the context HomeView now reads. It
-// runs in its own component because it calls useToast() and therefore has to
-// sit under ToastProvider, and it is the real hook rather than a stub because
-// the share button's "don't also open the KB" behaviour lives inside it
-// (useSharing.ts:27) — a stub would make every share assertion in this file a
-// statement about the stub.
-function SharingHarness({ children }: { children: React.ReactNode }) {
-  const sharing = useSharing({ username: 'grace' });
-  return <SharingProvider value={sharing}>{children}</SharingProvider>;
-}
 
 /**
  * The REAL `useKbSearchState`, published on the context the chrome's search
  * field reads (cards KI-787, KI-837).
  *
- * Real, not a stub, for the same reason `SharingHarness` is: the field's text
+ * Real, not a stub: the field's text
  * and the caret handoff live INSIDE the hook, and a stubbed
  * `{ query, setQuery }` would turn every assertion that touches the header
  * into a statement about the stub. (KI-837 removed the „KBs entdecken"
@@ -154,11 +145,9 @@ function renderView(ui: React.ReactElement) {
     <DesignSystemThemeProvider>
       <ToastProvider>
         <ModalProvider>
-          <SharingHarness>
-            <AppNavProvider value={NAV}>
-              <KbSearchHarness>{ui}</KbSearchHarness>
-            </AppNavProvider>
-          </SharingHarness>
+          <AppNavProvider value={NAV}>
+            <KbSearchHarness>{ui}</KbSearchHarness>
+          </AppNavProvider>
         </ModalProvider>
       </ToastProvider>
     </DesignSystemThemeProvider>
@@ -313,24 +302,51 @@ describe('SharedTopicsView card actions', () => {
      old file and each had its own `label`: the settings gate is the advanced
      panel, the pencil is rename. Collapsing them to one const made the pencil
      cases assert against the wrong control. */
-  const label = translations.kbAdvancedSettings.en;
-  const renameLabel = translations.renameKb.en;
-  it('shows the trigger for a caller whose myRole is admin', async () => {
+  // The settings item carries the DS ActionMenu badge, which is part of its name.
+  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
+  const renameLabel = translations.rename.en;
+  /* „Teilen" opens Thema-Einstellungen → Mitglieder, so it is offered to the
+     callers who may open that window: KB admin and owner (kbAdminChain), and a
+     superadmin, whom kbaccess.EffectiveRole resolves to owner on every KB.
+     ORACLE: that role ladder and translations.ts. The fixture's userId
+     ('owner-1') is not the caller's ('user-1'), so the legacy owner column
+     decides none of these cases. */
+  it('shows the share trigger for a caller whose myRole is admin', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
     expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
   });
 
-  it('hides the trigger for a caller whose myRole is edit', async () => {
+  it('hides the share trigger for a caller whose myRole is edit', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'edit' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
     expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
   });
 
-  it('hides the trigger for a caller whose myRole is view', async () => {
+  it('hides the share trigger for a caller whose myRole is view', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
     expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
+  });
+
+  it('shows the share trigger for a superadmin whose own KB role is only view', async () => {
+    authState.role = 'superadmin';
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
+    renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
+    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+  });
+
+  /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
+     destination — this topic, Mitglieder — and the click must not also reach
+     the card it sits in — the settings jump opens the topic itself. */
+  it('opens the topic settings on Mitglieder without also opening the card', async () => {
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
+    renderView(<SharedTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
+    expect(onSelectKB).not.toHaveBeenCalled();
   });
 
   it('shows the trigger for a system admin who is KB admin but not owner', async () => {

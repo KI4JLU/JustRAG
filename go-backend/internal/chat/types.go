@@ -120,6 +120,25 @@ type ChatRow struct {
 	AgentID   *string   `json:"agentId" db:"agent_id"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+	// BranchedFromChatID is the chat this one was branched from
+	// (POST /api/chats/{id}/branch), nil for an ordinary chat. The history
+	// marks a branched chat with the branch icon. The origin may have been
+	// deleted since; the id is not a reference to follow.
+	BranchedFromChatID *string `json:"branchedFromChatId,omitempty" db:"branched_from_chat_id"`
+	// HasBranches is set by GetChats only (the chat list): true when the chat
+	// holds at least two sibling messages — an edited question, a regenerated
+	// answer, or a fork made inside the chat before branching opened a new
+	// chat — so the history marks those older branched chats too. Every other
+	// read leaves it false, and it is omitted from the JSON then.
+	HasBranches bool `json:"hasBranches,omitempty" db:"-"`
+}
+
+// BranchResult is a new branch chat and the id of the copy of the message
+// it was branched at — the parent the client sends its next turn under (or
+// the question it asks to have answered). Empty for an empty branch.
+type BranchResult struct {
+	ChatRow
+	CopiedMessageID string `json:"copiedMessageId,omitempty"`
 }
 
 // MessageRow represents a row from the messages table.
@@ -166,9 +185,12 @@ type MessageRow struct {
 	// `omitempty` keeps the key absent for the overwhelming majority of
 	// turns, which is what makes "absent means not run" hold.
 	Conflicts []MessageConflict `json:"conflicts,omitempty" db:"conflicts"`
-	TeamID    *string           `json:"teamId,omitempty" db:"team_id"`
-	AgentID   *string           `json:"agentId,omitempty" db:"agent_id"`
-	CreatedAt time.Time         `json:"createdAt" db:"created_at"`
+	// Attachments are the files attached to a user message (migration 0090),
+	// filled by GetMessages; omitted when there are none.
+	Attachments []MessageAttachment `json:"attachments,omitempty" db:"-"`
+	TeamID      *string             `json:"teamId,omitempty" db:"team_id"`
+	AgentID     *string             `json:"agentId,omitempty" db:"agent_id"`
+	CreatedAt   time.Time           `json:"createdAt" db:"created_at"`
 }
 
 // DecodedSources returns Sources as typed chat sources for the few callers
@@ -210,6 +232,11 @@ type AddMessageParams struct {
 	// agent that produced it (nil on user messages and non-team turns).
 	TeamID  *string
 	AgentID *string
+	// AttachmentIDs are the user_files ids attached to a user message, in the
+	// order the user attached them (message_attachments, migration 0090).
+	// Written in the same transaction as the message. Every id must already
+	// have been checked to belong to the message's author.
+	AttachmentIDs []string
 }
 
 // Store is the interface for chat-related database operations.
@@ -221,6 +248,13 @@ type Store interface {
 	// UpdateChatTitle renames chatID if userID owns it; store.ErrNotFound
 	// when no such chat belongs to the user. Leaves updated_at untouched.
 	UpdateChatTitle(ctx context.Context, chatID, userID, title string) error
+	// BranchChat copies chatID's conversation from its first message down to
+	// messageID into a new chat of the same user and KB, branched from
+	// chatID; an empty messageID copies nothing (a branch before the first
+	// question). Ordinary KB chats only. store.ErrNotFound when the chat is
+	// not the user's or not branchable (library, research, agent chat), or
+	// the message is not in it.
+	BranchChat(ctx context.Context, chatID, messageID, userID string) (*BranchResult, error)
 	GetChatMessages(ctx context.Context, chatID string) ([]MessageRow, error)
 	GetMessageAncestors(ctx context.Context, messageID, chatID string) ([]MessageRow, error)
 	AddMessage(ctx context.Context, params AddMessageParams) (*MessageRow, error)

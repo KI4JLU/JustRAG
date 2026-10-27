@@ -150,16 +150,23 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, runTimeout := agentTurnLimits(ctx, reader)
+	// A reader without seeCitations gets the run's events through the
+	// citation filter; the stored answer and sources stay complete.
+	var eventFilter func() agui.EventFilter
+	if !access.Capabilities().SeeCitations {
+		eventFilter = newAgentChatCitationFilter
+	}
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	agui.NewHandler(agui.Config{
-		AppName:    agentChatApp,
-		Runner:     run,
-		Sessions:   h.d.Sessions,
-		Runs:       h.d.Runs,
-		Scope:      h.scope(access),
-		Hooks:      hooks,
-		RunTimeout: runTimeout,
+		AppName:        agentChatApp,
+		Runner:         run,
+		Sessions:       h.d.Sessions,
+		Runs:           h.d.Runs,
+		Scope:          h.scope(access),
+		Hooks:          hooks,
+		RunTimeout:     runTimeout,
+		NewEventFilter: eventFilter,
 	}).ServeHTTP(w, r)
 }
 
@@ -261,7 +268,8 @@ func (h *AgentChatHandler) forKB(ctx context.Context, kbID string) (SiteConfigRe
 }
 
 // scope builds the run scope from the authenticated request: the user from
-// auth, the KB and role from kbaccess, the privilege flag from the GLOBAL
+// auth, the KB, role and source capabilities from kbaccess (the KB-writing
+// actions need addSources), the privilege flag from the GLOBAL
 // reader (a KB override must not unlock privileged tools).
 func (h *AgentChatHandler) scope(access *kbaccess.KBAccessResult) agui.ScopeFunc {
 	return func(r *http.Request) (adkbridge.Scope, error) {
@@ -274,6 +282,7 @@ func (h *AgentChatHandler) scope(access *kbaccess.KBAccessResult) agui.ScopeFunc
 			KBID:            access.KB.ID,
 			Role:            access.Role,
 			IsGlobal:        access.KB.IsGlobal,
+			Capabilities:    access.Capabilities(),
 			AllowPrivileged: AgentsAllowPrivilegedTools(r.Context(), h.d.SiteConfig),
 		}, nil
 	}

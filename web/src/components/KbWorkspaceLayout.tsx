@@ -9,12 +9,12 @@ import { useKbLayout } from '../contexts/KbLayoutContext';
 import { SourcesPanel } from './sources/SourcesPanel';
 import { HistoryPanel } from './history/HistoryPanel';
 import { ChatView } from './ChatView';
-import { KbHeaderTitle } from './KbHeaderTitle';
 import { type MobileTab } from './MobileTabBar';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
-import { hasKbAdminRole } from '../utils/kbAccess';
+import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
+import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
 
 interface KbWorkspaceLayoutProps {
@@ -60,21 +60,21 @@ interface KbWorkspaceLayoutProps {
 export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: KbWorkspaceLayoutProps) {
   const { t } = useTheme();
   const { user } = useAuth();
-  const { currentKb, setKbView, handleGoHome, kbMgmt } = useKbCore();
+  const { currentKb, setKbView, handleGoHome } = useKbCore();
   const { sidebar, systemPromptOpen, setSystemPromptOpen } = useKbLayout();
 
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
-  const canEditSystemPrompt = !!currentKb && ((!!user?.id && currentKb.userId === user.id) || hasKbAdminRole(currentKb, user?.role));
+  const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
   const headerActions = canEditSystemPrompt ? (
     <Button
       id="kb-header-system-prompt-toggle"
       type="button"
       variant="ghost"
       size="icon"
-      onClick={() => setSystemPromptOpen(!systemPromptOpen)}
-      title={t('systemPromptLabel')}
-      aria-label={t('systemPromptLabel')}
+      onClick={() => setSystemPromptOpen(true)}
+      title={t('kbSettingsTitle')}
+      aria-label={t('kbSettingsTitle')}
       aria-pressed={systemPromptOpen || Boolean(currentKb.systemPrompt)}
     >
       <Settings size={20} aria-hidden="true" />
@@ -92,7 +92,12 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   // 'history' und 'files' zeigen ein eigenes Panel, alles andere ist der
   // Chat — seit dem 22.09.2026 die einzige Ansicht des Hauptbereichs.
   // `useViewState` leitet für den Swipe-Start über denselben Helfer ab.
-  const activeMobileTab: MobileTab = deriveActiveMobileTab(mobileTab);
+  //
+  // Without seeSources there is no sources column (below), so a swipe that
+  // lands on 'files' shows the chat.
+  const { seeSources, addSources } = useKbSourceRights();
+  const derivedMobileTab: MobileTab = deriveActiveMobileTab(mobileTab);
+  const activeMobileTab: MobileTab = !seeSources && derivedMobileTab === 'files' ? 'chat' : derivedMobileTab;
 
 
   /* Welcher Reiter welchen Bereich zeigt, ist Daten — die Shell leitet nichts
@@ -101,17 +106,20 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   const mobileTabs: MobilePaneTab[] = useMemo(() => [
     { id: 'history', icon: <History aria-hidden="true" />, label: t('tabHistory'), pane: 'left' },
     { id: 'chat', icon: <MessageSquare aria-hidden="true" />, label: t('tabChat'), pane: 'main' },
-    { id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' },
-  ], [t]);
+    ...(seeSources ? [{ id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' as const }] : []),
+  ], [t, seeSources]);
 
-  /* Was vom `chat-header` übrig ist: der Zurück-Knopf und der KB-Name.
+  /* Was vom `chat-header` übrig ist: der Zurück-Knopf. Der KB-Name steht
+   * nicht mehr in der Leiste (Redesign, Entwickler 23.10.2026): er steht
+   * bereits als Überschrift des leeren Chats, und Umbenennen bleibt über den
+   * Stift auf der Karte der Übersicht.
    *
    * `handleGoHome` und nicht `handleViewHome`: Verlassen setzt kbView auf
    * 'chat' zurück (heute der einzige Wert; die Regel bleibt für die
    * spätere Tool-Anbindung).
    *
    * Kein Heading — die Leiste ist Chrome, die Überschrift der Seite gehört dem
-   * Inhalt. `KbHeaderTitle` rendert `<span>`s, passt also hinein. */
+   * Inhalt. */
   const pageLabel = (
     <span className="flex min-w-0 items-center gap-2">
       <Button
@@ -125,7 +133,6 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       >
         <ArrowLeft size={20} aria-hidden="true" />
       </Button>
-      <KbHeaderTitle kb={currentKb} systemRole={user?.role} onRename={kbMgmt.handleRenameKB} />
     </span>
   );
 
@@ -149,7 +156,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
           title={t('goToHome')}
           aria-label={t('goToHome')}
         >
-          <Logo product="RAG" />
+          <Logo product="RAG" size="sm" />
         </Button>
       }
       nav={<HistoryPanel />}
@@ -165,8 +172,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
          search (out of scope). */
       search={<WorkspaceSearch />}
       headerActions={headerActions}
-      // The same user menu as every other sidebar (account, language, colour
-      // scheme, Style); it stays reachable in the collapsed rail as the avatar.
+      // The same user menu as every other sidebar (account, settings, help);
+      // it stays reachable in the collapsed rail as the avatar.
       sidebarFooter={<AppUserMenu />}
       leftOpen={sidebar.isLeftSidebarOpen}
       onLeftOpenChange={sidebar.setIsLeftSidebarOpen}
@@ -179,8 +186,20 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       }}
       collapseLabel={t('collapseHistorySidebar')}
       expandLabel={t('expandHistorySidebar')}
-      rightPanel={{
+      /* The sources column only for a caller who may see the source list
+         (capabilities.seeSources). Without it nothing in the column could be
+         used — no list, and every other source right (add, download, manage)
+         sits on top of seeSources — so there is no column, no rail, no
+         toggle and no mobile tab rather than an empty one. */
+      rightPanel={seeSources ? {
         content: <SourcesPanel />,
+        // The column's title sits in its header row, beside the collapse
+        // toggle — one row, not a second heading row above the list.
+        header: (
+          <h2 className="m-0 truncate text-[15px] font-medium text-on-surface">
+            {addSources ? t('addSources') : t('sources')}
+          </h2>
+        ),
         // Collapsed: one icon per source with the hover preview, like the history rail.
         collapsedPreview: <SourcesRail />,
         label: t('sources'),
@@ -198,7 +217,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
         },
         expandLabel: t('expandSourcesSidebar'),
         collapseLabel: t('collapseSourcesSidebar'),
-      }}
+      } : undefined}
       mobileTabs={mobileTabs}
       activeMobileTab={activeMobileTab}
       onMobileTabChange={handleMobileTabChange}

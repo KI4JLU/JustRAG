@@ -1,101 +1,58 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useId, useState, useEffect, useMemo } from 'react';
 import { Save, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { Button, Input } from '@ki4jlu/design-system';
-import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
+import { Button, Card, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, NavItem } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
-import { CheckboxFieldRow, FieldRow, SelectFieldRow, TextareaFieldRow } from '../form/FieldRow';
+import { CheckboxFieldRow, FieldRow, SelectFieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
 import { isChatWebSearchAvailable } from '../../utils/chatWebSearch';
 import AdminAgentMetricsCard from './AdminAgentMetricsCard';
 import AdminMCPSection from './AdminMCPSection';
+import { FooterActions } from './FooterActions';
+import { SECTION_CONFIGS, type SectionId } from './agentSections';
 import { validatePolicyJSON, validateToolsByRouteJSON, previewPolicy, type PolicyEnabledMap } from './policyPreview';
 
 interface AdminAgentTabProps {
     siteConfigs: Record<string, string>;
     setSiteConfigs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
     onSubmit: (e: React.FormEvent) => void;
+    /** The dialog's footer, where Speichern goes. */
+    footerSlot?: HTMLElement | null;
 }
 
 const STORAGE_KEY = 'admin-agent-sections-open-v1';
 
-const SECTION_CONFIGS = [
-    { id: 'general', titleKey: 'agentSectionGeneral', i18nKeys: ['defaultTopK', 'scoreDropThreshold', 'contextWindowSize', 'chatAnswerTemperature'], settingKeys: ['default_top_k', 'score_drop_threshold', 'context_window_size', 'chat_answer_temperature'] },
-    { id: 'hybrid', titleKey: 'agentSectionHybridSearch', i18nKeys: ['minSimilarityThreshold', 'mmrLambda', 'rrfWeightVector', 'rrfWeightBM25', 'bm25SimpleArmEnabled', 'bm25ScoringMode', 'bm25K1', 'bm25B', 'hnswEfSearch', 'mrlTwoPassEnabled', 'queryInstruction', 'hyPESearchEnabled'], settingKeys: ['min_similarity_threshold', 'mmr_lambda', 'rrf_weight_vector', 'rrf_weight_bm25', 'bm25_simple_arm_enabled', 'bm25_scoring_mode', 'bm25_k1', 'bm25_b', 'hnsw_ef_search', 'mrl_two_pass_enabled', 'query_instruction', 'hype_search_enabled'] },
-    { id: 'reranker', titleKey: 'agentSectionReranker', i18nKeys: ['rerankBlendAlpha', 'rerankBlendAlphaLookup', 'rerankBlendAlphaEnumeration', 'rerankBlendAlphaComplexReasoning', 'rerankBlendAlphaEntity', 'hybridDynamicAlphaEnabled', 'hybridDynamicAlphaSensitivity', 'rerankUseChatTemplate', 'rerankInstruction'], settingKeys: ['rerank_blend_alpha', 'rerank_blend_alpha_lookup', 'rerank_blend_alpha_enumeration', 'rerank_blend_alpha_complex_reasoning', 'rerank_blend_alpha_entity', 'hybrid_dynamic_alpha_enabled', 'hybrid_dynamic_alpha_sensitivity', 'rerank_use_chat_template', 'rerank_instruction'] },
-    { id: 'topn', titleKey: 'agentSectionPerRouteTopN', i18nKeys: ['topNLookup', 'topNEnumeration', 'topNComplexReasoning'], settingKeys: ['top_n_lookup', 'top_n_enumeration', 'top_n_complex_reasoning'] },
-    { id: 'compression', titleKey: 'agentSectionCompression', i18nKeys: ['chatContextCompressionEnabled', 'chatContextCompressionMinChunks', 'chatContextCompressionThreshold', 'chatContextCompressionModel'], settingKeys: ['chat_context_compression_enabled', 'chat_context_compression_min_chunks', 'chat_context_compression_threshold', 'chat_context_compression_model'] },
-    { id: 'queryEnh', titleKey: 'agentSectionQueryEnhancement', i18nKeys: ['autoSpellCorrect', 'stepBackEnabled', 'queryDecomposeEnabled', 'queryDecomposeModel', 'chatLongcontextEnabled', 'chatLongcontextMaxTokens', 'chatLongcontextMode', 'chatLongcontextMapGroupSize', 'chatLongcontextMapConcurrency', 'queryCacheEnabled', 'queryCacheSimilarityThreshold', 'queryCacheSimilarityThresholdLookup', 'queryCacheSimilarityThresholdEnumeration', 'queryCacheSimilarityThresholdComplexReasoning', 'queryCacheTtlHours'], settingKeys: ['auto_spell_correct', 'step_back_enabled', 'query_decompose_enabled', 'query_decompose_model', 'chat_longcontext_enabled', 'chat_longcontext_max_tokens', 'chat_longcontext_mode', 'chat_longcontext_map_group_size', 'chat_longcontext_map_concurrency', 'query_cache_enabled', 'query_cache_similarity_threshold', 'query_cache_similarity_threshold_lookup', 'query_cache_similarity_threshold_enumeration', 'query_cache_similarity_threshold_complex_reasoning', 'query_cache_ttl_hours'] },
-    { id: 'crag', titleKey: 'agentSectionCragAdaptive', i18nKeys: ['cragEnabled', 'cragMinRelevantChunks', 'adaptiveRoutingEnabled'], settingKeys: ['crag_enabled', 'crag_min_relevant_chunks', 'adaptive_routing_enabled'] },
-    { id: 'graph', titleKey: 'agentSectionGraph', i18nKeys: ['kgExtractionEnabled', 'chatGraphRoutingEnabled', 'chatGraphRoutingInjectChunks', 'chatGraphRoutingMaxChunks', 'chatGraphRoutingPathMode', 'chatGraphRoutingPPRDamping', 'chatGraphRoutingPPRMaxIter', 'chatGraphRoutingPPRTopEntities', 'chatGraphRoutingPathsMaxLen', 'chatGraphRoutingPathsMaxPaths'], settingKeys: ['kg_extraction_enabled', 'chat_graph_routing_enabled', 'chat_graph_routing_inject_chunks', 'chat_graph_routing_max_chunks', 'chat_graph_routing_path_mode', 'chat_graph_routing_ppr_damping', 'chat_graph_routing_ppr_max_iter', 'chat_graph_routing_ppr_top_entities', 'chat_graph_routing_paths_max_len', 'chat_graph_routing_paths_max_paths'] },
-    { id: 'multistep', titleKey: 'agentSectionMultiStep', i18nKeys: ['chatKBRouterEnabled', 'chatKBRouterMinConfidence', 'chatTurnBudgetSeconds', 'chatTurnBudgetTokens', 'chatTurnBudgetToolCalls', 'chatAgenticEnabled', 'chatAgenticMaxHops', 'chatPlanExecuteEnabled', 'chatPlanExecuteMaxSubQueries', 'chatPlanExecuteMaxIterations', 'chatPlanExecuteTokenBudget', 'chatPlanExecuteToolAware', 'chatPlanExecuteDAGIterative', 'chatAnswerToolsEnabled', 'chatWebSearchEnabled', 'chatAnswerToolsMaxRounds', 'chatOrchestratorPolicy', 'chatOrchestratorPolicyHelp', 'chatOrchestratorPolicyPreview', 'chatOrchestratorPolicyNoRule', 'chatOrchestratorPolicyFlagOff', 'chatAnswerToolsByRoute', 'chatAnswerToolsByRouteHelp', 'chatSupervisorEnabled', 'chatSupervisorMultiSpecialist', 'chatDriftEnabled', 'chatCommunitySearchEnabled'], settingKeys: ['chat_kb_router_enabled', 'chat_kb_router_min_confidence', 'chat_turn_budget_seconds', 'chat_turn_budget_tokens', 'chat_turn_budget_tool_calls', 'chat_agentic_enabled', 'chat_agentic_max_hops', 'chat_plan_execute_enabled', 'chat_plan_execute_max_sub_queries', 'chat_plan_execute_max_iterations', 'chat_plan_execute_token_budget', 'chat_plan_execute_tool_aware', 'chat_plan_execute_dag_iterative', 'chat_answer_tools_enabled', 'chat_web_search_enabled', 'chat_answer_tools_max_rounds', 'chat_orchestrator_policy', 'chat_answer_tools_by_route', 'chat_supervisor_enabled', 'chat_supervisor_multi_specialist', 'chat_drift_enabled', 'chat_community_search_enabled'] },
-    { id: 'conversation', titleKey: 'agentSectionConversation', i18nKeys: ['chatAnswerHistoryEnabled', 'chatAnswerHistoryMessages', 'chatAnswerHistoryMaxChars', 'chatTransformFollowupEnabled'], settingKeys: ['chat_answer_history_enabled', 'chat_answer_history_messages', 'chat_answer_history_max_chars', 'chat_transform_followup_enabled'] },
-    { id: 'corpusTable', titleKey: 'agentSectionCorpusTable', i18nKeys: ['chatCorpusTableEnabled', 'chatCorpusTableModel', 'chatCorpusTableMaxFiles', 'chatCorpusTableConcurrency', 'chatCorpusTableRouterLlmEnabled'], settingKeys: ['chat_corpus_table_enabled', 'chat_corpus_table_model', 'chat_corpus_table_max_files', 'chat_corpus_table_concurrency', 'chat_corpus_table_router_llm_enabled'] },
-    { id: 'compare', titleKey: 'agentSectionCompare', i18nKeys: ['chatCompareEnabled', 'chatCompareModel', 'chatCompareMaxSections', 'chatCompareConcurrency', 'chatComparePeersPerSection', 'chatCompareAttachmentTtlHours', 'chatCompareMaxFileBytes'], settingKeys: ['chat_compare_enabled', 'chat_compare_model', 'chat_compare_max_sections', 'chat_compare_concurrency', 'chat_compare_peers_per_section', 'chat_compare_attachment_ttl_hours', 'chat_compare_max_file_bytes'] },
-    { id: 'teams', titleKey: 'agentSectionTeams', i18nKeys: ['agentTeamRouterModel', 'agentsAllowPrivilegedTools'], settingKeys: ['agent_team_router_model', 'agents_allow_privileged_tools'] },
-    { id: 'longmem', titleKey: 'agentSectionLongmem', i18nKeys: ['chatLongmemEnabled', 'chatLongmemMinSalience', 'chatLongmemRecallTopK', 'chatLongmemDecayDays', 'chatLongmemRecallSemantic', 'chatLongmemConflictResolution', 'chatLongmemConflictModel', 'chatLongmemConflictCandidates'], settingKeys: ['chat_longmem_enabled', 'chat_longmem_min_salience', 'chat_longmem_recall_top_k', 'chat_longmem_decay_days', 'chat_longmem_recall_semantic', 'chat_longmem_conflict_resolution', 'chat_longmem_conflict_model', 'chat_longmem_conflict_candidates'] },
-    { id: 'validation', titleKey: 'agentSectionValidation', i18nKeys: ['factcheckInChat', 'citationValidationEnabled', 'citationValidationSemanticThreshold', 'chatFactualityGateEnabled', 'chatFactualityGateMaxRefines', 'chatSelfRAGEnabled', 'ragasSamplingEnabled', 'ragasSamplingRate', 'ragasSamplesRetentionDays', 'chatCitationSpansEnabled', 'chatCitationSpansMaxSources', 'chatCitationSpansTimeoutMs', 'chatConflictSurfacingEnabled', 'chatConflictModel', 'chatConflictMaxChunks', 'chatConflictTimeoutMs', 'chatAnswerDegenerateRunLimit'], settingKeys: ['factcheck_in_chat', 'citation_validation_enabled', 'citation_validation_semantic_threshold', 'chat_factuality_gate_enabled', 'chat_factuality_gate_max_refines', 'chat_self_rag_enabled', 'ragas_sampling_enabled', 'ragas_sampling_rate', 'ragas_samples_retention_days', 'chat_citation_spans_enabled', 'chat_citation_spans_max_sources', 'chat_citation_spans_timeout_ms', 'chat_conflict_surfacing_enabled', 'chat_conflict_model', 'chat_conflict_max_chunks', 'chat_conflict_timeout_ms', 'chat_answer_degenerate_run_limit'] },
-    { id: 'ingestion', titleKey: 'agentSectionIngestion', i18nKeys: ['doclingEnabled', 'doclingBaseUrl', 'doclingTableMode', 'doclingOcrLanguages', 'doclingForceOcr', 'doclingFormulaEnrichmentEnabled', 'doclingPictureDescriptionEnabled', 'doclingPictureAreaThreshold', 'doclingPictureDescriptionPrompt', 'describeImageEnabled', 'describeImageEnabledHelp', 'describeImageModel', 'describeImageModelHelp', 'contextualEnrichment', 'ingestScreeningEnabled', 'ingestScreeningEnabledHelp', 'ingestScreeningWindowRunes', 'ingestScreeningWindowRunesHelp', 'embeddingBatchSize', 'lateChunkingEnabled', 'lateChunkingMaxInputTokens', 'parentChildEnabled', 'parentChunkSize', 'childChunkSize', 'raptorEnabled', 'raptorMinChunks', 'raptorMaxLevels', 'raptorBranchingFactor', 'raptorClusteringAlgorithm', 'raptorLeidenResolution', 'hyPEEnabled', 'hyPEQuestionsPerChunk', 'hyPEModel'], settingKeys: ['docling_enabled', 'docling_base_url', 'docling_table_mode', 'docling_ocr_languages', 'docling_force_ocr', 'docling_picture_description_enabled', 'docling_picture_area_threshold', 'docling_picture_description_prompt', 'describe_image_enabled', 'describe_image_model', 'contextual_enrichment', 'ingest_screening_enabled', 'ingest_screening_window_runes', 'embedding_batch_size', 'late_chunking_enabled', 'late_chunking_max_input_tokens', 'parent_child_enabled', 'parent_chunk_size', 'child_chunk_size', 'raptor_enabled', 'raptor_min_chunks', 'raptor_max_levels', 'raptor_branching_factor', 'raptor_clustering_algorithm', 'raptor_leiden_resolution', 'hype_enabled', 'hype_questions_per_chunk', 'hype_model'] },
-    { id: 'observability', titleKey: 'agentSectionObservability', i18nKeys: ['langfuseBaseUrl', 'kbStaleDays'], settingKeys: ['langfuse_base_url', 'kb_stale_days'] },
-    { id: 'tools', titleKey: 'agentSectionTools', i18nKeys: ['chatCodeExecEnabled'], settingKeys: ['mcp_servers', 'chat_use_mcp_tools', 'chat_code_exec_enabled'] },
-    { id: 'tabular', titleKey: 'agentSectionTabular', i18nKeys: ['chatTabularQueryEnabled', 'chatTabularChartsEnabled', 'chatTabularRouterEnabled', 'chatTabularRouterModel', 'chatTabularRouterMaxRows', 'chatTabularRouterMaxRepairs', 'chatTabularRouterTimeoutMs', 'chatTabularRouterSchemaMaxTokens', 'chatTabularGuidanceMaxTokens'], settingKeys: ['chat_tabular_query_enabled', 'chat_tabular_charts_enabled', 'chat_tabular_router_enabled', 'chat_tabular_router_model', 'chat_tabular_router_max_rows', 'chat_tabular_router_max_repairs', 'chat_tabular_router_timeout_ms', 'chat_tabular_router_schema_max_tokens', 'chat_tabular_guidance_max_tokens'] },
-    { id: 'dateAware', titleKey: 'agentSectionDateAware', i18nKeys: ['chatDateAwarenessEnabled', 'chatDateTimezone', 'chatDateToolsEnabled', 'chatDateToolsMaxResults', 'chatRecencyListingEnabled', 'chatRecencyListingNameMatchEnabled', 'chatRecencyListingWindowDays', 'chatRecencyListingMaxResults'], settingKeys: ['chat_date_awareness_enabled', 'chat_date_timezone', 'chat_date_tools_enabled', 'chat_date_tools_max_results', 'chat_recency_listing_enabled', 'chat_recency_listing_name_match_enabled', 'chat_recency_listing_window_days', 'chat_recency_listing_max_results'] },
-    { id: 'syncWindow', titleKey: 'agentSectionSyncWindow', i18nKeys: ['syncWindowStartHour', 'syncWindowEndHour', 'syncWindowTimezone'], settingKeys: ['sync_window_start_hour', 'sync_window_end_hour', 'sync_window_timezone'] },
-    { id: 'evalSchedule', titleKey: 'agentSectionEvalSchedule', i18nKeys: ['evalRegressionRecallPP', 'evalRegressionMrrPP'], settingKeys: ['eval_regression_recall_pp', 'eval_regression_mrr_pp'] },
-] as const;
-type SectionId = typeof SECTION_CONFIGS[number]['id'];
 
+
+/**
+ * One collapsible group of settings: the DS `Collapsible` (a disclosure: the trigger carries
+ * `aria-expanded` and `aria-controls`) in a DS `Card`. The header is a `NavItem` row, not a
+ * `Button`: a Button shrinks while it is pressed (`active:scale-95`), which makes a full-width
+ * header feel squishy. Nothing here animates: the body is simply there or not. The header is
+ * square (`rounded-none`): the card clips its hover fill to the card's own corners, so the fill
+ * meets the open body in a straight line instead of leaving notches.
+ */
 function Section({ title, open, onToggle, hidden, children }: { title: string; open: boolean; onToggle: () => void; hidden: boolean; children: React.ReactNode }) {
     if (hidden) return null;
     return (
-        <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
-            {/* The header is a DISCLOSURE, so its state is `aria-expanded` and stays
-              * `aria-expanded`. Deliberately NOT `aria-pressed`, which the ghost
-              * variant also styles on: a control must not claim to be both a toggle
-              * button and a disclosure, and a screen reader would announce both
-              * "pressed" and "expanded". `data-state` is Radix's non-ARIA convention
-              * for exactly this, carries no accessibility meaning, and is the hook the
-              * DS ghost variant already keys on — so it supplies the open-state tint
-              * without the semantic conflict.
-              *
-              * TODO: not yet visually confirmed (no browser in this pass). Two DS
-              * constraints are knowingly accepted rather than overridden at the call
-              * site, because `className` on a DS control is layout only:
-              *   - the Button's own `rounded-action` radius, so its hover fill may show
-              *     a corner notch against the section body below it;
-              *   - the Button's `whitespace-nowrap`, so a long section title cannot wrap.
-              * What this really wants is a DS variant for a full-width disclosure
-              * header. Raised for the design system; do NOT patch it with
-              * `rounded-none`/`whitespace-normal` here. */}
-            <Button
-                variant="ghost"
-                type="button"
-                onClick={onToggle}
-                aria-expanded={open}
-                data-state={open ? 'open' : 'closed'}
-                className="w-full justify-between text-left"
-            >
-                <span>{title}</span>
-                {open ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-            </Button>
-            {open && (
-                <div style={{
-                    padding: '1.25rem 1.25rem 1.5rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1.5rem',
-                    background: 'var(--bg-primary)',
-                    borderTop: '1px solid var(--border-color)',
-                }}>
+        <Card className="overflow-hidden">
+            <Collapsible open={open} onOpenChange={onToggle}>
+                <CollapsibleTrigger asChild>
+                    <NavItem type="button" className="justify-between rounded-none">
+                        <span>{title}</span>
+                        {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                    </NavItem>
+                </CollapsibleTrigger>
+                {/* The settings rows carry their own padding and rule, so the body adds none between them. */}
+                <CollapsibleContent className="flex flex-col border-t border-outline-variant px-5 py-1">
                     {children}
-                </div>
-            )}
-        </div>
+                </CollapsibleContent>
+            </Collapsible>
+        </Card>
     );
 }
 
-export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }: AdminAgentTabProps) {
-    const reducedMotion = useReducedMotion();
+export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, footerSlot }: AdminAgentTabProps) {
     const { t } = useTheme();
+    const formId = useId();
 
     const isCragEnabled = siteConfigs.crag_enabled === 'true' || siteConfigs.crag_enabled === '1';
     const isDoclingEnabled = siteConfigs.docling_enabled === 'true' || siteConfigs.docling_enabled === '1';
@@ -190,8 +147,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
     const collapseAll = () => setOpenMap({});
 
     return (
-        <motion.div {...getMotionProps(reducedMotion)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="result-card" style={{ padding: '2rem' }}>
-            <h3 style={{ marginTop: 0 }}>{t('agentConfig')}</h3>
+        <>
             <p style={{ opacity: 0.7 }}>{t('agentConfigDesc')}</p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
@@ -221,7 +177,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
 
             {/* `form-grid` dropped: it has no CSS rule anywhere in the repo, same as
               * the `input-group` that used to wrap every row. */}
-            <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+            <form id={formId} onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
 
                 <Section title={t('agentSectionGeneral')} {...sectionState('general')}>
                     <FieldRow
@@ -1145,6 +1101,41 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                         help={t('chatTransformFollowupEnabledHelp')}
                         checked={siteConfigs.chat_transform_followup_enabled !== 'false' && siteConfigs.chat_transform_followup_enabled !== '0'}
                         onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_transform_followup_enabled: checked ? 'true' : 'false' }))}
+                    />
+                </Section>
+
+                <Section title={t('agentSectionAttachments')} {...sectionState('attachments')}>
+                    <FieldRow
+                        label={t('chatAttachmentsContextShare')}
+                        help={t('chatAttachmentsContextShareHelp')}
+                        type="number"
+                        min={0.1}
+                        max={0.9}
+                        step={0.05}
+                        value={siteConfigs.chat_attachments_context_share || '0.5'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_context_share: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatAttachmentsFallbackContextWindow')}
+                        help={t('chatAttachmentsFallbackContextWindowHelp')}
+                        type="number"
+                        min={4096}
+                        max={10000000}
+                        step={1}
+                        value={siteConfigs.chat_attachments_fallback_context_window || '32768'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_fallback_context_window: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatAttachmentsMaxPerMessage')}
+                        help={t('chatAttachmentsMaxPerMessageHelp')}
+                        type="number"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={siteConfigs.chat_attachments_max_per_message || '10'}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_max_per_message: e.target.value }))}
                     />
                 </Section>
 
@@ -2083,19 +2074,19 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit }:
                   * now. `width: fit-content` goes with it — Button is inline-flex, so it
                   * already sizes to its content, unlike the `.search-button` rule's
                   * `width: 100%` that the inline style existed to undo. */}
-                <div className="flex flex-col items-start gap-2">
-                    <Button type="submit" disabled={hasPolicyEditorErrors}>
-                        <Save size={18} /> {t('saveSettings')}
+                {hasPolicyEditorErrors && (
+                    <span role="alert" className="text-label-sm text-error">
+                        {t('saveDisabledPolicyErrorHint').replace('{{section}}', t('agentSectionMultiStep'))}
+                    </span>
+                )}
+                <FooterActions slot={footerSlot}>
+                    <Button type="submit" form={formId} disabled={hasPolicyEditorErrors}>
+                        <Save size={18} aria-hidden="true" /> {t('saveSettings')}
                     </Button>
-                    {hasPolicyEditorErrors && (
-                        <span role="alert" className="text-label-sm text-error">
-                            {t('saveDisabledPolicyErrorHint').replace('{{section}}', t('agentSectionMultiStep'))}
-                        </span>
-                    )}
-                </div>
+                </FooterActions>
             </form>
 
             <AdminAgentMetricsCard />
-        </motion.div>
+        </>
     );
 }

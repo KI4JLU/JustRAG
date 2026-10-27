@@ -15,10 +15,10 @@ import { translations } from './translations';
  * be got wrong. Keeping them apart means a failure names which route broke.
  *
  * WHAT IT GUARDS, in the exact terms its sibling states. `SharedKbsView` mounts
- * `AppChrome`, which calls `useSharingContext()` and `useAppNav()`; both throw
- * when their provider is missing, and both are mounted per branch in
- * `AuthenticatedApp`. `SharedKbsView.stories.tsx` supplies its own providers in
- * a harness, so all six stories would stay green if this branch forgot one —
+ * `AppChrome`, which calls `useAppNav()`; it throws when its provider is
+ * missing, and the provider is mounted in `AuthenticatedApp`.
+ * `SharedKbsView.stories.tsx` supplies its own providers in a harness, so all
+ * its stories would stay green if this branch forgot it —
  * which is the KI-740 failure mode verbatim: a screen that crashes on the route
  * every user reaches it by, while both component suites pass.
  *
@@ -26,7 +26,7 @@ import { translations } from './translations';
  * assert that the sidebar row calls a spy; this file clicks the real row in the
  * real app and checks that the app actually arrives — the `ViewType` union
  * member, the render branch, and the `AppNavContext` wiring, in one path. A spy
- * cannot tell you that `setView('shared-kbs')` matches a branch.
+ * cannot tell you that the `/shared` route matches a branch.
  *
  * ONLY the network is stubbed (axios and `fetch`), plus the browser APIs jsdom
  * does not implement. No provider, no context and no hook is mocked — mocking
@@ -133,8 +133,8 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
    * the assertion needs no error matcher to be about the crash.
    * ------------------------------------------------------------------- */
   it.each([
+    // „Werkzeuge" has no nav row while it is hidden; App.routing.test.tsx opens /tools directly.
     ['discoverTopics'] as const,
-    ['tools'] as const,
   ])('reaches the %s view from its nav row with every provider mounted', async (key) => {
     render(<App />);
     await findOverviewHeading();
@@ -166,9 +166,9 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
       return { data: [] };
     });
 
+    // By URL: the sidebar has no „Werkzeuge" row while the section is hidden.
+    window.history.replaceState(null, '', '/tools');
     render(<App />);
-    await findOverviewHeading();
-    await userEvent.click(screen.getByRole('button', { name: translations.tools.de }));
     await screen.findByRole('heading', { level: 1, name: translations.tools.de });
 
     await userEvent.click(screen.getByRole('button', {
@@ -203,8 +203,8 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     await userEvent.click(row);
 
     /* ORACLE: translations.ts + the ARIA mapping for h1. `SharedKbsView`
-     * reached `useSharingContext()` and `useAppNav()` during this render, via
-     * `AppChrome`; had either thrown, there would be no heading to find. This
+     * reached `useAppNav()` during this render, via `AppChrome`; had it
+     * thrown, there would be no heading to find. This
      * is also the only assertion in the repo that proves the union member, the
      * render branch and the context wiring line up. */
     expect(
@@ -243,8 +243,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(current[0]).toHaveTextContent(translations.sharedTopics.de);
 
     // ORACLE: translations.ts. The way back exists, is not current, and works —
-    // without it this view would be a dead end in an app that has no router and
-    // therefore no browser Back.
+    // in the page itself, not only through the browser's Back (App.routing.test.tsx).
     const overview = screen.getByRole('button', { name: translations.myTopics.de });
     expect(overview).not.toHaveAttribute('aria-current');
     await userEvent.click(overview);
@@ -351,10 +350,11 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
       .toHaveAttribute('aria-expanded', 'false');
 
-    // The reload. A fresh tree, the same storage.
+    // The reload. A fresh tree, the same storage — and the same URL, which
+    // since the router names the view: the reload lands back on „Geteilt".
     first.unmount();
     render(<App />);
-    await findOverviewHeading();
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de }, { timeout: 15000 });
     expect(screen.getByRole('button', { name: translations.expandNavigation.de }))
       .toHaveAttribute('aria-expanded', 'false');
 
@@ -395,7 +395,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
    * right here and the view stays put. „Entdecken" is reached WITH the query
    * through the Topics group's „show all matching topics in Discover" row —
    * which is the one selection that rebuilds the chrome with the field still
-   * in it, so KI-787's caret handoff (`focusPending`) is pinned on that path.
+   * in it, so KI-787's caret handoff (`focusPendingFor`) is pinned on that path.
    *
    * ORACLES: translations.ts for every accessible name, WAI-ARIA's h1 mapping
    * for which page is on screen, `document.activeElement` for where the caret

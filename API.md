@@ -54,6 +54,33 @@ Where a table has an **Access** column, its values mean:
 
 `docs/api-contracts/` holds the full request/response contracts for the larger features (agent chat, user file library, early-open SSE, Open WebUI).
 
+### Error codes
+
+An error body is `{"error": "<message>"}`. The message is English text for logs and API clients; a
+UI shows its own localized message instead. The web client's messages — every error case with its
+German and English text — are listed in [`docs/user-error-messages.md`](docs/user-error-messages.md). Where the user can act on the cause, the body (or the
+SSE `{"error"}` frame) also carries a stable `code`. Clients map the code, never the message:
+
+| `code` | Status | Meaning |
+|---|---|---|
+| `file_too_large` | `413` | The file exceeds an upload size limit; `limitBytes` names the limit |
+| `quota_exceeded` | `413` | The user's file library quota is full (also in `error`, see "User file library") |
+| `kb_full` | `400` | The KB has reached its file count or total size limit |
+| `unsupported_file_type` | `415`, `400` on upload | No parser handles the file's format (or the extension is blocked) |
+| `file_unreadable` | `422` | The format is supported but the file could not be read (corrupt file, missing OCR) |
+| `no_text` | `422`, `400` in library chat | The file contains no text |
+| `parse_timeout` | `422` | Reading the file took longer than the server allows |
+| `too_large_for_context` | `422`, `400` in library chat | The documents do not fit the answer model's budget (also in `error`) |
+| `already_in_kb` | `409` | The KB already holds this file (also in `error`) |
+| `empty_file` | `400` | The uploaded file has zero bytes |
+| `file_name_too_long` | `400` | The file name exceeds 255 bytes |
+| `invalid_upload` | `400` | The request is not a well-formed file upload |
+
+The upload routes (`POST /kb/{id}/files`, `/library/files`, `/kb/{id}/chat/attachments`,
+`/kb/{id}/chat/attachment`), the attachment checks of `POST /kb/{id}/chat` and library chat carry
+these codes. An error without `code` is one the user cannot fix by changing the file (permissions,
+rate limits, server errors); map it by status.
+
 ### Authentication
 
 | Method | Path |
@@ -125,8 +152,127 @@ Card fields on the KB rows of `GET /kb`, `GET /kb/global` and `GET /kb/{id}`:
   file has been ingested.
 
 `PATCH /kb/{id}` returns the KB in the same caller-aware shape as
-`GET /kb/{id}` (card fields, `myRole`, and the per-user filter fields below),
-so a client can replace its copy with the response.
+`GET /kb/{id}` (card fields, `myRole`, `capabilities`, and the per-user filter
+fields below), so a client can replace its copy with the response.
+
+#### Source permissions
+
+Per KB, its admins decide what viewers and editors may do with the KB's
+sources (migration 0089). Seven boolean fields on every KB row, writable
+through `PATCH /kb/{id}` (KB admin — the same gate as `systemPrompt`; a JSON
+`null` leaves a field unchanged). The `viewer*` fields apply to the `view`
+role, the `editor*` fields to the `edit` role; the other role's fields never
+apply. There is no `viewerAddSources`: a viewer who could add (or delete)
+sources would be an editor, so viewers never do either.
+
+The rights form a pyramid. A right on a higher level is only granted together
+with the level-1 right it rests on:
+
+| Level | Right | Needs |
+|---|---|---|
+| 0 | Use the KB's sources in a chat answer; restrict a chat or research turn to chosen files (`selectedFileIds`, `fileIds`) | KB access only — not a permission |
+| 1 | `seeSources` — the source lists | its flag |
+| 1 | `seeCitations` — an answer's citations | its flag (independent of `seeSources`) |
+| 2 | `downloadSources` — download and preview a source | its flag **and** `seeSources` |
+| 2 | `addSources` — add sources ("Hinzufügen") | role `edit` **and** `editorAddSources` **and** `seeSources`; never `view` |
+| 2 | `manageSources` — change, sync, poll, delete, retry sources ("Bearbeiten") | role `edit` (no flag) **and** `seeSources`; never `view` |
+
+The seven fields:
+
+| Fields | Defaults (viewer / editor) | Off means (for that role) |
+|---|---|---|
+| `viewerSeeSources`, `editorSeeSources` | `false` / `true` | 403 on the source lists: `GET /kb/{id}/files`, `GET /kb/{id}/rss`, `GET /kb/{id}/confluence-sources`, `GET /kb/{id}/git-repos`, `GET /kb/{id}/crawl/status/{jobId}`; no file hits from that KB in the header search (`GET /search`). By the pyramid also no `downloadSources`, `addSources` or `manageSources`, whatever their flags say. |
+| `editorAddSources` (editors only) | `true` | 403 on every route that creates a source: `POST /kb/{id}/files`, `/files/from-library`, `/text`, `/add-sources` (also where the web search's "add to KB" lands), `/fetch-url`, `/crawl`, `/rss`, `/confluence-sources`, `/git-repos`, and `POST /academic-research/{researchId}/papers/add`; the agent chat (`POST /kb/{id}/agui/chat`) does not offer or execute its KB-writing dead-end actions (`library`, `upload`, `confluence`). Refused before anything is fetched, stored or written. A viewer gets the same 403 whatever the flags say. |
+| `viewerDownloadSources`, `editorDownloadSources` | `false` / `true` | 403 on `GET /files/{id}/download` (also the in-app PDF preview) and on the spreadsheet source preview, `GET /kb/{id}/files/{fileId}/tabular` and `GET /kb/{id}/files/{fileId}/tabular/rows` |
+| `viewerSeeCitations`, `editorSeeCitations` | `false` / `true` | answers carry no source attribution on any chat surface — see [Citations](#citations) below; nothing is refused |
+
+Editing sources (`manageSources`) has no flag: `PATCH`/`DELETE` and
+`…/sync`/`…/poll` on RSS feeds, Confluence sources and git repositories,
+`DELETE /files/{id}`, `POST /files/{id}/retry` and
+`POST /kb/{id}/files/retry-failed`. The `edit` role and above have it (an
+editor only while `editorSeeSources` is on), `view` never does. An editor
+without `editorSeeSources` can do nothing with sources: no list, download,
+add or edit.
+
+Selecting files for a chat or research turn is not gated by any of this: the
+UI offers it where the user sees the source list, and the API accepts a
+selection from every caller with KB view access.
+
+The defaults apply to existing KBs too: after the upgrade, viewers of a
+published global KB lose the source list, downloads and citations until a KB
+admin turns them back on; editors keep everything.
+
+Always granted, whatever the flags say: every capability for the KB owner, a
+KB admin (`kb_members` role `admin`), a superadmin, and a system admin on a
+global KB. The `api-user` system role only governs use of the outgoing API and
+grants no KB rights of its own: on a published global KB it is an implicit
+viewer like any other user, and an explicit `kb_members` role (admin
+included) counts for it as for anyone else. Tables in chat answers (AI-written
+markdown tables and their xlsx download) are answer content, not sources, and
+are never gated.
+
+`GET /kb`, `GET /kb/global`, `GET /kb/{id}`, `PATCH /kb/{id}` and `POST /kb`
+return the caller's resolved permissions on each KB, with the pyramid already
+applied, so a client never re-derives the role ladder (an implicit viewer's
+`myRole` is `null`):
+
+```json
+"capabilities": {
+  "seeSources": true,
+  "addSources": false,
+  "downloadSources": false,
+  "seeCitations": true,
+  "manageSources": false
+}
+```
+
+#### Citations
+
+A caller without `seeCitations` on a KB gets that KB's answers **without
+source attribution**. Nothing is refused and the answer itself is generated
+exactly as for everyone else (same retrieval, same prompt); only what leaves
+the server changes. The capability is resolved per request for the current
+reader — for an API key, the key owner's role on the KB.
+
+**Stored in full, stripped on the way out.** `messages.sources`,
+`messages.conflicts`, `messages.verification` and the answer text with its
+`[n]` markers are always written complete, whoever asked. Reads strip them
+for the current reader, so when a KB admin turns `viewerSeeCitations` on,
+the existing history shows its citations again, and turning it off hides
+them on the next read.
+
+**The reader's own chat attachments stay.** A source with a `userFileId` is a
+file the reader attached to the chat themselves (§ Chat, chat attachments),
+not a KB source: it stays in `sources`, its `[n]` markers stay (a marker citing
+KB sources too keeps only the attachment numbers, `[1, 5]` → `[5]`), and its
+`verification.citations` entries stay. Everything below applies to the KB
+sources only.
+
+What is withheld, per surface:
+
+| Surface | Without `seeCitations` |
+|---|---|
+| `POST /kb/{id}/chat`, SSE | the opening frame keeps `chatId`/`userMessageId`/`enhancedQuery` but has `"sources": []`; no `conflicts` frame; `verification` without `citations`, without `cited_n` on flagged claims and with `self_rag.isrel` empty; `agentTrajectory` frames without `chunks` (file names); the answer-tool trace frames without `args` and `preview`; a corpus table without its `_file_id`/`_file_name`/`_source_idx` row keys and file-name-derived columns; comparison findings without `citedFileIds`/`citedQuote`; `[n]` markers removed from `content`, `reasoning`, `refined_text` and follow-up questions (a marker split across two `content` frames is held back until it is complete) |
+| `POST /kb/{id}/chat`, JSON | the same keys of the response body (`answer` without markers, `"sources": []`, no `conflicts`, `verification` as above) |
+| `GET /chats/{id}/messages` | per AI message: `"sources": []` (a stored `null` stays `null`), no `conflicts`, `verification` and `structured_table` as above, markers removed from `content` and `reasoning`; user messages unchanged. A library chat (no KB) is never stripped. |
+| `POST /kb/{id}/agui/chat` | `justrag.sources.v1` with an empty list; `justrag.tool_chunks.v1` with `chunks: []`; every `TOOL_CALL_RESULT` with content `{}`; markers removed from `TEXT_MESSAGE_CONTENT` / `REASONING_MESSAGE_CONTENT` deltas (see [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md)) |
+| `POST /api/v1/kb/{id}/chat`, `GET /api/v1/kb/{id}/chats/{chatId}/messages` | as the web chat and `GET /chats/{id}/messages` |
+| `POST /api/v1/kb/{id}/mcp` (`ask_kb`) | `structuredContent.sources` is `[]`; markers removed from the answer text |
+| `POST /openai/v1/chat/completions` | no `context.citations`, no `annotations`, markers removed from the content (streaming and not) |
+
+Always visible: KB owner, KB admin, superadmin, system admin on a public KB
+(they always hold `seeCitations`). Not covered: the research endpoints
+(`/kb/{id}/research`, `/api/v1/kb/{id}/research`, research reports) and the
+generated-content (`generate/*`) routes, which still name their sources, and
+the Open WebUI surface (`/owui`), whose collections belong to the key's own
+service user. The model may still name a document in the prose of its
+answer; only markers are removed, prose is not rewritten.
+
+`GET /api/v1/kb` (API key) carries the same `capabilities` object, resolved
+for the key's owner; the public API has no single-KB read route.
+`capabilities` is absent on `GET /openai/v1/models`. The header search
+(`GET /search`) returns file hits only from topics where the caller holds
+`seeSources`. A refused request is `403 {"error": …}`.
 
 ### Catalog, subscriptions and categories
 
@@ -319,6 +465,13 @@ admin; public + published → view; otherwise invisible). That is a superset of
 included. Superadmins and system admins therefore see many results; that is
 intended, not a leak.
 
+**Sources follow the source permissions.** `sources` additionally contains only
+files from topics where the caller holds `seeSources` (see Knowledge bases →
+Source permissions): a viewer of a topic whose `viewerSeeSources` is off gets
+no file hits from it, while the topic itself and the caller's own chats and
+messages in it are still found. Owners, KB admins, editors, superadmins and
+system admins on public topics always get file hits.
+
 **Chats are private.** `chats` and `messages` contain **only the caller's own
 chats**, and only in topics the caller can still open under the rule above — a
 chat in a topic the caller has lost access to is not returned. No role widens
@@ -435,6 +588,7 @@ redemption.
 | GET | `/kb/{id}/crawl/status/{jobId}` |
 | POST | `/kb/{id}/websearch` |
 | GET | `/files/{id}/download` |
+| GET | `/files/{id}/text` |
 | DELETE | `/files/{id}` |
 | POST | `/files/{id}/retry` |
 | POST | `/kb/{id}/files/retry-failed` |
@@ -444,9 +598,12 @@ redemption.
 | GET | `/kb/{id}/files/{fileId}/tabular/rows` |
 | POST | `/kb/{id}/tabular/rematerialize` |
 
-- `POST /files/{id}/retry` (KB edit on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (KB edit) does it for every failed file: `{"retried": N}`.
-- `POST /kb/{id}/files/from-library` (KB edit) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
-- `GET /kb/{id}/files/{fileId}/tabular` (KB view) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
+- Source permissions (see Knowledge bases): every adding route here — `POST /kb/{id}/files`, `/text`, `/add-sources`, `/fetch-url`, `/crawl`, `/files/from-library` — needs KB edit and `addSources` (`editorAddSources` plus `editorSeeSources`; never a viewer). Deleting and retrying — `DELETE /files/{id}`, `POST /files/{id}/retry`, `POST /kb/{id}/files/retry-failed` — needs `manageSources` (edit role and above with `seeSources`, never a viewer). `GET /kb/{id}/crawl/status/{jobId}` needs KB view and `seeSources`; `GET /files/{id}/download`, `GET /files/{id}/text` and both `…/tabular` routes need KB view and `downloadSources`. `POST /kb/{id}/websearch` only searches (KB view); adding a hit goes through `/add-sources`. The `/files/{id}` routes check this in the handler (their path has no KB), the others in the route's middleware.
+- `POST /kb/{id}/files` refusals carry a `code` (see "Error codes"): the upload checks as on `/library/files`, `400 kb_full` when the KB holds its maximum number of files (500, 1 000 for a public KB) or would exceed 500 MB, and the library's `413 quota_exceeded` / `409 already_in_kb`.
+- `GET /files/{id}/text` (KB view + `downloadSources`, checked in the handler like the download) serves the source preview of a document the browser cannot render: Word (`.docx`), PowerPoint (`.pptx`), ODT, EPUB and TeX, matched by MIME type or extension. Response `{"text": "…", "markdown": false}`, the text the built-in parsers extract on demand (not cached; a Docling ingest may have read more layout than this). Refusals carry a `code`: `400` invalid id, `404` file / KB / blob missing, `403`, `415 unsupported_file_type` for any other format (PDF, spreadsheets, images, audio and plain text are previewed from `/download`), `413 file_too_large` past 100 MiB, `422 file_unreadable`, `422 parse_timeout` (30 s).
+- `POST /files/{id}/retry` (`manageSources` on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (`manageSources`) does it for every failed file: `{"retried": N}`.
+- `POST /kb/{id}/files/from-library` (KB edit + `addSources`) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
+- `GET /kb/{id}/files/{fileId}/tabular` (KB view + `downloadSources`) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view + `downloadSources`) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
 
 ### User file library
 
@@ -476,16 +633,75 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | GET | `/kb/{id}/chats` |
 | GET | `/kb/{id}/starter-questions` |
 | GET | `/chat/rag-system-prompt` |
+| GET | `/chats/{id}` |
 | GET | `/chats/{id}/messages` |
 | PATCH | `/chats/{id}` |
+| POST | `/chats/{id}/branch` |
 | DELETE | `/chats/{id}` |
 | POST | `/kb/{id}/chat` |
 | POST | `/kb/{id}/chats/{chatId}/messages/{messageId}/feedback` |
 | POST | `/kb/{id}/agui/chat` |
 | POST | `/kb/{id}/chat/attachment` |
+| POST | `/kb/{id}/chat/attachments` |
 
+- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. A chat made by branching carries `branchedFromChatId` (the chat it was copied from, which may have been deleted since). A chat whose messages fork inside it — two messages under one parent, as edits, regenerations and forks made before branching opened a new chat left them; prompt-enhancement rows do not count — carries `hasBranches: true`. Both keys are omitted when they do not apply.
+- `GET /chats/{id}` (authenticated, owner) returns one of the caller's chats as a row of the chat list, without `hasBranches`: `id`, `kbId` (`""` for a library chat), `title`, `type`, `teamId`, `agentId`, timestamps, `branchedFromChatId` when set. It lets a link name a chat by its id alone (the web UI's `/c/<chat>` URLs). `404` when the chat is not the caller's, does not exist, or the id is malformed.
+- `POST /chats/{id}/branch` (authenticated, owner) with `{"messageId"}` copies the conversation from its first message down to that message — the path only, not sibling versions — into a new chat of the caller in the same KB, and answers `201` with the new chat (`branchedFromChatId` = `{id}`) plus `copiedMessageId`, the copy of `messageId`. Without `messageId` the branch is empty (no `copiedMessageId`). The web UI branches for every way of taking a conversation elsewhere: "Verzweigen" at an answer; "Antwort neu generieren" at its question, then answers the copied question with `regenerateOfMessageId`; editing a question at the turn before it (empty for the first question), then sends the edit under `copiedMessageId`. Feedback is not copied; chat attachments are re-linked. `400` for a malformed `messageId`, `404` when the chat is not the caller's, is not an ordinary KB chat (library chats, research sessions and agent chats cannot be branched: their state is more than the message chain), or the message is not in it.
 - `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
-- `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`.
+- `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`. Refusals carry a `code`: `413 file_too_large` (`limitBytes` = `chat_compare_max_file_bytes`), `415 unsupported_file_type`, `422 file_unreadable` (the parser failed) or `no_text`, `400 invalid_upload`.
+
+**Chat attachments as context.** `POST /kb/{id}/chat/attachments` (KB view, `chat_attachments`
+rate limit) uploads one file (multipart field `file`) that the user attaches in the composer. The
+file is stored as one of the user's own files — hidden from the library list, owner-only, counted
+against the library quota, deduplicated by content — and never indexed. It is parsed and counted
+now, so a file the chat cannot use is refused before the message is sent. `{id}` decides the token
+budget (the KB's answer model); nothing about the KB is stored with the file.
+
+| Status | When |
+|---|---|
+| `201` | `{"id", "name", "mime", "size", "tokens"}`; `id` goes into `attachmentIds` of the send |
+| `400` / `413` | Invalid upload (`invalid_upload`, `empty_file`, `file_name_too_long`, `unsupported_file_type` for a blocked extension) / `file_too_large`, file over the upload size limit |
+| `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes", "chatAttachmentBytes"}` — the library quota is full; `chatAttachmentBytes` is the part of `usedBytes` held by chat attachments, which the library list does not show |
+| `415` | `unsupported_file_type`: no parser handles the format (audio is not transcribed here) |
+| `422` | `file_unreadable`: the format is supported but parsing failed (corrupt file, image without OCR); `no_text`: no extractable text; `parse_timeout`: took too long to read; or `{"error": "too_large_for_context", "code": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |
+| `503` | Chat attachments are not wired on this server |
+
+The budget is `chat_attachments_context_share` (default 0.5) of the KB answer model's context
+window: `ai_models.context_window` (set per model in the admin provider panel), else the window the
+provider reports (vLLM `max_model_len` in `GET /models`, a LiteLLM proxy's `GET /model/info`
+`max_input_tokens`; looked up once an hour per provider), else
+`chat_attachments_fallback_context_window` (default 32 768 tokens). Tokens are counted
+with the model's own tokenizer where the provider has vLLM's `/tokenize`, else with the cl100k
+estimate.
+
+`POST /kb/{id}/chat` takes `attachmentIds` (strings, at most `chat_attachments_max_per_message`,
+default 10): files from the upload above (or any of the caller's own files). They are checked before
+a chat is created or usage is recorded:
+
+| Status | When |
+|---|---|
+| `400` | More ids than allowed; combined with a comparison run (`comparisonModes`); on a regenerate (it keeps its question's attachments) |
+| `404` | An id is not a UUID, does not exist, or belongs to another user |
+| `415` / `422` | A file cannot be read (same codes as on upload, plus `fileName`: the attachment it is about), or `too_large_for_context`: the new files together exceed the budget |
+
+The files are linked to the user message and stay context for every later turn of the chat. Their
+text goes into the conversation's first user turn as `<document>` blocks; the current turn's numbered
+source list keeps the KB sources as `[1]…[N]` and adds one entry per document after them, so the
+answer can cite a document like a KB source. Each such entry in `sources` carries `userFileId`
+(no `fileId`) and its `content` is capped to 600 characters on the wire. The documents come before
+the KB sources: when the window is tight, the lowest-ranked KB sources are left out first
+(`{"agentTrajectory": {"stage": "attachments", "decision": "attachments_kb_trimmed", …}}`), and a
+document is left out only when it does not fit even without them — older documents first, with
+`"decision": "attachments_dropped"`. A turn with
+documents skips factcheck, the factuality verifier / Self-RAG, the refine gate and RAGAS sampling
+(they would judge the answer against KB sources that do not contain the documents); the citation
+validator still runs. A reader without the citation right on the KB (`seeCitations`) still sees
+their own attachments among the sources, with their `[n]` markers and citation results; only the KB
+attribution is removed (§ Citations). `GET /chats/{id}/messages` returns `attachments: [{userFileId,
+name, mime, size}]` on user messages that have any. `DELETE /chats/{id}` also deletes the chat's own attachments
+that nothing else references; attachments left by a KB or account deletion and uploads never sent
+are removed by the worker's `userfiles_orphan_sweep` after 24 h. The file itself downloads through
+`GET /library/files/{id}/download`.
 
 `POST /kb/{id}/chat` takes an optional boolean `webSearch` (per-turn web search):
 
@@ -601,6 +817,8 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 | POST | `/kb/{id}/export/academic-bibtex` |
 | POST | `/academic-research/{sessionId}/bibtex` |
 
+`POST /academic-research/{researchId}/papers/add` names its target KB in the body (`kbId`) and needs `addSources` on it (see Source permissions), checked in the handler before any PDF is fetched; `403` otherwise.
+
 ### RSS
 
 | Method | Path |
@@ -610,6 +828,8 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 | PATCH | `/kb/{id}/rss/{feedId}` |
 | DELETE | `/kb/{id}/rss/{feedId}` |
 | POST | `/kb/{id}/rss/{feedId}/poll` |
+
+`GET` needs KB view and `seeSources`; `POST` (create a feed) needs KB edit and `addSources`; `PATCH`, `DELETE` and `…/poll` need `manageSources` (see Source permissions).
 
 ### Confluence
 
@@ -632,17 +852,19 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 
 `GET /confluence/spaces/{spaceKey}/pages/all` returns every page of a space with its ancestor titles, for the import dialog's client-side search.
 
+`GET /kb/{id}/confluence-sources` needs KB view and `seeSources`; `POST /kb/{id}/confluence-sources` (create) needs KB edit and `addSources`; `PATCH`, `DELETE` and `…/sync` need `manageSources` (see Source permissions).
+
 ### Git repositories
 
 Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 
 | Method | Path | Access |
 |---|---|---|
-| GET | `/kb/{id}/git-repos` | KB view |
-| POST | `/kb/{id}/git-repos` | KB edit |
-| PATCH | `/kb/{id}/git-repos/{sourceId}` | KB edit |
-| DELETE | `/kb/{id}/git-repos/{sourceId}` | KB edit |
-| POST | `/kb/{id}/git-repos/{sourceId}/sync` | KB edit |
+| GET | `/kb/{id}/git-repos` | KB view + `seeSources` |
+| POST | `/kb/{id}/git-repos` | KB edit + `addSources` |
+| PATCH | `/kb/{id}/git-repos/{sourceId}` | KB edit + `manageSources` |
+| DELETE | `/kb/{id}/git-repos/{sourceId}` | KB edit + `manageSources` |
+| POST | `/kb/{id}/git-repos/{sourceId}/sync` | KB edit + `manageSources` |
 
 ### Knowledge graph
 
@@ -683,6 +905,7 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 | DELETE | `/admin/configs/{id}` |
 | POST | `/admin/configs/{id}/activate` |
 | POST | `/admin/configs/{id}/test` |
+| GET | `/admin/configs/{id}/model-info` |
 | GET | `/admin/auth-providers` |
 | POST | `/admin/auth-providers` |
 | PATCH | `/admin/auth-providers/{id}` |
@@ -718,6 +941,7 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 
 All admin routes need a system role of `admin` or `superadmin`; these are **superadmin only**: `/admin/reembed-all`, `/admin/reembed-user-memory`, `/admin/agent/template`, `DELETE /admin/kbs/{id}` and `PATCH /admin/kbs/{id}/owner`.
 
+- `GET /admin/configs/{id}/model-info` lists the provider's models (`GET /models`) as `{"models": [{"id", "contextWindow"}]}`, with the context window where the server reports one (vLLM: `max_model_len`); `502` when the provider cannot be reached. The admin saves a window per chat model as `contextWindow` in the `chat_models` entries of `POST`/`PATCH /admin/configs` (0 or absent = unknown, at most 10 000 000).
 - `GET /admin/kb-overview` is the KB-Übersicht (activity, freshness, sync status, RAGAS, injection flags per KB).
 - `POST /admin/kb/{id}/publish` makes a KB public but staged (`is_published = false`); `unpublish` needs a new owner, and `unpublish-impact` returns the numbers and owner candidates for its confirmation dialog.
 - `GET /admin/feedback/chunks?kb_id=&limit=` lists the most net-negatively rated chunks; `GET /admin/agent-metrics` the orchestrator outcome distributions.
@@ -788,9 +1012,11 @@ All routes below are under `/api/v1` and require `Authorization: Bearer <api-key
 
 Notes:
 
-- KB permissions are still enforced.
+- `GET /api/v1/kb` rows carry the `capabilities` object (`seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources`) resolved for the API key's owner, the same shape as the web API's KB list. The `api-user` system role adds no KB rights of its own; only the owner's KB roles count.
+- KB permissions are still enforced. A file selection (`selectedFileIds` on `POST /kb/{id}/chat`, `fileIds` on `POST /kb/{id}/research`) is not gated by the per-KB source permissions: any caller with KB view access may restrict a turn to chosen files.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
 - `POST /api/v1/kb/{id}/mcp` exposes the KB as an MCP server with the single tool `ask_kb` (KB view); `404` unless `mcp_server_enabled` is on.
+- Citations follow the key owner's `seeCitations` on the KB: without it, `POST /kb/{id}/chat`, `GET /kb/{id}/chats/{chatId}/messages` and `ask_kb` return no sources and no `[n]` markers (see the web API's [Citations](#citations)).
 
 ## OpenAI-Compatible API
 
@@ -860,6 +1086,10 @@ post-response task on the in-app chat path), so annotations reflect what the
 model claimed, not what was verified. Markers referencing a source that was
 never retrieved are dropped rather than emitted as dangling annotations.
 
+**Citation visibility.** When the key owner lacks `seeCitations` on the KB
+(the per-KB source permissions, see [Citations](#citations)), both keys are
+omitted and the `[n]` markers are removed from the content, in both modes.
+
 ## Open WebUI-Compatible API (ILIAS LfAssistant)
 
 All routes below are under `/owui` and require an API key. They exist only for
@@ -906,9 +1136,10 @@ The Go server applies per-category Redis-backed rate limits:
 | starter_questions | 30 / min | `GET /api/kb/{id}/starter-questions` |
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
 | search | 60 / min **per user** | `GET /api/search` |
+| chat_attachments | 60 / min **per user** | `POST /api/kb/{id}/chat/attachments` |
 | owui_chat | 600 / min **per API key** | `POST /owui/api/chat/completions` |
 | owui_data | 300 / min **per API key** | every other `/owui/*` route |
 
-Limits are counted per client IP, except `search`, which runs after
-authentication and is counted per user, and the two `owui_*` categories, which
+Limits are counted per client IP, except `search` and `chat_attachments`, which run after
+authentication and are counted per user, and the two `owui_*` categories, which
 are counted per API key because one ILIAS server carries every student.

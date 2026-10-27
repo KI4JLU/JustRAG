@@ -4,7 +4,7 @@ import type { Message } from '../types';
 import MessageBubble from '../MessageBubble';
 import { getPathToRoot, findCommonAncestor } from '../utils/messageTree';
 import { useTheme } from '../contexts/ThemeContext';
-import { useMessageSections } from '../hooks/useMessageSections';
+import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 
 interface ComparisonViewProps {
     messageTree: Map<string, Message>;
@@ -13,9 +13,13 @@ interface ComparisonViewProps {
     onUseBranch: (leafId: string) => void;
     onClose: () => void;
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
+    /** Opens a non-PDF source in its preview; without it only PDFs open. */
+    onPreviewSource?: (fileId: string, fileName: string) => void;
+    /** capabilities.seeCitations, passed through to each MessageBubble. */
+    showCitations?: boolean;
 }
 
-export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onClose, onPdfOpen }: ComparisonViewProps) {
+export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onClose, onPdfOpen, onPreviewSource, showCitations = true }: ComparisonViewProps) {
     // This view isn't virtualized, but MessageBubble's expand state is owned by
     // the caller now, so it needs its own store or the toggles would be dead.
     const messageSections = useMessageSections();
@@ -93,10 +97,12 @@ export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onC
                                 key={msg.id || i}
                                 message={msg}
                                 onPdfOpen={onPdfOpen}
-                                reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                                sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                                confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                                conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
+                                onPreviewSource={onPreviewSource}
+                                showCitations={showCitations}
+                                reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
+                                sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
+                                confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}
+                                conflictsOpen={messageSections.isOpen(messageSectionKey(msg), 'conflicts')}
                                 onToggleSection={messageSections.toggle}
                             />
                         ))}
@@ -146,10 +152,12 @@ export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onC
                                 key={msg.id || `a-${i}`}
                                 message={msg}
                                 onPdfOpen={onPdfOpen}
-                                reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                                sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                                confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                                conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
+                                onPreviewSource={onPreviewSource}
+                                showCitations={showCitations}
+                                reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
+                                sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
+                                confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}
+                                conflictsOpen={messageSections.isOpen(messageSectionKey(msg), 'conflicts')}
                                 onToggleSection={messageSections.toggle}
                             />
                         ))}
@@ -187,10 +195,12 @@ export function ComparisonView({ messageTree, leafIdA, leafIdB, onUseBranch, onC
                                 key={msg.id || `b-${i}`}
                                 message={msg}
                                 onPdfOpen={onPdfOpen}
-                                reasoningOpen={messageSections.isOpen(msg.id, 'reasoning')}
-                                sourcesOpen={messageSections.isOpen(msg.id, 'sources')}
-                                confidenceOpen={messageSections.isOpen(msg.id, 'confidence')}
-                                conflictsOpen={messageSections.isOpen(msg.id, 'conflicts')}
+                                onPreviewSource={onPreviewSource}
+                                showCitations={showCitations}
+                                reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
+                                sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
+                                confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}
+                                conflictsOpen={messageSections.isOpen(messageSectionKey(msg), 'conflicts')}
                                 onToggleSection={messageSections.toggle}
                             />
                         ))}

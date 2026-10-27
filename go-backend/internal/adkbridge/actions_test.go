@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
@@ -38,7 +40,7 @@ func TestExecuteActionResolvesByIDAndServerArgsWin(t *testing.T) {
 }
 
 func TestForgedActionIsRefused(t *testing.T) {
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, AddSources: true}})
 	n := 0
 	d := func(context.Context, string, string, json.RawMessage) (mcp.ToolResult, error) {
 		n++
@@ -51,7 +53,7 @@ func TestForgedActionIsRefused(t *testing.T) {
 	if _, err := ExecuteAction(ctx, offered(), ActionChoice{ActionID: "web"}, map[string]DispatchFunc{}); !errors.Is(err, ErrUnknownAction) {
 		t.Fatalf("missing dispatcher err = %v", err)
 	}
-	// offered but role too low
+	// offered but role too low (a viewer never adds)
 	ctx = WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "view"})
 	if _, err := ExecuteAction(ctx, offered(), ActionChoice{ActionID: "conf", Args: map[string]any{"spaceKey": "X"}},
 		map[string]DispatchFunc{"confluence_import": d}); !errors.Is(err, ErrForbiddenTool) {
@@ -68,7 +70,7 @@ func TestForgedActionIsRefused(t *testing.T) {
 }
 
 func TestExecuteActionDispatchErrorIsOpaque(t *testing.T) {
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, AddSources: true}})
 	d := func(context.Context, string, string, json.RawMessage) (mcp.ToolResult, error) {
 		return mcp.ToolResult{}, errors.New("pq: password=secret")
 	}
@@ -80,7 +82,7 @@ func TestExecuteActionDispatchErrorIsOpaque(t *testing.T) {
 
 func TestArgsWhitelist(t *testing.T) {
 	var got map[string]any
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, AddSources: true}})
 	_, err := ExecuteAction(ctx, offered(), ActionChoice{ActionID: "upload", Args: map[string]any{"userFileIds": []any{"f1"}, "sql": "drop"}},
 		map[string]DispatchFunc{"library_add_to_kb": capture(&got)})
 	if err != nil {
@@ -109,7 +111,7 @@ func TestDecodeChoice(t *testing.T) {
 
 func TestServerArgsOverrideWhitelistedClientArgs(t *testing.T) {
 	var got map[string]any
-	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit"})
+	ctx := WithScope(context.Background(), Scope{UserID: "u", KBID: "kb", Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, AddSources: true}})
 	acts := []Action{{ID: "conf", Tool: "confluence_import", Args: map[string]any{"spaceKey": "SERVER"}}}
 	_, err := ExecuteAction(ctx, acts, ActionChoice{ActionID: "conf", Args: map[string]any{"spaceKey": "CLIENT", "rootPageId": "7"}},
 		map[string]DispatchFunc{"confluence_import": capture(&got)})
@@ -124,5 +126,45 @@ func TestServerArgsOverrideWhitelistedClientArgs(t *testing.T) {
 func TestDecodeChoiceRejectsNonMapArgs(t *testing.T) {
 	if _, ok := DecodeChoice(map[string]any{"actionId": "web", "args": "x"}); ok {
 		t.Fatal("non-map args decoded")
+	}
+}
+
+// TestVisibleActionsFollowAddSources pins the offer side of the KB-write
+// gate: the KB-writing actions are offered exactly to an editor (or above)
+// whose scope holds addSources — never to a viewer — and carry the role and
+// capability they need; web_search is unaffected.
+//
+// Oracle: the offered-id lists, written out by hand from the rule "a KB
+// write needs addSources".
+func TestVisibleActionsFollowAddSources(t *testing.T) {
+	acts := []Action{{ID: "web", Tool: "web_search"}, {ID: "upload", Tool: "library_add_to_kb"}, {ID: "conf", Tool: "confluence_import"}}
+	allowed := []string{"web_search", "library_add_to_kb", "confluence_import"}
+	ids := func(as []Action) []string {
+		out := []string{}
+		for _, a := range as {
+			out = append(out, a.ID)
+		}
+		return out
+	}
+	withAdd := kbaccess.Capabilities{SeeSources: true, AddSources: true}
+	for _, tc := range []struct {
+		name string
+		sc   Scope
+		want []string
+	}{
+		{"viewer_without_add", Scope{Role: "view"}, []string{"web"}},
+		{"viewer_with_add", Scope{Role: "view", Capabilities: withAdd}, []string{"web"}},
+		{"editor_without_add", Scope{Role: "edit", Capabilities: kbaccess.Capabilities{SeeSources: true, ManageSources: true}}, []string{"web"}},
+		{"editor_with_add", Scope{Role: "edit", Capabilities: withAdd}, []string{"web", "upload", "conf"}},
+	} {
+		got := VisibleActions(tc.sc, acts, allowed)
+		if !slices.Equal(ids(got), tc.want) {
+			t.Errorf("%s: offered %v, want %v", tc.name, ids(got), tc.want)
+		}
+		for _, a := range got {
+			if a.Tool != "web_search" && a.RequiresCapability != kbaccess.CapAddSources {
+				t.Errorf("%s: %s carries requiresCapability %q", tc.name, a.ID, a.RequiresCapability)
+			}
+		}
 	}
 }

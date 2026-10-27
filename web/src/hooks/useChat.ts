@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, MessageConflict } from '../types';
+import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, MessageConflict, MessageAttachment } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
+import { chatSourceSelection } from '../utils/kbAccess';
 import { buildMessageMap, findDefaultLeaf, isTempMessageId, nearestPersistedAncestorId } from '../utils/messageTree';
 import { useMessageTree } from './useMessageTree';
 import { useChatStream } from './useChatStream';
@@ -41,6 +42,7 @@ export function buildComparisonSend(
 
 interface RawChatMessage {
   id: string;
+  createdAt?: string;
   parentMessageId?: string | null;
   role: 'user' | 'ai';
   content: string;
@@ -54,6 +56,7 @@ interface RawChatMessage {
   teamId?: string | null;
   agentId?: string | null;
   conflicts?: MessageConflict[];
+  attachments?: MessageAttachment[];
 }
 
 interface UseChatParams {
@@ -93,9 +96,6 @@ export function useChat({
   // Editing state
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
-  // Fork indicator
-  const [forkPointId, setForkPointId] = useState<string | null>(null);
-
   // Input state
   const [userMessageInput, setUserMessageInput] = useState('');
 
@@ -104,7 +104,7 @@ export function useChat({
   // document via buildFollowUpContext). The comparison MODES are not held
   // here — they are chosen in the Workspace dialog and travel with that one
   // turn's send options; nothing in the chat UI can change them afterwards.
-  const attachmentState = useChatAttachment(currentKb?.id ?? '', t);
+  const attachmentState = useChatAttachment(currentKb?.id ?? '', t, language);
 
   // Chat history state
   const [chats, setChats] = useState<ChatEntry[]>([]);
@@ -146,6 +146,9 @@ export function useChat({
   // it on the previous chat's rows, before the fetch returns.
   const [transcriptKey, setTranscriptKey] = useState(0);
   const pendingEditRef = useRef<string | null | undefined>(undefined);
+  // The edited question's attachments: an edit is a new question that keeps
+  // the files the original was asked about.
+  const pendingEditAttachmentsRef = useRef<MessageAttachment[]>([]);
   const pendingFollowUpRef = useRef<string | null>(null);
   const fetchChatsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const forkFocusTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -252,6 +255,7 @@ export function useChat({
       const res = await axios.get(`${API_BASE_URL}/api/chats/${chat.id}/messages`);
       const rawMessages: Message[] = (res.data as RawChatMessage[]).map((m) => ({
         id: m.id,
+        createdAt: m.createdAt,
         parentMessageId: m.parentMessageId || undefined,
         role: m.role,
         content: m.content,
@@ -265,6 +269,7 @@ export function useChat({
         teamId: m.teamId ?? null,
         agentId: m.agentId ?? null,
         conflicts: m.conflicts,
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       }));
       const newTree = buildMessageMap(rawMessages);
       setMessageTree(newTree);
@@ -298,7 +303,6 @@ export function useChat({
     setComparisonMode(false);
     setComparisonLeafId(null);
     setEditingMessageId(null);
-    setForkPointId(null);
     setLoadedResearchSession(null);
     setLoadedAcademicSession(null);
     clearComparison();
@@ -355,40 +359,55 @@ export function useChat({
     }
   }, [showPrompt, t, toast]);
 
-  // Orchestrating send: clears input, resets UI state, delegates to stream hook
-  const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null) => {
+  // Orchestrating send: clears input, resets UI state, delegates to stream
+  // hook. `attachments` are files already on the server: the composer's
+  // uploads (useComposerUploads) or an edited question's attachments. Resolves to whether the turn was sent, so the
+  // composer keeps its files when it was not (PromptInput clears them only
+  // after a send that did not throw).
+  const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null, attachments: MessageAttachment[] = []): Promise<boolean> => {
     e.preventDefault();
-    if (!currentKb || loading || chatSwitchingRef.current) return;
+    if (!currentKb || loading || chatSwitchingRef.current) return false;
 
     // A comparison send (attachment + ≥1 mode) is allowed with an empty input —
     // we substitute a localized default message because the backend rejects an
     // empty message with 400 before running the comparison. Don't start a
     // comparison while the attachment is still uploading.
-    if (!userMessageInput.trim()) return;
+    if (!userMessageInput.trim()) return false;
 
-    // Guard: require at least one selected file before clearing input
-    const selectedFiles = files.filter(f => f.selected !== false);
-    if (selectedFiles.length === 0) return;
+    // Guard: require a sendable source selection before clearing input
+    // (at least one selected file — unless the caller may not select at all).
+    if (!chatSourceSelection(currentKb, files).canSend) return false;
 
     const userMessage = userMessageInput.trim();
 
-    const sendOpts = attachmentState.attachment
+    const sendOpts = {
       // Empty modes deliberately: a follow-up turn must carry the uploaded
       // document as context (buildFollowUpContext) without re-running the
       // per-section comparison. willRunComparison requires non-empty modes.
-      ? { attachmentId: attachmentState.attachment.attachmentId, comparisonModes: [] }
-      : undefined;
+      ...(attachmentState.attachment ? { attachmentId: attachmentState.attachment.attachmentId, comparisonModes: [] } : {}),
+      ...(attachments.length > 0 ? { attachmentIds: attachments.map(a => a.userFileId), attachments } : {}),
+    };
 
     setUserMessageInput('');
     setEditingMessageId(null);
-    setForkPointId(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
 
-    // Delegate actual streaming to useChatStream
-    await stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, sendOpts);
-  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment, t]);
+    // Delegate actual streaming to useChatStream. A turn the server refused
+    // (e.g. the attachments together exceed the budget) reports false, so the
+    // composer keeps its attachments for a retry.
+    // Resolves as soon as the server accepted the turn, not when the answer
+    // has finished streaming: the composer clears its attachments on that.
+    return new Promise<boolean>(resolve => {
+      Promise.resolve(stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, { ...sendOpts, onAccepted: () => resolve(true) }))
+        .then(accepted => {
+          // The question was not stored: give the user their text back too.
+          if (!accepted) setUserMessageInput(prev => prev || userMessage);
+          resolve(accepted);
+        }, () => resolve(false));
+    });
+  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment]);
 
   /**
    * Starts a document comparison from the Workspace tile.
@@ -473,16 +492,43 @@ export function useChat({
     setEditingMessageId(null);
     setUserMessageInput(newContent);
     pendingEditRef.current = parentId || null;
+    pendingEditAttachmentsRef.current = msg.attachments ?? [];
   }, [messageTreeRef]);
 
-  const handleForkFromMessage = useCallback((messageId: string) => {
-    setActiveLeafId(messageId);
-    setForkPointId(messageId);
-    forkFocusTimerRef.current = setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 50);
-  }, [setActiveLeafId]);
+  /**
+   * Every way of taking a conversation elsewhere opens a NEW chat (POST
+   * /api/chats/{id}/branch), which joins the history with the branch icon and
+   * opens; the original chat stays as it was:
+   *  - „Verzweigen" on an answer — branched at that answer, ready for a
+   *    different follow-up;
+   *  - „Antwort neu generieren" — branched at the question, which the branch
+   *    then answers (handleRegenerate);
+   *  - editing a question — branched at the turn before it (an empty branch
+   *    for the first question), where the edit is then sent (the pending-edit
+   *    effect below).
+   * Resolves to the id of the copied message (undefined for an empty branch),
+   * or null when branching failed (a toast says so).
+   */
+  const openBranch = useCallback(async (messageId: string | null): Promise<string | undefined | null> => {
+    const chatId = activeChatIdRef.current;
+    if (!chatId || (messageId && isTempMessageId(messageId))) return null;
+    try {
+      const res = await axios.post(`${API_BASE_URL}/api/chats/${chatId}/branch`, messageId ? { messageId } : {});
+      const { copiedMessageId, ...branch } = res.data as ChatEntry & { copiedMessageId?: string };
+      setChats(prev => [branch, ...prev.filter(c => c.id !== branch.id)]);
+      await handleSelectChat(branch);
+      return copiedMessageId;
+    } catch (err: unknown) {
+      console.error('Failed to branch chat:', err);
+      toast.error(t('chatBranchFailed'));
+      return null;
+    }
+  }, [activeChatIdRef, handleSelectChat, toast, t]);
+
+  const handleForkFromMessage = useCallback(async (messageId: string) => {
+    if (await openBranch(messageId) === null) return;
+    forkFocusTimerRef.current = setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [openBranch]);
 
   /**
    * "Antwort neu generieren" — a second answer under the SAME question.
@@ -508,14 +554,19 @@ export function useChat({
     const userMsg = messageTreeRef.current.get(userMessageId);
     if (!userMsg || userMsg.role !== 'user') return;
 
+    // A new answer is a new branch: copy the chat up to the question, then
+    // have the branch answer its copy of it (regenerateOfMessageId naming
+    // the question). The original keeps its answer untouched.
+    const question = await openBranch(userMessageId);
+    if (!question) return;
     await stream.handleSendMessage(
       { preventDefault: () => {} } as React.FormEvent,
       userMsg.content,
-      activeLeafId,
+      question,
       undefined,
-      { regenerateOf: { aiMessageId, userMessageId } },
+      { regenerateOf: { aiMessageId: question, userMessageId: question } },
     );
-  }, [messageTreeRef, stream, activeLeafId]);
+  }, [messageTreeRef, stream, openBranch]);
 
   const handleFollowUpClick = useCallback((question: string) => {
     pendingFollowUpRef.current = question;
@@ -551,15 +602,23 @@ export function useChat({
       handleSendMessage(syntheticEvent);
     } else if (pendingEditRef.current !== undefined && userMessageInput) {
       const parentId = pendingEditRef.current;
+      const attachments = pendingEditAttachmentsRef.current;
       pendingEditRef.current = undefined;
+      pendingEditAttachmentsRef.current = [];
       const syntheticEvent = { preventDefault: () => { } } as React.FormEvent;
-      // `null` is passed through, not collapsed to undefined: editing the
-      // first question of a chat has no parent, and "no parent" must not be
-      // read as "no opinion" — that fell back to the active leaf and appended
-      // the edited question to the answer it was replacing.
-      handleSendMessage(syntheticEvent, parentId);
+      // An edited question is a new branch: copy the chat up to the turn
+      // before it (an empty branch for the first question) and send the
+      // edit there. `null` is passed through, not collapsed to undefined:
+      // the first question has no parent, and "no parent" must not be read
+      // as "no opinion" — that fell back to the active leaf and appended the
+      // edited question to the answer it was replacing.
+      void (async () => {
+        const copied = await openBranch(parentId);
+        if (copied === null) return;
+        await handleSendMessage(syntheticEvent, copied ?? null, attachments);
+      })();
     }
-  }, [userMessageInput, handleSendMessage]);
+  }, [userMessageInput, handleSendMessage, openBranch]);
 
   return useMemo(() => ({
     // Message tree
@@ -577,8 +636,6 @@ export function useChat({
     editingMessageId,
     setEditingMessageId,
     // Fork
-    forkPointId,
-    setForkPointId,
     // Input
     userMessageInput,
     setUserMessageInput,
@@ -629,7 +686,6 @@ export function useChat({
     comparisonMode,
     comparisonLeafId,
     editingMessageId,
-    forkPointId,
     userMessageInput,
     loading,
     attachmentState,

@@ -3,10 +3,12 @@
 // Integration tests for the search store.
 //
 // The central test, TestVisibilityAgreesWithEffectiveRole, is the parity test
-// for kbaccess.VisibleKBsCTE, the SQL mirror of kbaccess.EffectiveRole: the
-// SQL predicate (exercised through the search queries) and EffectiveRole run
-// over the SAME fixture matrix and must agree on every (caller, topic) pair —
-// on visibility and on the role. It lives here rather than in
+// for kbaccess.VisibleKBsCTE, the SQL mirror of kbaccess.EffectiveRole, and
+// for kbaccess.SeeSourcesSQL, the SQL mirror of the seeSources rule in
+// kbaccess.CapabilitiesFor: the SQL (exercised through the search queries)
+// and the Go functions run over the SAME fixture matrix and must agree on
+// every (caller, topic) pair — on visibility, on the role, and on whether the
+// topic's files may be listed. It lives here rather than in
 // internal/kbaccess because this package is in CI's integration package list.
 //
 // Oracle: the production access path of every KB-scoped route, i.e. what
@@ -110,6 +112,13 @@ type kbSpec struct {
 	published   bool
 	description string
 	headerText  string
+	// viewerSeeSources sets knowledge_bases.viewer_see_sources (migration
+	// 0089, default false). Only viewers are affected by it.
+	viewerSeeSources bool
+	// editorSeeSourcesOff clears knowledge_bases.editor_see_sources
+	// (migration 0089, default true), so the zero kbSpec keeps the column
+	// default. Only editors are affected by it.
+	editorSeeSourcesOff bool
 }
 
 func insertKB(t *testing.T, pool *pgxpool.Pool, s kbSpec) string {
@@ -117,9 +126,11 @@ func insertKB(t *testing.T, pool *pgxpool.Pool, s kbSpec) string {
 	ctx := context.Background()
 	var id string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO knowledge_bases (name, visibility, is_published, description, header_text)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')) RETURNING id::text`,
-		s.name, s.visibility, s.published, s.description, s.headerText).Scan(&id); err != nil {
+		INSERT INTO knowledge_bases (name, visibility, is_published, description, header_text,
+		                             viewer_see_sources, editor_see_sources)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7) RETURNING id::text`,
+		s.name, s.visibility, s.published, s.description, s.headerText,
+		s.viewerSeeSources, !s.editorSeeSourcesOff).Scan(&id); err != nil {
 		t.Fatalf("insert kb %s: %v", s.name, err)
 	}
 	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, id) }) //nolint:errcheck
@@ -182,11 +193,24 @@ func ladderRule(kb *kbaccess.KnowledgeBase, sysRole, memberRole string) string {
 }
 
 // TestVisibilityAgreesWithEffectiveRole builds, for each of four callers (one
-// per system role), 20 topics: {private, public} x {published, staged} x
-// {no row, view, edit, admin, owner} on that caller. Every caller is then
-// checked against all 80 topics, so each also sees the 60 topics on which it
-// has no row but somebody else does (owner included). That is 320 pairs, each
-// asserted twice:
+// per system role), 40 topics: {private, public} x {published, staged} x
+// {see-sources flags} x {no row, view, edit, admin, owner} on that caller.
+// Every caller is then checked against all 160 topics, so each also sees the
+// 120 topics on which it has no row but somebody else does (owner included).
+// That is 640 pairs, each asserted twice. The expected role is
+// EffectiveRole's; whether the topic's file may appear is
+// CapabilitiesFor(kb, role).SeeSources on top of it.
+//
+// The see-sources dimension is a covering subset of the four combinations of
+// (viewer_see_sources, editor_see_sources): {(on, off), (off, on)}. A caller
+// has one role per topic, and seeSources depends on at most one of the two
+// columns for that role (view → viewer, edit → editor, admin/owner →
+// neither), so each role still meets both values of its own column; and
+// because the two columns always disagree, a SeeSourcesSQL that read the
+// other role's column gets every view and edit pair wrong. The coverage
+// check below fails if any of those cells goes unexercised.
+//
+// Two checks per pair:
 //
 //   - Unscoped, with the topic's own key as q. Search is fuzzy, and the keys
 //     share a long per-run marker, that query also returns many
@@ -218,34 +242,42 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 		})
 		for _, vis := range []string{"private", "public"} {
 			for _, published := range []bool{true, false} {
-				for _, mr := range memberRoles {
-					n++
-					// Zero-padded and hyphen-terminated, so the key of k001
-					// is not a substring of k0010's.
-					key := fmt.Sprintf("%s-k%03d-", m, n)
-					id := insertKB(t, pool, kbSpec{name: key + "topic", visibility: vis, published: published})
-					if mr != "" {
-						insertMember(t, pool, id, uid, mr)
+				for _, viewerSee := range []bool{true, false} {
+					for _, mr := range memberRoles {
+						n++
+						// Zero-padded and hyphen-terminated, so the key of k001
+						// is not a substring of k0010's.
+						key := fmt.Sprintf("%s-k%03d-", m, n)
+						// editor_see_sources is always the opposite of
+						// viewer_see_sources (see the doc comment).
+						id := insertKB(t, pool, kbSpec{name: key + "topic", visibility: vis, published: published,
+							viewerSeeSources: viewerSee, editorSeeSourcesOff: viewerSee})
+						if mr != "" {
+							insertMember(t, pool, id, uid, mr)
+						}
+						kbs = append(kbs, matrixKB{
+							id: id, key: key, visibility: vis,
+							fileID: insertFile(t, pool, id, key+"file.pdf"),
+						})
 					}
-					kbs = append(kbs, matrixKB{
-						id: id, key: key, visibility: vis,
-						fileID: insertFile(t, pool, id, key+"file.pdf"),
-					})
 				}
 			}
 		}
 	}
 
 	coverage := map[string]int{}
+	seeCoverage := map[string]int{}
 	visible := 0
 	judged, fuzzyJudged := 0, 0
 	for _, c := range callers {
-		// oracleRole resolves any KB the search returns — fixture or not —
-		// through the oracle, cached per caller.
-		cache := map[string]string{}
-		oracleRole := func(kbID string) string {
-			if role, ok := cache[kbID]; ok {
-				return role
+		// oracleFor resolves any KB the search returns — fixture or not —
+		// through the oracle, cached per caller: the role from
+		// EffectiveRole, and whether its files may be listed from
+		// CapabilitiesFor on top of that role.
+		cache := map[string]oracleVerdict{}
+		oracleFor := func(kbID string) oracleVerdict {
+			if v, ok := cache[kbID]; ok {
+				return v
 			}
 			kb, err := access.GetKBByID(ctx, kbID)
 			if err != nil || kb == nil {
@@ -256,8 +288,9 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 				t.Fatalf("oracle GetKBRole: %v", err)
 			}
 			role := kbaccess.EffectiveRole(kb, c.caller.SysRole, memberRole)
-			cache[kbID] = role
-			return role
+			v := oracleVerdict{role: role, seeSources: kbaccess.CapabilitiesFor(kb, role).SeeSources}
+			cache[kbID] = v
+			return v
 		}
 		for _, k := range kbs {
 			// --- oracle: the RequireKBRole path, verbatim ---
@@ -270,13 +303,17 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 				t.Fatalf("oracle GetKBRole: %v", err)
 			}
 			want := kbaccess.EffectiveRole(kb, c.caller.SysRole, memberRole)
+			wantSee := kbaccess.CapabilitiesFor(kb, want).SeeSources
 			coverage[ladderRule(kb, c.caller.SysRole, memberRole)]++
 			if want != "" {
 				visible++
+				seeCoverage[fmt.Sprintf("%s viewer=%v editor=%v see=%v", want,
+					kb.Sources.ViewerSeeSources, kb.Sources.EditorSeeSources, wantSee)]++
 			}
 
-			pair := fmt.Sprintf("caller=%s kb=%s (public=%v published=%v member=%q) want role %q",
-				c.label, k.key, kb.IsGlobal, kb.IsPublished, memberRole, want)
+			pair := fmt.Sprintf("caller=%s kb=%s (public=%v published=%v member=%q viewerSee=%v editorSee=%v) want role %q see %v",
+				c.label, k.key, kb.IsGlobal, kb.IsPublished, memberRole,
+				kb.Sources.ViewerSeeSources, kb.Sources.EditorSeeSources, want, wantSee)
 
 			// --- unscoped: the key finds this topic and file exactly (as a
 			// prefix), plus fuzzy hits on other topics; every hit is judged ---
@@ -284,7 +321,7 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: unscoped Search: %v", pair, err)
 			}
-			assertEveryHitVisible(t, pair+" [unscoped]", got, k, want, oracleRole)
+			assertEveryHitVisible(t, pair+" [unscoped]", got, k, want, wantSee, oracleFor)
 			judged += len(got.Topics) + len(got.Sources)
 			for _, h := range got.Topics {
 				if h.Match == globalsearch.MatchFuzzy {
@@ -309,7 +346,7 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s [scoped]: Search: %v", pair, err)
 			}
-			assertAgreement(t, pair+" [scoped]", got, k, want)
+			assertAgreement(t, pair+" [scoped]", got, k, want, wantSee)
 			if got.KBID == nil || *got.KBID != k.id {
 				t.Errorf("%s [scoped]: response kbId = %v, want %s", pair, got.KBID, k.id)
 			}
@@ -327,26 +364,47 @@ func TestVisibilityAgreesWithEffectiveRole(t *testing.T) {
 			t.Errorf("fixture matrix never exercised ladder rule %q", rule)
 		}
 	}
+	// The seeSources half must not be vacuous either: viewers and editors
+	// each with their own flag on (files shown) and off (files hidden) while
+	// the other role's flag says the opposite, and admins/owners with each
+	// flag off (files shown regardless).
+	for _, cell := range []string{
+		"view viewer=true editor=false see=true", "view viewer=false editor=true see=false",
+		"edit viewer=false editor=true see=true", "edit viewer=true editor=false see=false",
+		"admin viewer=true editor=false see=true", "admin viewer=false editor=true see=true",
+		"owner viewer=true editor=false see=true", "owner viewer=false editor=true see=true",
+	} {
+		if seeCoverage[cell] == 0 {
+			t.Errorf("fixture matrix never exercised the seeSources case %q", cell)
+		}
+	}
 	// The hit-by-hit check must actually have judged fuzzy hits, or it would
 	// prove nothing about fuzzy matching's visibility.
 	if fuzzyJudged == 0 {
 		t.Error("no unscoped search returned a fuzzy hit; the every-hit check was vacuous")
 	}
-	t.Logf("pairs=%d visible=%d invisible=%d coverage=%v",
-		len(callers)*len(kbs), visible, len(callers)*len(kbs)-visible, coverage)
+	t.Logf("pairs=%d visible=%d invisible=%d coverage=%v seeSources=%v",
+		len(callers)*len(kbs), visible, len(callers)*len(kbs)-visible, coverage, seeCoverage)
 	t.Logf("unscoped hits judged against the oracle: %d (fuzzy: %d)", judged, fuzzyJudged)
+}
+
+// oracleVerdict is the oracle's answer for one (caller, KB) pair.
+type oracleVerdict struct {
+	role       string // kbaccess.EffectiveRole
+	seeSources bool   // kbaccess.CapabilitiesFor(kb, role).SeeSources
 }
 
 // assertEveryHitVisible checks an unscoped response hit by hit against the
 // oracle: every topic carries exactly the oracle's (non-empty) role for it,
-// every source lies in a topic the oracle makes visible, and the target topic
-// and its file are present exactly when the oracle makes the target visible.
+// every source lies in a topic whose files the oracle lets the caller see,
+// the target topic is present exactly when the oracle makes it visible, and
+// its file exactly when the oracle grants seeSources on it.
 func assertEveryHitVisible(t *testing.T, pair string, got *globalsearch.Response, k matrixKB, want string,
-	oracleRole func(string) string) {
+	wantSee bool, oracleFor func(string) oracleVerdict) {
 	t.Helper()
 	targetTopic, targetFile := false, false
 	for _, h := range got.Topics {
-		role := oracleRole(h.ID)
+		role := oracleFor(h.ID).role
 		if role == "" {
 			t.Errorf("%s: invisible topic %s (%q) leaked, match=%s", pair, h.ID, h.Name, h.Match)
 			continue
@@ -362,23 +420,30 @@ func assertEveryHitVisible(t *testing.T, pair string, got *globalsearch.Response
 		}
 	}
 	for _, h := range got.Sources {
-		if oracleRole(h.KBID) == "" {
+		v := oracleFor(h.KBID)
+		if v.role == "" {
 			t.Errorf("%s: file %q of invisible topic %s leaked, match=%s", pair, h.Name, h.KBID, h.Match)
+		} else if !v.seeSources {
+			t.Errorf("%s: file %q of topic %s leaked although CapabilitiesFor denies seeSources (role %q)",
+				pair, h.Name, h.KBID, v.role)
 		}
 		if h.ID == k.fileID {
 			targetFile = true
 		}
 	}
-	if visible := want != ""; targetTopic != visible || targetFile != visible {
-		t.Errorf("%s: target topic present=%v, file present=%v, want both %v",
-			pair, targetTopic, targetFile, visible)
+	if visible := want != ""; targetTopic != visible {
+		t.Errorf("%s: target topic present=%v, want %v", pair, targetTopic, visible)
+	}
+	if targetFile != wantSee {
+		t.Errorf("%s: target file present=%v, want %v (seeSources)", pair, targetFile, wantSee)
 	}
 }
 
 // assertAgreement checks one search response against the oracle's verdict for
 // one fixture topic: invisible -> no hit in any group; visible -> exactly that
-// topic, carrying exactly the oracle's role, and exactly its file.
-func assertAgreement(t *testing.T, pair string, got *globalsearch.Response, k matrixKB, want string) {
+// topic, carrying exactly the oracle's role, and exactly its file when the
+// oracle grants seeSources, no file otherwise.
+func assertAgreement(t *testing.T, pair string, got *globalsearch.Response, k matrixKB, want string, wantSee bool) {
 	t.Helper()
 	if want == "" {
 		if len(got.Topics) != 0 || len(got.Sources) != 0 {
@@ -395,6 +460,12 @@ func assertAgreement(t *testing.T, pair string, got *globalsearch.Response, k ma
 	}
 	if got.Topics[0].Visibility != k.visibility {
 		t.Errorf("%s: visibility = %q, want %q", pair, got.Topics[0].Visibility, k.visibility)
+	}
+	if !wantSee {
+		if len(got.Sources) != 0 {
+			t.Errorf("%s: sources = %+v, want none (CapabilitiesFor denies seeSources)", pair, got.Sources)
+		}
+		return
 	}
 	if len(got.Sources) != 1 || got.Sources[0].ID != k.fileID || got.Sources[0].KBID != k.id {
 		t.Errorf("%s: sources = %+v, want exactly file %s in %s", pair, got.Sources, k.fileID, k.id)

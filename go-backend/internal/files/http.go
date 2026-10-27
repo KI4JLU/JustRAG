@@ -345,81 +345,108 @@ func SanitizeFilename(name string) string {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// hasViewAccess returns true when the user has at least view access to the
-// given KB, per the same role ladder the kbaccess middleware enforces
-// (superadmin, kb_members row, or view on a published global KB).
-func (h *Handler) hasViewAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+// sourceAccess resolves the caller's effective role on kb through the one
+// ladder (kbaccess.EffectiveRole) and the source capabilities that role has
+// under the KB's flags (kbaccess.CapabilitiesFor). The handlers behind the
+// file-id routes (/api/files/{id}…) have no {id} KB in the path, so the
+// kbaccess middleware cannot gate them; this is their second check, built
+// from the same two functions rather than a copy of either.
+func (h *Handler) sourceAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (string, kbaccess.Capabilities, error) {
 	memberRole, err := h.store.GetKBRole(ctx, kb.ID, user.ID)
 	if err != nil {
-		return false, fmt.Errorf("get kb role: %w", err)
+		return "", kbaccess.Capabilities{}, fmt.Errorf("get kb role: %w", err)
 	}
 	role := kbaccess.EffectiveRole(kb, user.Role, memberRole)
-	return kbaccess.AtLeast(role, kbaccess.RoleView), nil
+	return role, kbaccess.CapabilitiesFor(kb, role), nil
 }
 
-// hasEditAccess returns true when the user has at least edit access
-// (can delete files from) the given KB, per the same role ladder the
-// kbaccess middleware enforces.
-func (h *Handler) hasEditAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
-	memberRole, err := h.store.GetKBRole(ctx, kb.ID, user.ID)
+// canDownload reports whether the caller may download kb's source files:
+// at least view, plus the downloadSources capability (the KB's
+// viewer_download_sources flag for a viewer, editor_download_sources for an
+// editor).
+func (h *Handler) canDownload(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+	role, caps, err := h.sourceAccess(ctx, kb, user)
 	if err != nil {
-		return false, fmt.Errorf("get kb role: %w", err)
+		return false, err
 	}
-	role := kbaccess.EffectiveRole(kb, user.Role, memberRole)
-	return kbaccess.AtLeast(role, kbaccess.RoleEdit), nil
+	return kbaccess.AtLeast(role, kbaccess.RoleView) && caps.DownloadSources, nil
+}
+
+// canManage reports whether the caller may delete or retry kb's files: the
+// manageSources capability — edit and above, never a viewer, and below KB
+// admin only together with seeSources (kbaccess.CapabilitiesFor decides).
+func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+	_, caps, err := h.sourceAccess(ctx, kb, user)
+	if err != nil {
+		return false, err
+	}
+	return caps.ManageSources, nil
 }
 
 // ---------------------------------------------------------------------------
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
+// downloadableFile resolves fileID to a stored file the authenticated caller
+// may download (canDownload), or writes the refusal and returns false: 404
+// for a missing file, KB or blob, 403 without downloadSources. The caller
+// has checked authentication. Shared by Download and Text, so the text
+// preview can never read what the download would refuse.
+func (h *Handler) downloadableFile(w http.ResponseWriter, r *http.Request, fileID string) (*FileInfo, bool) {
+	ctx := r.Context()
+	file, err := h.store.GetFileByID(ctx, fileID)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
+		return nil, false
+	}
+	if file == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "File not found")
+		return nil, false
+	}
+
+	kb, err := h.store.GetKBByID(ctx, file.KbID)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
+		return nil, false
+	}
+	if kb == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "Knowledge base not found")
+		return nil, false
+	}
+
+	ok, err := h.canDownload(ctx, kb, auth.UserFromContext(ctx))
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
+		return nil, false
+	}
+	if !ok {
+		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, "Access denied")
+		return nil, false
+	}
+
+	if file.StoragePath == nil || *file.StoragePath == "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "File has no storage path")
+		return nil, false
+	}
+	return file, true
+}
+
 // Download handles GET /api/files/{id}/download.
-// Requires authentication; the user must have at least view access to the file's KB.
+// Requires authentication; the user must have at least view access to the
+// file's KB and the downloadSources capability on it (canDownload). The
+// in-app PDF preview reads through this route, so it follows the same gate.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	user := auth.UserFromContext(r.Context())
-	if user == nil {
+	if auth.UserFromContext(r.Context()) == nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
-
 	fileID := r.PathValue("id")
 	if fileID == "" {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Missing file ID")
 		return
 	}
-
-	file, err := h.store.GetFileByID(r.Context(), fileID)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if file == nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "File not found")
-		return
-	}
-
-	kb, err := h.store.GetKBByID(r.Context(), file.KbID)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if kb == nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "Knowledge base not found")
-		return
-	}
-
-	ok, err := h.hasViewAccess(r.Context(), kb, user)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
+	file, ok := h.downloadableFile(w, r, fileID)
 	if !ok {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "Access denied")
-		return
-	}
-
-	if file.StoragePath == nil || *file.StoragePath == "" {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "File has no storage path")
 		return
 	}
 
@@ -451,7 +478,8 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete handles DELETE /api/files/{id}.
-// Requires authentication; the user must have edit access to the file's KB.
+// Requires authentication; the user must have edit access to the file's KB
+// and the manageSources capability on it (canManage).
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
@@ -485,7 +513,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.hasEditAccess(r.Context(), kb, user)
+	ok, err := h.canManage(r.Context(), kb, user)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -540,7 +568,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // Upload handles POST /api/kb/{id}/files.
-// Requires authentication and KB edit permission (enforced by kbaccess middleware).
+// Requires authentication and the addSources capability (kbAddSourcesChain).
 // Accepts a multipart/form-data request with a "file" field; max 500 MB.
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
@@ -555,7 +583,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var ve *uploadcheck.Error
 		if errors.As(err, &ve) {
-			httputil.WriteErrorCtx(r.Context(), w, ve.Status, ve.Message)
+			ve.Write(r.Context(), w)
 			return
 		}
 		httputil.WriteInternalErrorCtx(r.Context(), w, err)
@@ -589,11 +617,11 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		maxFiles = maxFilesPerGlobalKB
 	}
 	if limits.FileCount >= maxFiles {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, fmt.Sprintf("Knowledge base has reached the maximum of %d files", maxFiles))
+		httputil.WriteCodedErrorCtx(r.Context(), w, http.StatusBadRequest, skipKBFull, fmt.Sprintf("Knowledge base has reached the maximum of %d files", maxFiles))
 		return
 	}
 	if limits.TotalSize+int64(header.Size) > maxTotalSizePerKB {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Knowledge base has reached the 500 MB storage limit")
+		httputil.WriteCodedErrorCtx(r.Context(), w, http.StatusBadRequest, skipKBFull, "Knowledge base has reached the 500 MB storage limit")
 		return
 	}
 

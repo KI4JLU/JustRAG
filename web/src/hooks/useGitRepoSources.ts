@@ -3,9 +3,9 @@ import axios from 'axios';
 import type { KnowledgeBase, GitRepoSource, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
-import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage } from '../utils/apiError';
+import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseGitRepoSourcesParams {
     currentKb: KnowledgeBase | null;
@@ -16,24 +16,34 @@ const POLL_INTERVAL_MS = 3000;
 
 export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesParams) {
     const { t } = useTheme();
-    const { showConfirm } = useModalContext();
     const toast = useToast();
     const [gitRepoSources, setGitRepoSources] = useState<GitRepoSource[]>([]);
     const [gitRepoLoading, setGitRepoLoading] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const wasSyncingRef = useRef(false);
 
+    // No seeSources on the open KB: its git sources are never requested.
+    const unlistable = unlistableKbId(currentKb);
     const fetchGitRepoSources = useCallback(async (kbId?: string) => {
         const id = kbId || currentKb?.id;
         if (!id) return;
+        if (id === unlistable) {
+            setGitRepoSources([]);
+            return;
+        }
         try {
             const res = await axios.get(`${API_BASE_URL}/api/kb/${id}/git-repos`);
             setGitRepoSources(Array.isArray(res.data) ? res.data : []);
         } catch (err: unknown) {
             if (axios.isCancel(err)) return;
+            // No seeSources on this KB: no list (and not the previous KB's).
+            if (isForbidden(err)) {
+                setGitRepoSources([]);
+                return;
+            }
             console.error('Failed to fetch git repo sources:', err);
         }
-    }, [currentKb?.id]);
+    }, [currentKb?.id, unlistable]);
 
     // Poll while any source is syncing
     useEffect(() => {
@@ -100,21 +110,22 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
         }
     }, [currentKb, fetchGitRepoSources, t, toast]);
 
-    const deleteGitRepoSource = useCallback(async (sourceId: string) => {
-        if (!currentKb) return;
-        const confirmed = await showConfirm(t('deleteGitRepoSource'), t('deleteGitRepoSourceConfirm'));
-        if (!confirmed) return;
-
-        setGitRepoSources(prev => prev.filter(s => s.id !== sourceId));
-        try {
-            await axios.delete(`${API_BASE_URL}/api/kb/${currentKb.id}/git-repos/${sourceId}`);
-            toast.success(t('gitRepoSourceDeleted'));
-            await fetchFiles(currentKb.id);
-        } catch (err: unknown) {
+    /** Deletes the given git sources with their files. No confirmation of its
+     *  own: the source list's remove selection asks once for everything ticked. */
+    const deleteGitRepoSources = useCallback(async (sourceIds: string[]) => {
+        if (!currentKb || sourceIds.length === 0) return;
+        const ids = new Set(sourceIds);
+        setGitRepoSources(prev => prev.filter(s => !ids.has(s.id)));
+        const results = await Promise.allSettled(sourceIds.map(id => axios.delete(`${API_BASE_URL}/api/kb/${currentKb.id}/git-repos/${id}`)));
+        const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (failure) {
             await fetchGitRepoSources(currentKb.id);
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(getApiErrorMessage(failure.reason, t('error')));
+        } else {
+            toast.success(t('gitRepoSourceDeleted'));
         }
-    }, [currentKb, fetchFiles, fetchGitRepoSources, showConfirm, t, toast]);
+        await fetchFiles(currentKb.id);
+    }, [currentKb, fetchFiles, fetchGitRepoSources, t, toast]);
 
     const syncGitRepoNow = useCallback(async (sourceId: string) => {
         if (!currentKb) return;
@@ -133,7 +144,7 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
         fetchGitRepoSources,
         addGitRepoSource,
         updateGitRepoSource,
-        deleteGitRepoSource,
+        deleteGitRepoSources,
         syncGitRepoNow,
     };
 }

@@ -9,9 +9,6 @@ import (
 	"github.com/justrag/go-backend/internal/prompts"
 )
 
-// hypeDocPrefixTokenCap matches the contextual-prefix / KG budget.
-const hypeDocPrefixTokenCap = 8000
-
 // hypeQuestionsSpec is the Structured-Outputs contract for the HyPE /
 // golden-set question generator. The prompt's contract is a bare JSON
 // array of question strings (top-level array — vLLM guided_json
@@ -27,18 +24,18 @@ var hypeQuestionsSpec = &StructuredSpec{
 }
 
 // GenerateHypotheticalQuestions returns up to maxQuestions self-contained
-// questions the chunk answers. The full document is sent as a cacheable
-// prefix (auto-cached by the provider across chunks of the same file),
+// questions the chunk answers. The document, cut once per file (see
+// ContextDoc), is sent as a cacheable prefix (auto-cached by the provider
+// across chunks of the same file),
 // mirroring GenerateChunkContext. lang is the KB's raw two-letter code.
 // modelOverride empty falls back to the resolver default. Best-effort:
 // any LLM/parse error returns (nil, err); the caller logs and proceeds.
-func GenerateHypotheticalQuestions(ctx context.Context, resolver *ConfigResolver, fileName, document, chunk, kbID string, maxQuestions int, lang, modelOverride string) ([]string, error) {
+func GenerateHypotheticalQuestions(ctx context.Context, resolver *ConfigResolver, fileName string, doc ContextDoc, chunk, kbID string, maxQuestions int, lang, modelOverride string) ([]string, error) {
 	if maxQuestions <= 0 {
 		return nil, nil
 	}
-	truncatedDoc := truncateToTokens(document, hypeDocPrefixTokenCap)
 	sys := prompts.HyPEQuestionsSystemPrompt(lang)
-	user := prompts.HyPEQuestionsUserPrompt(fileName, truncatedDoc, chunk, maxQuestions)
+	user := prompts.HyPEQuestionsUserPrompt(fileName, doc.Text(), chunk, maxQuestions)
 
 	result, err := GenerateCompletionStructured(ctx, resolver, user, sys, kbID, modelOverride, hypeQuestionsSpec)
 	if err != nil {

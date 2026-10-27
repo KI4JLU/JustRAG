@@ -133,6 +133,10 @@ function localDesignSystem(): Plugin | null {
           'class-variance-authority',
           'clsx',
           'tailwind-merge',
+          // pdf.js checks that API and worker are the same version; the app
+          // hands the DS its worker URL (setPdfWorkerSrc), so the DS source
+          // must load the app's pdfjs-dist, not the DS checkout's own copy.
+          'pdfjs-dist',
         ],
       },
       // The alias points outside the project root; without this the dev

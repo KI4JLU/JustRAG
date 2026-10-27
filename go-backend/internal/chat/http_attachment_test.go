@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -52,5 +53,20 @@ func TestUploadAttachmentDisabledReturns503(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when compare disabled, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+// TestParseAndSplitAttachment_ParserFailureIsUnreadable: the comparison
+// upload must tell a parser failure (errParseFailed → 422 file_unreadable)
+// apart from a format no parser handles (errUnsupportedType → 415).
+func TestParseAndSplitAttachment_ParserFailureIsUnreadable(t *testing.T) {
+	ctx := context.Background()
+	_, _, err := parseAndSplitAttachment(ctx, parser.DefaultFactoryWith(nil, failParser{}), "f.fail", "x/y", []byte("x"))
+	if !errors.Is(err, errParseFailed) || errors.Is(err, errUnsupportedType) {
+		t.Fatalf("parser failure: want errParseFailed, got %v", err)
+	}
+	_, _, err = parseAndSplitAttachment(ctx, parser.NewFactory(), "a.bin", "x/y", []byte("x"))
+	if !errors.Is(err, errUnsupportedType) {
+		t.Fatalf("no parser: want errUnsupportedType, got %v", err)
 	}
 }

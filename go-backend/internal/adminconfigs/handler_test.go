@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,8 @@ type mockStore struct {
 	deleteErr   error
 	activateErr error
 	auditErr    error
+	// baseURL overrides the provider base URL GetAIProviderByID returns.
+	baseURL string
 
 	// inspection fields
 	lastDeleteID    string
@@ -54,11 +57,15 @@ func (m *mockStore) GetAIProviderByID(_ context.Context, _ string) (*ai.AIProvid
 		return nil, nil
 	}
 	c := m.configs[0]
+	base := "https://api.openai.com/v1/"
+	if m.baseURL != "" {
+		base = m.baseURL
+	}
 	return &ai.AIProviderInfo{
 		ID:      c.ID,
 		Name:    c.Name,
 		APIKey:  "sk-real-key",
-		BaseURL: "https://api.openai.com/v1/",
+		BaseURL: base,
 	}, nil
 }
 
@@ -402,5 +409,36 @@ func TestUpdateConfig_NotFound(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+// A provider error that echoes credentials (its body, or the request URL in a
+// *url.Error) must reach the admin UI masked, on both provider probes.
+func TestProviderErrorsAreRedacted(t *testing.T) {
+	const secret = "sk-leaked-secret-123"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"upstream https://gw.example/v1/models?key=` + secret + ` failed; sent Authorization: Bearer ` + secret + `"}`))
+	}))
+	defer srv.Close()
+	store := &mockStore{configs: []adminconfigs.AIConfigResponse{sampleConfig()}, baseURL: srv.URL + "/v1/"}
+	h := newHandler(store)
+
+	for name, run := range map[string]func(http.ResponseWriter, *http.Request){
+		"model-info": h.ModelInfo,
+		"test":       h.TestConfig,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := newRequest(http.MethodGet, "/api/admin/configs/cfg-1/"+name, nil)
+			req.SetPathValue("id", "cfg-1")
+			rec := httptest.NewRecorder()
+			run(rec, req)
+			if strings.Contains(rec.Body.String(), secret) {
+				t.Fatalf("status %d body leaks the credential: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "500") {
+				t.Fatalf("status %d body lost the provider error: %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }

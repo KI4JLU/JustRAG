@@ -46,6 +46,20 @@ type ResolvedConfig struct {
 	// asks the provider for MRL-truncated vectors of that size (OpenAI-style
 	// `dimensions` request field).
 	EmbeddingDimensions int
+
+	// ChatContextWindows maps each chat model of the provider that has an
+	// admin-set ai_models.context_window (migration 0090) to it, in tokens.
+	// Models without one are absent. Read through ContextWindow.
+	ChatContextWindows map[string]int
+}
+
+// ContextWindow returns model's context window in tokens, or 0 when it is
+// not configured (or model is not one of the provider's chat models).
+func (c *ResolvedConfig) ContextWindow(model string) int {
+	if c == nil {
+		return 0
+	}
+	return c.ChatContextWindows[model]
 }
 
 // AIProviderInfo holds the raw provider fields needed for config resolution.
@@ -67,6 +81,8 @@ type AIModelInfo struct {
 	// Dimensions is the admin-configured embedding output size.
 	// 0 = auto (model-native, no truncation requested).
 	Dimensions int
+	// ContextWindow is ai_models.context_window in tokens; 0 = unknown.
+	ContextWindow int
 }
 
 // KBModelOverrides holds the optional model-name overrides stored on a KB row.
@@ -295,6 +311,12 @@ func (r *ConfigResolver) resolve(ctx context.Context, kbID string) (*ResolvedCon
 		names := make([]string, len(chatModels))
 		for i, m := range chatModels {
 			names[i] = m.Name
+			if m.ContextWindow > 0 {
+				if cfg.ChatContextWindows == nil {
+					cfg.ChatContextWindows = make(map[string]int, len(chatModels))
+				}
+				cfg.ChatContextWindows[m.Name] = m.ContextWindow
+			}
 		}
 		cfg.ChatModels = names
 	}
