@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import axios from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 import type { MouseEvent } from 'react';
 import { useKnowledgeBases, KB_LIST_PAGE_SIZE } from './useKnowledgeBases';
 import type { KnowledgeBase } from '../types';
@@ -290,11 +290,12 @@ describe('useKnowledgeBases fetchKBs paging', () => {
 
   /** A server that pages `rows` the way API.md documents it. */
   function pagingServer(rows: KnowledgeBase[], opts: { ignoreOffset?: boolean } = {}) {
-    mockedAxios.get.mockImplementation(async (url: string, config?: { params?: { limit?: number; offset?: number } }) => {
+    mockedAxios.get.mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
+      const params = config?.params as { limit?: number; offset?: number } | undefined;
       if (url.endsWith('/api/kb/global')) return { data: [subscribedGlobalKb] };
       if (url.endsWith('/api/kb')) {
-        const limit = Math.min(config?.params?.limit ?? 50, 100);
-        const offset = opts.ignoreOffset ? 0 : (config?.params?.offset ?? 0);
+        const limit = Math.min(params?.limit ?? 50, 100);
+        const offset = opts.ignoreOffset ? 0 : (params?.offset ?? 0);
         return { data: rows.slice(offset, offset + limit) };
       }
       throw new Error(`unexpected GET ${url}`);

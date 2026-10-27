@@ -37,7 +37,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/rs/cors v1.11.1
-	github.com/xuri/excelize/v2 v2.11.1-0.20260930021559-01a9ff32fb3c
+	github.com/xuri/excelize/v2 v2.11.1-0.20261003002531-6258dcebc4e2
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0

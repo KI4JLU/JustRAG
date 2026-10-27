@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import axios from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 import { TablePreviewDialog } from './TablePreviewDialog';
 import { API_BASE_URL } from '../../api';
 import type { TabularFileDetail, TabularRows, TabularTable } from '../../types';
@@ -60,11 +60,12 @@ let rowCalls: Params[] = [];
 
 function mockApi(over: { detail?: TabularFileDetail } = {}) {
     rowCalls = [];
-    return vi.spyOn(axios, 'get').mockImplementation((url: string, config?: { params?: Params }) => {
+    return vi.spyOn(axios, 'get').mockImplementation((url: string, config?: AxiosRequestConfig) => {
         if (url === tabularUrl) return Promise.resolve({ data: over.detail ?? detail });
         if (url === `${tabularUrl}/rows`) {
-            rowCalls.push(config!.params!);
-            return Promise.resolve({ data: rowsFor(config!.params!) });
+            const params = config!.params as Params;
+            rowCalls.push(params);
+            return Promise.resolve({ data: rowsFor(params) });
         }
         return Promise.resolve({ data: new Blob(['x']) });
     });

@@ -9,7 +9,7 @@
 # For the legacy Node.js backend, see Dockerfile.legacy.
 
 # ── Stage 1: Build the React frontend ────────────────────────────────────────
-FROM node:24-alpine AS frontend
+FROM node:24.22.1-alpine AS frontend
 WORKDIR /app
 
 # git is required to resolve the @ki4jlu/design-system dependency, which is

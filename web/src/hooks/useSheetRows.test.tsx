@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import axios from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 import { lookupKey, useSheetRows, type SheetQuery } from './useSheetRows';
 import type { TabularRows } from '../types';
 
@@ -16,8 +16,8 @@ const page = (offset: number, n: number, matched: number, tag: string): TabularR
 
 beforeEach(() => {
     calls = [];
-    vi.spyOn(axios, 'get').mockImplementation((_url: string, config?: { params?: Deferred['params'] }) =>
-        new Promise(resolve => { calls.push({ resolve: resolve as Deferred['resolve'], params: config!.params! }); }));
+    vi.spyOn(axios, 'get').mockImplementation((_url: string, config?: AxiosRequestConfig) =>
+        new Promise(resolve => { calls.push({ resolve: resolve as Deferred['resolve'], params: config!.params as Deferred['params'] }); }));
 });
 
 const A: SheetQuery = { search: 'a', sort: null, showEmpty: false };
