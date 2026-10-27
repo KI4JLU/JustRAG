@@ -64,6 +64,10 @@ import './HomeView.css';
 /** Which top-level view is currently on screen. One row, one `aria-current`. */
 export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover' | 'tools';
 
+/* „Werkzeuge" is hidden from the sidebar and the search defaults until the
+   tools section is finished. The view and its `/tools` route stay — flip this
+   to bring the entry back. */
+const SHOW_TOOLS_NAV = false;
 
 export interface AppChromeProps {
   /** The current page; the matching nav row gets `aria-current="page"`. */
@@ -243,15 +247,17 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         <Compass size={20} aria-hidden="true" />
         <span>{t('discoverTopics')}</span>
       </NavItem>
-      <NavItem
-        type="button"
-        label={t('tools')}
-        active={active === 'tools'}
-        onClick={() => { onViewTools(); showContent(); }}
-      >
-        <Wrench size={20} aria-hidden="true" />
-        <span>{t('tools')}</span>
-      </NavItem>
+      {SHOW_TOOLS_NAV && (
+        <NavItem
+          type="button"
+          label={t('tools')}
+          active={active === 'tools'}
+          onClick={() => { onViewTools(); showContent(); }}
+        >
+          <Wrench size={20} aria-hidden="true" />
+          <span>{t('tools')}</span>
+        </NavItem>
+      )}
     </>
   );
 
@@ -303,7 +309,9 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         { id: 'my-topics', label: t('myTopics'), icon: <Home aria-hidden="true" />, onSelect: onViewMyTopics },
         { id: 'shared-topics', label: t('sharedTopics'), icon: <Users aria-hidden="true" />, onSelect: onViewSharedTopics },
         { id: 'discover', label: t('discoverTopics'), icon: <Compass aria-hidden="true" />, onSelect: onViewDiscover },
-        { id: 'tools', label: t('tools'), icon: <Wrench aria-hidden="true" />, onSelect: onViewTools },
+        ...(SHOW_TOOLS_NAV
+          ? [{ id: 'tools', label: t('tools'), icon: <Wrench aria-hidden="true" />, onSelect: onViewTools }]
+          : []),
       ].filter((item) => item.id !== active),
     },
     accountSearchGroup,

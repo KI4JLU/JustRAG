@@ -133,8 +133,8 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
    * the assertion needs no error matcher to be about the crash.
    * ------------------------------------------------------------------- */
   it.each([
+    // „Werkzeuge" has no nav row while it is hidden; App.routing.test.tsx opens /tools directly.
     ['discoverTopics'] as const,
-    ['tools'] as const,
   ])('reaches the %s view from its nav row with every provider mounted', async (key) => {
     render(<App />);
     await findOverviewHeading();
@@ -166,9 +166,9 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
       return { data: [] };
     });
 
+    // By URL: the sidebar has no „Werkzeuge" row while the section is hidden.
+    window.history.replaceState(null, '', '/tools');
     render(<App />);
-    await findOverviewHeading();
-    await userEvent.click(screen.getByRole('button', { name: translations.tools.de }));
     await screen.findByRole('heading', { level: 1, name: translations.tools.de });
 
     await userEvent.click(screen.getByRole('button', {

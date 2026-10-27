@@ -11,7 +11,7 @@ import type { SettingsTab } from '../components/UserSettingsModal';
  * rules of `routing/urlDialog.ts` (shared with the admin console). A bare
  * `?settings` opens the first tab.
  */
-const SETTINGS_TABS = ['general', 'chat', 'profile'] as const satisfies readonly SettingsTab[];
+const SETTINGS_TABS = ['general', 'chat', 'profile', 'connectors'] as const satisfies readonly SettingsTab[];
 
 const dialog = createUrlDialog<SettingsTab>('settings', SETTINGS_TABS);
 

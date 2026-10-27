@@ -33,6 +33,7 @@ import { useAppNavigate, useAppRoute } from './routing/navigation';
 import { useKbSettings } from './hooks/useKbSettings';
 import { useKbLifecycle } from './hooks/useKbLifecycle';
 import { openTopicSettings, useTopicSettings } from './hooks/useTopicSettings';
+import { openSettingsDialog } from './hooks/settingsDialog';
 import { useChatRoute, useChatTopic } from './hooks/useChatRoute';
 
 // Components
@@ -398,7 +399,7 @@ function AuthenticatedAppInner() {
     onViewSharedTopics: () => navigateTo({ view: 'shared-topics' }),
     onViewDiscover: () => navigateTo({ view: 'discover' }),
     onViewTools: () => navigateTo({ view: 'tools' }),
-    onViewProfile: () => navigateTo({ view: 'profile' }),
+    onViewProfile: () => openSettingsDialog('profile'),
     onEditGlobalKb: (kb) => kbMgmt.handleOpenGlobalKbSettings(kb.id),
     onViewLegal: (page) => navigateTo({ view: page }),
     onOpenTopic: searchNav.openTopic,

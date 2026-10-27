@@ -40,7 +40,7 @@ export interface AppNavContextValue {
   onViewDiscover: () => void;
   /** „Werkzeuge" — placeholder for the workspace tools that move here. */
   onViewTools: () => void;
-  /** The signed-in user's own profile screen. */
+  /** „Mein Profil" — the settings window on its Profil tab. */
   onViewProfile: () => void;
   /**
    * Open a public topic's admin editor (the full-page GlobalKbSettings), from
