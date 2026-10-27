@@ -432,25 +432,25 @@ func StartMaintenance(ctx context.Context, cfg MaintenanceConfig) (stop func()) 
 	}
 }
 
+// stuckFilesSQL marks files stuck in "processing" as "error". The cutoff is
+// computed from the database's own NOW(), the same clock that stamps
+// progress_updated_at: a cutoff from the worker host's clock swept every
+// processing file at once when a k8s node ran two hours fast. $1 is the
+// timeout in seconds.
+const stuckFilesSQL = `
+	UPDATE files SET status = 'error',
+	       error_stage   = COALESCE(error_stage, 'timeout'),
+	       error_message = COALESCE(error_message, 'Processing timed out')
+	WHERE status = 'processing'
+	  AND COALESCE(progress_updated_at, created_at) < NOW() - make_interval(secs => $1)`
+
 // checkStuckFiles marks files stuck in "processing" status as "error".
 func checkStuckFiles(ctx context.Context, mainDB *pgxpool.Pool, timeout time.Duration) {
 	if mainDB == nil {
 		return
 	}
-	cutoff := time.Now().Add(-timeout)
 
-	const sql = `
-		UPDATE files SET status = 'error',
-		       error_stage   = COALESCE(error_stage, 'timeout'),
-		       error_message = COALESCE(error_message, 'Processing timed out')
-		WHERE status = 'processing'
-		  AND (
-		    (progress_updated_at IS NOT NULL AND progress_updated_at < $1)
-		    OR
-		    (progress_updated_at IS NULL AND created_at < $1)
-		  )`
-
-	tag, err := mainDB.Exec(ctx, sql, cutoff)
+	tag, err := mainDB.Exec(ctx, stuckFilesSQL, timeout.Seconds())
 	if err != nil {
 		slog.Error("stuck file check failed", "error", err)
 		return
