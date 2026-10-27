@@ -36,6 +36,10 @@ describe('postLoginPath', () => {
     expect(isAppPath('//evil.example/x')).toBe(false);
     expect(isAppPath('https://evil.example/')).toBe(false);
     expect(isAppPath('/api/auth/logout')).toBe(false);
+    expect(isAppPath('/api')).toBe(false);
+    expect(isAppPath('/\\evil.example/x')).toBe(false);
+    expect(isAppPath('/\t/evil.example/x')).toBe(false);
+    expect(isAppPath('/kb/abc?q=%5C')).toBe(true);
   });
 
   it('ignores a stored value that is not an in-app path', () => {

@@ -330,18 +330,21 @@ describe('App routing — chats', () => {
     await act(async () => { push('[DONE]'); ended = true; wake?.(); });
   });
 
-  it('keeps a chat link in the history when its lookup only failed (5xx), so back retries it', async () => {
+  // Oracle: back leaves a chat link whose lookup failed (5xx) instead of
+  // returning to it — returning would fail and redirect again, a back trap.
+  it('replaces a chat link whose lookup only failed (5xx), so back does not trap the user on it', async () => {
     const gets = mockedGet.getMockImplementation()!;
     mockedGet.mockImplementation((url: string) => (String(url).endsWith(`/api/chats/${C7}`)
       ? Promise.reject(Object.assign(new Error('unavailable'), { isAxiosError: true, response: { status: 503 } }))
       : gets(url)));
-    window.history.replaceState(null, '', chatUrl(C7));
+    window.history.replaceState(null, '', '/shared');
+    window.history.pushState(null, '', chatUrl(C7));
     render(<App />);
 
     expect(await heading('myTopics')).toBeInTheDocument();
     await waitFor(() => expect(path()).toBe('/'));
     await goBack();
-    await waitFor(() => expect(path()).toBe(chatUrl(C7)));
+    await waitFor(() => expect(path()).toBe('/shared'));
   });
 
   it('sends a chat that is not the caller\'s (or gone) to the overview', async () => {

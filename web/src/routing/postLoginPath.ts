@@ -12,9 +12,12 @@ import { sessionStore } from '../utils/sessionStore';
 
 export const POST_LOGIN_PATH_KEY = 'postLoginPath';
 
-/** Only an in-app path: one leading slash (no `//host`), not an API route. */
+/** Only an in-app path: one leading slash (no `//host`), no backslash or
+ * control character (browsers read `/\host` as `//host`), not an API route. */
 export function isAppPath(path: string): boolean {
-  return path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/api/');
+  // eslint-disable-next-line no-control-regex
+  return path.startsWith('/') && !path.startsWith('//') && !/[\\\u0000-\u001f\u007f]/.test(path)
+    && path !== '/api' && !path.startsWith('/api/');
 }
 
 /** Parks `path` (pathname + search) for the login that follows. "/" needs no parking. */

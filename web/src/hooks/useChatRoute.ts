@@ -13,7 +13,7 @@ export type ChatTopic =
   | { status: 'found'; kbId: string; entry: ChatEntry | null }
   /** Not the caller's, gone, or not a topic's chat (a library chat). Already toasted. */
   | { status: 'missing' }
-  /** The lookup failed (network, 5xx). Already toasted; forgotten once the URL moves on, so a later visit asks again. */
+  /** The lookup failed (network, 5xx). Already toasted; the URL is replaced, and forgotten once it moves on, so a later visit asks again. */
   | { status: 'failed' };
 
 export type FetchedChat = { kind: 'found'; entry: ChatEntry } | { kind: 'gone' } | { kind: 'failed' };

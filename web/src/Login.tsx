@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useLocation, useRouter } from '@tanstack/react-router';
 import { KeyRound } from 'lucide-react';
@@ -92,13 +92,20 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
 
     // OIDC callback drops the JWT + user JSON into the URL fragment so they
     // never reach server logs. Read it on mount, hand off to onLogin, and
-    // strip the fragment from the URL.
+    // strip the fragment from the URL. Once only: the router flushes the
+    // replace a tick later, so a re-run (StrictMode, a new onLogin) would still
+    // see the fragment, log in twice and replace the restored path with "/".
+    const oidcHandled = useRef(false);
     useEffect(() => {
+        if (oidcHandled.current) return;
         const hash = window.location.hash;
         if (!hash.startsWith('#oidc=')) {
             const params = new URLSearchParams(window.location.search);
             const oidcErr = params.get('oidc_error');
             if (oidcErr) {
+                oidcHandled.current = true;
+                // The SSO attempt is over: its parked path must not apply to a later login.
+                takePostLoginPath();
                 setError(`${t('oidcLoginFailed')} (${oidcErr})`);
                 params.delete('oidc_error');
                 const newSearch = params.toString();
@@ -106,6 +113,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
             }
             return;
         }
+        oidcHandled.current = true;
         try {
             const encoded = hash.slice('#oidc='.length);
             const json = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
