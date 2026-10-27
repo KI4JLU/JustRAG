@@ -290,6 +290,39 @@ describe('App — the KB overview on the authenticated home route', () => {
     expect(dialog.getByText('@grace')).toBeInTheDocument();
   });
 
+  // ORACLE: translations.ts. „Mein Profil" used to open the standalone profile page; it is the
+  // settings window's Profil tab now.
+  it('opens „Mein Profil" as the settings window on its Profil tab', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.profile.de }));
+
+    const dialog = within(await screen.findByRole('dialog', { name: translations.settings.de }));
+    expect(dialog.getByRole('heading', { level: 2, name: translations.settingsProfile.de })).toBeInTheDocument();
+    expect(dialog.getByText('@grace')).toBeInTheDocument();
+  });
+
+  // ORACLE: translations.ts. The seeded user is an ordinary `user` and the site config enables no
+  // Confluence, so both connectors are listed but disabled, each with its reason.
+  it('always shows the Konnektoren tab, with the connectors this user cannot use disabled', async () => {
+    render(<App />);
+    await findOverviewHeading();
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.settings.de }));
+    const dialog = within(await screen.findByRole('dialog', { name: translations.settings.de }));
+
+    await userEvent.click(dialog.getByRole('button', { name: translations.settingsConnectors.de }));
+    expect(dialog.getByRole('heading', { level: 2, name: translations.settingsConnectors.de })).toBeInTheDocument();
+    expect(dialog.getByText(translations.connectorApiKeysUnavailable.de)).toBeInTheDocument();
+    expect(dialog.getByText(translations.connectorConfluenceUnavailable.de)).toBeInTheDocument();
+    expect(dialog.getAllByText(translations.connectorDisabled.de)).toHaveLength(2);
+  });
+
   // ORACLE: translations.ts, both languages.
   it('names the settings item and window in the session language', async () => {
     localStorage.setItem('language', 'en');

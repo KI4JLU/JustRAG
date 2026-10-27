@@ -45,7 +45,12 @@ export function AppUserMenu() {
             name={`@${user?.username}`}
             role={roleLabel(user?.role, t)}
         >
-            <DropdownMenuItem onSelect={onViewProfile}>
+            <DropdownMenuItem
+                onSelect={() => {
+                    // After the menu's own close, as for „Einstellungen".
+                    setTimeout(onViewProfile, 0);
+                }}
+            >
                 <User size={16} aria-hidden="true" />
                 {t('profile')}
             </DropdownMenuItem>

@@ -383,7 +383,7 @@ describe('AppChrome, through the view that mounts it', () => {
        `aria-current`), and this is the cost of it. */
     const navRows = () =>
       within(screen.getByRole('navigation', { name: translations.mainNavigation.en }));
-    const ROWS = [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en, translations.tools.en];
+    const ROWS = [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en];
 
     // Expanded: the visible text IS the name, so there is no aria-label to
     // override it (and none to drift from it).
@@ -439,7 +439,7 @@ describe('AppChrome, through the view that mounts it', () => {
        minimised: no `aria-label`, i.e. the visible text is still their name.
        `NavItem` takes that from `SidebarCollapsedContext`, which the narrow
        arrangement does not provide — the column is not a `SidePanel` there. */
-    for (const name of [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en, translations.tools.en]) {
+    for (const name of [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en]) {
       expect(column.getByRole('button', { name })).not.toHaveAttribute('aria-label');
     }
 
@@ -478,8 +478,8 @@ describe('AppChrome, through the view that mounts it', () => {
     await userEvent.click(screen.getByRole('button', { name: translations.discoverTopics.en }));
     expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(screen.getByRole('button', { name: translations.tools.en }));
-    expect(NAV.onViewTools).toHaveBeenCalledTimes(1);
+    // „Werkzeuge" is hidden until the tools section is finished (AppChrome's SHOW_TOOLS_NAV).
+    expect(screen.queryByRole('button', { name: translations.tools.en })).toBeNull();
 
     /* KI-783's new destination, asserted the same way: the row has to reach
        the jump, not merely exist. This is what makes „the sidebar row has a
@@ -511,10 +511,10 @@ describe('AppChrome, through the view that mounts it', () => {
 
     /* Every nav row is unconditional now — „Meine Agenten" was the only gated
        one and it is gone (18.09.2026) — so what this test still checks is the
-       ADMIN ENTRY's gate, below. The four rows are asserted first so a failure
+       ADMIN ENTRY's gate, below. The three rows are asserted first so a failure
        says "the nav did not render" rather than "the gate ate a row". */
     for (const name of [translations.myTopics.en, translations.sharedTopics.en,
-                        translations.discoverTopics.en, translations.tools.en]) {
+                        translations.discoverTopics.en]) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
 

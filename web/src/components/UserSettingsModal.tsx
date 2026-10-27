@@ -1,4 +1,4 @@
-import { MessageSquare, Settings, User } from 'lucide-react';
+import { MessageSquare, Plug, Settings, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
@@ -15,7 +15,7 @@ import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
 
-export type SettingsTab = 'general' | 'chat' | 'profile';
+export type SettingsTab = 'general' | 'chat' | 'profile' | 'connectors';
 
 interface UserSettingsModalProps {
     open: boolean;
@@ -28,8 +28,8 @@ interface UserSettingsModalProps {
  * The user's settings window (user menu → „Einstellungen"), on the DS
  * `SettingsDialog`. General: colour scheme, contrast, accent, language. Chat: starter
  * suggestions, follow-ups, autoscroll. Profile: the
- * account as the directory (LDAP) knows it — read-only — plus the API-key and
- * Confluence-token managers where they apply, as on the profile page.
+ * account as the directory (LDAP) knows it — read-only. Connectors: the API-key
+ * and Confluence-token managers, each disabled with its reason where it does not apply.
  */
 export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: UserSettingsModalProps) {
     const { t, theme, setTheme, language, setLanguage } = useTheme();
@@ -42,6 +42,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
 
     const readOnly = (value?: string) => <span className="text-on-surface-variant">{value || '–'}</span>;
     const canUseApiKeys = !!user && ['api-user', 'admin', 'superadmin'].includes(user.role);
+    const disabled = readOnly(t('connectorDisabled'));
 
     return (
         <SettingsDialog
@@ -149,7 +150,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'profile',
                     label: t('settingsProfile'),
                     icon: <User aria-hidden="true" />,
-                    keywords: [t('firstName'), t('lastName'), t('emailAddress'), 'API'],
+                    keywords: [t('firstName'), t('lastName'), t('emailAddress')],
                     content: (
                         <>
                             <SettingsRow label={t('username')} control={readOnly(user ? `@${user.username}` : undefined)} />
@@ -157,10 +158,23 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                             <SettingsRow label={t('lastName')} control={readOnly(user?.lastName)} />
                             <SettingsRow label={t('emailAddress')} control={readOnly(user?.email)} />
                             <SettingsRow label={t('role')} control={readOnly(roleLabel(user?.role, t))} description={t('ldapNotice')} />
-                            {canUseApiKeys && <SettingsRow label={t('apiKeys')}><ApiKeyManager /></SettingsRow>}
-                            {siteConfigs.confluence_enabled === 'true' && (
-                                <SettingsRow label="Confluence"><ConfluenceTokenManager /></SettingsRow>
-                            )}
+                        </>
+                    ),
+                },
+                {
+                    value: 'connectors',
+                    label: t('settingsConnectors'),
+                    icon: <Plug aria-hidden="true" />,
+                    keywords: [t('apiKeys'), 'API', 'Confluence'],
+                    // Always shown: a connector this user cannot use stays listed, disabled, with the reason.
+                    content: (
+                        <>
+                            {canUseApiKeys
+                                ? <SettingsRow label={t('apiKeys')}><ApiKeyManager /></SettingsRow>
+                                : <SettingsRow label={t('apiKeys')} description={t('connectorApiKeysUnavailable')} control={disabled} />}
+                            {siteConfigs.confluence_enabled === 'true'
+                                ? <SettingsRow label="Confluence"><ConfluenceTokenManager /></SettingsRow>
+                                : <SettingsRow label="Confluence" description={t('connectorConfluenceUnavailable')} control={disabled} />}
                         </>
                     ),
                 },
