@@ -462,9 +462,9 @@ func TestMarkTerminalErrorUsesLiveContext(t *testing.T) {
 	if err := p.store.UpdateFileStatus(ctx, "file-1", "processing"); err != nil {
 		t.Fatalf("unexpected error updating processing status: %v", err)
 	}
-	// markTerminalError must detach cancellation via context.WithoutCancel —
+	// markFailed must detach cancellation via context.WithoutCancel —
 	// passing the cancelled ctx makes the test fail if that detachment is ever removed.
-	p.markTerminalError(ctx, "file-1", "canceled", "Processing was interrupted")
+	p.markFailed(ctx, "file-1", "canceled", "Processing was interrupted")
 
 	if len(store.statusCtxErrs) != 2 {
 		t.Fatalf("expected 2 status calls, got %d", len(store.statusCtxErrs))

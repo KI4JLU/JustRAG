@@ -11,6 +11,18 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## v26.10.1 — 2026-10-27
+
+### ⚠ Upgrade notes
+
+- **No upgrade actions required.** No migration (highest stays 0091), no `site_config` default change, no re-ingest. One-step rollback to v26.10.0 is possible.
+- **The stuck-file sweep now uses the database clock.** It marked every processing file `timeout` ("Processing timed out") when a worker host's clock ran ahead of the database; the file then completed anyway. Files that really ended in `timeout` before this release can be retried per KB ("retry failed").
+- **Files stay `processing` while a failed attempt waits for its retry**, and only the final attempt marks them `error`. Unsupported file types fail at once and are no longer retried three times.
+
+### Fixes
+- Judge stuck files by the database clock (28bac65)
+- Keep file processing until the final retry fails (bbfe5cc)
+
 ## v26.10.0 — 2026-10-27
 
 ### ⚠ Upgrade notes
