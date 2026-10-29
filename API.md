@@ -150,6 +150,12 @@ Card fields on the KB rows of `GET /kb`, `GET /kb/global` and `GET /kb/{id}`:
   document's own date, and failed, pending or still-processing files do not
   count. A retry or re-embed of an existing file moves it; omitted while no
   file has been ingested.
+- `category` — the catalog category the topic's title card shows,
+  `{id, name, sortOrder, colorSlot}` (the first of its categories by the
+  taxonomy's order); omitted when it has none.
+- `colors` — the start page's gradient `{from, to}` for the card's cover band:
+  the default colours while the KB has no start page, omitted when it chose
+  none.
 
 `PATCH /kb/{id}` returns the KB in the same caller-aware shape as
 `GET /kb/{id}` (card fields, `myRole`, `capabilities`, and the per-user filter
@@ -287,9 +293,10 @@ Discovery and subscription of public KBs. A subscription decides whether a publi
 | GET | `/kb/{id}/categories` | KB view |
 | PUT | `/kb/{id}/categories` | KB admin |
 
-- `GET /kb/catalog` lists published public KBs plus staged public KBs the caller is a member of.
+- `GET /kb/catalog` lists published public KBs plus staged public KBs the caller is a member of. Each entry carries what the „Entdecken" card shows: `colors` (the start page's `{from, to}`, the default ones while the KB has no start page, `null` when it chose none), `fileCount`, and `lastIngestedAt` (omitted before the first successful ingest).
 - `DELETE /kb/{id}/subscription` is the "remove from Favoriten" star: it writes an opt-out and keeps memberships and chats.
-- Category CRUD is under Admin (`/admin/kb-categories`).
+- Category CRUD is under Admin (`/admin/kb-categories`). A category carries `colorSlot` (1–9, the palette slot `--color-category-N`): `POST`/`PATCH` take an optional `colorSlot` (`400` outside 1–9); without one, create picks the least-used slot and update keeps the colour.
+- `PUT /kb/{id}/categories` takes at most **one** id (`400` otherwise; `[]` clears it), for private and public KBs alike. Older rows with several categories stay readable until the KB is saved again.
 
 ### KB settings and workflow
 
@@ -307,6 +314,173 @@ Discovery and subscription of public KBs. A subscription decides whether a publi
 - `/settings` are the per-KB overrides of the `site_config` registry; `DELETE /settings/{key}` falls back to the global value.
 - `POST /reembed` queues a full re-ingest of the KB; the panel offers it after saving a key marked `requiresReingest`.
 - `GET /workflow/preset` previews which settings a preset would overwrite; `POST` applies it. `GET /workflow/presets` is the deployment-wide preset catalogue.
+
+### Behavior: roles and rules
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb-behavior/catalog` | authenticated |
+| GET | `/kb/{id}/behavior` | KB view |
+| PUT | `/kb/{id}/behavior` | KB admin |
+| DELETE | `/kb/{id}/behavior` | KB admin |
+| POST | `/kb/{id}/behavior/role-writer/generate` | KB admin |
+| POST | `/kb/{id}/behavior/role-writer/revise` | KB admin |
+| POST | `/kb/{id}/behavior/role-writer/describe` | KB admin |
+
+A KB answers in a **role** (a prompt) with a set of **rules** (one sentence each) appended under
+"Regeln:"; the fixed RAG instructions (`GET /chat/rag-system-prompt`) follow after them, as they
+followed the free system prompt. Every answer surface reads this one compiled prompt.
+
+- `GET /kb-behavior/catalog?lang=de|en` (anything else reads `de`) is the central catalog, the
+  same for every KB: `{language, roles: [{id, name, description, prompt, icon, isDefault, enabled,
+  cover: {from, to}}], ruleGroups: [{id, title, rules: [{id, label, description, text,
+  defaultOn}]}], rulesHeading, limits: {promptMax, roleNameMax, ruleMax,
+  customRolesMax, customRulesMax}}`. The rules are versioned with the release; the roles are
+  curated by system admins (`/admin/role-templates`) — `enabled: false` ones are listed for the KBs
+  that still use them, not to be offered for new picks; `cover` is the gradient of the role's card
+  on a start page. Both are read-only for a KB, which references them
+  by `id`, so a corrected template reaches every KB that uses it. Read it in the KB's `language` (below) for a
+  preview that matches the compiled prompt.
+- `GET /kb/{id}/behavior` → `{behavior, customized, language}`. `behavior` is `{version: 1,
+  activeRoleId, customRoles: [{id, name, description, prompt, icon}], roleRules: {roleId: {rules:
+  {ruleId: bool}, customRules: [{id, text, on}]}}}`; `activeRoleId` names a template or one of
+  `customRoles`. Every role has its own rules. A template's are the system preset — the catalog's
+  default rules — and fixed (changed only as an own copy). `roleRules` holds the set of each own role
+  someone set rules for (a rule missing from its `rules` is off); an own role without a set answers
+  with the catalog's default rules, the `legacy` role with none. Sets of roles the KB no longer has
+  are left out. `language` (`de`|`en`, from the KB's `language`) is the language
+  template texts are compiled in.
+- A KB that was never customized (`customized: false`) answers exactly as before from its
+  `systemPrompt`, shown as the own role `id: "legacy"` ("Bisheriger Prompt", active, no rule on, no `roleRules`; without
+  a prompt it carries the KB's name and "Durchsucht die bereitgestellten Quellen.").
+  That role's prompt is stored in `systemPrompt` also after customizing, so `PATCH /kb/{id}` and
+  `PATCH /admin/global-kbs/{id}` with `systemPrompt` keep editing it. On a customized KB, a
+  `systemPrompt` that differs from the stored one also makes `legacy` the active role (adding the
+  role if the KB has none), so the prompt written is the one the KB answers with; the same prompt
+  sent again leaves the active role alone. Its icon is fixed; a `name` and `description` sent for it are kept
+  as the author's own, empty means the default above (a default sent back unchanged is not
+  stored, so the role keeps following the KB's name and language). A new KB created
+  without a `systemPrompt` starts customized: role `research` with the catalog's default rules.
+- `PUT /kb/{id}/behavior` replaces the whole behavior with the body (the `behavior` shape) and
+  answers like `GET`. `400` with the reason for: `version` ≠ 1, an unknown field, an
+  `activeRoleId` that does not exist, a custom role id that is not `[A-Za-z0-9_-]{1,64}`, taken
+  by a template or used twice, a role without a name (except `legacy`) or prompt, a name over 80,
+  a description over 200 or a prompt over 8000 characters, an unknown `icon` or rule id, rules for a
+  template or for a role that does not exist, more than 20 custom roles or 20 custom rules per role, an empty custom rule or one over 300 characters. Lengths count
+  characters, not bytes.
+- **Role writer** (the role edit screen's AI help, KB admins, `generate` rate limit, one LLM call
+  on the fast-tier model, nothing stored): `POST /kb/{id}/behavior/role-writer/generate` with
+  `{description, topic?, language}` → `{name, prompt}` writes a role from a description (`topic`:
+  the KB's name, as context, at most 255 characters); `POST /kb/{id}/behavior/role-writer/revise` with `{prompt,
+  instruction, language}` → `{prompt}` revises a role prompt by an instruction: the model returns
+  edits to passages of the prompt, so text the instruction does not touch is kept verbatim. `400`
+  for an empty or over-500-character description or instruction, or an empty or over-8000-character
+  prompt; `502` when the model fails or an edit matches no passage. `POST
+  /kb/{id}/behavior/role-writer/describe` with `{name?, prompt, language}` → `{description}` writes
+  the role's one-sentence description (plain text, at most 200 characters) from its name and
+  prompt; `400` for an empty prompt, `502` when the model fails.
+- `DELETE /kb/{id}/behavior` is the settings' "Löschen": no role and no rule (`behavior` and
+  `systemPrompt` cleared), as deleting the system prompt was. It writes a version in the
+  assistant settings' history like a save, so the state before it can be restored. Answers like `GET`.
+- **A chat in a role.** `POST /kb/{id}/chat` with `roleId` (a template id or an id from
+  `customRoles`) starts a NEW chat in that role instead of the active one; the role is stored on
+  the chat and every later turn answers in it. It is refused with `400` before any chat or usage
+  row when the body also names a `chatId` (`roleId is only accepted when a chat starts`) or the KB
+  has no such role (`unknown roleId`). A role chat is never re-routed by `?route=auto`. The chat
+  carries `roleId` in `GET /kb/{id}/chats`, and branches keep it. When the role is deleted later,
+  the chat answers in the KB's active role. Only the web chat starts role chats; the public API,
+  OpenAI-compat, `/owui`, MCP and the agent chat answer in the active role.
+
+### Start page
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb/{id}/start-page` | KB view |
+| PUT | `/kb/{id}/start-page` | KB admin |
+
+What a KB's start page shows with its name, description and category (those are `PATCH /kb/{id}`
+`name`/`description` and `PUT /kb/{id}/categories`; the settings dialog saves all of them with
+`PUT /kb/{id}/assistant-settings`, below).
+
+- `GET` → `{startPage, configured}`. `startPage` is `{version: 1, colors, startMode, questionsOn,
+  questionMode, dynamicCount, fixedQuestions, uploadLabel, uploadInstruction,
+  roleStarts, roleEntries}`; `configured: false` is the default (colors `#0056B3` → `#3897E8`, input field,
+  questions off, dynamic 4).
+  - `colors`: `{from, to}` as `#RRGGBB` (stored upper case) — the gradient of the start page's
+    glow and of the „Entdecken" card's band; `null` shows no colour.
+  - `startMode`: `input` (input field, with starter questions when `questionsOn`), `upload` (the
+    chat starts with a file, uploaded as an ordinary chat attachment via
+    `POST /kb/{id}/chat/attachments`; `uploadInstruction` — or the client's fixed default text when
+    empty — is sent with it as the first message) or `roles` (only role cards). A file start takes
+    whatever a chat attachment takes; there is no per-page list of file types.
+  - **Starter questions:** `questionMode: "dynamic"` is `GET /kb/{id}/starter-questions` (with
+    the chat's `roleId`) cut to `dynamicCount` (3|4|6); `fixed` shows `fixedQuestions`.
+  - **Role starts** (`roleStarts: {roleId: start}`): how a role starts its chat — set up per
+    role in „Verhalten"; every role starts with the input field until one is set. A start is `{kind: "input"|"task"|"file", text, send, instruction, suggestions}`: `input`
+    opens the input field; `task` sends `text` at once (`send: true`) or only fills the input
+    field; `file` shows an upload with label `text` and sends `instruction` with the file.
+    `suggestions` is `{questionsOn, questionMode, dynamicCount, fixedQuestions}` — the starter
+    questions under the input field of the chat an `input` card opens, with the page's own rules
+    (dynamic = the KB's generated questions). At most 40.
+  - **Role cards** (`startMode: "roles"`): the KB's active role's card comes first, always;
+    `roleEntries: [{id, roleId}]` are up to 3 further cards, each
+    starting a chat in `roleId` (`POST /kb/{id}/chat` with `roleId`, see "Behavior: roles and
+    rules") as `roleStarts[roleId]` says. The roles start needs at least one further card: with the
+    active role alone the input field starts the same chat, and a page whose last further card is
+    gone answers with `startMode: "input"`. Every role shows once: no card of the active role, no
+    second card of a role. Starts and cards whose role the KB no longer has, and repeated cards of
+    a page stored before, are left out of the response.
+  - The settings of every mode are kept when `startMode` changes.
+- `PUT` replaces the start page and answers like `GET`. Texts are trimmed, empty fixed questions
+  dropped. `400` with the reason for: `version` ≠ 1, an unknown field, a colour that is not `#RRGGBB`, mode, count, entry
+  kind, more than 3 role cards or 6 fixed questions, a question or card text over 120, a label over
+  80 or an instruction over 300 characters, a card id that is not `[A-Za-z0-9_-]{1,64}` or used
+  twice, a role the KB does not have, a card of the active role or a second card of a role, or
+  more than 40 role starts.
+  With `startMode: "roles"` there must be at least one further card and a shown `task` start needs
+  its text; otherwise unfinished starts are kept as drafts.
+
+### Assistant settings and versions
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/kb/{id}/assistant-settings` | KB admin |
+| PUT | `/kb/{id}/assistant-settings` | KB admin |
+| GET | `/kb/{id}/assistant-settings/versions` | KB admin |
+| POST | `/kb/{id}/assistant-settings/versions/{n}/restore` | KB admin |
+
+The settings dialog's „Startseite" and „Verhalten" in one save, with a version history
+(`kb_settings_versions`, migration 0094; `internal/kbassistant`).
+
+- `GET` → `{title, description, categoryId, behavior, startPage, startPageConfigured, version,
+  canRename}`. `behavior` is the body of `GET /kb/{id}/behavior`, `startPage` that of
+  `GET /kb/{id}/start-page`. `version` is the newest version number (0 before the first save);
+  `canRename` says whether the caller may change `title` (the `PATCH /kb/{id}` rename rule).
+- `PUT` takes `{title, description, categoryId, behavior, startPage, baseVersion}` — the whole
+  settings — validates all parts as their own routes do, writes them in one transaction and answers
+  like `GET`. The start page's role cards are checked against the `behavior` saved with them.
+  `categoryId` is the KB's one catalog category (`null` = none). Every save that changes something
+  writes one version; the first one also records the state before it as version 1
+  (`kind: "baseline"`). A save that changes nothing writes no version. `409 {code:
+  "settings_conflict"}` when `baseVersion` is not the newest version; `403` when `title` changes
+  and `canRename` is false; `400` with the reason for an invalid part or unknown category.
+- `GET …/versions` → `{versions: [{number, kind: "baseline"|"save"|"restore", createdAt, authorId,
+  authorName, note, restoredFrom, changes}]}`, newest first; the newest 200 are kept.
+  `changes: [{area: "start"|"behavior", field, ref?, from?, to?, added?, removed?}]` are the
+  changes against the version before, with display values resolved at save time (role and rule
+  names in the KB's language). `field` codes — start: `title`, `description`, `category`, `colors` (`"#FROM #TO"`, `""` = none),
+  `startMode`, `questionsOn`, `questionMode`, `dynamicCount`, `fixedQuestion` (added/removed),
+  `fixedQuestionsOrder`, `uploadLabel`, `uploadInstruction`,
+  `roleEntry` (added/removed, the role name); behavior: `roleStart` (ref = role name; how it starts:
+  `input`, `task: <text>`, `task (prefill): <text>` or `file: <label> <instruction>`, `""` = not set up),
+  `roleSuggestions` (ref = role name; `off`, `dynamic <n>` or `fixed: <q> | <q>`), `activeRole`, `customRole` (added/removed),
+  `customRoleEdited` (ref; name, prompt, description or icon), `rule` (ref = „rule label (role name)", `on`/`off`), `customRule` (ref = role name;
+  added/removed), `customRuleText` (ref = role name), `customRuleToggled` (ref = „rule text (role name)").
+- `POST …/versions/{n}/restore` with `{baseVersion}` writes version `n`'s state as a new version
+  (`kind: "restore"`, `restoredFrom: n`) and answers like `GET`; nothing is overwritten. The title
+  is restored only with `canRename`; a category deleted since is dropped. `404` for an unknown
+  version, `409 {code: "settings_conflict"}` for a stale `baseVersion`, `409 {code:
+  "version_not_restorable"}` when the version uses a role or rule the catalog no longer has.
 
 ### Agents and teams
 
@@ -632,6 +806,7 @@ Every user's personal file library; a KB's indexed copy references a library fil
 |---|---|
 | GET | `/kb/{id}/chats` |
 | GET | `/kb/{id}/starter-questions` |
+| POST | `/kb/{id}/description/generate` |
 | GET | `/chat/rag-system-prompt` |
 | GET | `/chats/{id}` |
 | GET | `/chats/{id}/messages` |
@@ -644,7 +819,7 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | POST | `/kb/{id}/chat/attachment` |
 | POST | `/kb/{id}/chat/attachments` |
 
-- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. A chat made by branching carries `branchedFromChatId` (the chat it was copied from, which may have been deleted since). A chat whose messages fork inside it — two messages under one parent, as edits, regenerations and forks made before branching opened a new chat left them; prompt-enhancement rows do not count — carries `hasBranches: true`. Both keys are omitted when they do not apply.
+- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. A chat made by branching carries `branchedFromChatId` (the chat it was copied from, which may have been deleted since). A chat whose messages fork inside it — two messages under one parent, as edits, regenerations and forks made before branching opened a new chat left them; prompt-enhancement rows do not count — carries `hasBranches: true`. A chat started in a role (`roleId` on `POST /kb/{id}/chat`, see "Behavior: roles and rules") carries `roleId`. These keys are omitted when they do not apply.
 - `GET /chats/{id}` (authenticated, owner) returns one of the caller's chats as a row of the chat list, without `hasBranches`: `id`, `kbId` (`""` for a library chat), `title`, `type`, `teamId`, `agentId`, timestamps, `branchedFromChatId` when set. It lets a link name a chat by its id alone (the web UI's `/c/<chat>` URLs). `404` when the chat is not the caller's, does not exist, or the id is malformed.
 - `POST /chats/{id}/branch` (authenticated, owner) with `{"messageId"}` copies the conversation from its first message down to that message — the path only, not sibling versions — into a new chat of the caller in the same KB, and answers `201` with the new chat (`branchedFromChatId` = `{id}`) plus `copiedMessageId`, the copy of `messageId`. Without `messageId` the branch is empty (no `copiedMessageId`). The web UI branches for every way of taking a conversation elsewhere: "Verzweigen" at an answer; "Antwort neu generieren" at its question, then answers the copied question with `regenerateOfMessageId`; editing a question at the turn before it (empty for the first question), then sends the edit under `copiedMessageId`. Feedback is not copied; chat attachments are re-linked. `400` for a malformed `messageId`, `404` when the chat is not the caller's, is not an ordinary KB chat (library chats, research sessions and agent chats cannot be branched: their state is more than the message chain), or the message is not in it.
 - `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
@@ -745,19 +920,37 @@ and the corpus-table path and the document-comparison summary without a team
 use their own instructions instead. Answers `200`, or `401` when not
 authenticated.
 
-**`GET /kb/{id}/starter-questions?lang=de|en`** suggests up to 6 questions to
+**`POST /kb/{id}/description/generate`** (`{"language": "de"|"en", "title": "…"}`)
+writes a description draft for the topic's title block: `{"description": "…"}`.
+One or two sentences (the prompt asks for at most 180 characters; the second begins
+„Beantwortet Fragen zu …"), generated by the fast-tier model from the title —
+`title` as the editor shows it, saved or not (whitespace folded, at most 200
+characters, else `400`); empty or missing = the KB's saved name — and one
+excerpt each of its 12 newest `completed`/`partial` documents
+(injection-flagged files excluded); a single line without links; a
+text over 260 characters is cut after its last whole sentence that fits. Nothing is stored:
+the start page editor puts the text into the description field, and saving the
+assistant settings keeps it as the KB's own description. Every call generates
+anew. Requires `admin` on the KB and counts against the `generate` rate limit.
+`409` when the KB has no eligible documents, `503` without a configured model,
+`502` when the generation failed or produced nothing usable.
+
+**`GET /kb/{id}/starter-questions?lang=de|en&roleId=`** suggests up to 6 questions to
 open an empty chat with: `{"questions": ["…"]}`. Requires `view` on the KB and
 counts against its own `starter_questions` rate limit (30 / min per client IP,
-not shared with `generate`). The questions are generated by the fast-tier
-model (`model_tier_fast`, else the KB's chat model) from the KB name and one
-excerpt per document — the document's top-level RAPTOR summary where
-one exists, else its first chunk — for the 12 newest documents with status
+not shared with `generate`). The questions are generated afresh on every call
+by the fast-tier model (`model_tier_fast`, else the KB's chat model) at a
+sampling temperature, so every empty chat gets other ones. Input: the KB name,
+the role the chat starts in (`roleId`; omitted, unknown or removed = the KB's
+active role: its name, description and role prompt) and one excerpt per
+document — the document's top-level RAPTOR summary where one exists, else its
+first chunk — for 12 documents picked at random from the 40 newest with status
 `completed` or `partial`; files flagged by the ingest-time injection screen are
 never used. Each served question is a single line of at most 120 characters,
-without links, and the list carries no duplicates. Results are cached per KB,
-language and document set (KB name plus document ids) for an hour, a failed
-generation for a minute; the cache is per server process. `lang` falls back to
-`de` like the other chat routes.
+without links, and the list carries no duplicates. Nothing is cached but a
+failed generation (per KB, language, model, role and document set, for a
+minute, per server process). `lang` falls back to `de` like the other chat
+routes.
 
 | Status | When |
 |---|---|
@@ -934,6 +1127,11 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 | POST | `/admin/kb-categories` |
 | PATCH | `/admin/kb-categories/{catId}` |
 | DELETE | `/admin/kb-categories/{catId}` |
+| GET | `/admin/role-templates` |
+| POST | `/admin/role-templates` |
+| PUT | `/admin/role-templates/order` |
+| PUT | `/admin/role-templates/{roleId}` |
+| DELETE | `/admin/role-templates/{roleId}` |
 | GET | `/admin/agent-metrics` |
 | GET | `/admin/feedback/chunks` |
 | GET | `/admin/mcp/status` |
@@ -942,6 +1140,8 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 All admin routes need a system role of `admin` or `superadmin`; these are **superadmin only**: `/admin/reembed-all`, `/admin/reembed-user-memory`, `/admin/agent/template`, `DELETE /admin/kbs/{id}` and `PATCH /admin/kbs/{id}/owner`.
 
 - `GET /admin/configs/{id}/model-info` lists the provider's models (`GET /models`) as `{"models": [{"id", "contextWindow"}]}`, with the context window where the server reports one (vLLM: `max_model_len`); `502` when the provider cannot be reached. The admin saves a window per chat model as `contextWindow` in the `chat_models` entries of `POST`/`PATCH /admin/configs` (0 or absent = unknown, at most 10 000 000).
+- `GET /admin/global-kbs` lists the public KBs, each with `fileCount` and `lastIngestedAt` (omitted before the first successful ingest) — the two „Entdecken" card fields the admin list checks for completeness.
+- `/admin/role-templates` is „Vorlagen" › Rollen, the template roles of the catalog (`role_templates`, seeded once from the roles the code shipped before). `GET` lists them in display order as `[{id, icon, isDefault, enabled, name: {de, en}, description: {de, en}, prompt: {de, en}, cover: {from, to}, usedBy}]` — `usedBy` counts the KBs that use the role as their active role or on a start page card. `POST` (create; the server picks the `id`, `t-` + 8 hex) and `PUT /{roleId}` take the same shape without `id`/`usedBy` and answer with the list. `400` for an unknown `icon`, a missing German name or prompt, a name over 80, a description over 200 or a prompt over 8000 characters, a `cover` colour that is not `#RRGGBB`, a disabled default, or `isDefault: false` on the default (another role takes it instead — setting `isDefault` on one clears it on the previous). An empty English text falls back to the German one. `enabled: false` stops offering the role for new picks; KBs and chats that use it keep it, and the catalog still lists it with `enabled: false`. `DELETE /{roleId}`: `400` for the default, `409` while `usedBy > 0`. `PUT /order` takes `{ids}` naming every role once. A change reaches the other server and worker instances within 30 seconds.
 - `GET /admin/kb-overview` is the KB-Übersicht (activity, freshness, sync status, RAGAS, injection flags per KB).
 - `POST /admin/kb/{id}/publish` makes a KB public but staged (`is_published = false`); `unpublish` needs a new owner, and `unpublish-impact` returns the numbers and owner candidates for its confirmation dialog.
 - `GET /admin/feedback/chunks?kb_id=&limit=` lists the most net-negatively rated chunks; `GET /admin/agent-metrics` the orchestrator outcome distributions.
@@ -1132,7 +1332,7 @@ The Go server applies per-category Redis-backed rate limits:
 | login | 5 / 15 min | `POST /api/auth/login` |
 | chat | 20 / min | `POST /api/kb/{id}/chat` |
 | research | 5 / min | `POST /api/kb/{id}/research`, `POST /api/kb/{id}/web-research` |
-| generate | 10 / min | `POST /api/kb/{id}/generate/*` |
+| generate | 10 / min | `POST /api/kb/{id}/generate/*`, `POST /api/kb/{id}/behavior/role-writer/*`, `POST /api/kb/{id}/description/generate` |
 | starter_questions | 30 / min | `GET /api/kb/{id}/starter-questions` |
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
 | search | 60 / min **per user** | `GET /api/search` |

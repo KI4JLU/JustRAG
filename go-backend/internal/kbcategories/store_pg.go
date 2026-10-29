@@ -25,18 +25,26 @@ var (
 	ErrNotFound = errors.New("kbcategories: category not found")
 )
 
-// Category is one entry of the catalog taxonomy.
+// ColorSlots is the number of category colours (--color-category-1..N).
+const ColorSlots = 9
+
+// Category is one entry of the catalog taxonomy. ColorSlot (1..ColorSlots,
+// migration 0093) picks its colour, fixed per category so two never collide.
 type Category struct {
 	ID        string `json:"id"        db:"id"`
 	Name      string `json:"name"      db:"name"`
 	SortOrder int    `json:"sortOrder" db:"sort_order"`
+	ColorSlot *int   `json:"colorSlot" db:"color_slot"`
 }
 
 // Store is the category data layer. PGStore is its only implementation.
 type Store interface {
 	List(ctx context.Context) ([]Category, error)
-	Create(ctx context.Context, name string, sortOrder int) (*Category, error)
-	Update(ctx context.Context, id, name string, sortOrder int) (*Category, error)
+	// Create inserts a category; a nil colorSlot takes the least-used slot
+	// (lowest first), so the first nine categories never share a colour.
+	Create(ctx context.Context, name string, sortOrder int, colorSlot *int) (*Category, error)
+	// Update renames and reorders a category; a nil colorSlot keeps its colour.
+	Update(ctx context.Context, id, name string, sortOrder int, colorSlot *int) (*Category, error)
 	Delete(ctx context.Context, id string) error
 	SetKBCategories(ctx context.Context, kbID string, categoryIDs []string) error
 	ListKBCategories(ctx context.Context, kbID string) ([]Category, error)
@@ -58,16 +66,20 @@ var _ Store = (*PGStore)(nil)
 // List returns every category in display order.
 func (s *PGStore) List(ctx context.Context) ([]Category, error) {
 	return pgxutil.QueryRows[Category](ctx, s.pool,
-		`SELECT id, name, sort_order FROM kb_categories ORDER BY sort_order, name`)
+		`SELECT id, name, sort_order, color_slot FROM kb_categories ORDER BY sort_order, name`)
 }
 
 // Create inserts a category, mapping the unique-name violation to
 // ErrDuplicateName so the handler can answer 409 instead of 500.
-func (s *PGStore) Create(ctx context.Context, name string, sortOrder int) (*Category, error) {
+func (s *PGStore) Create(ctx context.Context, name string, sortOrder int, colorSlot *int) (*Category, error) {
 	var c Category
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO kb_categories (name, sort_order) VALUES ($1, $2)
-		RETURNING id::text, name, sort_order`, name, sortOrder).Scan(&c.ID, &c.Name, &c.SortOrder)
+		INSERT INTO kb_categories (name, sort_order, color_slot)
+		VALUES ($1, $2, COALESCE($3::smallint, (
+			SELECT s::smallint FROM generate_series(1, 9) s
+			LEFT JOIN kb_categories c ON c.color_slot = s
+			GROUP BY s ORDER BY count(c.id), s LIMIT 1)))
+		RETURNING id::text, name, sort_order, color_slot`, name, sortOrder, colorSlot).Scan(&c.ID, &c.Name, &c.SortOrder, &c.ColorSlot)
 	if isUniqueViolation(err) {
 		return nil, ErrDuplicateName
 	}
@@ -78,11 +90,12 @@ func (s *PGStore) Create(ctx context.Context, name string, sortOrder int) (*Cate
 }
 
 // Update renames and reorders a category.
-func (s *PGStore) Update(ctx context.Context, id, name string, sortOrder int) (*Category, error) {
+func (s *PGStore) Update(ctx context.Context, id, name string, sortOrder int, colorSlot *int) (*Category, error) {
 	var c Category
 	err := s.pool.QueryRow(ctx, `
-		UPDATE kb_categories SET name = $2, sort_order = $3 WHERE id = $1::uuid
-		RETURNING id::text, name, sort_order`, id, name, sortOrder).Scan(&c.ID, &c.Name, &c.SortOrder)
+		UPDATE kb_categories SET name = $2, sort_order = $3, color_slot = COALESCE($4::smallint, color_slot)
+		WHERE id = $1::uuid
+		RETURNING id::text, name, sort_order, color_slot`, id, name, sortOrder, colorSlot).Scan(&c.ID, &c.Name, &c.SortOrder, &c.ColorSlot)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -110,7 +123,8 @@ func (s *PGStore) Delete(ctx context.Context, id string) error {
 }
 
 // SetKBCategories replaces a KB's category assignments wholesale, in one
-// transaction. Replace-all rather than add/remove deltas: the UI is a
+// transaction. The handler allows at most one (MaxKBCategories); the store
+// keeps taking a list so older multi-category rows stay readable. Replace-all rather than add/remove deltas: the UI is a
 // checkbox list, and a delta API would need the client to compute the
 // difference against a list it may have fetched before someone else changed
 // it.
@@ -136,7 +150,7 @@ func (s *PGStore) SetKBCategories(ctx context.Context, kbID string, categoryIDs 
 // ListKBCategories returns the categories assigned to one KB.
 func (s *PGStore) ListKBCategories(ctx context.Context, kbID string) ([]Category, error) {
 	return pgxutil.QueryRows[Category](ctx, s.pool, `
-		SELECT c.id, c.name, c.sort_order
+		SELECT c.id, c.name, c.sort_order, c.color_slot
 		FROM kb_categories c
 		JOIN kb_category_links l ON l.category_id = c.id
 		WHERE l.kb_id = $1::uuid

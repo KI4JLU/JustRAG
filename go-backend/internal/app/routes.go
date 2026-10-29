@@ -55,11 +55,14 @@ import (
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kb"
 	"github.com/justrag/go-backend/internal/kbaccess"
+	"github.com/justrag/go-backend/internal/kbassistant"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/kbcategories"
 	"github.com/justrag/go-backend/internal/kbconfig"
 	"github.com/justrag/go-backend/internal/kbfilters"
 	"github.com/justrag/go-backend/internal/kbinvites"
 	"github.com/justrag/go-backend/internal/kbmembers"
+	"github.com/justrag/go-backend/internal/kbstartpage"
 	"github.com/justrag/go-backend/internal/kbsubs"
 	"github.com/justrag/go-backend/internal/kbvisibility"
 	"github.com/justrag/go-backend/internal/kg"
@@ -176,6 +179,10 @@ type routeCtx struct {
 	// registerChatRoutes returns — can pick it up.
 	agentTeamsStore   *agentteams.Store
 	agentTeamsHandler *agentteams.Handler
+
+	// The role templates („Vorlagen" › Rollen): the store the admin routes
+	// write through, which also keeps this process's catalog current.
+	roleTemplates *kbbehavior.TemplateStore
 }
 
 // setupRoutes registers all HTTP routes on the given mux using the provided
@@ -211,6 +218,11 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	// outer ctx (which, on a startup error path, is canceled only by the
 	// final LIFO defer — after routeCleanup has already run). safego.Go
 	// adds panic recovery, matching StartWriter and the schedulers.
+	// The role templates come from role_templates (migration 0095): seeded and
+	// loaded before the first request, reloaded so another instance's admin
+	// change arrives within the interval. Stopped in cleanup, before the pool closes.
+	roleTemplates := kbbehavior.NewTemplateStore(infra.db.Main)
+	stopTemplateRefresher := kbbehavior.StartTemplateRefresher(ctx, roleTemplates, 30*time.Second)
 	sweeperCtx, sweeperCancel := context.WithCancel(ctx)
 	var sweeperWg sync.WaitGroup
 	sweeperWg.Add(1)
@@ -373,6 +385,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		kbConfigHandler: kbConfigHandler,
 		workflowHandler: workflowHandler,
 		agentTeamsStore: agentTeamsStore,
+		roleTemplates:   roleTemplates,
 		analyticsChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(
 				kbMw.RequireKBRole(kbaccess.RoleView)(
@@ -424,11 +437,12 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	registerAdminRoutes(rc)
 	registerKBRoutes(rc, inviteRL)
 	registerSearchRoutes(rc, searchRL, globalsearch.NewStore(infra.db.Main))
-	registerChatRoutes(ctx, rc, chatRL, starterRL)
+	registerChatRoutes(ctx, rc, chatRL, starterRL, generateRL)
 	registerAgentTeamRoutes(rc)
 	registerFileRoutes(rc)
 	registerLibraryRoutes(rc)
 	registerContentGenRoutes(rc, generateRL)
+	registerRoleWriterRoutes(rc, generateRL)
 	registerResearchRoutes(rc, researchRL)
 	registerPublicAPIRoutes(rc, apiRL)
 	registerOWUICompatRoutes(rc)
@@ -447,6 +461,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		// the vector pool — avoids a pool-close race / log noise on shutdown.
 		sweeperCancel()
 		sweeperWg.Wait()
+		stopTemplateRefresher()
 		loginLimiter.Shutdown()
 	}
 
@@ -995,6 +1010,41 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/categories", rc.kbViewChain(kbCategoriesHandler.ListKBCategories))
 	rc.mux.Handle("PUT /api/kb/{id}/categories", rc.kbAdminChain(kbCategoriesHandler.SetKBCategories))
 
+	// Behavior settings: roles and rules (internal/kbbehavior, migration 0092).
+	// The catalog is the same for everyone (authentication only); a KB's
+	// settings are read on kbViewChain — a viewer's chat header names the
+	// chat's role, and GET /api/kb/{id} already showed the systemPrompt to
+	// viewers — and written on kbAdminChain, the gate of PATCH systemPrompt.
+	kbBehaviorHandler := kbbehavior.NewHandler(kbbehavior.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/kb-behavior/catalog", rc.authMw.Authenticate(http.HandlerFunc(kbBehaviorHandler.Catalog)))
+	rc.mux.Handle("GET /api/kb/{id}/behavior", rc.kbViewChain(kbBehaviorHandler.Get))
+	rc.mux.Handle("PUT /api/kb/{id}/behavior", rc.kbAdminChain(kbBehaviorHandler.Put))
+	// The role templates themselves: system admins, like the catalog categories.
+	templatesHandler := kbbehavior.NewTemplatesHandler(rc.roleTemplates)
+	rc.mux.Handle("GET /api/admin/role-templates", rc.adminChain(templatesHandler.List))
+	rc.mux.Handle("POST /api/admin/role-templates", rc.adminChain(templatesHandler.Create))
+	rc.mux.Handle("PUT /api/admin/role-templates/order", rc.adminChain(templatesHandler.Reorder))
+	rc.mux.Handle("PUT /api/admin/role-templates/{roleId}", rc.adminChain(templatesHandler.Update))
+	rc.mux.Handle("DELETE /api/admin/role-templates/{roleId}", rc.adminChain(templatesHandler.Delete))
+
+	// The settings dialog's „Startseite" + „Verhalten" save through one
+	// transaction with a version history (internal/kbassistant, migration
+	// 0094); the two routes above stay for single-part API use. All on
+	// kbAdminChain; the title keeps the stricter rename rule.
+	kbAssistantHandler := kbassistant.NewHandler(kbassistant.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/kb/{id}/assistant-settings", rc.kbAdminChain(kbAssistantHandler.Get))
+	rc.mux.Handle("PUT /api/kb/{id}/assistant-settings", rc.kbAdminChain(kbAssistantHandler.Put))
+	rc.mux.Handle("GET /api/kb/{id}/assistant-settings/versions", rc.kbAdminChain(kbAssistantHandler.Versions))
+	rc.mux.Handle("POST /api/kb/{id}/assistant-settings/versions/{n}/restore", rc.kbAdminChain(kbAssistantHandler.Restore))
+	// The behavior's „Löschen" writes a version too, so it can be restored.
+	rc.mux.Handle("DELETE /api/kb/{id}/behavior", rc.kbAdminChain(kbAssistantHandler.ResetBehavior))
+
+	// Start page settings (internal/kbstartpage, migration 0093): read by every
+	// member, written by a KB admin like the behavior settings.
+	kbStartPageHandler := kbstartpage.NewHandler(kbstartpage.NewStore(rc.infra.db.Main), kbbehavior.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/kb/{id}/start-page", rc.kbViewChain(kbStartPageHandler.Get))
+	rc.mux.Handle("PUT /api/kb/{id}/start-page", rc.kbAdminChain(kbStartPageHandler.Put))
+
 	// Analytics
 	analyticsHandler := analytics.NewHandler(analytics.NewStore(rc.infra.db.Main))
 	rc.mux.Handle("GET /api/kb/{id}/analytics", rc.analyticsChain(analyticsHandler.GetDashboard))
@@ -1091,7 +1141,7 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/crawl/status/{jobId}", rc.kbSourceListChain(crawlerHandler.GetCrawlStatus))
 }
 
-func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *middleware.RedisRateLimiter) {
+func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL, generateRL *middleware.RedisRateLimiter) {
 	// Phase 2 §2.1: build the MCP registry and register the in-process
 	// built-in tools (kb_search, web_search). Per-KB remote MCP servers
 	// (if any) are added via Registry.Configure on demand from the chat
@@ -1381,6 +1431,9 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 	// by an LLM call — behind their own "starter_questions" limiter (see
 	// starterRL), wrapped outside the auth chain like the generate routes.
 	rc.mux.Handle("GET /api/kb/{id}/starter-questions", starterRL.Middleware(rc.kbViewChain(chatHandler.StarterQuestions)))
+	// A description draft for the start page editor, from the same documents:
+	// one synchronous LLM call for KB admins, on the generate budget.
+	rc.mux.Handle("POST /api/kb/{id}/description/generate", generateRL.Middleware(middleware.Timeout(90*time.Second)(rc.kbAdminChain(chatHandler.GenerateDescription))))
 
 	// Chat — messages and deletion (auth only, ownership checked in handler)
 	rc.mux.Handle("GET /api/chat/rag-system-prompt", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RAGSystemPrompt)))
@@ -1470,6 +1523,19 @@ func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("DELETE /api/generated-content/{id}", rc.authMw.Authenticate(http.HandlerFunc(genContentHandler.DeleteGenContent)))
 	rc.mux.Handle("GET /api/generated-content/{id}/download", rc.authMw.Authenticate(http.HandlerFunc(genContentHandler.DownloadGenContent)))
 	rc.mux.Handle("GET /api/generated-content/{id}/stream", rc.authMw.Authenticate(http.HandlerFunc(genContentHandler.StreamGenContent)))
+}
+
+// registerRoleWriterRoutes mounts the role edit screen's AI help: one
+// synchronous LLM call each, for KB admins, on the generate budget, on the
+// fast tier (model_tier_fast, else the KB's chat model).
+func registerRoleWriterRoutes(rc *routeCtx, generateRL *middleware.RedisRateLimiter) {
+	h := kbbehavior.NewRoleWriterHandler(rc.aiResolver, func(ctx context.Context) string {
+		return chat.ChatModelTierFast(ctx, rc.chatStore)
+	})
+	llmTimeout := middleware.Timeout(90 * time.Second)
+	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/generate", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Generate))))
+	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/revise", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Revise))))
+	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/describe", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Describe))))
 }
 
 func registerContentGenRoutes(rc *routeCtx, generateRL *middleware.RedisRateLimiter) {

@@ -163,6 +163,13 @@ func (s *wiringStore) UpdateMessageVerification(context.Context, string, *Messag
 func (s *wiringStore) UpdateMessageContent(context.Context, string, string) error { return nil }
 func (s *wiringStore) UpdateMessageTraceID(context.Context, string, string) error { return nil }
 func (s *wiringStore) GetKBSystemPrompt(context.Context, string) (*string, error) { return nil, nil }
+func (s *wiringStore) GetChatSystemPrompt(context.Context, string, string) (*string, error) {
+	return nil, nil
+}
+func (s *wiringStore) KBHasRole(context.Context, string, string) (bool, error) { return false, nil }
+func (s *wiringStore) CreateChatWithRole(context.Context, string, string, string, string) (*ChatRow, error) {
+	return nil, nil
+}
 func (s *wiringStore) UpdateChatAgentSelection(context.Context, string, *string, *string) error {
 	return nil
 }

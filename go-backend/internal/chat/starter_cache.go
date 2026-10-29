@@ -17,9 +17,9 @@ import (
 // happened.
 var errStarterCachedFailure = errors.New("starter questions: recent generation failed")
 
-// starterCache holds generated starter questions per key (KB, language and
-// content fingerprint), so opening empty chats does not cost a model call
-// each time. It is:
+// starterCache holds generated starter questions per key (KB, language,
+// model, role and content fingerprint). The handler keeps no questions
+// (ttl 0: every empty chat gets its own), so what it relies on is:
 //
 //   - bounded: at most maxEntries entries, least-recently-used evicted first;
 //   - collapsing: identical concurrent misses share one load (singleflight);
@@ -76,8 +76,8 @@ func newStarterCache(maxEntries int, ttl, negTTL, loadTimeout time.Duration) *st
 }
 
 // get returns the cached questions for key, or runs load — once per key
-// across concurrent callers — and caches its outcome: questions for ttl,
-// degraded questions and failures for negTTL. The returned slice is the
+// across concurrent callers — and caches its outcome: questions for ttl (0 =
+// not kept), degraded questions for at most negTTL, failures for negTTL. The returned slice is the
 // caller's own copy.
 func (c *starterCache) get(ctx context.Context, key string, load func(context.Context) (starterOutcome, error)) ([]string, error) {
 	if q, ok, err := c.lookup(key); ok {
@@ -107,9 +107,11 @@ func (c *starterCache) get(ctx context.Context, key string, load func(context.Co
 		}
 		ttl := c.ttl
 		if out.degraded {
-			ttl = c.negTTL
+			ttl = min(ttl, c.negTTL)
 		}
-		c.store(key, out.questions, false, ttl)
+		if ttl > 0 {
+			c.store(key, out.questions, false, ttl)
+		}
 		return out.questions, nil
 	})
 	if c.afterJoin != nil {

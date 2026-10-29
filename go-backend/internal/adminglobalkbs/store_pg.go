@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/kbaccess"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/kbmembers"
 	"github.com/justrag/go-backend/internal/pgxutil"
 )
@@ -54,6 +55,9 @@ type globalKBDBRow struct {
 	TTSModel       *string   `db:"tts_model"`
 	SttModel       *string   `db:"stt_model"`
 	CreatedAt      time.Time `db:"created_at"`
+
+	FileCount      int        `db:"-"`
+	LastIngestedAt *time.Time `db:"-"`
 }
 
 // globalKBSelectCols is the column list every GlobalKBRow query selects.
@@ -85,8 +89,38 @@ func (s *PGStore) ListGlobalKBs(ctx context.Context) ([]GlobalKBRow, error) {
 	}
 
 	result := make([]GlobalKBRow, len(rows))
+	index := make(map[string]int, len(rows))
+	ids := make([]string, len(rows))
 	for i, r := range rows {
 		result[i] = toGlobalKBRow(r)
+		index[r.ID] = i
+		ids[i] = r.ID
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	// The card's file count and „Stand", with the catalog's definitions
+	// (kbsubs.Catalog): one aggregate over all listed KBs, not one per row.
+	type fileStats struct {
+		KBID           string     `db:"kb_id"`
+		FileCount      int        `db:"file_count"`
+		LastIngestedAt *time.Time `db:"last_ingested_at"`
+	}
+	stats, err := pgxutil.QueryRows[fileStats](ctx, s.pool, `
+		SELECT kb_id::text AS kb_id, COUNT(*)::int AS file_count,
+		       MAX(COALESCE(progress_updated_at, created_at))
+		           FILTER (WHERE status IN ('completed','partial')) AS last_ingested_at
+		FROM files WHERE kb_id = ANY($1::uuid[])
+		GROUP BY kb_id`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list global KBs: file stats: %w", err)
+	}
+	for _, st := range stats {
+		if i, ok := index[st.KBID]; ok {
+			result[i].FileCount = st.FileCount
+			result[i].LastIngestedAt = st.LastIngestedAt
+		}
 	}
 	return result, nil
 }
@@ -102,15 +136,22 @@ func (s *PGStore) ListGlobalKBs(ctx context.Context) ([]GlobalKBRow, error) {
 // curator if it failed. role='admin' (never 'owner') keeps the ownerless
 // invariant of a public KB intact, and with it the owner-mirror trigger,
 // which fires only WHEN (NEW.role = 'owner') and so stays silent here.
+//
+// A new public KB starts with the default behavior (kbbehavior.Default), as a
+// new private KB does.
 func (s *PGStore) CreateGlobalKB(ctx context.Context, data GlobalKBCreate) (*GlobalKBRow, error) {
 	const sql = `
-		INSERT INTO knowledge_bases (name, description, language, visibility, user_id)
-		VALUES ($1, $2, $3, 'public', NULL)
+		INSERT INTO knowledge_bases (name, description, language, visibility, user_id, behavior)
+		VALUES ($1, $2, $3, 'public', NULL, $4)
 		RETURNING ` + globalKBSelectCols
 
+	behavior, err := kbbehavior.DefaultJSON()
+	if err != nil {
+		return nil, fmt.Errorf("create global KB: %w", err)
+	}
 	var result *GlobalKBRow
-	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := pgxutil.QueryRows[globalKBDBRow](ctx, tx, sql, data.Name, data.Description, data.Language)
+	err = pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := pgxutil.QueryRows[globalKBDBRow](ctx, tx, sql, data.Name, data.Description, data.Language, behavior)
 		if err != nil {
 			return err
 		}
@@ -177,6 +218,9 @@ func (s *PGStore) UpdateGlobalKB(ctx context.Context, id string, data GlobalKBUp
 	}
 	if data.SystemPrompt != nil || data.NullFields["systemPrompt"] {
 		setOrNull("system_prompt", "systemPrompt", data.SystemPrompt)
+	}
+	if data.SystemPrompt != nil && *data.SystemPrompt != "" {
+		b.Add(kbbehavior.ActivateLegacyOnPromptChangeSQL, *data.SystemPrompt)
 	}
 	if data.HeaderText != nil || data.NullFields["headerText"] {
 		setOrNull("header_text", "headerText", data.HeaderText)

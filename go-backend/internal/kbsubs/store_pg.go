@@ -7,9 +7,11 @@ package kbsubs
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/kbstartpage"
 	"github.com/justrag/go-backend/internal/pgxutil"
 )
 
@@ -35,6 +37,15 @@ type CatalogEntry struct {
 	// to the admin-curated CategoryIDs next to them.
 	IsFavorite      bool     `json:"isFavorite"      db:"is_favorite"`
 	UserCategoryIDs []string `json:"userCategoryIds" db:"user_category_ids"`
+
+	// What the card shows: the start page's colours (the default ones while
+	// the KB has no start page, null when it chose none), the number of
+	// files and when content was last ingested (nil before the first
+	// successful ingest).
+	Colors         *kbstartpage.Colors `json:"colors"                   db:"colors"`
+	Configured     bool                `json:"-"                        db:"configured"`
+	FileCount      int                 `json:"fileCount"                db:"file_count"`
+	LastIngestedAt *time.Time          `json:"lastIngestedAt,omitempty" db:"last_ingested_at"`
 }
 
 // Store is the subscription data layer. PGStore is its only implementation.
@@ -123,8 +134,20 @@ func (s *PGStore) Catalog(ctx context.Context, userID, query string, categoryIDs
 		         (SELECT array_agg(ucl.category_id::text) FROM kb_user_category_links ucl
 		          WHERE ucl.kb_id = kb.id AND ucl.user_id = $1::uuid),
 		         ARRAY[]::text[]
-		       ) AS user_category_ids
+		       ) AS user_category_ids,
+		       kb.start_page->'colors' AS colors,
+		       kb.start_page IS NOT NULL AS configured,
+		       COALESCE(fs.file_count, 0)::int AS file_count,
+		       fs.last_ingested_at
 		FROM knowledge_bases kb
+		-- The card's file count and „Stand": the same definitions as the KB
+		-- list's kbStatsJoins (internal/kb), evaluated per returned row.
+		LEFT JOIN LATERAL (
+		    SELECT COUNT(*) AS file_count,
+		           MAX(COALESCE(progress_updated_at, created_at))
+		               FILTER (WHERE status IN ('completed','partial')) AS last_ingested_at
+		    FROM files f WHERE f.kb_id = kb.id
+		) fs ON true
 		WHERE kb.visibility = 'public'
 		  AND (kb.is_published = true OR EXISTS (
 		        SELECT 1 FROM kb_members m WHERE m.kb_id = kb.id AND m.user_id = $1::uuid
@@ -145,6 +168,11 @@ func (s *PGStore) Catalog(ctx context.Context, userID, query string, categoryIDs
 	rows, err := pgxutil.QueryRows[CatalogEntry](ctx, s.pool, sql, userID, query, categoryIDs, catalogLimit)
 	if err != nil {
 		return nil, fmt.Errorf("Catalog: %w", err)
+	}
+	for i := range rows {
+		if !rows[i].Configured {
+			rows[i].Colors = kbstartpage.DefaultColors()
+		}
 	}
 	return rows, nil
 }

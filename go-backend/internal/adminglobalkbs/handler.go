@@ -41,6 +41,13 @@ type GlobalKBRow struct {
 	TTSModel       *string   `json:"ttsModel"       db:"tts_model"`
 	SttModel       *string   `json:"sttModel"       db:"stt_model"`
 	CreatedAt      time.Time `json:"createdAt"      db:"created_at"`
+
+	// What the „Entdecken" card shows next to the description (kbsubs
+	// Catalog): the number of files and when content was last ingested.
+	// Filled by ListGlobalKBs only, so the admin list can name the fields a
+	// card is missing; zero / nil elsewhere.
+	FileCount      int        `json:"fileCount"                db:"-"`
+	LastIngestedAt *time.Time `json:"lastIngestedAt,omitempty" db:"-"`
 }
 
 // GlobalKBEditorRow is the shape returned for an editor of a global KB — a

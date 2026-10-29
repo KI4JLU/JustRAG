@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/justrag/go-backend/internal/kbstartpage"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/kbaccess"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/pgxutil"
 	"github.com/justrag/go-backend/internal/store"
 	"github.com/justrag/go-backend/internal/tabular"
@@ -106,7 +108,15 @@ const kbStatsCols = `,
        fs.oldest_file_at                          AS oldest_file_at,
        fs.last_ingested_at                        AS last_ingested_at,
        COALESCE(us.turn_count, 0)::int            AS turn_count,
-       us.last_activity_at                        AS last_activity_at`
+       us.last_activity_at                        AS last_activity_at,
+       -- The catalog category the title card shows: the KB's first by the
+       -- taxonomy's order (the same pick as kbassistant's loadState).
+       (SELECT json_build_object('id', c.id::text, 'name', c.name, 'sortOrder', c.sort_order, 'colorSlot', c.color_slot)
+          FROM kb_category_links l JOIN kb_categories c ON c.id = l.category_id
+         WHERE l.kb_id = kb.id ORDER BY c.sort_order, c.name LIMIT 1) AS category,
+       -- The start page's colours, the card's cover band (as the catalog's).
+       kb.start_page IS NOT NULL AS start_configured,
+       kb.start_page->'colors'   AS start_colors`
 
 const kbStatsJoins = `
        LEFT JOIN LATERAL (
@@ -232,15 +242,18 @@ func toKBRow(r kbFullRow) KBRow {
 // pgx.RowToStructByName flattens the embedded fields.
 type kbListRow struct {
 	kbFullRow
-	FileCount           int        `db:"file_count"`
-	FailedFileCount     int        `db:"failed_file_count"`
-	ProcessingFileCount int        `db:"processing_file_count"`
-	OldestFileAt        *time.Time `db:"oldest_file_at"`
-	LastIngestedAt      *time.Time `db:"last_ingested_at"`
-	TurnCount           int        `db:"turn_count"`
-	LastActivityAt      *time.Time `db:"last_activity_at"`
-	MyRole              *string    `db:"my_role"`
-	MemberCount         int        `db:"member_count"`
+	FileCount           int                 `db:"file_count"`
+	FailedFileCount     int                 `db:"failed_file_count"`
+	ProcessingFileCount int                 `db:"processing_file_count"`
+	OldestFileAt        *time.Time          `db:"oldest_file_at"`
+	LastIngestedAt      *time.Time          `db:"last_ingested_at"`
+	TurnCount           int                 `db:"turn_count"`
+	LastActivityAt      *time.Time          `db:"last_activity_at"`
+	MyRole              *string             `db:"my_role"`
+	MemberCount         int                 `db:"member_count"`
+	Category            []byte              `db:"category"`
+	StartConfigured     bool                `db:"start_configured"`
+	StartColors         *kbstartpage.Colors `db:"start_colors"`
 	// NULL in both columns means the query ran without the per-user
 	// subqueries (kbUserFilterCols withFilters=false).
 	IsFavorite      *bool    `db:"is_favorite"`
@@ -258,6 +271,15 @@ func toKBRowWithStats(r kbListRow) KBRow {
 	row.LastActivityAt = r.LastActivityAt
 	row.MyRole = r.MyRole
 	row.MemberCount = r.MemberCount
+	if len(r.Category) > 0 {
+		row.Category = json.RawMessage(r.Category)
+	}
+	// A KB that never saved a start page has the default colours, one that
+	// chose none has no band (kbsubs.Catalog, the „Entdecken" cards).
+	row.Colors = r.StartColors
+	if !r.StartConfigured {
+		row.Colors = kbstartpage.DefaultColors()
+	}
 	if r.IsFavorite != nil {
 		row.UserFilters = &UserFilters{IsFavorite: *r.IsFavorite, UserCategoryIDs: r.UserCategoryIDs}
 	}
@@ -514,15 +536,27 @@ func (s *PGStore) GetKnowledgeBase(ctx context.Context, kbID, userID string) (*K
 // diverge; migration 0064's kb_members_sync_owner_trg trigger re-applies the
 // same value to knowledge_bases.user_id as a (harmless, idempotent) side
 // effect of the kb_members insert.
+//
+// A KB created without a system prompt starts with the default behavior
+// (template role and default rules, kbbehavior.Default); one created with a
+// systemPrompt (the API) keeps it as its legacy role, as an existing KB does.
 func (s *PGStore) CreateKnowledgeBase(ctx context.Context, name string, description *string, userID string, systemPrompt *string) (*KBRow, error) {
+	var behavior []byte
+	if systemPrompt == nil || *systemPrompt == "" {
+		raw, err := kbbehavior.DefaultJSON()
+		if err != nil {
+			return nil, fmt.Errorf("CreateKnowledgeBase: %w", err)
+		}
+		behavior = raw
+	}
 	var result *KBRow
 	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		const sql = `
-			INSERT INTO knowledge_bases (name, description, user_id, system_prompt)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO knowledge_bases (name, description, user_id, system_prompt, behavior)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING ` + kbSelectColsNoAlias
 
-		row, err := pgxutil.QueryOne[kbFullRow](ctx, tx, sql, name, description, userID, systemPrompt)
+		row, err := pgxutil.QueryOne[kbFullRow](ctx, tx, sql, name, description, userID, systemPrompt, behavior)
 		if err != nil {
 			return err
 		}
@@ -584,6 +618,9 @@ func (s *PGStore) UpdateKnowledgeBase(ctx context.Context, id string, data KBUpd
 		b.Add("language = $%d", *data.Language)
 	}
 	addOrNull(b, "system_prompt", data.SystemPrompt, data.NullFields, "systemPrompt")
+	if data.SystemPrompt != nil && *data.SystemPrompt != "" {
+		b.Add(kbbehavior.ActivateLegacyOnPromptChangeSQL, *data.SystemPrompt)
+	}
 	addOrNull(b, "header_text", data.HeaderText, data.NullFields, "headerText")
 	addOrNull(b, "example_prompts", data.ExamplePrompts, data.NullFields, "examplePrompts")
 	addOrNull(b, "tts_model", data.TTSModel, data.NullFields, "ttsModel")
@@ -944,19 +981,12 @@ func (s *PGStore) GetKBChunkConfig(ctx context.Context, kbID string) (chunkSize,
 // GetKBSystemPrompt — used by openaicompat.Store and publicapi.Store
 // ---------------------------------------------------------------------------
 
-// GetKBSystemPrompt returns the system_prompt for a KB, or nil if not set.
-// A missing KB row maps to (nil, nil) — same as "column is NULL" — because
-// callers treat both as "no per-KB override".
+// GetKBSystemPrompt returns the KB part of the answer prompt in the KB's
+// active role (role prompt plus active rules, kbbehavior.SystemPrompt), nil
+// when there is none or the KB does not exist — callers treat both as "no
+// per-KB prompt". Shared with chat.PGStore.GetKBSystemPrompt.
 func (s *PGStore) GetKBSystemPrompt(ctx context.Context, kbID string) (*string, error) {
-	var sp *string
-	err := s.pool.QueryRow(ctx, `SELECT system_prompt FROM knowledge_bases WHERE id = $1`, kbID).Scan(&sp)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return sp, nil
+	return kbbehavior.SystemPrompt(ctx, s.pool, kbID, "")
 }
 
 // ---------------------------------------------------------------------------

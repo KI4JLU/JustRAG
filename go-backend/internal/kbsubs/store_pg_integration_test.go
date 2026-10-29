@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/kbstartpage"
 	"github.com/justrag/go-backend/internal/kbsubs"
 )
 
@@ -466,5 +467,45 @@ func TestCatalog_UserFilterColumnsArePerCaller(t *testing.T) {
 	// COALESCE the JSON would read null instead of [].
 	if other.UserCategoryIDs == nil {
 		t.Error("userCategoryIds is nil, want an empty slice")
+	}
+}
+
+// TestCatalog_CardFields pins what the Entdecken card shows: the start page's
+// colours (the default ones without a start page, none when it chose none),
+// the file count and when content was last ingested.
+func TestCatalog_CardFields(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kbsubs.NewStore(pool)
+
+	user := insertUser(t, pool, "kbsubs-card-user")
+	plain := insertKB(t, pool, "kbsubs-card-plain", "", "public", true, false)
+	berry := insertKB(t, pool, "kbsubs-card-berry", "", "public", true, false)
+	none := insertKB(t, pool, "kbsubs-card-none", "", "public", true, false)
+	mustExec(t, pool, `UPDATE knowledge_bases SET start_page = '{"colors":{"from":"#EE4589","to":"#B46EF7"}}' WHERE id = $1::uuid`, berry)
+	mustExec(t, pool, `UPDATE knowledge_bases SET start_page = '{"colors":null}' WHERE id = $1::uuid`, none)
+	mustExec(t, pool, `INSERT INTO files (kb_id, name, type, status, storage_path, origin)
+	                   VALUES ($1::uuid, 'a.md', 'text/markdown', 'completed', 'p/a.md', 'upload'),
+	                          ($1::uuid, 'b.md', 'text/markdown', 'processing', 'p/b.md', 'upload')`, berry)
+
+	entries, err := store.Catalog(ctx, user, "kbsubs-card-", nil)
+	if err != nil {
+		t.Fatalf("Catalog: %v", err)
+	}
+	got := byID(entries)
+	if c := got[plain].Colors; c == nil || *c != *kbstartpage.DefaultColors() {
+		t.Errorf("colors without a start page = %v, want the default", c)
+	}
+	if c := got[berry].Colors; c == nil || c.From != "#EE4589" || c.To != "#B46EF7" {
+		t.Errorf("colors = %v, want #EE4589 → #B46EF7", c)
+	}
+	if got[none].Colors != nil {
+		t.Errorf("colors of a start page without colours = %v, want nil", got[none].Colors)
+	}
+	if got[berry].FileCount != 2 || got[plain].FileCount != 0 {
+		t.Errorf("fileCount = %d / %d, want 2 / 0", got[berry].FileCount, got[plain].FileCount)
+	}
+	if got[berry].LastIngestedAt == nil || got[plain].LastIngestedAt != nil {
+		t.Errorf("lastIngestedAt = %v / %v, want set / nil", got[berry].LastIngestedAt, got[plain].LastIngestedAt)
 	}
 }
