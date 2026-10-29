@@ -17,7 +17,8 @@ const PLACEHOLDERS: Record<string, string> = {
     asstRestoredFlash: 'restored v{n} as v{m}',
 };
 vi.mock('../../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => PLACEHOLDERS[k] ?? k, language: 'de' }) }));
-vi.mock('../../../contexts/ModalContext', () => ({ useModalContext: () => ({ showConfirm: vi.fn(async () => true) }) }));
+const showConfirm = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('../../../contexts/ModalContext', () => ({ useModalContext: () => ({ showConfirm }) }));
 vi.mock('axios', () => ({ default: { get: vi.fn(async () => ({ data: { prompt: 'RAG' } })), put: vi.fn(), isAxiosError: () => false } }));
 vi.mock('../KbMembersPanel', () => ({ KbMembersPanel: () => null }));
 // The role cards' carousel and cover band are newer than the pinned DS: stand-ins until the pin bump.
@@ -48,6 +49,7 @@ vi.mock('./api', async (importOriginal) => {
         }),
         fetchSettingsVersions: vi.fn(async () => versions),
         restoreSettingsVersion: vi.fn(async () => { version += 1; return response(); }),
+        resetBehavior: vi.fn(async () => ({ behavior, customized: false, language: 'de' })),
         fetchCategoryCatalog: vi.fn(async () => []),
         fetchBehaviorCatalog: vi.fn(async () => ({
             language: 'de',
@@ -563,6 +565,36 @@ describe('Startseite', () => {
         expect(saved.roleStarts['c-1'].suggestions).toMatchObject({ questionsOn: true, questionMode: 'dynamic' });
         expect(saved.roleStarts.research).toBeUndefined();
         expect(saved.questionsOn).toBe(false);
+    });
+
+    // Oracle: Codex review 29.10.2026 — a role being edited is not in the
+    // draft yet, so the close guard has to ask about it on its own.
+    it('asks before closing over a role being edited', async () => {
+        showConfirm.mockClear();
+        await renderSection('behavior');
+        await userEvent.click(screen.getByRole('button', { name: /asstNewRole/ }));
+        await userEvent.click(screen.getByRole('button', { name: 'close' }));
+        expect(showConfirm).not.toHaveBeenCalled();
+        cleanup();
+        await renderSection('behavior');
+        await userEvent.click(screen.getByRole('button', { name: /asstNewRole/ }));
+        await userEvent.type(screen.getByLabelText('asstName'), 'Neu');
+        await userEvent.click(screen.getByRole('button', { name: 'close' }));
+        expect(showConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    // Oracle: Codex review 29.10.2026 — „Löschen" resets the behaviour only;
+    // unsaved edits on the Startseite survive it.
+    it('keeps an unsaved title when the behaviour is reset', async () => {
+        await renderSection('start');
+        await userEvent.click(screen.getByRole('button', { name: 'asstEditStartPage' }));
+        await userEvent.type(screen.getByLabelText('asstTitle'), ' neu');
+        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
+        await userEvent.click(await screen.findByRole('button', { name: /^delete$/ }));
+        await waitFor(() => expect(api.resetBehavior).toHaveBeenCalled());
+        await userEvent.click(saveButton());
+        await waitFor(() => expect(api.saveAssistantSettings).toHaveBeenCalled());
+        expect(savedInput().title).toBe('Personalrecht neu');
     });
 
     it('cannot save without a title', async () => {

@@ -38,6 +38,11 @@ export type RoleEditor = {
     | { kind: 'template'; roleId: string }
 );
 
+/** The editor's content, as a comparable string: everything but the writer's state. */
+export function editorFields(e: RoleEditor): string {
+    return JSON.stringify([e.name, e.description, e.prompt, e.rules, e.start ?? null]);
+}
+
 /** A role's description limit (the server's MaxRoleDescRunes). */
 export const ROLE_DESC_MAX = 200;
 

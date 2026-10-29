@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SettingsVersion, StartPage } from './api';
 import { ROLE_COVER_DEFAULTS, colorsGlowStyle, colorsStyle, chatStartIncomplete, roleCardCover, showsGeneratedQuestions, suggestionQuestions, startEntries, visibleQuestions } from './startPageModel';
 import { changeValue, versionNote } from './versionModel';
+import { draftAfterReset, type AssistantDraft } from './useAssistantSettings';
 
 const page = (patch: Partial<StartPage> = {}): StartPage => ({
     version: 1, colors: { from: '#0056B3', to: '#3897E8' }, startMode: 'input',
@@ -102,6 +103,28 @@ describe('generated questions', () => {
         expect(showsGeneratedQuestions({ kind: 'input', suggestions: dyn }, page())).toBe(true);
         expect(showsGeneratedQuestions({ kind: 'file', suggestions: dyn }, null)).toBe(false);
         expect(showsGeneratedQuestions({ kind: 'input', suggestions: { ...dyn, questionsOn: false } }, null)).toBe(false);
+    });
+});
+
+// Oracle: Codex review 29.10.2026 — the reset touches the behaviour only.
+describe('draft after a behaviour reset', () => {
+    const behavior = { version: 1, activeRoleId: 'research', customRoles: [], roleRules: {} } as unknown as AssistantDraft['behavior'];
+    const base: AssistantDraft = { behavior, startPage: page(), title: 'T', description: null, categoryId: null };
+    it('keeps unsaved edits outside Verhalten and drops cards of roles that went', () => {
+        const server = { ...base, title: 'T' };
+        const draft: AssistantDraft = {
+            ...base, title: 'T neu',
+            startPage: page({ startMode: 'roles', roleEntries: [{ id: 'e1', roleId: 'mine' }], roleStarts: { mine: { kind: 'input' } as never } }),
+        };
+        const next = draftAfterReset(draft, base, server, new Set(['research', 'tutor']));
+        expect(next.title).toBe('T neu');
+        expect(next.startPage.roleEntries).toEqual([]);
+        expect(next.startPage.roleStarts).toEqual({});
+        expect(next.startPage.startMode).toBe('input');
+    });
+    it('takes the server state where nothing was edited', () => {
+        const server = { ...base, title: 'Server' };
+        expect(draftAfterReset({ ...base }, base, server, new Set()).title).toBe('Server');
     });
 });
 

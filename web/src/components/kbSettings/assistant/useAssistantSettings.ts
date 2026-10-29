@@ -93,6 +93,30 @@ function draftOf(s: AssistantSettingsResponse): AssistantDraft {
     };
 }
 
+/**
+ * The draft after „Löschen" in Verhalten reset the behavior on the server:
+ * the server's state, but with the unsaved edits outside Verhalten kept —
+ * title, description, category and start page — minus the start page's
+ * cards of roles the KB no longer has.
+ */
+export function draftAfterReset(draft: AssistantDraft | null, saved: AssistantDraft | null, server: AssistantDraft, roleIds: Set<string>): AssistantDraft {
+    if (!draft || !saved) return server;
+    const keep = <K extends keyof AssistantDraft>(k: K) =>
+        (JSON.stringify(draft[k]) !== JSON.stringify(saved[k]) ? draft[k] : server[k]);
+    const page = keep('startPage');
+    const active = server.behavior.activeRoleId;
+    const roleEntries = page.roleEntries.filter(e => roleIds.has(e.roleId) && e.roleId !== active);
+    const roleStarts = Object.fromEntries(Object.entries(page.roleStarts).filter(([id]) => roleIds.has(id)));
+    const startMode = page.startMode === 'roles' && roleEntries.length === 0 ? 'input' : page.startMode;
+    return {
+        behavior: server.behavior,
+        title: keep('title'),
+        description: keep('description'),
+        categoryId: keep('categoryId'),
+        startPage: { ...page, roleEntries, roleStarts, startMode },
+    };
+}
+
 interface Options {
     kb: KnowledgeBase;
     /** PATCH /api/kb/{id} through the app's KB store: keeps the KB lists in step after a save. */
@@ -212,13 +236,19 @@ export function useAssistantSettingsStore({ kb, onUpdateKb, onOpenSection }: Opt
     const doReset = useCallback(async () => {
         try {
             await resetBehavior(kb.id);
-            // Read everything back: the start page drops cards of roles that went.
-            applyServer(await fetchAssistantSettings(kb.id));
+            // Read everything back (the start page drops cards of roles that
+            // went), but keep what was edited outside Verhalten and not saved.
+            const res = await fetchAssistantSettings(kb.id);
+            const server = draftOf(res);
+            const roleIds = new Set([...(catalog?.roles.map(r => r.id) ?? []), ...server.behavior.customRoles.map(r => r.id)]);
+            const next = draftAfterReset(draft, saved, server, roleIds);
+            applyServer(res);
+            setDraft(next);
             return true;
         } catch {
             return false;
         }
-    }, [kb.id, applyServer]);
+    }, [kb.id, applyServer, catalog, draft, saved]);
 
     const send = useCallback((section: AssistantSection, action?: AssistantAction) => {
         if (action?.type === 'previewRole') setPending(action);

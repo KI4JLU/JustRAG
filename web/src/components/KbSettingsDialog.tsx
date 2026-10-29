@@ -116,6 +116,8 @@ export function KbSettingsDialog({
     const assistant = useAssistantSettingsStore({ kb, onUpdateKb, onOpenSection: openSection });
     // While a role is created or edited, Verhalten owns the footer (through the slot).
     const [roleEditorOpen, setRoleEditorOpen] = useState(false);
+    // …and whether it holds changes not yet applied to the draft.
+    const [roleEditorDirty, setRoleEditorDirty] = useState(false);
 
     // Member role changes (Mitglieder) are drafts too, held here because the
     // panel lives only while its section is shown. Adding and removing members
@@ -135,7 +137,7 @@ export function KbSettingsDialog({
         if (role) next[userId] = role; else delete next[userId];
         return next;
     });
-    const anyDirty = dirty || assistant.dirty || Object.keys(roleDrafts).length > 0;
+    const anyDirty = dirty || assistant.dirty || roleEditorDirty || Object.keys(roleDrafts).length > 0;
     // A title is required, and the chat start must be fully set up.
     // Speichern stays enabled: a click on an incomplete state shows what is missing instead of saving.
     const invalid = !!assistant.draft && (!assistant.draft.title.trim() || chatStartIncomplete(assistant.draft.startPage, assistant.draft.behavior.activeRoleId));
@@ -242,7 +244,7 @@ export function KbSettingsDialog({
                         content: (
                             <>
                                 <AssistantGate store={assistant}>
-                                    <BehaviorSection footerSlot={editingRole ? footerSlot : null} onSubViewChange={setRoleEditorOpen} />
+                                    <BehaviorSection footerSlot={editingRole ? footerSlot : null} onSubViewChange={setRoleEditorOpen} onEditorDirtyChange={setRoleEditorDirty} />
                                 </AssistantGate>
                                 {/* The RAG configuration lives under Verhalten (it changes how
                                     the topic answers), for the few who may open it; it leaves

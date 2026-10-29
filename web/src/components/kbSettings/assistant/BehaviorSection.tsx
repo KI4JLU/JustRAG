@@ -10,7 +10,7 @@ import { API_BASE_URL } from '../../../api';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { ROLE_ENTRY_MAX, defaultStart, type CustomRole, type EntryStart } from './api';
 import { RoleEditorView } from './RoleEditorView';
-import { canSaveEditor, editTarget, idleAi, type RoleEditor } from './roleEditor';
+import { canSaveEditor, editTarget, editorFields, idleAi, type RoleEditor } from './roleEditor';
 import { RolePreviewPanel } from './RolePreviewPanel';
 import { NewRoleTile, RoleTile } from './RoleTiles';
 import { allRoles, defaultRules, newId, readPref, rulesFor, writePref, type RoleView } from './roleModel';
@@ -30,10 +30,12 @@ const PANEL_PREF = 'kbSettings.behavior.promptPreview';
  * the footer (rendered into `footerSlot`).
  */
 export function BehaviorSection({
-    footerSlot, onSubViewChange,
+    footerSlot, onSubViewChange, onEditorDirtyChange,
 }: {
     footerSlot: HTMLElement | null;
     onSubViewChange: (open: boolean) => void;
+    /** The role editor holds changes not yet applied to the draft (they would be lost on close). */
+    onEditorDirtyChange?: (dirty: boolean) => void;
 }) {
     const { t, language } = useTheme();
     const store = useAssistantSettings();
@@ -56,6 +58,16 @@ export function BehaviorSection({
         setEditorState(e);
         onSubViewChange(e !== null);
     };
+    // What the editor opened with: its fields differing from these are
+    // changes the dialog's close guard has to ask about.
+    const [editorBase, setEditorBase] = useState<string | null>(null);
+    const openEditor = (e: RoleEditor) => {
+        setEditorBase(editorFields(e));
+        setEditor(e);
+    };
+    const editorDirty = !!editor && editorFields(editor) !== editorBase;
+    useEffect(() => { onEditorDirtyChange?.(editorDirty); }, [editorDirty, onEditorDirtyChange]);
+    useEffect(() => () => onEditorDirtyChange?.(false), [onEditorDirtyChange]);
     // „Rolle ansehen" from the Startseite opens this section on that role's preview.
     const [openedOn] = useState(() => (store.pending?.type === 'previewRole' ? store.pending.roleId : null));
     // The preview under the cards: closed with its ×, opened again by a card.
@@ -144,15 +156,15 @@ export function BehaviorSection({
         { label: isActive(r.id) ? t('asstInUse') : t('asstUseThisRole'), icon: <Check className="size-4" />, disabled: isActive(r.id), onSelect: () => activateRole(r.id) },
         ...(r.custom
             ? [
-                { label: t('asstEdit'), icon: <Pencil className="size-4" />, separatorBefore: true, onSelect: () => setEditor(editOf(r)) },
-                { label: t('asstDuplicate'), icon: <Copy className="size-4" />, onSelect: () => setEditor(copyOf(r, 'asstCopySuffix')) },
+                { label: t('asstEdit'), icon: <Pencil className="size-4" />, separatorBefore: true, onSelect: () => openEditor(editOf(r)) },
+                { label: t('asstDuplicate'), icon: <Copy className="size-4" />, onSelect: () => openEditor(copyOf(r, 'asstCopySuffix')) },
                 { label: t('asstOfferAsEntry'), icon: <MessageSquarePlus className="size-4" />, disabled: !canOffer(r), onSelect: () => offerAsEntry(r) },
                 { label: t('delete'), icon: <Trash2 className="size-4" />, destructive: true, separatorBefore: true, onSelect: () => askDelete(r) },
             ]
             : [
                 // A template's prompt and rules are fixed: „Bearbeiten" sets up its start, the copy changes the rest.
-                { label: t('asstEdit'), icon: <Pencil className="size-4" />, separatorBefore: true, onSelect: () => setEditor(editOf(r)) },
-                { label: t('asstCopyTemplate'), icon: <Copy className="size-4" />, onSelect: () => setEditor(copyOf(r)) },
+                { label: t('asstEdit'), icon: <Pencil className="size-4" />, separatorBefore: true, onSelect: () => openEditor(editOf(r)) },
+                { label: t('asstCopyTemplate'), icon: <Copy className="size-4" />, onSelect: () => openEditor(copyOf(r)) },
                 { label: t('asstOfferAsEntry'), icon: <MessageSquarePlus className="size-4" />, disabled: !canOffer(r), onSelect: () => offerAsEntry(r) },
             ]),
     ];
@@ -197,7 +209,7 @@ export function BehaviorSection({
                     editor={editor}
                     setEditor={setEditor}
                     onBack={() => setEditor(null)}
-                    onCopyTemplate={editor.kind === 'template' && editedRole ? () => setEditor(copyOf(editedRole)) : undefined}
+                    onCopyTemplate={editor.kind === 'template' && editedRole ? () => openEditor(copyOf(editedRole)) : undefined}
                     maxPrompt={limits.promptMax}
                     cover={editedRole ?? {}}
                     onStartPage={!!editedRole && entriesFor(editedRole.id).length > 0}
@@ -257,7 +269,7 @@ export function BehaviorSection({
                                     />
                                 ))}
                                 {filter !== 'presets' && own.length < limits.customRolesMax && (
-                                    <NewRoleTile onClick={() => setEditor(newRole())} />
+                                    <NewRoleTile onClick={() => openEditor(newRole())} />
                                 )}
                             </div>
                             {panelOpen && (
