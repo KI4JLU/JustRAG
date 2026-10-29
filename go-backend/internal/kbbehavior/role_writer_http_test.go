@@ -18,6 +18,7 @@ func TestRoleWriter_RefusesBadInput(t *testing.T) {
 	}{
 		{"empty description", h.Generate, `{"description":" ","language":"de"}`},
 		{"long description", h.Generate, `{"description":"` + long + `","language":"de"}`},
+		{"long topic", h.Generate, `{"description":"x","topic":"` + strings.Repeat("x", MaxRoleWriterTopicRunes+1) + `","language":"de"}`},
 		{"unknown field", h.Generate, `{"description":"x","extra":1}`},
 		{"empty prompt", h.Revise, `{"prompt":"","instruction":"kürzer","language":"de"}`},
 		{"empty instruction", h.Revise, `{"prompt":"P","instruction":" ","language":"de"}`},

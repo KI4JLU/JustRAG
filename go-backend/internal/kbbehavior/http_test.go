@@ -14,7 +14,6 @@ import (
 
 type fakeStore struct {
 	saved   *Behavior
-	reset   bool
 	missing bool
 }
 
@@ -34,11 +33,6 @@ func (f *fakeStore) Save(_ context.Context, _ string, b Behavior) error {
 		return store.ErrNotFound
 	}
 	f.saved = &b
-	return nil
-}
-
-func (f *fakeStore) Reset(_ context.Context, _ string) error {
-	f.reset, f.saved = true, nil
 	return nil
 }
 
@@ -83,20 +77,9 @@ func TestPut(t *testing.T) {
 	}
 }
 
-func TestDeleteAndGet(t *testing.T) {
-	f := &fakeStore{saved: &Behavior{Version: 1, ActiveRoleID: "tutor"}}
+func TestGetMissingKB(t *testing.T) {
+	f := &fakeStore{missing: true}
 	h := &Handler{store: f}
-	rec := do(t, h.Delete, http.MethodDelete, "")
-	if rec.Code != http.StatusOK || !f.reset {
-		t.Fatalf("delete: code=%d", rec.Code)
-	}
-	var s Settings
-	_ = json.Unmarshal(rec.Body.Bytes(), &s)
-	if s.Customized || s.Behavior.ActiveRoleID != LegacyRoleID {
-		t.Errorf("after delete = %+v", s)
-	}
-
-	f.missing = true
 	if rec := do(t, h.Get, http.MethodGet, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("missing KB: code=%d", rec.Code)
 	}

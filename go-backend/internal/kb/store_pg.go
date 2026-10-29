@@ -618,6 +618,9 @@ func (s *PGStore) UpdateKnowledgeBase(ctx context.Context, id string, data KBUpd
 		b.Add("language = $%d", *data.Language)
 	}
 	addOrNull(b, "system_prompt", data.SystemPrompt, data.NullFields, "systemPrompt")
+	if data.SystemPrompt != nil && *data.SystemPrompt != "" {
+		b.Add(kbbehavior.ActivateLegacyOnPromptChangeSQL, *data.SystemPrompt)
+	}
 	addOrNull(b, "header_text", data.HeaderText, data.NullFields, "headerText")
 	addOrNull(b, "example_prompts", data.ExamplePrompts, data.NullFields, "examplePrompts")
 	addOrNull(b, "tts_model", data.TTSModel, data.NullFields, "ttsModel")

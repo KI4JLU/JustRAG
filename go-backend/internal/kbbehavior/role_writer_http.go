@@ -15,6 +15,10 @@ import (
 // MaxRoleWriterInputRunes caps a description or a revise instruction.
 const MaxRoleWriterInputRunes = 500
 
+// MaxRoleWriterTopicRunes caps generate's topic, the KB's name (as long as
+// PATCH /api/kb/{id} lets a name be).
+const MaxRoleWriterTopicRunes = 255
+
 // RoleWriterHandler is the role edit screen's AI help: it writes a role from a
 // description, revises a role prompt by an instruction, or describes a role. Nothing is stored;
 // the client puts the result into its draft.
@@ -66,6 +70,10 @@ func (h *RoleWriterHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	desc := strings.TrimSpace(req.Description)
 	if desc == "" || utf8.RuneCountInString(desc) > MaxRoleWriterInputRunes {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "description must be 1 to 500 characters")
+		return
+	}
+	if utf8.RuneCountInString(req.Topic) > MaxRoleWriterTopicRunes {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "topic must not exceed 255 characters")
 		return
 	}
 	draft, err := ai.GenerateRolePrompt(ctx, h.resolver, kbID(r), h.model(ctx), req.Topic, desc, Lang(req.Language))

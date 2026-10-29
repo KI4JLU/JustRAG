@@ -354,8 +354,10 @@ followed the free system prompt. Every answer surface reads this one compiled pr
   `systemPrompt`, shown as the own role `id: "legacy"` ("Bisheriger Prompt", active, no rule on, no `roleRules`; without
   a prompt it carries the KB's name and "Durchsucht die bereitgestellten Quellen.").
   That role's prompt is stored in `systemPrompt` also after customizing, so `PATCH /kb/{id}` and
-  `PATCH /admin/global-kbs/{id}` with `systemPrompt` keep editing it (they have no effect while
-  the KB has no `legacy` role). Its icon is fixed; a `name` and `description` sent for it are kept
+  `PATCH /admin/global-kbs/{id}` with `systemPrompt` keep editing it. On a customized KB, a
+  `systemPrompt` that differs from the stored one also makes `legacy` the active role (adding the
+  role if the KB has none), so the prompt written is the one the KB answers with; the same prompt
+  sent again leaves the active role alone. Its icon is fixed; a `name` and `description` sent for it are kept
   as the author's own, empty means the default above (a default sent back unchanged is not
   stored, so the role keeps following the KB's name and language). A new KB created
   without a `systemPrompt` starts customized: role `research` with the catalog's default rules.
@@ -369,7 +371,7 @@ followed the free system prompt. Every answer surface reads this one compiled pr
 - **Role writer** (the role edit screen's AI help, KB admins, `generate` rate limit, one LLM call
   on the fast-tier model, nothing stored): `POST /kb/{id}/behavior/role-writer/generate` with
   `{description, topic?, language}` → `{name, prompt}` writes a role from a description (`topic`:
-  the KB's name, as context); `POST /kb/{id}/behavior/role-writer/revise` with `{prompt,
+  the KB's name, as context, at most 255 characters); `POST /kb/{id}/behavior/role-writer/revise` with `{prompt,
   instruction, language}` → `{prompt}` revises a role prompt by an instruction: the model returns
   edits to passages of the prompt, so text the instruction does not touch is kept verbatim. `400`
   for an empty or over-500-character description or instruction, or an empty or over-8000-character
@@ -378,7 +380,8 @@ followed the free system prompt. Every answer surface reads this one compiled pr
   the role's one-sentence description (plain text, at most 200 characters) from its name and
   prompt; `400` for an empty prompt, `502` when the model fails.
 - `DELETE /kb/{id}/behavior` is the settings' "Löschen": no role and no rule (`behavior` and
-  `systemPrompt` cleared), as deleting the system prompt was. Answers like `GET`.
+  `systemPrompt` cleared), as deleting the system prompt was. It writes a version in the
+  assistant settings' history like a save, so the state before it can be restored. Answers like `GET`.
 - **A chat in a role.** `POST /kb/{id}/chat` with `roleId` (a template id or an id from
   `customRoles`) starts a NEW chat in that role instead of the active one; the role is stored on
   the chat and every later turn answers in it. It is refused with `400` before any chat or usage

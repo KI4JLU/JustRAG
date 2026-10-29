@@ -1019,7 +1019,6 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb-behavior/catalog", rc.authMw.Authenticate(http.HandlerFunc(kbBehaviorHandler.Catalog)))
 	rc.mux.Handle("GET /api/kb/{id}/behavior", rc.kbViewChain(kbBehaviorHandler.Get))
 	rc.mux.Handle("PUT /api/kb/{id}/behavior", rc.kbAdminChain(kbBehaviorHandler.Put))
-	rc.mux.Handle("DELETE /api/kb/{id}/behavior", rc.kbAdminChain(kbBehaviorHandler.Delete))
 	// The role templates themselves: system admins, like the catalog categories.
 	templatesHandler := kbbehavior.NewTemplatesHandler(rc.roleTemplates)
 	rc.mux.Handle("GET /api/admin/role-templates", rc.adminChain(templatesHandler.List))
@@ -1037,6 +1036,8 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("PUT /api/kb/{id}/assistant-settings", rc.kbAdminChain(kbAssistantHandler.Put))
 	rc.mux.Handle("GET /api/kb/{id}/assistant-settings/versions", rc.kbAdminChain(kbAssistantHandler.Versions))
 	rc.mux.Handle("POST /api/kb/{id}/assistant-settings/versions/{n}/restore", rc.kbAdminChain(kbAssistantHandler.Restore))
+	// The behavior's „Löschen" writes a version too, so it can be restored.
+	rc.mux.Handle("DELETE /api/kb/{id}/behavior", rc.kbAdminChain(kbAssistantHandler.ResetBehavior))
 
 	// Start page settings (internal/kbstartpage, migration 0093): read by every
 	// member, written by a KB admin like the behavior settings.

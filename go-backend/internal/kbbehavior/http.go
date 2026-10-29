@@ -20,7 +20,6 @@ const maxBodyBytes = 1 << 20
 type settingsStore interface {
 	Load(ctx context.Context, kbID string) (Settings, error)
 	Save(ctx context.Context, kbID string, b Behavior) error
-	Reset(ctx context.Context, kbID string) error
 }
 
 // Handler serves the behavior settings routes. The {id} routes sit behind
@@ -71,16 +70,6 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.Save(ctx, kbID(r), b); err != nil {
-		h.writeStoreError(w, r, err)
-		return
-	}
-	h.writeSettings(w, r)
-}
-
-// Delete handles DELETE /api/kb/{id}/behavior — the settings' "Löschen":
-// back to no role and no rule, as deleting the systemPrompt did.
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.Reset(r.Context(), kbID(r)); err != nil {
 		h.writeStoreError(w, r, err)
 		return
 	}

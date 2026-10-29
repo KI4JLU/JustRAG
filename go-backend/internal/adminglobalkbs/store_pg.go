@@ -219,6 +219,9 @@ func (s *PGStore) UpdateGlobalKB(ctx context.Context, id string, data GlobalKBUp
 	if data.SystemPrompt != nil || data.NullFields["systemPrompt"] {
 		setOrNull("system_prompt", "systemPrompt", data.SystemPrompt)
 	}
+	if data.SystemPrompt != nil && *data.SystemPrompt != "" {
+		b.Add(kbbehavior.ActivateLegacyOnPromptChangeSQL, *data.SystemPrompt)
+	}
 	if data.HeaderText != nil || data.NullFields["headerText"] {
 		setOrNull("header_text", "headerText", data.HeaderText)
 	}

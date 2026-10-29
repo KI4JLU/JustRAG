@@ -23,6 +23,7 @@ type settingsStore interface {
 	Save(ctx context.Context, kbID string, in Input, author Author) (Settings, error)
 	Restore(ctx context.Context, kbID string, n, baseVersion int, author Author) (Settings, error)
 	Versions(ctx context.Context, kbID string) ([]Version, error)
+	ResetBehavior(ctx context.Context, kbID string, author Author) (Settings, error)
 }
 
 // Handler serves /api/kb/{id}/assistant-settings — all routes on kbAdminChain,
@@ -106,6 +107,25 @@ func (h *Handler) Versions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{"versions": v})
+}
+
+// ResetBehavior handles DELETE /api/kb/{id}/behavior — the settings'
+// „Löschen" — and answers with the behavior settings as GET
+// /api/kb/{id}/behavior does. It lives here, not in kbbehavior, so the reset
+// is a version and can be restored.
+func (h *Handler) ResetBehavior(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	a, ok := author(r)
+	if !ok {
+		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	s, err := h.store.ResetBehavior(ctx, kbID(r), a)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, s.Behavior)
 }
 
 type restoreRequest struct {

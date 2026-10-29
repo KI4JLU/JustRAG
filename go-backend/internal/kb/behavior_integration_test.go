@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/kb"
+	"github.com/justrag/go-backend/internal/kbassistant"
 	"github.com/justrag/go-backend/internal/kbbehavior"
 )
 
@@ -120,11 +121,69 @@ func TestBehavior_SaveLoadPromptAndReset(t *testing.T) {
 		t.Fatalf("compiled = %v (%v), want %q", got, err, want)
 	}
 
-	if err := bs.Reset(ctx, kbID); err != nil {
-		t.Fatal(err)
+	// „Löschen" clears the behavior and the legacy prompt, and writes a
+	// version (after the baseline), so the roles come back on restore.
+	as := kbassistant.NewStore(pool)
+	author := kbassistant.Author{ID: insertUser(t, pool, "it-behavior-reset"), CanRename: true}
+	reset, err := as.ResetBehavior(ctx, kbID, author)
+	if err != nil || reset.Behavior.Customized || reset.Version != 2 {
+		t.Fatalf("reset: %+v (%v)", reset, err)
 	}
 	if got, _ := kb.NewStore(pool).GetKBSystemPrompt(ctx, kbID); got != nil {
 		t.Errorf("after reset: %q, want nil", *got)
+	}
+	if _, err := as.Restore(ctx, kbID, 1, reset.Version, author); err != nil {
+		t.Fatalf("restore the state before the reset: %v", err)
+	}
+	if got, err := kb.NewStore(pool).GetKBSystemPrompt(ctx, kbID); err != nil || got == nil || *got != want {
+		t.Fatalf("after restore = %v (%v), want %q", got, err, want)
+	}
+}
+
+// Oracle: PATCH systemPrompt on a customized KB makes the legacy role, whose
+// prompt the column stores, the active role — the written prompt is what the
+// KB answers with. Re-sending the same prompt (the global-KB editor sends it
+// with every save) leaves the chosen role alone. Mutation: drop the
+// ActivateLegacyOnPromptChangeSQL clause → the template prompt still answers.
+func TestBehavior_PatchSystemPromptActivatesLegacyRole(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	kbID := insertBehaviorKB(t, pool, nil)
+	raw, err := kbbehavior.DefaultJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE knowledge_bases SET behavior = $2 WHERE id = $1::uuid`, kbID, raw); err != nil {
+		t.Fatal(err)
+	}
+	ks := kb.NewStore(pool)
+
+	prompt := "Antworte nur auf Englisch."
+	if _, err := ks.UpdateKnowledgeBase(ctx, kbID, kb.KBUpdate{SystemPrompt: &prompt}); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	if got, err := ks.GetKBSystemPrompt(ctx, kbID); err != nil || got == nil || *got != prompt {
+		t.Fatalf("after patch = %v (%v), want %q", got, err, prompt)
+	}
+	s, err := kbbehavior.NewStore(pool).Load(ctx, kbID)
+	if err != nil || !s.Customized || s.Behavior.ActiveRoleID != kbbehavior.LegacyRoleID {
+		t.Fatalf("behavior after patch: %+v (%v)", s, err)
+	}
+	if err := kbbehavior.Validate(s.Behavior); err != nil {
+		t.Fatalf("behavior after patch no longer saves: %v", err)
+	}
+
+	// The admin picks a template role again; the same prompt re-sent keeps it.
+	b := s.Behavior
+	b.ActiveRoleID = "tutor"
+	if err := kbbehavior.NewStore(pool).Save(ctx, kbID, b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ks.UpdateKnowledgeBase(ctx, kbID, kb.KBUpdate{SystemPrompt: &prompt}); err != nil {
+		t.Fatalf("patch again: %v", err)
+	}
+	if s, err = kbbehavior.NewStore(pool).Load(ctx, kbID); err != nil || s.Behavior.ActiveRoleID != "tutor" {
+		t.Fatalf("unchanged prompt switched the role: %+v (%v)", s, err)
 	}
 }
 

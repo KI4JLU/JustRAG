@@ -100,20 +100,6 @@ func (s *Store) Save(ctx context.Context, kbID string, b Behavior) error {
 	return nil
 }
 
-// Reset clears the behavior and the legacy prompt: the KB answers from the
-// fixed RAG instructions alone, as a KB with a deleted systemPrompt did.
-func (s *Store) Reset(ctx context.Context, kbID string) error {
-	tag, err := s.q.Exec(ctx,
-		`UPDATE knowledge_bases SET behavior = NULL, system_prompt = NULL WHERE id = $1`, kbID)
-	if err != nil {
-		return fmt.Errorf("kbbehavior reset: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("kbbehavior reset kb=%s: %w", kbID, store.ErrNotFound)
-	}
-	return nil
-}
-
 // SystemPrompt is the KB part of the answer prompt — the one reader every
 // answer surface goes through (chat.Store, kb.PGStore and through it the
 // public API, OpenAI-compat, /owui, MCP, the agent chat and eval). chatID
@@ -243,3 +229,26 @@ func DefaultJSON() ([]byte, error) {
 	}
 	return raw, nil
 }
+
+// legacyRolesSQL is the stored customRoles array with the legacy role in it
+// (added as its bare id, the stored form, when missing).
+const legacyRolesSQL = `CASE
+		WHEN jsonb_typeof(behavior->'customRoles') <> 'array' OR behavior->'customRoles' IS NULL
+			THEN '[{"id":"legacy"}]'::jsonb
+		WHEN behavior->'customRoles' @> '[{"id":"legacy"}]'::jsonb
+			THEN behavior->'customRoles'
+		ELSE behavior->'customRoles' || '[{"id":"legacy"}]'::jsonb
+	END`
+
+// ActivateLegacyOnPromptChangeSQL is a SET fragment for an UPDATE of
+// knowledge_bases that also writes system_prompt (PATCH /api/kb/{id}, the
+// global-KB editor): when the prompt changes on a customized KB, the legacy
+// role, whose prompt system_prompt stores, becomes the active role, so the
+// prompt just written is the one the KB answers with. An unchanged prompt —
+// the global-KB editor sends it with every save — leaves the behavior alone,
+// and a KB never customized needs nothing. Its one %d verb takes the new
+// prompt's placeholder (pgxutil.ClauseBuilder.Add).
+const ActivateLegacyOnPromptChangeSQL = `behavior = CASE
+	WHEN behavior IS NULL OR system_prompt IS NOT DISTINCT FROM $%d::text THEN behavior
+	ELSE jsonb_set(jsonb_set(behavior, '{customRoles}', ` + legacyRolesSQL + `), '{activeRoleId}', '"legacy"')
+END`

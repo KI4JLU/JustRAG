@@ -267,6 +267,29 @@ func (s *Store) Save(ctx context.Context, kbID string, in Input, author Author) 
 	return settingsOf(out, author.CanRename), nil
 }
 
+// ResetBehavior is the settings' „Löschen" (DELETE /api/kb/{id}/behavior):
+// back to no role and no rule, as deleting the system prompt was. It writes a
+// version like a save, so the KB's own roles and prompt stay restorable.
+// There is no baseVersion: the reset is a deliberate act, not an edit of a
+// loaded state.
+func (s *Store) ResetBehavior(ctx context.Context, kbID string, author Author) (Settings, error) {
+	var out state
+	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		cur, err := loadState(ctx, tx, kbID, true)
+		if err != nil {
+			return err
+		}
+		next := cur.snap
+		next.Behavior, next.SystemPrompt = nil, nil
+		out, err = commit(ctx, tx, kbID, cur, next, author.ID, KindSave, nil)
+		return err
+	})
+	if err != nil {
+		return Settings{}, err
+	}
+	return settingsOf(out, author.CanRename), nil
+}
+
 // Restore writes version n's state as a new version (kind restore). The title
 // is restored only when the caller may rename; a category that no longer
 // exists is dropped.
