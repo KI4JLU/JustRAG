@@ -4,6 +4,7 @@ package kb
 import (
 	"context"
 	"encoding/json"
+	"github.com/justrag/go-backend/internal/kbstartpage"
 	"net/http"
 	"strconv"
 	"strings"
@@ -90,6 +91,15 @@ type KBRow struct {
 	// worker never stamped (rows older than migration 0009). Nil when no file
 	// has been ingested.
 	LastIngestedAt *time.Time `json:"lastIngestedAt,omitempty"`
+	// Category is the KB's catalog category as its title card shows it —
+	// {id, name, sortOrder, colorSlot}, the first by the taxonomy's order —
+	// for the home cards. Absent when the KB has none, and on the create and
+	// update RETURNING rows.
+	Category json.RawMessage `json:"category,omitempty"`
+	// Colors is the start page's {from, to}, the card's cover band: the
+	// default ones while the KB has no start page; absent when it chose none,
+	// and on the create and update RETURNING rows.
+	Colors *kbstartpage.Colors `json:"colors,omitempty"`
 
 	// MyRole is the caller's own kb_members.role for this KB, and MemberCount
 	// the KB's total member count — populated by the same queries as the

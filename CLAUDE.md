@@ -10,7 +10,7 @@ one before changing a feature**:
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0090**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0095**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
 | `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
@@ -41,6 +41,9 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - `chat_compare_*` (off) — in-chat single-file comparison (`internal/chatattach`).
 - `chat_condense_keep_raw_enabled` (off — stays off, measured no gain).
 - `chat_tabular_*`, `tabular_*` — spreadsheet Q&A: typed SQL tables + hybrid text, tabular router (`chat_tabular_router_enabled` **on**), AST SQL validator. Needs `JUSTRAG_DB_URL_READONLY` grants. Runbook `docs/runbooks/spreadsheet-ingest-ops.md`.
+- Roles and rules (no gate) — a KB's answer prompt is compiled from `knowledge_bases.behavior`: role prompt, then "Regeln:" with the active rules, then the fixed RAG instructions; `behavior IS NULL` = the old `system_prompt` byte for byte. `roleId` on `POST /api/kb/{id}/chat` starts a chat in another role (`chats.role_id`). Every surface reads the prompt through `kbbehavior.SystemPrompt`. The template roles live in `role_templates`, seeded from the code's roles. Mig 0092, 0095. `internal/kbbehavior`.
+- Start page (no gate) — `GET`/`PUT /api/kb/{id}/start-page`: role entries (start a chat in a role), fixed or dynamic starter questions, input or upload-only start. One catalog category per KB with a fixed `color_slot`. Mig 0093. `internal/kbstartpage`.
+- Assistant settings (no gate) — `PUT /api/kb/{id}/assistant-settings` saves title, description, category, behavior and start page in one transaction and writes a version (`kb_settings_versions`, baseline + save + restore, nothing overwritten); restore via `…/versions/{n}/restore`. Mig 0094. `internal/kbassistant`.
 - `chat_attachments_*` (no gate, global-only) — composer attachments as context (`user_files.scope='chat'`). Mig 0090. `internal/chat/attachments*.go`.
 - `owui_compat_enabled` (global-only, off) — Open WebUI surface `/owui` for the ILIAS plugin. Mig 0088. Contract `docs/api-contracts/owui-compat.md`.
 - `mcp_server_enabled` (off) — KB as MCP server (`ask_kb`). `internal/mcpserver`.
@@ -139,7 +142,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 | Cluster | Packages |
 |---|---|
 | Wire / HTTP | `app`, `httputil`, `middleware`, `auth`, `authhandler`, `apikeyauth`, `sserelay`, `requestid` |
-| Chat orchestration | `chat` (orchestrators, trajectory, gates, post-response), `chatpolicy`, `agents`, `agentteams`, `prompts`, `longmem`, `chatattach`, `recencylister` (adapter to avoid a `chat`↔`mcp/builtin` cycle), `adkbridge`, `agui` |
+| Chat orchestration | `chat` (orchestrators, trajectory, gates, post-response), `chatpolicy`, `kbbehavior` (roles, rules, the compiled KB prompt), `kbstartpage`, `kbassistant` (combined settings save + versions), `agents`, `agentteams`, `prompts`, `longmem`, `chatattach`, `recencylister` (adapter to avoid a `chat`↔`mcp/builtin` cycle), `adkbridge`, `agui` |
 | Retrieval / ingest | `vector`, `ai`, `splitter`, `processor` (incl. KG write path), `parser` (+ `parser/docling`), `pptx`, `sheetsource`, `tabular` (+ `profile`, `render`, `ingest`, `sqlcheck`, `sqlexec`), `promptsafety` |
 | Tools (MCP) | `mcp`, `mcp/builtin`, `sessionmem`, `aibudget` |
 | Knowledge graph | `kg` (read path), `kggraph`, `kgevents`, `canonicalize`, `community` |
@@ -168,7 +171,7 @@ Streaming `complex_reasoning` turns dispatch through the first orchestrator whos
 
 ## Model tier resolution
 
-Fast-tier tasks (graders, extractors, classifiers, condense, follow-ups, verifiers, …) resolve their model as: per-task `*_model` key → `model_tier_fast` → KB chat model, via `chat.ResolveFastTierModel(ctx, reader, perTaskKey)`. Answer generation and planning use the KB chat model directly. Fast-tier JSON calls use strict `json_schema` structured outputs with auto-downgrade (`ai.GenerateCompletionStructured`).
+Fast-tier tasks (graders, extractors, classifiers, condense, follow-ups, verifiers, …) resolve their model as: per-task `*_model` key → `model_tier_fast` → KB chat model, via `chat.ResolveFastTierModel(ctx, reader, perTaskKey)`. Answer generation and planning use the KB chat model directly. Fast-tier JSON calls use strict `json_schema` structured outputs with auto-downgrade (`ai.GenerateCompletionStructured`). A call that decodes a JSON object goes through `ai.CompleteStructuredJSON`: it asks once more when the answer is malformed.
 
 ## Observability
 

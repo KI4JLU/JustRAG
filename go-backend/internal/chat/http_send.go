@@ -84,6 +84,11 @@ type sendMessageRequest struct {
 	// and attached to this question (migration 0090). Their text is context
 	// for this and every later turn of the chat. See attachments.go.
 	AttachmentIDs []string `json:"attachmentIds"`
+	// RoleID starts a NEW chat in another role than the KB's active one (a
+	// starter question with a role, migration 0092): a catalog template id or
+	// one of the KB's own role ids. Stored on the chat, so every later turn
+	// answers in it; refused on a turn that names a chatId.
+	RoleID string `json:"roleId"`
 }
 
 // SanitizeParentMessageID returns a pointer to id when it is a valid UUID, and
@@ -268,7 +273,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// corpus than the one above it in the thread, or — since the chat is bound
 	// to its KB — 403 in resolveOrCreateChat. The router would also be reading
 	// the CLIENT's message, which a regenerate is about to discard.
-	if body.RegenerateOfMessageID == "" {
+	//
+	// Never for a chat started in a role either: roles belong to the KB the
+	// starter question was shown on, so a role chat stays there.
+	if body.RegenerateOfMessageID == "" && body.RoleID == "" {
 		ctx, kbID = h.maybeRouteKB(ctx, r, user.ID, kbID, body.Message)
 	}
 
@@ -290,7 +298,20 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message)
+	// The role is checked before the chat row and the usage record too.
+	if body.RoleID != "" {
+		has, err := h.store.KBHasRole(ctx, kbID, body.RoleID)
+		if err != nil {
+			httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("check chat role: %w", err))
+			return
+		}
+		if !has {
+			httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "unknown roleId")
+			return
+		}
+	}
+
+	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message, body.RoleID)
 	if !ok {
 		return
 	}
