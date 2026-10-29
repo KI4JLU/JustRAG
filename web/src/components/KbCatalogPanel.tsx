@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2, Globe, Star } from 'lucide-react';
+import { Loader2, Star } from 'lucide-react';
+import { Card, CardCover, CardDescription, CardHeader, CardMeta, CardTitle } from '@ki4jlu/design-system';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
@@ -7,6 +8,9 @@ import { useToast } from '../contexts/ToastContext';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { FILTER_ALL, FILTER_FAVORITES } from '../hooks/useTopicFilters';
 import type { KbCatalogEntry, KbCategory } from '../types';
+import { CategoryPill } from './CategoryPill';
+import { TitleCardMeta } from './kbSettings/assistant/StartPageParts';
+import { colorsStyle } from './kbSettings/assistant/startPageModel';
 
 interface KbCatalogPanelProps {
     /** Called after every successful subscribe/unsubscribe toggle, so the
@@ -201,60 +205,74 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                 </div>
             ) : (
                 <>
-                <ul className="home-view__grid">
-                    {visible.map(entry => (
-                        <li
-                            key={entry.id}
-                            data-testid="catalog-entry"
-                            className="source-card home-view__kb-card"
-                            role="button" // eslint-disable-line jsx-a11y/no-noninteractive-element-to-interactive-role
-                            tabIndex={0}
-                            aria-label={`${t('openKb')}: ${entry.name}`}
-                            onClick={() => onOpenKb(entry.id)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    onOpenKb(entry.id);
-                                }
-                            }}
-                        >
-                            <div className="home-view__card-top">
-                                <Globe size={20} color="var(--accent-primary)" aria-hidden="true" />
-                                <div className="home-view__badge-row">
-                                    {/* Mirror image of the filled star on a Favoriten card:
-                                        outline means "not in my favorites yet, click to add",
-                                        filled means "already there, click to drop it". The
-                                        card itself opens the KB, so this must not bubble. */}
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); void toggle(entry); }}
-                                        disabled={pending.has(entry.id)}
-                                        className="home-view__mini-icon"
-                                        aria-pressed={entry.subscribed}
-                                        title={entry.subscribed ? t('unsubscribe') : t('subscribe')}
-                                        aria-label={entry.subscribed ? t('unsubscribe') : t('subscribe')}
-                                    >
-                                        {pending.has(entry.id)
-                                            ? <Loader2 className="animate-spin" size={16} aria-hidden="true" />
-                                            : <Star size={16} aria-hidden="true" fill={entry.subscribed ? 'currentColor' : 'none'} />}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="source-title home-view__kb-name">
-                                <button
-                                    type="button"
-                                    className="text-button home-view__kb-name-btn"
-                                    onClick={(e) => { e.stopPropagation(); onOpenKb(entry.id); }}
+                {/* Two columns at most: the discover card's title and
+                    description want the width (developer mockup). */}
+                <ul className="m-0 grid list-none gap-6 p-0 lg:grid-cols-2">
+                    {visible.map(entry => {
+                        const band = colorsStyle(entry.colors);
+                        const category = categories.find(c => entry.categoryIds.includes(c.id));
+                        return (
+                            <li key={entry.id} className="flex min-w-0">
+                                {/* DS discover card: the topic's start page colour
+                                    as the cover band, then category, size and
+                                    „Stand", the name and the description. */}
+                                <Card
+                                    variant="discover"
+                                    interactive
+                                    data-testid="catalog-entry"
+                                    className="relative w-full cursor-pointer"
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`${t('openKb')}: ${entry.name}`}
+                                    onClick={() => onOpenKb(entry.id)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            onOpenKb(entry.id);
+                                        }
+                                    }}
                                 >
-                                    {entry.name}
-                                </button>
-                            </div>
-
-                            {entry.description && (
-                                <div className="home-view__kb-header-text">{entry.description}</div>
-                            )}
-                        </li>
-                    ))}
+                                    <CardCover data-testid="catalog-band" style={band} />
+                                    <div className="absolute right-3 top-3 rounded-full bg-surface-container-lowest/90 shadow-card">
+                                        {/* Mirror image of the filled star on a Favoriten card:
+                                            outline means "not in my favorites yet, click to add",
+                                            filled means "already there, click to drop it". The
+                                            card itself opens the KB, so this must not bubble. */}
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); void toggle(entry); }}
+                                            disabled={pending.has(entry.id)}
+                                            className="home-view__mini-icon"
+                                            aria-pressed={entry.subscribed}
+                                            title={entry.subscribed ? t('unsubscribe') : t('subscribe')}
+                                            aria-label={entry.subscribed ? t('unsubscribe') : t('subscribe')}
+                                        >
+                                            {pending.has(entry.id)
+                                                ? <Loader2 className="animate-spin" size={16} aria-hidden="true" />
+                                                : <Star size={16} aria-hidden="true" fill={entry.subscribed ? 'currentColor' : 'none'} />}
+                                        </button>
+                                    </div>
+                                    <CardHeader>
+                                        <CardMeta>
+                                            {category && <CategoryPill category={category} />}
+                                            <TitleCardMeta fileCount={entry.fileCount} asOf={entry.lastIngestedAt ?? undefined} leading={!!category} />
+                                        </CardMeta>
+                                        <CardTitle>
+                                            <button
+                                                type="button"
+                                                className="text-button home-view__kb-name-btn"
+                                                onClick={(e) => { e.stopPropagation(); onOpenKb(entry.id); }}
+                                            >
+                                                {entry.name}
+                                            </button>
+                                        </CardTitle>
+                                        {/* What the topic's start page shows: the own
+                                            description (or header text), else the default line. */}
+                                        <CardDescription className="line-clamp-3">{entry.description?.trim() || t('kbHeaderDefault')}</CardDescription>
+                                    </CardHeader>
+                                </Card>
+                            </li>
+                        );
+                    })}
                 </ul>
                 {hidden > 0 && (
                     <div className="kb-catalog__more">

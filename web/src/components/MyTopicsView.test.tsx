@@ -223,7 +223,6 @@ const noopProps = {
   onOpenKbById: vi.fn(),
   onDeleteGlobalKB: vi.fn(),
   onOpenGlobalKbSettings: vi.fn(),
-  onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
@@ -570,7 +569,7 @@ describe('MyTopicsView share trigger', () => {
   it('shows the trigger for a caller whose myRole is owner', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
   });
 
   /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
@@ -580,7 +579,7 @@ describe('MyTopicsView share trigger', () => {
     const onSelectKB = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
-    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` }));
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
     expect(onSelectKB).not.toHaveBeenCalled();
@@ -597,55 +596,47 @@ describe('MyTopicsView share trigger', () => {
 //
 // On top of that the card offers it to system admins only, badged "Admin"
 // (developer, 2026-10-13): an api-user passes the server gate but gets no entry.
-describe('MyTopicsView KB-settings trigger', () => {
-  // The DS ActionMenu badge is part of the item's name.
-  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
-
-  it('hides the trigger from a plain user who OWNS the KB', async () => {
-    authState.role = 'user';
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
-  });
-
-  it('still offers the plain owner „Teilen" — only the advanced surface is gated', async () => {
-    authState.role = 'user';
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
-  });
-
-  it('hides the trigger from an api-user who owns the KB, though the server would let them in', async () => {
-    authState.role = 'api-user';
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
-  });
-
-  it('shows the trigger for a system admin who owns the KB, and hands the KB to the callback', async () => {
+describe('MyTopicsView card menu', () => {
+  /* The guideline menu (2026-10-29): Umbenennen… · Teilen… · Einstellungen ↗ ·
+     Löschen…, nothing else — the RAG configuration left for Verhalten, the
+     favorite is the star. ORACLE: translations.ts and the role ladder. */
+  it('lists exactly the topic actions, in order, for an owner', async () => {
     authState.role = 'admin';
-    const onOpenKbSettings = vi.fn();
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onOpenKbSettings={onOpenKbSettings} />);
-    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
-    expect(onOpenKbSettings).toHaveBeenCalledWith(kb, expect.anything());
-  });
-
-
-  it('shows the trigger for a superadmin', async () => {
-    authState.role = 'superadmin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: label })).toBeInTheDocument();
+    const names = (await kbMenu()).getAllByRole('menuitem').map(i => i.textContent);
+    expect(names).toEqual([
+      `${translations.rename.en}…`, `${translations.share.en}…`, translations.settings.en, `${translations.delete.en}…`,
+    ]);
   });
 
+  it('opens the topic settings on Startseite without also opening the card', async () => {
+    authState.role = 'user';
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.settings.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'start');
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
+
+  it('toggles the favorite with the star, without opening the card', async () => {
+    authState.role = 'user';
+    const onToggleFavorite = vi.fn();
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner', isFavorite: false };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onToggleFavorite={onToggleFavorite} onSelectKB={onSelectKB} />);
+    await userEvent.click(screen.getByRole('button', { name: translations.addFavorite.en }));
+    expect(onToggleFavorite).toHaveBeenCalledWith(kb, expect.anything());
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
 });
 
 // Renaming is owner-only on a private KB (kbaccess.CanRename on the server;
 // canRenameKb here). The pencil must not appear on a shared card whose caller
 // is a mere admin member — that role edits everything else, not the name.
 describe('MyTopicsView rename trigger', () => {
-  const label = translations.rename.en;
+  const label = `${translations.rename.en}…`;
 
   it('shows the pencil to the owner and hands the KB to onRenameKB', async () => {
     authState.role = 'user';

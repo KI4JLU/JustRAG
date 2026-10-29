@@ -103,6 +103,30 @@ describe('KbCatalogPanel', () => {
         expect(screen.getByText('Rechtsfragen')).toBeInTheDocument();
     });
 
+    // Oracle: the cover-band mockup — the band is the topic's start page
+    // colours, the meta line names the category and the file count.
+    it('draws each card with its colour band, category and file count', async () => {
+        mockedAxios.get.mockImplementation((url: string) => {
+            if (url.includes('/api/kb-categories')) {
+                return Promise.resolve({ data: [{ id: 'c1', name: 'IT', sortOrder: 1, colorSlot: 3 }] });
+            }
+            return Promise.resolve({
+                data: [
+                    { id: 'kb-1', name: 'IT-Handbuch', description: null, subscribed: false, categoryIds: ['c1'], colors: { from: '#EE4589', to: '#B46EF7' }, fileCount: 3 },
+                    { id: 'kb-2', name: 'Rechtsfragen', description: null, subscribed: true, categoryIds: [] },
+                ],
+            });
+        });
+        renderPanel();
+        const cards = await screen.findAllByTestId('catalog-entry');
+        const band = (i: number) => within(cards[i]).getByTestId('catalog-band').style.backgroundImage;
+        expect(band(0)).toContain('linear-gradient');
+        // No colours sent: the neutral band.
+        expect(band(1)).toBe('');
+        expect(within(cards[0]).getByText('IT')).toBeInTheDocument();
+        expect(within(cards[0]).getByText('asstNDocuments')).toBeInTheDocument();
+    });
+
     it('subscribes via PUT and reports the change', async () => {
         mockedAxios.put.mockResolvedValue({ status: 204 });
         const onChange = vi.fn();

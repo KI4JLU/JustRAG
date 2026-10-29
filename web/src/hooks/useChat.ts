@@ -40,6 +40,18 @@ export function buildComparisonSend(
   };
 }
 
+/** The role card a new chat starts from (the start page's „Rollenauswahl"). */
+export interface RoleStart {
+  /** null = the active role (the default role's card). */
+  roleId: string | null;
+  kind: 'input' | 'task' | 'file';
+  text: string;
+  send: boolean;
+  instruction: string;
+  /** The card's suggestions under the input field (an `input` card). */
+  suggestions?: { questionsOn: boolean; questionMode: 'dynamic' | 'fixed'; dynamicCount: number; fixedQuestions: string[] };
+}
+
 interface RawChatMessage {
   id: string;
   createdAt?: string;
@@ -98,6 +110,14 @@ export function useChat({
 
   // Input state
   const [userMessageInput, setUserMessageInput] = useState('');
+
+  // The role a NEW chat starts in (a role card on the start page). Sent
+  // with the turn that opens the chat; the chat then carries it
+  // (ChatEntry.roleId). Cleared by handleNewChat.
+  const [pendingRoleId, setPendingRoleId] = useState<string | null>(null);
+  // The role card the empty chat was started from („Rollenauswahl"): the
+  // start page then gives way to the chat (or the card's upload area).
+  const [roleStart, setRoleStart] = useState<RoleStart | null>(null);
 
   // In-chat document comparison: the attachment persists across the chat
   // session so follow-up turns keep sending its id (the backend injects the
@@ -294,6 +314,8 @@ export function useChat({
 
   const handleNewChat = useCallback(() => {
     setActiveChatId(null);
+    setPendingRoleId(null);
+    setRoleStart(null);
     // Clear the sticky selection so a fresh chat doesn't inherit the
     // previous chat's team/agent; ChatView's default-selection effect
     // re-applies the KB's isDefault team/agent once options are loaded.
@@ -364,7 +386,8 @@ export function useChat({
   // uploads (useComposerUploads) or an edited question's attachments. Resolves to whether the turn was sent, so the
   // composer keeps its files when it was not (PromptInput clears them only
   // after a send that did not throw).
-  const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null, attachments: MessageAttachment[] = []): Promise<boolean> => {
+  // `text` replaces the input field's text (the upload start's first message).
+  const handleSendMessage = useCallback(async (e: React.FormEvent | React.KeyboardEvent, editParentId?: string | null, attachments: MessageAttachment[] = [], text?: string): Promise<boolean> => {
     e.preventDefault();
     if (!currentKb || loading || chatSwitchingRef.current) return false;
 
@@ -372,13 +395,13 @@ export function useChat({
     // we substitute a localized default message because the backend rejects an
     // empty message with 400 before running the comparison. Don't start a
     // comparison while the attachment is still uploading.
-    if (!userMessageInput.trim()) return false;
+    const userMessage = (text ?? userMessageInput).trim();
+    if (!userMessage) return false;
 
     // Guard: require a sendable source selection before clearing input
     // (at least one selected file — unless the caller may not select at all).
     if (!chatSourceSelection(currentKb, files).canSend) return false;
 
-    const userMessage = userMessageInput.trim();
 
     const sendOpts = {
       // Empty modes deliberately: a follow-up turn must carry the uploaded
@@ -386,6 +409,7 @@ export function useChat({
       // per-section comparison. willRunComparison requires non-empty modes.
       ...(attachmentState.attachment ? { attachmentId: attachmentState.attachment.attachmentId, comparisonModes: [] } : {}),
       ...(attachments.length > 0 ? { attachmentIds: attachments.map(a => a.userFileId), attachments } : {}),
+      ...(pendingRoleId ? { roleId: pendingRoleId } : {}),
     };
 
     setUserMessageInput('');
@@ -403,11 +427,40 @@ export function useChat({
       Promise.resolve(stream.handleSendMessage(e, userMessage, activeLeafId, editParentId, { ...sendOpts, onAccepted: () => resolve(true) }))
         .then(accepted => {
           // The question was not stored: give the user their text back too.
-          if (!accepted) setUserMessageInput(prev => prev || userMessage);
+          if (!accepted && text === undefined) setUserMessageInput(prev => prev || userMessage);
           resolve(accepted);
         }, () => resolve(false));
     });
-  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment]);
+  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment, pendingRoleId]);
+
+  /**
+   * A role card on the start page: a NEW chat in `start.roleId` (null = the
+   * active role, the card of the default role). An instruction sent at once
+   * goes out here; a prefilled one waits in the input field; the input-field
+   * and file cards leave the start to the user (ChatView shows the card's
+   * upload area for `kind: 'file'`). The role travels with the first turn.
+   */
+  const startRoleChat = useCallback((start: RoleStart) => {
+    if (!currentKb || loading) return;
+    handleNewChat();
+    setPendingRoleId(start.roleId);
+    setRoleStart(start);
+    const text = start.kind === 'task' ? start.text.trim() : '';
+    if (!text || !start.send || !chatSourceSelection(currentKb, files).canSend) {
+      setUserMessageInput(text);
+      if (start.kind !== 'file') requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
+    }
+    // The stream reads its agent selection from this render's closure, which
+    // still holds the previous chat's: send this one without any (Standard).
+    const e = { preventDefault: () => undefined } as unknown as React.FormEvent;
+    void Promise.resolve(stream.handleSendMessage(e, text, null, null, { ...(start.roleId ? { roleId: start.roleId } : {}), agentSelection: {} })).then(accepted => {
+      if (!accepted) setUserMessageInput(prev => prev || text);
+    });
+  }, [currentKb, loading, files, handleNewChat, stream]);
+
+  // The role of the chat on screen: the open chat's, or the pending one of a new chat.
+  const chatRoleId = activeChatId ? (chats.find(c => c.id === activeChatId)?.roleId ?? null) : pendingRoleId;
 
   /**
    * Starts a document comparison from the Workspace tile.
@@ -674,7 +727,14 @@ export function useChat({
     handleFollowUpClick,
     handleFeedback,
     fetchChats,
+    // Roles
+    chatRoleId,
+    roleStart,
+    startRoleChat,
   }), [
+    chatRoleId,
+    roleStart,
+    startRoleChat,
     messageTree,
     setMessageTree,
     activeLeafId,

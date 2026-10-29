@@ -7,12 +7,13 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useModalContext } from '../../contexts/ModalContext';
 import type { KbCategory } from '../../types';
+import { CategoryPill } from '../CategoryPill';
 
 /**
  * CRUD section for the shared category taxonomy (GET/POST /api/admin/kb-categories,
  * PATCH/DELETE /api/admin/kb-categories/{catId}) — the flat, system-admin curated
  * list the catalog's filter chips and the public-KB category assignment draw from.
- * Self-contained: owns its own fetch, independent of the KB list above it.
+ * Self-contained: owns its own fetch. The „Kategorien" tab of „Vorlagen".
  */
 export default function AdminCategoriesSection() {
     const { t } = useTheme();
@@ -64,8 +65,7 @@ export default function AdminCategoriesSection() {
     };
 
     return (
-        <section className="admin-content mt-8 flex flex-col gap-4">
-            <h3 className="m-0 text-on-surface">{t('categories')}</h3>
+        <section className="admin-content flex flex-col gap-4">
             {loading ? (
                 <p className="m-0 text-on-surface-variant">{t('loading')}</p>
             ) : categories.length === 0 ? (
@@ -74,7 +74,8 @@ export default function AdminCategoriesSection() {
                 <div className="flex flex-col gap-2">
                     {categories.map(cat => (
                         <div key={cat.id} className="result-card flex items-center justify-between gap-2 px-4 py-2.5">
-                            <span className="text-sm">{cat.name}</span>
+                            {/* As the topic's title card shows it: colour dot and name in a pill. */}
+                            <span className="text-sm"><CategoryPill category={cat} /></span>
                             <div className="flex gap-1.5">
                                 <Button
                                     type="button"

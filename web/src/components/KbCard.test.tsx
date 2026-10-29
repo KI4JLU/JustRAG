@@ -46,7 +46,7 @@ function renderCard(item: KnowledgeBase, lang: Language = 'de') {
       onSelectKB={vi.fn()}
       onOpenShare={vi.fn()}
       onToggleFavorite={vi.fn()}
-      onOpenKbSettings={vi.fn()}
+      onOpenSettings={vi.fn()}
       onRenameKB={vi.fn()}
       onDeleteKB={vi.fn()}
     />,
@@ -153,15 +153,15 @@ describe('PrivateKbCard share item', () => {
         onSelectKB={vi.fn()}
         onOpenShare={onOpenShare}
         onToggleFavorite={vi.fn()}
-        onOpenKbSettings={vi.fn()}
+        onOpenSettings={vi.fn()}
         onRenameKB={vi.fn()}
         onDeleteKB={vi.fn()}
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: new RegExp(`^${translations.kbActions.en}: `) }));
-    // The favorite toggle is ungated, so the menu opens in every case.
+    // Delete/leave is ungated, so the menu opens in every case.
     const menu = within(await screen.findByRole('menu'));
-    return menu.queryByRole('menuitem', { name: translations.share.en });
+    return menu.queryByRole('menuitem', { name: `${translations.share.en}…` });
   }
 
   const othersKb = (over: Partial<KnowledgeBase>) => kb({ userId: 'user-9', ...over });

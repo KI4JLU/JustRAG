@@ -22,12 +22,12 @@ const setup = (onTopic = true) =>
   renderHook(({ on }) => useTopicSettings(on), { initialProps: { on: onTopic } });
 
 describe('useTopicSettings', () => {
-  it('opens on Verhalten from the gear, in the URL, and closes again', () => {
+  it('opens on Startseite from the gear, in the URL, and closes again', () => {
     const { result } = setup();
     expect(result.current.open).toBe(false);
     act(() => result.current.setOpen(true));
-    expect(result.current).toMatchObject({ open: true, section: 'behavior' });
-    expect(history.location.search).toBe('?topic=behavior');
+    expect(result.current).toMatchObject({ open: true, section: 'start' });
+    expect(history.location.search).toBe('?topic=start');
     act(() => result.current.setOpen(false));
     expect(result.current.open).toBe(false);
     expect(history.location.href).toBe('/kb/a');

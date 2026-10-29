@@ -11,6 +11,30 @@ const showConfirm = vi.fn<(message: string, title?: string) => Promise<boolean>>
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'de' }) }));
 vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => ({ showConfirm }) }));
 vi.mock('axios', () => ({ default: { get: vi.fn(() => Promise.resolve({ data: { prompt: '' } })), put: vi.fn() } }));
+// Startseite + Verhalten load their own settings; they have their own suite
+// (kbSettings/assistant/AssistantSettings.test.tsx). Here a clean, loaded state.
+vi.mock('./kbSettings/assistant/api', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./kbSettings/assistant/api')>();
+    const behavior = { version: 1, activeRoleId: 'research', customRoles: [], roleRules: {} };
+    const startPage = {
+        version: 1, roleEntries: [], roleEntriesOn: true, questionsOn: true, questionMode: 'dynamic', dynamicCount: 4,
+        fixedQuestions: [], startMode: 'input', uploadLabel: '',
+    };
+    return {
+        ...actual,
+        fetchBehavior: vi.fn(async () => ({ behavior, customized: true, language: 'de' })),
+        fetchStartPage: vi.fn(async () => ({ startPage, configured: false })),
+        fetchCategoryCatalog: vi.fn(async () => []),
+        fetchKbCategory: vi.fn(async () => null),
+        fetchBehaviorCatalog: vi.fn(async () => ({
+            language: 'de', roles: [{ id: 'research', name: 'Forschung', description: '', prompt: 'P', icon: 'graduation-cap', isDefault: true }],
+            ruleGroups: [], rulesHeading: 'Regeln:',
+            limits: { promptMax: 8000, roleNameMax: 80, ruleMax: 300, customRolesMax: 20, customRulesMax: 20 },
+        })),
+        fetchStarterQuestions: vi.fn(async () => []),
+        resetBehavior: vi.fn(async () => ({ behavior, customized: false, language: 'de' })),
+    };
+});
 // The members panel has its own suite (kbSettings/KbMembersPanel.test.tsx); here only where it shows.
 vi.mock('./kbSettings/KbMembersPanel', () => ({
     KbMembersPanel: ({ kb, roleDrafts, onRoleDraftChange, revision, view, onViewChange, footerSlot }: {
@@ -37,12 +61,12 @@ beforeEach(() => { showConfirm.mockReset(); vi.mocked(axios.put).mockReset(); })
 const renderDialog = ({
     dirty = false,
     onSave = vi.fn(() => Promise.resolve(true)),
-    onDelete = vi.fn(() => Promise.resolve(true)),
     onClose = vi.fn(),
+    onOpenRagSettings = undefined as (() => void) | undefined,
 } = {}) => {
     const props = {
-        draft: '', onDraftChange: vi.fn(), onSave, onDelete, onClose,
-        kb: { id: 'kb-1', myRole: 'owner' } as KnowledgeBase,
+        onSave, onClose, onOpenRagSettings, onUpdateKb: vi.fn(() => Promise.resolve(true)),
+        kb: { id: 'kb-1', name: 'KB', description: null, myRole: 'owner' } as KnowledgeBase,
         flags: { ...SOURCE_FLAG_DEFAULTS }, onFlagsChange: vi.fn(), dirty,
     };
     const view = render(<KbSettingsDialog {...props} />);
@@ -59,15 +83,19 @@ describe('KbSettingsDialog footer', () => {
         expect(screen.getByRole('button', { name: /save/ })).toBeDisabled();
     });
 
-    it('enables Speichern once something changed', () => {
+    it('enables Speichern once something changed and says so', () => {
         renderDialog({ dirty: true });
         expect(screen.queryByText('kbSettingsNoChanges')).toBeNull();
+        expect(screen.getByText('asstUnsaved')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /save/ })).toBeEnabled();
     });
 
     it('offers Löschen on Verhalten only', async () => {
         renderDialog();
-        expect(screen.getByRole('button', { name: /delete/ })).toBeInTheDocument();
+        // It opens on Startseite: no Löschen there.
+        expect(screen.queryByRole('button', { name: /delete/ })).toBeNull();
+        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
+        expect(await screen.findByRole('button', { name: /delete/ })).toBeInTheDocument();
         await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabRoles' }));
         expect(screen.queryByRole('button', { name: /delete/ })).toBeNull();
     });
@@ -127,6 +155,35 @@ describe('KbSettingsDialog closing', () => {
     });
 });
 
+// Oracle: the card-menu guideline of 2026-10-29 — the RAG configuration left
+// the topic card's menu and lives under Verhalten, for those who may open it.
+describe('KbSettingsDialog RAG configuration', () => {
+    it('shows no entry without the callback', async () => {
+        renderDialog();
+        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
+        await screen.findByRole('button', { name: /delete/ });
+        expect(screen.queryByRole('button', { name: 'kbAdvancedSettings' })).toBeNull();
+    });
+
+    it('closes the dialog, then opens it, from Verhalten', async () => {
+        const onOpenRagSettings = vi.fn();
+        const { onClose } = renderDialog({ onOpenRagSettings });
+        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
+        await userEvent.click(await screen.findByRole('button', { name: 'kbAdvancedSettings' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(onOpenRagSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays when unsaved changes are kept', async () => {
+        showConfirm.mockResolvedValue(false);
+        const onOpenRagSettings = vi.fn();
+        renderDialog({ dirty: true, onOpenRagSettings });
+        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
+        await userEvent.click(await screen.findByRole('button', { name: 'kbAdvancedSettings' }));
+        expect(onOpenRagSettings).not.toHaveBeenCalled();
+    });
+});
+
 // Oracle: the developer's ask of 2026-10-20 — the topic settings are searchable
 // like the user settings.
 describe('KbSettingsDialog search', () => {
@@ -144,8 +201,8 @@ describe('KbSettingsDialog members', () => {
     it('opens straight on Mitglieder when asked to („Teilen" on a card)', async () => {
         render(
             <KbSettingsDialog
-                kb={{ id: 'kb-1', myRole: 'owner' } as KnowledgeBase} initialSection="members"
-                draft="" onDraftChange={vi.fn()} onSave={vi.fn(() => Promise.resolve(true))} onDelete={vi.fn(() => Promise.resolve(true))}
+                kb={{ id: 'kb-1', name: 'KB', description: null, myRole: 'owner' } as KnowledgeBase} initialSection="members"
+                onSave={vi.fn(() => Promise.resolve(true))} onUpdateKb={vi.fn(() => Promise.resolve(true))}
                 onClose={vi.fn()} flags={{ ...SOURCE_FLAG_DEFAULTS }} onFlagsChange={vi.fn()} dirty={false}
             />,
         );

@@ -559,3 +559,35 @@ describe('useChatStream.handleSendMessage — retry after a refused send', () =>
     clock.mockRestore();
   });
 });
+
+// Oracle: API.md "Behavior: roles and rules" — roleId starts a NEW chat in a
+// role and is refused with a chatId, so the client sends it only while the
+// turn opens the chat.
+describe('useChatStream.handleSendMessage — roleId', () => {
+  it('sends roleId on the turn that opens a chat', async () => {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ chatId: 'c1' }, { aiMessageId: 'ai1' }]));
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage(
+        { preventDefault: () => {} } as React.FormEvent, 'Erkläre die Elternzeit', null, null, { roleId: 'tutor', agentSelection: {} },
+      );
+    });
+    const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.roleId).toBe('tutor');
+    expect(body.chatId).toBeNull();
+  });
+
+  it('leaves roleId out once the chat exists', async () => {
+    authFetchMock.mockResolvedValue(okResponse([{ chatId: 'c1' }, { aiMessageId: 'ai1' }]));
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Erste Frage', null, null, { roleId: 'tutor' });
+    });
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Zweite Frage', 'ai1', undefined, { roleId: 'tutor' });
+    });
+    const second = JSON.parse((authFetchMock.mock.calls[1] as [string, RequestInit])[1].body as string);
+    expect(second.chatId).toBe('c1');
+    expect(second.roleId).toBeUndefined();
+  });
+});

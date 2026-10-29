@@ -199,7 +199,6 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
               onSelectKB={args.onSelectKB}
               onDeleteKB={idle()}
               removingKb={args.removingKb}
-              onOpenKbSettings={idle()}
               onRenameKB={idle()}
               onToggleFavorite={idle()}
             />
@@ -466,7 +465,7 @@ export const ShareOpensTopicSettingsFromASharedKb: Story = {
     // Only the shared KB is here, and only it can offer the control.
     await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(1);
 
-    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
+    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen…' }));
 
     await expect(args.onOpenTopicSettings).toHaveBeenCalledTimes(1);
     await expect(args.onOpenTopicSettings).toHaveBeenCalledWith(SHARED_ADMIN, 'members');
@@ -493,13 +492,13 @@ export const ViewerSeesNoManagementControls: Story = {
   args: { kbs: [SHARED_VIEWER] },
   play: async ({ canvas, userEvent }) => {
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Teilen' })).toBeNull();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Umbenennen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Teilen…' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Umbenennen…' })).toBeNull();
     await expect(cardMenu.queryByRole('menuitem', { name: /RAG Konfiguration/ })).toBeNull();
     await expect(
-      cardMenu.getByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' }),
+      cardMenu.getByRole('menuitem', { name: 'Aus meiner Ansicht entfernen…' }),
     ).toBeInTheDocument();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Löschen' })).toBeNull();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Löschen…' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
     /* ORACLE: the fixture's `memberCount: 4` with a private visibility, which

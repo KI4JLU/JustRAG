@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
+import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks } from 'lucide-react';
 import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
@@ -21,6 +21,7 @@ import AdminSearchTab from './components/admin/AdminSearchTab';
 import AdminAgentTab from './components/admin/AdminAgentTab';
 import AdminEvalTab from './components/admin/AdminEvalTab';
 import AdminGlobalKbsTab from './components/admin/AdminGlobalKbsTab';
+import AdminTemplatesTab from './components/admin/AdminTemplatesTab';
 import ReembedSection from './components/admin/ReembedSection';
 
 interface AIModel {
@@ -130,7 +131,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         ...(isSuperadmin ? ['auth', 'search', 'agent', 'site'] as const : []),
         ...(isAdmin ? ['kb-overview'] as const : []),
         'global-kbs',
-        ...(isAdmin ? ['users', 'roles', 'health'] as const : []),
+        ...(isAdmin ? ['templates', 'users', 'roles', 'health'] as const : []),
         ...(isSuperadmin ? ['eval'] as const : []),
     ];
     const activeTab: AdminTab = visibleTabs.includes(section) ? section : 'configs';
@@ -553,6 +554,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         onEditGlobalKb={onEditGlobalKb && ((kb) => { onOpenChange(false); onEditGlobalKb(kb); })}
                     />
                 );
+            case 'templates':
+                return <AdminTemplatesTab footerSlot={footerSlot} />;
             case 'eval':
                 return <AdminEvalTab />;
         }
@@ -567,6 +570,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         site: { icon: Settings, label: t('adminTabSettings'), group: t('adminNavGroupConfig') },
         'kb-overview': { icon: Database, label: t('adminTabKbOverview'), group: t('adminNavGroupKbs') },
         'global-kbs': { icon: Globe, label: t('adminTabGlobalKbs'), group: t('adminNavGroupKbs') },
+        templates: { icon: Blocks, label: t('adminTabTemplates'), group: t('adminNavGroupKbs') },
         users: { icon: UserPlus, label: t('adminTabUsers'), group: t('adminNavGroupUsers') },
         roles: { icon: ShieldUser, label: t('adminTabRoles'), group: t('adminNavGroupUsers') },
         health: { icon: Activity, label: t('adminTabHealth'), group: t('adminNavGroupMonitoring') },
@@ -592,7 +596,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     // The tabs portal their own into `footerSlot` (Speichern, or the open form's Abbrechen and
     // Speichern); AdminUI adds „hinzufügen" to the two sections that list things.
     const addLabel = activeTab === 'configs' ? t('addConfig') : activeTab === 'auth' ? t('addProvider') : null;
-    const hasFooterActions = addLabel !== null || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
+    const hasFooterActions = addLabel !== null || activeTab === 'templates' || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
     const footerSlotElement = (
         <div ref={setFooterSlot} className="ml-auto flex flex-col-reverse gap-2 sm:flex-row sm:justify-end" />
     );
