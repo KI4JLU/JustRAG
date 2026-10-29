@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Eye, Globe, Megaphone, Pencil, Tag, Trash2, Undo2 } from 'lucide-react';
+import { Eye, Globe, Info, Megaphone, Pencil, Tag, Trash2, Undo2 } from 'lucide-react';
 import {
-    ActionMenu, Badge, Grid, type ActionMenuItem,
+    ActionMenu, Badge, Grid, Notice, type ActionMenuItem,
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -12,14 +12,18 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../utils/apiError';
 import type { KbCategory } from '../../types';
 import { AdminUnpublishDialog } from './AdminUnpublishDialog';
-import AdminCategoriesSection from './AdminCategoriesSection';
 import { KbListRow } from '../KbListRow';
+import { missingCardFields } from './globalKbCard';
 
 interface GlobalKbRow {
     id: string;
     name: string;
     createdAt: string;
-    headerText?: string;
+    description?: string | null;
+    headerText?: string | null;
+    /** Files in the KB, and the last successful ingest („Stand" on the card). */
+    fileCount?: number;
+    lastIngestedAt?: string | null;
     autoSubscribe: boolean;
     /** Live: visible to everyone who may see public KBs. A staged public KB is not (docs/kb-access.md). Absent: live. */
     isPublished?: boolean;
@@ -246,8 +250,16 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
         ];
     };
 
+    const missingFor = (kb: GlobalKbRow) => missingCardFields(kb, kbCategoryLoadFailed[kb.id] ? null : (kbCategoryIds[kb.id] ?? []));
+    const incomplete = loading ? 0 : globalKbs.filter(kb => missingFor(kb).length > 0).length;
+
     return (
         <>
+            {incomplete > 0 && (
+                <Notice tone="warning" icon={<Info />} className="mb-4">
+                    {t('globalKbCardIncompleteNotice').replace('{n}', String(incomplete)).replace('{total}', String(globalKbs.length))}
+                </Notice>
+            )}
             {loading ? (
                 <p className="text-on-surface-variant">{t('loading')}</p>
             ) : globalKbs.length === 0 ? (
@@ -255,7 +267,9 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
             ) : (
                 // The home view's list rows (KbListRow); everything the old card carried is in the ⋮ menu.
                 <Grid cols={1} gap="sm">
-                    {globalKbs.map(kb => (
+                    {globalKbs.map(kb => {
+                        const missing = missingFor(kb);
+                        return (
                         <KbListRow
                             key={kb.id}
                             leading={<Globe size={16} className="shrink-0 text-primary" aria-hidden="true" />}
@@ -263,6 +277,11 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
                             trailing={(
                                 <>
                                     {kbCategoryLoadFailed[kb.id] && <Badge tone="error">{t('categoriesLoadError')}</Badge>}
+                                    {missing.length > 0 && (
+                                        <Badge tone="warning" data-testid="global-kb-missing">
+                                            {t('globalKbCardMissing').replace('{fields}', missing.map(k => t(k)).join(', '))}
+                                        </Badge>
+                                    )}
                                     {kb.isPublished === false && <Badge tone="warning" title={t('kbStagedHint')}>{t('kbStagedBadge')}</Badge>}
                                     {kb.autoSubscribe && <Badge tone="primary">{t('autoSubscribeBadge')}</Badge>}
                                     <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
@@ -272,7 +291,8 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
                                 </>
                             )}
                         />
-                    ))}
+                        );
+                    })}
                 </Grid>
             )}
 
@@ -287,8 +307,6 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
                     onConfirm={handleUnpublishConfirm}
                 />
             )}
-
-            <AdminCategoriesSection />
         </>
     );
 }

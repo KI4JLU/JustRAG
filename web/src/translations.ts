@@ -1,3 +1,5 @@
+import { assistantTranslations } from './translations.assistant';
+
 export type Language = 'en' | 'de';
 
 export const translations = {
@@ -1502,6 +1504,48 @@ export const translations = {
     adminTabHealth: { de: 'System Health', en: 'System Health' },
     adminTabKbOverview: { de: 'KB-Übersicht', en: 'KB Overview' },
     adminTabGlobalKbs: { de: 'Globale KBs', en: 'Global KBs' },
+    adminTabTemplates: { de: 'Vorlagen', en: 'Templates' },
+    // „Vorlagen" › Rollen: the template roles every topic can use (AdminTemplatesTab).
+    tplTabRoles: { de: 'Rollen', en: 'Roles' },
+    tplRolesIntro: { de: 'Die Rollen, die jedes Thema verwenden kann. Die Standardrolle bekommt jedes neue Thema; die Farben zeigt die Rollenkarte auf der Startseite.', en: 'The roles every topic can use. Every new topic starts with the default role; the colours show on the role card on the start page.' },
+    tplDefault: { de: 'Standardrolle', en: 'Default role' },
+    tplDefaultHelp: { de: 'Mit dieser Rolle startet jedes neue Thema. Es gibt genau eine.', en: 'Every new topic starts with this role. There is exactly one.' },
+    tplDefaultAlwaysOn: { de: 'Die Standardrolle ist immer verfügbar.', en: 'The default role is always available.' },
+    tplDisabled: { de: 'Deaktiviert', en: 'Disabled' },
+    tplEnabled: { de: 'Verfügbar', en: 'Available' },
+    tplEnabledHelp: { de: 'Aus: wird nicht mehr zur Auswahl angeboten. Themen, die sie verwenden, behalten sie.', en: 'Off: no longer offered for selection. Topics that use it keep it.' },
+    tplNoDescription: { de: 'Keine Beschreibung', en: 'No description' },
+    tplUsedBy: { de: 'Verwendet in {n} Themen', en: 'Used in {n} topics' },
+    tplUsedByOne: { de: 'Verwendet in 1 Thema', en: 'Used in 1 topic' },
+    tplActionsFor: { de: 'Aktionen für {name}', en: 'Actions for {name}' },
+    tplMakeDefault: { de: 'Als Standardrolle festlegen', en: 'Make default role' },
+    tplDisable: { de: 'Deaktivieren', en: 'Disable' },
+    tplEnable: { de: 'Aktivieren', en: 'Enable' },
+    tplDeleteInUse: { de: 'Löschen (wird verwendet)', en: 'Delete (in use)' },
+    tplDeleteConfirm: { de: 'Rolle „{name}“ löschen?', en: 'Delete role “{name}”?' },
+    tplDeleteError: { de: 'Die Rolle konnte nicht gelöscht werden.', en: 'The role could not be deleted.' },
+    tplSaveError: { de: 'Die Rolle konnte nicht gespeichert werden.', en: 'The role could not be saved.' },
+    tplLoadError: { de: 'Die Rollen konnten nicht geladen werden.', en: 'The roles could not be loaded.' },
+    tplAdd: { de: 'Rolle hinzufügen', en: 'Add role' },
+    tplNew: { de: 'Neue Rolle', en: 'New role' },
+    tplEdit: { de: 'Rolle bearbeiten', en: 'Edit role' },
+    tplLook: { de: 'Aussehen', en: 'Appearance' },
+    tplIcon: { de: 'Symbol', en: 'Icon' },
+    tplLanguage: { de: 'Sprache der Texte', en: 'Language of the texts' },
+    tplGerman: { de: 'Deutsch', en: 'German' },
+    tplEnglish: { de: 'Englisch', en: 'English' },
+    tplEnglishFallback: { de: 'Optional – leer gilt der deutsche Text.', en: 'Optional – empty uses the German text.' },
+    tplDescriptionHelp: { de: 'Steht auf der Rollenkarte unter dem Namen.', en: 'Shown on the role card under the name.' },
+    'tplIcon_graduation-cap': { de: 'Doktorhut', en: 'Graduation cap' },
+    'tplIcon_book-open': { de: 'Buch', en: 'Book' },
+    'tplIcon_building-2': { de: 'Gebäude', en: 'Building' },
+    'tplIcon_pen-line': { de: 'Stift', en: 'Pen' },
+    'tplIcon_file-text': { de: 'Dokument', en: 'Document' },
+    'tplIcon_file-check': { de: 'Geprüftes Dokument', en: 'Checked document' },
+    'tplIcon_life-buoy': { de: 'Rettungsring', en: 'Life buoy' },
+    tplIcon_sparkles: { de: 'Funken', en: 'Sparkles' },
+    'tplIcon_user-round': { de: 'Person', en: 'Person' },
+    tplIcon_copy: { de: 'Kopie', en: 'Copy' },
     adminTabRoles: { de: 'Rollen & Rechte', en: 'Roles & rights' },
 
     // Admin Nav Groups
@@ -1592,6 +1636,12 @@ export const translations = {
     kbActionPublishLive: { de: 'Veröffentlichen', en: 'Publish' },
     kbStagedBadge: { de: 'Nicht live', en: 'Not live' },
     kbStagedHint: { de: 'Öffentlich, aber noch nicht freigeschaltet: sichtbar nur für KB-Admins und Systemadmins.', en: 'Public, but not live yet: visible only to KB admins and system admins.' },
+    globalKbCardIncompleteNotice: { de: '{n} von {total} globalen KBs zeigen in „Entdecken“ eine unvollständige Karte. Die fehlenden Angaben stehen an der jeweiligen KB: Kategorie im ⋮-Menü, Beschreibung in den Thema-Einstellungen unter Startseite, Dokumente und Stand nach dem ersten erfolgreich verarbeiteten Dokument.', en: '{n} of {total} global KBs show an incomplete card in Discover. The missing fields are listed at each KB: category in the ⋮ menu, description in the topic settings under Start page, documents and date after the first successfully processed document.' },
+    globalKbCardMissing: { de: 'Fehlt: {fields}', en: 'Missing: {fields}' },
+    globalKbMissingCategory: { de: 'Kategorie', en: 'Category' },
+    globalKbMissingDescription: { de: 'eigene Beschreibung (es steht der Standardtext)', en: 'own description (the default text shows)' },
+    globalKbMissingDocuments: { de: 'Dokumente', en: 'Documents' },
+    globalKbMissingAsOf: { de: 'Stand', en: 'Date' },
     colProcessing: { de: 'In Bearbeitung', en: 'Processing' },
     colChats: { de: 'Chats', en: 'Chats' },
     colCreated: { de: 'Erstellt', en: 'Created' },
@@ -3037,4 +3087,7 @@ export const translations = {
     start: { de: 'Starten', en: 'Start' },
     agentActiveChip: { de: 'Antwortet mit', en: 'Answering with' },
     membersCount: { de: 'Mitglieder', en: 'members' },
+
+    // Assistant settings: Startseite + Verhalten (translations.assistant.ts)
+    ...assistantTranslations,
 };

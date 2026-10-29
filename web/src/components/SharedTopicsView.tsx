@@ -77,7 +77,6 @@ export interface SharedTopicsViewProps {
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
-  onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
@@ -87,7 +86,6 @@ export function SharedTopicsView({
   onSelectKB,
   onDeleteKB,
   removingKb,
-  onOpenKbSettings,
   onRenameKB,
   onToggleFavorite,
 }: SharedTopicsViewProps) {
@@ -100,6 +98,11 @@ export function SharedTopicsView({
   const handleShare = (kb: KnowledgeBase, e: React.MouseEvent) => {
     e.stopPropagation();
     onOpenTopicSettings(kb, 'members');
+  };
+  // „Einstellungen" opens it on Startseite.
+  const handleSettings = (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenTopicSettings(kb, 'start');
   };
   const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
@@ -139,7 +142,7 @@ export function SharedTopicsView({
             onOpenShare={handleShare}
             onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
-            onOpenKbSettings={onOpenKbSettings}
+            onOpenSettings={handleSettings}
             onRenameKB={onRenameKB}
             onDeleteKB={onDeleteKB}
           />

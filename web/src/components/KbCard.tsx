@@ -1,13 +1,15 @@
 import {
-  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star, Clock, RefreshCw,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
-import { ActionMenu, Badge, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
+import { ActionMenu, Badge, Button, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
 import { formatRelativeCoarse } from '../utils/dates';
 import { KbListRow } from './KbListRow';
-import { canOpenKbAdvancedSettings, canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
+import { CategoryDot } from './CategoryPill';
+import { colorsStyle, DEFAULT_COLORS } from './kbSettings/assistant/startPageModel';
+import { canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
@@ -274,9 +276,8 @@ export interface PrivateKbCardProps {
   kb: KnowledgeBase;
   currentUserId?: string;
   /**
-   * The caller's SYSTEM role. Needed here because the advanced-settings
-   * trigger below requires one of {api-user, admin, superadmin} on top of the
-   * KB role — the card cannot decide that from `kb` alone.
+   * The caller's SYSTEM role: renaming and the topic settings resolve a
+   * superadmin to owner, which the card cannot decide from `kb` alone.
    */
   systemRole?: string;
   removingKb: boolean;
@@ -289,58 +290,55 @@ export interface PrivateKbCardProps {
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** One compact line instead of a card — the list view. */
   compact?: boolean;
-  onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  /** „Einstellungen": opens the topic with Thema-Einstellungen on Startseite. */
+  onOpenSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
 
 /**
- * The per-card actions for the ⋮ menu, ONE list for the card and the compact
- * list row so the two cannot drift. Every gate below is the shared predicate
- * the rest of the app uses — none of them is re-derived here. The handlers
+ * The per-topic actions for the ⋯ menu — ONE list for the card and the list
+ * row (and the same entries in the same order wherever a topic has a menu).
+ * Only actions on the topic itself (developer guideline, 2026-10-29):
+ *   Umbenennen… / Teilen… · Einstellungen ↗ · Löschen…
+ * „…" opens a dialog and keeps the overview, ↗ lands in the topic. Teilen…
+ * and Einstellungen jump straight to their section of the topic's settings
+ * (Mitglieder, Startseite) rather than rebuilding them here. An entry the
+ * caller may not use is not shown — no badges; the RAG configuration moved
+ * to Verhalten in the settings. The favorite is the star on the card / row.
+ * Every gate is the shared predicate the rest of the app uses. The handlers
  * only call `stopPropagation`, which a menu's DOM `Event` shares with a
  * `React.MouseEvent`.
  */
 function kbCardActions({
-  kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  kb, currentUserId, systemRole, removingKb, t, onOpenShare, onOpenSettings, onRenameKB, onDeleteKB,
 }: Pick<PrivateKbCardProps,
-  'kb' | 'currentUserId' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
+  'kb' | 'currentUserId' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onOpenSettings' | 'onRenameKB' | 'onDeleteKB'>,
 ): ActionMenuItem[] {
   const asMouse = (e: Event) => e as unknown as React.MouseEvent;
-  // The favorite is ungated — the caller's own flag, not a permission. Its
-  // label names what selecting it DOES, so it flips with the state.
-  const items: ActionMenuItem[] = [{
-    label: kb.isFavorite ? t('removeFavorite') : t('addFavorite'),
-    icon: <Star size={16} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />,
-    onSelect: e => onToggleFavorite(kb, asMouse(e)),
-  }];
-  // Teilen opens Thema-Einstellungen → Mitglieder, so it is offered exactly
-  // where that window is: the same predicate as the workspace's gear.
-  if (canOpenKbTopicSettings(kb, systemRole, currentUserId)) {
-    items.push({ label: t('share'), icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
-  }
+  const items: ActionMenuItem[] = [];
   // Rename: owner-only (superadmin resolves to owner), mirroring
   // kbaccess.CanRename on the server — a KB admin edits everything but the name.
   if (canRenameKb(kb, systemRole)) {
-    items.push({ label: t('rename'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
+    items.push({ label: `${t('rename')}…`, icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
   }
-  // RAG settings: kbAdvancedChain needs a system role in {api-user, admin,
-  // superadmin} on top of the KB admin role — not the members gate. The card
-  // offers it to system admins only (developer, 2026-10-13), badged as such;
-  // an api-user still passes the server gate but gets no entry here.
-  const isSystemAdmin = systemRole === 'admin' || systemRole === 'superadmin';
-  if (isSystemAdmin && canOpenKbAdvancedSettings(kb, systemRole)) {
+  // Teilen and Einstellungen open the topic's settings, so they are offered
+  // exactly where that window is: the same predicate as the workspace's gear.
+  const canSettings = canOpenKbTopicSettings(kb, systemRole, currentUserId);
+  if (canSettings) {
+    items.push({ label: `${t('share')}…`, icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
     items.push({
-      label: t('kbAdvancedSettings'),
-      badge: t('roleAdmin'),
-      icon: <SlidersHorizontal size={16} aria-hidden="true" />,
-      onSelect: e => onOpenKbSettings(kb, asMouse(e)),
+      label: t('settings'),
+      icon: <Settings size={16} aria-hidden="true" />,
+      opensPage: true,
+      separatorBefore: true,
+      onSelect: e => onOpenSettings(kb, asMouse(e)),
     });
   }
   // Owners delete the KB, everyone else only leaves it (useKbRemoval decides
-  // the request). Disabled while any removal is in flight.
+  // the request and asks first). Disabled while any removal is in flight.
   items.push({
-    label: kb.myRole === 'owner' ? t('delete') : t('removeFromMyView'),
+    label: `${kb.myRole === 'owner' ? t('delete') : t('removeFromMyView')}…`,
     icon: <Trash2 size={16} aria-hidden="true" />,
     destructive: true,
     disabled: removingKb,
@@ -359,21 +357,33 @@ const isControlClick = (e: React.MouseEvent) =>
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
+  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
-      actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
+      actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onOpenSettings, onRenameKB, onDeleteKB })}
       label={`${t('kbActions')}: ${kb.name}`}
-      triggerClassName="size-6 rounded-[var(--ui-radius-control)]"
+      triggerClassName={compact
+        ? 'size-6 rounded-[var(--ui-radius-control)]'
+        : 'size-7 rounded-[var(--ui-radius-control)] text-white hover:bg-white/15 hover:text-white'}
     />
   );
 
-  // A favorite shows a filled star ahead of its title; toggling it is a menu
-  // action. Decorative: the state is in the menu item's label.
-  const favStar = kb.isFavorite ? (
-    <Star size={16} fill="currentColor" aria-hidden="true" className="home-view__fav-star" />
-  ) : null;
+  // The favorite toggle, on the card's banner and ahead of the row's title:
+  // filled while the topic is a favorite. Its label names what a click does.
+  const favoriteLabel = kb.isFavorite ? t('removeFavorite') : t('addFavorite');
+  const favoriteButton = (className: string, size: number) => (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={className}
+      aria-label={favoriteLabel}
+      title={favoriteLabel}
+      onClick={(e) => { e.stopPropagation(); onToggleFavorite(kb, e); }}
+    >
+      <Star size={size} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />
+    </Button>
+  );
 
   const nameButton = (
     <button
@@ -410,7 +420,7 @@ export function PrivateKbCard({
     return (
       <KbListRow
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-        leading={favStar}
+        leading={favoriteButton('size-6 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
         name={<span className="truncate">{nameButton}</span>}
         trailing={(
           <>
@@ -437,61 +447,84 @@ export function PrivateKbCard({
     // accessible control is the KB-name button below, which carries the
     // label and the keyboard path.
     <div
-      className="source-card home-view__kb-card"
+      className="source-card home-view__kb-card group/kb-card"
       role="presentation"
       onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
     >
-      {/* Title first, top left (after the star of a favorite); every action,
-          the favorite toggle included, sits in the ⋮ menu top right. */}
-      <div className="home-view__card-top">
-        {favStar}
-        <div className="source-title home-view__kb-name">{nameButton}</div>
+      {/* THE BANNER (developer mockup „Badge auf der Trennlinie"): the start
+          page's colours — the default gradient while none are set — bled to
+          the card's edges over its 1rem padding, carrying the title, the
+          favorite star and the ⋯ menu in white. The category sits as a badge
+          on the banner's bottom edge, half over the banner, half over the
+          content. */}
+      <div
+        data-testid="kb-card-band"
+        className="relative -mx-4 -mt-4 flex items-center gap-1 rounded-t-[calc(var(--ui-radius-box)-1px)] px-4 pb-4 pt-3 text-white"
+        style={colorsStyle(kb.colors ?? DEFAULT_COLORS)}
+      >
+        <div className="m-0 line-clamp-2 min-w-0 flex-1 text-lg font-semibold leading-snug">{nameButton}</div>
+        {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-white hover:bg-white/15 hover:text-white', 16)}
         {menu}
+        {kb.category && (
+          <span className="absolute bottom-0 left-4 inline-flex translate-y-1/2 items-center gap-2 rounded-full bg-surface-container-lowest px-3 py-1 font-label-sm text-label-sm font-semibold text-on-surface shadow-card">
+            <CategoryDot category={kb.category} /> {kb.category.name}
+          </span>
+        )}
       </div>
 
-      {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
-          „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
-          omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
-          are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
-          Stunden" (the unit rule is written down in utils/dates.ts). */}
-      <div className="mt-stack-sm flex min-w-0 flex-col gap-1">
-        <MetaLine
-          testId="kb-meta-used"
-          icon={<Clock size={16} aria-hidden="true" />}
-          label={t('kbCardUsed')}
-          value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
-        />
-        {kb.lastIngestedAt && (
-          <MetaLine
-            testId="kb-meta-updated"
-            icon={<RefreshCw size={16} aria-hidden="true" />}
-            label={t('kbCardUpdated')}
-            value={formatRelativeCoarse(kb.lastIngestedAt, language)}
-          />
-        )}
-        {kb.userId !== currentUserId && (() => {
-          const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
-          const displayName = fullName || kb.ownerUsername || t('unknownUser');
-          // „von {name}": the words around the name are the muted label, the
-          // name is the bold value — one template, so translators keep the
-          // word order.
-          const [before, after = ''] = t('sharedBy').split('{name}');
-          return (
+      {/* At rest, the activity — the meta block and the footer; hovered (or
+          holding the focus) the card says what the topic is instead: its
+          description, as on its title card. The description lies over both and
+          they fade out, so it adds no height: the meta block is at least two
+          lines tall, and the description takes its space and the footer's. */}
+      <div className={`${kb.category ? 'mt-5' : 'mt-3'} relative flex flex-1 flex-col`}>
+        <p className="pointer-events-none absolute inset-0 m-0 line-clamp-4 min-w-0 text-sm text-on-surface-variant opacity-0 transition-opacity group-focus-within/kb-card:pointer-events-auto group-focus-within/kb-card:opacity-100 group-hover/kb-card:pointer-events-auto group-hover/kb-card:opacity-100" data-testid="kb-card-description">{kb.description?.trim() || t('kbHeaderDefault')}</p>
+        <div className="mb-3 flex min-h-11 min-w-0 flex-col transition-opacity group-focus-within/kb-card:opacity-0 group-hover/kb-card:opacity-0">
+          {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
+              „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
+              omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
+              are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
+              Stunden" (the unit rule is written down in utils/dates.ts). */}
+          <div className="flex min-w-0 flex-col gap-1">
             <MetaLine
-              testId="kb-meta-owner"
-              icon={<User size={16} aria-hidden="true" />}
-              label={before.trim()}
-              value={<>{displayName}{after}</>}
+              testId="kb-meta-used"
+              icon={<Clock size={16} aria-hidden="true" />}
+              label={t('kbCardUsed')}
+              value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
             />
-          );
-        })()}
-      </div>
-      {/* Footer: scent chips left (wrapping when they do not fit), the
-          visibility badge right — both inside the card at every width the
-          grid renders (card KI-843). */}
-      <div className="home-view__card-footer">
-        <KbCardChips kb={kb} t={t} layout="footer" />
-        <VisibilityBadge kb={kb} t={t} />
+            {kb.lastIngestedAt && (
+              <MetaLine
+                testId="kb-meta-updated"
+                icon={<RefreshCw size={16} aria-hidden="true" />}
+                label={t('kbCardUpdated')}
+                value={formatRelativeCoarse(kb.lastIngestedAt, language)}
+              />
+            )}
+            {kb.userId !== currentUserId && (() => {
+              const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
+              const displayName = fullName || kb.ownerUsername || t('unknownUser');
+              // „von {name}": the words around the name are the muted label, the
+              // name is the bold value — one template, so translators keep the
+              // word order.
+              const [before, after = ''] = t('sharedBy').split('{name}');
+              return (
+                <MetaLine
+                  testId="kb-meta-owner"
+                  icon={<User size={16} aria-hidden="true" />}
+                  label={before.trim()}
+                  value={<>{displayName}{after}</>}
+                />
+              );
+            })()}
+          </div>
+        </div>
+        {/* Footer: scent chips left (wrapping when they do not fit), the
+            visibility badge right — both inside the card at every width the
+            grid renders (card KI-843). Hidden while the description shows. */}
+        <div className="home-view__card-footer transition-opacity group-focus-within/kb-card:pointer-events-none group-focus-within/kb-card:opacity-0 group-hover/kb-card:pointer-events-none group-hover/kb-card:opacity-0">
+          <KbCardChips kb={kb} t={t} layout="footer" />
+          <VisibilityBadge kb={kb} t={t} />
+        </div>
       </div>
     </div>
   );

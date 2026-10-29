@@ -258,7 +258,6 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
             onSelectKB={args.onSelectKB}
             onDeleteKB={idle()}
             removingKb={args.removingKb}
-            onOpenKbSettings={idle()}
             onRenameKB={idle()}
             onToggleFavorite={idle()}
             onUpdateKBSettings={idle()}
@@ -684,8 +683,8 @@ export const OwnedOnly: Story = {
     await expect(badges).toHaveLength(3);
     await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(3);
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toBeInTheDocument();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen…' })).toBeInTheDocument();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen…' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
     /* ORACLE: Chromium's CSSOM, unchanged. The grid track list is the layout
@@ -753,11 +752,11 @@ export const RemovalInFlight: Story = {
      * reaches a removal control. */
     // The card actions are menu items now: Radix's `data-disabled` is the state.
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toHaveAttribute('data-disabled');
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen…' })).toHaveAttribute('data-disabled');
 
     // Controls that are NOT removals stay live, which is what makes the
     // assertion above about `removingKb` rather than about a disabled page.
-    await expect(cardMenu.getByRole('menuitem', { name: 'Teilen' })).not.toHaveAttribute('data-disabled');
+    await expect(cardMenu.getByRole('menuitem', { name: 'Teilen…' })).not.toHaveAttribute('data-disabled');
     await userEvent.keyboard('{Escape}');
 
     /* „Abmelden" is a `DropdownMenuItem` in the sidebar's user menu now, so it
@@ -812,15 +811,17 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
     const card = canvas.getAllByRole('button', { name: /^Aktionen: / })[0].closest('.home-view__kb-card');
     await expect(card).not.toBeNull();
 
-    /* The control: the „Genutzt" meta line is inert markup inside the card, so
-     * a click on it can only reach the parent through the card's own handler.
-     * If this is ever 0, the assertion below stops meaning anything. */
+    /* The control: the meta line is inert markup inside the card, so a
+     * click on it can only reach the parent through the card's own handler.
+     * If this is ever 0, the assertion below stops meaning anything. (The
+     * „Genutzt" meta line: what the card shows at rest; the description is
+     * its hover layer since 29.10.2026.) */
     const cardBody = (card as HTMLElement).querySelector('[data-testid="kb-meta-used"]');
     await expect(cardBody).not.toBeNull();
     await userEvent.click(cardBody as HTMLElement);
     await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
 
-    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
+    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen…' }));
 
     // The jump did fire, exactly once, for this topic and the Mitglieder
     // section — so the click was delivered and this is a statement about

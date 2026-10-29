@@ -1072,6 +1072,13 @@ button.source-card {
   width: 100%;
 }
 
+/* An empty chat — the start page: the composer, role cards and dropzone as
+   wide as the title card above them (max-w-2xl, px-4 in ChatView). */
+.input-container.input-container--start {
+  max-width: 42rem;
+  padding-inline: 1rem;
+}
+
 .chat-input {
   flex: 1;
   border: none;

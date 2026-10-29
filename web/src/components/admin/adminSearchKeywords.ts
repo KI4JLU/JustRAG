@@ -29,7 +29,8 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'colName', 'colOwner', 'tabFiles', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',
         'colLastActivity', 'colProcessing', 'colChats', 'colCreated', 'colOldestContent', 'colStaleShare', 'colLastSync', 'colRagas',
     ],
-    'global-kbs': ['publicKnowledgeBases', 'categories', 'autoSubscribe', 'unpublishKb'],
+    'global-kbs': ['publicKnowledgeBases', 'autoSubscribe', 'unpublishKb'],
+    templates: ['tplTabRoles', 'categories', 'tplDefault', 'asstPrompt'],
     users: [
         'userManagement', 'adminUsersSearch', 'adminUsersFilterRole', 'userInfo', 'roleUser', 'roleApiUser', 'roleAdmin',
         'roleSuperAdmin', 'deleteUser',

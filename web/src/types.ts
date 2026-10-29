@@ -353,6 +353,10 @@ export interface KnowledgeBase {
     // session-facing KB row, PATCH and POST /api/kb included, does.
     isFavorite?: boolean;
     userCategoryIds?: string[];
+    /** The catalog category the topic's title card shows (GET /api/kb card field); absent when none. */
+    category?: KbCategory | null;
+    /** The start page's colours, the card's cover band (GET /api/kb card field); absent = none. */
+    colors?: { from: string; to: string } | null;
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
     visibility?: 'private' | 'public';
@@ -567,6 +571,10 @@ export interface ChatEntry {
     updatedAt: string;
     teamId?: string | null;
     agentId?: string | null;
+    /** The role the chat was started in (a starter question with a role,
+     *  API.md "Behavior: roles and rules"); absent for a chat in the KB's
+     *  active role. */
+    roleId?: string | null;
     /** Set on a chat made by branching (Verzweigen, a new answer, an edited
      *  question): the chat it was copied from, which may have been deleted
      *  since. Absent on an ordinary chat. */
@@ -841,6 +849,10 @@ export interface KbCatalogEntry {
     // overview", isFavorite "did I star it for the Favoriten chip".
     isFavorite: boolean;
     userCategoryIds: string[];
+    /** The start page's colours, drawn as the card's cover band; null = none. */
+    colors?: { from: string; to: string } | null;
+    fileCount?: number;
+    lastIngestedAt?: string | null;
 }
 
 // GET /api/admin/kb-categories row — system-admin only; used to render the
@@ -849,6 +861,8 @@ export interface KbCategory {
     id: string;
     name: string;
     sortOrder: number;
+    /** Palette slot 1..9 (`--color-category-N`), fixed per category (migration 0093). */
+    colorSlot?: number | null;
 }
 
 // GET /api/kb-user-categories row — the caller's OWN categories, the chips
@@ -1159,4 +1173,4 @@ export interface SearchResponse {
 }
 
 /** A section of the „Thema-Einstellungen" window (KbSettingsDialog). */
-export type KbSettingsSection = 'behavior' | 'roles' | 'members';
+export type KbSettingsSection = 'start' | 'behavior' | 'roles' | 'members' | 'versions';

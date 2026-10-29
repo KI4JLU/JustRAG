@@ -84,7 +84,7 @@ function Card({ item, compact = false }: { item: KnowledgeBase; compact?: boolea
       onSelectKB={fn()}
       onOpenShare={fn()}
       onToggleFavorite={fn()}
-      onOpenKbSettings={fn()}
+      onOpenSettings={fn()}
       onRenameKB={fn()}
       onDeleteKB={fn()}
     />
