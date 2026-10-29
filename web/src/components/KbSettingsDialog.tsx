@@ -18,8 +18,6 @@ import { AssistantSettingsContext, useAssistantSettingsStore, type AssistantSett
 const KbMembersPanel = lazy(() => import('./kbSettings/KbMembersPanel').then(m => ({ default: m.KbMembersPanel })));
 
 interface KbSettingsDialogProps {
-    /** The content area the dialog covers from `sm` up (full screen below). */
-    fitTo?: React.RefObject<HTMLElement | null>;
     /** Saves the drafted source flags (Rollen & Rechte); resolves false when the save failed. */
     onSave: () => Promise<boolean>;
     /** PATCH /api/kb/{id} through the app's KB store: brings the KB lists in step after a save. */
@@ -89,8 +87,8 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'invalid';
  *
  * Modal on purpose: the rest of the app is inert while it is open, so the
  * sidebars cannot switch the chat or open a source behind the settings.
- * Full screen on phones; from `sm` it covers the chat's content area (DS
- * `size="xl"` + `fitTo`), so switching sections does not resize it.
+ * Full screen on phones; from `sm` the DS `size="xl"` window (1120×860, capped
+ * by the viewport), so switching sections does not resize it.
  *
  * Unlike the user settings these are saved explicitly, so it carries a
  * footer for every section: Speichern saves what changed and keeps the dialog
@@ -101,7 +99,7 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'invalid';
  * overlay and Abbrechen close it, and with unsaved changes they ask first.
  */
 export function KbSettingsDialog({
-    fitTo, kb, initialSection = 'start', section: ownedSection, onSectionChange, onSave, onUpdateKb, onClose, flags, onFlagsChange, dirty, onOpenRagSettings,
+    kb, initialSection = 'start', section: ownedSection, onSectionChange, onSave, onUpdateKb, onClose, flags, onFlagsChange, dirty, onOpenRagSettings,
 }: KbSettingsDialogProps) {
     const { t } = useTheme();
     const { showConfirm } = useModalContext();
@@ -223,9 +221,11 @@ export function KbSettingsDialog({
                     if (v !== 'members') setMembersView('members');
                 }}
                 size="xl"
-                fitTo={fitTo}
                 title={t('kbSettingsTitle')}
                 closeLabel={t('close')}
+                maximizable
+                maximizeLabel={t('dialogMaximize')}
+                restoreLabel={t('dialogRestore')}
                 searchPlaceholder={t('settingsSearch')}
                 emptyLabel={t('settingsNoMatch')}
                 sections={[
