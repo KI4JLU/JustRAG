@@ -12,6 +12,7 @@ import { kbSettingsKeywords } from './kbSettings/kbSettingsSearchKeywords';
 import { BehaviorSection } from './kbSettings/assistant/BehaviorSection';
 import { StartPageSection } from './kbSettings/assistant/StartPageSection';
 import { chatStartIncomplete } from './kbSettings/assistant/startPageModel';
+import { allRoles } from './kbSettings/assistant/roleModel';
 import { VersionHistorySection } from './kbSettings/assistant/VersionHistorySection';
 import { AssistantSettingsContext, useAssistantSettingsStore, type AssistantSettings } from './kbSettings/assistant/useAssistantSettings';
 
@@ -113,6 +114,10 @@ export function KbSettingsDialog({
     // Startseite + Verhalten: one draft, loaded when the dialog opens.
     const openSection = useCallback((s: KbSettingsSection) => setSection(s), [setSection]);
     const assistant = useAssistantSettingsStore({ kb, onUpdateKb, onOpenSection: openSection });
+    // The topic's roles are data, not labels: their names find Verhalten (and Startseite while its
+    // chat start offers role cards) in the settings search.
+    const roleNames = allRoles(assistant.catalog, assistant.draft?.behavior).map(r => r.name).filter(Boolean);
+    const startShowsRoles = assistant.draft?.startPage.startMode === 'roles';
     // While a role is created or edited, Verhalten owns the footer (through the slot).
     const [roleEditorOpen, setRoleEditorOpen] = useState(false);
     // …and whether it holds changes not yet applied to the draft.
@@ -234,14 +239,14 @@ export function KbSettingsDialog({
                         value: 'start',
                         label: t('asstStartPage'),
                         icon: <House aria-hidden="true" />,
-                        keywords: kbSettingsKeywords('start', t),
+                        keywords: [...kbSettingsKeywords('start', t), ...(startShowsRoles ? roleNames : [])],
                         content: <AssistantGate store={assistant}><StartPageSection /></AssistantGate>,
                     },
                     {
                         value: 'behavior',
                         label: t('kbSettingsTabBehavior'),
                         icon: <SlidersHorizontal aria-hidden="true" />,
-                        keywords: kbSettingsKeywords('behavior', t),
+                        keywords: [...kbSettingsKeywords('behavior', t), ...roleNames],
                         content: (
                             <>
                                 <AssistantGate store={assistant}>
@@ -299,7 +304,8 @@ export function KbSettingsDialog({
                         value: 'versions',
                         label: t('asstVersions'),
                         icon: <History aria-hidden="true" />,
-                        keywords: kbSettingsKeywords('versions', t),
+                        // „v12": every version number up to the newest.
+                        keywords: [...kbSettingsKeywords('versions', t), ...Array.from({ length: assistant.version }, (_, i) => `v${i + 1}`)],
                         content: <AssistantGate store={assistant}><VersionHistorySection /></AssistantGate>,
                     },
                 ]}

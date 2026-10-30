@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSettingsSearch } from '@ki4jlu/design-system';
 import axios from 'axios';
 import { Check, ChevronRight, History, Info, Loader2, RotateCcw } from 'lucide-react';
 import {
@@ -70,7 +71,7 @@ function VersionItem({ v, current, last, open, onToggle, onRestore }: {
             <span aria-hidden="true" className={cn('relative z-10 mt-1.5 size-[15px] shrink-0 rounded-full border-[3px]', current ? 'border-primary-container bg-primary' : 'border-surface bg-outline')} />
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-semibold text-on-surface">v{v.number}</span>
+                    <span className="font-semibold text-on-surface">{`v${v.number}`}</span>
                     <span className="text-sm text-on-surface-variant">· <time dateTime={v.createdAt}>{fmt.date(v.createdAt)}</time>, {fmt.time(v.createdAt)}</span>
                     {current && <Badge tone="primary">{t('asstCurrent')}</Badge>}
                     {v.restoredFrom ? <Badge tone="neutral"><RotateCcw className="size-3" aria-hidden="true" /> {t('asstRestoredFrom').replace('{n}', String(v.restoredFrom))}</Badge> : null}
@@ -117,6 +118,18 @@ function VersionItem({ v, current, last, open, onToggle, onRestore }: {
     );
 }
 
+/** The text of a version's change lines, lower-cased, as ChangeLine shows them. */
+function changesText(v: SettingsVersion, t: (k: string) => string): string {
+    return v.changes.map(c => [changeFieldLabel(c, t), c.added, c.removed, changeValue(c, c.from, t), changeValue(c, c.to, t)].join(' ')).join(' ').toLocaleLowerCase();
+}
+
+/** Everything a version's entry shows, lower-cased, for the settings search. */
+function versionText(v: SettingsVersion, t: (k: string) => string, fmt: ReturnType<typeof useDateFormat>): string {
+    const areas = v.changes.map(c => (c.area === 'start' ? t('asstStartPage') : t('kbSettingsTabBehavior')));
+    return [`v${v.number}`, fmt.date(v.createdAt), fmt.time(v.createdAt), versionNote(v, t).text, v.authorName, ...areas]
+        .join(' ').toLocaleLowerCase() + ' ' + changesText(v, t);
+}
+
 /**
  * „Versionsverlauf": every save of Startseite or Verhalten is a version with
  * its changes. Restoring writes the chosen state as a NEW version — nothing
@@ -126,11 +139,14 @@ export function VersionHistorySection() {
     const { t } = useTheme();
     const fmt = useDateFormat();
     const store = useAssistantSettings();
+    const search = useSettingsSearch();
     const { kb, version, applySaved, dirty } = store;
     const [versions, setVersions] = useState<SettingsVersion[] | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
     const [filter, setFilter] = useState<Filter>('all');
     const [openNumber, setOpenNumber] = useState<number | null>(null);
+    // While the search opens entries by their changes, a toggle by hand wins — per search.
+    const [searchToggled, setSearchToggled] = useState<{ query: string; open: Record<number, boolean> }>({ query: '', open: {} });
     const [showAll, setShowAll] = useState(false);
     const [ask, setAsk] = useState<SettingsVersion | null>(null);
     const [restoring, setRestoring] = useState(false);
@@ -176,8 +192,18 @@ export function VersionHistorySection() {
     const next = current.number + 1;
     // The baseline has no changes but stays in every filter: it is the start of the line.
     const filtered = versions.filter(v => filter === 'all' || v.kind === 'baseline' || v.changes.some(c => c.area === filter));
-    const visible = showAll ? filtered : filtered.slice(0, VISIBLE);
-    const hidden = filtered.length - visible.length;
+    // The settings search narrows the list to the versions whose text holds the query — number,
+    // date, note, author, areas, the changed fields and values — and opens their changes, so the
+    // dialog's highlight shows where. With no such version the list stays as it is.
+    const matching = search.filtering ? filtered.filter(v => versionText(v, t, fmt).includes(search.query)) : [];
+    const searching = matching.length > 0;
+    const toggledNow = searchToggled.query === search.query ? searchToggled.open : {};
+    const isOpen = (v: SettingsVersion) => (searching
+        ? toggledNow[v.number] ?? (openNumber === v.number || changesText(v, t).includes(search.query))
+        : openNumber === v.number);
+    const list = searching ? matching : filtered;
+    const visible = showAll || searching ? list : list.slice(0, VISIBLE);
+    const hidden = list.length - visible.length;
 
     const restore = async (v: SettingsVersion) => {
         setRestoring(true);
@@ -202,7 +228,7 @@ export function VersionHistorySection() {
                 <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-tile)] bg-primary-container text-on-primary-container [&_svg]:size-5"><History /></span>
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-lg font-semibold text-on-surface">v{current.number}</span>
+                        <span className="text-lg font-semibold text-on-surface">{`v${current.number}`}</span>
                         <Badge tone="primary">{t('asstCurrent')}</Badge>
                     </div>
                     <p className="m-0 text-sm text-on-surface-variant">
@@ -239,8 +265,11 @@ export function VersionHistorySection() {
                             v={v}
                             current={v.number === current.number}
                             last={i === visible.length - 1 && hidden === 0}
-                            open={openNumber === v.number}
-                            onToggle={() => setOpenNumber(openNumber === v.number ? null : v.number)}
+                            open={isOpen(v)}
+                            onToggle={() => {
+                                if (!searching) setOpenNumber(openNumber === v.number ? null : v.number);
+                                else setSearchToggled({ query: search.query, open: { ...toggledNow, [v.number]: !isOpen(v) } });
+                            }}
                             onRestore={() => { setRestoreError(null); setAsk(v); }}
                         />
                     ))}
