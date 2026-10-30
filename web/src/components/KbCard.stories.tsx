@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn } from 'storybook/test';
 import { Grid } from '@ki4jlu/design-system';
-import { CreateCell, PrivateKbCard } from './KbCard';
+import { PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
 import { translations } from '../translations';
 import { expectFooterInsideCard, expectUniformCardHeights } from '../test/kbCardGeometry';
@@ -38,7 +38,6 @@ import type { KnowledgeBase } from '../types';
  * ------------------------------------------------------------------------- */
 
 const t = (k: string) => (translations as Record<string, { de: string }>)[k]?.de ?? k;
-const rtf = new Intl.RelativeTimeFormat('de', { numeric: 'auto' });
 
 function kb(over: Partial<KnowledgeBase> & { id: string; name: string }): KnowledgeBase {
   return {
@@ -77,7 +76,6 @@ function Card({ item, compact = false }: { item: KnowledgeBase; compact?: boolea
       currentUserId="user-1"
       systemRole="user"
       removingKb={false}
-      rtf={rtf}
       t={t}
       language="de"
       compact={compact}
@@ -118,7 +116,7 @@ export const FooterInsideCardAtNarrowestTrack: Story = {
     </Frame>
   ),
   play: async ({ canvasElement }) => {
-    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__kb-card'));
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
     await expect(cards).toHaveLength(2);
     for (const card of cards) {
       // The track really is the 280px floor, not a wider accident.
@@ -160,18 +158,18 @@ const NO_FILES_KB = kb({ id: 'kb-m3', name: 'Neues leeres Thema' });
 export const MockupCardsInUniformGrid: Story = {
   args: { item: MOCKUP_KB },
   render: () => (
-    <Frame width={900}>
+    // Two columns, so the three cards take two rows (the uniform-height check needs two).
+    <Frame width={680}>
       <TopicGridPage
         id="kb-card-mockup"
         title="Mein Wissen"
         uniformRows
-        createCell={<CreateCell onClick={fn()} label="Neues Thema" text="Neues Thema" />}
         items={[MOCKUP_KB, SHARED_KB, NO_FILES_KB].map((item) => <Card key={item.id} item={item} />)}
       />
     </Frame>
   ),
   play: async ({ canvasElement }) => {
-    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__kb-card'));
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
     await expect(cards).toHaveLength(3);
     for (const card of cards) await expectFooterInsideCard(card);
     await expectUniformCardHeights(canvasElement);

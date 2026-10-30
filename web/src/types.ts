@@ -863,6 +863,8 @@ export interface KbCategory {
     sortOrder: number;
     /** Palette slot 1..9 (`--color-category-N`), fixed per category (migration 0093). */
     colorSlot?: number | null;
+    /** The colour an admin picked (`#rrggbb`, migration 0096); drawn instead of the slot. */
+    color?: string | null;
 }
 
 // GET /api/kb-user-categories row — the caller's OWN categories, the chips

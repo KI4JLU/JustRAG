@@ -1,14 +1,13 @@
 import {
-  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, Settings, Star, Clock, RefreshCw,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
-import { ActionMenu, Badge, Button, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
+import { ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
 import { formatRelativeCoarse } from '../utils/dates';
-import { KbListRow } from './KbListRow';
-import { CategoryDot } from './CategoryPill';
-import { colorsStyle, DEFAULT_COLORS } from './kbSettings/assistant/startPageModel';
+import { CategoryPill } from './CategoryPill';
+import { categoryDotColor } from './kbSettings/assistant/startPageModel';
 import { canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
 import './HomeView.css';
 
@@ -35,27 +34,6 @@ import './HomeView.css';
 
 /** Translate function shape, as `useTheme()` publishes it. */
 type T = (k: string) => string;
-
-// lastActiveLabel renders the KB-card freshness line (improvement #6): the
-// newest of lastActivityAt / createdAt as a locale-aware "Zuletzt aktiv vor …".
-function lastActiveLabel(
-  kb: KnowledgeBase,
-  rtf: Intl.RelativeTimeFormat,
-  t: T,
-): string {
-  const iso = kb.lastActivityAt || kb.createdAt;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMs = then - Date.now(); // negative => past
-  const min = Math.round(diffMs / 60000);
-  const hr = Math.round(diffMs / 3600000);
-  const day = Math.round(diffMs / 86400000);
-  let rel: string;
-  if (Math.abs(min) < 60) rel = rtf.format(min, 'minute');
-  else if (Math.abs(hr) < 24) rel = rtf.format(hr, 'hour');
-  else rel = rtf.format(day, 'day');
-  return `${t('kbLastActive')} ${rel}`;
-}
 
 // Drei angezeigte Zustaende aus zwei gespeicherten. memberCount enthaelt den
 // Owner, deshalb <= 1 und nicht === 0. Single source of truth for the
@@ -84,7 +62,7 @@ function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
     // `shrink-0` (KI-843): in the card footer the chip group is the elastic
     // half and wraps; the badge keeps its size at the right edge. The legacy
     // badge rule sets no `flex-shrink`, so the utility is not shadowed.
-    <Badge tone={VISIBILITY_TONE[state]} className="home-view__badge shrink-0">
+    <Badge tone={VISIBILITY_TONE[state]} className="home-view__badge ml-auto shrink-0">
       {state === 'public'
         ? <Globe size={10} aria-hidden="true" />
         : <User size={10} aria-hidden="true" />}
@@ -119,29 +97,17 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
 // was last successfully ingested — the chip showed the OLDEST file's date); in
 // the list row it is dropped, see the row below for why.
 /**
- * TWO LAYOUTS, one per caller, and neither carries a legacy class.
- * `.home-view__chip-row`'s `margin-top: var(--space-2)` is stacked-card
- * spacing, and it cannot be overridden with a utility — the rule is unlayered
- * and Tailwind's utilities are in `@layer utilities`, so the unlayered one
- * wins (`scripts/check-css-cascade.mjs` gates on that). So both forms are
- * utilities only:
- *  - `row`, the compact list row: one line, `shrink-0` — the row's NAME is
- *    what truncates, the chips keep their size.
- *  - `footer`, the card footer (KI-843): `min-w-0 flex-1 flex-wrap`, so the
- *    chip group takes the footer's width left of the badge and WRAPS rather
- *    than pushing the badge out of the card.
+ * The card footer's chip group (KI-843): `min-w-0 flex-1 flex-wrap`, so it
+ * takes the footer's width left of the badge and WRAPS rather than pushing the
+ * badge out of the card. The list row shows its counts in columns instead.
  */
-function KbCardChips({ kb, t, layout }: { kb: KnowledgeBase; t: T; layout: 'row' | 'footer' }) {
+function KbCardChips({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const processing = kb.processingFileCount ?? 0;
   const files = kb.fileCount ?? 0;
   const messages = kb.turnCount ?? 0;
   if (files === 0 && messages === 0 && processing === 0) return null;
   return (
-    <div
-      className={layout === 'footer'
-        ? 'flex min-w-0 flex-1 flex-wrap items-center gap-stack-sm'
-        : 'flex shrink-0 items-center gap-stack-sm'}
-    >
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-stack-sm">
       {files > 0 && (
         <CountChip icon={<FileText size={12} aria-hidden="true" />} n={files} label={t('kbFilesChip').replace('{n}', String(files))} />
       )}
@@ -180,90 +146,6 @@ function MetaLine({ icon, label, value, testId }: { icon: React.ReactNode; label
   );
 }
 
-/**
- * The "create" tile, rendered as the FIRST cell of a section's grid.
- *
- * It used to be an `<li>` inside `HomeView`'s own `<ul className="home-view__
- * grid">`. `SectionedGridLayout` lays the cells out with the design system's
- * `Grid`, which is a `<div>` — an `<li>` in it would be a list item with no
- * list, so every cell in this file is a `<div>` now. The visual card chrome is
- * unchanged: it is still `.source-card` + `.home-view__create-card`.
- */
-/**
- * The create tile. `onClick` is optional ONLY together with `disabled`: a tile
- * with neither is a button that looks live and swallows the click, which is
- * the failure mode `ToolsView`'s placeholder tile had to avoid. `disabled`
- * is the HTML attribute, so the control is announced as unavailable rather
- * than merely styled as such. (No caller passes `disabled` since card KI-833
- * replaced that placeholder tile with the first real tool.)
- */
-export function CreateCell({
-  onClick,
-  label,
-  text,
-  disabled = false,
-  compact = false,
-}: {
-  onClick?: () => void;
-  label: string;
-  text: string;
-  disabled?: boolean;
-  /** One list row instead of a tile — matches `PrivateKbCard`'s compact form. */
-  compact?: boolean;
-}) {
-  /* THE COMPACT TILE IS THE SAME HEIGHT AS A LIST ROW, and neither states one.
- 
-     Both are `px-gutter py-stack-sm` around a single 24px line box, so the two
-     heights are equal by construction rather than by a number kept in step:
-       - a row's tallest children are its mini-icon buttons (4px padding around
-         a 16px icon = 24px) and its name (`text-body-base`, 16px x 1.5 = 24px);
-       - this tile's line is the same 16px icon and the same type token.
-     Change the type scale or the icon size and both move together.
- 
-     It uses `.home-view__create-row`, a sibling of `.home-view__create-card`
-     that repeats the tile's three appearance declarations (dashed border,
-     --bg-secondary, --accent-primary) and drops its shape — the `min-height`
-     and the centred column. A modifier ON the tile class would not work: that
-     rule and `.source-card`'s `padding: 1rem` are unlayered, so no utility
-     could override them, and the row needs different padding. */
-  if (compact) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={label}
-        className="home-view__create-row"
-      >
-        {/* The icon sits in the SAME 24px box as a row's leading star
-            (`home-view__mini-icon` = 4px around a 16px glyph), which is what
-            makes this label and a topic's title start at the same x. Matching
-            it with a padding value instead would tie the two together through a
-            number nobody would think to keep in step. */}
-        <span className="home-view__mini-icon flex shrink-0 items-center justify-center">
-          <Plus size={16} aria-hidden="true" />
-        </span>
-        <span className="truncate">{text}</span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="source-card home-view__create-card">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={label}
-        className="home-view__create-button"
-      >
-        <Plus size={32} aria-hidden="true" />
-        <span className="home-view__create-label">{text}</span>
-      </button>
-    </div>
-  );
-}
-
 /* `PublicKbCard` and `PublicKbCardProps` stood here and are deleted
    (18.09.2026). It was the tile of the „Favoriten" section, then of „Global
    sichtbar" on „Geteiltes Wissen"; both are gone, and global topics are drawn
@@ -271,6 +153,28 @@ export function CreateCell({
    lost — editing a global topic is `AdminGlobalKbsTab`, deleting one is the
    admin KB overview. */
 
+
+/**
+ * The list view's columns: name (elastic), sources, chats, last activity,
+ * sharing, star + menu. Shared by the rows and `KbListHeader`, so the labels
+ * stand over their values. Below `md` the count and date columns drop out.
+ */
+const KB_ROW_COLUMNS =
+  'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_8rem_7.5rem_auto] [&>*:nth-child(2)]:max-md:hidden [&>*:nth-child(3)]:max-md:hidden [&>*:nth-child(4)]:max-md:hidden';
+
+/** The column labels over the list view's rows. */
+export function KbListHeader({ t }: { t: T }) {
+  return (
+    <div aria-hidden="true" className={`${KB_ROW_COLUMNS} border-l-4 border-transparent pl-4 pr-3 text-xs font-medium text-on-surface-variant`}>
+      <span>{t('kbListColTopic')}</span>
+      <span className="text-right">{t('kbListColSources')}</span>
+      <span className="text-right">{t('kbListColChats')}</span>
+      <span className="text-right">{t('kbListColLastActive')}</span>
+      <span className="text-right">{t('kbListColSharing')}</span>
+      <span className="w-14" />
+    </div>
+  );
+}
 
 export interface PrivateKbCardProps {
   kb: KnowledgeBase;
@@ -281,7 +185,6 @@ export interface PrivateKbCardProps {
    */
   systemRole?: string;
   removingKb: boolean;
-  rtf: Intl.RelativeTimeFormat;
   t: T;
   language: Language;
   onSelectKB: (kb: KnowledgeBase) => void;
@@ -357,15 +260,13 @@ const isControlClick = (e: React.MouseEvent) =>
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenSettings, onRenameKB, onDeleteKB, compact = false,
+  kb, currentUserId, systemRole, removingKb, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
       actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onOpenSettings, onRenameKB, onDeleteKB })}
       label={`${t('kbActions')}: ${kb.name}`}
-      triggerClassName={compact
-        ? 'size-6 rounded-[var(--ui-radius-control)]'
-        : 'size-7 rounded-[var(--ui-radius-control)] text-white hover:bg-white/15 hover:text-white'}
+      triggerClassName={compact ? 'size-6 rounded-[var(--ui-radius-control)]' : 'size-7 rounded-[var(--ui-radius-control)]'}
     />
   );
 
@@ -396,49 +297,52 @@ export function PrivateKbCard({
     </button>
   );
 
-  /* THE LIST ROW. One line, everything on one vertical centre.
-   *
-     IT SHARES NO CLASS WITH THE CARD, and that is the fix rather than a style
-     preference. `.source-card` (padding 1rem, margin-bottom 1rem),
-     `.source-title` (margin-bottom .25rem), `.home-view__kb-name`
-     (margin-top 1rem) and `.home-view__kb-meta` (margin-top .5rem) are all
-     STACKED-CARD spacing: inside a flex row those top margins push their child
-     down and defeat `items-center`, which is what tilted the row off its
-     baseline.
- 
-     They cannot be overridden with a utility either. Those rules are UNLAYERED
-     while Tailwind's utilities sit in `@layer utilities`, so an unlayered rule
-     wins regardless of order — the repo gates on exactly that
-     (`scripts/check-css-cascade.mjs`). So the row is built from tokens only,
-     and carries no legacy class at all.
- 
-     No fixed height: `items-center` on a row whose children have none makes the
-     height the tallest child plus the token padding. `p-stack-md` is one value
-     on all four sides (developer ruling) — a row is small enough that an
-     asymmetric inset reads as a mistake rather than as rhythm. */
+  /* THE LIST ROW (developer mockup „Hairline", Liste, 30.10.2026): a DS Card
+     with the category's colour as its left edge and a faint tint from it
+     (grey edge, no tint without a category); the name with the category pill
+     under it, then one column each for sources, chats, last activity and
+     sharing, then the star and the ⋯ menu. The columns are `KB_ROW_COLUMNS`,
+     which `KbListHeader` labels. */
   if (compact) {
+    const files = kb.fileCount ?? 0;
+    const messages = kb.turnCount ?? 0;
+    const processing = kb.processingFileCount ?? 0;
     return (
-      <KbListRow
+      <Card
+        accent
+        tint={!!kb.category}
+        accentColor={kb.category ? categoryDotColor(kb.category) : cardNeutralAccent}
+        interactive
+        role="presentation"
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-        leading={favoriteButton('size-6 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
-        name={<span className="truncate">{nameButton}</span>}
-        trailing={(
-          <>
-            {/* No freshness chip in the row. It used to show the
-                OLDEST file's date; the card's replacement, „Aktualisiert
-                {relative}", is text, and ~150px of text on top of the row's
-                existing „Zuletzt aktiv …" line pushes the worst-case row
-                (four-digit counts, processing chip, „Geteilt (12)") past its
-                width. The row keeps one date line, the card carries both. */}
-            <KbCardChips kb={kb} t={t} layout="row" />
-            <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
-              {lastActiveLabel(kb, rtf, t)}
-            </span>
-            <VisibilityBadge kb={kb} t={t} />
-            {menu}
-          </>
-        )}
-      />
+        className={`${KB_ROW_COLUMNS} cursor-pointer items-center py-3 pl-4 pr-3`}
+      >
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <span className="max-w-full truncate font-semibold text-on-surface">{nameButton}</span>
+          {kb.category && <CategoryPill category={kb.category} small />}
+        </div>
+        <div className="flex justify-end gap-1">
+          {processing > 0
+            ? (
+              <Badge tone="primary" className="home-view__chip">
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                {t('kbProcessingChip').replace('{n}', String(processing))}
+              </Badge>
+            )
+            : <CountChip icon={<FileText size={12} aria-hidden="true" />} n={files} label={t('kbFilesChip').replace('{n}', String(files))} />}
+        </div>
+        <div className="flex justify-end">
+          <CountChip icon={<MessageSquare size={12} aria-hidden="true" />} n={messages} label={t('kbMessagesChip').replace('{n}', String(messages))} />
+        </div>
+        <span className="truncate text-right text-sm text-on-surface-variant">
+          {formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
+        </span>
+        <div className="flex justify-end"><VisibilityBadge kb={kb} t={t} /></div>
+        <div className="flex items-center justify-end">
+          {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
+          {menu}
+        </div>
+      </Card>
     );
   }
 
@@ -446,86 +350,77 @@ export function PrivateKbCard({
     // Card-level click is a mouse convenience (role="presentation"); the
     // accessible control is the KB-name button below, which carries the
     // label and the keyboard path.
-    <div
-      className="source-card home-view__kb-card group/kb-card"
+    <Card
+      interactive
+      accentColor={kb.category ? categoryDotColor(kb.category) : undefined}
+      className="group/kb-card h-full cursor-pointer"
+      data-testid="kb-card"
       role="presentation"
       onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
     >
-      {/* THE BANNER (developer mockup „Badge auf der Trennlinie"): the start
-          page's colours — the default gradient while none are set — bled to
-          the card's edges over its 1rem padding, carrying the title, the
-          favorite star and the ⋯ menu in white. The category sits as a badge
-          on the banner's bottom edge, half over the banner, half over the
-          content. */}
-      <div
-        data-testid="kb-card-band"
-        className="relative -mx-4 -mt-4 flex items-center gap-1 rounded-t-[calc(var(--ui-radius-box)-1px)] px-4 pb-4 pt-3 text-white"
-        style={colorsStyle(kb.colors ?? DEFAULT_COLORS)}
-      >
-        <div className="m-0 line-clamp-2 min-w-0 flex-1 text-lg font-semibold leading-snug">{nameButton}</div>
-        {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-white hover:bg-white/15 hover:text-white', 16)}
+      {/* THE HAIRLINE CARD (developer mockup „Hairline", 30.10.2026): title,
+          favorite star and ⋯ on a faint tint of the category's colour, closed
+          by a rule in that colour with the category on it. Without a category
+          the card stays neutral: no tint, a grey rule. */}
+      <CardBand data-testid="kb-card-band">
+        <CardTitle>{nameButton}</CardTitle>
+        {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
         {menu}
-        {kb.category && (
-          <span className="absolute bottom-0 left-4 inline-flex translate-y-1/2 items-center gap-2 rounded-full bg-surface-container-lowest px-3 py-1 font-label-sm text-label-sm font-semibold text-on-surface shadow-card">
-            <CategoryDot category={kb.category} /> {kb.category.name}
-          </span>
-        )}
-      </div>
+      </CardBand>
+      <CardHairline>{kb.category && <CategoryPill category={kb.category} onHairline />}</CardHairline>
 
       {/* At rest, the activity — the meta block and the footer; hovered (or
           holding the focus) the card says what the topic is instead: its
           description, as on its title card. The description lies over both and
           they fade out, so it adds no height: the meta block is at least two
           lines tall, and the description takes its space and the footer's. */}
-      <div className={`${kb.category ? 'mt-5' : 'mt-3'} relative flex flex-1 flex-col`}>
-        <p className="pointer-events-none absolute inset-0 m-0 line-clamp-4 min-w-0 text-sm text-on-surface-variant opacity-0 transition-opacity group-focus-within/kb-card:pointer-events-auto group-focus-within/kb-card:opacity-100 group-hover/kb-card:pointer-events-auto group-hover/kb-card:opacity-100" data-testid="kb-card-description">{kb.description?.trim() || t('kbHeaderDefault')}</p>
-        <div className="mb-3 flex min-h-11 min-w-0 flex-col transition-opacity group-focus-within/kb-card:opacity-0 group-hover/kb-card:opacity-0">
+      <CardContent className="relative flex flex-col pb-0">
+        <p className="pointer-events-none absolute inset-x-5 top-0 bottom-0 m-0 line-clamp-4 min-w-0 text-sm text-on-surface-variant opacity-0 transition-opacity group-focus-within/kb-card:pointer-events-auto group-focus-within/kb-card:opacity-100 group-hover/kb-card:pointer-events-auto group-hover/kb-card:opacity-100" data-testid="kb-card-description">{kb.description?.trim() || t('kbHeaderDefault')}</p>
+        <div className="mb-3 flex min-h-11 min-w-0 flex-col gap-1 transition-opacity group-focus-within/kb-card:opacity-0 group-hover/kb-card:opacity-0">
           {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
               „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
               omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
               are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
               Stunden" (the unit rule is written down in utils/dates.ts). */}
-          <div className="flex min-w-0 flex-col gap-1">
+          <MetaLine
+            testId="kb-meta-used"
+            icon={<Clock size={16} aria-hidden="true" />}
+            label={t('kbCardUsed')}
+            value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
+          />
+          {kb.lastIngestedAt && (
             <MetaLine
-              testId="kb-meta-used"
-              icon={<Clock size={16} aria-hidden="true" />}
-              label={t('kbCardUsed')}
-              value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
+              testId="kb-meta-updated"
+              icon={<RefreshCw size={16} aria-hidden="true" />}
+              label={t('kbCardUpdated')}
+              value={formatRelativeCoarse(kb.lastIngestedAt, language)}
             />
-            {kb.lastIngestedAt && (
+          )}
+          {kb.userId !== currentUserId && (() => {
+            const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
+            const displayName = fullName || kb.ownerUsername || t('unknownUser');
+            // „von {name}": the words around the name are the muted label, the
+            // name is the bold value — one template, so translators keep the
+            // word order.
+            const [before, after = ''] = t('sharedBy').split('{name}');
+            return (
               <MetaLine
-                testId="kb-meta-updated"
-                icon={<RefreshCw size={16} aria-hidden="true" />}
-                label={t('kbCardUpdated')}
-                value={formatRelativeCoarse(kb.lastIngestedAt, language)}
+                testId="kb-meta-owner"
+                icon={<User size={16} aria-hidden="true" />}
+                label={before.trim()}
+                value={<>{displayName}{after}</>}
               />
-            )}
-            {kb.userId !== currentUserId && (() => {
-              const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
-              const displayName = fullName || kb.ownerUsername || t('unknownUser');
-              // „von {name}": the words around the name are the muted label, the
-              // name is the bold value — one template, so translators keep the
-              // word order.
-              const [before, after = ''] = t('sharedBy').split('{name}');
-              return (
-                <MetaLine
-                  testId="kb-meta-owner"
-                  icon={<User size={16} aria-hidden="true" />}
-                  label={before.trim()}
-                  value={<>{displayName}{after}</>}
-                />
-              );
-            })()}
-          </div>
+            );
+          })()}
         </div>
-        {/* Footer: scent chips left (wrapping when they do not fit), the
-            visibility badge right — both inside the card at every width the
-            grid renders (card KI-843). Hidden while the description shows. */}
-        <div className="home-view__card-footer transition-opacity group-focus-within/kb-card:pointer-events-none group-focus-within/kb-card:opacity-0 group-hover/kb-card:pointer-events-none group-hover/kb-card:opacity-0">
-          <KbCardChips kb={kb} t={t} layout="footer" />
-          <VisibilityBadge kb={kb} t={t} />
-        </div>
-      </div>
-    </div>
+      </CardContent>
+      {/* Footer: scent chips left (wrapping when they do not fit), the
+          visibility badge right — both inside the card at every width the
+          grid renders (card KI-843). Hidden while the description shows. */}
+      <CardFooter className="justify-between transition-opacity group-focus-within/kb-card:pointer-events-none group-focus-within/kb-card:opacity-0 group-hover/kb-card:pointer-events-none group-hover/kb-card:opacity-0">
+        <KbCardChips kb={kb} t={t} />
+        <VisibilityBadge kb={kb} t={t} />
+      </CardFooter>
+    </Card>
   );
 }

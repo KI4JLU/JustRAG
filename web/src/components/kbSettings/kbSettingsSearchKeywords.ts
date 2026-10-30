@@ -12,7 +12,7 @@ import { assistantTranslations } from '../../translations.assistant';
 export const KB_SETTINGS_SEARCH_KEYS: Record<KbSettingsSection, readonly string[]> = {
     start: [
         'asstTitle', 'asstCategory', 'asstDescription', 'asstQuestions', 'asstRoleEntries', 'asstChatStart',
-        'asstChooseRoleHeading', 'asstColorsShow', 'asstColorFrom', 'asstColorTo', 'asstColors', 'asstGenerateDescription',
+        'asstChooseRoleHeading', 'asstGenerateDescription',
         'asstDynamic', 'asstFixedMode', 'asstCount', 'asstUploadLabel', 'asstUploadInstruction',
     ],
     behavior: [

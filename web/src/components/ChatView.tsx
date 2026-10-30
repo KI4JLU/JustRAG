@@ -661,7 +661,7 @@ const ChatViewComp = () => {
                   )}
                 >
                   {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
-                    <StartGlow colors={startPage.page.colors} />
+                    <StartGlow category={startPage.category} />
                   )}
                   {(chat.chatRoleId || (chat.roleStart && chat.messages.length === 0)) && (
                     // The role this chat was started in — for the whole chat, also when reopened from the history.
