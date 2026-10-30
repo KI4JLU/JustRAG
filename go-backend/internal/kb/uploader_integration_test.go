@@ -85,7 +85,12 @@ func TestListFilesReturnsUserFileID(t *testing.T) {
 		ownerID).Scan(&ufID); err != nil {
 		t.Fatalf("seed user_file: %v", err)
 	}
-	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1::uuid`, ufID) }) //nolint:errcheck
+	// The files rows reference the user_file (ON DELETE RESTRICT) and would only go with the KB, after
+	// this cleanup; drop them first, or the user_file and then its owner stay behind.
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM files WHERE user_file_id = $1::uuid`, ufID) //nolint:errcheck
+		pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1::uuid`, ufID)      //nolint:errcheck
+	})
 	for name, uf := range map[string]*string{"lib.pdf": &ufID, "plain.pdf": nil} {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO files (kb_id, name, type, status, storage_path, user_file_id)
