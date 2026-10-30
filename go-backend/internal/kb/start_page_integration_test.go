@@ -65,7 +65,7 @@ func TestCategory_ColorSlotOnCreate(t *testing.T) {
 		}
 	}
 
-	c, err := st.Create(ctx, "it-color-slot-a", 999, nil)
+	c, err := st.Create(ctx, "it-color-slot-a", 999, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestCategory_ColorSlotOnCreate(t *testing.T) {
 	}
 
 	seven := 7
-	d, err := st.Create(ctx, "it-color-slot-b", 999, &seven)
+	d, err := st.Create(ctx, "it-color-slot-b", 999, &seven, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +83,39 @@ func TestCategory_ColorSlotOnCreate(t *testing.T) {
 	if d.ColorSlot == nil || *d.ColorSlot != 7 {
 		t.Fatalf("explicit slot = %v, want 7", d.ColorSlot)
 	}
-	u, err := st.Update(ctx, d.ID, "it-color-slot-b", 999, nil)
+	u, err := st.Update(ctx, d.ID, "it-color-slot-b", 999, nil, nil)
 	if err != nil || u.ColorSlot == nil || *u.ColorSlot != 7 {
 		t.Fatalf("update without a slot must keep it: %+v (%v)", u, err)
+	}
+}
+
+// Oracle: migration 0096 — a picked colour is stored as given (the handler
+// lowercases it), kept by an update that sends none, cleared by "", and the
+// palette slot stays underneath it the whole time.
+func TestCategory_Color(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	st := kbcategories.NewStore(pool)
+	red := "#d4380d"
+	c, err := st.Create(ctx, "it-color-hex", 999, nil, &red)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Delete(context.Background(), c.ID) }) //nolint:errcheck
+	if c.Color == nil || *c.Color != red || c.ColorSlot == nil {
+		t.Fatalf("created = %+v, want color %s and a slot", c, red)
+	}
+	kept, err := st.Update(ctx, c.ID, "it-color-hex", 999, nil, nil)
+	if err != nil || kept.Color == nil || *kept.Color != red {
+		t.Fatalf("update without a color must keep it: %+v (%v)", kept, err)
+	}
+	empty := ""
+	cleared, err := st.Update(ctx, c.ID, "it-color-hex", 999, nil, &empty)
+	if err != nil || cleared.Color != nil || cleared.ColorSlot == nil {
+		t.Fatalf(`update with "" must clear the color and keep the slot: %+v (%v)`, cleared, err)
+	}
+	upper := "#ABCDEF"
+	if _, err := st.Update(ctx, c.ID, "it-color-hex", 999, nil, &upper); err == nil {
+		t.Fatal("the column takes lowercase hex only; the handler normalises before the store")
 	}
 }
