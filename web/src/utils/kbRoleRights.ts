@@ -29,6 +29,12 @@ export const KB_RIGHT_GROUPS: readonly { id: 'topic' | 'sidebar' | 'answers'; ri
 
 export const KB_RIGHTS: readonly KbRight[] = KB_RIGHT_GROUPS.flatMap(g => g.rights);
 
+/** Each right's row label (a translation key); also the KB settings search's keywords for Rollen & Rechte. */
+export const RIGHT_LABEL_KEY: Record<KbRight, string> = {
+    invite: 'rrRightInvite', seeSources: 'rrRightSeeSources', addSources: 'rrRightAddSources',
+    downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',
+};
+
 /** Columns left to right: strongest role first. */
 export const KB_ROLE_COLUMNS: readonly KbRole[] = ['owner', 'admin', 'edit', 'view'];
 

@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ApiKeyManager from './ApiKeys/ApiKeyManager';
 import { Choice } from './form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
+import { userSettingsKeywords } from './userSettingsSearchKeywords';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
@@ -60,7 +61,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'general',
                     label: t('settingsGeneral'),
                     icon: <Settings aria-hidden="true" />,
-                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('languageLabel')],
+                    keywords: userSettingsKeywords('general', t),
                     content: (
                         <>
                             <SettingsRow
@@ -123,7 +124,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'chat',
                     label: t('settingsChat'),
                     icon: <MessageSquare aria-hidden="true" />,
-                    keywords: [t('promptSuggestions'), t('followUpsLabel'), t('autoScrollLabel')],
+                    keywords: userSettingsKeywords('chat', t),
                     content: (
                         <>
                             <SettingsRow
@@ -151,7 +152,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'profile',
                     label: t('settingsProfile'),
                     icon: <User aria-hidden="true" />,
-                    keywords: [t('firstName'), t('lastName'), t('emailAddress')],
+                    keywords: userSettingsKeywords('profile', t),
                     content: (
                         <>
                             <SettingsRow label={t('username')} control={readOnly(user ? `@${user.username}` : undefined)} />
@@ -166,7 +167,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'connectors',
                     label: t('settingsConnectors'),
                     icon: <Plug aria-hidden="true" />,
-                    keywords: [t('apiKeys'), 'API', 'Confluence'],
+                    keywords: userSettingsKeywords('connectors', t),
                     // Always shown: a connector this user cannot use stays listed, disabled, with the reason.
                     content: (
                         <>

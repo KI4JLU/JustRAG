@@ -5,39 +5,47 @@ import { AGENT_SEARCH_KEYS } from './agentSections';
  * What the admin dialog's search matches besides a section's name: the labels of the fields,
  * groups and columns inside it, so „Top-K", „Google" or „Impressum" find the section that
  * holds them. Translation keys (read in the session language) plus a few fixed words.
+ * settingsSearchKeywords.test.ts fails when a settings row's label is missing here.
  */
 export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     configs: [
-        'aiConfigurations', 'provider', 'configName', 'chatModels', 'embeddingModels', 'rerankModels', 'ttsModels', 'sttModels',
+        'provider', 'configName', 'chatModels', 'embeddingModels', 'rerankModels', 'ttsModels', 'sttModels',
         'modelsPerJob', 'modelTierFast', 'cragGraderModel', 'kgExtractionModel', 'contextualEnrichmentModel',
         'chatPlanExecuteModel', 'chatPlanExecuteDAGIterativeModel', 'chatLongmemExtractionModel', 'chatSelfRAGModel', 'raptorSummaryModel',
+        'apiKey', 'baseUrl', 'reasoning',
     ],
     auth: [
         'authProviders', 'providerName', 'providerType', 'ldapUrl', 'bindDn', 'bindCredentials', 'searchBaseDn',
         'oidcIssuerUrl', 'oidcClientId', 'oidcClientSecret', 'oidcRedirectUri', 'oidcScopes', 'oidcSuccessRedirect', 'oidcPostLogoutRedirect',
     ],
     search: [
-        'searchProviderConfig', 'webSearchSection', 'academicSearchSection', 'googleSearchApiKey', 'googleSearchCx',
-        'academicSearchBaseUrl', 'academicSearchName',
+        'webSearchSection', 'academicSearchSection', 'googleSearchApiKey', 'googleSearchCx',
+        'academicSearchBaseUrl', 'academicSearchName', 'webSearchEnabled', 'academicSearchEnabled',
     ],
-    agent: ['agentConfig', ...AGENT_SEARCH_KEYS],
+    agent: [...AGENT_SEARCH_KEYS],
     site: [
-        'siteSettings', 'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
+        'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
         'confluenceSettings', 'confluenceEnabled', 'confluenceBaseUrl', 'gitRepoSettings', 'gitRepoEnabled',
     ],
     'kb-overview': [
         'colName', 'colOwner', 'tabFiles', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',
         'colLastActivity', 'colProcessing', 'colChats', 'colCreated', 'colOldestContent', 'colStaleShare', 'colLastSync', 'colRagas',
     ],
-    'global-kbs': ['publicKnowledgeBases', 'autoSubscribe', 'unpublishKb'],
-    templates: ['tplTabRoles', 'categories', 'tplDefault', 'asstPrompt'],
+    'global-kbs': ['autoSubscribe', 'unpublishKb'],
+    templates: ['tplTabRoles', 'categories', 'tplDefault', 'asstPrompt', 'asstName', 'asstDescription', 'asstColorFrom', 'asstColorTo', 'tplEnabled'],
     users: [
-        'userManagement', 'adminUsersSearch', 'adminUsersFilterRole', 'userInfo', 'roleUser', 'roleApiUser', 'roleAdmin',
-        'roleSuperAdmin', 'deleteUser',
+        'adminUsersSearch', 'adminUsersFilterRole', 'userInfo', 'roleUser', 'roleApiUser', 'roleAdmin',
+        'roleSuperAdmin', 'deleteUser', 'firstName', 'lastName', 'username', 'role', 'userInfoMemberSince', 'userInfoId',
     ],
-    roles: ['arSystemRolesTitle', 'arKbRolesTitle', 'arMappingTitle', 'arPerTopic'],
+    roles: [
+        'arSystemRolesTitle', 'arKbRolesTitle', 'arMappingTitle', 'arPerTopic',
+        'roleUser', 'roleApiUser', 'roleAdmin', 'roleSuperAdmin', 'kbRoleOwner', 'kbRoleAdmin', 'kbRoleEdit', 'kbRoleView',
+    ],
     health: ['reembedAllTitle'],
-    eval: ['evalRunner', 'evalGoldenSets', 'evalGenerateTitle', 'evalGoldenSet', 'evalCompare', 'evalDuration'],
+    eval: [
+        'evalRunner', 'evalGoldenSets', 'evalGenerateTitle', 'evalGoldenSet', 'evalCompare', 'evalDuration', 'evalHistory',
+        'evalGenLookup', 'evalGenComplex', 'evalGenEnumeration', 'evalGenMultiHop', 'evalLabel', 'evalKbId', 'evalTeamLabel', 'evalTopK', 'evalJudge',
+    ],
 };
 
 /** Words that are not translated: protocol names, queue names, the web/API pair. */

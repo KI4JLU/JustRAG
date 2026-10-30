@@ -17,6 +17,10 @@ import {
     type SelectFieldRowOption,
 } from '../form/SettingsFieldRow';
 import type { ChatModelOption } from '../../AdminUI';
+import { useSearchMatches, useSearchRevealForm } from '../../hooks/useSearchReveal';
+
+/** Labels of the form's own fields (translation keys), for the settings search. */
+const CONFIG_FORM_KEYS = ['configName', 'embeddingModels', 'rerankModels', 'ttsModels', 'sttModels', 'apiKey', 'baseUrl', 'reasoning'];
 import { AdminListCard } from './AdminListCard';
 
 interface AIModel {
@@ -78,6 +82,10 @@ interface AdminConfigsTabProps {
     setConnectionTest: React.Dispatch<React.SetStateAction<ConnectionTest | null>>;
     handleConfigSubmit: (e: React.FormEvent) => void;
     startEditConfig: (config: AIConfig) => void;
+    /** Opens the empty add form. */
+    startAdd: () => void;
+    /** True once the configurations have come back (the search picks one of them). */
+    fetched?: boolean;
     handleDelete: (id: string, type: 'config' | 'auth') => void;
     handleActivate: (id: string) => void;
     resetForm: () => void;
@@ -104,6 +112,8 @@ export default function AdminConfigsTab({
     setConnectionTest,
     handleConfigSubmit,
     startEditConfig,
+    startAdd,
+    fetched = true,
     handleDelete,
     handleActivate,
     resetForm,
@@ -117,6 +127,14 @@ export default function AdminConfigsTab({
 }: AdminConfigsTabProps) {
     const reducedMotion = useReducedMotion();
     const { t } = useTheme();
+    // The settings search opens the form when it names one of its fields: the active
+    // configuration's, else an empty one — once the configurations have loaded.
+    const formMatch = useSearchMatches(CONFIG_FORM_KEYS.map(t));
+    useSearchRevealForm(fetched && formMatch ? 'on' : null, showForm, configFormData, () => {
+        const active = configs.find(c => c.is_active) ?? configs[0];
+        if (active) startEditConfig(active);
+        else startAdd();
+    }, resetForm);
     const formId = useId();
     const siteFormId = useId();
     const renderActions = (actions: ReactNode) => footerSlot
@@ -605,7 +623,8 @@ export default function AdminConfigsTab({
                 onSubmit={onSiteConfigSubmit}
                 style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}
             >
-                <div>
+                {/* Kept as the rows' heading while the dialog search shows some of them. */}
+                <div data-search-keep="">
                     <h3 style={{ margin: 0 }}>{t('modelsPerJob')}</h3>
                     <p style={{ opacity: 0.7, margin: '0.25rem 0 0', fontSize: '0.9rem' }}>{t('modelsPerJobDesc')}</p>
                 </div>

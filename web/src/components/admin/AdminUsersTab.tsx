@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Info, Search, Trash2 } from 'lucide-react';
 import {
-    ActionMenu, Badge, BreadcrumbBack, Input, ListToolbar, SettingsRow,
+    ActionMenu, Badge, BreadcrumbBack, Input, ListToolbar, SettingsRow, useSettingsSearch,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
     type ActionMenuItem, type BadgeProps,
 } from '@ki4jlu/design-system';
@@ -52,12 +52,19 @@ export default function AdminUsersTab({ usersList, currentUser, handleRoleChange
     const [role, setRole] = useState<string>(ALL);
     const [page, setPage] = useState(0);
 
+    // The admin dialog's search narrows the list too (name, username, role), so a hit on a later page
+    // shows; it gives way to the list's own field while that has text, and when it matches no user.
+    const dialogSearch = useSettingsSearch();
     const filtered = useMemo(() => {
-        const q = query.trim().toLocaleLowerCase();
-        return usersList.filter(u =>
+        const matching = (q: string) => usersList.filter(u =>
             (role === ALL || u.role === role)
-            && (!q || `${displayName(u.firstName, u.lastName, u.username)} ${u.username}`.toLocaleLowerCase().includes(q)));
-    }, [usersList, query, role]);
+            && (!q || `${displayName(u.firstName, u.lastName, u.username)} ${u.username} ${roleLabel(u.role, t)}`
+                .toLocaleLowerCase().includes(q)));
+        const own = query.trim().toLocaleLowerCase();
+        if (own || !dialogSearch.filtering) return matching(own);
+        const fromDialog = matching(dialogSearch.query);
+        return fromDialog.length ? fromDialog : matching('');
+    }, [usersList, query, role, dialogSearch, t]);
 
     // A filter that shrinks the list below the current page lands on the last page, not an empty one.
     const lastPage = Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);

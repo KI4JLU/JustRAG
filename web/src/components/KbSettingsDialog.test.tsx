@@ -190,8 +190,9 @@ describe('KbSettingsDialog search', () => {
     it('finds Rollen & Rechte by one of its rights', async () => {
         renderDialog();
         await userEvent.type(screen.getByRole('searchbox', { name: 'settingsSearch' }), 'kbSettingsKeywordsRoles');
+        // The open section (Startseite) drops out once its rows have had their moment to match (DS 0.71).
+        expect(await screen.findByRole('heading', { level: 2, name: 'kbSettingsTabRoles' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'kbSettingsTabBehavior' })).toBeNull();
-        expect(screen.getByRole('heading', { level: 2, name: 'kbSettingsTabRoles' })).toBeInTheDocument();
     });
 });
 

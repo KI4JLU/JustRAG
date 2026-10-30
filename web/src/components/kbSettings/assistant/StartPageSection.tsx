@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchMatches, useSearchReveal } from '../../../hooks/useSearchReveal';
 import { Check, Info, Pencil } from 'lucide-react';
 import { Button, Notice, PromptSuggestions } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -14,6 +15,10 @@ import { useAssistantSettings } from './useAssistantSettings';
 import { useStarterSample } from './useStarterSample';
 
 type Block = 'card' | 'start';
+
+/** Labels of the fields behind each block's „Bearbeiten" (translation keys), for the settings search. */
+const CARD_EDITOR_KEYS = ['asstTitle', 'asstCategory', 'asstDescription', 'asstColors', 'asstColorsShow', 'asstColorFrom', 'asstColorTo', 'asstGenerateDescription'];
+const START_EDITOR_KEYS = ['asstChatStart', 'asstQuestions', 'asstRoleEntries', 'asstDynamic', 'asstFixedMode', 'asstCount', 'asstUploadLabel', 'asstUploadInstruction'];
 
 /**
  * „Startseite": the start page exactly as members see it — the title card,
@@ -46,6 +51,19 @@ export function StartPageSection() {
     const activeRoleId = draft?.behavior.activeRoleId ?? '';
 
     const onFocused = useCallback(() => setFocusEntryId(null), []);
+
+    // The editors' fields exist only behind „Bearbeiten": the settings search opens the editor whose
+    // field it names, and closes it again when the search moves on (unless it was open already).
+    const cardMatch = useSearchMatches(CARD_EDITOR_KEYS.map(t));
+    const startMatch = useSearchMatches(START_EDITOR_KEYS.map(t));
+    const reveal = (block: Block, match: boolean) => [
+        match ? 'on' : null,
+        editing[block],
+        () => { setPreviewChat(null); setEditing(e => ({ ...e, [block]: true })); },
+        () => setEditing(e => ({ ...e, [block]: false })),
+    ] as const;
+    useSearchReveal(...reveal('card', cardMatch));
+    useSearchReveal(...reveal('start', startMatch));
 
     if (!draft) return null;
     const page = draft.startPage;

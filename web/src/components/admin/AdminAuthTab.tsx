@@ -5,6 +5,13 @@ import { Badge, BreadcrumbBack, Button } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FieldRow, SelectFieldRow } from '../form/SettingsFieldRow';
 import { AdminListCard } from './AdminListCard';
+import { useSearchMatches, useSearchRevealForm } from '../../hooks/useSearchReveal';
+
+/** Labels of the form's own fields (translation keys), for the settings search. */
+// The protocol names (not translated) count for their type: „OIDC" opens an OIDC form.
+const COMMON_FORM_KEYS = ['providerName', 'providerType'];
+const LDAP_FORM_KEYS = ['LDAP', 'ldapUrl', 'bindDn', 'bindCredentials', 'searchBaseDn'];
+const OIDC_FORM_KEYS = ['OIDC', 'oidcIssuerUrl', 'oidcClientId', 'oidcClientSecret', 'oidcRedirectUri', 'oidcScopes', 'oidcSuccessRedirect', 'oidcPostLogoutRedirect'];
 
 interface LdapConfig {
     url: string;
@@ -42,6 +49,10 @@ interface AdminAuthTabProps {
     setAuthFormData: React.Dispatch<React.SetStateAction<Partial<AuthProvider>>>;
     handleAuthSubmit: (e: React.FormEvent) => void;
     startEditAuth: (provider: AuthProvider) => void;
+    /** Opens the empty add form. */
+    startAdd: () => void;
+    /** True once the providers have come back (the search picks one of them). */
+    fetched?: boolean;
     handleDelete: (id: string, type: 'config' | 'auth') => void;
     resetForm: () => void;
     authValidation: {
@@ -194,6 +205,8 @@ export default function AdminAuthTab({
     setAuthFormData,
     handleAuthSubmit,
     startEditAuth,
+    startAdd,
+    fetched = true,
     handleDelete,
     resetForm,
     authValidation,
@@ -202,6 +215,21 @@ export default function AdminAuthTab({
 }: AdminAuthTabProps) {
     const { t } = useTheme();
     const formId = useId();
+    // The settings search opens the form when it names one of its fields — once the providers
+    // have loaded: a provider of the type that has the field (any provider for a field both
+    // types share), else an empty form of that type. As the query narrows, the form follows.
+    const ldap = useSearchMatches(LDAP_FORM_KEYS.map(t));
+    const oidc = useSearchMatches(OIDC_FORM_KEYS.map(t));
+    const common = useSearchMatches(COMMON_FORM_KEYS.map(t));
+    const target = !fetched ? null : ldap && oidc ? 'any' : ldap ? 'ldap' : oidc ? 'oidc' : common ? 'any' : null;
+    useSearchRevealForm(target, showForm, authFormData, (type) => {
+        const provider = providers.find(p => type === 'any' || p.type === type);
+        if (provider) startEditAuth(provider);
+        else {
+            startAdd();
+            if (type !== 'any') setAuthFormData(f => ({ ...f, type }));
+        }
+    }, resetForm);
     const renderActions = (actions: ReactNode) => footerSlot
         ? createPortal(actions, footerSlot)
         : <div className="flex flex-col-reverse gap-2 border-t border-outline-variant pt-4 sm:flex-row sm:justify-end">{actions}</div>;
