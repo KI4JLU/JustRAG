@@ -1,5 +1,6 @@
 import type { KbSettingsSection } from '../../types';
 import { RIGHT_LABEL_KEY } from '../../utils/kbRoleRights';
+import { assistantTranslations } from '../../translations.assistant';
 
 /*
  * What the KB settings search matches besides a section's name: the labels, headings and
@@ -23,10 +24,12 @@ export const KB_SETTINGS_SEARCH_KEYS: Record<KbSettingsSection, readonly string[
         'addMembers', 'inviteLinks', 'kbSettingsKeywordsMembers', 'allMembers', 'pendingInvites', 'usernamesLabel',
         'roleLabel', 'newInviteLink', 'inviteLinkTitle', 'activeInviteLinks', 'byUsername',
     ],
-    versions: ['asstRestore', 'asstAllChanges'],
+    // Every field a version can change (Titel, Farben, Systemprompt, …), as its changes list them.
+    versions: ['asstRestore', 'asstAllChanges', ...Object.keys(assistantTranslations).filter(k => k.startsWith('asstField_'))],
 };
 
 /** The search keywords of one section, in the session language. */
 export function kbSettingsKeywords(section: KbSettingsSection, t: (key: string) => string): string[] {
-    return KB_SETTINGS_SEARCH_KEYS[section].map(t);
+    // A field label may carry a placeholder („Vorschläge · {ref}"): the search matches the words.
+    return KB_SETTINGS_SEARCH_KEYS[section].map(k => t(k).replace(/\s*·?\s*\{\w+\}/g, ''));
 }
