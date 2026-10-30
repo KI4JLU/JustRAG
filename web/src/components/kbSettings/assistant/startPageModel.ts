@@ -1,16 +1,19 @@
 import type { CSSProperties } from 'react';
+import { categoryTone } from '@ki4jlu/design-system';
 import type { KbCategory } from '../../../types';
 import type { RoleView } from './roleModel';
 import { defaultStart, type EntryKind, type EntryStart, type RoleEntry, type StartColors, type StartMode, type StartPage, type Suggestions } from './api';
 
-/** The colour of a catalog category: its fixed palette slot (migration 0093). */
-export function categoryDotColor(cat: Pick<KbCategory, 'colorSlot'> | null | undefined): string {
+/**
+ * The colour of a catalog category: the one an admin picked (migration 0096),
+ * else its fixed palette slot (migration 0093). Both dim in dark mode — the
+ * slot through its token, a picked colour through the DS `categoryTone`.
+ */
+export function categoryDotColor(cat: Pick<KbCategory, 'colorSlot' | 'color'> | null | undefined): string {
+    if (cat?.color) return categoryTone(cat.color);
     const slot = cat?.colorSlot && cat.colorSlot >= 1 && cat.colorSlot <= 9 ? cat.colorSlot : 1;
     return `var(--color-category-${slot})`;
 }
-
-/** The colours of a KB that never chose its own (kbstartpage.DefaultColors). */
-export const DEFAULT_COLORS: StartColors = { from: '#0056B3', to: '#3897E8' };
 
 /** The colours as a gradient: the picker's swatch and the „Entdecken" card's band. */
 export function colorsStyle(colors: StartColors | null | undefined): CSSProperties | undefined {
@@ -18,18 +21,33 @@ export function colorsStyle(colors: StartColors | null | undefined): CSSProperti
 }
 
 /**
- * The glow behind the start page's title and composer: the two colours side
- * by side, masked by an ellipse around the centre of the chat area that
- * reaches transparent well before every edge, so it flows into the page's
- * background with no border on any side. The colours are the author's own
- * hex values, so the same in light and dark mode; the low tint keeps the
- * surface's text readable on either.
+ * A fine noise tile laid over the glow as dithering: a faint, wide gradient
+ * on a dark surface spans only a few 8-bit steps and shows as rings
+ * (developer, 30.10.2026: „jagged" in dark mode); the noise breaks them up.
  */
-export function colorsGlowStyle(colors: StartColors | null | undefined): CSSProperties | undefined {
-    if (!colors) return undefined;
-    const tint = (color: string) => `color-mix(in oklab, ${color} 28%, transparent)`;
-    const mask = 'radial-gradient(ellipse 46% 34% at 50% 48%, black, transparent)';
-    return { backgroundImage: `linear-gradient(90deg, ${tint(colors.from)}, ${tint(colors.to)})`, maskImage: mask, WebkitMaskImage: mask };
+const GLOW_NOISE = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.06'/%3E%3C/svg%3E\")";
+
+/** An eased falloff (many stops) instead of a straight ramp, so no edge reads as a ring. */
+const GLOW_MASK = 'radial-gradient(ellipse 50% 38% at 50% 48%, black 0%, rgb(0 0 0 / .78) 28%, rgb(0 0 0 / .46) 52%, rgb(0 0 0 / .18) 74%, rgb(0 0 0 / .05) 90%, transparent 100%)';
+
+/**
+ * The glow behind the start page's title and composer, in the topic's
+ * category colour (as on its cards), masked by an ellipse around the centre
+ * of the chat area that fades out well before every edge, so it flows into
+ * the page's background with no border on any side. Its strength is
+ * `--category-glow-strength` (DS tokens.css): lower in dark mode, where the same
+ * tint glares. No category, no glow — the page stays neutral like the topic's
+ * card.
+ */
+export function categoryGlowStyle(cat: Pick<KbCategory, 'colorSlot' | 'color'> | null | undefined): CSSProperties | undefined {
+    if (!cat) return undefined;
+    const color = categoryDotColor(cat);
+    const strength = 'var(--category-glow-strength, 30%)';
+    return {
+        backgroundImage: `${GLOW_NOISE}, linear-gradient(90deg, color-mix(in oklab, ${color} ${strength}, transparent), color-mix(in oklab, ${color} calc(${strength} * 0.6), transparent))`,
+        maskImage: GLOW_MASK,
+        WebkitMaskImage: GLOW_MASK,
+    };
 }
 
 /**
@@ -46,6 +64,11 @@ export const ROLE_COVER_DEFAULTS: Record<EntryKind, StartColors> = {
 /** A role card's cover band: a template's own (admin „Bausteine"), else the default for the card's kind. */
 export function roleCardCover(role: Pick<RoleView, 'cover'> | undefined, kind: EntryKind): StartColors {
     return role?.cover ?? ROLE_COVER_DEFAULTS[kind];
+}
+
+/** A role's colour for its card (`accentColor`): the first of its cover colours. */
+export function roleAccent(cover: StartColors): string {
+    return cover.from;
 }
 
 /** Translation keys of the chat start modes. */

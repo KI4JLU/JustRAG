@@ -676,7 +676,7 @@ describe('MyTopicsView rename trigger', () => {
  * queries are scoped to the card list; the chips live in the filter row above
  * it, which is a sibling of the grid rather than part of it. */
 function inCards() {
-  const card = document.querySelector('.home-view__kb-card');
+  const card = document.querySelector('[data-testid="kb-card"]');
   if (card === null) throw new Error('no KB card rendered');
   return within(card as HTMLElement);
 }
@@ -700,95 +700,55 @@ function inCards() {
  * that highlighted correctly and filtered nothing passes that and fails this.
  * ------------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------------
- * Managing categories: add, rename, delete.
+ * The platform's categories in the chip row, and hiding them.
  *
- * WHY IT MATTERS THAT ALL THREE ARE HERE: the „+" chip was create-only for a
- * while, so a typo was permanent and an unwanted category could not be removed
- * — the `PATCH` and `DELETE` endpoints existed the whole time with nothing
- * calling them. These cases are what stop that regressing.
- *
- * ORACLE: the recorded axios calls — METHOD and URL — which is the observable
- * output of each action, plus the chip row's own contents for what the user
- * ends up seeing. Asserting the dialog's internal state instead would pass
- * against a dialog that never made a request.
+ * ORACLE: developer rulings 30.10.2026 — the system categories are filter
+ * chips (a topic matches its one `category`), the category dialog hides a
+ * chip with its „Im Filter" switch, and the user's own categories are not
+ * offered (nothing attaches one to a topic yet). Read off the chip row and the
+ * rendered cards, not off the hook's state.
  * ------------------------------------------------------------------------- */
-describe('MyTopicsView category manager', () => {
-  const CATEGORY = { id: 'cat-1', name: 'Forschung', sortOrder: 0 };
+describe('MyTopicsView platform categories', () => {
+  const CATEGORY = { id: 'cat-1', name: 'Verwaltung', sortOrder: 0, colorSlot: 4 };
+  const inCategory: KnowledgeBase = { ...baseKb, id: 'kb-v', name: 'Prüfungen', myRole: 'owner', category: CATEGORY };
+  const other: KnowledgeBase = { ...baseKb, id: 'kb-o', name: 'Sonstiges', myRole: 'owner' };
 
   beforeEach(() => {
     mockedAxios.get.mockImplementation((url: string) =>
-      Promise.resolve({ data: url.includes('/api/kb-user-categories') ? [CATEGORY] : [] }),
+      Promise.resolve({ data: url.endsWith('/api/kb-categories') ? [CATEGORY] : [] }),
     );
-    mockedAxios.post.mockResolvedValue({ data: { id: 'cat-2', name: 'Lehre', sortOrder: 0 } });
-    mockedAxios.patch.mockResolvedValue({ data: { ...CATEGORY, name: 'Projekte' } });
-    mockedAxios.delete.mockResolvedValue({ status: 204 });
   });
 
-  async function openManager() {
+  it('offers a platform category as a chip that narrows to its topics', async () => {
+    renderView(<MyTopicsView kbs={[inCategory, other]} {...noopProps} />);
+    await userEvent.click(await screen.findByRole('button', { name: CATEGORY.name }));
+    expect(screen.getByText('Prüfungen')).toBeInTheDocument();
+    expect(screen.queryByText('Sonstiges')).toBeNull();
+  });
+
+  it('asks for no personal categories', async () => {
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
-    // The existing category has to have arrived, or the list is empty for a
-    // reason that has nothing to do with the action under test.
+    await screen.findByRole('button', { name: CATEGORY.name });
+    expect(mockedAxios.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb-user-categories'));
+  });
+
+  it('hides a chip with its switch in the category dialog, and shows it again', async () => {
+    renderView(<MyTopicsView kbs={[inCategory, other]} {...noopProps} />);
     await screen.findByRole('button', { name: CATEGORY.name });
     await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
-    return within(await screen.findByRole('dialog'));
-  }
+    const dialog = within(await screen.findByRole('dialog'));
+    const toggle = dialog.getByRole('switch', { name: translations.showCategoryInFilter.en.replace('{name}', CATEGORY.name) });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
 
-  it('creates one, and it appears as a chip', async () => {
-    const dialog = await openManager();
-
-    await userEvent.type(dialog.getByLabelText(translations.newCategoryPrompt.en), 'Lehre');
-    await userEvent.click(dialog.getByRole('button', { name: translations.add.en }));
-
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      expect.stringContaining('/api/kb-user-categories'),
-      expect.objectContaining({ name: 'Lehre' }),
-    );
-    /* Closed first: Radix marks everything outside an open dialog
-       `aria-hidden`, so the chip row is genuinely unreachable to a screen
-       reader — and to `getByRole` — until it is. Asserting through the dialog
-       would have been asserting against the wrong document state. Closing is
-       also the real flow.
- 
-       And the chip row gained it, which is the point: the hook owns the list,
-       not the dialog, so the two cannot disagree about what exists. */
+    await userEvent.click(toggle);
     await userEvent.keyboard('{Escape}');
-    expect(await screen.findByRole('button', { name: 'Lehre' })).toBeInTheDocument();
-  });
+    await waitFor(() => expect(screen.queryByRole('button', { name: CATEGORY.name })).toBeNull());
 
-  it('renames one through PATCH', async () => {
-    const dialog = await openManager();
-
-    await userEvent.click(dialog.getByRole('button', { name: `${translations.renameCategory.en}: ${CATEGORY.name}` }));
-    const field = dialog.getByLabelText(translations.renameCategory.en);
-    await userEvent.clear(field);
-    await userEvent.type(field, 'Projekte');
-    await userEvent.click(dialog.getByRole('button', { name: translations.save.en }));
-
-    expect(mockedAxios.patch).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/kb-user-categories/${CATEGORY.id}`),
-      expect.objectContaining({ name: 'Projekte' }),
-    );
+    // Back on, so the shared preference does not leak into the next test.
+    await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('switch'));
     await userEvent.keyboard('{Escape}');
-    expect(await screen.findByRole('button', { name: 'Projekte' })).toBeInTheDocument();
-  });
-
-  it('asks before deleting, and only then calls DELETE', async () => {
-    const dialog = await openManager();
-
-    await userEvent.click(dialog.getByRole('button', { name: `${translations.deleteCategory.en}: ${CATEGORY.name}` }));
-    // The question is in the row itself — no second modal on top of this one.
-    expect(dialog.getByText(translations.confirmDeleteCategory.en)).toBeInTheDocument();
-    expect(mockedAxios.delete).not.toHaveBeenCalled();
-
-    await userEvent.click(dialog.getByRole('button', { name: translations.delete.en }));
-
-    expect(mockedAxios.delete).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/kb-user-categories/${CATEGORY.id}`),
-    );
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: CATEGORY.name })).toBeNull();
-    });
+    expect(await screen.findByRole('button', { name: CATEGORY.name })).toBeInTheDocument();
   });
 });
 

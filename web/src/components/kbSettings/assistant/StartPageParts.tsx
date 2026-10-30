@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import {
-    Button, Card, CardCover, Carousel, CarouselContent, CarouselDots, CarouselItem,
+    Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
     FileDropzone, cn, useCarousel, useCarouselSlides,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -11,7 +11,7 @@ import { KindIcon } from './entryKinds';
 import { IconTile } from './roles';
 import type { RoleView } from './roleModel';
 import { CategoryPill } from '../../CategoryPill';
-import { colorsGlowStyle, colorsStyle, roleCardCover } from './startPageModel';
+import { categoryGlowStyle, roleAccent, roleCardCover } from './startPageModel';
 
 /*
  * The pieces of a KB's start page that the settings' Startseite and the real
@@ -20,13 +20,14 @@ import { colorsGlowStyle, colorsStyle, roleCardCover } from './startPageModel';
  */
 
 /**
- * The start page's colour: a glow that fills the chat area (its parent is
- * `relative isolate`) and shows as a soft ellipse behind the title and the
- * composer, which sit centred there. Filling the parent rather than reaching
- * past it keeps it from ever adding a scrollbar. No colours render nothing.
+ * The start page's colour: a glow in its category's colour that fills the
+ * chat area (its parent is `relative isolate`) and shows as a soft ellipse
+ * behind the title and the composer, which sit centred there. Filling the
+ * parent rather than reaching past it keeps it from ever adding a scrollbar.
+ * No category renders nothing.
  */
-export function StartGlow({ colors }: { colors: StartColors | null }) {
-    const style = colorsGlowStyle(colors);
+export function StartGlow({ category }: { category: Pick<KbCategory, 'colorSlot' | 'color'> | null | undefined }) {
+    const style = categoryGlowStyle(category);
     if (!style) return null;
     return <div aria-hidden="true" data-slot="start-glow" className="pointer-events-none absolute inset-0 -z-10" style={style} />;
 }
@@ -87,59 +88,86 @@ export function TitleCard({
 }
 
 /**
- * A role's head: the cover band (the template's own colours or the default
- * for its start's kind) with `corner` on its top left (badges), and the
- * avatar on the band's lower edge showing how the role starts (input field,
- * start prompt or file). The role card and the role preview share it, so
+ * A role's head, as a hairline card's top (developer mockup „Rollen-Cards ·
+ * Hairline", 30.10.2026): a band tinted in the role's colour with `corner` on
+ * its top left (badges), closed by the rule in that colour with the avatar on
+ * it showing how the role starts (input field, start prompt or file). The
+ * colour is the card's `--card-accent` — set it with `roleAccent` on the card
+ * (or the frame) around it. The role card and the role preview share it, so
  * both heads look the same.
  */
-export function RoleCover({ cover, kind, corner }: { cover: StartColors; kind: EntryKind; corner?: React.ReactNode }) {
+export function RoleCover({ kind, corner }: { kind: EntryKind; corner?: React.ReactNode }) {
     return (
         <>
-            <CardCover className="relative h-20 shrink-0" style={colorsStyle(cover)}>
-                {corner && <span className="absolute left-3 top-3 flex flex-wrap gap-1">{corner}</span>}
-            </CardCover>
-            {/* Positioned above the band, so the tile overlaps the band's lower
-                edge whole instead of under it. */}
-            <IconTile glyph={<KindIcon kind={kind} />} tone="solid" size="lg" className="relative z-10 -mt-6 ml-4 shrink-0 ring-4 ring-surface-container-lowest" />
+            <CardBand className="min-h-16 items-start">
+                {corner && <span className="flex flex-wrap gap-1">{corner}</span>}
+            </CardBand>
+            <CardHairline>
+                <IconTile glyph={<KindIcon kind={kind} />} tone="accent" className="ring-4 ring-surface-container-lowest" />
+            </CardHairline>
+        </>
+    );
+}
+
+/** A role card's size, one everywhere — the start page, its editor and the role overview. */
+export const ROLE_CARD_SIZE = 'aspect-[3/4] w-[11.5rem] shrink-0';
+
+/**
+ * The inside of a role card: the role's head (RoleCover), then title and
+ * description; `children` go below. RoleCardFrame puts it in a Card; the
+ * role overview (RoleTile) in a SelectableCard — either with the role's
+ * colour as `accentColor` (`roleAccent`).
+ */
+export function RoleCardBody({
+    kind, title, description, corner, children,
+}: {
+    kind: EntryKind;
+    title: React.ReactNode;
+    description?: string;
+    corner?: React.ReactNode;
+    children?: React.ReactNode;
+}) {
+    return (
+        <>
+            <RoleCover kind={kind} corner={corner} />
+            {/* The fixed size cuts long texts: two lines of title, three of description. */}
+            <span className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden px-5 pb-4">
+                <span className="line-clamp-2 shrink-0 text-base font-semibold leading-snug text-balance break-words hyphens-auto text-on-surface">{title}</span>
+                {description && <span className="m-0 line-clamp-3 min-h-0 text-sm leading-5 text-on-surface-variant">{description}</span>}
+                {children}
+            </span>
         </>
     );
 }
 
 /**
- * The frame of a role card, shared by the start page and its editor: the
- * role's head (RoleCover), then title and description; `children` go
- * below. One size everywhere — the
- * start page, its editor and the role overview: ROLE_CARD_WIDTH wide, 3:4.
- * `highlighted`: the default role's card — primary border. With `onActivate`
+ * The frame of a role card, shared by the start page and its editor: a Card
+ * of ROLE_CARD_SIZE around RoleCardBody.
+ * Every card looks alike — the active role's is not singled out. With `onActivate`
  * the whole card is the button (`label` its accessible name).
  */
 export function RoleCardFrame({
-    cover, kind, title, description, corner, highlighted = false, onActivate, label, pressed, className, children,
+    cover, kind, title, description, corner, onActivate, label, className, children,
 }: {
     cover: StartColors;
     kind: EntryKind;
     title: React.ReactNode;
     description?: string;
     corner?: React.ReactNode;
-    highlighted?: boolean;
     onActivate?: () => void;
     label?: string;
-    /** A toggle card (the role overview's preview): its state for assistive tech. */
-    pressed?: boolean;
     className?: string;
     children?: React.ReactNode;
 }) {
     return (
         <Card
-            data-highlighted={highlighted || undefined}
-            className={cn('relative flex aspect-[3/4] w-[11.5rem] shrink-0 flex-col overflow-hidden', highlighted && 'border-primary ring-2 ring-primary/20', onActivate && 'cursor-pointer select-none', className)}
+            accentColor={roleAccent(cover)}
+            className={cn('relative overflow-hidden', ROLE_CARD_SIZE, onActivate && 'cursor-pointer select-none', className)}
             {...(onActivate && {
                 interactive: true,
                 role: 'button',
                 tabIndex: 0,
                 'aria-label': label,
-                'aria-pressed': pressed,
                 onClick: onActivate,
                 onKeyDown: (e: React.KeyboardEvent) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -149,13 +177,9 @@ export function RoleCardFrame({
                 },
             })}
         >
-            <RoleCover cover={cover} kind={kind} corner={corner} />
-            {/* The fixed size cuts long texts: two lines of title, three of description. */}
-            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden px-4 pb-4 pt-2">
-                <div className="line-clamp-2 shrink-0 text-base font-semibold leading-snug text-balance break-words hyphens-auto text-on-surface">{title}</div>
-                {description && <p className="m-0 line-clamp-3 min-h-0 text-sm leading-5 text-on-surface-variant">{description}</p>}
+            <RoleCardBody kind={kind} title={title} description={description} corner={corner}>
                 {children}
-            </div>
+            </RoleCardBody>
         </Card>
     );
 }
@@ -220,8 +244,9 @@ const PEEK_OFFSET_PX = 24;
 const CAROUSEL_OPTS = { align: () => PEEK_OFFSET_PX, slidesToScroll: 1, inViewThreshold: 0.6 } as const;
 
 /**
- * „Rollenauswahl": one card per role — the active role's first and
- * highlighted — in a carousel of one, two or three cards per view (by the
+ * „Rollenauswahl": one card per role — the active role's first, none
+ * preselected or singled out (developer ruling 30.10.2026: once several roles
+ * are offered, every card behaves the same) — in a carousel of one, two or three cards per view (by the
  * width it gets), with a counter, previous/next (one card a click) and dots
  * once not all fit.
  * The whole card is the button: it starts a NEW chat in that role (the
@@ -244,9 +269,8 @@ export function RoleStartCards({
                 <RoleCarouselHeader headingId={headingId} />
                 {/* Faded where more cards lie, so a peeking card fades out instead of ending in a clip. */}
                 <CarouselContent fadeEdges>
-                    {entries.map((e, i) => {
+                    {entries.map(e => {
                         const role = roles.find(r => r.id === e.roleId);
-                        const first = i === 0;
                         return (
                             <CarouselItem key={e.id} className={ROLE_SLIDE}>
                                 <RoleCardFrame
@@ -254,10 +278,9 @@ export function RoleStartCards({
                                     kind={e.kind}
                                     title={role?.name}
                                     description={role?.description}
-                                    highlighted={first}
                                     className="transition-colors hover:border-primary"
                                     onActivate={() => onStart(e)}
-                                    label={`${role?.name ?? ''}: ${first ? t('asstStartChat') : e.kind === 'file' ? t('asstUploadFile') : t('asstGetStarted')}`}
+                                    label={`${role?.name ?? ''}: ${e.kind === 'file' ? t('asstUploadFile') : e.kind === 'task' ? t('asstGetStarted') : t('asstStartChat')}`}
                                 />
                             </CarouselItem>
                         );

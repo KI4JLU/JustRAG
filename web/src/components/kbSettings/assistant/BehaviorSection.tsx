@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Check, Copy, MessageSquarePlus, Pencil, Trash2 } from 'lucide-react';
 import {
     Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-    FilterChips, PanelSection, type ActionMenuItem,
+    FilterChips, PanelSection, SelectableCardGroup, type ActionMenuItem,
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../../api';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -252,8 +252,13 @@ export function BehaviorSection({
                                     { value: 'custom', label: `${t('asstFilterOwn')} (${own.length})` },
                                 ]}
                             />
-                            {/* Room for the viewed card's ring. */}
-                            <div role="group" aria-label={t('asstRoles')} className="grid grid-cols-[repeat(auto-fill,11.5rem)] gap-4 p-1">
+                            {/* One choice: the role the preview shows (none while the panel is closed). Room for its ring. */}
+                            <SelectableCardGroup
+                                aria-label={t('asstRoles')}
+                                value={panelOpen ? previewed.id : ''}
+                                onValueChange={showPreview}
+                                className="grid-cols-[repeat(auto-fill,11.5rem)] p-1"
+                            >
                                 {filtered.map(r => (
                                     <RoleTile
                                         key={r.id}
@@ -261,8 +266,6 @@ export function BehaviorSection({
                                         start={roleStart(r.id)}
                                         onStartPage={entriesFor(r.id).length > 0}
                                         active={isActive(r.id)}
-                                        previewed={panelOpen && previewed.id === r.id}
-                                        onPreview={() => showPreview(r.id)}
                                         onUse={() => activateRole(r.id)}
                                         actions={roleActions(r)}
                                         actionsLabel={t('asstActionsFor').replace('{name}', r.name)}
@@ -271,7 +274,7 @@ export function BehaviorSection({
                                 {filter !== 'presets' && own.length < limits.customRolesMax && (
                                     <NewRoleTile onClick={() => openEditor(newRole())} />
                                 )}
-                            </div>
+                            </SelectableCardGroup>
                             {panelOpen && (
                                 <RolePreviewPanel
                                     key={previewed.id}

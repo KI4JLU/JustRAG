@@ -17,12 +17,15 @@ export function RoleIcon({ name, ...props }: { name?: string } & LucideProps) {
     }
 }
 
-/** The square icon field of a role (template: primary, own role: neutral, solid: a role entry). */
+/**
+ * The square icon field of a role (template: primary, own role: neutral,
+ * solid: a role entry, accent: on a hairline card's rule, in the card's colour).
+ */
 export function IconTile({ icon, glyph, tone = 'primary', size = 'md', className }: {
     icon?: string;
     /** Shown instead of the role icon `icon` names (a role card's start mode). */
     glyph?: React.ReactNode;
-    tone?: 'primary' | 'neutral' | 'solid';
+    tone?: 'primary' | 'neutral' | 'solid' | 'accent';
     size?: 'sm' | 'md' | 'lg';
     className?: string;
 }) {
@@ -35,6 +38,7 @@ export function IconTile({ icon, glyph, tone = 'primary', size = 'md', className
                 tone === 'primary' && 'bg-primary-container text-on-primary-container',
                 tone === 'neutral' && 'bg-surface-container-high text-on-surface-variant',
                 tone === 'solid' && 'bg-primary text-on-primary',
+                tone === 'accent' && 'bg-[var(--card-accent,var(--color-primary))] text-white',
                 className,
             )}
         >

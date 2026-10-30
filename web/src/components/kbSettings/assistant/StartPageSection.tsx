@@ -17,7 +17,7 @@ import { useStarterSample } from './useStarterSample';
 type Block = 'card' | 'start';
 
 /** Labels of the fields behind each block's „Bearbeiten" (translation keys), for the settings search. */
-const CARD_EDITOR_KEYS = ['asstTitle', 'asstCategory', 'asstDescription', 'asstColors', 'asstColorsShow', 'asstColorFrom', 'asstColorTo', 'asstGenerateDescription'];
+const CARD_EDITOR_KEYS = ['asstTitle', 'asstCategory', 'asstDescription', 'asstGenerateDescription'];
 const START_EDITOR_KEYS = ['asstChatStart', 'asstQuestions', 'asstRoleEntries', 'asstDynamic', 'asstFixedMode', 'asstCount', 'asstUploadLabel', 'asstUploadInstruction'];
 
 /**
@@ -136,7 +136,7 @@ export function StartPageSection() {
                             <Pencil className="size-3.5" aria-hidden="true" /> <span className="hidden @sm:inline">{t('asstEdit')}</span>
                         </Button>
                     ))}
-                    {!previewChat && <StartGlow colors={page.colors} />}
+                    {!previewChat && <StartGlow category={category} />}
                     {previewChat ? (
                         <RoleChatPreview entry={previewChat} role={roles.find(r => r.id === previewChat.roleId)} kbName={draft.title.trim()} fileCount={kb.fileCount} dynamicSample={dynamicSample} onBack={() => setPreviewChat(null)} />
                     ) : (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SettingsVersion, StartPage } from './api';
-import { ROLE_COVER_DEFAULTS, colorsGlowStyle, colorsStyle, chatStartIncomplete, roleCardCover, showsGeneratedQuestions, suggestionQuestions, startEntries, visibleQuestions } from './startPageModel';
+import { ROLE_COVER_DEFAULTS, categoryGlowStyle, colorsStyle, chatStartIncomplete, roleCardCover, showsGeneratedQuestions, suggestionQuestions, startEntries, visibleQuestions } from './startPageModel';
 import { changeValue, versionNote } from './versionModel';
 import { draftAfterReset, type AssistantDraft } from './useAssistantSettings';
 
@@ -15,22 +15,27 @@ const page = (patch: Partial<StartPage> = {}): StartPage => ({
 
 const t = (k: string) => k;
 
-// Oracle: the author's two colours, as given — a gradient for the swatch and
-// the band, a masked glow that fades out on every side; none without colours.
-describe('start page colours', () => {
-    const colors = { from: '#EE4589', to: '#B46EF7' };
+// Oracle: the role cover's two colours, as given — a gradient for the
+// swatch; none without colours.
+describe('cover colours', () => {
+    it('builds the swatch gradient from the two colours', () => {
+        expect(String(colorsStyle({ from: '#EE4589', to: '#B46EF7' })?.backgroundImage)).toBe('linear-gradient(120deg, #EE4589, #B46EF7)');
+        expect(colorsStyle(null)).toBeUndefined();
+    });
+});
 
-    it('builds the swatch gradient and the glow from the two colours', () => {
-        expect(String(colorsStyle(colors)?.backgroundImage)).toBe('linear-gradient(120deg, #EE4589, #B46EF7)');
-        const glow = colorsGlowStyle(colors);
-        expect(String(glow?.backgroundImage)).toContain('#EE4589');
-        expect(String(glow?.backgroundImage)).toContain('#B46EF7');
-        expect(String(glow?.maskImage)).toMatch(/radial-gradient\(ellipse .*transparent\)/);
+// Oracle: developer ruling 30.10.2026 — the start page glows in its
+// category's colour (the palette slot, as on its cards), and a topic without
+// a category has no glow; the glow fades out on every side.
+describe('start page glow', () => {
+    it('takes the category\'s palette colour', () => {
+        const glow = categoryGlowStyle({ colorSlot: 4 });
+        expect(String(glow?.backgroundImage)).toContain('var(--color-category-4)');
+        expect(String(glow?.maskImage)).toMatch(/radial-gradient\(ellipse .*transparent 100%\)/);
     });
 
-    it('draws nothing without colours', () => {
-        expect(colorsStyle(null)).toBeUndefined();
-        expect(colorsGlowStyle(null)).toBeUndefined();
+    it('draws nothing without a category', () => {
+        expect(categoryGlowStyle(null)).toBeUndefined();
     });
 });
 
