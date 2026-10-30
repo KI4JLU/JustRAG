@@ -50,6 +50,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
             onOpenChange={onOpenChange}
             value={tab}
             onValueChange={(v) => onTabChange(v as SettingsTab)}
+            size="xl"
             title={t('settings')}
             closeLabel={t('close')}
             searchPlaceholder={t('settingsSearch')}

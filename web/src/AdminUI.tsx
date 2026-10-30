@@ -118,6 +118,8 @@ interface AdminUIProps {
  * Mount it only while open: it fetches the open section's data on mount.
  */
 export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb }: AdminUIProps) {
+    // Opens filling the window (1rem inside it); the toggle restores the plain `xl` window.
+    const [maximized, setMaximized] = useState(true);
     const toast = useToast();
     const { t } = useTheme();
     const { showConfirm } = useModalContext();
@@ -627,6 +629,11 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                 size="xl"
                 title={t('adminDashboard')}
                 closeLabel={t('close')}
+                maximizable
+                maximized={maximized}
+                onMaximizedChange={setMaximized}
+                maximizeLabel={t('dialogMaximize')}
+                restoreLabel={t('dialogRestore')}
                 searchPlaceholder={t('settingsSearch')}
                 emptyLabel={t('settingsNoMatch')}
                 sections={sections}

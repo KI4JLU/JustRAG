@@ -27,7 +27,7 @@
     "last 2 ChromeAndroid versions"
   ],
   "dependencies": {
-    "@ki4jlu/design-system": "github:KI4JLU/Design-System#v0.69.0",
+    "@ki4jlu/design-system": "github:KI4JLU/Design-System#v0.70.0",
     "@tanstack/react-router": "1.170.42",
     "@xyflow/react": "^12.11.1",
     "axios": "^1.21.0",

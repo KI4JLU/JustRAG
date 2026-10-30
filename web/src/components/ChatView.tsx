@@ -332,22 +332,9 @@ const ChatViewComp = () => {
     return undefined;
   }, [kbAgentOptions]);
 
-
-  // The region the Thema-Einstellungen dialog covers (DS `fitTo`): the shell's
-  // content column — header bar plus chat — found from the chat area; the
-  // chat area itself outside an AppShell. Read when the dialog measures, so a
-  // getter, not a value captured at render.
-  const chatAreaRef = useRef<HTMLDivElement>(null);
-  const settingsAreaRef = useMemo<React.RefObject<HTMLElement | null>>(() => ({
-    get current() {
-      const area = chatAreaRef.current;
-      return area?.closest<HTMLElement>('[data-slot="app-shell-content"]') ?? area;
-    },
-  }), []);
-
   return (
     <SourcePanelContext.Provider value={sourcePanelApi}>
-    <div className="chat-area" ref={chatAreaRef}>
+    <div className="chat-area">
       {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
           Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
           „Hauptinhalt"-Sprungziel für Screenreader. Die eigene Höhenrechnung
@@ -928,7 +915,6 @@ const ChatViewComp = () => {
         // Modal over the chat: the chat stays where it was underneath and the
         // rest of the app is inert until the dialog closes.
         <KbSettingsDialog
-          fitTo={settingsAreaRef}
           flags={flagsDraft}
           onFlagsChange={setFlagsDraft}
           kb={currentKb}
