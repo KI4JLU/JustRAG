@@ -70,6 +70,8 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 
 **When adding a global-only `site_config` key:** add a save-time validator if it has a range, and check `ignoredKeys` in `internal/pipeline/coverage_test.go`.
 
+**When adding a setting to a settings window (admin, user, KB):** put its label key in `web/src/components/admin/adminSearchKeywords.ts` (Agent rows: `agentSections.ts`) so the admin dialog search finds it; `src/components/settingsSearchKeywords.test.ts` fails otherwise. Same for the user settings (`userSettingsSearchKeywords.ts`) and KB settings (`kbSettings/kbSettingsSearchKeywords.ts`); a new section file goes into that test's `DIALOGS`.
+
 ## KB access (summary — full model in `docs/kb-access.md`)
 
 - Four roles `view < edit < admin < owner`. `kb_members` is the **sole authority**; `knowledge_bases.user_id` is a trigger-maintained mirror — never write it.

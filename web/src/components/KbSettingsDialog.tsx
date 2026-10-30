@@ -8,6 +8,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
 import type { KbAssignableRole, KbSettingsSection, KbSourceFlags, KnowledgeBase } from '../types';
 import { KbRolesRightsTab } from './kbSettings/KbRolesRightsTab';
+import { kbSettingsKeywords } from './kbSettings/kbSettingsSearchKeywords';
 import { BehaviorSection } from './kbSettings/assistant/BehaviorSection';
 import { StartPageSection } from './kbSettings/assistant/StartPageSection';
 import { chatStartIncomplete } from './kbSettings/assistant/startPageModel';
@@ -233,14 +234,14 @@ export function KbSettingsDialog({
                         value: 'start',
                         label: t('asstStartPage'),
                         icon: <House aria-hidden="true" />,
-                        keywords: [t('asstTitle'), t('asstCategory'), t('asstDescription'), t('asstQuestions'), t('asstRoleEntries'), t('asstChatStart')],
+                        keywords: kbSettingsKeywords('start', t),
                         content: <AssistantGate store={assistant}><StartPageSection /></AssistantGate>,
                     },
                     {
                         value: 'behavior',
                         label: t('kbSettingsTabBehavior'),
                         icon: <SlidersHorizontal aria-hidden="true" />,
-                        keywords: [t('asstTabRole'), t('asstTabRules'), t('asstRagInstructions'), t('kbSettingsKeywordsBehavior')],
+                        keywords: kbSettingsKeywords('behavior', t),
                         content: (
                             <>
                                 <AssistantGate store={assistant}>
@@ -265,7 +266,7 @@ export function KbSettingsDialog({
                         value: 'roles',
                         label: t('kbSettingsTabRoles'),
                         icon: <Shield aria-hidden="true" />,
-                        keywords: [t('kbSettingsKeywordsRoles')],
+                        keywords: kbSettingsKeywords('roles', t),
                         content: (
                             <div className="pt-6">
                                 <KbRolesRightsTab flags={flags} onFlagsChange={onFlagsChange} onAssignPeople={() => setSection('members')} />
@@ -276,7 +277,7 @@ export function KbSettingsDialog({
                         value: 'members',
                         label: t('members'),
                         icon: <Users aria-hidden="true" />,
-                        keywords: [t('addMembers'), t('inviteLinks'), t('kbSettingsKeywordsMembers')],
+                        keywords: kbSettingsKeywords('members', t),
                         content: (
                             <div className="flex flex-col gap-4 pt-6">
                                 <Suspense fallback={<Loader2 className="size-5 animate-spin text-on-surface-variant" aria-hidden="true" />}>
@@ -298,7 +299,7 @@ export function KbSettingsDialog({
                         value: 'versions',
                         label: t('asstVersions'),
                         icon: <History aria-hidden="true" />,
-                        keywords: [t('asstRestore'), t('asstAllChanges')],
+                        keywords: kbSettingsKeywords('versions', t),
                         content: <AssistantGate store={assistant}><VersionHistorySection /></AssistantGate>,
                     },
                 ]}

@@ -144,6 +144,10 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     }, [section, activeTab, onSectionChange]);
     const [configs, setConfigs] = useState<AIConfig[]>([]);
     const [providers, setProviders] = useState<AuthProvider[]>([]);
+    // Whether each list has come back once: the settings search picks a record from it (see
+    // useSearchRevealForm), and `loading` is shared with the other requests of the section.
+    const [configsFetched, setConfigsFetched] = useState(false);
+    const [providersFetched, setProvidersFetched] = useState(false);
     const [usersList, setUsersList] = useState<User[]>([]);
     // Set when the last users fetch failed, so the Rollen tab shows no counts
     // instead of reading the empty list as "0 users" per role.
@@ -263,6 +267,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.error(t('configsFetchError'));
         } finally {
             setLoading(false);
+            setConfigsFetched(true);
         }
     }, [toast, t]);
 
@@ -276,6 +281,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.error(t('providersFetchError'));
         } finally {
             setLoading(false);
+            setProvidersFetched(true);
         }
     }, [toast, t]);
 
@@ -466,6 +472,12 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         }
     };
 
+    // An empty form — also when the search moves an open edit form over to a new record.
+    const startAdd = () => {
+        resetForm();
+        setShowForm(true);
+    };
+
     const startEditConfig = (config: AIConfig) => {
         setConfigFormData(config);
         setEditingId(config.id);
@@ -492,6 +504,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         setConnectionTest={setConnectionTest}
                         handleConfigSubmit={handleConfigSubmit}
                         startEditConfig={startEditConfig}
+                        startAdd={startAdd}
+                        fetched={configsFetched}
                         handleDelete={handleDelete}
                         handleActivate={handleActivate}
                         resetForm={resetForm}
@@ -514,6 +528,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         setAuthFormData={setAuthFormData}
                         handleAuthSubmit={handleAuthSubmit}
                         startEditAuth={startEditAuth}
+                        startAdd={startAdd}
+                        fetched={providersFetched}
                         handleDelete={handleDelete}
                         resetForm={resetForm}
                         authValidation={authValidation}
@@ -607,7 +623,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             {/* Alone it is the section's primary action; next to the per-job Speichern it is secondary. */}
             <Button
                 variant={activeTab === 'configs' ? 'outline' : 'default'}
-                onClick={() => { setShowForm(true); setEditingId(null); }}
+                onClick={startAdd}
             >
                 <Plus size={16} aria-hidden="true" />
                 {addLabel}
