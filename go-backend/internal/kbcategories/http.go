@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/justrag/go-backend/internal/httputil"
 )
@@ -27,6 +29,25 @@ type categoryRequest struct {
 	// ColorSlot is optional: absent takes the next slot on create and keeps
 	// the colour on update.
 	ColorSlot *int `json:"colorSlot"`
+	// Color is optional: a #rrggbb hex picked freely (any case, stored
+	// lowercase). Absent keeps it on update; "" clears it back to the slot.
+	Color *string `json:"color"`
+}
+
+var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// normalizeColor validates and lowercases an optional color. It returns the
+// 400 text for an invalid one, "" when valid; nil and "" pass unchanged.
+func normalizeColor(color *string) (*string, string) {
+	if color == nil || *color == "" {
+		return color, ""
+	}
+	c := strings.TrimSpace(*color)
+	if !hexColor.MatchString(c) {
+		return nil, "color must be a hex colour like #1a2b3c"
+	}
+	c = strings.ToLower(c)
+	return &c, ""
 }
 
 // MaxKBCategories is how many categories one KB may carry: the start page
@@ -75,8 +96,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
 		return
 	}
+	color, msg := normalizeColor(body.Color)
+	if msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+		return
+	}
 
-	cat, err := h.store.Create(ctx, name, body.SortOrder, body.ColorSlot)
+	cat, err := h.store.Create(ctx, name, body.SortOrder, body.ColorSlot, color)
 	switch {
 	case errors.Is(err, ErrDuplicateName):
 		httputil.WriteErrorCtx(ctx, w, http.StatusConflict, "a category with that name already exists")
@@ -106,8 +132,13 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
 		return
 	}
+	color, msg := normalizeColor(body.Color)
+	if msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+		return
+	}
 
-	cat, err := h.store.Update(ctx, r.PathValue("catId"), name, body.SortOrder, body.ColorSlot)
+	cat, err := h.store.Update(ctx, r.PathValue("catId"), name, body.SortOrder, body.ColorSlot, color)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "category not found")

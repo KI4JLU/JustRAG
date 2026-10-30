@@ -111,7 +111,7 @@ const kbStatsCols = `,
        us.last_activity_at                        AS last_activity_at,
        -- The catalog category the title card shows: the KB's first by the
        -- taxonomy's order (the same pick as kbassistant's loadState).
-       (SELECT json_build_object('id', c.id::text, 'name', c.name, 'sortOrder', c.sort_order, 'colorSlot', c.color_slot)
+       (SELECT json_build_object('id', c.id::text, 'name', c.name, 'sortOrder', c.sort_order, 'colorSlot', c.color_slot, 'color', c.color)
           FROM kb_category_links l JOIN kb_categories c ON c.id = l.category_id
          WHERE l.kb_id = kb.id ORDER BY c.sort_order, c.name LIMIT 1) AS category,
        -- The start page's colours, the card's cover band (as the catalog's).

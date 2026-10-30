@@ -59,7 +59,7 @@ func TestAssistantSettings_SaveVersionsRestore(t *testing.T) {
 		t.Fatalf("behavior after a title-only save: null=%v (%v)", stillNull, err)
 	}
 
-	cat, err := kbcategories.NewStore(pool).Create(ctx, "it-assistant-cat", 999, nil)
+	cat, err := kbcategories.NewStore(pool).Create(ctx, "it-assistant-cat", 999, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
