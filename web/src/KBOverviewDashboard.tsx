@@ -4,7 +4,7 @@ import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle
 import {
     ActionMenu, Alert, AlertDescription, Badge, Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
     PopoverContent, PopoverTrigger, Spinner, Stack, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
-    type ActionMenuItem,
+    useSettingsSearch, type ActionMenuItem,
 } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { COMPACT_INPUT } from './components/form/SettingsFieldRow';
@@ -275,6 +275,7 @@ const QUEUE_NAMES = ['rag-quick', 'rag-heavy', 'rag-batch'];
 
 export default function KBOverviewDashboard() {
     const { t, language } = useTheme();
+    const settingsSearch = useSettingsSearch();
     const { user } = useAuth();
     // Delete and transfer stay superadmin-only. Publishing does not: it sits on
     // adminChain server-side (POST /api/admin/kb/{id}/publish), so plain system
@@ -472,7 +473,9 @@ export default function KBOverviewDashboard() {
         { key: 'lastSyncAt', label: t('colLastSync'), optional: true },
         { key: 'ragasN24h', label: t('colRagas'), numeric: true, optional: true },
     ];
-    const columns = ALL_COLUMNS.filter((c) => !c.optional || optionalVisible[c.key]);
+    // An optional column the settings search names shows while it does, whatever the picker says.
+    const searched = (c: ColumnDef) => settingsSearch.filtering && c.label.toLocaleLowerCase().includes(settingsSearch.query);
+    const columns = ALL_COLUMNS.filter((c) => !c.optional || optionalVisible[c.key] || searched(c));
     const optionalColumns = ALL_COLUMNS.filter((c) => c.optional);
 
     // One ⋯ menu per row, as on every list of the app. isGlobal is the generated mirror of
@@ -616,6 +619,8 @@ export default function KBOverviewDashboard() {
              * CSSOM oracle still asserts the computed 0px, so the guarantee is
              * pinned on the component instead of on this line. */
             headingLevel={2}
+            // The admin console's section pane sets the insets, as for every other section.
+            className="max-w-none p-0 md:p-0"
             title={t('adminTabKbOverview')}
             toolbar={
                 <ListToolbar

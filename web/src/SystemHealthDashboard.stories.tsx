@@ -161,23 +161,16 @@ export const Healthy: Story = {
     // guarantee. The number is the browser's.
     await expect(getComputedStyle(heading).marginTop).toBe('0px');
 
-    // ORACLE 3: the page's own scroll box, which this migration had to carry
-    // across from the pre-migration root's inline
-    // `maxHeight: 'calc(100vh - 200px)'`. The card's text claims the only
-    // maxHeight in the three files is Dashboard.tsx:679 — it is not, and
-    // dropping this one would have changed how the admin column scrolls.
-    //
-    // The expected value is derived from the BROWSER's own layout viewport
-    // (`window.innerHeight`), not from a number written here: `100vh` resolves
-    // to that height and Chromium resolves the `calc`. What the assertion pins
-    // is the declaration — that the box still exists, that it is viewport-
-    // relative, and that the offset is still exactly 200px. Remove the class
-    // and the computed value is `none`; change the 200 and it is off by that
-    // much.
-    const layout = heading.closest('div[class*="overflow-y-auto"]');
-    await expect(layout).not.toBeNull();
-    await expect(getComputedStyle(layout!).maxHeight).toBe(`${window.innerHeight - 200}px`);
-    await expect(getComputedStyle(layout!).overflowY).toBe('auto');
+    // ORACLE 3: no scroll box and no page padding of its own. The page sits in
+    // the admin console's SettingsDialog section pane, which scrolls and sets
+    // the insets (the template's Container adds page padding and a 1440px cap); the old `max-h-[calc(100vh-200px)] overflow-y-auto` box put
+    // a second scrollbar inside it. The browser's computed style is the oracle.
+    const layout = heading.closest('header')!.parentElement!;
+    await expect(getComputedStyle(layout).overflowY).toBe('visible');
+    await expect(getComputedStyle(layout).maxHeight).toBe('none');
+    await expect(getComputedStyle(layout).paddingTop).toBe('0px');
+    await expect(getComputedStyle(layout).paddingLeft).toBe('0px');
+    await expect(getComputedStyle(layout).maxWidth).toBe('none');
 
     // ORACLE 4: recharts' own DOM contract — a drawn chart is an
     // `<svg class="recharts-surface">`.
