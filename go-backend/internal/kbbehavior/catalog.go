@@ -32,6 +32,8 @@ type templateRole struct {
 	prompt      localized
 	// cover is the gradient of the role's card on a start page (#RRGGBB).
 	coverFrom, coverTo string
+	// start is how its chat starts where a KB sets up none; nil = input field.
+	start *TemplateStart
 }
 
 type templateRule struct {

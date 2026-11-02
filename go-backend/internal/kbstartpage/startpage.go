@@ -18,6 +18,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/justrag/go-backend/internal/kbbehavior"
 )
 
 // Limits on a saved StartPage.
@@ -338,4 +340,28 @@ func Effective(stored *StartPage, activeRoleID string, hasRole func(string) bool
 		out.StartMode = StartInput
 	}
 	return out
+}
+
+// ValidateTemplateStart checks a role template's start (kbbehavior, set in
+// „Vorlagen") in both languages by the rules of a shown role card: a task
+// needs its text. An empty English text stands for the German one.
+func ValidateTemplateStart(s kbbehavior.TemplateStart) error {
+	for _, lang := range []string{"de", "en"} {
+		if err := validateStart(templateEntry(s, lang), true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// templateEntry is a template's start in lang as an EntryStart.
+func templateEntry(s kbbehavior.TemplateStart, lang string) EntryStart {
+	c := s.In(lang)
+	return EntryStart{
+		Kind: c.Kind, Text: c.Text, Send: c.Send, Instruction: c.Instruction,
+		Suggestions: Suggestions{
+			QuestionsOn: c.Suggestions.QuestionsOn, QuestionMode: c.Suggestions.QuestionMode,
+			DynamicCount: c.Suggestions.DynamicCount, FixedQuestions: c.Suggestions.FixedQuestions,
+		},
+	}
 }

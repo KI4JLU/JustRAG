@@ -12,6 +12,9 @@ type CatalogRole struct {
 	// that use it show and answer with it.
 	Enabled bool  `json:"enabled"`
 	Cover   Cover `json:"cover"`
+	// Start is how a chat in the role starts where the KB sets up none of
+	// its own; absent = the input field.
+	Start *CatalogStart `json:"start,omitempty"`
 }
 
 // Cover is a role card's gradient on a start page, #RRGGBB each.
@@ -72,11 +75,16 @@ func CatalogFor(lang string) Catalog {
 	}
 	defaultID := DefaultRoleID()
 	for _, r := range roles {
-		c.Roles = append(c.Roles, CatalogRole{
+		role := CatalogRole{
 			ID: r.id, Name: r.name.in(lang), Description: r.description.in(lang),
 			Prompt: r.prompt.in(lang), Icon: r.icon, IsDefault: r.id == defaultID,
 			Enabled: !r.disabled, Cover: Cover{From: r.coverFrom, To: r.coverTo},
-		})
+		}
+		if r.start != nil {
+			s := r.start.In(lang)
+			role.Start = &s
+		}
+		c.Roles = append(c.Roles, role)
 	}
 	for _, g := range ruleGroups {
 		cg := CatalogRuleGroup{ID: g.id, Title: g.title.in(lang), Rules: make([]CatalogRule, 0, len(g.rules))}

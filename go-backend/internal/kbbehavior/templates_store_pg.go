@@ -29,6 +29,11 @@ type Texts struct {
 
 // TemplateInput is a role template as „Vorlagen" writes it.
 type TemplateInput struct {
+	// Lang is the language the admin wrote the texts in ("de", the default,
+	// or "en"). The other language is translated in the background after
+	// the save (TemplateStore.SetTranslator); until then it falls back to
+	// the written one.
+	Lang        string `json:"lang,omitempty"`
 	Icon        string `json:"icon"`
 	IsDefault   bool   `json:"isDefault"`
 	Enabled     bool   `json:"enabled"`
@@ -36,6 +41,9 @@ type TemplateInput struct {
 	Description Texts  `json:"description"`
 	Prompt      Texts  `json:"prompt"`
 	Cover       Cover  `json:"cover"`
+	// Start is how the role's chat starts where a KB sets up none of its
+	// own; nil is the input field.
+	Start *TemplateStart `json:"start"`
 }
 
 // AdminTemplate is a role template as „Vorlagen" reads it: both languages,
@@ -57,8 +65,12 @@ func ValidateTemplate(in TemplateInput) error {
 	if !knownIcons[in.Icon] {
 		return invalid("unknown icon %q", in.Icon)
 	}
-	if strings.TrimSpace(in.Name.DE) == "" {
-		return invalid("a role template needs a German name")
+	if in.Lang != "" && in.Lang != "de" && in.Lang != "en" {
+		return invalid("lang must be de or en")
+	}
+	lang := sourceLang(in)
+	if strings.TrimSpace(textIn(in.Name, lang)) == "" {
+		return invalid("a role template needs a name")
 	}
 	for _, n := range []string{in.Name.DE, in.Name.EN} {
 		if utf8.RuneCountInString(strings.TrimSpace(n)) > MaxRoleNameRunes {
@@ -70,8 +82,8 @@ func ValidateTemplate(in TemplateInput) error {
 			return invalid("a role description must not exceed %d characters", MaxRoleDescRunes)
 		}
 	}
-	if strings.TrimSpace(in.Prompt.DE) == "" {
-		return invalid("a role template needs a German prompt")
+	if strings.TrimSpace(textIn(in.Prompt, lang)) == "" {
+		return invalid("a role template needs a prompt")
 	}
 	for _, p := range []string{in.Prompt.DE, in.Prompt.EN} {
 		if utf8.RuneCountInString(p) > MaxPromptRunes {
@@ -91,13 +103,21 @@ func ValidateTemplate(in TemplateInput) error {
 // catalog (templates.go) in step with it.
 type TemplateStore struct {
 	pool *pgxpool.Pool
+	// translate fills a saved template's other language in the background
+	// (SetTranslator); nil = no translation. validateStart checks its start.
+	translate     TranslateFunc
+	validateStart func(TemplateStart) error
+	// bg is the lifetime of the background work (StartTemplateRefresher's
+	// loop); wg waits for it on stop.
+	bg context.Context
+	wg sync.WaitGroup
 }
 
 // NewTemplateStore creates a TemplateStore over the main pool.
 func NewTemplateStore(pool *pgxpool.Pool) *TemplateStore { return &TemplateStore{pool: pool} }
 
 const templateColumns = `id, icon, is_default, disabled, name_de, name_en, description_de, description_en,
-	prompt_de, prompt_en, cover_from, cover_to`
+	prompt_de, prompt_en, cover_from, cover_to, start`
 
 // Seed fills an empty role_templates with builtinRoles, once per deployment:
 // the table lock makes a server and a worker starting together seed it once.
@@ -115,9 +135,9 @@ func (s *TemplateStore) Seed(ctx context.Context) error {
 		}
 		for i, r := range builtinRoles {
 			if _, err := tx.Exec(ctx, `INSERT INTO role_templates (`+templateColumns+`, position)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 				r.id, r.icon, r.isDefault, r.disabled, r.name.de, r.name.en, r.description.de, r.description.en,
-				r.prompt.de, r.prompt.en, r.coverFrom, r.coverTo, i); err != nil {
+				r.prompt.de, r.prompt.en, r.coverFrom, r.coverTo, r.start, i); err != nil {
 				return fmt.Errorf("kbbehavior seed templates %s: %w", r.id, err)
 			}
 		}
@@ -135,7 +155,7 @@ func (s *TemplateStore) Refresh(ctx context.Context) error {
 	roles, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (templateRole, error) {
 		var r templateRole
 		err := row.Scan(&r.id, &r.icon, &r.isDefault, &r.disabled, &r.name.de, &r.name.en,
-			&r.description.de, &r.description.en, &r.prompt.de, &r.prompt.en, &r.coverFrom, &r.coverTo)
+			&r.description.de, &r.description.en, &r.prompt.de, &r.prompt.en, &r.coverFrom, &r.coverTo, &r.start)
 		return r, err
 	})
 	if err != nil {
@@ -162,10 +182,10 @@ func StartTemplateRefresher(ctx context.Context, s *TemplateStore, interval time
 	cancelStart()
 
 	loopCtx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	wg.Add(1)
+	s.bg = loopCtx
+	s.wg.Add(1)
 	safego.Go(func() {
-		defer wg.Done()
+		defer s.wg.Done()
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -181,7 +201,7 @@ func StartTemplateRefresher(ctx context.Context, s *TemplateStore, interval time
 	})
 	return func() {
 		cancel()
-		wg.Wait()
+		s.wg.Wait()
 	}
 }
 
@@ -207,7 +227,7 @@ func (s *TemplateStore) List(ctx context.Context) ([]AdminTemplate, error) {
 			disabled bool
 		)
 		err := row.Scan(&t.ID, &t.Icon, &t.IsDefault, &disabled, &t.Name.DE, &t.Name.EN,
-			&t.Description.DE, &t.Description.EN, &t.Prompt.DE, &t.Prompt.EN, &t.Cover.From, &t.Cover.To, &t.UsedBy)
+			&t.Description.DE, &t.Description.EN, &t.Prompt.DE, &t.Prompt.EN, &t.Cover.From, &t.Cover.To, &t.Start, &t.UsedBy)
 		t.Enabled = !disabled
 		return t, err
 	})
@@ -229,6 +249,24 @@ func trimmed(in TemplateInput) TemplateInput {
 	in.Name = Texts{strings.TrimSpace(in.Name.DE), strings.TrimSpace(in.Name.EN)}
 	in.Description = Texts{strings.TrimSpace(in.Description.DE), strings.TrimSpace(in.Description.EN)}
 	in.Cover = Cover{strings.ToUpper(in.Cover.From), strings.ToUpper(in.Cover.To)}
+	in.Start = trimmedStart(in.Start)
+	if in.Lang == "" {
+		in.Lang = "de"
+	}
+	// The German texts are what KBs compile: one written in English stands in
+	// for its German text until the translation replaces it.
+	if in.Lang == "en" {
+		in.Name.DE = orText(in.Name.DE, in.Name.EN)
+		in.Description.DE = orText(in.Description.DE, in.Description.EN)
+		in.Prompt.DE = orText(in.Prompt.DE, in.Prompt.EN)
+		if in.Start != nil {
+			in.Start.Text.DE = orText(in.Start.Text.DE, in.Start.Text.EN)
+			in.Start.Instruction.DE = orText(in.Start.Instruction.DE, in.Start.Instruction.EN)
+			if len(in.Start.Suggestions.FixedQuestions.DE) == 0 {
+				in.Start.Suggestions.FixedQuestions.DE = in.Start.Suggestions.FixedQuestions.EN
+			}
+		}
+	}
 	return in
 }
 
@@ -246,15 +284,16 @@ func (s *TemplateStore) Create(ctx context.Context, in TemplateInput) (string, e
 			}
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO role_templates (`+templateColumns+`, position)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
 			        (SELECT COALESCE(max(position), -1) + 1 FROM role_templates))`,
 			id, in.Icon, in.IsDefault, !in.Enabled, in.Name.DE, in.Name.EN, in.Description.DE, in.Description.EN,
-			in.Prompt.DE, in.Prompt.EN, in.Cover.From, in.Cover.To)
+			in.Prompt.DE, in.Prompt.EN, in.Cover.From, in.Cover.To, in.Start)
 		return err
 	})
 	if err != nil {
 		return "", fmt.Errorf("kbbehavior create template: %w", err)
 	}
+	s.translateLater(id, in)
 	return id, s.Refresh(ctx)
 }
 
@@ -263,15 +302,17 @@ func (s *TemplateStore) Create(ctx context.Context, in TemplateInput) (string, e
 // here (another template takes it) — ErrInvalid.
 func (s *TemplateStore) Update(ctx context.Context, id string, in TemplateInput) error {
 	in = trimmed(in)
+	var textsChanged bool
 	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var wasDefault bool
-		err := tx.QueryRow(ctx, `SELECT is_default FROM role_templates WHERE id = $1 FOR UPDATE`, id).Scan(&wasDefault)
+		prev, err := scanTemplate(tx.QueryRow(ctx, `SELECT `+templateColumns+` FROM role_templates WHERE id = $1 FOR UPDATE`, id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return store.ErrNotFound
 		}
 		if err != nil {
 			return err
 		}
+		wasDefault := prev.IsDefault
+		in, textsChanged = keepTranslation(prev.TemplateInput, in)
 		if wasDefault && !in.IsDefault {
 			return invalid("make another template the default instead")
 		}
@@ -282,9 +323,9 @@ func (s *TemplateStore) Update(ctx context.Context, id string, in TemplateInput)
 		}
 		_, err = tx.Exec(ctx, `UPDATE role_templates SET icon = $2, is_default = $3, disabled = $4,
 			name_de = $5, name_en = $6, description_de = $7, description_en = $8, prompt_de = $9, prompt_en = $10,
-			cover_from = $11, cover_to = $12, updated_at = now() WHERE id = $1`,
+			cover_from = $11, cover_to = $12, start = $13, updated_at = now() WHERE id = $1`,
 			id, in.Icon, in.IsDefault, !in.Enabled, in.Name.DE, in.Name.EN, in.Description.DE, in.Description.EN,
-			in.Prompt.DE, in.Prompt.EN, in.Cover.From, in.Cover.To)
+			in.Prompt.DE, in.Prompt.EN, in.Cover.From, in.Cover.To, in.Start)
 		return err
 	})
 	if err != nil {
@@ -292,6 +333,9 @@ func (s *TemplateStore) Update(ctx context.Context, id string, in TemplateInput)
 			return err
 		}
 		return fmt.Errorf("kbbehavior update template %s: %w", id, err)
+	}
+	if textsChanged {
+		s.translateLater(id, in)
 	}
 	return s.Refresh(ctx)
 }
