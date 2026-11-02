@@ -151,7 +151,7 @@ Card fields on the KB rows of `GET /kb`, `GET /kb/global` and `GET /kb/{id}`:
   count. A retry or re-embed of an existing file moves it; omitted while no
   file has been ingested.
 - `category` — the catalog category the topic's title card shows,
-  `{id, name, sortOrder, colorSlot}` (the first of its categories by the
+  `{id, name, sortOrder, colorSlot, color}` (the first of its categories by the
   taxonomy's order); omitted when it has none.
 - `colors` — the start page's gradient `{from, to}` for the card's cover band:
   the default colours while the KB has no start page, omitted when it chose
@@ -295,7 +295,7 @@ Discovery and subscription of public KBs. A subscription decides whether a publi
 
 - `GET /kb/catalog` lists published public KBs plus staged public KBs the caller is a member of. Each entry carries what the „Entdecken" card shows: `colors` (the start page's `{from, to}`, the default ones while the KB has no start page, `null` when it chose none), `fileCount`, and `lastIngestedAt` (omitted before the first successful ingest).
 - `DELETE /kb/{id}/subscription` is the "remove from Favoriten" star: it writes an opt-out and keeps memberships and chats.
-- Category CRUD is under Admin (`/admin/kb-categories`). A category carries `colorSlot` (1–9, the palette slot `--color-category-N`): `POST`/`PATCH` take an optional `colorSlot` (`400` outside 1–9); without one, create picks the least-used slot and update keeps the colour.
+- Category CRUD is under Admin (`/admin/kb-categories`). A category carries `colorSlot` (1–9, the palette slot `--color-category-N`): `POST`/`PATCH` take an optional `colorSlot` (`400` outside 1–9); without one, create picks the least-used slot and update keeps the colour. A category may also carry `color`, a freely picked `#rrggbb` (any case accepted, stored and returned lowercase; `400` otherwise): `POST`/`PATCH` take it optionally, update keeps it when absent and `""` clears it. Clients draw `color` when set, the slot otherwise.
 - `PUT /kb/{id}/categories` takes at most **one** id (`400` otherwise; `[]` clears it), for private and public KBs alike. Older rows with several categories stay readable until the KB is saved again.
 
 ### KB settings and workflow

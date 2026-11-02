@@ -15,6 +15,7 @@ type fakeStore struct {
 	categories  []kbcategories.Category
 	createErr   error
 	gotName     string
+	gotColor    *string
 	gotKBID     string
 	gotCatIDs   []string
 	deleteCalls []string
@@ -24,15 +25,17 @@ func (f *fakeStore) List(context.Context) ([]kbcategories.Category, error) {
 	return f.categories, nil
 }
 
-func (f *fakeStore) Create(_ context.Context, name string, sortOrder int, _ *int) (*kbcategories.Category, error) {
+func (f *fakeStore) Create(_ context.Context, name string, sortOrder int, _ *int, color *string) (*kbcategories.Category, error) {
 	f.gotName = name
+	f.gotColor = color
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 	return &kbcategories.Category{ID: "cat-new", Name: name, SortOrder: sortOrder}, nil
 }
 
-func (f *fakeStore) Update(_ context.Context, id, name string, sortOrder int, _ *int) (*kbcategories.Category, error) {
+func (f *fakeStore) Update(_ context.Context, id, name string, sortOrder int, _ *int, color *string) (*kbcategories.Category, error) {
+	f.gotColor = color
 	return &kbcategories.Category{ID: id, Name: name, SortOrder: sortOrder}, nil
 }
 
@@ -145,6 +148,42 @@ func TestColorSlotRange(t *testing.T) {
 		h.Create(rec, httptest.NewRequest(http.MethodPost, "/api/admin/kb-categories", strings.NewReader(body)))
 		if rec.Code != want {
 			t.Errorf("%s: status = %d, want %d", body, rec.Code, want)
+		}
+	}
+}
+
+// Oracle: the hex grammar #rrggbb (any case accepted, stored lowercase);
+// anything else is a 400 before the store is called, and "" (clear) passes.
+func TestCategoryColor(t *testing.T) {
+	for body, want := range map[string]struct {
+		code  int
+		color string // "" = no color reaches the store; "<empty>" = the clearing ""
+	}{
+		`{"name":"Recht","color":"#D4380D"}`:   {http.StatusCreated, "#d4380d"},
+		`{"name":"Recht","color":" #1a2b3c "}`: {http.StatusCreated, "#1a2b3c"},
+		`{"name":"Recht","color":""}`:          {http.StatusCreated, "<empty>"},
+		`{"name":"Recht"}`:                     {http.StatusCreated, ""},
+		`{"name":"Recht","color":"red"}`:       {http.StatusBadRequest, ""},
+		`{"name":"Recht","color":"#abc"}`:      {http.StatusBadRequest, ""},
+		`{"name":"Recht","color":"#12345g"}`:   {http.StatusBadRequest, ""},
+	} {
+		store := &fakeStore{}
+		h := kbcategories.NewHandler(store)
+		rec := httptest.NewRecorder()
+		h.Create(rec, httptest.NewRequest(http.MethodPost, "/api/admin/kb-categories", strings.NewReader(body)))
+		if rec.Code != want.code {
+			t.Errorf("%s: status = %d, want %d", body, rec.Code, want.code)
+			continue
+		}
+		got := ""
+		if store.gotColor != nil {
+			got = *store.gotColor
+			if got == "" {
+				got = "<empty>"
+			}
+		}
+		if got != want.color {
+			t.Errorf("%s: color reaching the store = %q, want %q", body, got, want.color)
 		}
 	}
 }
