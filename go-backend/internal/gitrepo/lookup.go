@@ -58,6 +58,9 @@ func ListRemoteBranches(ctx context.Context, repoURL, token string) (*RemoteBran
 	if err := requireSafeTransport(u.Scheme, false, safeTransportInstalled); err != nil {
 		return nil, errLookupNoTransport
 	}
+	if err := checkTarget(ctx, repoURL); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrLookupUnreachable, err)
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()

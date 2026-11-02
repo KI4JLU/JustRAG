@@ -146,3 +146,46 @@ func TestListRemoteBranchesFailsClosedWithoutSafeTransport(t *testing.T) {
 		t.Fatalf("err = %v, want errLookupNoTransport", err)
 	}
 }
+
+// Behind an egress proxy the dial-time SSRF check only sees the proxy, so the
+// lookup must refuse a private target itself, before any request.
+func TestListRemoteBranchesRefusesPrivateTarget(t *testing.T) {
+	prev := safeTransportInstalled
+	safeTransportInstalled = true
+	t.Cleanup(func() { safeTransportInstalled = prev })
+	for _, u := range []string{
+		"https://127.0.0.1/o/r",
+		"https://10.0.0.5:6379/o/r",
+		"https://169.254.169.254/latest",
+		"https://localhost/o/r",
+	} {
+		_, err := ListRemoteBranches(context.Background(), u, "")
+		if !errors.Is(err, errBlockedTarget) || !errors.Is(err, ErrLookupUnreachable) {
+			t.Errorf("%s: err = %v, want errBlockedTarget wrapped in ErrLookupUnreachable", u, err)
+		}
+	}
+}
+
+func TestCheckGitRedirect(t *testing.T) {
+	via := []*http.Request{httptest.NewRequest(http.MethodGet, "https://github.com/o/r/info/refs", nil)}
+	for _, tc := range []struct {
+		to      string
+		via     int
+		blocked bool
+	}{
+		{"https://127.0.0.1/o/r/info/refs", 1, true},
+		{"https://10.1.2.3:8443/x", 1, true},
+		{"http://github.com/o/r/info/refs", 1, true},
+		{"https://93.184.215.14/o/r", maxGitRedirects, true},
+		{"https://93.184.215.14/o/r", 1, false},
+	} {
+		hops := make([]*http.Request, tc.via)
+		for i := range hops {
+			hops[i] = via[0]
+		}
+		err := checkGitRedirect(httptest.NewRequest(http.MethodGet, tc.to, nil), hops)
+		if (err != nil) != tc.blocked {
+			t.Errorf("%s after %d hops: err = %v, want blocked=%v", tc.to, tc.via, err, tc.blocked)
+		}
+	}
+}
