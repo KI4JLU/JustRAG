@@ -119,11 +119,7 @@ export const translations = {
      * from here that ends with a new topic in front of them. */
     addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
 
-    /* The filter chip row above every view's list (migration 0077).
-     *
-     * „Alle" here and `catalogAllCategories` below are NOT the same string to
-     * reuse: that one labels the catalog's admin-curated taxonomy tab, this one
-     * the caller's own filter. They read alike today and are free to diverge. */
+    /* The filter chip row above every view's list (migration 0077). */
     filterAll: { de: 'Alle', en: 'All' },
     filterFavorites: { de: 'Favoriten', en: 'Favorites' },
     /* „Mein Wissen" only. The words match the card badge's own two states
@@ -134,18 +130,12 @@ export const translations = {
     manageCategories: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesTitle: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesBody: {
-      de: 'Deine eigenen Kategorien. Sie gelten nur für dich und lassen sich jedem Thema zuordnen, das du sehen kannst.',
-      en: 'Your own categories. They are yours alone and can be attached to any topic you can see.',
+      de: 'Die Kategorien der Plattform. Was du im Filter nicht brauchst, blendest du aus.',
+      en: 'The platform\'s categories. Hide what you don\'t need in the filter.',
     },
-    noCategoriesYet: { de: 'Noch keine Kategorien angelegt.', en: 'No categories yet.' },
-    renameCategory: { de: 'Kategorie umbenennen', en: 'Rename category' },
-    deleteCategory: { de: 'Kategorie löschen', en: 'Delete category' },
-    confirmDeleteCategory: { de: 'Kategorie wirklich löschen?', en: 'Delete this category?' },
-    categoryActionError: {
-      de: 'Aktion fehlgeschlagen. Gibt es die Kategorie schon?',
-      en: 'Action failed. Does the category already exist?',
-    },
-    newCategoryPrompt: { de: 'Name der neuen Kategorie', en: 'Name of the new category' },
+    noCategoriesYet: { de: 'Noch keine Kategorien vorhanden.', en: 'No categories yet.' },
+    categoryInFilter: { de: 'Im Filter', en: 'In filter' },
+    showCategoryInFilter: { de: '{name} im Filter anzeigen', en: 'Show {name} in the filter' },
     newCategoryError: {
       de: 'Kategorie konnte nicht angelegt werden. Gibt es sie schon?',
       en: 'Could not create the category. Does it already exist?',
@@ -859,8 +849,6 @@ export const translations = {
       de: 'Sobald neue Themen für alle Mitglieder der JLU bereitgestellt werden, findest du sie hier.',
       en: 'As soon as new topics are made available to all JLU members, you will find them here.',
     },
-    catalogAllCategories: { de: 'Alle', en: 'All' },
-    catalogCategoryTabs: { de: 'Kategorien filtern', en: 'Filter by category' },
     // Der Katalog zeigt zunaechst nur die erste Seite; {n} ist die Zahl der
     // noch verborgenen KBs (t() kann nicht interpolieren, daher .replace).
     catalogShowMore: { de: 'Alle {n} weiteren anzeigen', en: 'Show {n} more' },
@@ -1723,6 +1711,12 @@ export const translations = {
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
     // The card's meta lines (KI-848): label muted, relative value bold.
     kbCardUsed: { de: 'Genutzt', en: 'Used' },
+    kbListColTopic: { de: 'Thema', en: 'Topic' },
+    kbListColSources: { de: 'Quellen', en: 'Sources' },
+    kbListColChats: { de: 'Chats', en: 'Chats' },
+    kbListColLastActive: { de: 'Zuletzt aktiv', en: 'Last active' },
+    kbListColSharing: { de: 'Freigabe', en: 'Sharing' },
+    kbListColAsOf: { de: 'Stand', en: 'As of' },
     kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
 
     // AI Configs Tab
@@ -2527,6 +2521,8 @@ export const translations = {
     categories: { de: 'Kategorien', en: 'Categories' },
     noCategories: { de: 'Noch keine Kategorien erstellt.', en: 'No categories created yet.' },
     categoryNamePrompt: { de: 'Name der Kategorie', en: 'Category name' },
+    categoryColor: { de: 'Farbe', en: 'Colour' },
+    categoryColorChange: { de: '{name}: Farbe ändern', en: '{name}: change colour' },
     categoryDeleteConfirm: { de: 'Kategorie löschen? Zuordnungen gehen verloren.', en: 'Delete this category? Assignments will be lost.' },
     categorySaveError: { de: 'Fehler beim Speichern der Kategorie', en: 'Error saving the category' },
     categoryDeleteError: { de: 'Fehler beim Löschen der Kategorie', en: 'Error deleting the category' },

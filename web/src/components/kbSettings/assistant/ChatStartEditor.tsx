@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import {
     ActionMenu, Badge, Button, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
-    Notice, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Shimmer, Switch, Textarea, cn,
+    Input, Notice, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Shimmer, Switch, Textarea, cn,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { Skeleton } from '../../Skeleton';
@@ -13,7 +13,6 @@ import {
     FIXED_QUESTION_MAX, INSTRUCTION_MAX_LEN, QUESTION_MAX_LEN, ROLE_ENTRY_MAX, UPLOAD_LABEL_MAX_LEN,
     suggestStarterQuestions, type EntryKind, type EntryStart, type RoleEntry, type StartMode, type StartPage, type Suggestions,
 } from './api';
-import { editableField } from './editInPlace';
 import { newId, type RoleView } from './roleModel';
 import { DEFAULT_ENTRY_ID, START_MODE_LABEL, colorsStyle, roleCardCover, startEntries, startOf } from './startPageModel';
 import { ComposerPreview } from './ComposerPreview';
@@ -281,28 +280,30 @@ function UploadEditor({ page }: { page: StartPage }) {
             <UploadStart
                 onFiles={() => undefined}
                 title={(
-                    // eslint-disable-next-line design-system/no-raw-ui-elements -- edit in place: the dropzone's label keeps its look (proposed DS pattern)
-                    <input
+                    <Input
+                        variant="editable"
                         aria-label={t('asstUploadLabel')}
                         value={page.uploadLabel}
                         maxLength={UPLOAD_LABEL_MAX_LEN}
                         placeholder={t('asstUploadLabelDefault')}
                         onChange={(e) => set({ uploadLabel: e.target.value })}
-                        className={cn(editableField, 'w-auto min-w-48 max-w-full text-center font-medium text-on-surface')}
+                        className="w-auto min-w-48 max-w-full text-center"
                     />
                 )}
             />
             <div className="flex flex-col gap-1.5 rounded-[var(--ui-radius-box)] border border-outline-variant bg-surface-container-lowest px-4 py-3">
                 <label htmlFor={instrId} className="text-sm font-medium text-on-surface">{t('asstUploadInstruction')}</label>
-                <textarea
-                    id={instrId}
-                    rows={2}
-                    maxLength={INSTRUCTION_MAX_LEN}
-                    value={page.uploadInstruction}
-                    placeholder={t('asstUploadInstructionPlaceholder')}
-                    onChange={(e) => set({ uploadInstruction: e.target.value })}
-                    className={cn(editableField, 'text-sm leading-6 text-on-surface')}
-                />
+                <div className="text-sm leading-6 text-on-surface">
+                    <Textarea
+                        variant="editable"
+                        id={instrId}
+                        rows={2}
+                        maxLength={INSTRUCTION_MAX_LEN}
+                        value={page.uploadInstruction}
+                        placeholder={t('asstUploadInstructionPlaceholder')}
+                        onChange={(e) => set({ uploadInstruction: e.target.value })}
+                    />
+                </div>
                 <span className="text-xs text-on-surface-variant">{t('asstUploadInstructionHint')}</span>
             </div>
             <p className="m-0 text-xs text-on-surface-variant">{t('asstUploadModeFooter')}</p>
@@ -381,14 +382,14 @@ export function RoleStartEditor({ start, onChange, roleName, dynamicSample, samp
                     <UploadStart
                         onFiles={() => undefined}
                         title={(
-                            // eslint-disable-next-line design-system/no-raw-ui-elements -- edit in place: the dropzone's label keeps its look (proposed DS pattern)
-                            <input
+                            <Input
+                                variant="editable"
                                 aria-label={named('asstCardLabelLabel')}
                                 value={start.text}
                                 maxLength={UPLOAD_LABEL_MAX_LEN}
                                 placeholder={t('asstFileDropTitle').replace('{role}', roleName)}
                                 onChange={(ev) => patch({ text: ev.target.value })}
-                                className={cn(editableField, 'w-auto min-w-48 max-w-full text-center font-medium text-on-surface')}
+                                className="w-auto min-w-48 max-w-full text-center"
                             />
                         )}
                     />
@@ -499,7 +500,6 @@ function RolesEditor({ page, roles, activeRoleId, focusEntryId, onAdded, onFocus
                 <RoleCardFrame
                     cover={roleCardCover(role, e.kind)}
                     kind={e.kind}
-                    highlighted={isDefault}
                     title={<span id={`${listId}-${e.id}`} tabIndex={-1} className="outline-none">{role?.name}</span>}
                     description={role?.description}
                 />

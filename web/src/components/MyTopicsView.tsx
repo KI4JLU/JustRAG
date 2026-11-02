@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
-import { CreateCell, PrivateKbCard } from './KbCard';
+import { KbListHeader, PrivateKbCard } from './KbCard';
+import { Button } from '@ki4jlu/design-system';
+import { Plus } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
 import { useTopicFilters } from '../hooks/useTopicFilters';
@@ -85,7 +87,6 @@ export function MyTopicsView({
     e.stopPropagation();
     onOpenTopicSettings(kb, 'start');
   };
-  const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
   /* `splitKbsByOwnership` is the same predicate `SharedTopicsView` applies to
      the same list — one request, split client-side on the `myRole` each row
@@ -100,15 +101,19 @@ export function MyTopicsView({
         id="my-topics-content"
         title={t('myTopics')}
         description={t('myTopicsDescription')}
-        createCell={
-          <CreateCell
-            onClick={onCreateKB}
-            label={t('newTopic')}
-            text={t('newTopic')}
-            compact={filters.viewMode === 'list'}
+        filterBar={(
+          <TopicFilterBar
+            filters={filters}
+            label={t('filterTopics')}
+            showOwnership
+            action={(
+              <Button className="shrink-0" onClick={onCreateKB}>
+                <Plus className="size-4" aria-hidden="true" /> {t('newTopic')}
+              </Button>
+            )}
           />
-        }
-        filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} showOwnership />}
+        )}
+        listHeader={<KbListHeader t={t} />}
         viewMode={filters.viewMode}
         // One height for every card, across rows (KI-843).
         uniformRows
@@ -119,7 +124,6 @@ export function MyTopicsView({
             currentUserId={user?.id}
             systemRole={user?.role}
             removingKb={removingKb}
-            rtf={rtf}
             t={t}
             language={language}
             onSelectKB={onSelectKB}

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
-import { STORAGE_NAMESPACE, useStoredFlag } from './useStoredFlag';
-import type { KbUserCategory, KnowledgeBase } from '../types';
+import { STORAGE_NAMESPACE, useSharedStoredIds, useStoredFlag } from './useStoredFlag';
+import type { KbCategory, KnowledgeBase } from '../types';
 import { visibilityState } from '../utils/kbVisibility';
 
 /* ---------------------------------------------------------------------------
- * The chip row's state: which filter is active, and the caller's own
- * categories behind the „+".
+ * The chip row's state: which filter is active, the platform's categories
+ * (managed behind the „+"), and which of them are hidden.
  *
  * WHY IT IS A HOOK PER VIEW AND NOT ONE SHARED CONTEXT. The four views hold
  * four independent lists, and the developer's model says they answer different
@@ -23,10 +23,9 @@ import { visibilityState } from '../utils/kbVisibility';
  * developer wants it sticky, the state moves up to `AuthenticatedApp` beside
  * the other cross-view values.
  *
- * FILTERING IS CLIENT-SIDE, off one payload. `isFavorite` and
- * `userCategoryIds` ride along on every row (migration 0077), so a chip is an
- * array filter and never a request — which is also why switching chips is
- * instant and cannot fail.
+ * FILTERING IS CLIENT-SIDE, off one payload. `isFavorite` and `category`
+ * ride along on every row, so a chip is an array filter and never a request —
+ * which is also why switching chips is instant and cannot fail.
  * ------------------------------------------------------------------------- */
 
 /** The two chips that are not categories. Ids cannot collide with a UUID. */
@@ -54,6 +53,14 @@ export const VIEW_MODE_KEY = `${STORAGE_NAMESPACE}topics.listView`;
 
 export type TopicViewMode = 'card' | 'list';
 
+/**
+ * The categories the user hid from the chip row (the category dialog's
+ * „Im Filter" switches): system and own ones alike, by id. One key for every
+ * view, like the view mode — „I don't need this filter" is about the person.
+ * Kept in the browser, as every other UI preference here.
+ */
+export const HIDDEN_CATEGORIES_KEY = `${STORAGE_NAMESPACE}topics.hiddenCategories`;
+
 /* FAVORITES FIRST, whatever the filter (developer ruling). The create tile
    is rendered by the page and always precedes the list, so „first" here means
    first among the topics — directly after that button.
@@ -72,12 +79,17 @@ function favoritesFirst(kbs: KnowledgeBase[]): KnowledgeBase[] {
 export interface TopicFilterState {
   active: string;
   setActive: (value: string) => void;
-  categories: KbUserCategory[];
-  /** Creates one and selects it — the user named it to use it. */
-  createCategory: (name: string) => Promise<void>;
-  renameCategory: (id: string, name: string) => Promise<void>;
-  /** Removes it, and clears the chip if that category was the active filter. */
-  deleteCategory: (id: string) => Promise<void>;
+  /**
+   * The platform's categories (admin-curated, `GET /api/kb-categories`) — a
+   * topic has at most one (`kb.category`). The user's own categories are not
+   * offered for now: nothing attaches one to a topic yet (developer,
+   * 30.10.2026).
+   */
+  systemCategories: KbCategory[];
+  /** Categories hidden from the chip row. */
+  hiddenCategoryIds: ReadonlySet<string>;
+  /** Hides or shows one; hiding the active chip falls back to „Alle". */
+  setCategoryHidden: (id: string, hidden: boolean) => void;
   /** Applies `active` to a list. Identity when the chip is „Alle". */
   apply: (kbs: KnowledgeBase[]) => KnowledgeBase[];
   viewMode: TopicViewMode;
@@ -86,58 +98,26 @@ export interface TopicFilterState {
 
 export function useTopicFilters(): TopicFilterState {
   const [active, setActive] = useState<string>(FILTER_ALL);
-  const [categories, setCategories] = useState<KbUserCategory[]>([]);
+  const [systemCategories, setSystemCategories] = useState<KbCategory[]>([]);
   const [listView, setListView] = useStoredFlag(VIEW_MODE_KEY, false);
+  const [hiddenCategoryIds, setHiddenCategoryIds] = useSharedStoredIds(HIDDEN_CATEGORIES_KEY);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await axios.get<KbUserCategory[]>(`${API_BASE_URL}/api/kb-user-categories`);
-      /* The shape is checked, not assumed. A non-array here — an error page, a
-         proxy's HTML, a mocked endpoint that answers something else — used to
-         reach `categories.map` and take the WHOLE VIEW down with
-         „map is not a function". A filter row is chrome; it must not be able to
-         blank the page it sits on. */
-      setCategories(Array.isArray(res.data) ? res.data : []);
-    } catch {
-      /* A failed category fetch leaves „Alle" and „Favoriten" working rather
-         than taking the whole row down: those two need no server state, and a
-         filter bar that disappears on a transient error is worse than one
-         missing the categories it could not read. */
-      setCategories([]);
-    }
+  // The system categories: authentication-only, the same list the catalog and
+  // the topic settings read. A failure leaves only the user's own chips.
+  useEffect(() => {
+    axios.get<KbCategory[]>(`${API_BASE_URL}/api/kb-categories`)
+      .then(res => setSystemCategories(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setSystemCategories([]));
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-
-  const createCategory = useCallback(async (name: string) => {
-    const res = await axios.post<KbUserCategory>(
-      `${API_BASE_URL}/api/kb-user-categories`,
-      { name, sortOrder: 0 },
-    );
-    setCategories(prev => [...prev, res.data]);
-    setActive(res.data.id);
-  }, []);
-
-  const renameCategory = useCallback(async (id: string, name: string) => {
-    const res = await axios.patch<KbUserCategory>(
-      `${API_BASE_URL}/api/kb-user-categories/${id}`,
-      { name, sortOrder: categories.find(c => c.id === id)?.sortOrder ?? 0 },
-    );
-    /* The server's row, not the string that was typed: the endpoint replaces
-       both fields (it has no field-level patch), so its answer is the truth
-       about what the category now is. */
-    setCategories(prev => prev.map(c => (c.id === id ? res.data : c)));
-  }, [categories]);
-
-  const deleteCategory = useCallback(async (id: string) => {
-    await axios.delete(`${API_BASE_URL}/api/kb-user-categories/${id}`);
-    setCategories(prev => prev.filter(c => c.id !== id));
-    /* If the deleted category was the active chip the row would keep filtering
-       by an id that no longer exists — an empty list with no visible cause.
-       `apply` treats an unknown id as „match nothing" on purpose, so this reset
-       is what stops that state being reachable at all. */
-    setActive(prev => (prev === id ? FILTER_ALL : prev));
-  }, []);
+  const setCategoryHidden = useCallback((id: string, hidden: boolean) => {
+    const next = new Set(hiddenCategoryIds);
+    if (hidden) next.add(id); else next.delete(id);
+    setHiddenCategoryIds(next);
+    /* A hidden chip cannot be the active one: the row would filter by a chip
+       it no longer shows — an emptier list with no visible cause. */
+    if (hidden) setActive(prev => (prev === id ? FILTER_ALL : prev));
+  }, [hiddenCategoryIds, setHiddenCategoryIds]);
 
   const apply = useCallback((kbs: KnowledgeBase[]): KnowledgeBase[] => {
     if (active === FILTER_ALL) return favoritesFirst(kbs);
@@ -145,10 +125,11 @@ export function useTopicFilters(): TopicFilterState {
     if (active === FILTER_FAVORITES) return kbs.filter(kb => kb.isFavorite === true);
     if (active === FILTER_PERSONAL) return favoritesFirst(kbs.filter(kb => visibilityState(kb) === 'personal'));
     if (active === FILTER_SHARED) return favoritesFirst(kbs.filter(kb => visibilityState(kb) === 'shared'));
-    /* A category id that matches nothing yields an empty list rather than
-       falling back to everything — a filter that silently stopped filtering
-       would look like the category had every topic in it. */
-    return favoritesFirst(kbs.filter(kb => kb.userCategoryIds?.includes(active) === true));
+    /* A category: the topic's one platform category. An id that matches
+       nothing yields an empty list rather than falling back to everything — a
+       filter that silently stopped filtering would look like the category had
+       every topic in it. */
+    return favoritesFirst(kbs.filter(kb => kb.category?.id === active));
   }, [active]);
 
   const viewMode: TopicViewMode = listView ? 'list' : 'card';
@@ -156,10 +137,9 @@ export function useTopicFilters(): TopicFilterState {
 
   return useMemo(
     () => ({
-      active, setActive, categories,
-      createCategory, renameCategory, deleteCategory,
+      active, setActive, systemCategories, hiddenCategoryIds, setCategoryHidden,
       apply, viewMode, setViewMode,
     }),
-    [active, categories, createCategory, renameCategory, deleteCategory, apply, viewMode, setViewMode],
+    [active, systemCategories, hiddenCategoryIds, setCategoryHidden, apply, viewMode, setViewMode],
   );
 }

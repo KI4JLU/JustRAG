@@ -1,12 +1,12 @@
 import { forwardRef } from 'react';
 import { X } from 'lucide-react';
-import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '@ki4jlu/design-system';
+import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger, cardAccentStyle } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { defaultStart, type EntryStart, type RuleSet } from './api';
 import { RoleChatMock } from './RoleChatMock';
 import type { RoleView } from './roleModel';
 import { RoleCover } from './StartPageParts';
-import { roleCardCover } from './startPageModel';
+import { roleAccent, roleCardCover } from './startPageModel';
 import { SystemPromptPanel } from './SystemPromptPanel';
 import { useAssistantSettings } from './useAssistantSettings';
 
@@ -55,11 +55,11 @@ export const RolePanelFrame = forwardRef<HTMLElement, {
     right: React.ReactNode;
 }>(function RolePanelFrame({ label, role, start, left, stage, right }, ref) {
     return (
-        <section ref={ref} aria-label={label} className="flex scroll-mt-4 flex-wrap overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-card">
+        <section ref={ref} aria-label={label} style={cardAccentStyle(roleAccent(roleCardCover(role, start.kind)))} className="flex scroll-mt-4 flex-wrap overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-card">
             <div className="flex min-w-0 flex-[1_1_25rem] flex-col border-r border-outline-variant">
                 <div className="flex flex-col gap-4 pb-6">
                     <div className="flex flex-col">
-                        <RoleCover cover={roleCardCover(role, start.kind)} kind={start.kind} />
+                        <RoleCover kind={start.kind} />
                     </div>
                     {left}
                 </div>

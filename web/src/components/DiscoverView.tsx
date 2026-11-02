@@ -61,6 +61,7 @@ export function DiscoverView({ onSubscriptionChange, onOpenKbById }: DiscoverVie
             onSubscriptionChange={onSubscriptionChange}
             onOpenKb={onOpenKbById}
             topicFilter={filters.active}
+            viewMode={filters.viewMode}
           />
         </Container>
       </section>

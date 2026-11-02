@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
-import { CreateCell, PrivateKbCard } from './KbCard';
+import { KbListHeader, PrivateKbCard } from './KbCard';
+import { Button } from '@ki4jlu/design-system';
+import { Plus } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
 import { useTopicFilters } from '../hooks/useTopicFilters';
@@ -104,7 +106,6 @@ export function SharedTopicsView({
     e.stopPropagation();
     onOpenTopicSettings(kb, 'start');
   };
-  const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
 
   const { sharedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
 
@@ -116,15 +117,18 @@ export function SharedTopicsView({
         id={CONTENT_ID}
         title={t('sharedTopics')}
         description={t('sharedTopicsDescription')}
-        createCell={
-          <CreateCell
-            onClick={onViewDiscover}
-            label={t('addTopic')}
-            text={t('addTopic')}
-            compact={filters.viewMode === 'list'}
+        filterBar={(
+          <TopicFilterBar
+            filters={filters}
+            label={t('filterTopics')}
+            action={(
+              <Button className="shrink-0" onClick={onViewDiscover}>
+                <Plus className="size-4" aria-hidden="true" /> {t('addTopic')}
+              </Button>
+            )}
           />
-        }
-        filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
+        )}
+        listHeader={<KbListHeader t={t} />}
         viewMode={filters.viewMode}
         // One height for every card, across rows (KI-843).
         uniformRows
@@ -135,7 +139,6 @@ export function SharedTopicsView({
             currentUserId={user?.id}
             systemRole={user?.role}
             removingKb={removingKb}
-            rtf={rtf}
             t={t}
             language={language}
             onSelectKB={onSelectKB}

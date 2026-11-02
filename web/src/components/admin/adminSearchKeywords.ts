@@ -32,7 +32,7 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'colLastActivity', 'colProcessing', 'colChats', 'colCreated', 'colOldestContent', 'colStaleShare', 'colLastSync', 'colRagas',
     ],
     'global-kbs': ['autoSubscribe', 'unpublishKb'],
-    templates: ['tplTabRoles', 'categories', 'tplDefault', 'asstPrompt', 'asstName', 'asstDescription', 'asstColorFrom', 'asstColorTo', 'tplEnabled'],
+    templates: ['tplTabRoles', 'categories', 'tplDefault', 'asstPrompt', 'asstName', 'asstDescription', 'asstColorFrom', 'asstColorTo', 'tplEnabled', 'categoryColor'],
     users: [
         'adminUsersSearch', 'adminUsersFilterRole', 'userInfo', 'roleUser', 'roleApiUser', 'roleAdmin',
         'roleSuperAdmin', 'deleteUser', 'firstName', 'lastName', 'username', 'role', 'userInfoMemberSince', 'userInfoId',

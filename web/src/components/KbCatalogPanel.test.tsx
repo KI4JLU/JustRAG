@@ -119,10 +119,10 @@ describe('KbCatalogPanel', () => {
         });
         renderPanel();
         const cards = await screen.findAllByTestId('catalog-entry');
-        const band = (i: number) => within(cards[i]).getByTestId('catalog-band').style.backgroundImage;
-        expect(band(0)).toContain('linear-gradient');
-        // No colours sent: the neutral band.
-        expect(band(1)).toBe('');
+        // The hairline card takes its category's colour; without one it stays neutral.
+        const accent = (i: number) => cards[i].style.getPropertyValue('--card-accent');
+        expect(accent(0)).toBe('var(--color-category-3)');
+        expect(accent(1)).toBe('');
         expect(within(cards[0]).getByText('IT')).toBeInTheDocument();
         expect(within(cards[0]).getByText('asstNDocuments')).toBeInTheDocument();
     });
@@ -217,25 +217,24 @@ describe('KbCatalogPanel', () => {
         expect(mockedAxios.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/'));
     });
 
-    // Tabs, not toggle chips: the filter is single-select and always has one
-    // active value. aria-selected (not aria-pressed) is what carries that.
-    it('renders the categories as a tab strip with "All" leftmost and selected', async () => {
+    // The system categories moved into the page's chip row (developer,
+    // 30.10.2026): the panel draws no tab strip of its own, and a system
+    // category's chip filters on the server as the tab did.
+    it('draws no category tabs of its own', async () => {
         renderPanel();
-        const tabs = await screen.findAllByRole('tab');
-        expect(tabs.map(el => el.textContent)).toEqual(['catalogAllCategories', 'IT']);
-        expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-        expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
+        await screen.findAllByTestId('catalog-entry');
+        expect(screen.queryAllByRole('tab')).toHaveLength(0);
     });
 
-    it('filters by the selected category tab and moves the selection to it', async () => {
-        renderPanel();
-        await userEvent.click(await screen.findByRole('tab', { name: 'IT' }));
-
+    it('asks the server for a system category chosen in the chip row', async () => {
+        render(
+            <KbSearchProvider value={providedSearch('')}>
+                <KbCatalogPanel onSubscriptionChange={vi.fn()} onOpenKb={vi.fn()} topicFilter="c1" />
+            </KbSearchProvider>,
+        );
         await waitFor(() => {
             expect(mockedAxios.get).toHaveBeenCalledWith(expect.stringContaining('category=c1'));
         });
-        expect(screen.getByRole('tab', { name: 'IT' })).toHaveAttribute('aria-selected', 'true');
-        expect(screen.getByRole('tab', { name: 'catalogAllCategories' })).toHaveAttribute('aria-selected', 'false');
     });
 });
 

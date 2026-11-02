@@ -1,8 +1,9 @@
-import { FilterChips, SegmentedControl, categoryColor } from '@ki4jlu/design-system';
+import { FilterChips, SegmentedControl } from '@ki4jlu/design-system';
 import { LayoutGrid, List, Star } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useState } from 'react';
 import { CategoryManagerModal } from './CategoryManagerModal';
+import { categoryDotColor } from './kbSettings/assistant/startPageModel';
 import {
   FILTER_ALL, FILTER_FAVORITES, FILTER_PERSONAL, FILTER_SHARED,
   type TopicFilterState,
@@ -50,17 +51,22 @@ export interface TopicFilterBarProps {
   showOwnership?: boolean;
   /** Names the group for a screen reader — the view says what is filtered. */
   label: string;
+  /** The view's primary action at the row's end, after the view toggle („Neues Thema"). */
+  action?: React.ReactNode;
 }
 
-export function TopicFilterBar({ filters, label, showOwnership = false }: TopicFilterBarProps) {
+export function TopicFilterBar({ filters, label, showOwnership = false, action }: TopicFilterBarProps) {
   const { t } = useTheme();
 
   const [managing, setManaging] = useState(false);
 
   return (
-    <div className="flex items-center gap-stack-md">
+    /* One row from `md` up. Narrower, the chips take a row of their own and
+       the view switch and the page's action share the next, right-aligned —
+       a labelled switch and a button leave a phone's chips no room. */
+    <div className="flex flex-wrap items-center gap-stack-md md:flex-nowrap">
     <FilterChips
-      className="min-w-0 flex-1"
+      className="min-w-0 basis-full md:basis-0 md:flex-1"
       aria-label={label}
       value={filters.active}
       /* Pressing the ACTIVE chip clears it back to „Alle" (developer ruling).
@@ -85,36 +91,36 @@ export function TopicFilterBar({ filters, label, showOwnership = false }: TopicF
               { value: FILTER_SHARED, label: t('filterShared') },
             ]
           : []),
-        /* Categories are colour-coded, keyed by id so a category keeps its
-           colour when others are added or removed. The built-in filters stay
-           neutral. */
-        ...filters.categories.map(c => ({ value: c.id, label: c.name, color: categoryColor(c.id) })),
+        /* The platform's categories, in their palette colour (the slot their
+           cards and pills use). A category hidden in the category dialog has
+           no chip. The built-in filters stay neutral. */
+        ...filters.systemCategories
+          .filter(c => !filters.hiddenCategoryIds.has(c.id))
+          .map(c => ({ value: c.id, label: c.name, color: categoryDotColor(c) })),
       ]}
     />
 
       {/* `shrink-0` so the chips scroll past it rather than squeezing it: the
           toggle is the row's fixed end, the filter strip is the elastic half. */}
       <SegmentedControl
-        className="shrink-0"
+        className="ml-auto shrink-0"
         aria-label={t('viewMode')}
         value={filters.viewMode}
         onValueChange={(v) => filters.setViewMode(v as 'card' | 'list')}
-        /* Icon-only (design-system 0.33.0): the label stays the accessible
-           name and is rendered sr-only, so the control is two glyphs to the eye
-           and still answers to „Karten" / „Liste". */
+        /* Icon and label (developer mockup „Hairline", 30.10.2026). */
         options={[
-          { value: 'card', label: t('viewModeCards'), icon: <LayoutGrid className="h-4 w-4" aria-hidden="true" /> },
-          { value: 'list', label: t('viewModeList'), icon: <List className="h-4 w-4" aria-hidden="true" /> },
+          { value: 'card', label: t('viewModeCards'), icon: <LayoutGrid className="h-4 w-4" aria-hidden="true" />, showLabel: true },
+          { value: 'list', label: t('viewModeList'), icon: <List className="h-4 w-4" aria-hidden="true" />, showLabel: true },
         ]}
       />
+      {action}
 
       <CategoryManagerModal
         show={managing}
         onClose={() => setManaging(false)}
-        categories={filters.categories}
-        onCreate={filters.createCategory}
-        onRename={filters.renameCategory}
-        onDelete={filters.deleteCategory}
+        categories={filters.systemCategories}
+        hiddenIds={filters.hiddenCategoryIds}
+        onSetHidden={filters.setCategoryHidden}
       />
     </div>
   );

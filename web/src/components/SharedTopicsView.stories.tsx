@@ -341,7 +341,7 @@ export const OwnedAndShared: Story = {
     /* And once more at the level of the rendered cells, so a view that showed
      * the owned rows under some other accessible name would still fail:
      * exactly two cards are on the page. ORACLE: the fixture's shared count. */
-    await expect(canvasElement.querySelectorAll('.home-view__kb-card')).toHaveLength(2);
+    await expect(canvasElement.querySelectorAll('[data-testid="kb-card"]')).toHaveLength(2);
 
     /* ORACLE: src/translations.ts (`sharedBy` = "von {name}") composed with the
      * fixture's owner names. It renders because the KB's userId differs from
@@ -383,7 +383,7 @@ export const NothingSharedWithMe: Story = {
     await expect(canvas.queryByRole('button', { name: 'Wissen teilen' })).toBeNull();
 
     // No KB card at all — including neither of the two owned ones.
-    await expect(canvasElement.querySelectorAll('.home-view__kb-card')).toHaveLength(0);
+    await expect(canvasElement.querySelectorAll('[data-testid="kb-card"]')).toHaveLength(0);
   },
 };
 

@@ -119,13 +119,13 @@ async function renderSection(section: 'start' | 'behavior' | 'versions') {
         />,
     );
     if (section === 'start') await screen.findByText('asstStartNotice');
-    else if (section === 'behavior') await screen.findByRole('group', { name: 'asstRoles' });
+    else if (section === 'behavior') await screen.findByRole('radiogroup', { name: 'asstRoles' });
     else await screen.findByText('asstRestoreNote');
     return { onUpdateKb };
 }
 
 const saveButton = () => screen.getByRole('button', { name: /save/ });
-const tile = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}.*asstShowPreview$`) });
+const tile = (name: string) => screen.getByRole('radio', { name: new RegExp(`^${name}.*asstShowPreview$`) });
 const useRole = async (name: string) => {
     await userEvent.click(screen.getByRole('button', { name: `actions ${name}` }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /asstUseThisRole/ }));
@@ -255,7 +255,7 @@ describe('Verhalten · roles', () => {
         };
         vi.mocked(api.fetchBehaviorCatalog).mockImplementationOnce(withDisabled);
         await renderSection('behavior');
-        expect(screen.queryByRole('button', { name: /^Alt.*asstShowPreview$/ })).toBeNull();
+        expect(screen.queryByRole('radio', { name: /^Alt.*asstShowPreview$/ })).toBeNull();
         cleanup();
         behavior = { ...behavior, activeRoleId: 'old' };
         vi.mocked(api.fetchBehaviorCatalog).mockImplementationOnce(withDisabled);
@@ -274,7 +274,7 @@ describe('Verhalten · roles', () => {
         expect(screen.queryByRole('region', { name: 'asstPreviewOf' })).toBeNull();
         await userEvent.click(tile('Tutor'));
         expect(screen.getByRole('region', { name: 'asstPreviewOf' })).toHaveTextContent('TUTOR');
-        expect(tile('Tutor')).toHaveAttribute('aria-pressed', 'true');
+        expect(tile('Tutor')).toHaveAttribute('aria-checked', 'true');
     });
 
     // Oracle: developer rulings 28.10.2026 — the preview only shows the rules;
@@ -487,13 +487,13 @@ describe('Startseite', () => {
     it('keeps the default role first, fixed and following the active role; further roles cannot pick it', async () => {
         startPage.startMode = 'roles';
         await renderSection('start');
-        // View: the active role's card first and highlighted („Chat starten"),
-        // then the further one („Loslegen"), each named by its role.
+        // View: the active role's card first, then the further one, each named
+        // by its role and by how it starts (both the input field here). No card
+        // is preselected or singled out (developer ruling 30.10.2026).
         const cards = within(screen.getByRole('region', { name: 'asstChooseRoleHeading' })).getAllByRole('button');
-        expect(cards.map(c => c.getAttribute('aria-label'))).toEqual(['Forschung: asstStartChat', 'Eigene: asstGetStarted']);
-        // Highlighted by its border only: no „Standard" badge (developer ruling 28.10.2026).
+        expect(cards.map(c => c.getAttribute('aria-label'))).toEqual(['Forschung: asstStartChat', 'Eigene: asstStartChat']);
         expect(screen.queryByText('asstStandardBadge')).toBeNull();
-        expect(cards[0].closest('[data-highlighted]') ?? cards[0]).toHaveAttribute('data-highlighted');
+        expect(cards[0].className).toBe(cards[1].className);
         await editChatStart();
         // The default role's menu has no move or delete.
         await userEvent.click(screen.getByRole('button', { name: 'entry-actions Forschung' }));
