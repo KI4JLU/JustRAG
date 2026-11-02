@@ -46,6 +46,7 @@ var sourceGateRoutes = map[string]string{
 	"POST /api/kb/{id}/rss":                "kbAddSourcesChain",
 	"POST /api/kb/{id}/confluence-sources": "kbAddSourcesChain",
 	"POST /api/kb/{id}/git-repos":          "kbAddSourcesChain",
+	"POST /api/kb/{id}/git-repos/lookup":   "kbAddSourcesChain",
 
 	"POST /api/kb/{id}/files/retry-failed":                 "kbManageSourcesChain",
 	"PATCH /api/kb/{id}/rss/{feedId}":                      "kbManageSourcesChain",
