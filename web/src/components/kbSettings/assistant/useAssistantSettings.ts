@@ -253,7 +253,7 @@ export function useAssistantSettingsStore({ kb, onUpdateKb, onOpenSection }: Opt
     const send = useCallback((section: AssistantSection, action?: AssistantAction) => {
         if (action?.type === 'previewRole') setPending(action);
         if (action?.type === 'addEntry' && draft) {
-            // „Als Einstiegsfrage anbieten": the chat start becomes „Nur über
+            // „Für Rollenwahl selektieren": the chat start becomes „Nur über
             // Rolle" with a card for the role (Verhalten offers it only for a
             // further role not on the page yet, while there is room). Every
             // role shows once: a role already on the page keeps its card.

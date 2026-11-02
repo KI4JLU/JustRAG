@@ -282,8 +282,9 @@ describe('App — the KB overview on the authenticated home route', () => {
     expect(dialog.getByRole('combobox', { name: translations.languageLabel.de })).toHaveTextContent('Deutsch');
     expect(dialog.getByRole('combobox', { name: translations.contrast.de })).toHaveTextContent(translations.themeSystemShort.de);
     expect(dialog.getByRole('combobox', { name: translations.accentColor.de })).toHaveTextContent(translations.accent_standard.de);
-    // Exactly those four choices — no Style (uiShape) row any more.
-    expect(dialog.getAllByRole('combobox')).toHaveLength(4);
+    expect(dialog.getByRole('combobox', { name: translations.colorsLabel.de })).toHaveTextContent(translations.themeSystemShort.de);
+    // Exactly those five choices — no Style (uiShape) row any more.
+    expect(dialog.getAllByRole('combobox')).toHaveLength(5);
 
     await userEvent.click(dialog.getByRole('button', { name: translations.settingsProfile.de }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsProfile.de })).toBeInTheDocument();

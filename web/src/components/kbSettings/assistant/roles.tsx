@@ -38,7 +38,8 @@ export function IconTile({ icon, glyph, tone = 'primary', size = 'md', className
                 tone === 'primary' && 'bg-primary-container text-on-primary-container',
                 tone === 'neutral' && 'bg-surface-container-high text-on-surface-variant',
                 tone === 'solid' && 'bg-primary text-on-primary',
-                tone === 'accent' && 'bg-[var(--card-accent,var(--color-primary))] text-white',
+                // The glyph black or white, whichever reads on the card's colour (DS cardAccentStyle).
+                tone === 'accent' && 'bg-[var(--card-accent,var(--color-primary))] text-[var(--card-on-accent,var(--color-on-primary))]',
                 className,
             )}
         >

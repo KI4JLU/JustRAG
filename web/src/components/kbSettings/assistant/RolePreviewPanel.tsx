@@ -103,7 +103,6 @@ export const RolePreviewPanel = forwardRef<HTMLElement, {
                     <div className="flex flex-wrap items-center gap-2">
                         <h4 className="m-0 text-xl font-semibold leading-snug text-on-surface">{role.name}</h4>
                         {active && <Badge tone="primary">{t('asstActive')}</Badge>}
-                        {role.isDefault && <Badge tone="primary">{t('asstDefault')}</Badge>}
                         {onStartPage && <Badge tone="secondary">{t('asstStartSetUpBadge')}</Badge>}
                         <Badge tone="neutral">{role.custom ? t('asstOwn') : t('asstTemplate')}</Badge>
                     </div>

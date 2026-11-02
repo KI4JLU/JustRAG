@@ -393,7 +393,7 @@ const ChatViewComp = () => {
                     {rolesGate && configuredStart && (
                       <div>
                       <RoleStartCards
-                        entries={startEntries(configuredStart.page, configuredStart.activeRoleId)}
+                        entries={startEntries(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles)}
                         roles={configuredStart.roles}
                         // The default role's card starts a normal chat (the active role).
                         onStart={(entry) => chat.startRoleChat({ ...entry, roleId: entry.roleId === configuredStart.activeRoleId ? null : entry.roleId })}

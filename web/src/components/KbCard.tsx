@@ -361,7 +361,7 @@ export function PrivateKbCard({
       {/* THE HAIRLINE CARD (developer mockup „Hairline", 30.10.2026): title,
           favorite star and ⋯ on a faint tint of the category's colour, closed
           by a rule in that colour with the category on it. Without a category
-          the card stays neutral: no tint, a grey rule. */}
+          the card stays neutral: a grey tint and rule. */}
       <CardBand data-testid="kb-card-band">
         <CardTitle>{nameButton}</CardTitle>
         {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}

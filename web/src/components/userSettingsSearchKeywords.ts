@@ -6,7 +6,7 @@ import type { SettingsTab } from './UserSettingsModal';
  * settingsSearchKeywords.test.ts fails when a settings row's label is missing here.
  */
 export const USER_SETTINGS_SEARCH_KEYS: Record<SettingsTab, readonly string[]> = {
-    general: ['appearance', 'contrast', 'accentColor', 'languageLabel'],
+    general: ['appearance', 'contrast', 'accentColor', 'colorsLabel', 'languageLabel'],
     chat: ['promptSuggestions', 'followUpsLabel', 'autoScrollLabel'],
     profile: ['username', 'firstName', 'lastName', 'emailAddress', 'role'],
     connectors: ['apiKeys', 'confluenceProfileTitle'],

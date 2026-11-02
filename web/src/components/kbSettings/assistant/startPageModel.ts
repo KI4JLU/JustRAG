@@ -15,11 +15,6 @@ export function categoryDotColor(cat: Pick<KbCategory, 'colorSlot' | 'color'> | 
     return `var(--color-category-${slot})`;
 }
 
-/** The colours as a gradient: the picker's swatch and the „Entdecken" card's band. */
-export function colorsStyle(colors: StartColors | null | undefined): CSSProperties | undefined {
-    return colors ? { backgroundImage: `linear-gradient(120deg, ${colors.from}, ${colors.to})` } : undefined;
-}
-
 /**
  * A fine noise tile laid over the glow as dithering: a faint, wide gradient
  * on a dark surface spans only a few 8-bit steps and shows as rings
@@ -77,15 +72,23 @@ export const START_MODE_LABEL: Record<StartMode, string> = { input: 'asstStartIn
 /** The id of the active role's card, always the first. */
 export const DEFAULT_ENTRY_ID = 'default';
 
-/** How a role starts its chat: its start set up in „Verhalten", else the input field. */
-export function startOf(page: StartPage, roleId: string): EntryStart {
-    return page.roleStarts[roleId] ?? defaultStart();
+/** The roles a start falls back to: a template's own start („Vorlagen"). */
+export type RoleStarts = readonly { id: string; start?: EntryStart }[];
+
+/** How a role starts when the KB sets up none: its template's start, else the input field. */
+export function roleDefaultStart(roles: RoleStarts | undefined, roleId: string): EntryStart {
+    return roles?.find(r => r.id === roleId)?.start ?? defaultStart();
+}
+
+/** How a role starts its chat: its start set up in „Verhalten", else its template's, else the input field. */
+export function startOf(page: StartPage, roleId: string, roles?: RoleStarts): EntryStart {
+    return page.roleStarts[roleId] ?? roleDefaultStart(roles, roleId);
 }
 
 /** The cards of „Rollenauswahl": the active role's first, then the further ones, each with its role's start. */
-export function startEntries(page: StartPage, activeRoleId: string): RoleEntry[] {
+export function startEntries(page: StartPage, activeRoleId: string, roles?: RoleStarts): RoleEntry[] {
     return [{ id: DEFAULT_ENTRY_ID, roleId: activeRoleId }, ...page.roleEntries]
-        .map(ref => ({ ...startOf(page, ref.roleId), ...ref }));
+        .map(ref => ({ ...startOf(page, ref.roleId, roles), ...ref }));
 }
 
 /** A card that cannot start a chat: an instruction without text. */
@@ -94,9 +97,9 @@ export function entryIncomplete(e: EntryStart): boolean {
 }
 
 /** Speichern waits until the chosen chat start is fully set up. */
-export function chatStartIncomplete(page: StartPage, activeRoleId: string): boolean {
+export function chatStartIncomplete(page: StartPage, activeRoleId: string, roles?: RoleStarts): boolean {
     // A choice needs two roles; with the active role alone the input field starts the same chat.
-    if (page.startMode === 'roles') return page.roleEntries.length === 0 || startEntries(page, activeRoleId).some(entryIncomplete);
+    if (page.startMode === 'roles') return page.roleEntries.length === 0 || startEntries(page, activeRoleId, roles).some(entryIncomplete);
     return false;
 }
 

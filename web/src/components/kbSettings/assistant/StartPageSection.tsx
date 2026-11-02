@@ -32,7 +32,7 @@ export function StartPageSection() {
     const store = useAssistantSettings();
     const { draft, catalog, categories, kb } = store;
     const roles = useMemo(() => allRoles(catalog, draft?.behavior), [catalog, draft?.behavior]);
-    // Opened from „Als Einstiegsfrage anbieten" in Verhalten: on the chat
+    // Opened from „Für Rollenwahl selektieren" in Verhalten: on the chat
     // start's editor, with the new card focused (the store added it).
     const [opened] = useState(() => (store.pending?.type === 'startRoles' ? store.pending : null));
     const [editing, setEditing] = useState<Record<Block, boolean>>({ card: false, start: !!opened });
@@ -76,7 +76,7 @@ export function StartPageSection() {
     // „Fertig" keeps the editors open while the chat start is incomplete
     // (e.g. „Rollenauswahl" with the default role alone) and shows why.
     const done = () => {
-        if (editing.start && chatStartIncomplete(page, activeRoleId)) {
+        if (editing.start && chatStartIncomplete(page, activeRoleId, roles)) {
             store.revealErrors();
             return;
         }
@@ -93,7 +93,7 @@ export function StartPageSection() {
         <div className="input-container input-container--start">
             {page.startMode === 'roles' ? (
                 <div>
-                    <RoleStartCards entries={startEntries(page, activeRoleId)} roles={roles} onStart={setPreviewChat} />
+                    <RoleStartCards entries={startEntries(page, activeRoleId, roles)} roles={roles} onStart={setPreviewChat} />
                 </div>
             ) : page.startMode === 'upload' ? (
                 <div>
@@ -116,7 +116,7 @@ export function StartPageSection() {
     return (
         <div className="@container flex flex-col gap-4 pt-6">
             <Notice tone="info" icon={<Info />}>{t('asstStartNotice')}</Notice>
-            {store.showErrors && chatStartIncomplete(page, activeRoleId) && !editing.start && (
+            {store.showErrors && chatStartIncomplete(page, activeRoleId, roles) && !editing.start && (
                 <Notice tone="warning" icon={<Info />}>
                     {t('asstStartIncomplete')}{' '}
                     <Button variant="link" size="sm" className="h-auto p-0 align-baseline" onClick={() => open('start')}>{t('asstEditChatStart')}</Button>

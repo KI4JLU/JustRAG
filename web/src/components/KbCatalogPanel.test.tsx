@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
+import { legibleColor } from '@ki4jlu/design-system';
 import KbCatalogPanel from './KbCatalogPanel';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 
@@ -121,7 +122,7 @@ describe('KbCatalogPanel', () => {
         const cards = await screen.findAllByTestId('catalog-entry');
         // The hairline card takes its category's colour; without one it stays neutral.
         const accent = (i: number) => cards[i].style.getPropertyValue('--card-accent');
-        expect(accent(0)).toBe('var(--color-category-3)');
+        expect(accent(0)).toBe(legibleColor('var(--color-category-3)'));
         expect(accent(1)).toBe('');
         expect(within(cards[0]).getByText('IT')).toBeInTheDocument();
         expect(within(cards[0]).getByText('asstNDocuments')).toBeInTheDocument();
