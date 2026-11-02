@@ -146,6 +146,12 @@ type StructuredSpec struct {
 // small models on these calls is malformed JSON, not wrong intent). A nil
 // spec behaves exactly like GenerateCompletionWithModelDeterministic.
 func GenerateCompletionStructured(ctx context.Context, resolver *ConfigResolver, prompt, systemPrompt, kbID, modelOverride string, spec *StructuredSpec) (*CompletionResult, error) {
+	return generateCompletionStructuredAt(ctx, resolver, prompt, systemPrompt, kbID, modelOverride, spec, 0.0)
+}
+
+// generateCompletionStructuredAt is GenerateCompletionStructured at the given
+// temperature, for the calls that want varied output (starter questions).
+func generateCompletionStructuredAt(ctx context.Context, resolver *ConfigResolver, prompt, systemPrompt, kbID, modelOverride string, spec *StructuredSpec, temperature float64) (*CompletionResult, error) {
 	config, err := resolver.Resolve(ctx, kbID)
 	if err != nil {
 		return nil, fmt.Errorf("ai: resolve config: %w", err)
@@ -160,7 +166,7 @@ func GenerateCompletionStructured(ctx context.Context, resolver *ConfigResolver,
 				"fallback", config.ChatModel)
 		}
 	}
-	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.0, spec, 0)
+	return generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, temperature, spec, 0)
 }
 
 // structuredCompletionFn is the Structured-Outputs sibling of completionFn:

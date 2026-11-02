@@ -185,6 +185,20 @@ func (a chatStoreAdapter) StarterContext(_ context.Context, _ string, _ int) (ch
 	return chat.StarterSource{}, fmt.Errorf("StarterContext: %w", errChatStoreUnsupported)
 }
 
+// GetChatSystemPrompt answers in the KB's active role: public API chats are
+// never started in another role.
+func (a chatStoreAdapter) GetChatSystemPrompt(ctx context.Context, kbID, _ string) (*string, error) {
+	return a.GetKBSystemPrompt(ctx, kbID)
+}
+
+func (a chatStoreAdapter) KBHasRole(_ context.Context, _, _ string) (bool, error) {
+	return false, fmt.Errorf("KBHasRole: %w", errChatStoreUnsupported)
+}
+
+func (a chatStoreAdapter) CreateChatWithRole(_ context.Context, _, _, _, _ string) (*chat.ChatRow, error) {
+	return nil, fmt.Errorf("CreateChatWithRole: %w", errChatStoreUnsupported)
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import type { KbRole, KbSourceFlag, KbSourceFlags } from '../../types';
 import {
     KB_ALWAYS_ALL_ROLES, KB_CONFIGURABLE_ROLES, KB_RIGHT_GROUPS, KB_ROLE_COLUMNS, resolveRightCell,
     type KbRight, type KbRightState,
+    RIGHT_LABEL_KEY,
 } from '../../utils/kbRoleRights';
 
 const ROLE_ICON: Record<KbRole, typeof Eye> = { owner: Crown, admin: Shield, edit: Pencil, view: Eye };
@@ -25,10 +26,6 @@ const ROLE_TIP: Record<KbRole, { lead: string; bullets: string[] }> = {
 };
 /** One-line description under the narrow layout's role switcher. */
 const ROLE_DESC_KEY: Partial<Record<KbRole, string>> = { edit: 'rrRoleEditDesc', view: 'rrRoleViewDesc' };
-const RIGHT_LABEL_KEY: Record<KbRight, string> = {
-    invite: 'rrRightInvite', seeSources: 'rrRightSeeSources', addSources: 'rrRightAddSources',
-    downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',
-};
 const RIGHT_HINT_KEY: Record<KbRight, string> = {
     invite: 'rrRightInviteHint', seeSources: 'rrRightSeeSourcesHint', addSources: 'rrRightAddSourcesHint',
     downloadSources: 'rrRightDownloadSourcesHint', editSources: 'rrRightEditSourcesHint', seeCitations: 'rrRightSeeCitationsHint',

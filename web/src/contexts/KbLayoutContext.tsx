@@ -9,7 +9,7 @@ export interface KbLayoutContextValue {
    *  the topic's URL carries `?topic=` (useTopicSettings). */
   systemPromptOpen: boolean;
   setSystemPromptOpen: (open: boolean) => void;
-  /** Its open section — `?topic=<section>` in the URL: Verhalten from the gear, Mitglieder from „Teilen". */
+  /** Its open section — `?topic=<section>` in the URL: Startseite from the gear, Mitglieder from „Teilen". */
   systemPromptSection: KbSettingsSection;
   setSystemPromptSection: (section: KbSettingsSection) => void;
 }

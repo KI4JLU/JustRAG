@@ -1,6 +1,6 @@
 import { useId, useState, useEffect, useMemo } from 'react';
 import { Save, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { Button, Card, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, NavItem } from '@ki4jlu/design-system';
+import { Button, Card, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, NavItem, useSettingsSearch } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { CheckboxFieldRow, FieldRow, SelectFieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
 import { isChatWebSearchAvailable } from '../../utils/chatWebSearch';
@@ -36,7 +36,8 @@ function Section({ title, open, onToggle, hidden, children }: { title: string; o
         <Card className="overflow-hidden">
             <Collapsible open={open} onOpenChange={onToggle}>
                 <CollapsibleTrigger asChild>
-                    <NavItem type="button" className="justify-between rounded-none">
+                    {/* Kept while the dialog search shows this group's matching rows: the rows' heading. */}
+                    <NavItem type="button" className="justify-between rounded-none" data-search-keep="">
                         <span>{title}</span>
                         {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
                     </NavItem>
@@ -133,7 +134,12 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
         return r;
     }, [t]);
 
+    // The admin dialog's search finds rows only where they are rendered: while it filters, every
+    // group is open, and the dialog hides those without a hit.
+    const dialogSearch = useSettingsSearch();
+
     const sectionState = (id: SectionId) => {
+        if (dialogSearch.filtering) return { hidden: false, open: true, onToggle: () => {} };
         const isFiltering = trimmedFilter.length > 0;
         const matches = isFiltering ? sectionSearch[id]?.includes(trimmedFilter) : true;
         return {

@@ -24,15 +24,11 @@ import { useTheme } from './contexts/ThemeContext';
  *
  * Two things about THIS page's migration:
  *
- * 1. THE PAGE'S OWN SCROLL BOX IS PRESERVED, moved from an inline style onto
- *    the template's `className`. The card's own text says the only `maxHeight`
- *    in the three files is Dashboard.tsx:679 — that is WRONG, this file's root
- *    carried `maxHeight: 'calc(100vh - 200px)'` + `overflowY: 'auto'` as well
- *    (line 473 at the claim base). It is the whole reason this dashboard
- *    scrolls inside the admin content column instead of growing the admin
- *    page, so dropping it silently would have been a behaviour change. The
- *    200px is tied to AdminUI's header + tab chrome; whether it should stay a
- *    magic number is a question for the developer, not this card.
+ * 1. NO SCROLL BOX OF ITS OWN. The page renders in the admin console's
+ *    SettingsDialog section pane, which scrolls and brings the side insets; the
+ *    old `max-h-[calc(100vh-200px)] overflow-y-auto` box (sized for the former
+ *    admin page's chrome) put a second scrollbar inside it, and the template's
+ *    page padding (its Container's) indented it past the other sections'.
  *
  * 2. THE HEADING LEVEL. KI-714 had to accept h2 -> h1 (PageHeader rendered a
  *    real `<h1>` and the level was not a prop), which gave this page two:
@@ -533,12 +529,9 @@ export default function SystemHealthDashboard() {
              * template's fixed <h1> made two top-level headings; v0.24.0's
              * `headingLevel` moves the page title down one (card KI-743). */
             headingLevel={2}
-            /* The page's own scroll box, preserved from the pre-migration root
-             * and explained at the top of this file. The h1-h6/p `margin:
-             * revert` counterweight that used to be neutralised here as well
-             * (`[&>header_h1]:m-0 [&>header_p]:m-0`) is handled inside
-             * PageHeader from v0.24.0 on. */
-            className="max-h-[calc(100vh-200px)] overflow-y-auto"
+            /* The dialog's section pane scrolls and sets the insets (see the
+             * top of this file): no scroll box, no page padding of its own. */
+            className="max-w-none p-0 md:p-0"
             title={
                 <span className="inline-flex items-center gap-2">
                     <Activity size={24} aria-hidden="true" />

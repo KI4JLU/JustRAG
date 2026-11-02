@@ -15,6 +15,7 @@ type fakeStore struct {
 	categories  []kbcategories.Category
 	createErr   error
 	gotName     string
+	gotColor    *string
 	gotKBID     string
 	gotCatIDs   []string
 	deleteCalls []string
@@ -24,15 +25,17 @@ func (f *fakeStore) List(context.Context) ([]kbcategories.Category, error) {
 	return f.categories, nil
 }
 
-func (f *fakeStore) Create(_ context.Context, name string, sortOrder int) (*kbcategories.Category, error) {
+func (f *fakeStore) Create(_ context.Context, name string, sortOrder int, _ *int, color *string) (*kbcategories.Category, error) {
 	f.gotName = name
+	f.gotColor = color
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 	return &kbcategories.Category{ID: "cat-new", Name: name, SortOrder: sortOrder}, nil
 }
 
-func (f *fakeStore) Update(_ context.Context, id, name string, sortOrder int) (*kbcategories.Category, error) {
+func (f *fakeStore) Update(_ context.Context, id, name string, sortOrder int, _ *int, color *string) (*kbcategories.Category, error) {
+	f.gotColor = color
 	return &kbcategories.Category{ID: id, Name: name, SortOrder: sortOrder}, nil
 }
 
@@ -106,20 +109,81 @@ func TestCreateDuplicateReturns409(t *testing.T) {
 	}
 }
 
-func TestSetKBCategoriesPassesIDs(t *testing.T) {
-	store := &fakeStore{}
-	h := kbcategories.NewHandler(store)
+// Oracle: MaxKBCategories = 1 — one id (or none) is passed through, two are
+// refused before the store is touched.
+func TestSetKBCategoriesAllowsAtMostOne(t *testing.T) {
+	for body, want := range map[string]int{
+		`{"categoryIds":["c1"]}`:      http.StatusNoContent,
+		`{"categoryIds":[]}`:          http.StatusNoContent,
+		`{"categoryIds":["c1","c2"]}`: http.StatusBadRequest,
+	} {
+		store := &fakeStore{}
+		h := kbcategories.NewHandler(store)
+		req := httptest.NewRequest(http.MethodPut, "/api/kb/kb-1/categories", strings.NewReader(body))
+		req.SetPathValue("id", "kb-1")
+		rec := httptest.NewRecorder()
+		h.SetKBCategories(rec, req)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/kb/kb-1/categories",
-		strings.NewReader(`{"categoryIds":["c1","c2"]}`))
-	req.SetPathValue("id", "kb-1")
-	rec := httptest.NewRecorder()
-	h.SetKBCategories(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204 (body: %s)", rec.Code, rec.Body)
+		if rec.Code != want {
+			t.Fatalf("%s: status = %d, want %d (body: %s)", body, rec.Code, want, rec.Body)
+		}
+		if want == http.StatusNoContent && store.gotKBID != "kb-1" {
+			t.Fatalf("%s: store not called", body)
+		}
+		if want == http.StatusBadRequest && store.gotKBID != "" {
+			t.Fatalf("%s: store called on a refused body", body)
+		}
 	}
-	if store.gotKBID != "kb-1" || len(store.gotCatIDs) != 2 {
-		t.Fatalf("store got (%q, %v)", store.gotKBID, store.gotCatIDs)
+}
+
+func TestColorSlotRange(t *testing.T) {
+	for body, want := range map[string]int{
+		`{"name":"Recht","colorSlot":0}`:  http.StatusBadRequest,
+		`{"name":"Recht","colorSlot":10}`: http.StatusBadRequest,
+		`{"name":"Recht","colorSlot":9}`:  http.StatusCreated,
+		`{"name":"Recht"}`:                http.StatusCreated,
+	} {
+		h := kbcategories.NewHandler(&fakeStore{})
+		rec := httptest.NewRecorder()
+		h.Create(rec, httptest.NewRequest(http.MethodPost, "/api/admin/kb-categories", strings.NewReader(body)))
+		if rec.Code != want {
+			t.Errorf("%s: status = %d, want %d", body, rec.Code, want)
+		}
+	}
+}
+
+// Oracle: the hex grammar #rrggbb (any case accepted, stored lowercase);
+// anything else is a 400 before the store is called, and "" (clear) passes.
+func TestCategoryColor(t *testing.T) {
+	for body, want := range map[string]struct {
+		code  int
+		color string // "" = no color reaches the store; "<empty>" = the clearing ""
+	}{
+		`{"name":"Recht","color":"#D4380D"}`:   {http.StatusCreated, "#d4380d"},
+		`{"name":"Recht","color":" #1a2b3c "}`: {http.StatusCreated, "#1a2b3c"},
+		`{"name":"Recht","color":""}`:          {http.StatusCreated, "<empty>"},
+		`{"name":"Recht"}`:                     {http.StatusCreated, ""},
+		`{"name":"Recht","color":"red"}`:       {http.StatusBadRequest, ""},
+		`{"name":"Recht","color":"#abc"}`:      {http.StatusBadRequest, ""},
+		`{"name":"Recht","color":"#12345g"}`:   {http.StatusBadRequest, ""},
+	} {
+		store := &fakeStore{}
+		h := kbcategories.NewHandler(store)
+		rec := httptest.NewRecorder()
+		h.Create(rec, httptest.NewRequest(http.MethodPost, "/api/admin/kb-categories", strings.NewReader(body)))
+		if rec.Code != want.code {
+			t.Errorf("%s: status = %d, want %d", body, rec.Code, want.code)
+			continue
+		}
+		got := ""
+		if store.gotColor != nil {
+			got = *store.gotColor
+			if got == "" {
+				got = "<empty>"
+			}
+		}
+		if got != want.color {
+			t.Errorf("%s: color reaching the store = %q, want %q", body, got, want.color)
+		}
 	}
 }

@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
-import { CreateCell, PrivateKbCard } from './KbCard';
+import { KbListHeader, PrivateKbCard } from './KbCard';
+import { Button } from '@ki4jlu/design-system';
+import { Plus } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
 import { useTopicFilters } from '../hooks/useTopicFilters';
@@ -77,7 +79,6 @@ export interface SharedTopicsViewProps {
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
-  onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
@@ -87,7 +88,6 @@ export function SharedTopicsView({
   onSelectKB,
   onDeleteKB,
   removingKb,
-  onOpenKbSettings,
   onRenameKB,
   onToggleFavorite,
 }: SharedTopicsViewProps) {
@@ -101,7 +101,11 @@ export function SharedTopicsView({
     e.stopPropagation();
     onOpenTopicSettings(kb, 'members');
   };
-  const rtf = useMemo(() => new Intl.RelativeTimeFormat(language, { numeric: 'auto' }), [language]);
+  // „Einstellungen" opens it on Startseite.
+  const handleSettings = (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenTopicSettings(kb, 'start');
+  };
 
   const { sharedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
 
@@ -113,15 +117,18 @@ export function SharedTopicsView({
         id={CONTENT_ID}
         title={t('sharedTopics')}
         description={t('sharedTopicsDescription')}
-        createCell={
-          <CreateCell
-            onClick={onViewDiscover}
-            label={t('addTopic')}
-            text={t('addTopic')}
-            compact={filters.viewMode === 'list'}
+        filterBar={(
+          <TopicFilterBar
+            filters={filters}
+            label={t('filterTopics')}
+            action={(
+              <Button className="shrink-0" onClick={onViewDiscover}>
+                <Plus className="size-4" aria-hidden="true" /> {t('addTopic')}
+              </Button>
+            )}
           />
-        }
-        filterBar={<TopicFilterBar filters={filters} label={t('filterTopics')} />}
+        )}
+        listHeader={<KbListHeader t={t} />}
         viewMode={filters.viewMode}
         // One height for every card, across rows (KI-843).
         uniformRows
@@ -132,14 +139,13 @@ export function SharedTopicsView({
             currentUserId={user?.id}
             systemRole={user?.role}
             removingKb={removingKb}
-            rtf={rtf}
             t={t}
             language={language}
             onSelectKB={onSelectKB}
             onOpenShare={handleShare}
             onToggleFavorite={onToggleFavorite}
             compact={filters.viewMode === 'list'}
-            onOpenKbSettings={onOpenKbSettings}
+            onOpenSettings={handleSettings}
             onRenameKB={onRenameKB}
             onDeleteKB={onDeleteKB}
           />

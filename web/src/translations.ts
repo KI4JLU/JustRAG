@@ -1,3 +1,5 @@
+import { assistantTranslations } from './translations.assistant';
+
 export type Language = 'en' | 'de';
 
 export const translations = {
@@ -117,11 +119,7 @@ export const translations = {
      * from here that ends with a new topic in front of them. */
     addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
 
-    /* The filter chip row above every view's list (migration 0077).
-     *
-     * „Alle" here and `catalogAllCategories` below are NOT the same string to
-     * reuse: that one labels the catalog's admin-curated taxonomy tab, this one
-     * the caller's own filter. They read alike today and are free to diverge. */
+    /* The filter chip row above every view's list (migration 0077). */
     filterAll: { de: 'Alle', en: 'All' },
     filterFavorites: { de: 'Favoriten', en: 'Favorites' },
     /* „Mein Wissen" only. The words match the card badge's own two states
@@ -132,18 +130,12 @@ export const translations = {
     manageCategories: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesTitle: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesBody: {
-      de: 'Deine eigenen Kategorien. Sie gelten nur für dich und lassen sich jedem Thema zuordnen, das du sehen kannst.',
-      en: 'Your own categories. They are yours alone and can be attached to any topic you can see.',
+      de: 'Die Kategorien der Plattform. Was du im Filter nicht brauchst, blendest du aus.',
+      en: 'The platform\'s categories. Hide what you don\'t need in the filter.',
     },
-    noCategoriesYet: { de: 'Noch keine Kategorien angelegt.', en: 'No categories yet.' },
-    renameCategory: { de: 'Kategorie umbenennen', en: 'Rename category' },
-    deleteCategory: { de: 'Kategorie löschen', en: 'Delete category' },
-    confirmDeleteCategory: { de: 'Kategorie wirklich löschen?', en: 'Delete this category?' },
-    categoryActionError: {
-      de: 'Aktion fehlgeschlagen. Gibt es die Kategorie schon?',
-      en: 'Action failed. Does the category already exist?',
-    },
-    newCategoryPrompt: { de: 'Name der neuen Kategorie', en: 'Name of the new category' },
+    noCategoriesYet: { de: 'Noch keine Kategorien vorhanden.', en: 'No categories yet.' },
+    categoryInFilter: { de: 'Im Filter', en: 'In filter' },
+    showCategoryInFilter: { de: '{name} im Filter anzeigen', en: 'Show {name} in the filter' },
     newCategoryError: {
       de: 'Kategorie konnte nicht angelegt werden. Gibt es sie schon?',
       en: 'Could not create the category. Does it already exist?',
@@ -857,8 +849,6 @@ export const translations = {
       de: 'Sobald neue Themen für alle Mitglieder der JLU bereitgestellt werden, findest du sie hier.',
       en: 'As soon as new topics are made available to all JLU members, you will find them here.',
     },
-    catalogAllCategories: { de: 'Alle', en: 'All' },
-    catalogCategoryTabs: { de: 'Kategorien filtern', en: 'Filter by category' },
     // Der Katalog zeigt zunaechst nur die erste Seite; {n} ist die Zahl der
     // noch verborgenen KBs (t() kann nicht interpolieren, daher .replace).
     catalogShowMore: { de: 'Alle {n} weiteren anzeigen', en: 'Show {n} more' },
@@ -1502,6 +1492,48 @@ export const translations = {
     adminTabHealth: { de: 'System Health', en: 'System Health' },
     adminTabKbOverview: { de: 'KB-Übersicht', en: 'KB Overview' },
     adminTabGlobalKbs: { de: 'Globale KBs', en: 'Global KBs' },
+    adminTabTemplates: { de: 'Vorlagen', en: 'Templates' },
+    // „Vorlagen" › Rollen: the template roles every topic can use (AdminTemplatesTab).
+    tplTabRoles: { de: 'Rollen', en: 'Roles' },
+    tplRolesIntro: { de: 'Die Rollen, die jedes Thema verwenden kann. Die Standardrolle bekommt jedes neue Thema; die Farben zeigt die Rollenkarte auf der Startseite.', en: 'The roles every topic can use. Every new topic starts with the default role; the colours show on the role card on the start page.' },
+    tplDefault: { de: 'Standardrolle', en: 'Default role' },
+    tplDefaultHelp: { de: 'Mit dieser Rolle startet jedes neue Thema. Es gibt genau eine.', en: 'Every new topic starts with this role. There is exactly one.' },
+    tplDefaultAlwaysOn: { de: 'Die Standardrolle ist immer verfügbar.', en: 'The default role is always available.' },
+    tplDisabled: { de: 'Deaktiviert', en: 'Disabled' },
+    tplEnabled: { de: 'Verfügbar', en: 'Available' },
+    tplEnabledHelp: { de: 'Aus: wird nicht mehr zur Auswahl angeboten. Themen, die sie verwenden, behalten sie.', en: 'Off: no longer offered for selection. Topics that use it keep it.' },
+    tplNoDescription: { de: 'Keine Beschreibung', en: 'No description' },
+    tplUsedBy: { de: 'Verwendet in {n} Themen', en: 'Used in {n} topics' },
+    tplUsedByOne: { de: 'Verwendet in 1 Thema', en: 'Used in 1 topic' },
+    tplActionsFor: { de: 'Aktionen für {name}', en: 'Actions for {name}' },
+    tplMakeDefault: { de: 'Als Standardrolle festlegen', en: 'Make default role' },
+    tplDisable: { de: 'Deaktivieren', en: 'Disable' },
+    tplEnable: { de: 'Aktivieren', en: 'Enable' },
+    tplDeleteInUse: { de: 'Löschen (wird verwendet)', en: 'Delete (in use)' },
+    tplDeleteConfirm: { de: 'Rolle „{name}“ löschen?', en: 'Delete role “{name}”?' },
+    tplDeleteError: { de: 'Die Rolle konnte nicht gelöscht werden.', en: 'The role could not be deleted.' },
+    tplSaveError: { de: 'Die Rolle konnte nicht gespeichert werden.', en: 'The role could not be saved.' },
+    tplLoadError: { de: 'Die Rollen konnten nicht geladen werden.', en: 'The roles could not be loaded.' },
+    tplAdd: { de: 'Rolle hinzufügen', en: 'Add role' },
+    tplNew: { de: 'Neue Rolle', en: 'New role' },
+    tplEdit: { de: 'Rolle bearbeiten', en: 'Edit role' },
+    tplLook: { de: 'Aussehen', en: 'Appearance' },
+    tplIcon: { de: 'Symbol', en: 'Icon' },
+    tplLanguage: { de: 'Sprache der Texte', en: 'Language of the texts' },
+    tplGerman: { de: 'Deutsch', en: 'German' },
+    tplEnglish: { de: 'Englisch', en: 'English' },
+    tplEnglishFallback: { de: 'Optional – leer gilt der deutsche Text.', en: 'Optional – empty uses the German text.' },
+    tplDescriptionHelp: { de: 'Steht auf der Rollenkarte unter dem Namen.', en: 'Shown on the role card under the name.' },
+    'tplIcon_graduation-cap': { de: 'Doktorhut', en: 'Graduation cap' },
+    'tplIcon_book-open': { de: 'Buch', en: 'Book' },
+    'tplIcon_building-2': { de: 'Gebäude', en: 'Building' },
+    'tplIcon_pen-line': { de: 'Stift', en: 'Pen' },
+    'tplIcon_file-text': { de: 'Dokument', en: 'Document' },
+    'tplIcon_file-check': { de: 'Geprüftes Dokument', en: 'Checked document' },
+    'tplIcon_life-buoy': { de: 'Rettungsring', en: 'Life buoy' },
+    tplIcon_sparkles: { de: 'Funken', en: 'Sparkles' },
+    'tplIcon_user-round': { de: 'Person', en: 'Person' },
+    tplIcon_copy: { de: 'Kopie', en: 'Copy' },
     adminTabRoles: { de: 'Rollen & Rechte', en: 'Roles & rights' },
 
     // Admin Nav Groups
@@ -1592,6 +1624,12 @@ export const translations = {
     kbActionPublishLive: { de: 'Veröffentlichen', en: 'Publish' },
     kbStagedBadge: { de: 'Nicht live', en: 'Not live' },
     kbStagedHint: { de: 'Öffentlich, aber noch nicht freigeschaltet: sichtbar nur für KB-Admins und Systemadmins.', en: 'Public, but not live yet: visible only to KB admins and system admins.' },
+    globalKbCardIncompleteNotice: { de: '{n} von {total} globalen KBs zeigen in „Entdecken“ eine unvollständige Karte. Die fehlenden Angaben stehen an der jeweiligen KB: Kategorie im ⋮-Menü, Beschreibung in den Thema-Einstellungen unter Startseite, Dokumente und Stand nach dem ersten erfolgreich verarbeiteten Dokument.', en: '{n} of {total} global KBs show an incomplete card in Discover. The missing fields are listed at each KB: category in the ⋮ menu, description in the topic settings under Start page, documents and date after the first successfully processed document.' },
+    globalKbCardMissing: { de: 'Fehlt: {fields}', en: 'Missing: {fields}' },
+    globalKbMissingCategory: { de: 'Kategorie', en: 'Category' },
+    globalKbMissingDescription: { de: 'eigene Beschreibung (es steht der Standardtext)', en: 'own description (the default text shows)' },
+    globalKbMissingDocuments: { de: 'Dokumente', en: 'Documents' },
+    globalKbMissingAsOf: { de: 'Stand', en: 'Date' },
     colProcessing: { de: 'In Bearbeitung', en: 'Processing' },
     colChats: { de: 'Chats', en: 'Chats' },
     colCreated: { de: 'Erstellt', en: 'Created' },
@@ -1673,6 +1711,12 @@ export const translations = {
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
     // The card's meta lines (KI-848): label muted, relative value bold.
     kbCardUsed: { de: 'Genutzt', en: 'Used' },
+    kbListColTopic: { de: 'Thema', en: 'Topic' },
+    kbListColSources: { de: 'Quellen', en: 'Sources' },
+    kbListColChats: { de: 'Chats', en: 'Chats' },
+    kbListColLastActive: { de: 'Zuletzt aktiv', en: 'Last active' },
+    kbListColSharing: { de: 'Freigabe', en: 'Sharing' },
+    kbListColAsOf: { de: 'Stand', en: 'As of' },
     kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
 
     // AI Configs Tab
@@ -2477,6 +2521,8 @@ export const translations = {
     categories: { de: 'Kategorien', en: 'Categories' },
     noCategories: { de: 'Noch keine Kategorien erstellt.', en: 'No categories created yet.' },
     categoryNamePrompt: { de: 'Name der Kategorie', en: 'Category name' },
+    categoryColor: { de: 'Farbe', en: 'Colour' },
+    categoryColorChange: { de: '{name}: Farbe ändern', en: '{name}: change colour' },
     categoryDeleteConfirm: { de: 'Kategorie löschen? Zuordnungen gehen verloren.', en: 'Delete this category? Assignments will be lost.' },
     categorySaveError: { de: 'Fehler beim Speichern der Kategorie', en: 'Error saving the category' },
     categoryDeleteError: { de: 'Fehler beim Löschen der Kategorie', en: 'Error deleting the category' },
@@ -3037,4 +3083,7 @@ export const translations = {
     start: { de: 'Starten', en: 'Start' },
     agentActiveChip: { de: 'Antwortet mit', en: 'Answering with' },
     membersCount: { de: 'Mitglieder', en: 'members' },
+
+    // Assistant settings: Startseite + Verhalten (translations.assistant.ts)
+    ...assistantTranslations,
 };

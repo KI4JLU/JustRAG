@@ -125,6 +125,12 @@ type ChatRow struct {
 	// marks a branched chat with the branch icon. The origin may have been
 	// deleted since; the id is not a reference to follow.
 	BranchedFromChatID *string `json:"branchedFromChatId,omitempty" db:"branched_from_chat_id"`
+	// RoleID is the role the chat was started in (a starter question with a
+	// role, migration 0092): a catalog template id or one of the KB's own
+	// role ids, nil for a chat in the KB's active role. Every turn of the
+	// chat answers in it; a role the KB has since deleted falls back to the
+	// active role (kbbehavior.SystemPrompt). Branches keep it.
+	RoleID *string `json:"roleId,omitempty" db:"role_id"`
 	// HasBranches is set by GetChats only (the chat list): true when the chat
 	// holds at least two sibling messages — an edited question, a regenerated
 	// answer, or a fork made inside the chat before branching opened a new
@@ -263,6 +269,14 @@ type Store interface {
 	UpdateMessageContent(ctx context.Context, messageID string, content string) error
 	UpdateMessageTraceID(ctx context.Context, messageID string, traceID string) error
 	GetKBSystemPrompt(ctx context.Context, kbID string) (*string, error)
+	// GetChatSystemPrompt is GetKBSystemPrompt in the role chatID was
+	// started in (kbbehavior.SystemPrompt); "" is the KB's active role.
+	GetChatSystemPrompt(ctx context.Context, kbID, chatID string) (*string, error)
+	// KBHasRole reports whether the KB can answer in roleID: a catalog
+	// template or one of its own roles.
+	KBHasRole(ctx context.Context, kbID, roleID string) (bool, error)
+	// CreateChatWithRole is CreateChat for a chat started in roleID.
+	CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error)
 	UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error
 	// StarterContext returns what the starter questions of an empty chat
 	// are generated from: the KB's name and up to limit of its documents.

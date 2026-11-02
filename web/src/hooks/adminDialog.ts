@@ -18,7 +18,7 @@ import { createUrlDialog } from '../routing/urlDialog';
 
 /** The sections, in the order of the dialog's nav. The first is what a bare `?admin` opens. */
 export const ADMIN_SECTIONS = [
-  'configs', 'auth', 'search', 'agent', 'site', 'kb-overview', 'global-kbs', 'users', 'roles', 'health', 'eval',
+  'configs', 'auth', 'search', 'agent', 'site', 'kb-overview', 'global-kbs', 'templates', 'users', 'roles', 'health', 'eval',
 ] as const;
 export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 

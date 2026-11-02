@@ -27,6 +27,10 @@ var _ Store = (*mockStore)(nil)
 type mockStore struct {
 	chats    map[string]*ChatRow
 	messages []MessageRow
+	// roles are the role ids KBHasRole accepts; promptChatIDs records the
+	// chats GetChatSystemPrompt was asked for.
+	roles         map[string]bool
+	promptChatIDs []string
 }
 
 func newMockStore() *mockStore {
@@ -99,6 +103,24 @@ func (m *mockStore) UpdateMessageTraceID(_ context.Context, _ string, _ string) 
 
 func (m *mockStore) GetKBSystemPrompt(_ context.Context, _ string) (*string, error) {
 	return nil, nil
+}
+
+func (m *mockStore) GetChatSystemPrompt(_ context.Context, _, chatID string) (*string, error) {
+	m.promptChatIDs = append(m.promptChatIDs, chatID)
+	return nil, nil
+}
+
+func (m *mockStore) KBHasRole(_ context.Context, _, roleID string) (bool, error) {
+	return m.roles[roleID], nil
+}
+
+func (m *mockStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error) {
+	c, err := m.CreateChat(ctx, kbID, userID, title)
+	if err != nil {
+		return nil, err
+	}
+	c.RoleID = &roleID
+	return c, nil
 }
 
 func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
@@ -554,5 +576,59 @@ func TestSendMessage_LoadsConversationHistoryOnce(t *testing.T) {
 
 	if store.loads != 1 {
 		t.Fatalf("history loads per turn: got %d, want 1", store.loads)
+	}
+}
+
+// sendRoleTurn posts body to SendMessage on a fresh mockStore that knows the
+// role "tutor".
+func sendRoleTurn(t *testing.T, body string) (*mockStore, *fakeUsageRecorder, *httptest.ResponseRecorder) {
+	t.Helper()
+	store := newMockStore()
+	store.roles = map[string]bool{"tutor": true}
+	store.chats["chat-1"] = &ChatRow{ID: "chat-1", KbID: "kb1", UserID: "user1"}
+	rec := &fakeUsageRecorder{}
+	h := &Handler{store: store, searchService: erroringSearcher{}, usageRecorder: rec}
+	r := httptest.NewRequest(http.MethodPost, "/api/kb/kb1/chat", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r = injectUser(r, "user1")
+	r.SetPathValue("id", "kb1")
+	w := httptest.NewRecorder()
+	h.SendMessage(w, r)
+	return store, rec, w
+}
+
+// Oracle: a role is refused before any side effect (no chat row, no usage
+// event) when it names an existing chat or a role the KB does not have.
+func TestSendMessage_RoleRefusedBeforeSideEffects(t *testing.T) {
+	for name, body := range map[string]string{
+		"existing chat": `{"message": "hallo", "chatId": "chat-1", "roleId": "tutor"}`,
+		"unknown role":  `{"message": "hallo", "roleId": "c-gone"}`,
+	} {
+		store, rec, w := sendRoleTurn(t, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: code %d, want 400: %s", name, w.Code, w.Body)
+		}
+		if _, created := store.chats["new-chat-id"]; created {
+			t.Errorf("%s: a chat was created", name)
+		}
+		if n := len(rec.snapshot()); n != 0 {
+			t.Errorf("%s: %d usage events, want 0", name, n)
+		}
+	}
+}
+
+// Oracle: a new chat started with a role stores the role, and the turn's
+// prompt is read for that chat (GetChatSystemPrompt resolves its role).
+func TestSendMessage_RoleStartsChatInRole(t *testing.T) {
+	store, _, w := sendRoleTurn(t, `{"message": "hallo", "roleId": "tutor"}`)
+	c, ok := store.chats["new-chat-id"]
+	if !ok {
+		t.Fatalf("no chat created (code %d: %s)", w.Code, w.Body)
+	}
+	if c.RoleID == nil || *c.RoleID != "tutor" {
+		t.Errorf("chat role = %v, want tutor", c.RoleID)
+	}
+	if len(store.promptChatIDs) == 0 || store.promptChatIDs[0] != "new-chat-id" {
+		t.Errorf("prompt read for %v, want the new chat", store.promptChatIDs)
 	}
 }

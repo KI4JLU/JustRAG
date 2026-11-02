@@ -83,7 +83,7 @@ CREATE TABLE chats (
     team_id uuid, agent_id uuid,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    branched_from_chat_id uuid);
+    branched_from_chat_id uuid, role_id text);
 CREATE TABLE messages (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     chat_id uuid NOT NULL REFERENCES chats(id) ON DELETE CASCADE,

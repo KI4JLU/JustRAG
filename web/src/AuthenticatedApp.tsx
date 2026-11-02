@@ -125,15 +125,14 @@ function AuthenticatedAppInner() {
 
   /* The advanced settings page (RAG settings, evals, workflow; KbSettingsPanel)
    * deliberately has NO URL: it is experimental and partly deprecated, so it
-   * stays reachable from the topic card's menu as before but is not part of
-   * the URL schema. It opens over the current URL and closes on any navigation
+   * is reachable from Verhalten in the topic's settings (system admins) but is
+   * not part of the URL schema. It opens over the current URL and closes on any navigation
    * — browser back included — which is what remembering the path it was
    * opened on, and dropping it once the path differs, does. */
   const { pathname } = useLocation();
   const [advanced, setAdvanced] = useState<{ kb: KnowledgeBase; pathname: string } | null>(null);
   if (advanced && advanced.pathname !== pathname) setAdvanced(null);
-  const openAdvancedSettings = useCallback((kb: KnowledgeBase, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const openAdvancedSettings = useCallback((kb: KnowledgeBase) => {
     setAdvanced({ kb, pathname });
   }, [pathname]);
 
@@ -435,8 +434,8 @@ function AuthenticatedAppInner() {
 
   // Per-KB RAG settings / evals / workflow — the URL-less page above
   // (`advanced`). The KB-admin tuning surface; every endpoint it calls is
-  // kbAdminChain. Entry point: the topic card's menu, gated by
-  // canOpenKbAdvancedSettings in KbCard.
+  // kbAdminChain. Entry point: Verhalten in the topic's settings, gated by
+  // canOpenKbAdvancedSettings in ChatView.
   if (advanced) {
     return (
       <div className="app-container" data-theme={resolvedTheme}>
@@ -566,7 +565,6 @@ function AuthenticatedAppInner() {
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}
-          onOpenKbSettings={openAdvancedSettings}
           onRenameKB={kbMgmt.handleRenameKB}
           onToggleFavorite={kbMgmt.handleToggleFavorite}
         />
@@ -596,7 +594,6 @@ function AuthenticatedAppInner() {
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}
-          onOpenKbSettings={openAdvancedSettings}
           onRenameKB={kbMgmt.handleRenameKB}
           onToggleFavorite={kbMgmt.handleToggleFavorite}
           onUpdateKBSettings={handleUpdateKBSettings}
@@ -630,6 +627,7 @@ function AuthenticatedAppInner() {
     handleGoHome: viewState.handleGoHome,
     handleViewHome: viewState.handleViewHome,
     onViewAgents: () => navigateTo({ view: 'agents' }),
+    onOpenRagSettings: () => { if (routeKb) openAdvancedSettings(routeKb); },
     handleUpdateKBSettings,
   };
 

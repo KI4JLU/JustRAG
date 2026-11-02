@@ -16,6 +16,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useModalContext } from '../../contexts/ModalContext';
 import { useToast } from '../../contexts/ToastContext';
 import { splitUsernames } from '../../utils/splitUsernames';
+import { useSearchMatches, useSearchReveal } from '../../hooks/useSearchReveal';
 import { copyToClipboard } from '../../utils/clipboard';
 import { displayName, initialsOf } from '../../utils/personName';
 import { PersonList, PersonRow } from '../people/PersonList';
@@ -144,6 +145,10 @@ const isAddable = (c: Candidate) => c.status === 'found' || c.status === 'pendin
  * which „Teilen" on a topic card opens directly. Every change applies at
  * once. The window's h2 is the section title, so the panel's titles are h3s.
  */
+/** Labels of the add sub-screen's fields (translation keys), for the settings search. */
+const ADD_BY_USERNAME_KEYS = ['byUsername', 'usernamesLabel'];
+const INVITE_LINK_KEYS = ['inviteLinks', 'newInviteLink', 'inviteLinkTitle', 'activeInviteLinks'];
+
 export function KbMembersPanel({
     kb: sharingKb, myRole, roleDrafts, onRoleDraftChange, revision, view, onViewChange: setView, footerSlot,
 }: KbMembersPanelProps) {
@@ -491,6 +496,13 @@ export function KbMembersPanel({
     };
 
     const openAdd = () => { setView('add'); if (addTab === 'links') void fetchInviteLinks(); };
+
+    // „Mitglieder hinzufügen" is a sub-screen: the settings search opens it (on the invite-link tab
+    // for a link label) when it names one of its fields, and leaves again when it moves on.
+    const linkMatch = useSearchMatches(INVITE_LINK_KEYS.map(t));
+    const usernameMatch = useSearchMatches(ADD_BY_USERNAME_KEYS.map(t));
+    useSearchReveal(linkMatch || usernameMatch ? 'on' : null, view === 'add', openAdd, () => setView('members'));
+    useSearchReveal(linkMatch ? 'on' : null, addTab === 'links', () => { setAddTab('links'); void fetchInviteLinks(); }, () => setAddTab('usernames'));
 
     return (
         <>

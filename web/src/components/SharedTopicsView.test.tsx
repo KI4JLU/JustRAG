@@ -213,7 +213,6 @@ const noopProps = {
   onOpenKbById: vi.fn(),
   onDeleteGlobalKB: vi.fn(),
   onOpenGlobalKbSettings: vi.fn(),
-  onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
@@ -298,13 +297,7 @@ describe('SharedTopicsView add-topic tile', () => {
 });
 
 describe('SharedTopicsView card actions', () => {
-  /* Two labels, because these cases came from two different describes in the
-     old file and each had its own `label`: the settings gate is the advanced
-     panel, the pencil is rename. Collapsing them to one const made the pencil
-     cases assert against the wrong control. */
-  // The settings item carries the DS ActionMenu badge, which is part of its name.
-  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
-  const renameLabel = translations.rename.en;
+  const renameLabel = `${translations.rename.en}…`;
   /* „Teilen" opens Thema-Einstellungen → Mitglieder, so it is offered to the
      callers who may open that window: KB admin and owner (kbAdminChain), and a
      superadmin, whom kbaccess.EffectiveRole resolves to owner on every KB.
@@ -314,26 +307,26 @@ describe('SharedTopicsView card actions', () => {
   it('shows the share trigger for a caller whose myRole is admin', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
   });
 
   it('hides the share trigger for a caller whose myRole is edit', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'edit' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: `${translations.share.en}…` })).not.toBeInTheDocument();
   });
 
   it('hides the share trigger for a caller whose myRole is view', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: `${translations.share.en}…` })).not.toBeInTheDocument();
   });
 
   it('shows the share trigger for a superadmin whose own KB role is only view', async () => {
     authState.role = 'superadmin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
   });
 
   /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
@@ -343,17 +336,20 @@ describe('SharedTopicsView card actions', () => {
     const onSelectKB = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
-    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` }));
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
     expect(onSelectKB).not.toHaveBeenCalled();
   });
 
-  it('shows the trigger for a system admin who is KB admin but not owner', async () => {
+  it('offers a KB admin „Einstellungen", opening Startseite, and no RAG configuration', async () => {
     authState.role = 'admin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: label })).toBeInTheDocument();
+    const menu = await kbMenu();
+    expect(menu.queryByRole('menuitem', { name: new RegExp(translations.kbAdvancedSettings.en) })).toBeNull();
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.settings.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'start');
   });
 
   it('hides the trigger from an api-user who is only an editor — the KB role still counts', async () => {

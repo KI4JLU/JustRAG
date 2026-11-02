@@ -14,7 +14,7 @@ import { createUrlDialog } from '../routing/urlDialog';
  * „Teilen" on a card opens the topic and then its Mitglieder: two history
  * entries, so back closes the settings first and then leaves the topic.
  */
-const SECTIONS = ['behavior', 'roles', 'members'] as const satisfies readonly KbSettingsSection[];
+const SECTIONS = ['start', 'behavior', 'roles', 'members', 'versions'] as const satisfies readonly KbSettingsSection[];
 
 const dialog = createUrlDialog<KbSettingsSection>('topic', SECTIONS);
 
@@ -26,8 +26,8 @@ export function useTopicSettings(onTopic: boolean) {
   return {
     open: onTopic && open,
     section: value,
-    /** The gear in the workspace header: open on Verhalten, or close. */
-    setOpen: (next: boolean) => (next ? dialog.open('behavior') : dialog.setOpen(false)),
+    /** The gear in the workspace header: open on Startseite, or close. */
+    setOpen: (next: boolean) => (next ? dialog.open('start') : dialog.setOpen(false)),
     setSection: dialog.setValue,
   };
 }

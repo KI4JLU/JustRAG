@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,14 +26,25 @@ import (
 
 type starterTestStore struct {
 	*mockStore
-	src   StarterSource
-	err   error
-	calls int
+	src    StarterSource
+	err    error
+	calls  int
+	limit  int
+	role   kbbehavior.RoleBrief
+	roleID string
 }
 
-func (s *starterTestStore) StarterContext(_ context.Context, _ string, _ int) (StarterSource, error) {
+func (s *starterTestStore) StarterContext(_ context.Context, _ string, limit int) (StarterSource, error) {
 	s.calls++
-	return s.src, s.err
+	s.limit = limit
+	src := s.src
+	src.Files = slices.Clone(s.src.Files)
+	return src, s.err
+}
+
+func (s *starterTestStore) StarterRole(_ context.Context, _, roleID string) (kbbehavior.RoleBrief, error) {
+	s.roleID = roleID
+	return s.role, nil
 }
 
 type fakeExcerpts struct {
@@ -127,9 +141,9 @@ func newStarterTestHandler(t *testing.T, content string) (*Handler, *starterTest
 	return h, store, model, excerpts
 }
 
-func getStarterQuestions(t *testing.T, h *Handler, kbID string) (int, []string) {
+func getStarterQuestions(t *testing.T, h *Handler, kbID string, query ...string) (int, []string) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/kb/"+kbID+"/starter-questions?lang=de", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/kb/"+kbID+"/starter-questions?lang=de"+strings.Join(query, ""), nil)
 	req.SetPathValue("id", kbID)
 	rr := httptest.NewRecorder()
 	h.StarterQuestions(rr, req)
@@ -154,8 +168,8 @@ func getStarterQuestions(t *testing.T, h *Handler, kbID string) (int, []string) 
 // multi-line one, one over 120 runes); the request must name model_tier_fast's
 // model, not the KB chat model listed first; the prompt must carry the
 // excerpt; the excerpt read must prefer the configured embedding dimension.
-// A repeat call must be served from the cache (no second model request), and
-// renaming the KB must miss it.
+// A repeat call must reach the model again: every empty chat gets its own
+// questions (developer ruling 28.10.2026).
 func TestStarterQuestions_EndToEnd(t *testing.T) {
 	long := strings.Repeat("ä", 121) + "?"
 	canned, _ := json.Marshal([]string{
@@ -166,7 +180,7 @@ func TestStarterQuestions_EndToEnd(t *testing.T) {
 		long,
 		"Wer ist für den Bericht zuständig?",
 	})
-	h, store, model, excerpts := newStarterTestHandler(t, string(canned))
+	h, _, model, excerpts := newStarterTestHandler(t, string(canned))
 
 	code, got := getStarterQuestions(t, h, starterTestKB)
 	want := []string{"Wie hoch ist das Budget 2026?", "Wer ist für den Bericht zuständig?"}
@@ -183,14 +197,45 @@ func TestStarterQuestions_EndToEnd(t *testing.T) {
 		t.Errorf("excerpts preferred dim %d, want the embedder's 1024", excerpts.preferredDim)
 	}
 
-	if _, again := getStarterQuestions(t, h, starterTestKB); !reflect.DeepEqual(again, want) || model.callCount() != 1 {
-		t.Errorf("repeat call: got %q after %d model calls, want the cached list and 1 call", again, model.callCount())
+	if getStarterQuestions(t, h, starterTestKB); model.callCount() != 2 {
+		t.Errorf("repeat call: %d model calls, want 2 (no shared result)", model.callCount())
 	}
+}
 
-	store.src.KBName = "Haushalt 2027"
+// Oracle: developer ruling 28.10.2026 — the questions fit the role the chat
+// starts in: roleId reaches the store, the role's name and prompt reach the
+// model; without roleId the store is asked for the active role ("").
+func TestStarterQuestions_RoleAware(t *testing.T) {
+	h, store, model, _ := newStarterTestHandler(t, `["Ist mein Antrag vollständig?"]`)
+	store.role = kbbehavior.RoleBrief{Name: "Dateiprüfer", Prompt: "Du prüfst Anträge."}
+	getStarterQuestions(t, h, starterTestKB, "&roleId=t-check")
+	if store.roleID != "t-check" {
+		t.Errorf("store asked for role %q, want t-check", store.roleID)
+	}
+	if !strings.Contains(model.prompts[0], `<role name="Dateiprüfer">`) || !strings.Contains(model.prompts[0], "Du prüfst Anträge.") {
+		t.Errorf("prompt lacks the role:\n%s", model.prompts[0])
+	}
 	getStarterQuestions(t, h, starterTestKB)
-	if model.callCount() != 2 {
-		t.Errorf("renamed KB: %d model calls, want 2 (fingerprint must change)", model.callCount())
+	if store.roleID != "" {
+		t.Errorf("without roleId the store was asked for %q, want the active role", store.roleID)
+	}
+}
+
+// Oracle: the handler's pick — starterPoolLimit documents read, at most
+// starterDocLimit of them shown, each once.
+func TestStarterQuestions_PicksDocuments(t *testing.T) {
+	h, store, model, _ := newStarterTestHandler(t, `["Was regelt der Plan?"]`)
+	store.src.Files = nil
+	for i := range 30 {
+		store.src.Files = append(store.src.Files, StarterFile{ID: fmt.Sprintf("00000000-0000-0000-0000-%012d", i), Name: fmt.Sprintf("doc-%02d.pdf", i)})
+	}
+	getStarterQuestions(t, h, starterTestKB)
+	if store.limit != starterPoolLimit {
+		t.Errorf("read %d documents, want %d", store.limit, starterPoolLimit)
+	}
+	shown := regexp.MustCompile(`name="doc-\d+\.pdf"`).FindAllString(model.prompts[0], -1)
+	if len(shown) != starterDocLimit || len(slices.Compact(slices.Sorted(slices.Values(shown)))) != starterDocLimit {
+		t.Errorf("prompt shows %d documents (%v), want %d distinct", len(shown), shown, starterDocLimit)
 	}
 }
 
@@ -287,29 +332,15 @@ func TestStarterQuestions_ModelChangeMissesCache(t *testing.T) {
 	}
 }
 
-// Oracle: the cache's two TTLs, driven by a fake clock. When the excerpt read
-// fails, the name-only questions are still served, but a call two minutes
-// later (past starterFailureTTL, far inside starterCacheTTL) must reach the
-// model again.
-func TestStarterQuestions_NameOnlyResultCachedBriefly(t *testing.T) {
+// Oracle: when the excerpt read fails, the questions generated from the file
+// names alone are still served, and the failed excerpts never reach the prompt.
+func TestStarterQuestions_NameOnlyResultServed(t *testing.T) {
 	h, _, model, excerpts := newStarterTestHandler(t, `["Was regelt der Plan?"]`)
 	excerpts.err = errors.New("vector db down")
-	clk := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	h.starterCache.now = clk.now
-
 	if _, got := getStarterQuestions(t, h, starterTestKB); len(got) != 1 {
 		t.Fatalf("name-only questions not served: %q", got)
 	}
 	if strings.Contains(model.prompts[0], "Budget 2026 Excerpt") {
 		t.Fatalf("excerpt reached the prompt although the read failed")
-	}
-	getStarterQuestions(t, h, starterTestKB)
-	if model.callCount() != 1 {
-		t.Fatalf("within the short TTL: %d model calls, want 1", model.callCount())
-	}
-	clk.advance(2 * time.Minute)
-	getStarterQuestions(t, h, starterTestKB)
-	if model.callCount() != 2 {
-		t.Fatalf("after the short TTL: %d model calls, want 2 (degraded result must not live an hour)", model.callCount())
 	}
 }

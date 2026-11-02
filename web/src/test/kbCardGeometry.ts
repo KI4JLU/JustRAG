@@ -12,7 +12,7 @@ import { expect } from 'storybook/test';
  * that neither the card nor its footer overflows horizontally.
  */
 export async function expectFooterInsideCard(card: HTMLElement) {
-  const footer = card.querySelector<HTMLElement>('.home-view__card-footer');
+  const footer = card.querySelector<HTMLElement>('[data-slot="card-footer"]');
   await expect(footer).not.toBeNull();
   const box = card.getBoundingClientRect();
   const footerBox = footer!.getBoundingClientRect();
@@ -41,7 +41,10 @@ export async function expectFooterInsideCard(card: HTMLElement) {
     const overlaps = r.left < badgeBox.right && r.right > badgeBox.left && r.top < badgeBox.bottom && r.bottom > badgeBox.top;
     await expect(overlaps, `${where(chip)} vs badge ${where(badge!)}`).toBe(false);
   }
-  await expect(Math.abs(badgeBox.right - footerBox.right), where(badge!)).toBeLessThanOrEqual(1);
+  // Right-aligned at the footer's CONTENT edge: the hairline card's footer
+  // carries the card's side inset as its own padding.
+  const contentRight = footerBox.right - parseFloat(getComputedStyle(footer!).paddingRight);
+  await expect(Math.abs(badgeBox.right - contentRight), where(badge!)).toBeLessThanOrEqual(1);
   await expect(footer!.scrollWidth).toBeLessThanOrEqual(footer!.clientWidth);
   await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
   // Every meta line sits above the footer, not over it.
@@ -61,9 +64,8 @@ export async function expectFooterInsideCard(card: HTMLElement) {
  * it is the FIRST cell's height, measured in the same frame; tolerance ±0.5px.
  */
 export async function expectUniformCardHeights(root: HTMLElement) {
-  const cards = Array.from(root.querySelectorAll<HTMLElement>('.home-view__kb-card'));
-  const create = root.querySelector<HTMLElement>('.home-view__create-card');
-  const cells = create ? [create, ...cards] : cards;
+  const cards = Array.from(root.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
+  const cells = cards;
   await expect(cards.length).toBeGreaterThanOrEqual(3);
   const boxes = cells.map((el) => el.getBoundingClientRect());
   const rows = new Set(boxes.map((b) => Math.round(b.top)));
@@ -77,7 +79,7 @@ export async function expectUniformCardHeights(root: HTMLElement) {
 
   // Footers pinned to the bottom: the same gap to the card's bottom edge.
   const gaps = cards.map((card) => {
-    const footer = card.querySelector<HTMLElement>('.home-view__card-footer')!;
+    const footer = card.querySelector<HTMLElement>('[data-slot="card-footer"]')!;
     return card.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom;
   });
   for (const g of gaps) {

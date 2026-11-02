@@ -91,12 +91,12 @@
   },
   "src/components/KbCard.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 3
+      "count": 1
     }
   },
   "src/components/KbCatalogPanel.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 6
+      "count": 4
     }
   },
   "src/components/Memory/MemoryManager.tsx": {

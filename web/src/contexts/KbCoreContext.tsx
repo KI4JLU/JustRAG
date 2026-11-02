@@ -14,6 +14,8 @@ export interface KbCoreContextValue {
   handleViewHome: () => void;
   /** Navigate to the My Agents screen (linked from KB settings). */
   onViewAgents: () => void;
+  /** Opens the topic's RAG configuration page (entered from Verhalten in its settings). */
+  onOpenRagSettings: () => void;
   handleUpdateKBSettings: (data: Record<string, unknown>) => Promise<boolean>;
 }
 

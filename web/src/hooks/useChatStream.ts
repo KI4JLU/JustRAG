@@ -91,6 +91,9 @@ export function useChatStream({
       // before the answer streams — the composer clears its files then.
       onAccepted?: () => void;
       agentSelection?: AgentSelection;
+      // The role a NEW chat starts in (a starter question with a role); sent
+      // only while the turn opens the chat — an existing chat keeps its role.
+      roleId?: string;
       // "Antwort neu generieren": no new question is written. The answer
       // hangs under the named, already-persisted question as a sibling of
       // `aiMessageId`, so the prompt appears exactly once and the ‹1/2›
@@ -211,6 +214,7 @@ export function useChatStream({
           // backend injects it; non-empty `comparisonModes` makes the turn a
           // comparison (otherwise it's a normal follow-up over the attachment).
           ...(opts?.attachmentId ? { attachmentId: opts.attachmentId } : {}),
+          ...(opts?.roleId && !activeChatIdRef.current ? { roleId: opts.roleId } : {}),
           // Chat attachments as context (API.md § Chat): files uploaded for
           // this question.
           ...(opts?.attachmentIds?.length ? { attachmentIds: opts.attachmentIds } : {}),
@@ -349,7 +353,7 @@ export function useChatStream({
             setChats(prev => {
               if (prev.some(c => c.id === event.chatId)) return prev;
               const now = new Date().toISOString();
-              return [{ id: event.chatId as string, kbId: currentKb.id, userId: '', title: userMessage.substring(0, 50), createdAt: now, updatedAt: now }, ...prev];
+              return [{ id: event.chatId as string, kbId: currentKb.id, userId: '', title: userMessage.substring(0, 50), createdAt: now, updatedAt: now, ...(opts?.roleId ? { roleId: opts.roleId } : {}) }, ...prev];
             });
           }
 

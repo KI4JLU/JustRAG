@@ -251,6 +251,7 @@ function ConfigsTabHarness({
             setConnectionTest={setConnectionTest}
             handleConfigSubmit={handleConfigSubmit}
             startEditConfig={startEditConfig}
+            startAdd={fn()}
             handleDelete={handleDelete}
             handleActivate={handleActivate}
             resetForm={resetForm}

@@ -34,6 +34,7 @@ import (
 	"github.com/justrag/go-backend/internal/gitrepo"
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kb"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/kbconfig"
 	"github.com/justrag/go-backend/internal/kg"
 	"github.com/justrag/go-backend/internal/kgevents"
@@ -124,6 +125,12 @@ func RunWorker(cfg *config.Config) error {
 	// Health server cleanup on any exit path. Registered first (LIFO: runs
 	// last) so the probe endpoint outlives every other teardown.
 	defer healthSrv.Shutdown()
+
+	// Answers compiled here (research, agent jobs) read the role templates
+	// too: the same seed/load/reload as the server. Stopped before the pool
+	// closes (LIFO after db.Close above).
+	stopTemplates := kbbehavior.StartTemplateRefresher(ctx, kbbehavior.NewTemplateStore(db.Main), 30*time.Second)
+	defer stopTemplates()
 
 	// Ensure all known vector tables exist with the current schema (adds
 	// missing columns like content_hash via ALTER ... ADD COLUMN IF NOT EXISTS).

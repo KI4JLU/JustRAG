@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
+import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks } from 'lucide-react';
 import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
@@ -21,6 +21,7 @@ import AdminSearchTab from './components/admin/AdminSearchTab';
 import AdminAgentTab from './components/admin/AdminAgentTab';
 import AdminEvalTab from './components/admin/AdminEvalTab';
 import AdminGlobalKbsTab from './components/admin/AdminGlobalKbsTab';
+import AdminTemplatesTab from './components/admin/AdminTemplatesTab';
 import ReembedSection from './components/admin/ReembedSection';
 
 interface AIModel {
@@ -117,6 +118,8 @@ interface AdminUIProps {
  * Mount it only while open: it fetches the open section's data on mount.
  */
 export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb }: AdminUIProps) {
+    // Opens filling the window (1rem inside it); the toggle restores the plain `xl` window.
+    const [maximized, setMaximized] = useState(true);
     const toast = useToast();
     const { t } = useTheme();
     const { showConfirm } = useModalContext();
@@ -130,7 +133,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         ...(isSuperadmin ? ['auth', 'search', 'agent', 'site'] as const : []),
         ...(isAdmin ? ['kb-overview'] as const : []),
         'global-kbs',
-        ...(isAdmin ? ['users', 'roles', 'health'] as const : []),
+        ...(isAdmin ? ['templates', 'users', 'roles', 'health'] as const : []),
         ...(isSuperadmin ? ['eval'] as const : []),
     ];
     const activeTab: AdminTab = visibleTabs.includes(section) ? section : 'configs';
@@ -141,6 +144,10 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     }, [section, activeTab, onSectionChange]);
     const [configs, setConfigs] = useState<AIConfig[]>([]);
     const [providers, setProviders] = useState<AuthProvider[]>([]);
+    // Whether each list has come back once: the settings search picks a record from it (see
+    // useSearchRevealForm), and `loading` is shared with the other requests of the section.
+    const [configsFetched, setConfigsFetched] = useState(false);
+    const [providersFetched, setProvidersFetched] = useState(false);
     const [usersList, setUsersList] = useState<User[]>([]);
     // Set when the last users fetch failed, so the Rollen tab shows no counts
     // instead of reading the empty list as "0 users" per role.
@@ -260,6 +267,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.error(t('configsFetchError'));
         } finally {
             setLoading(false);
+            setConfigsFetched(true);
         }
     }, [toast, t]);
 
@@ -273,6 +281,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.error(t('providersFetchError'));
         } finally {
             setLoading(false);
+            setProvidersFetched(true);
         }
     }, [toast, t]);
 
@@ -463,6 +472,12 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         }
     };
 
+    // An empty form — also when the search moves an open edit form over to a new record.
+    const startAdd = () => {
+        resetForm();
+        setShowForm(true);
+    };
+
     const startEditConfig = (config: AIConfig) => {
         setConfigFormData(config);
         setEditingId(config.id);
@@ -489,6 +504,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         setConnectionTest={setConnectionTest}
                         handleConfigSubmit={handleConfigSubmit}
                         startEditConfig={startEditConfig}
+                        startAdd={startAdd}
+                        fetched={configsFetched}
                         handleDelete={handleDelete}
                         handleActivate={handleActivate}
                         resetForm={resetForm}
@@ -511,6 +528,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         setAuthFormData={setAuthFormData}
                         handleAuthSubmit={handleAuthSubmit}
                         startEditAuth={startEditAuth}
+                        startAdd={startAdd}
+                        fetched={providersFetched}
                         handleDelete={handleDelete}
                         resetForm={resetForm}
                         authValidation={authValidation}
@@ -553,6 +572,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         onEditGlobalKb={onEditGlobalKb && ((kb) => { onOpenChange(false); onEditGlobalKb(kb); })}
                     />
                 );
+            case 'templates':
+                return <AdminTemplatesTab footerSlot={footerSlot} />;
             case 'eval':
                 return <AdminEvalTab />;
         }
@@ -567,6 +588,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         site: { icon: Settings, label: t('adminTabSettings'), group: t('adminNavGroupConfig') },
         'kb-overview': { icon: Database, label: t('adminTabKbOverview'), group: t('adminNavGroupKbs') },
         'global-kbs': { icon: Globe, label: t('adminTabGlobalKbs'), group: t('adminNavGroupKbs') },
+        templates: { icon: Blocks, label: t('adminTabTemplates'), group: t('adminNavGroupKbs') },
         users: { icon: UserPlus, label: t('adminTabUsers'), group: t('adminNavGroupUsers') },
         roles: { icon: ShieldUser, label: t('adminTabRoles'), group: t('adminNavGroupUsers') },
         health: { icon: Activity, label: t('adminTabHealth'), group: t('adminNavGroupMonitoring') },
@@ -592,7 +614,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     // The tabs portal their own into `footerSlot` (Speichern, or the open form's Abbrechen and
     // Speichern); AdminUI adds „hinzufügen" to the two sections that list things.
     const addLabel = activeTab === 'configs' ? t('addConfig') : activeTab === 'auth' ? t('addProvider') : null;
-    const hasFooterActions = addLabel !== null || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
+    const hasFooterActions = addLabel !== null || activeTab === 'templates' || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
     const footerSlotElement = (
         <div ref={setFooterSlot} className="ml-auto flex flex-col-reverse gap-2 sm:flex-row sm:justify-end" />
     );
@@ -601,7 +623,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             {/* Alone it is the section's primary action; next to the per-job Speichern it is secondary. */}
             <Button
                 variant={activeTab === 'configs' ? 'outline' : 'default'}
-                onClick={() => { setShowForm(true); setEditingId(null); }}
+                onClick={startAdd}
             >
                 <Plus size={16} aria-hidden="true" />
                 {addLabel}
@@ -623,6 +645,11 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                 size="xl"
                 title={t('adminDashboard')}
                 closeLabel={t('close')}
+                maximizable
+                maximized={maximized}
+                onMaximizedChange={setMaximized}
+                maximizeLabel={t('dialogMaximize')}
+                restoreLabel={t('dialogRestore')}
                 searchPlaceholder={t('settingsSearch')}
                 emptyLabel={t('settingsNoMatch')}
                 sections={sections}

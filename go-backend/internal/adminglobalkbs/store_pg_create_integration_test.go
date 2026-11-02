@@ -92,3 +92,44 @@ func TestCreateGlobalKBWithoutCreatorWritesNoMembership(t *testing.T) {
 		t.Fatalf("kb_members rows = %d, want 0", count)
 	}
 }
+
+// TestListGlobalKBsCarriesFileStats pins the two card fields the admin list
+// checks for completeness: the file count and „Stand" (the last successful
+// ingest), nil while nothing has been ingested.
+func TestListGlobalKBsCarriesFileStats(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := adminglobalkbs.NewStore(pool)
+
+	empty, err := store.CreateGlobalKB(ctx, adminglobalkbs.GlobalKBCreate{Name: "adminglobalkbs-stats-empty", Language: "de"})
+	if err != nil {
+		t.Fatalf("CreateGlobalKB: %v", err)
+	}
+	filled, err := store.CreateGlobalKB(ctx, adminglobalkbs.GlobalKBCreate{Name: "adminglobalkbs-stats-filled", Language: "de"})
+	if err != nil {
+		t.Fatalf("CreateGlobalKB: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = ANY($1::uuid[])`, []string{empty.ID, filled.ID}) //nolint:errcheck
+	})
+	if _, err := pool.Exec(ctx, `INSERT INTO files (kb_id, name, type, status, storage_path, origin)
+		VALUES ($1::uuid, 'a.md', 'text/markdown', 'completed', 'p/a.md', 'upload'),
+		       ($1::uuid, 'b.md', 'text/markdown', 'error', 'p/b.md', 'upload')`, filled.ID); err != nil {
+		t.Fatalf("insert files: %v", err)
+	}
+
+	rows, err := store.ListGlobalKBs(ctx)
+	if err != nil {
+		t.Fatalf("ListGlobalKBs: %v", err)
+	}
+	got := map[string]adminglobalkbs.GlobalKBRow{}
+	for _, r := range rows {
+		got[r.ID] = r
+	}
+	if r := got[empty.ID]; r.FileCount != 0 || r.LastIngestedAt != nil {
+		t.Errorf("empty KB: fileCount=%d lastIngestedAt=%v, want 0 / nil", r.FileCount, r.LastIngestedAt)
+	}
+	if r := got[filled.ID]; r.FileCount != 2 || r.LastIngestedAt == nil {
+		t.Errorf("filled KB: fileCount=%d lastIngestedAt=%v, want 2 / set", r.FileCount, r.LastIngestedAt)
+	}
+}

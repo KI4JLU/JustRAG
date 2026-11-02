@@ -40,13 +40,12 @@ function renderCard(item: KnowledgeBase, lang: Language = 'de') {
       currentUserId="user-1"
       systemRole="user"
       removingKb={false}
-      rtf={new Intl.RelativeTimeFormat(lang, { numeric: 'auto' })}
       t={tFor(lang)}
       language={lang}
       onSelectKB={vi.fn()}
       onOpenShare={vi.fn()}
       onToggleFavorite={vi.fn()}
-      onOpenKbSettings={vi.fn()}
+      onOpenSettings={vi.fn()}
       onRenameKB={vi.fn()}
       onDeleteKB={vi.fn()}
     />,
@@ -100,7 +99,7 @@ describe('PrivateKbCard meta lines', () => {
 
   it('keeps the footer to the count chips and the badge — no freshness chip', () => {
     const { container } = renderCard(MOCKUP);
-    const footer = container.querySelector('.home-view__card-footer') as HTMLElement;
+    const footer = container.querySelector('[data-slot="card-footer"]') as HTMLElement;
     const chips = Array.from(footer.querySelectorAll('.home-view__chip'));
     // Two chips: files and messages (their sr-only phrases are the oracle).
     expect(chips.map((c) => c.querySelector('.sr-only')?.textContent)).toEqual([
@@ -147,21 +146,20 @@ describe('PrivateKbCard share item', () => {
         currentUserId="user-1"
         systemRole={systemRole}
         removingKb={false}
-        rtf={new Intl.RelativeTimeFormat('en', { numeric: 'auto' })}
         t={t}
         language="en"
         onSelectKB={vi.fn()}
         onOpenShare={onOpenShare}
         onToggleFavorite={vi.fn()}
-        onOpenKbSettings={vi.fn()}
+        onOpenSettings={vi.fn()}
         onRenameKB={vi.fn()}
         onDeleteKB={vi.fn()}
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: new RegExp(`^${translations.kbActions.en}: `) }));
-    // The favorite toggle is ungated, so the menu opens in every case.
+    // Delete/leave is ungated, so the menu opens in every case.
     const menu = within(await screen.findByRole('menu'));
-    return menu.queryByRole('menuitem', { name: translations.share.en });
+    return menu.queryByRole('menuitem', { name: `${translations.share.en}…` });
   }
 
   const othersKb = (over: Partial<KnowledgeBase>) => kb({ userId: 'user-9', ...over });

@@ -258,7 +258,6 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
             onSelectKB={args.onSelectKB}
             onDeleteKB={idle()}
             removingKb={args.removingKb}
-            onOpenKbSettings={idle()}
             onRenameKB={idle()}
             onToggleFavorite={idle()}
             onUpdateKBSettings={idle()}
@@ -538,9 +537,9 @@ export const Empty: Story = {
        exactly the removal of the thing those assertions described.
  
        What survives as a claim is the one the empty page can still make: the
-       create tile is on it, and nothing else is. A user with no topics must not
-       land on a bare page — the tile IS the empty state here, which is why
-       `TopicGridPage` renders no `emptyState` when a create cell is present. */
+       „Neues Thema" button is on it (in the toolbar since the hairline rework,
+       30.10.2026), and nothing else is. A user with no topics must not land on
+       a bare page — the button is the way out. */
     /* „Favoriten" is no longer in this list: it is a FILTER CHIP now, and a
        legitimate one — the assertion is about the removed SECTION headers, so
        matching the chip's label would fail for the wrong reason. */
@@ -652,7 +651,7 @@ export const OwnedOnly: Story = {
        catch a miscounted badge, and there is no badge left to miscount. */
 
     // ORACLE: the fixture names, through the accessible name of each card's
-    // own open control. The create tile is a fourth item in the same list.
+    // own open control.
     for (const name of ['Mikrobiologie Notizen', 'Pruefungsprotokolle', 'Seminar Datenethik']) {
       await expect(
         canvas.getByRole('button', { name: `Knowledge Base öffnen: ${name}` }),
@@ -665,7 +664,7 @@ export const OwnedOnly: Story = {
      * A public card (see `FavoritesPopulated`) is `role="button"` instead. That
      * difference is pinned because it is easy to lose in a rewrite, not
      * because it is right; it is raised on the card. */
-    const cards = canvasElement.querySelectorAll('.home-view__kb-card');
+    const cards = canvasElement.querySelectorAll('[data-testid="kb-card"]');
     await expect(cards).toHaveLength(3);
     for (const card of cards) {
       await expect(card).toHaveAttribute('role', 'presentation');
@@ -684,8 +683,8 @@ export const OwnedOnly: Story = {
     await expect(badges).toHaveLength(3);
     await expect(canvas.getAllByRole('button', { name: /^Aktionen: / })).toHaveLength(3);
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toBeInTheDocument();
-    await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen' })).toBeNull();
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen…' })).toBeInTheDocument();
+    await expect(cardMenu.queryByRole('menuitem', { name: 'Aus meiner Ansicht entfernen…' })).toBeNull();
     await userEvent.keyboard('{Escape}');
 
     /* ORACLE: Chromium's CSSOM, unchanged. The grid track list is the layout
@@ -753,11 +752,11 @@ export const RemovalInFlight: Story = {
      * reaches a removal control. */
     // The card actions are menu items now: Radix's `data-disabled` is the state.
     const cardMenu = await openKbMenu(canvas, userEvent);
-    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen' })).toHaveAttribute('data-disabled');
+    await expect(cardMenu.getByRole('menuitem', { name: 'Löschen…' })).toHaveAttribute('data-disabled');
 
     // Controls that are NOT removals stay live, which is what makes the
     // assertion above about `removingKb` rather than about a disabled page.
-    await expect(cardMenu.getByRole('menuitem', { name: 'Teilen' })).not.toHaveAttribute('data-disabled');
+    await expect(cardMenu.getByRole('menuitem', { name: 'Teilen…' })).not.toHaveAttribute('data-disabled');
     await userEvent.keyboard('{Escape}');
 
     /* „Abmelden" is a `DropdownMenuItem` in the sidebar's user menu now, so it
@@ -809,18 +808,20 @@ export const RemovalInFlight: Story = {
 export const SharingDoesNotAlsoOpenTheKb: Story = {
   args: { kbs: [OWNED_ONE] },
   play: async ({ args, canvas, userEvent }) => {
-    const card = canvas.getAllByRole('button', { name: /^Aktionen: / })[0].closest('.home-view__kb-card');
+    const card = canvas.getAllByRole('button', { name: /^Aktionen: / })[0].closest('[data-testid="kb-card"]');
     await expect(card).not.toBeNull();
 
-    /* The control: the „Genutzt" meta line is inert markup inside the card, so
-     * a click on it can only reach the parent through the card's own handler.
-     * If this is ever 0, the assertion below stops meaning anything. */
+    /* The control: the meta line is inert markup inside the card, so a
+     * click on it can only reach the parent through the card's own handler.
+     * If this is ever 0, the assertion below stops meaning anything. (The
+     * „Genutzt" meta line: what the card shows at rest; the description is
+     * its hover layer since 29.10.2026.) */
     const cardBody = (card as HTMLElement).querySelector('[data-testid="kb-meta-used"]');
     await expect(cardBody).not.toBeNull();
     await userEvent.click(cardBody as HTMLElement);
     await expect(args.onSelectKB).toHaveBeenCalledTimes(1);
 
-    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen' }));
+    await userEvent.click((await openKbMenu(canvas, userEvent)).getByRole('menuitem', { name: 'Teilen…' }));
 
     // The jump did fire, exactly once, for this topic and the Mitglieder
     // section — so the click was delivered and this is a statement about
@@ -1055,7 +1056,7 @@ export const CardFooterInsideCard: Story = {
     ],
   },
   play: async ({ canvasElement }) => {
-    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__kb-card'));
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
     await expect(cards).toHaveLength(3);
     for (const card of cards) await expectFooterInsideCard(card);
   },
@@ -1089,9 +1090,9 @@ export const ListRowChipsInsideRow: Story = {
   beforeEach: () => () => { localStorage.removeItem('justrag.topics.listView'); },
   play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole('button', { name: 'Liste' }));
-    // The rows are the compact form: no `.home-view__kb-card` is left.
+    // The rows are the compact form: no `kb-card` is left.
     const badges = await waitFor(() => {
-      expect(canvasElement.querySelectorAll('.home-view__kb-card')).toHaveLength(0);
+      expect(canvasElement.querySelectorAll('[data-testid="kb-card"]')).toHaveLength(0);
       const found = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__badge'));
       expect(found).toHaveLength(2);
       return found;
@@ -1116,8 +1117,8 @@ export const ListRowChipsInsideRow: Story = {
 /**
  * „All cards always the same height" (developer, KI-843 scope addition).
  *
- * Five cells on the real „Mein Wissen" grid at the runner's width (two
- * tracks, so three rows): the create tile, a card whose chips wrap onto a
+ * Four cards on the real „Mein Wissen" grid at the runner's width (two
+ * tracks, so two rows): a card whose chips wrap onto a
  * second line (widest badge, processing chip), a card with ONE chip, a card
  * with no chip at all, and a card whose long name wraps. Every cell must have
  * the same height across all rows, and every footer the same distance from

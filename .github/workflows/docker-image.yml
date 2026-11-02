@@ -172,4 +172,9 @@ jobs:
           # that has aged out of the window below.
           exclude-tags: stable,edge,development,staging,v*
           keep-n-tagged: 20 # applies only to main's and development's SHA images
+          # Runs on other refs push concurrently, and a push uploads its
+          # platform manifests before the tagged index: delete-untagged then
+          # removed a manifest mid-push and left `:development` unpullable
+          # (2026-10-29). Images this young are never touched.
+          older-than: 1 hour
           token: ${{ secrets.GITHUB_TOKEN }}
