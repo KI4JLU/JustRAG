@@ -380,6 +380,7 @@ const SourcesPanelComp: React.FC = () => {
                 fetchAllSpacePages={fetchConfluenceAllSpacePages}
             />
             <GitRepoModal
+                kbId={currentKb.id}
                 show={activeSourceModal === 'gitrepo'}
                 onClose={closeSourceModal}
                 loading={gitRepoLoading}
