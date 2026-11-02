@@ -1051,6 +1051,15 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// tables (C1/R20, R60).
 	gitRepoHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/kb/{id}/git-repos", rc.kbAddSourcesChain(gitRepoHandler.CreateSource))
+	// The lookup makes an outbound ls-remote to a user-supplied host, so it
+	// runs through the same SSRF-safe transport as the worker's clone and
+	// has its own per-user budget (the dialog looks up as the user types).
+	gitrepo.InstallSafeGitTransport(fetcher.SafeHTTPClient(0).Transport)
+	gitLookupRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 30, Window: time.Minute, Category: "git_repo_lookup", Key: userRateKey,
+	})
+	rc.mux.Handle("POST /api/kb/{id}/git-repos/lookup",
+		rc.kbAddSourcesChain(gitLookupRL.Middleware(http.HandlerFunc(gitRepoHandler.LookupRepo)).ServeHTTP))
 	rc.mux.Handle("GET /api/kb/{id}/git-repos", rc.kbSourceListChain(gitRepoHandler.ListSources))
 	rc.mux.Handle("PATCH /api/kb/{id}/git-repos/{sourceId}", rc.kbManageSourcesChain(gitRepoHandler.UpdateSource))
 	rc.mux.Handle("DELETE /api/kb/{id}/git-repos/{sourceId}", rc.kbManageSourcesChain(gitRepoHandler.DeleteSource))

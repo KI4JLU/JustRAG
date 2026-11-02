@@ -5,8 +5,8 @@ package gitrepo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -25,12 +25,15 @@ type Handler struct {
 	jwtSecret    string
 	asynqClient  *asynq.Client
 	tableDropper TableDropper
+	// listBranches is the ls-remote behind LookupRepo; a field so tests can
+	// answer without the network.
+	listBranches func(ctx context.Context, repoURL, token string) (*RemoteBranches, error)
 }
 
 // NewHandler creates a Handler backed by store, using jwtSecret to encrypt
 // access tokens before storage and asynqClient to enqueue sync jobs.
 func NewHandler(store Store, jwtSecret string, asynqClient *asynq.Client) *Handler {
-	return &Handler{store: store, jwtSecret: jwtSecret, asynqClient: asynqClient}
+	return &Handler{store: store, jwtSecret: jwtSecret, asynqClient: asynqClient, listBranches: ListRemoteBranches}
 }
 
 // SetTableDropper injects the spreadsheet table cleanup hook for
@@ -161,10 +164,16 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := url.Parse(body.RepoURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "repoUrl must be an https URL")
+	// Normalise before storing: a link copied from a forge's web UI (a pull
+	// request list, a file view) is accepted today and only fails at the
+	// first clone, long after the form is gone.
+	repoURL, urlBranch, err := normalizeRepoURL(body.RepoURL)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if body.Branch == "" {
+		body.Branch = urlBranch
 	}
 
 	// Validate syncSchedule (empty string means manual).
@@ -198,7 +207,7 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 
 	src, err := h.store.CreateGitRepoSource(ctx, CreateGitRepoSourceInput{
 		KbID:                 kbID,
-		RepoURL:              body.RepoURL,
+		RepoURL:              repoURL,
 		IsPrivate:            body.IsPrivate,
 		AccessTokenEncrypted: encTok,
 		Branch:               branch,
@@ -211,6 +220,91 @@ func (h *Handler) CreateSource(w http.ResponseWriter, r *http.Request) {
 
 	h.enqueueSync(ctx, src.ID)
 	httputil.WriteJSONCtx(ctx, w, http.StatusCreated, toDTO(*src))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/kb/{id}/git-repos/lookup
+// ---------------------------------------------------------------------------
+
+type lookupRequest struct {
+	RepoURL     string `json:"repoUrl"`
+	AccessToken string `json:"accessToken"`
+}
+
+type lookupResponse struct {
+	// RepoURL is the normalised URL CreateSource would store.
+	RepoURL string `json:"repoUrl"`
+	// URLBranch is the branch the pasted link named ("" when none).
+	URLBranch     string   `json:"urlBranch"`
+	DefaultBranch string   `json:"defaultBranch"`
+	Branches      []string `json:"branches"`
+	Truncated     bool     `json:"truncated"`
+}
+
+// lookupFailures maps a lookup error to the 422 code and message the add
+// dialog shows next to the URL field.
+var lookupFailures = []struct {
+	err  error
+	code string
+	msg  string
+}{
+	{ErrLookupNotFound, "not_found", "repository not found, or it is private and needs an access token"},
+	{ErrLookupAuthFailed, "auth_failed", "the access token was rejected"},
+	{ErrLookupEmpty, "empty", "the repository has no commits yet"},
+	{ErrLookupUnreachable, "unreachable", "the repository could not be reached"},
+}
+
+// LookupRepo handles POST /api/kb/{id}/git-repos/lookup: it normalises the
+// URL like CreateSource and lists the repository's branches without cloning,
+// so the add dialog can confirm the repository exists and offer its branches
+// before anything is stored. POST because the body may carry an access token.
+func (h *Handler) LookupRepo(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	enabledVal, err := h.store.GetSiteConfigValue(ctx, "git_repo_enabled")
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch site config")
+		return
+	}
+	if enabledVal == nil || *enabledVal != "true" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, "git repository sources are not enabled")
+		return
+	}
+
+	var body lookupRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	repoURL, urlBranch, err := normalizeRepoURL(body.RepoURL)
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	res, err := h.listBranches(ctx, repoURL, body.AccessToken)
+	if err != nil {
+		for _, f := range lookupFailures {
+			if errors.Is(err, f.err) {
+				logctx.From(ctx).Info("gitrepo.lookup.failed", "code", f.code, "error", err)
+				httputil.WriteCodedErrorCtx(ctx, w, http.StatusUnprocessableEntity, f.code, f.msg)
+				return
+			}
+		}
+		httputil.WriteInternalErrorCtx(ctx, w, err)
+		return
+	}
+	branches := res.Branches
+	if branches == nil {
+		branches = []string{}
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, lookupResponse{
+		RepoURL:       repoURL,
+		URLBranch:     urlBranch,
+		DefaultBranch: res.DefaultBranch,
+		Branches:      branches,
+		Truncated:     res.Truncated,
+	})
 }
 
 // ---------------------------------------------------------------------------

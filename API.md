@@ -858,10 +858,15 @@ All `generate/*` routes need KB view and use the `generate` rate limit. `briefin
 
 Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 
+`POST /git-repos` normalises `repoUrl` before storing it: query and fragment are dropped, and a link to a forge web page (GitHub `/pulls`, `/tree/<branch>`, `/blob/…`; GitLab `/-/…`; Gitea `/src/…`) is cut back to the repository. A `/tree/<branch>` or `/src/branch/<branch>` link fills `branch` when the body leaves it empty. A URL without an owner and repository path, or with a user name or password, is a 400. The response carries the stored URL.
+
+`POST /git-repos/lookup` (body `repoUrl`, optional `accessToken`) checks a repository before it is added: it normalises the URL the same way and lists the branches without cloning (`git ls-remote`, through the SSRF-safe transport, 15 s timeout). 200 `{repoUrl, urlBranch, defaultBranch, branches, truncated}` — `branches` has the default branch first, at most 500. A repository that cannot be listed is a 422 with `code` `not_found` (also a private repository without a token), `auth_failed`, `empty` or `unreachable`. Rate-limited to 30 requests per minute per user.
+
 | Method | Path | Access |
 |---|---|---|
 | GET | `/kb/{id}/git-repos` | KB view + `seeSources` |
 | POST | `/kb/{id}/git-repos` | KB edit + `addSources` |
+| POST | `/kb/{id}/git-repos/lookup` | KB edit + `addSources` |
 | PATCH | `/kb/{id}/git-repos/{sourceId}` | KB edit + `manageSources` |
 | DELETE | `/kb/{id}/git-repos/{sourceId}` | KB edit + `manageSources` |
 | POST | `/kb/{id}/git-repos/{sourceId}/sync` | KB edit + `manageSources` |
