@@ -229,3 +229,27 @@ func TestNormalize_FillsCardSuggestionsOfOlderPages(t *testing.T) {
 		t.Errorf("filled = %+v", got)
 	}
 }
+
+// Oracle: a template's start follows a shown role card's rules in both
+// languages — a task needs its text, the English one falling back to German.
+func TestValidateTemplateStart(t *testing.T) {
+	s := kbbehavior.TemplateStart{
+		Kind: EntryTask, Text: kbbehavior.Texts{DE: "Fasse zusammen"}, Send: true,
+		Suggestions: kbbehavior.TemplateSuggestions{QuestionMode: QuestionsDynamic, DynamicCount: 4},
+	}
+	if err := ValidateTemplateStart(s); err != nil {
+		t.Fatalf("valid start: %v", err)
+	}
+	s.Text = kbbehavior.Texts{}
+	if err := ValidateTemplateStart(s); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a task without text: got %v", err)
+	}
+	s.Text = kbbehavior.Texts{DE: "ok", EN: strings.Repeat("x", MaxQuestionRunes+1)}
+	if err := ValidateTemplateStart(s); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a long English text: got %v", err)
+	}
+	s = kbbehavior.TemplateStart{Kind: "roles", Suggestions: kbbehavior.TemplateSuggestions{QuestionMode: QuestionsDynamic, DynamicCount: 4}}
+	if err := ValidateTemplateStart(s); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("the role selection is no role's start: got %v", err)
+	}
+}

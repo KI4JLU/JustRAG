@@ -125,3 +125,4 @@ What each notable migration adds. Keep this table current when adding one.
 | 0094 | `kb_settings_versions` (new table): version history of the assistant settings — full snapshot + field changes per save/restore, `UNIQUE (kb_id, number)`, newest 200 kept per KB (`internal/kbassistant`) |
 | 0095 | `role_templates` (new table): the catalog's template roles, curated in „Vorlagen" › Rollen — texts de/en, icon, cover gradient, `disabled`, one `is_default` (partial unique index); empty until the first server/worker seeds it from the code's roles (`internal/kbbehavior`) |
 | 0096 | `kb_categories.color` (nullable `#rrggbb`, lowercase, CHECK): a category's freely picked colour; NULL keeps the 0093 palette slot (`internal/kbcategories`) |
+| 0097 | `role_templates.start` (jsonb, NULL = input field): how a template's chat starts — input field, instruction or file upload, texts de/en; a KB without its own start for the role uses it. |

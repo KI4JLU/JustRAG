@@ -1020,7 +1020,7 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/behavior", rc.kbViewChain(kbBehaviorHandler.Get))
 	rc.mux.Handle("PUT /api/kb/{id}/behavior", rc.kbAdminChain(kbBehaviorHandler.Put))
 	// The role templates themselves: system admins, like the catalog categories.
-	templatesHandler := kbbehavior.NewTemplatesHandler(rc.roleTemplates)
+	templatesHandler := kbbehavior.NewTemplatesHandler(rc.roleTemplates, kbstartpage.ValidateTemplateStart)
 	rc.mux.Handle("GET /api/admin/role-templates", rc.adminChain(templatesHandler.List))
 	rc.mux.Handle("POST /api/admin/role-templates", rc.adminChain(templatesHandler.Create))
 	rc.mux.Handle("PUT /api/admin/role-templates/order", rc.adminChain(templatesHandler.Reorder))
@@ -1532,6 +1532,11 @@ func registerRoleWriterRoutes(rc *routeCtx, generateRL *middleware.RedisRateLimi
 	h := kbbehavior.NewRoleWriterHandler(rc.aiResolver, func(ctx context.Context) string {
 		return chat.ChatModelTierFast(ctx, rc.chatStore)
 	})
+	// A role template's texts saved in one language are translated into the
+	// other in the background, on the same fast tier (no KB: the active provider).
+	rc.roleTemplates.SetTranslator(func(ctx context.Context, texts ai.RoleTexts, to string) (ai.RoleTexts, error) {
+		return ai.TranslateRole(ctx, rc.aiResolver, chat.ChatModelTierFast(ctx, rc.chatStore), texts, to)
+	}, kbstartpage.ValidateTemplateStart)
 	llmTimeout := middleware.Timeout(90 * time.Second)
 	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/generate", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Generate))))
 	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/revise", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Revise))))
