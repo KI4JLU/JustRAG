@@ -171,3 +171,67 @@ func DescribeRole(ctx context.Context, resolver *ConfigResolver, kbID, model, na
 	}
 	return d, nil
 }
+
+var roleTranslateSpec = &StructuredSpec{
+	Name: "role_translation",
+	Schema: json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}, "description": {"type": "string"}, "prompt": {"type": "string"},
+			"startText": {"type": "string"}, "startInstruction": {"type": "string"},
+			"questions": {"type": "array", "items": {"type": "string"}}
+		},
+		"required": ["name", "description", "prompt", "startText", "startInstruction", "questions"],
+		"additionalProperties": false
+	}`),
+}
+
+// RoleTexts are a role's texts in one language: its card and prompt, and how
+// its chat starts (the start's text and instruction, its starter questions).
+type RoleTexts struct {
+	Name             string   `json:"name"`
+	Description      string   `json:"description"`
+	Prompt           string   `json:"prompt"`
+	StartText        string   `json:"startText"`
+	StartInstruction string   `json:"startInstruction"`
+	Questions        []string `json:"questions"`
+}
+
+// TranslateRole translates a role template's texts into lang ("de" or "en").
+// It needs no KB: model "" = the active provider's chat model. A text left
+// empty stays empty, whatever the model answers for it.
+func TranslateRole(ctx context.Context, resolver *ConfigResolver, model string, texts RoleTexts, lang string) (RoleTexts, error) {
+	var questions strings.Builder
+	for _, q := range texts.Questions {
+		questions.WriteString("<question>" + q + "</question>\n")
+	}
+	user := "<name>\n" + texts.Name + "\n</name>\n\n<description>\n" + texts.Description + "\n</description>\n\n<prompt>\n" + texts.Prompt +
+		"\n</prompt>\n\n<startText>\n" + texts.StartText + "\n</startText>\n\n<startInstruction>\n" + texts.StartInstruction +
+		"\n</startInstruction>\n\n<questions>\n" + questions.String() + "</questions>"
+	var out RoleTexts
+	if err := CompleteStructuredJSON(ctx, resolver, user, prompts.RoleTranslatePrompt(lang), "", model, roleTranslateSpec, &out); err != nil {
+		return RoleTexts{}, err
+	}
+	keep := func(src, dst string) string {
+		if strings.TrimSpace(src) == "" {
+			return ""
+		}
+		return strings.TrimSpace(dst)
+	}
+	// One question per question: a missing answer keeps its source text.
+	qs := make([]string, len(texts.Questions))
+	for i, q := range texts.Questions {
+		qs[i] = q
+		if i < len(out.Questions) && strings.TrimSpace(out.Questions[i]) != "" {
+			qs[i] = strings.TrimSpace(out.Questions[i])
+		}
+	}
+	out = RoleTexts{
+		Name: keep(texts.Name, out.Name), Description: keep(texts.Description, out.Description), Prompt: keep(texts.Prompt, out.Prompt),
+		StartText: keep(texts.StartText, out.StartText), StartInstruction: keep(texts.StartInstruction, out.StartInstruction), Questions: qs,
+	}
+	if texts.Prompt != "" && out.Prompt == "" {
+		return RoleTexts{}, ErrEmptyRoleDraft
+	}
+	return out, nil
+}

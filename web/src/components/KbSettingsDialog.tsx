@@ -144,7 +144,7 @@ export function KbSettingsDialog({
     const anyDirty = dirty || assistant.dirty || roleEditorDirty || Object.keys(roleDrafts).length > 0;
     // A title is required, and the chat start must be fully set up.
     // Speichern stays enabled: a click on an incomplete state shows what is missing instead of saving.
-    const invalid = !!assistant.draft && (!assistant.draft.title.trim() || chatStartIncomplete(assistant.draft.startPage, assistant.draft.behavior.activeRoleId));
+    const invalid = !!assistant.draft && (!assistant.draft.title.trim() || chatStartIncomplete(assistant.draft.startPage, assistant.draft.behavior.activeRoleId, assistant.catalog?.roles));
     const trySave = () => {
         if (invalid) {
             assistant.revealErrors();

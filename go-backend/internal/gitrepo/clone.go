@@ -18,6 +18,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+
+	"github.com/justrag/go-backend/internal/fetcher"
 )
 
 // allowFileScheme gates file:// URL acceptance. False by default so production
@@ -74,10 +76,50 @@ func InstallSafeGitTransport(rt http.RoundTripper) {
 		return
 	}
 	installOnce.Do(func() {
-		c := &http.Client{Transport: rt}
+		c := &http.Client{Transport: rt, CheckRedirect: checkGitRedirect}
 		client.InstallProtocol("https", githttp.NewClient(c))
 		safeTransportInstalled = true
 	})
+}
+
+// maxGitRedirects bounds the redirect hops of one git HTTP request.
+const maxGitRedirects = 5
+
+// validateTarget is the SSRF check run on a git URL before any request and on
+// every redirect hop. The dial-time check in the safe transport only sees the
+// address it connects to; behind an egress proxy (HTTPS_PROXY) that is the
+// proxy, so the target itself has to be checked here. A var for tests.
+var validateTarget = fetcher.ValidateURL
+
+// errBlockedTarget marks a git URL (or redirect hop) refused by validateTarget.
+var errBlockedTarget = errors.New("gitrepo: repository host is not allowed")
+
+// checkTarget refuses an https git URL whose host resolves to a private,
+// loopback or link-local address. file:// (tests) is exempt.
+func checkTarget(ctx context.Context, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errBlockedTarget, err)
+	}
+	if u.Scheme == "file" {
+		return nil
+	}
+	if err := validateTarget(ctx, rawURL); err != nil {
+		return fmt.Errorf("%w: %w", errBlockedTarget, err)
+	}
+	return nil
+}
+
+// checkGitRedirect is the CheckRedirect of the safe git client: https only,
+// a bounded number of hops, and every hop passes the SSRF check.
+func checkGitRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxGitRedirects {
+		return fmt.Errorf("gitrepo: stopped after %d redirects", maxGitRedirects)
+	}
+	if req.URL.Scheme != "https" {
+		return fmt.Errorf("%w: redirect to scheme %q", errBlockedTarget, req.URL.Scheme)
+	}
+	return checkTarget(req.Context(), req.URL.String())
 }
 
 // requireSafeTransport returns an error when an https clone would run without
@@ -107,6 +149,9 @@ func CloneAndCollect(ctx context.Context, opts CloneOptions) (*CloneResult, erro
 
 	u, _ := url.Parse(opts.URL) // already validated; ignore error
 	if err := requireSafeTransport(u.Scheme, opts.Transport != nil, safeTransportInstalled); err != nil {
+		return nil, err
+	}
+	if err := checkTarget(ctx, opts.URL); err != nil {
 		return nil, err
 	}
 

@@ -2,8 +2,8 @@ import { MessageSquare, Plug, Settings, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
-    SettingsDialog, SettingsRow, Switch, useAccent, useContrast,
-    type AccentColor, type ContrastChoice,
+    SettingsDialog, SettingsRow, Switch, useAccent, useColors, useContrast,
+    type AccentColor, type ColorsChoice, type ContrastChoice,
 } from '@ki4jlu/design-system';
 import type { Theme } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
@@ -27,7 +27,7 @@ interface UserSettingsModalProps {
 
 /**
  * The user's settings window (user menu → „Einstellungen"), on the DS
- * `SettingsDialog`. General: colour scheme, contrast, accent, language. Chat: starter
+ * `SettingsDialog`. General: colour scheme, contrast, accent, colours, language. Chat: starter
  * suggestions, follow-ups, autoscroll. Profile: the
  * account as the directory (LDAP) knows it — read-only. Connectors: the API-key
  * and Confluence-token managers, each disabled with its reason where it does not apply.
@@ -39,6 +39,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
     const [autoScrollEnabled, setAutoScrollEnabled] = useAutoScrollEnabled();
     const { contrast, setContrast } = useContrast();
     const { accent, setAccent } = useAccent();
+    const { colors, setColors } = useColors();
     const { user, siteConfigs } = useAuth();
 
     const readOnly = (value?: string) => <span className="text-on-surface-variant">{value || '–'}</span>;
@@ -102,6 +103,18 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                                 {t(`accent_${a}`)}
                                             </span>
                                         )] as [AccentColor, ReactNode])}
+                                    />
+                                )}
+                            />
+                            <SettingsRow
+                                label={t('colorsLabel')}
+                                labelId="settings-colors"
+                                control={(
+                                    <Choice<ColorsChoice>
+                                        id="settings-colors"
+                                        value={colors}
+                                        onChange={setColors}
+                                        options={[['system', t('themeSystemShort')], ['reduced', t('colorsReduced')]]}
                                     />
                                 )}
                             />

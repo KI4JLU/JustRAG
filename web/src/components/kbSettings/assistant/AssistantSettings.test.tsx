@@ -175,6 +175,23 @@ describe('Verhalten · roles', () => {
         expect(savedInput().behavior.activeRoleId).toBe('tutor');
     });
 
+    // Oracle: developer report 30.10.2026 — „Verwenden" stuck on cards the
+    // pointer had left, after their ⋯ menu was opened and closed by a click.
+    it('drops „Verwenden" once the pointer left and the menu closed', async () => {
+        await renderSection('behavior');
+        // Held, not re-queried: the open menu hides the rest from the a11y tree.
+        const tutor = tile('Tutor').parentElement as HTMLElement;
+        await userEvent.hover(tutor);
+        await userEvent.click(within(tutor).getByRole('button', { name: 'actions Tutor' }));
+        expect(await screen.findByRole('menu')).toBeInTheDocument();
+        // The open menu sets pointer-events: none on the page, so userEvent
+        // refuses these; a browser still delivers them.
+        fireEvent.pointerLeave(tutor);
+        fireEvent.pointerDown(document.body);
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+        await waitFor(() => expect(within(tutor).queryByRole('button', { name: /asstUseThisRole/ })).toBeNull());
+    });
+
     it('saves a new role without making it active', async () => {
         await renderSection('behavior');
         await userEvent.click(screen.getByRole('button', { name: /asstNewRole/ }));
@@ -548,7 +565,9 @@ describe('Startseite', () => {
         await userEvent.click(saveButton());
         await waitFor(() => expect(api.saveAssistantSettings).toHaveBeenCalled());
         const saved = savedInput().startPage;
-        expect(saved.roleStarts['c-1']).toMatchObject({ kind: 'input' });
+        // Back to the role's default start: no start of its own any more (it
+        // would otherwise not follow a template's start set in „Vorlagen").
+        expect(saved.roleStarts['c-1']).toBeUndefined();
         // The card stays on the page, now starting with the input field.
         expect(saved.roleEntries).toEqual([{ id: 're-1', roleId: 'c-1' }]);
     });

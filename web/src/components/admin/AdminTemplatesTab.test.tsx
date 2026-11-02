@@ -31,7 +31,7 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
 const role = (patch: Partial<RoleTemplate>): RoleTemplate => ({
     id: 'r', icon: 'sparkles', isDefault: false, enabled: true, usedBy: 0,
     name: { de: 'Rolle', en: '' }, description: { de: '', en: '' }, prompt: { de: 'P', en: '' },
-    cover: { from: '#112233', to: '#445566' }, ...patch,
+    cover: { from: '#112233', to: '#445566' }, start: null, ...patch,
 });
 
 let list: RoleTemplate[];
@@ -78,21 +78,51 @@ describe('AdminTemplatesTab', () => {
         await waitFor(() => expect(mockedAxios.delete).toHaveBeenCalledWith(expect.stringContaining('/api/admin/role-templates/t-1')));
     });
 
-    it('edits a role and saves it with its English text and colours', async () => {
+    // Oracle: developer rulings 30./31.10.2026 — one colour per role, no icon
+    // choice; the admin writes in their own language and the server
+    // translates the other one after the save (no language switch here).
+    it('saves an edited role in the admin language, with one colour', async () => {
         const footer = renderTab();
         await userEvent.click(await screen.findByRole('button', { name: 'Actions for Tutor' }));
         await userEvent.click(await screen.findByRole('menuitem', { name: /^edit$/i }));
-        await userEvent.click(screen.getByRole('button', { name: 'English' }));
-        await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Tutor EN');
-        await userEvent.clear(screen.getByLabelText('Start colour'));
-        await userEvent.type(screen.getByLabelText('Start colour'), '#ABCDEF');
-        await userEvent.click(screen.getByRole('radio', { name: 'Book' }));
+        expect(screen.queryByRole('radiogroup', { name: 'Icon' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'German' })).toBeNull();
+        // No English name yet: the German one to start from.
+        const nameField = screen.getByRole('textbox', { name: 'Name' });
+        expect(nameField).toHaveValue('Tutor');
+        await userEvent.type(nameField, ' new');
+        await userEvent.clear(screen.getByLabelText('Colour'));
+        await userEvent.type(screen.getByLabelText('Colour'), '#ABCDEF');
         const save = Array.from(footer.querySelectorAll('button')).find(b => b.textContent?.includes('Save'));
         await userEvent.click(save!);
         await waitFor(() => expect(mockedAxios.put).toHaveBeenCalled());
+        expect(mockedAxios.post).not.toHaveBeenCalled();
         const [url, body] = mockedAxios.put.mock.calls[0] as [string, RoleTemplate];
         expect(url).toContain('/api/admin/role-templates/tutor');
-        expect(body).toMatchObject({ name: { de: 'Tutor', en: 'Tutor EN' }, cover: { from: '#ABCDEF' }, icon: 'book-open' });
+        expect(body).toMatchObject({
+            lang: 'en', name: { de: 'Tutor', en: 'Tutor new' }, prompt: { de: 'P', en: 'P' },
+            cover: { from: '#ABCDEF', to: '#ABCDEF' }, icon: 'sparkles', start: null,
+        });
         expect(body).not.toHaveProperty('usedBy');
+    });
+
+    // Oracle: developer ruling 31.10.2026 — a template sets how its chat starts
+    // (input field, with suggestions, an instruction, a file upload), never the
+    // role selection.
+    it('sets how a chat in the role starts', async () => {
+        const footer = renderTab();
+        await userEvent.click(await screen.findByRole('button', { name: 'Actions for Tutor' }));
+        await userEvent.click(await screen.findByRole('menuitem', { name: /^edit$/i }));
+        expect(screen.queryByRole('button', { name: /role selection/i })).toBeNull();
+        await userEvent.click(screen.getByRole('button', { name: 'Instruction' }));
+        const save = () => Array.from(footer.querySelectorAll('button')).find(b => b.textContent?.includes('Save'))!;
+        // An instruction needs its text.
+        expect(save()).toBeDisabled();
+        await userEvent.type(screen.getByRole('textbox', { name: 'Instruction Tutor' }), 'Summarise the script');
+        await userEvent.click(save());
+        await waitFor(() => expect(mockedAxios.put).toHaveBeenCalled());
+        expect((mockedAxios.put.mock.calls[0][1] as RoleTemplate).start).toMatchObject({
+            kind: 'task', send: true, text: { de: '', en: 'Summarise the script' },
+        });
     });
 });

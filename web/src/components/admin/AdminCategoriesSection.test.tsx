@@ -34,20 +34,26 @@ describe('AdminCategoriesSection colour', () => {
     });
     afterEach(() => { vi.useRealTimers(); });
 
-    const hexField = async () =>
-        screen.findByLabelText(`${translations.categoryColorChange.en.replace('{name}', CATEGORY.name)} (Hex)`);
+    const label = translations.categoryColorChange.en.replace('{name}', CATEGORY.name);
+    // The browser's own picker behind „Custom colour…" (hidden, unnamed): a
+    // pick there is an input event, as the browser fires it.
+    const hexField = async () => {
+        await screen.findByRole('button', { name: new RegExp(`^${label}: `) });
+        return document.querySelector<HTMLInputElement>('[data-slot=color-field] input[type=color]')!;
+    };
+    const pick = (field: HTMLInputElement, value: string) => fireEvent.input(field, { target: { value } });
 
     it('starts from the palette colour of a category without a picked one', async () => {
         render(<AdminCategoriesSection />);
-        expect(await hexField()).toHaveValue('#F48B16');
+        expect(await screen.findByRole('button', { name: `${label}: #F48B16` })).toBeInTheDocument();
     });
 
     it('saves a pick once the picking pauses, lowercased', async () => {
         render(<AdminCategoriesSection />);
         const field = await hexField();
         vi.useFakeTimers();
-        fireEvent.change(field, { target: { value: '#AA0000' } });
-        fireEvent.change(field, { target: { value: '#BB0000' } });
+        pick(field, '#AA0000');
+        pick(field, '#BB0000');
         expect(mockedAxios.patch).not.toHaveBeenCalled();
         await act(async () => { vi.advanceTimersByTime(500); });
         expect(mockedAxios.patch).toHaveBeenCalledTimes(1);
@@ -67,9 +73,9 @@ describe('AdminCategoriesSection colour', () => {
         render(<AdminCategoriesSection />);
         const field = await hexField();
         vi.useFakeTimers();
-        fireEvent.change(field, { target: { value: '#AA0000' } });
+        pick(field, '#AA0000');
         await act(async () => { vi.advanceTimersByTime(500); });
-        fireEvent.change(field, { target: { value: '#BB0000' } });
+        pick(field, '#BB0000');
         await act(async () => { vi.advanceTimersByTime(500); });
         // The second save waits for the first.
         expect(mockedAxios.patch).toHaveBeenCalledTimes(1);
@@ -77,14 +83,14 @@ describe('AdminCategoriesSection colour', () => {
         expect(mockedAxios.patch).toHaveBeenCalledTimes(2);
         expect(mockedAxios.patch).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ color: '#bb0000' }));
         // The first answer arrived late and does not undo the second pick.
-        expect(field).toHaveValue('#BB0000');
+        expect(screen.getByRole('button', { name: `${label}: #BB0000` })).toBeInTheDocument();
     });
 
     it('keeps a rename made while a colour save waits', async () => {
         render(<AdminCategoriesSection />);
         const field = await hexField();
         modalMock.showPrompt.mockResolvedValue('Personal');
-        fireEvent.change(field, { target: { value: '#DD0000' } });
+        pick(field, '#DD0000');
         // Rename before the colour save goes out.
         fireEvent.click(screen.getByRole('button', { name: `${translations.edit.en}: ${CATEGORY.name}` }));
         await waitFor(() => expect(mockedAxios.patch).toHaveBeenCalledWith(
@@ -97,7 +103,7 @@ describe('AdminCategoriesSection colour', () => {
     it('sends a waiting pick when the section unmounts', async () => {
         const { unmount } = render(<AdminCategoriesSection />);
         const field = await hexField();
-        fireEvent.change(field, { target: { value: '#CC0000' } });
+        pick(field, '#CC0000');
         unmount();
         // Sent behind the category's save queue, so a microtask later.
         await waitFor(() => expect(mockedAxios.patch).toHaveBeenCalledWith(

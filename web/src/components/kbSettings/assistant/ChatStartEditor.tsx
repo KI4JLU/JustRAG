@@ -1,11 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useContext, useEffect, useId, useRef, useState } from 'react';
 import {
     ArrowDown, ArrowUp, GripVertical, Info, Lightbulb, MessageSquareText, Pencil, Plus, RefreshCw,
     SendHorizontal, Sparkles, TextCursorInput, Trash2, Upload, X,
 } from 'lucide-react';
 import {
     ActionMenu, Badge, Button, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
-    Input, Notice, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Shimmer, Switch, Textarea, cn,
+    Input, Notice, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Shimmer, Switch, Textarea, cardAccentStyle, cn,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { Skeleton } from '../../Skeleton';
@@ -14,12 +14,13 @@ import {
     suggestStarterQuestions, type EntryKind, type EntryStart, type RoleEntry, type StartMode, type StartPage, type Suggestions,
 } from './api';
 import { newId, type RoleView } from './roleModel';
-import { DEFAULT_ENTRY_ID, START_MODE_LABEL, colorsStyle, roleCardCover, startEntries, startOf } from './startPageModel';
+import { DEFAULT_ENTRY_ID, START_MODE_LABEL, roleAccent, roleCardCover, startEntries, startOf } from './startPageModel';
 import { ComposerPreview } from './ComposerPreview';
 import { KindIcon } from './entryKinds';
+import { IconTile } from './roles';
 import { AddCardTile } from './RoleTiles';
 import { RoleCardFrame, UploadStart } from './StartPageParts';
-import { useAssistantSettings } from './useAssistantSettings';
+import { AssistantSettingsContext, useAssistantSettings } from './useAssistantSettings';
 
 const chip = 'rounded-[var(--ui-radius-control)] border px-3 py-1.5 text-sm';
 /** Widths of the skeleton chips shown while a sample is generated (up to 6). */
@@ -45,7 +46,9 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
     label?: string;
 }) {
     const { t, language } = useTheme();
-    const store = useAssistantSettings();
+    // Outside a topic (a role template in „Vorlagen") there are no documents:
+    // no sample of dynamic questions, no AI suggestions.
+    const store = useContext(AssistantSettingsContext);
     const ids = { count: useId(), sort: useId(), q: useId() };
     const [aiPhase, setAiPhase] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
     const [aiList, setAiList] = useState<string[]>([]);
@@ -77,6 +80,7 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
         setFixed(list => [...list, text]);
     };
     const suggest = async () => {
+        if (!store) return;
         setAiPhase('busy');
         try {
             const found = await suggestStarterQuestions(store.kb.id, language);
@@ -129,7 +133,7 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
                 </OffNote>
             ) : dynamic ? (
                 <>
-                    {sampleLoading ? (
+                    {!store ? null : sampleLoading ? (
                         <ul className="m-0 flex list-none flex-wrap gap-2 p-0" aria-busy="true" aria-label={t('asstSampleLoading')}>
                             {SKELETON_WIDTHS.slice(0, value.dynamicCount).map((w, i) => (
                                 <li key={i} aria-hidden="true"><Skeleton width={w} height={34} borderRadius="var(--ui-radius-control)" /></li>
@@ -145,7 +149,7 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
                         <p className="m-0 text-sm text-on-surface-variant">{t('asstNoExample')}</p>
                     )}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-on-surface-variant">
-                        <span>{t('asstDynamicGenerates').replace('{n}', String(fileCount))}</span>
+                        <span>{store ? t('asstDynamicGenerates').replace('{n}', String(fileCount)) : t('asstDynamicGeneratesTopic')}</span>
                         <span className="ml-auto flex items-center gap-2">
                             <span id={ids.count}>{t('asstCount')}</span>
                             <SegmentedControl
@@ -155,9 +159,11 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
                                 onValueChange={(v) => onChange(s => ({ ...s, dynamicCount: Number(v) as 3 | 4 | 6 }))}
                                 options={[{ value: '3', label: '3' }, { value: '4', label: '4' }, { value: '6', label: '6' }]}
                             />
-                            <Button variant="ghost" size="sm" onClick={onNewExample} disabled={sampleLoading || dynamicSample.length === 0}>
-                                <RefreshCw className="size-4" aria-hidden="true" /> {t('asstNewExample')}
-                            </Button>
+                            {store && (
+                                <Button variant="ghost" size="sm" onClick={onNewExample} disabled={sampleLoading || dynamicSample.length === 0}>
+                                    <RefreshCw className="size-4" aria-hidden="true" /> {t('asstNewExample')}
+                                </Button>
+                            )}
                         </span>
                     </div>
                 </>
@@ -257,9 +263,11 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
                         <span>{qs.length ? t('asstFixedFooter') : t('asstFixedEmpty')}</span>
                         <span className="ml-auto flex items-center gap-3">
                             <span className="text-xs tabular-nums">{qs.length} / {FIXED_QUESTION_MAX}</span>
-                            <Button variant="ghost" size="sm" disabled={aiPhase === 'busy' || full} onClick={() => void suggest()}>
-                                <Sparkles className="size-4" aria-hidden="true" /> {aiPhase === 'done' ? t('asstNewSuggestions') : t('asstSuggestWithAi')}
-                            </Button>
+                            {store && (
+                                <Button variant="ghost" size="sm" disabled={aiPhase === 'busy' || full} onClick={() => void suggest()}>
+                                    <Sparkles className="size-4" aria-hidden="true" /> {aiPhase === 'done' ? t('asstNewSuggestions') : t('asstSuggestWithAi')}
+                                </Button>
+                            )}
                         </span>
                     </div>
                 </>
@@ -321,17 +329,19 @@ const KINDS = ['input', 'task', 'file'] as const satisfies readonly EntryKind[];
  * prefilled), or the members' dropzone with its label edited in it and the
  * instruction sent with the file.
  */
-export function RoleStartEditor({ start, onChange, roleName, dynamicSample, sampleLoading, onNewExample }: {
+export function RoleStartEditor({ start, onChange, roleName, dynamicSample = [], sampleLoading = false, onNewExample = () => undefined }: {
     start: EntryStart;
     onChange: (fn: (e: EntryStart) => EntryStart) => void;
     /** Names the controls („… Tutor"). */
     roleName: string;
-    dynamicSample: string[];
-    sampleLoading: boolean;
-    onNewExample: () => void;
+    /** The topic's dynamic questions sample; none outside a topic (a role template). */
+    dynamicSample?: string[];
+    sampleLoading?: boolean;
+    onNewExample?: () => void;
 }) {
     const { t } = useTheme();
-    const store = useAssistantSettings();
+    // Null for a role template („Vorlagen"): no topic name, no documents.
+    const store = useContext(AssistantSettingsContext);
     const kindId = useId();
     const instrId = useId();
     const patch = (p: Partial<EntryStart>) => onChange(e => ({ ...e, ...p }));
@@ -353,7 +363,7 @@ export function RoleStartEditor({ start, onChange, roleName, dynamicSample, samp
             {start.kind === 'input' && (
                 // The input field as members get it: a still image.
                 <div inert>
-                    <ComposerPreview kbName={store.draft?.title.trim() ?? ''} fileCount={store.kb.fileCount} />
+                    <ComposerPreview kbName={store?.draft?.title.trim() ?? ''} fileCount={store?.kb.fileCount} />
                 </div>
             )}
             {start.kind === 'task' && (
@@ -417,7 +427,7 @@ export function RoleStartEditor({ start, onChange, roleName, dynamicSample, samp
                         dynamicSample={dynamicSample}
                         sampleLoading={sampleLoading}
                         onNewExample={onNewExample}
-                        fileCount={store.kb.fileCount ?? 0}
+                        fileCount={store?.kb.fileCount ?? 0}
                     />
                 </div>
             )}
@@ -460,7 +470,7 @@ function RolesEditor({ page, roles, activeRoleId, focusEntryId, onAdded, onFocus
     const { t } = useTheme();
     const store = useAssistantSettings();
     const listId = useId();
-    const entries = startEntries(page, activeRoleId);
+    const entries = startEntries(page, activeRoleId, store.catalog?.roles);
     const full = page.roleEntries.length >= ROLE_ENTRY_MAX;
 
     useEffect(() => {
@@ -550,12 +560,12 @@ function RolesEditor({ page, roles, activeRoleId, focusEntryId, onAdded, onFocus
                                             <span className="text-sm text-on-surface-variant">{t('asstDeckEmpty')}</span>
                                         </DropdownMenuItem>
                                     ) : deck.map(r => {
-                                        const start = startOf(page, r.id);
+                                        const start = startOf(page, r.id, store.catalog?.roles);
                                         return (
                                             <DropdownMenuItem key={r.id} onSelect={() => pick(r.id)} className="items-start gap-3">
-                                                {/* The card's band and avatar in small: its colours and how it starts. */}
-                                                <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-tile)] text-white [&_svg]:size-4" style={colorsStyle(roleCardCover(r, start.kind))}>
-                                                    <KindIcon kind={start.kind} />
+                                                {/* The card's avatar in small: its colour and how it starts. */}
+                                                <span style={cardAccentStyle(roleAccent(roleCardCover(r, start.kind)))}>
+                                                    <IconTile glyph={<KindIcon kind={start.kind} />} tone="accent" />
                                                 </span>
                                                 <span className="flex min-w-0 flex-col">
                                                     <span className="text-sm font-medium text-on-surface">
@@ -596,7 +606,7 @@ export function ChatStartEditor({
     dynamicSample: string[];
     sampleLoading: boolean;
     onNewExample: () => void;
-    /** The mode was switched by „Als Einstiegsfrage anbieten" in Verhalten. */
+    /** The mode was switched by „Für Rollenwahl selektieren" in Verhalten. */
     modeNote: boolean;
     focusEntryId: string | null;
     onAdded: (entryId: string) => void;

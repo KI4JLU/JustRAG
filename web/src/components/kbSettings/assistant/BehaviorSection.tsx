@@ -8,13 +8,13 @@ import {
 } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../../api';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { ROLE_ENTRY_MAX, defaultStart, type CustomRole, type EntryStart } from './api';
+import { ROLE_ENTRY_MAX, type CustomRole, type EntryStart } from './api';
 import { RoleEditorView } from './RoleEditorView';
 import { canSaveEditor, editTarget, editorFields, idleAi, type RoleEditor } from './roleEditor';
 import { RolePreviewPanel } from './RolePreviewPanel';
 import { NewRoleTile, RoleTile } from './RoleTiles';
 import { allRoles, defaultRules, newId, readPref, rulesFor, writePref, type RoleView } from './roleModel';
-import { startEntries } from './startPageModel';
+import { roleDefaultStart, startEntries } from './startPageModel';
 import { useAssistantSettings } from './useAssistantSettings';
 import { useStarterSample } from './useStarterSample';
 
@@ -43,8 +43,8 @@ export function BehaviorSection({
     const behavior = draft?.behavior;
     const page = draft?.startPage;
     // The start page's further cards, each with its role's start.
-    const entries = useMemo(() => (page && behavior ? startEntries(page, behavior.activeRoleId).slice(1) : []), [page, behavior]);
     const allOfThem = useMemo(() => allRoles(catalog, behavior), [catalog, behavior]);
+    const entries = useMemo(() => (page && behavior ? startEntries(page, behavior.activeRoleId, allOfThem).slice(1) : []), [page, behavior, allOfThem]);
     const entriesFor = (id: string) => entries.filter(e => e.roleId === id);
     // A template switched off in „Vorlagen" shows only while this KB uses it.
     const roles = allOfThem.filter(r => !r.disabled || r.id === behavior?.activeRoleId || entriesFor(r.id).length > 0);
@@ -115,11 +115,16 @@ export function BehaviorSection({
         if (!panelOpen) setPanelOpen(true);
     };
     // How a role starts on the start page (set here; picked in „Rollenauswahl"):
-    // every role starts with the input field until another start is set.
-    const roleStart = (id: string): EntryStart | undefined => page?.roleStarts[id];
+    // a template starts as „Vorlagen" sets it, every other role with the input
+    // field, until the KB sets up its own start.
+    const roleStart = (id: string): EntryStart | undefined => page?.roleStarts[id] ?? allOfThem.find(r => r.id === id)?.start;
     const setRoleStart = (id: string, fn: ((e: EntryStart) => EntryStart) | null) => store.updateStartPage(p => {
-        if (fn) return { ...p, roleStarts: { ...p.roleStarts, [id]: fn(p.roleStarts[id] ?? defaultStart()) } };
-        // Back to the default: the input field.
+        if (fn) {
+            const next = fn(p.roleStarts[id] ?? roleDefaultStart(allOfThem, id));
+            // The role's default again is no start of its own: it follows a later change in „Vorlagen".
+            if (JSON.stringify(next) !== JSON.stringify(roleDefaultStart(allOfThem, id))) return { ...p, roleStarts: { ...p.roleStarts, [id]: next } };
+        }
+        // Back to the default: the template's start, else the input field.
         const roleStarts = { ...p.roleStarts };
         delete roleStarts[id];
         return { ...p, roleStarts };

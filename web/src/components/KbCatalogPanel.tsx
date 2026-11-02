@@ -281,7 +281,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                                 {/* The hairline card (developer mockup „Hairline", 30.10.2026):
                                     name and star on a faint tint of the category's colour,
                                     the category on the rule, the description, then size and
-                                    „Stand". Neutral without a category. */}
+                                    „Stand". Grey without a category. */}
                                 <Card
                                     interactive
                                     accentColor={accentColor}

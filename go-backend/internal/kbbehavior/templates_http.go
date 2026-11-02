@@ -15,10 +15,16 @@ import (
 // adminChain like the catalog categories.
 type TemplatesHandler struct {
 	store *TemplateStore
+	// validateStart checks a template's start (kbstartpage.ValidateTemplateStart:
+	// the start's rules live there, and that package imports this one).
+	validateStart func(TemplateStart) error
 }
 
-// NewTemplatesHandler creates a TemplatesHandler over s.
-func NewTemplatesHandler(s *TemplateStore) *TemplatesHandler { return &TemplatesHandler{store: s} }
+// NewTemplatesHandler creates a TemplatesHandler over s; validateStart checks
+// a template's start (ErrInvalid-wrapped errors are the client's).
+func NewTemplatesHandler(s *TemplateStore, validateStart func(TemplateStart) error) *TemplatesHandler {
+	return &TemplatesHandler{store: s, validateStart: validateStart}
+}
 
 // List handles GET /api/admin/role-templates.
 func (h *TemplatesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +36,7 @@ func (h *TemplatesHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, ts)
 }
 
-func decodeTemplate(w http.ResponseWriter, r *http.Request) (TemplateInput, bool) {
+func (h *TemplatesHandler) decodeTemplate(w http.ResponseWriter, r *http.Request) (TemplateInput, bool) {
 	var in TemplateInput
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
@@ -38,8 +44,13 @@ func decodeTemplate(w http.ResponseWriter, r *http.Request) (TemplateInput, bool
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid request body")
 		return in, false
 	}
-	if err := ValidateTemplate(in); err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": "))
+	err := ValidateTemplate(in)
+	if err == nil && in.Start != nil {
+		// As stored: a start written in English has its German fallback filled.
+		err = h.validateStart(*trimmed(in).Start)
+	}
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, trimInvalid(err))
 		return in, false
 	}
 	return in, true
@@ -47,7 +58,7 @@ func decodeTemplate(w http.ResponseWriter, r *http.Request) (TemplateInput, bool
 
 // Create handles POST /api/admin/role-templates and answers with the list.
 func (h *TemplatesHandler) Create(w http.ResponseWriter, r *http.Request) {
-	in, ok := decodeTemplate(w, r)
+	in, ok := h.decodeTemplate(w, r)
 	if !ok {
 		return
 	}
@@ -60,7 +71,7 @@ func (h *TemplatesHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Update handles PUT /api/admin/role-templates/{roleId} and answers with the list.
 func (h *TemplatesHandler) Update(w http.ResponseWriter, r *http.Request) {
-	in, ok := decodeTemplate(w, r)
+	in, ok := h.decodeTemplate(w, r)
 	if !ok {
 		return
 	}
@@ -102,7 +113,7 @@ func (h *TemplatesHandler) writeError(w http.ResponseWriter, r *http.Request, er
 	ctx := r.Context()
 	switch {
 	case errors.Is(err, ErrInvalid):
-		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": "))
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, trimInvalid(err))
 	case errors.Is(err, ErrTemplateInUse):
 		httputil.WriteErrorCtx(ctx, w, http.StatusConflict, "role template is in use; disable it instead")
 	case errors.Is(err, store.ErrNotFound):
@@ -111,4 +122,14 @@ func (h *TemplatesHandler) writeError(w http.ResponseWriter, r *http.Request, er
 		logctx.From(ctx).Error("kbbehavior: role templates", "error", err)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "internal error")
 	}
+}
+
+// trimInvalid is a validation error's message without the ErrInvalid prefix
+// (this package's or kbstartpage's — both read "invalid …: ").
+func trimInvalid(err error) string {
+	msg := err.Error()
+	if i := strings.Index(msg, ": "); i >= 0 && strings.HasPrefix(msg, "invalid ") {
+		return msg[i+2:]
+	}
+	return msg
 }

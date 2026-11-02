@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SettingsVersion, StartPage } from './api';
-import { ROLE_COVER_DEFAULTS, categoryGlowStyle, colorsStyle, chatStartIncomplete, roleCardCover, showsGeneratedQuestions, suggestionQuestions, startEntries, visibleQuestions } from './startPageModel';
+import { ROLE_COVER_DEFAULTS, categoryGlowStyle, chatStartIncomplete, roleCardCover, showsGeneratedQuestions, suggestionQuestions, startEntries, visibleQuestions } from './startPageModel';
 import { changeValue, versionNote } from './versionModel';
 import { draftAfterReset, type AssistantDraft } from './useAssistantSettings';
 
@@ -14,15 +14,6 @@ const page = (patch: Partial<StartPage> = {}): StartPage => ({
 });
 
 const t = (k: string) => k;
-
-// Oracle: the role cover's two colours, as given — a gradient for the
-// swatch; none without colours.
-describe('cover colours', () => {
-    it('builds the swatch gradient from the two colours', () => {
-        expect(String(colorsStyle({ from: '#EE4589', to: '#B46EF7' })?.backgroundImage)).toBe('linear-gradient(120deg, #EE4589, #B46EF7)');
-        expect(colorsStyle(null)).toBeUndefined();
-    });
-});
 
 // Oracle: developer ruling 30.10.2026 — the start page glows in its
 // category's colour (the palette slot, as on its cards), and a topic without
@@ -61,6 +52,18 @@ describe('chat start', () => {
         const cards = startEntries(p, 'research');
         expect(cards.map(e => [e.roleId, e.kind])).toEqual([['research', 'input'], ['tutor', 'task']]);
         expect(cards[1]).toMatchObject({ id: 're-1', text: 'Los' });
+    });
+
+    // Oracle: developer ruling 31.10.2026 — a template's start („Vorlagen")
+    // applies wherever the KB sets up none of its own for the role.
+    it('falls back to the template\'s start, and the KB\'s own start wins', () => {
+        const roles = [{ id: 'tutor', start: task('Fasse zusammen') }, { id: 'research' }];
+        const p = page({ roleEntries: [{ id: 're-1', roleId: 'tutor' }] });
+        expect(startEntries(p, 'research', roles).map(e => [e.roleId, e.kind, e.text])).toEqual([['research', 'input', ''], ['tutor', 'task', 'Fasse zusammen']]);
+        const own = page({ roleStarts: { tutor: task('Eigene') }, roleEntries: [{ id: 're-1', roleId: 'tutor' }] });
+        expect(startEntries(own, 'research', roles)[1].text).toBe('Eigene');
+        // An empty template instruction makes the shown card incomplete, as the KB's own would.
+        expect(chatStartIncomplete(page({ startMode: 'roles', roleEntries: [{ id: 'r', roleId: 'tutor' }] }), 'research', [{ id: 'tutor', start: task('') }])).toBe(true);
     });
 
     it('is incomplete in the roles mode without a further role or with a shown start prompt without text', () => {
