@@ -24,12 +24,13 @@ import { categoryGlowStyle, roleAccent, roleCardCover } from './startPageModel';
  * chat area (its parent is `relative isolate`) and shows as a soft ellipse
  * behind the title and the composer, which sit centred there. Filling the
  * parent rather than reaching past it keeps it from ever adding a scrollbar.
- * No category renders nothing.
+ * No category renders nothing; reduced colours (user setting „Farben",
+ * `data-colors`) hide it.
  */
 export function StartGlow({ category }: { category: Pick<KbCategory, 'colorSlot' | 'color'> | null | undefined }) {
     const style = categoryGlowStyle(category);
     if (!style) return null;
-    return <div aria-hidden="true" data-slot="start-glow" className="pointer-events-none absolute inset-0 -z-10" style={style} />;
+    return <div aria-hidden="true" data-slot="start-glow" className="pointer-events-none absolute inset-0 -z-10 in-data-[colors=reduced]:hidden" style={style} />;
 }
 
 /** The title block's frame: no surface of its own, the page's glow shows through. */

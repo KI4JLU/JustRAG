@@ -63,6 +63,8 @@ export interface CatalogRole {
     cover?: StartColors;
     /** Offered for new picks; a disabled template keeps working where it is used. Absent = enabled. */
     enabled?: boolean;
+    /** How a chat in it starts where the KB sets up none of its own („Vorlagen"); absent = the input field. */
+    start?: EntryStart;
 }
 
 export interface CatalogRule {

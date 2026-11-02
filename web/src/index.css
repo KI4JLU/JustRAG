@@ -1124,6 +1124,11 @@ button.source-card {
   pointer-events: none;
 }
 
+/* Reduced colours (user setting „Farben", DS AppearanceProvider): no glow. */
+[data-colors="reduced"] .empty-state::before {
+  display: none;
+}
+
 .empty-state>* {
   position: relative;
   z-index: 1;

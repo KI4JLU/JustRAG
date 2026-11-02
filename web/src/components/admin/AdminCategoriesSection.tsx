@@ -141,6 +141,7 @@ export default function AdminCategoriesSection() {
                                     label={t('categoryColorChange').replace('{name}', cat.name)}
                                     value={cat.color ?? CATEGORY_PALETTE[(cat.colorSlot ?? 1) - 1] ?? CATEGORY_PALETTE[0]}
                                     onChange={(picked: string) => handleColor(cat, picked)}
+                                    labels={{ custom: t('colorFieldCustom'), presets: t('colorFieldPresets') }}
                                 />
                                 <Button
                                     type="button"

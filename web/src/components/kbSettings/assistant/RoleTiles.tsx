@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Plus } from 'lucide-react';
 import { ActionMenu, Badge, Button, ButtonGroup, ButtonGroupSeparator, SelectableCard, cn, selectableCardClassName, type ActionMenuItem } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -12,9 +12,9 @@ import { ROLE_CARD_SIZE, RoleCardBody } from './StartPageParts';
  * show how its chat starts on the start page (none set = the input field). It
  * is one radio of the overview's SelectableCardGroup: a click only VIEWS the
  * role (the selected look; the preview panel below shows it); the active role
- * keeps its 2px primary border; its badges („Aktiv", „Standard", „Auf der
- * Startseite", „Eigene") sit in the body. The ⋯ menu sits in the card's
- * action slot; on hover (or focus inside) it becomes a split button with
+ * keeps its 2px primary border; its badges („Aktiv", „Rollenauswahl",
+ * „Eigene") sit in the body. The ⋯ menu sits in the card's
+ * action slot; on hover (or keyboard focus inside) it becomes a split button with
  * „Verwenden" on its left (not on the active role). Both are siblings of the
  * pick target, never inside it.
  */
@@ -34,22 +34,46 @@ export function RoleTile({
     actionsLabel: string;
 }) {
     const { t } = useTheme();
-    // Hovered or holding the focus (a menu opened from it too: React focus
-    // events bubble through its portal). The split button's halves stay one
-    // tree, so the open menu is not remounted when this changes.
+    // Hovered, holding the keyboard focus, or its menu open. A click focuses
+    // the card or returns the focus to ⋯ too; that focus must not pin the
+    // split, or it stays on every card clicked. The split button's halves
+    // stay one tree, so an open menu is not remounted when this changes.
+    const ref = useRef<HTMLDivElement>(null);
     const [hovered, setHovered] = useState(false);
     const [focused, setFocused] = useState(false);
     const hot = hovered || focused;
+    const syncFocus = useCallback(() => {
+        const el = ref.current;
+        const at = document.activeElement;
+        if (!el || !at) { setFocused(false); return; }
+        setFocused(el.contains(at)
+            ? isKeyboardFocus(at)
+            : !!at.closest('[role="menu"]') && !!el.querySelector('[aria-expanded="true"]'));
+    }, []);
+    // Read the focus where it lands instead of trusting the blur: the menu
+    // unmounts with the focus in it, and React then reports no blur for it
+    // (nor does every browser fire one, hence the pointerdown too).
+    useEffect(() => {
+        if (!focused) return;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const onMove = () => { clearTimeout(timer); timer = setTimeout(syncFocus); };
+        const events = ['focusin', 'focusout', 'pointerdown'] as const;
+        events.forEach(type => document.addEventListener(type, onMove, true));
+        return () => {
+            clearTimeout(timer);
+            events.forEach(type => document.removeEventListener(type, onMove, true));
+        };
+    }, [focused, syncFocus]);
     const label = `${role.name}${active ? ` (${t('asstActive')})` : ''} – ${t('asstShowPreview')}`;
     const kind = start?.kind ?? 'input';
-    const badges = active || role.isDefault || onStartPage || role.custom;
+    const badges = active || onStartPage || role.custom;
     return (
         <div
+            ref={ref}
             className="w-fit"
             onPointerEnter={() => setHovered(true)}
             onPointerLeave={() => setHovered(false)}
-            onFocus={() => setFocused(true)}
-            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); }}
+            onFocus={syncFocus}
         >
             <SelectableCard
                 value={role.id}
@@ -58,7 +82,6 @@ export function RoleTile({
                 className={cn(
                     ROLE_CARD_SIZE,
                     'select-none',
-                    role.isDefault && 'border-primary/50 bg-primary/5',
                     active && 'border-2 border-primary',
                 )}
                 action={(
@@ -80,7 +103,6 @@ export function RoleTile({
                     {badges && (
                         <span className="mt-auto flex flex-wrap gap-1 pt-1">
                             {active && <Badge tone="primary">{t('asstActive')}</Badge>}
-                            {role.isDefault && <Badge tone="primary">{t('asstDefault')}</Badge>}
                             {onStartPage && <Badge tone="secondary">{t('asstStartSetUpBadge')}</Badge>}
                             {role.custom && <Badge tone="neutral">{t('asstOwn')}</Badge>}
                         </span>
@@ -89,6 +111,15 @@ export function RoleTile({
             </SelectableCard>
         </div>
     );
+}
+
+/** The element holds the focus visibly: reached by keyboard, not by a click. */
+function isKeyboardFocus(el: Element): boolean {
+    try {
+        return el.matches(':focus-visible');
+    } catch {
+        return true; // no :focus-visible support: treat every focus as visible
+    }
 }
 
 /** A dashed card of the role cards' size that adds something: „Neue Rolle", „Rolle hinzufügen". */

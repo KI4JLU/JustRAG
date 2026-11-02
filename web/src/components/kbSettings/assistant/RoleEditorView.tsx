@@ -1,9 +1,10 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react';
-import { Check, Copy, FileText, Info, Sparkles } from 'lucide-react';
-import { BreadcrumbBack, Button, Input, Notice, Shimmer, Textarea } from '@ki4jlu/design-system';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Check, Copy, Info, Sparkles } from 'lucide-react';
+import { BreadcrumbBack, Button, Input, Notice, Shimmer } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { defaultStart, describeRole, generateRolePrompt, NotAvailableError, reviseRolePrompt } from './api';
 import { RoleStartEditor } from './ChatStartEditor';
+import { RoleNameFields, RolePromptField } from './RoleFields';
 import { RolePanelFrame } from './RolePreviewPanel';
 import { IconTile } from './roles';
 import { ROLE_DESC_MAX, editTarget, idleAi, type RoleEditor } from './roleEditor';
@@ -29,7 +30,6 @@ function PromptEditor({ kbId, topic, editor, setEditor, maxPrompt }: {
     const { t, language: uiLanguage } = useTheme();
     // The role prompt is written in the language the KB's prompt is compiled in.
     const language = useAssistantSettings().catalog?.language ?? uiLanguage;
-    const promptId = useId();
     const promptRef = useRef<HTMLTextAreaElement>(null);
     const empty = !editor.prompt.trim();
     const { ai } = editor;
@@ -104,36 +104,17 @@ function PromptEditor({ kbId, topic, editor, setEditor, maxPrompt }: {
                     {ai.phase === 'unavailable' ? t('asstGenUnavailable') : empty ? t('asstGenFailed') : t('asstReviseFailed')}
                 </Notice>
             )}
-            <div className="flex flex-col gap-1.5">
-                <div className="flex min-h-8 items-center justify-between gap-3">
-                    <label htmlFor={promptId} className="text-sm font-medium text-on-surface">{t('asstPrompt')}</label>
-                    <div className="flex items-center gap-3">
-                        {empty && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                    setEditor({ ...editor, prompt: t('asstPromptSkeleton') });
-                                    requestAnimationFrame(() => promptRef.current?.focus());
-                                }}
-                            >
-                                <FileText className="size-4" aria-hidden="true" /> {t('asstInsertSkeleton')}
-                            </Button>
-                        )}
-                        <span className="text-xs tabular-nums text-on-surface-variant">{editor.prompt.length} / {maxPrompt}</span>
-                    </div>
-                </div>
-                <Textarea
-                    ref={promptRef}
-                    id={promptId}
-                    rows={14}
-                    maxLength={maxPrompt}
-                    value={editor.prompt}
-                    placeholder={t('asstPromptPlaceholder')}
-                    disabled={ai.phase === 'busy'}
-                    onChange={(e) => setEditor({ ...editor, prompt: e.target.value, ai: { ...ai, undo: undefined } })}
-                />
-            </div>
+            <RolePromptField
+                textareaRef={promptRef}
+                value={editor.prompt}
+                max={maxPrompt}
+                disabled={ai.phase === 'busy'}
+                onInsertSkeleton={() => {
+                    setEditor({ ...editor, prompt: t('asstPromptSkeleton') });
+                    requestAnimationFrame(() => promptRef.current?.focus());
+                }}
+                onChange={(prompt) => setEditor({ ...editor, prompt, ai: { ...ai, undo: undefined } })}
+            />
         </div>
     );
 }
@@ -168,8 +149,6 @@ export function RoleEditorView({
 }) {
     const { t, language: uiLanguage } = useTheme();
     const { draft, catalog } = useAssistantSettings();
-    const nameId = useId();
-    const descId = useId();
     const [describing, setDescribing] = useState<'idle' | 'busy' | 'error'>('idle');
     // The description from the role's name and prompt, in the KB prompt's language.
     const describe = async () => {
@@ -230,46 +209,19 @@ export function RoleEditorView({
                                 {editor.description && <p className="m-0 mt-1 text-sm leading-6 text-on-surface-variant">{editor.description}</p>}
                             </div>
                         ) : (
-                            <>
-                                <div className="flex flex-col gap-1.5">
-                                    <label htmlFor={nameId} className="text-sm font-medium text-on-surface">{t('asstName')}</label>
-                                    <Input
-                                        id={nameId}
-                                        value={editor.name}
-                                        placeholder={t('asstNamePlaceholder')}
-                                        onChange={(e) => setEditor({ ...editor, name: e.target.value })}
-                                    />
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                    <div className="flex min-h-8 items-center justify-between gap-3">
-                                        <label htmlFor={descId} className="text-sm font-medium text-on-surface">{t('asstDescription')}</label>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            disabled={describing === 'busy' || !editor.prompt.trim()}
-                                            title={editor.prompt.trim() ? undefined : t('asstDescribeNeedsPrompt')}
-                                            onClick={() => void describe()}
-                                        >
-                                            <Sparkles className="size-4" aria-hidden="true" />
-                                            {describing === 'busy' ? <Shimmer className="m-0">{t('asstDescribeBusy')}</Shimmer> : t('asstDescribe')}
-                                        </Button>
-                                    </div>
-                                    {/* Shown under the role's name — in the role list and on the start page's role cards.
-                                        One line of text that wraps: the field grows with it, Enter adds no line break. */}
-                                    <Textarea
-                                        id={descId}
-                                        rows={1}
-                                        className="min-h-0 resize-none field-sizing-content"
-                                        value={editor.description}
-                                        maxLength={ROLE_DESC_MAX}
-                                        placeholder={t('asstRoleDescriptionPlaceholder')}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
-                                        disabled={describing === 'busy'}
-                                        onChange={(e) => setEditor({ ...editor, description: e.target.value.replace(/\s*\n\s*/g, ' ') })}
-                                    />
-                                    {describing === 'error' && <p role="alert" className="m-0 text-sm text-error">{t('asstDescribeFailed')}</p>}
-                                </div>
-                            </>
+                            <RoleNameFields
+                                name={editor.name}
+                                description={editor.description}
+                                onName={(name) => setEditor({ ...editor, name })}
+                                onDescription={(description) => setEditor({ ...editor, description })}
+                                descriptionMax={ROLE_DESC_MAX}
+                                describe={{
+                                    busy: describing === 'busy',
+                                    failed: describing === 'error',
+                                    canRun: !!editor.prompt.trim(),
+                                    run: () => void describe(),
+                                }}
+                            />
                         )}
                     </div>
                 )}

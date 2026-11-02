@@ -1,4 +1,4 @@
-import { LEGACY_ROLE_ID, type Behavior, type BehaviorCatalog, type RuleSet, type StartColors } from './api';
+import { LEGACY_ROLE_ID, type Behavior, type BehaviorCatalog, type EntryStart, type RuleSet, type StartColors } from './api';
 
 /** A role as the settings show it: a catalog template or one of the KB's own. */
 export interface RoleView {
@@ -15,13 +15,15 @@ export interface RoleView {
     cover?: StartColors;
     /** A template switched off in „Vorlagen": not offered for new picks, kept where it is used. */
     disabled?: boolean;
+    /** A template's start („Vorlagen"): how its chat starts where the KB sets up none. */
+    start?: EntryStart;
 }
 
 /** Templates first (catalog order), then the KB's own roles. */
 export function allRoles(catalog: BehaviorCatalog | null, behavior: Behavior | undefined): RoleView[] {
     const templates: RoleView[] = (catalog?.roles ?? []).map(r => ({
         id: r.id, name: r.name, description: r.description, prompt: r.prompt, icon: r.icon, custom: false, isDefault: r.isDefault,
-        cover: r.cover, disabled: r.enabled === false,
+        cover: r.cover, disabled: r.enabled === false, start: r.start,
     }));
     const own: RoleView[] = (behavior?.customRoles ?? []).map(r => ({
         id: r.id, name: r.name, description: r.description ?? '', prompt: r.prompt, icon: r.icon || 'user-round',

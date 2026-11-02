@@ -4,6 +4,7 @@ import {
     fetchBehavior, fetchBehaviorCatalog, fetchCategoryCatalog, fetchKbCategory, fetchStartPage, type StartPage,
 } from '../components/kbSettings/assistant/api';
 import { allRoles, type RoleView } from '../components/kbSettings/assistant/roleModel';
+import { useTheme } from '../contexts/ThemeContext';
 
 export interface KbStartPageData {
     kbId: string;
@@ -20,8 +21,12 @@ export interface KbStartPageData {
  * the roles of Verhalten): read when the KB opens and again whenever the
  * settings dialog closes (`revision`). Null while loading or on failure — the
  * start page then looks as it did before these settings existed.
+ *
+ * The template roles (system texts, translated in „Vorlagen") show in the
+ * member's own language; the KB's own roles as their admin wrote them.
  */
 export function useKbStartPage(kbId: string | undefined, revision: unknown): KbStartPageData | null {
+    const { language } = useTheme();
     const [data, setData] = useState<KbStartPageData | null>(null);
     useEffect(() => {
         if (!kbId) return;
@@ -34,7 +39,7 @@ export function useKbStartPage(kbId: string | undefined, revision: unknown): KbS
                     fetchKbCategory(kbId).catch(() => null),
                     fetchCategoryCatalog().catch(() => [] as KbCategory[]),
                 ]);
-                const catalog = await fetchBehaviorCatalog(behavior.language);
+                const catalog = await fetchBehaviorCatalog(language);
                 if (cancelled) return;
                 setData({
                     kbId,
@@ -49,6 +54,6 @@ export function useKbStartPage(kbId: string | undefined, revision: unknown): KbS
             }
         })();
         return () => { cancelled = true; };
-    }, [kbId, revision]);
+    }, [kbId, revision, language]);
     return data && data.kbId === kbId ? data : null;
 }
