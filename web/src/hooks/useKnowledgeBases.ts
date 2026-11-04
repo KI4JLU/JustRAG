@@ -281,8 +281,9 @@ export function useKnowledgeBases({
    *
    * Both lists are patched: a public topic lives in `globalKbs` and a private
    * one in `kbs`, and the card does not know which list it came from. */
-  const handleToggleFavorite = useCallback(async (kb: KnowledgeBase, e: React.MouseEvent) => {
-    e.stopPropagation();
+  // `e` is absent when a drag into or out of the favorites flips the flag.
+  const handleToggleFavorite = useCallback(async (kb: KnowledgeBase, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const next = !kb.isFavorite;
     const patch = (list: KnowledgeBase[]) =>
       list.map(row => (row.id === kb.id ? { ...row, isFavorite: next } : row));
