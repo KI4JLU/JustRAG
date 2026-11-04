@@ -109,9 +109,14 @@ rate limits, server errors); map it by status.
 | GET | `/site-config` |
 | POST | `/site-config` |
 | POST | `/site-config/logo` |
+| PUT | `/admin/system-notice` |
+| GET | `/v1/system-notice` |
+| PUT | `/v1/system-notice` |
 | POST | `/api-keys` |
 | GET | `/api-keys` |
 | DELETE | `/api-keys/{id}` |
+
+`POST /site-config` and `/site-config/logo` are superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
 
 ### Long-term memory ("Mein Gedächtnis")
 
@@ -1220,6 +1225,7 @@ Notes:
 - `GET /api/v1/kb` rows carry the `capabilities` object (`seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources`) resolved for the API key's owner, the same shape as the web API's KB list. The `api-user` system role adds no KB rights of its own; only the owner's KB roles count.
 - KB permissions are still enforced. A file selection (`selectedFileIds` on `POST /kb/{id}/chat`, `fileIds` on `POST /kb/{id}/research`) is not gated by the per-KB source permissions: any caller with KB view access may restrict a turn to chosen files.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
+- Streaming responses (`POST /kb/{id}/chat` with `stream`, `POST /kb/{id}/research`) may carry SSE comment lines (`: ping`) in silent phases (model reasoning, slow tool calls): a keep-alive per the WHATWG SSE spec, carrying no `data:` payload. Clients that only parse `data:` lines are unaffected.
 - `POST /api/v1/kb/{id}/mcp` exposes the KB as an MCP server with the single tool `ask_kb` (KB view); `404` unless `mcp_server_enabled` is on.
 - Citations follow the key owner's `seeCitations` on the KB: without it, `POST /kb/{id}/chat`, `GET /kb/{id}/chats/{chatId}/messages` and `ask_kb` return no sources and no `[n]` markers (see the web API's [Citations](#citations)).
 
@@ -1286,6 +1292,11 @@ the opening chunk and the annotations ride the closing one:
 This lets a client render source cards while the answer is still streaming;
 annotation offsets only exist once the full text is assembled.
 
+The stream may also carry SSE comment lines (`: ping`) in silent phases (the
+model reasoning before the first token): a keep-alive per the WHATWG SSE spec,
+carrying no `data:` payload. Clients that only parse `data:` lines — the
+OpenAI SDKs included — are unaffected.
+
 **Caveat.** This endpoint does not run the citation validator (that is a
 post-response task on the in-app chat path), so annotations reflect what the
 model claimed, not what was verified. Markers referencing a source that was
@@ -1305,7 +1316,7 @@ key still gets the API-key middleware's `401 {"error"}`).
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/chat/completions` | RAG answer over the collection(s) in `files`; streams Open WebUI's `sources` frame first |
+| POST | `/api/chat/completions` | RAG answer over the collection(s) in `files`; streams Open WebUI's `sources` frame first; silent phases carry `: ping` comment lines (see the contract) |
 | GET | `/api/models` | The one advertised model, `justrag`; the request's `model` is ignored |
 | POST | `/api/v1/files/` | Stores the upload in the key's service-user file library — **no indexing** |
 | GET | `/api/v1/files/` | Lists the key's uploads |

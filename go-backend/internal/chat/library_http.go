@@ -117,7 +117,10 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	reply := libraryReply{w: w}
 	if streamMode {
-		reply.openStream(ctx)
+		sw := reply.openStream(ctx)
+		// No ping may outlive this handler (httputil.SSEStream); the answer
+		// path's own deferred Stop may run first — Stop is idempotent.
+		defer sw.Stop()
 	}
 	libFiles, ok := h.loadLibraryTexts(ctx, reply, files)
 	if !ok {
@@ -191,7 +194,10 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 		library:            true,
 	}
 	if streamMode {
-		h.writeStreamingResponse(ctx, w, rp)
+		// reply.w is the SSEStream wrapper openStream set up (or w itself
+		// when the stream never opened) — the answer frames must go through
+		// the same wrapper, so StartSSE stays a no-op inside.
+		h.writeStreamingResponse(ctx, reply.w, rp)
 		return
 	}
 	h.writeJSONResponse(ctx, w, rp)
@@ -302,10 +308,13 @@ type libraryReply struct {
 
 // openStream commits the SSE response and sends the library_prepare frame,
 // so the client sees a byte before the (possibly slow) server-side parse.
-func (lr *libraryReply) openStream(ctx context.Context) {
-	httputil.EnableSSE(lr.w)
+// It returns the stream wrapper so the handler can defer its Stop.
+func (lr *libraryReply) openStream(ctx context.Context) *httputil.SSEStream {
+	sw := httputil.StartSSE(ctx, lr.w)
+	lr.w = sw
 	lr.streaming = true
 	writeSSE(ctx, lr.w, map[string]any{"stage": "library_prepare"})
+	return sw
 }
 
 func (lr libraryReply) fail(ctx context.Context, status int, msg string) {

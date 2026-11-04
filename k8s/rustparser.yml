@@ -1,0 +1,99 @@
+# Rust fileparser (fp-server) — DOCX parser speaking the docling-serve wire
+# protocol, driven by the Go worker's existing docling client.
+#
+# Runs as its own Deployment (NOT bundled into the worker pods): it is a
+# Rust service, cheap to replicate, but keeping it out of the HPA'd worker
+# pods mirrors the Docling layout and keeps worker images parser-free.
+#
+# The image is built from the fileparser repo's multi-stage Dockerfile:
+#   docker build -t fileparser:dev <fileparser repo>
+# Pin the tag you actually deploy; `fileparser:dev` is the local build name.
+#
+# Enable it on the worker deployments (worker-quick.yml / worker-heavy.yml /
+# worker-batch.yml env) — it is env-based; admin-UI settings are out of
+# scope for Phase 1:
+#   RUSTPARSER_MODE=shadow            # or primary; default off
+#   RUSTPARSER_URL=http://rustparser:5001
+#   RUSTPARSER_TIMEOUT_SECONDS=300    # optional
+#   RUSTPARSER_SHADOW_DIR=/var/lib/justrag/rustparser-shadow   # optional dumps
+#
+# Shadow mode keeps the current DOCX answer (Docling if enabled, built-in
+# otherwise) and runs the fileparser in the background: review
+# rustparser_shadow_total / rustparser_shadow_similarity and score the dumps
+# with goldset before switching to primary. In primary mode the worker only
+# routes DOCX to the fileparser after GET /v1/capabilities succeeded at
+# startup; on failure it logs an error and stays on the previous parser.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustparser
+  namespace: justrag
+  labels:
+    app: justrag
+    component: rustparser
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: justrag
+      component: rustparser
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: justrag
+        component: rustparser
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: rustparser
+          image: fileparser:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5001
+          resources:
+            # CPU-only DOCX extraction; a single document is bounded by the
+            # service's own 120 s limit. Scale replicas, not per-pod CPU.
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustparser
+  namespace: justrag
+  labels:
+    app: justrag
+    component: rustparser
+spec:
+  selector:
+    app: justrag
+    component: rustparser
+  ports:
+    - name: http
+      port: 5001
+      targetPort: 5001

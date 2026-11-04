@@ -27,6 +27,11 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
         'confluenceSettings', 'confluenceEnabled', 'confluenceBaseUrl', 'gitRepoSettings', 'gitRepoEnabled',
     ],
+    notice: [
+        'systemNoticeEnabled', 'systemNoticeTitle', 'systemNoticeText', 'systemNoticeTone', 'systemNoticeDismissible',
+        'systemNoticeLinkUrl', 'systemNoticeLinkLabel', 'systemNoticePreview',
+        'systemNoticeTemplates', 'systemNoticeTemplateName',
+    ],
     'kb-overview': [
         'colName', 'colOwner', 'tabFiles', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',
         'colLastActivity', 'colProcessing', 'colChats', 'colCreated', 'colOldestContent', 'colStaleShare', 'colLastSync', 'colRagas',

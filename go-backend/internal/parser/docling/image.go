@@ -40,5 +40,5 @@ func (p *DoclingImageParser) CanParse(mimeType, fileName string) bool {
 }
 
 func (p *DoclingImageParser) Parse(ctx context.Context, pctx parser.ParseContext) (*parser.ParseResult, error) {
-	return convertAndMap(ctx, p.Client, pctx)
+	return ConvertAndMap(ctx, p.Client, pctx)
 }
