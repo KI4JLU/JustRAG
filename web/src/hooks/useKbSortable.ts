@@ -54,6 +54,7 @@ export function useKbSortable({ order, favorites, rest, all, onToggleFavorite }:
       ids: rest.map(kb => kb.id),
       pinnedIds: favorites.map(kb => kb.id),
       dropZoneLabel: t('kbDropToFavorite'),
+      restDropZoneLabel: t('kbDropToUnfavorite'),
       onMove: (activeId: string, overId: string) => order.move(allIds, activeId, overId),
       onMoveToGroup: (activeId: string, group: string, overId: string | null) => {
         const kb = byId.get(activeId);

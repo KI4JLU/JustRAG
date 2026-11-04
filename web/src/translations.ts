@@ -1738,6 +1738,7 @@ export const translations = {
     kbDragOverGroup: { de: '{name} ist über „{group}".', en: '{name} is over "{group}".' },
     kbDragEndGroup: { de: '{name} in „{group}" abgelegt.', en: 'Dropped {name} in "{group}".' },
     kbDropToFavorite: { de: 'Hierher ziehen, um es zu den Favoriten hinzuzufügen', en: 'Drop here to add it to your favorites' },
+    kbDropToUnfavorite: { de: 'Hierher ziehen, um es aus den Favoriten zu nehmen', en: 'Drop here to remove it from your favorites' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },
