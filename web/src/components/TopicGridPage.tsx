@@ -91,6 +91,8 @@ export interface TopicGridPageProps {
     pinnedIds: string[];
     /** The drop zone shown for the pinned group while it is empty. */
     dropZoneLabel: string;
+    /** The drop zone shown for the rest while it is empty (all shown cards are favorites). */
+    restDropZoneLabel: string;
   };
   /**
    * The favorites, on lines of their own above `items` — a grid of their own,
@@ -149,7 +151,14 @@ export function TopicGridPage({
       </>
     );
   } else if (pinnedItems.length > 0) {
-    groups = group(PINNED_GROUP, dnd?.pinnedIds ?? [], pinnedItems);
+    // Every shown card is a favorite: while dragging, an empty rest to drop
+    // one into, the way the empty favorites get one below.
+    groups = (
+      <>
+        {group(PINNED_GROUP, dnd?.pinnedIds ?? [], pinnedItems)}
+        {dnd && <SortableDropZone group={REST_GROUP} label={dnd.restDropZoneLabel} />}
+      </>
+    );
   } else {
     groups = (
       <>
