@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
@@ -174,7 +175,8 @@ func humanBytes(n int64) string {
 
 // Parse applies http.MaxBytesReader(MaxUploadSize), parses the multipart
 // form, reads field "file", and runs every content check (empty, dangerous
-// extension, supported extension, filename length, tabular size gate).
+// extension, supported extension, filename length, tabular and audio size
+// gates).
 // limits may be nil (no tabular gate). On failure it returns *Error; the
 // caller writes it verbatim. The caller must Close() Upload.File.
 func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, error) {
@@ -243,6 +245,18 @@ func Parse(w http.ResponseWriter, r *http.Request, limits Limits) (*Upload, erro
 			return tooLarge(int64(limit),
 				fmt.Sprintf("Spreadsheet too large (%s): the limit is %s (tabular_max_file_bytes)",
 					humanBytes(header.Size), humanBytes(int64(limit))))
+		}
+	}
+
+	// 3e. Reject audio over the transcription limit (KI-960). The STT
+	// request carries the whole file and no splitting exists, so an
+	// oversized recording can only fail later in the worker, where it used
+	// to read as "the file may be damaged".
+	if (&parser.AudioParser{}).CanParse(mimeType, header.Filename) {
+		if limit := ai.STTMaxFileBytes(); header.Size > limit {
+			return tooLarge(limit,
+				fmt.Sprintf("Audio file too large (%s): transcription accepts at most %s (STT_MAX_FILE_MB)",
+					humanBytes(header.Size), humanBytes(limit)))
 		}
 	}
 

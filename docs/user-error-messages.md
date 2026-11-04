@@ -84,9 +84,18 @@ The messages every feature shares. The catalog in section 4 refers to them by ID
 | S16f | Processing failed: timeout | stage `timeout` | `fileErrorTimeout` | Die Verarbeitung hat zu lange gedauert. Versuche es erneut. | Processing took too long. Please try again. |
 | S16g | Processing failed: not queued | stage `queue` | `fileErrorQueue` | Die Datei konnte nicht zur Verarbeitung eingeplant werden. Versuche es erneut. | The file could not be scheduled for processing. Please try again. |
 | S16h | Processing failed: unknown stage | any other or no stage | `fileErrorUnknown` | Bei der Verarbeitung ist etwas schiefgelaufen. Versuche es erneut. | Something went wrong while processing. Please try again. |
+| S16i | Processing failed: audio too large to transcribe | stage `too_large` | `fileErrorTooLarge` *(frontend key still to add; until then S16h shows)* | Die Audiodatei ist zu groß für die Transkription. Kürze oder komprimiere die Aufnahme und lade sie erneut hoch. | The audio file is too large to transcribe. Shorten or compress the recording and upload it again. |
 
 The S16 messages appear under the failed file in the sources list, next to its
-retry button, which is why each one ends with "Versuche es erneut".
+retry button, which is why each one ends with "Versuche es erneut". S16i is the
+exception: the same file fails again, so it asks for a smaller file instead.
+
+**Audio size limit.** Transcription sends the whole recording in one request,
+so audio is limited to `STT_MAX_FILE_MB` (default 25 MB; set it to the same
+value on server and worker). An upload over it is refused right away with
+`413 file_too_large` and `limitBytes` ([S1](#2-shared-messages)); a file that
+reaches the worker by another route (library, connector) fails with stage
+`too_large` and is not retried.
 
 **What S7 means.** The answer model reads attached documents in full, as
 context for the question. It can only read a limited amount of text at once (its

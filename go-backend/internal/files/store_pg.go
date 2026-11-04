@@ -460,7 +460,7 @@ func (s *PGStore) UpdateFileStageDetail(ctx context.Context, fileID, detail stri
 // sites record the most recent attempt's failure. The raw Go error must
 // never be passed as message; it stays in logs (request_id-joinable).
 //
-// Stage vocabulary: unsupported_type, parse, embedding, canceled,
+// Stage vocabulary: unsupported_type, too_large, parse, embedding, canceled,
 // processing, timeout, queue. The frontend maps stages to translated
 // labels, so additions need a matching key in web/src/translations.ts.
 func (s *PGStore) MarkFileError(ctx context.Context, fileID, stage, message string) error {

@@ -1509,6 +1509,12 @@ func (p *Processor) parseDocument(ctx context.Context, in ProcessFileInput, outc
 		KbID:      in.KBID,
 		ChunkSize: in.ChunkSize,
 	})
+	if errors.Is(parseErr, ai.ErrAudioTooLarge) {
+		// Over the transcription limit: no retry can fix it, and "could not
+		// be parsed" would tell the user the file is damaged (KI-960).
+		_ = p.store.MarkFileError(ctx, fileID, "too_large", "The audio file exceeds the transcription size limit")
+		return nil, fmt.Errorf("processor: parse file: %w: %w", parseErr, asynq.SkipRetry)
+	}
 	if parseErr != nil {
 		p.markFailed(ctx, fileID, "parse", "The file could not be parsed")
 		return nil, fmt.Errorf("processor: parse file: %w", parseErr)
