@@ -107,6 +107,15 @@ func tooLarge(limit int64, msg string) (*Upload, error) {
 	return nil, &Error{Status: http.StatusRequestEntityTooLarge, Code: CodeFileTooLarge, Message: msg, LimitBytes: limit}
 }
 
+// FileTooLarge is the 413 file_too_large refusal naming limit, for a caller
+// that holds the file to its own cap, tighter than Parse's.
+func FileTooLarge(limit int64) *Error {
+	return &Error{
+		Status: http.StatusRequestEntityTooLarge, Code: CodeFileTooLarge, LimitBytes: limit,
+		Message: fmt.Sprintf("File too large: the upload limit is %s", humanBytes(limit)),
+	}
+}
+
 func rejected(status int, code, msg string) *Error {
 	return &Error{Status: status, Code: code, Message: msg, Rejected: true}
 }
