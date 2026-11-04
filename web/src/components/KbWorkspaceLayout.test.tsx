@@ -57,7 +57,8 @@ vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) =
 // Eigentümer oder einen KB-Admin brauchen, setzen `authUser` / `kbExtra` um.
 let authUser: { id?: string; role: string } = { role: 'user' };
 let kbExtra: Record<string, unknown> = {};
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser }) }));
+let siteConfigs: Record<string, string> = {};
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser, siteConfigs }) }));
 
 const handleGoHome = vi.fn();
 let kbView = 'chat';
@@ -100,6 +101,7 @@ beforeEach(() => {
   shellProps = {};
   kbView = 'chat';
   authUser = { role: 'user' };
+  siteConfigs = {};
   kbExtra = {};
   vi.clearAllMocks();
 });
@@ -150,6 +152,29 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
     renderLayout();
     expect(shellProps.onTouchStart).toBe(noSwipe.onTouchStart);
     expect(shellProps.onTouchEnd).toBe(noSwipe.onTouchEnd);
+  });
+});
+
+describe('KbWorkspaceLayout — Systemmeldung (KI-936)', () => {
+  it('gibt der Shell keine Meldung, solange keine eingeschaltet ist', () => {
+    renderLayout();
+    expect(shellProps.notice).toBeNull();
+    expect(shellProps.status).toBeNull();
+  });
+
+  it('hängt eine Störung als Banner in den notice-Slot der Shell', () => {
+    siteConfigs = { system_notice_enabled: 'true', system_notice_text: 'Dienst gestört', system_notice_tone: 'error' };
+    renderLayout();
+    expect(shellProps.notice).toBeTruthy();
+    expect(shellProps.status).toBeNull();
+    expect(shellProps.noticeLabel).toBe('systemNotice');
+  });
+
+  it('hängt jede andere Meldung als Pille in den status-Slot der Shell', () => {
+    siteConfigs = { system_notice_enabled: 'true', system_notice_text: 'Hohe Auslastung', system_notice_tone: 'warning' };
+    renderLayout();
+    expect(shellProps.status).toBeTruthy();
+    expect(shellProps.notice).toBeNull();
   });
 });
 
