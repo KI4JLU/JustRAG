@@ -37,6 +37,10 @@ type Dump struct {
 	Degraded   bool    `json:"degraded"`
 	Error      *string `json:"error"`
 	ElapsedMS  int64   `json:"elapsed_ms"`
+	// Structure is the parser's structured content (headings, lists,
+	// tables) in the goldset schema; omitted for parsers that produce
+	// none (builtin), where the field's absence is the signal.
+	Structure *parser.Structure `json:"structure,omitempty"`
 }
 
 // Page is one entry of Dump.Pages.
@@ -122,6 +126,7 @@ func dump(ctx context.Context, f *parser.Factory, parserName, docID, path string
 		return fail(errors.New("parser returned no result"))
 	}
 	d.Text, d.IsMarkdown, d.Degraded = res.Text, res.IsMarkdown, res.Degraded
+	d.Structure = res.Structure
 	for _, pg := range res.Pages {
 		d.Pages = append(d.Pages, Page{PageNumber: pg.PageNumber, Text: pg.Text})
 	}
