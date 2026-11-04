@@ -109,9 +109,14 @@ rate limits, server errors); map it by status.
 | GET | `/site-config` |
 | POST | `/site-config` |
 | POST | `/site-config/logo` |
+| PUT | `/admin/system-notice` |
+| GET | `/v1/system-notice` |
+| PUT | `/v1/system-notice` |
 | POST | `/api-keys` |
 | GET | `/api-keys` |
 | DELETE | `/api-keys/{id}` |
+
+`POST /site-config` and `/site-config/logo` are superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
 
 ### Long-term memory ("Mein Gedächtnis")
 
