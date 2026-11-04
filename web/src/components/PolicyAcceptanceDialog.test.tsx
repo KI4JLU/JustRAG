@@ -7,10 +7,10 @@ import { PolicyAcceptanceGate } from './PolicyAcceptanceDialog';
 /*
  * Oracle: the contract in API.md § Usage-policy acceptance — the notice shows
  * while GET says `required`, POST sends the version GET named, a 409
- * `policy_version_changed` means "load the current version", and nothing
- * blocks the app when the state cannot be loaded; the gate's doc comment —
- * the app is inert until the first answer, and a tab coming back into view
- * checks again (at most every 30 s).
+ * `policy_version_changed` means "load the current version"; the gate's doc
+ * comment — it fails closed: the app is inert until a state is known, a
+ * failed or hanging request leaves it blocked behind a retry prompt, and a
+ * tab coming back into view checks again (at most every 30 s).
  */
 
 vi.mock('axios', () => ({
@@ -40,7 +40,7 @@ const app = () => screen.getByText('App').parentElement as HTMLElement;
 describe('PolicyAcceptanceGate', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
-        vi.clearAllMocks();
+        vi.resetAllMocks();
         pathname = '/';
     });
 
@@ -48,14 +48,6 @@ describe('PolicyAcceptanceGate', () => {
         (axios.get as Mock).mockResolvedValue({ data: { version: '', required: false } });
         renderGate();
         await waitFor(() => expect(axios.get).toHaveBeenCalled());
-        expect(screen.queryByText('policyNoticeTitle')).not.toBeInTheDocument();
-    });
-
-    it('shows nothing when the state cannot be loaded', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => {});
-        (axios.get as Mock).mockRejectedValue(new Error('down'));
-        renderGate();
-        await waitFor(() => expect(console.error).toHaveBeenCalled());
         expect(screen.queryByText('policyNoticeTitle')).not.toBeInTheDocument();
     });
 
@@ -132,14 +124,52 @@ describe('PolicyAcceptanceGate', () => {
         await waitFor(() => expect(app()).not.toHaveAttribute('inert'));
     });
 
-    it('leaves the app usable when the state cannot be loaded', async () => {
+    it('stays blocked behind a retry prompt when the state cannot be loaded', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        (axios.get as Mock)
+            .mockRejectedValueOnce(new Error('down'))
+            .mockRejectedValueOnce(new Error('still down'))
+            .mockResolvedValueOnce({ data: { version: '', required: false } });
+        renderGate();
+        const retry = await screen.findByRole('button', { name: 'policyNoticeRetry' });
+        expect(screen.getByText('policyNoticeLoadFailedTitle')).toBeInTheDocument();
+        expect(app()).toHaveAttribute('inert');
+
+        await userEvent.click(retry);
+        await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(2));
+        expect(await screen.findByRole('button', { name: 'policyNoticeRetry' })).toBeInTheDocument();
+        expect(app()).toHaveAttribute('inert');
+
+        await userEvent.click(screen.getByRole('button', { name: 'policyNoticeRetry' }));
+        await waitFor(() => expect(app()).not.toHaveAttribute('inert'));
+        expect(screen.queryByText('policyNoticeLoadFailedTitle')).not.toBeInTheDocument();
+    });
+
+    it('signs out from the retry prompt', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         (axios.get as Mock).mockRejectedValue(new Error('down'));
         renderGate();
-        await waitFor(() => expect(app()).not.toHaveAttribute('inert'));
+        await userEvent.click(await screen.findByRole('button', { name: 'logout' }));
+        expect(logout).toHaveBeenCalled();
     });
 
-    it('bounds the state request, so a hanging one fails open too', async () => {
+    it('keeps a known state when a re-check fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        let now = 1_000_000;
+        vi.spyOn(Date, 'now').mockImplementation(() => now);
+        (axios.get as Mock)
+            .mockResolvedValueOnce({ data: { version: 'v1', required: false } })
+            .mockRejectedValueOnce(new Error('down'));
+        renderGate();
+        await waitFor(() => expect(app()).not.toHaveAttribute('inert'));
+        now += 30_000;
+        window.dispatchEvent(new Event('focus'));
+        await waitFor(() => expect(console.error).toHaveBeenCalled());
+        expect(app()).not.toHaveAttribute('inert');
+        expect(screen.queryByText('policyNoticeLoadFailedTitle')).not.toBeInTheDocument();
+    });
+
+    it('bounds the state request, so a hanging one reaches the retry prompt', async () => {
         (axios.get as Mock).mockResolvedValue({ data: { version: '', required: false } });
         renderGate();
         await waitFor(() => expect(axios.get).toHaveBeenCalled());

@@ -23,7 +23,7 @@ interface PolicyState {
 /** Re-check at most this often when the tab comes back, so a long-open tab picks up a new version. */
 const RECHECK_MIN_INTERVAL_MS = 30_000;
 
-/** A state request that hangs counts as failed, so the inert app is released (fail open). */
+/** A state request that hangs counts as failed, so the user gets the retry prompt instead of a blank app. */
 const STATE_TIMEOUT_MS = 10_000;
 
 /**
@@ -31,22 +31,22 @@ const STATE_TIMEOUT_MS = 10_000;
  * `policy_acceptance_version` before using the web app. It cannot be closed:
  * the only ways out are accepting or signing out.
  *
- * The gate wraps the app. Until the first state request has answered, the app
- * is rendered but `inert`, so nothing can be used before the gate knows
- * whether a notice is due. The state is checked again whenever the tab comes
- * back into view (at most every 30 seconds), so a version an admin sets while
- * the app is open reaches open tabs too.
+ * The gate wraps the app and fails closed: until a state request has
+ * answered, the app is rendered but `inert`, and if the request fails or
+ * hangs, a prompt to try again (or sign out) stays over it. Once a state is
+ * known, a failed re-check keeps it. The state is checked again whenever the
+ * tab comes back into view (at most every 30 seconds), so a version an admin
+ * sets while the app is open reaches open tabs too.
  *
- * The gate is the web app's only. The backend stores acceptances but refuses
- * nothing to a user who has not accepted, so a failed state request leaves the
- * app usable (the next check shows the notice) rather than locking everyone
- * out while the endpoint is down.
+ * The gate is the web app's only: the backend stores acceptances but refuses
+ * nothing to a user who has not accepted, so API keys, /owui and MCP clients
+ * are not gated.
  */
 export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
     const { pathname } = useLocation();
     const [state, setState] = useState<PolicyState | null>(null);
-    // Only the first request blocks; once it answered or failed, the app stays usable.
-    const [settled, setSettled] = useState(false);
+    // The newest request failed. Shown only while no state is known yet.
+    const [failed, setFailed] = useState(false);
     const lastCheck = useRef(0);
     // Bumped by every request and by an acceptance: an answer that is no longer
     // the newest (a re-check sent before the user accepted) is dropped.
@@ -55,21 +55,26 @@ export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
     const load = useCallback(() => {
         lastCheck.current = Date.now();
         const mine = ++generation.current;
-        axios.get<PolicyState>(POLICY_URL, { timeout: STATE_TIMEOUT_MS })
-            .then(res => { if (mine === generation.current) setState(res.data); })
-            // A failed re-check keeps the last known state.
-            .catch((err: unknown) => console.error('Failed to load policy acceptance:', err))
-            // Only the newest request lifts the initial block; a superseded one would lift it early.
-            .finally(() => { if (mine === generation.current) setSettled(true); });
+        return axios.get<PolicyState>(POLICY_URL, { timeout: STATE_TIMEOUT_MS })
+            .then(res => {
+                if (mine !== generation.current) return;
+                setState(res.data);
+                setFailed(false);
+            })
+            .catch((err: unknown) => {
+                console.error('Failed to load policy acceptance:', err);
+                // A failed re-check keeps the last known state.
+                if (mine === generation.current) setFailed(true);
+            });
     }, []);
 
-    useEffect(load, [load]);
+    useEffect(() => { void load(); }, [load]);
 
     useEffect(() => {
         const recheck = () => {
             if (document.visibilityState !== 'visible') return;
             if (Date.now() - lastCheck.current < RECHECK_MIN_INTERVAL_MS) return;
-            load();
+            void load();
         };
         document.addEventListener('visibilitychange', recheck);
         window.addEventListener('focus', recheck);
@@ -86,7 +91,7 @@ export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
         const startedAt = generation.current;
         const res = await axios.post<PolicyState>(POLICY_URL, { version });
         if (startedAt !== generation.current) {
-            load();
+            void load();
             return;
         }
         generation.current++;
@@ -94,15 +99,42 @@ export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
     }, [load]);
 
     const exempt = LEGAL_PATHS.has(pathname);
+    const unknown = state === null && !exempt;
     return (
         <>
-            <div className="contents" inert={!settled && !exempt} aria-busy={!settled && !exempt}>
+            <div className="contents" inert={unknown} aria-busy={unknown && !failed}>
                 {children}
             </div>
+            {unknown && failed && <PolicyLoadFailedDialog onRetry={load} />}
             {state?.required && !exempt && (
-                <PolicyAcceptanceDialog key={state.version} version={state.version} onAccept={accept} onStale={load} />
+                <PolicyAcceptanceDialog key={state.version} version={state.version} onAccept={accept} onStale={() => void load()} />
             )}
         </>
+    );
+}
+
+/** The state could not be loaded: the app stays blocked until a retry succeeds. */
+function PolicyLoadFailedDialog({ onRetry }: { onRetry: () => Promise<void> }) {
+    const { t } = useTheme();
+    const { logout } = useAuth();
+    const [retrying, setRetrying] = useState(false);
+    const retry = async () => {
+        setRetrying(true);
+        await onRetry();
+        setRetrying(false);
+    };
+    return (
+        <NoticeDialog
+            open
+            title={t('policyNoticeLoadFailedTitle')}
+            acceptLabel={t('policyNoticeRetry')}
+            declineLabel={t('logout')}
+            onAccept={retry}
+            onDecline={logout}
+            pending={retrying}
+        >
+            <p>{t('policyNoticeLoadFailedText')}</p>
+        </NoticeDialog>
     );
 }
 

@@ -3154,6 +3154,12 @@ export const translations = {
         de: 'Der Hinweis wurde gerade aktualisiert. Bitte lies ihn noch einmal.',
         en: 'The notice was just updated. Please read it again.',
     },
+    policyNoticeLoadFailedTitle: { de: 'Hinweis konnte nicht geladen werden', en: 'The notice could not be loaded' },
+    policyNoticeLoadFailedText: {
+        de: 'Wir konnten nicht prüfen, ob du den Hinweis zur Nutzung von KI schon akzeptiert hast. Die App ist erst danach nutzbar. Bitte versuche es erneut.',
+        en: 'We could not check whether you have already accepted the notice on the use of AI. The app can only be used after that. Please try again.',
+    },
+    policyNoticeRetry: { de: 'Erneut versuchen', en: 'Try again' },
     policyAcceptanceSection: { de: 'Hinweis zur KI-Nutzung', en: 'AI-use notice' },
     policyAcceptanceVersion: { de: 'Version des Hinweises', en: 'Notice version' },
     policyAcceptanceVersionHelp: {
