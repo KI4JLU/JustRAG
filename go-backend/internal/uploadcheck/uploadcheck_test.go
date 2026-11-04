@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/uploadcheck"
 )
 
@@ -128,6 +129,38 @@ func TestParse(t *testing.T) {
 				t.Fatalf("got code %q limit %d, want %q %d", ve.Code, ve.LimitBytes, tc.code, tc.limit)
 			}
 		})
+	}
+}
+
+// KI-960: audio over the transcription limit is refused at upload with
+// file_too_large and the limit; audio at the limit and other files of the
+// same size pass.
+func TestParse_AudioOverTranscriptionLimit(t *testing.T) {
+	defer ai.SetSTTMaxFileBytesForTest(1024)()
+	for _, tc := range []struct {
+		name   string
+		size   int
+		reject bool
+	}{
+		{"talk.mp3", 1025, true},
+		{"talk.m4a", 4096, true},
+		{"talk.mp3", 1024, false},
+		{"notes.txt", 4096, false},
+	} {
+		w := httptest.NewRecorder()
+		up, err := uploadcheck.Parse(w, multipartReq(t, "file", tc.name, bytes.Repeat([]byte("a"), tc.size)), nil)
+		if !tc.reject {
+			if err != nil {
+				t.Errorf("%s (%d B): unexpected error %v", tc.name, tc.size, err)
+			} else {
+				up.File.Close()
+			}
+			continue
+		}
+		var ue *uploadcheck.Error
+		if !errors.As(err, &ue) || ue.Status != 413 || ue.Code != uploadcheck.CodeFileTooLarge || ue.LimitBytes != 1024 {
+			t.Errorf("%s (%d B): err = %#v, want 413 file_too_large with limit 1024", tc.name, tc.size, err)
+		}
 	}
 }
 

@@ -3,10 +3,9 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
 
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/jobs"
@@ -196,6 +195,16 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			"fileName", payload.OriginalName,
 		)
 
+		// A file deleted while its task waited in the queue: skip before the
+		// blob download (the blob is gone too, and the download error would
+		// be retried). RevokeTask: no retry and no dead-letter entry (KI-828).
+		if rc, ok := deps.Links.(processor.FileRowChecker); ok && payload.FileID != "" {
+			if exists, err := rc.FileExists(ctx, payload.FileID); err == nil && !exists {
+				slog.Info("file processing skipped: file was deleted", "fileId", payload.FileID)
+				return fmt.Errorf("%w: %w", processor.ErrFileDeleted, asynq.RevokeTask)
+			}
+		}
+
 		// Look up KB-specific chunk settings (0 means use defaults)
 		chunkSize, chunkOverlap := 0, 0
 		if kbStore != nil && payload.KbID != "" {
@@ -231,29 +240,13 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			}
 		}
 
-		// If storage is S3, stream the file to a temp path for local processing.
-		// Uses ReadFileStream to avoid buffering the entire file in memory.
-		localPath := payload.FilePath
-		if storageBackend != nil && storageBackend.IsS3() {
-			stream, dlErr := storageBackend.ReadFileStream(ctx, payload.FilePath)
-			if dlErr != nil {
-				return fmt.Errorf("download file from storage: %w", dlErr)
-			}
-			tmpFile, tmpErr := os.CreateTemp("", "justrag-file-*")
-			if tmpErr != nil {
-				stream.Close()
-				return fmt.Errorf("create temp file: %w", tmpErr)
-			}
-			defer os.Remove(tmpFile.Name())
-			if _, wErr := io.Copy(tmpFile, stream); wErr != nil {
-				stream.Close()
-				tmpFile.Close()
-				return fmt.Errorf("write temp file: %w", wErr)
-			}
-			stream.Close()
-			tmpFile.Close()
-			localPath = tmpFile.Name()
+		// Stream the blob to a temp file for the parser, whatever the backend
+		// (see materializeBlob). ReadFileStream avoids buffering it in memory.
+		localPath, cleanup, err := materializeBlob(ctx, storageBackend, payload.FilePath, "justrag-file-*")
+		if err != nil {
+			return err
 		}
+		defer cleanup()
 
 		outcome, err := proc.ProcessFileWithResult(ctx, processor.ProcessFileInput{
 			FileID:       payload.FileID,
@@ -266,6 +259,12 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			UserFileID:   payload.UserFileID,
 			OwnerUserID:  ownerID,
 		})
+		if errors.Is(err, processor.ErrFileDeleted) {
+			// Stopped because the file was deleted mid-run; the processor
+			// already removed what it wrote. Nothing to retry.
+			slog.Info("file processing stopped: file was deleted", "fileId", payload.FileID)
+			return fmt.Errorf("%w: %w", err, asynq.RevokeTask)
+		}
 		if err != nil {
 			slog.Error("file processing failed",
 				"fileId", payload.FileID,

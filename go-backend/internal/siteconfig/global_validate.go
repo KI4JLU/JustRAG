@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/justrag/go-backend/internal/chatpolicy"
+	"github.com/justrag/go-backend/internal/policyaccept"
 )
 
 // globalValidators maps a GLOBAL-ONLY site_config key to the validator its
@@ -38,6 +39,8 @@ var globalValidators = map[string]func(string) error{
 	"system_notice_link_url":    validateSystemNoticeURL,
 	"system_notice_link_label":  validateMaxRunes(systemNoticeLabelMaxRunes),
 	"system_notice_templates":   validateSystemNoticeTemplates,
+
+	policyaccept.VersionKey: policyaccept.ValidateVersion,
 }
 
 // validateIntRange / validateFloatRange mirror the chat readers' clamps for
