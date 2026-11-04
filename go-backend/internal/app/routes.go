@@ -515,6 +515,8 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.Handle("GET /api/site-config", rc.authMw.OptionalAuth(http.HandlerFunc(siteConfigHandler.GetSiteConfig)))
 	rc.mux.Handle("POST /api/site-config", rc.superadminChain(siteConfigHandler.UpdateSiteConfig))
 	rc.mux.Handle("POST /api/site-config/logo", rc.superadminChain(siteConfigHandler.UploadLogo))
+	// The system notice (system_notice_* keys only) is editable by plain admins too.
+	rc.mux.Handle("PUT /api/admin/system-notice", rc.adminChain(siteConfigHandler.UpdateSystemNotice))
 
 	// Public configs — requires auth
 	publicConfigsHandler := publicconfigs.NewHandler(publicconfigs.NewStore(rc.infra.db.Main))
@@ -1713,6 +1715,16 @@ func registerPublicAPIRoutes(rc *routeCtx, apiRL *middleware.RedisRateLimiter) {
 	mcpKBHandler.SetUsageRecorder(usage.NewRecorder(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/v1/kb/{id}/mcp", apiRL.Middleware(apiKeyAuth.Authenticate(
 		rc.kbMw.RequireKBRole(kbaccess.RoleView)(http.HandlerFunc(mcpKBHandler.ServeHTTP)))))
+
+	// The system notice banner, for automation (a monitoring job switching it
+	// on during an outage). The API key's owner must be an admin or a
+	// superadmin — the same people who edit it in the admin dialog.
+	noticeHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main))
+	adminKey := func(h http.HandlerFunc) http.Handler {
+		return apiRL.Middleware(apiKeyAuth.Authenticate(rc.authMw.RequireRole(auth.RoleAdmin)(h)))
+	}
+	rc.mux.Handle("GET /api/v1/system-notice", adminKey(noticeHandler.GetSystemNoticeAPI))
+	rc.mux.Handle("PUT /api/v1/system-notice", adminKey(noticeHandler.UpdateSystemNoticeAPI))
 }
 
 func registerMiscRoutes(rc *routeCtx) {
