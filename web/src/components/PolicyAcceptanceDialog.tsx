@@ -23,6 +23,9 @@ interface PolicyState {
 /** Re-check at most this often when the tab comes back, so a long-open tab picks up a new version. */
 const RECHECK_MIN_INTERVAL_MS = 30_000;
 
+/** A state request that hangs counts as failed, so the inert app is released (fail open). */
+const STATE_TIMEOUT_MS = 10_000;
+
 /**
  * The AI-use notice every signed-in user has to accept once per
  * `policy_acceptance_version` before using the web app. It cannot be closed:
@@ -52,7 +55,7 @@ export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
     const load = useCallback(() => {
         lastCheck.current = Date.now();
         const mine = ++generation.current;
-        axios.get<PolicyState>(POLICY_URL)
+        axios.get<PolicyState>(POLICY_URL, { timeout: STATE_TIMEOUT_MS })
             .then(res => { if (mine === generation.current) setState(res.data); })
             // A failed re-check keeps the last known state.
             .catch((err: unknown) => console.error('Failed to load policy acceptance:', err))

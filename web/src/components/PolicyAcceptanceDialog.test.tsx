@@ -139,6 +139,14 @@ describe('PolicyAcceptanceGate', () => {
         await waitFor(() => expect(app()).not.toHaveAttribute('inert'));
     });
 
+    it('bounds the state request, so a hanging one fails open too', async () => {
+        (axios.get as Mock).mockResolvedValue({ data: { version: '', required: false } });
+        renderGate();
+        await waitFor(() => expect(axios.get).toHaveBeenCalled());
+        const [, config] = (axios.get as Mock).mock.calls[0];
+        expect(config?.timeout).toBeGreaterThan(0);
+    });
+
     it('checks again when the tab comes back, at most every 30 seconds', async () => {
         let now = 1_000_000;
         vi.spyOn(Date, 'now').mockImplementation(() => now);
