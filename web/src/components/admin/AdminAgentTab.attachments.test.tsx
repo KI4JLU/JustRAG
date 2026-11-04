@@ -57,4 +57,15 @@ describe('AdminAgentTab — chat_attachments_max_file_bytes', () => {
         const input = screen.getByLabelText(tMock('chatAttachmentsMaxFileMb')) as HTMLInputElement;
         expect(input.value).toBe('10');
     });
+
+    // A byte value saved through the API need not be whole MB; the field must stay
+    // valid, or browser validation blocks saving the whole form.
+    it('keeps a fractional MB value valid', () => {
+        render(<Host initial={{ chat_attachments_max_file_bytes: String(1.5 * 1024 * 1024) }} onChange={() => {}} />);
+        openAttachments();
+
+        const input = screen.getByLabelText(tMock('chatAttachmentsMaxFileMb')) as HTMLInputElement;
+        expect(input.value).toBe('1.5');
+        expect(input.checkValidity()).toBe(true);
+    });
 });

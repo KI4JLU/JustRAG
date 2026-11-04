@@ -21,7 +21,8 @@ interface AdminAgentTabProps {
 const STORAGE_KEY = 'admin-agent-sections-open-v1';
 
 // chat_attachments_max_file_bytes is stored in bytes; the admin edits MB (MiB, which the backend's
-// "höchstens 50 MB" also calls MB). Empty clears the key, so the backend default applies.
+// "höchstens 50 MB" also calls MB). Empty clears the key, so the backend default applies. A byte
+// value set through the API need not be whole MB, so the field takes fractions (step "any").
 const MIB = 1024 * 1024;
 const ATTACHMENT_MAX_FILE_MB_DEFAULT = '50';
 function attachmentMaxFileMb(stored: string | undefined): string {
@@ -1163,7 +1164,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         type="number"
                         min={1}
                         max={500}
-                        step={1}
+                        step="any"
                         value={attachmentMaxFileMb(siteConfigs.chat_attachments_max_file_bytes)}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_max_file_bytes: attachmentMaxFileBytes(e.target.value) }))}
                     />
