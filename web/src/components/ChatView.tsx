@@ -279,7 +279,7 @@ const ChatViewComp = () => {
   // file attached to the composer (picked, dropped, or put in the upload area)
   // waits on it: nothing goes to the server, and closing the notice without
   // accepting takes the file out again.
-  const storageNotice = useUploadStorageNotice(user?.id ?? '');
+  const storageNotice = useUploadStorageNotice(user?.id ?? '', 'chat');
   const { confirm: confirmStorageNotice } = storageNotice;
   const onComposerFilesAdded = useCallback((drop: () => void) => {
     void confirmStorageNotice().then((ok) => {
