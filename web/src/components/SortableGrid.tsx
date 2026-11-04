@@ -263,16 +263,16 @@ export function SortableBoard({
       }
       return best ? [best] : [];
     }
-    const cards = args.droppableContainers.filter(c => groupOfDrop(c.id) === null);
     const hits = pointerWithin(args);
     const cardHit = hits.find(h => groupOfDrop(h.id) === null);
     if (cardHit) return [cardHit];
     const areaHit = hits.find(h => groupOfDrop(h.id) !== null);
+    // Outside every grid and drop zone: no target, so a release there cancels.
+    if (!areaHit) return [];
     const own = groupOf(args.active);
-    if (areaHit && groupOfDrop(areaHit.id) !== own) return [areaHit];
-    const sameGroup = areaHit
-      ? cards.filter(c => (c.data.current?.sortable?.containerId as string | undefined) === own)
-      : cards;
+    if (groupOfDrop(areaHit.id) !== own) return [areaHit];
+    const sameGroup = args.droppableContainers.filter(c =>
+      groupOfDrop(c.id) === null && (c.data.current?.sortable?.containerId as string | undefined) === own);
     return closestCenter({ ...args, droppableContainers: sameGroup });
   };
 
