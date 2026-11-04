@@ -20,6 +20,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/justrag/go-backend/internal/adkbridge"
+	"github.com/justrag/go-backend/internal/httputil"
 )
 
 // ScopeFunc refusals: ErrUnauthorized answers 401, ErrForbidden 403.
@@ -383,9 +384,15 @@ func (h *handler) stream(ctx context.Context, w http.ResponseWriter, in *types.R
 		}
 	}()
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
+	// StartSSE sets the SSE headers, swaps the server-wide WriteTimeout for
+	// the sliding SSEWriteTimeout window and starts the stream heartbeat,
+	// so a run's silent phases (model reasoning, tool calls) neither look
+	// like a dead stream to the client's idle watchdog nor block a write
+	// past the server-wide timeout. The deferred Stop guarantees no ping
+	// outlives this handler (httputil.SSEStream).
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop()
+	w = sw
 	w.WriteHeader(http.StatusOK)
 	enc := sse.NewSSEWriter()
 	var filter EventFilter

@@ -550,7 +550,9 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// Streaming path
 	// ------------------------------------------------------------------
 	if streamMode {
-		httputil.EnableSSE(w)
+		sw := httputil.StartSSE(ctx, w)
+		defer sw.Stop() // no ping may outlive this handler
+		w = sw
 		// Every frame passes the citation filter (nil = citations visible).
 		send := func(data any) {
 			for _, frame := range citations.Frames(data) {
@@ -800,7 +802,9 @@ func (h *Handler) streamResearch(
 	kbID, userID string,
 	body researchRequest,
 ) {
-	httputil.EnableSSE(w)
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop() // no ping may outlive this handler
+	w = sw
 
 	var report string
 	var findings []research.Finding

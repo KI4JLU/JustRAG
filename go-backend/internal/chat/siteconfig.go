@@ -1927,8 +1927,8 @@ func AgentTeamRouterModel(ctx context.Context, reader SiteConfigReader) string {
 
 // ChatSSEEarlyOpenEnabled opens a streamed SendMessage turn's SSE response
 // before the pre-answer pipeline (condense, classify, retrieval) runs: headers
-// plus a `: open` comment go out at once, a `: ping` comment every
-// sseHeartbeatInterval keeps proxies and the FE idle watchdog fed, and
+// plus a `: open` comment go out at once, the stream's `: ping` heartbeat
+// (httputil.StartSSE) keeps proxies and the FE idle watchdog fed, and
 // trajectory events stream live. Per-KB, default off. Tunable via
 // "chat_sse_early_open_enabled".
 func ChatSSEEarlyOpenEnabled(ctx context.Context, reader SiteConfigReader) bool {
