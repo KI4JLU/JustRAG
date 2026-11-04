@@ -92,8 +92,8 @@ export const translations = {
 
     sharedTopics: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
     sharedTopicsDescription: {
-      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben.',
-      en: 'Topics other people have shared with you or with your groups.',
+      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben, und öffentliche Themen, die du abonniert hast.',
+      en: 'Topics other people have shared with you or with your groups, and public topics you subscribed to.',
     },
 
     /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
@@ -667,14 +667,13 @@ export const translations = {
     // leaving a membership, this deletes no chats — access survives via rule
     // 4 of EffectiveRole — so the wording must not carry a chat warning.
     confirmUnsubscribeKb: { de: 'Diese Knowledge Base nicht mehr abonnieren?', en: 'Unsubscribe from this knowledge base?' },
-    // Der Stern auf einer Favoriten-Kachel ist ein reiner Favoriten-Schalter:
-    // keine Mitgliedschaft wird aufgeloest, keine Chats werden geloescht, die
-    // KB bleibt unter „KBs entdecken" auffindbar. Genau das muss der Text
-    // sagen — vorher las sich derselbe Dialog wie ein Verlassen samt
-    // Chat-Verlust (siehe useKbRemoval).
-    confirmRemoveFavorite: {
-        de: 'Diese Knowledge Base aus den Favoriten entfernen? Deine Chats bleiben erhalten, und du findest sie jederzeit unter „KBs entdecken" wieder.',
-        en: 'Remove this knowledge base from your favorites? Your chats are kept, and you can find it again any time under "Discover KBs".',
+    // Ein globales Thema abbestellen („Abbestellen…" im Kartenmenü von
+    // „Geteiltes Wissen"): keine Mitgliedschaft wird aufgeloest, keine Chats
+    // werden geloescht, das Thema bleibt unter „Entdecken" auffindbar. Genau
+    // das muss der Text sagen (siehe useKbRemoval).
+    confirmUnsubscribeTopic: {
+        de: 'Dieses Thema abbestellen? Deine Chats bleiben erhalten, und du findest es jederzeit unter „Entdecken" wieder.',
+        en: 'Unsubscribe from this topic? Your chats are kept, and you can find it again any time under "Discover".',
     },
     confirmDeleteFile: { de: 'Bist du sicher, dass du diese Datei löschen möchtest? Dies entfernt auch alle daraus extrahierten Informationen.', en: 'Are you sure you want to delete this file? This will also remove all extracted information.' },
     enterKBName: { de: 'Name für deine Knowledge Base eingeben:', en: 'Enter name for your Knowledge Base:' },

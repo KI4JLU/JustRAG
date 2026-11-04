@@ -202,6 +202,7 @@ const baseKb: KnowledgeBase = {
 };
 
 const noopProps = {
+  globalKbs: [] as KnowledgeBase[],
   currentKb: null,
   availableConfigs: [],
   onCreateKB: vi.fn(),
@@ -389,4 +390,37 @@ describe('SharedTopicsView card actions', () => {
   });
 
 
+});
+
+/* ---------------------------------------------------------------------------
+ * Subscribed global topics (developer ruling, 03.11.2026): subscribing in
+ * „Entdecken" puts a global topic here, beside the private ones shared with
+ * the user. ORACLE: the `globalKbs` prop is `GET /api/kb/global`, which lists
+ * exactly the subscribed topics; translations.ts for the labels.
+ * ------------------------------------------------------------------------- */
+describe('SharedTopicsView subscribed global topics', () => {
+  const globalKb: KnowledgeBase = {
+    ...baseKb, id: 'kb-global', name: 'Hochschulrecht', userId: null as unknown as string,
+    visibility: 'public', isGlobal: true, myRole: null as unknown as undefined,
+  };
+
+  it('lists a subscribed global topic next to the shared ones', () => {
+    const shared: KnowledgeBase = { ...baseKb, id: 'kb-shared', myRole: 'edit' };
+    renderView(<SharedTopicsView {...noopProps} kbs={[shared]} globalKbs={[globalKb]} />);
+    expect(screen.getByRole('button', { name: `${translations.openKb.en}: Security Advisories` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `${translations.openKb.en}: Hochschulrecht` })).toBeInTheDocument();
+  });
+
+  it('shows it as public, without an owner line', () => {
+    renderView(<SharedTopicsView {...noopProps} kbs={[]} globalKbs={[globalKb]} />);
+    expect(screen.getByText(translations.visibilityPublic.en)).toBeInTheDocument();
+    expect(screen.queryByTestId('kb-meta-owner')).toBeNull();
+  });
+
+  it('offers „Unsubscribe…" as its remove action', async () => {
+    renderView(<SharedTopicsView {...noopProps} kbs={[]} globalKbs={[globalKb]} />);
+    const menu = await kbMenu();
+    expect(menu.getByRole('menuitem', { name: `${translations.unsubscribe.en}…` })).toBeInTheDocument();
+    expect(menu.queryByRole('menuitem', { name: `${translations.removeFromMyView.en}…` })).toBeNull();
+  });
 });

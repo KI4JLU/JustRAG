@@ -144,6 +144,8 @@ const idle = () => fn();
 
 interface SharedKbsStoryArgs {
   kbs: KnowledgeBase[];
+  /** Subscribed global topics (`GET /api/kb/global`). */
+  globalKbs?: KnowledgeBase[];
   user: User;
   siteConfigs: Record<string, string>;
   removingKb: boolean;
@@ -196,6 +198,7 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
           <StoryKbSearchProvider>
             <SharedTopicsView
               kbs={args.kbs}
+              globalKbs={args.globalKbs ?? []}
               onSelectKB={args.onSelectKB}
               onDeleteKB={idle()}
               removingKb={args.removingKb}

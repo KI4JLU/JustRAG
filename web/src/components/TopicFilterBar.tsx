@@ -49,13 +49,18 @@ export interface TopicFilterBarProps {
    * nothing.
    */
   showOwnership?: boolean;
+  /**
+   * The „Favoriten" chip. Off on „Entdecken" only: the catalog lists topics to
+   * subscribe to, and a favorite is a topic you already hold, starred.
+   */
+  showFavorites?: boolean;
   /** Names the group for a screen reader — the view says what is filtered. */
   label: string;
   /** The view's primary action at the row's end, after the view toggle („Neues Thema"). */
   action?: React.ReactNode;
 }
 
-export function TopicFilterBar({ filters, label, showOwnership = false, action }: TopicFilterBarProps) {
+export function TopicFilterBar({ filters, label, showOwnership = false, showFavorites = true, action }: TopicFilterBarProps) {
   const { t } = useTheme();
 
   const [managing, setManaging] = useState(false);
@@ -80,11 +85,13 @@ export function TopicFilterBar({ filters, label, showOwnership = false, action }
       addLabel={t('manageCategories')}
       options={[
         { value: FILTER_ALL, label: t('filterAll') },
-        {
-          value: FILTER_FAVORITES,
-          label: t('filterFavorites'),
-          icon: <Star className="h-4 w-4" aria-hidden="true" />,
-        },
+        ...(showFavorites
+          ? [{
+              value: FILTER_FAVORITES,
+              label: t('filterFavorites'),
+              icon: <Star className="h-4 w-4" aria-hidden="true" />,
+            }]
+          : []),
         ...(showOwnership
           ? [
               { value: FILTER_PERSONAL, label: t('filterPersonal') },
