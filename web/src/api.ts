@@ -4,9 +4,11 @@ const getBaseUrl = () => {
         return import.meta.env.VITE_API_URL;
     }
 
-    // In development, Vite usually runs on a different port than the backend.
+    // In development, Vite usually runs on a different port than the backend:
+    // the Go server's default port (go run ./cmd/server). Against the full
+    // Docker stack (nginx on :3001) set VITE_API_URL=http://localhost:3001.
     if (import.meta.env.DEV) {
-        return 'http://localhost:3001';
+        return 'http://localhost:3000';
     }
 
     // In production, we assume the frontend is served by the backend or proxied to the same origin.

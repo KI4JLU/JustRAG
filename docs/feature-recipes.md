@@ -920,8 +920,8 @@ No migration. Lets a user switch web search on for a single chat turn (request f
 
 Serves the ILIAS LfAssistant plugin's "Open WebUI RAG" mode (`internal/owuicompat`, migration 0088, contract `docs/api-contracts/owui-compat.md`). Global flag `owui_compat_enabled` (default off); the surface is mounted at `/owui` and answers 404 until the flag is `true`.
 
-1. Create a service user (system role `api-user`), e.g. `ilias-lfassistant`; leave `users.file_quota_bytes` NULL (unlimited at the default `user_file_quota_bytes = 0`).
-2. Log in as that user and mint an API key (`POST /api/api-keys`, set `expiresAt`).
+1. Set `OWUI_SERVICE_PASSWORD` in the migrate job's environment and run `migrate`: it seeds the service user `ilias-lfassistant` (system role `api-user`; the role is reset to `api-user` on every re-seed, the password refreshed). Leave `users.file_quota_bytes` NULL (unlimited at the default `user_file_quota_bytes = 0`).
+2. Log in as that user with that password (`POST /api/auth/login` or the UI) and mint an API key (`POST /api/api-keys`, set `expiresAt`). Local password login is refused for non-superadmins when `DISABLE_LOCAL_AUTH=true`, so mint the key before setting that, or leave it unset.
 3. Enable the surface:
    ```sql
    INSERT INTO site_configs (key, value, updated_at) VALUES ('owui_compat_enabled', 'true', now())

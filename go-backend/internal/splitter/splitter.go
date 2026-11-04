@@ -47,15 +47,15 @@ func estimateTokens(text string) int {
 
 // Split splits text into chunks according to cfg. Returns a single-element
 // slice when the text fits in one chunk, and an empty slice for empty input.
+// A chunk that starts inside a markdown table gets the table's header rows
+// repeated in front (see repeatTableHeaders).
 func Split(text string, cfg Config) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	// splitRecursive applies the same `estimateTokens(text) <= ChunkSize`
-	// short-circuit and returns the trimmed single chunk, so checking it here
-	// too would tokenize the whole text twice on the fits-in-one-chunk path.
-	return splitRecursive(text, cfg.Separators, cfg.ChunkSize, cfg.ChunkOverlap)
+	// splitRecursive (inside SplitCarry) applies the `estimateTokens(text) <=
+	// ChunkSize` short-circuit and returns the trimmed single chunk, so
+	// checking it here too would tokenize the whole text twice on the
+	// fits-in-one-chunk path.
+	chunks, _ := SplitCarry(text, cfg, TableCarry{})
+	return chunks
 }
 
 // splitRecursive implements the recursive character text split algorithm.
