@@ -26,6 +26,7 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     site: [
         'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
         'confluenceSettings', 'confluenceEnabled', 'confluenceBaseUrl', 'gitRepoSettings', 'gitRepoEnabled',
+        'policyAcceptanceSection', 'policyAcceptanceVersion',
     ],
     notice: [
         'systemNoticeEnabled', 'systemNoticeTitle', 'systemNoticeText', 'systemNoticeTone', 'systemNoticeDismissible',
