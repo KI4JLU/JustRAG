@@ -28,6 +28,14 @@ var publicConfigKeys = map[string]bool{
 	"academic_search_enabled": true,
 	"academic_search_name":    true,
 	"git_repo_enabled":        true,
+	// The system notice banner is shown to every user (system_notice.go).
+	"system_notice_enabled":     true,
+	"system_notice_title":       true,
+	"system_notice_text":        true,
+	"system_notice_tone":        true,
+	"system_notice_dismissible": true,
+	"system_notice_link_url":    true,
+	"system_notice_link_label":  true,
 }
 
 // sensitiveConfigKeys hold secrets that must never be echoed back to a client,
