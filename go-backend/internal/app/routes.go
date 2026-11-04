@@ -79,6 +79,7 @@ import (
 	"github.com/justrag/go-backend/internal/owuicompat"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/pipeline"
+	"github.com/justrag/go-backend/internal/policyaccept"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/proxy"
 	"github.com/justrag/go-backend/internal/publicapi"
@@ -534,6 +535,14 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.Handle("GET /api/user/memory/export", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.Export)))
 	rc.mux.Handle("DELETE /api/user/memory/{id}", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.DeleteOne)))
 	rc.mux.Handle("DELETE /api/user/memory", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.DeleteAll)))
+
+	// Usage-policy acceptance (AI-use notice). The web app shows the notice
+	// until the caller accepted policy_acceptance_version; nothing else is gated.
+	// The version is read uncached (not through chatStore's snapshot), so a
+	// changed version is refused at once instead of accepted for a few seconds.
+	policyHandler := policyaccept.NewHandler(policyaccept.NewStore(rc.infra.db.Main), siteconfig.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/user/policy-acceptance", rc.authMw.Authenticate(http.HandlerFunc(policyHandler.Get)))
+	rc.mux.Handle("POST /api/user/policy-acceptance", rc.authMw.Authenticate(http.HandlerFunc(policyHandler.Accept)))
 
 	// API Keys
 	apiKeysHandler := apikeys.NewHandler(apikeys.NewStore(rc.infra.db.Main))
