@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks, Megaphone } from 'lucide-react';
 import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
@@ -157,6 +157,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     // instead of reading the empty list as "0 users" per role.
     const [usersFetchFailed, setUsersFetchFailed] = useState(false);
     const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
+    // The site config as last loaded or saved — what the notice form's edits are measured against.
+    const noticeBaselineRef = useRef<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     // The dialog's footer, where an open add/edit form puts its actions (see KbSettingsDialog).
@@ -241,6 +243,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         try {
             const res = await axios.get(`${API_BASE_URL}/api/site-config`);
             setSiteConfigs(res.data);
+            noticeBaselineRef.current = res.data;
         } catch (error: unknown) {
             console.error('Failed to fetch site configs:', error);
             toast.error(t('siteConfigFetchError'));
@@ -262,14 +265,25 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     };
 
     // The system notice saves through its own admin route, which takes these
-    // keys and nothing else — a plain admin may not write the rest.
+    // keys and nothing else — a plain admin may not write the rest. Only the
+    // fields edited since the dialog loaded go out: an automation job or
+    // another admin may have changed the others meanwhile, and a full snapshot
+    // would silently revert them.
     const handleSystemNoticeSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        const baseline = noticeBaselineRef.current;
         const notice = Object.fromEntries(
-            Object.entries(siteConfigs).filter(([key]) => key.startsWith('system_notice_')),
+            Object.entries(siteConfigs).filter(([key, value]) =>
+                key.startsWith('system_notice_') && key !== 'system_notice_templates'
+                && (value ?? '') !== (baseline[key] ?? '')),
         );
+        if (Object.keys(notice).length === 0) {
+            toast.success(t('settingsSaved'));
+            return;
+        }
         try {
             await axios.put(`${API_BASE_URL}/api/admin/system-notice`, { configs: notice });
+            noticeBaselineRef.current = { ...baseline, ...notice };
             // AppRoot's copy feeds the shell: hand it the saved values, so the
             // banner changes without a reload.
             window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: notice }));
