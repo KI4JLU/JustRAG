@@ -17,6 +17,7 @@ one-step rollback** (`cmd/migrate` is up-only).
 
 - **All SSE streams now carry `: ping` keep-alive comment lines in silent phases** (web chat incl. early open, library chat, research and academic-relay streams, agent chat, `/owui`, OpenAI-compat and the public API; the agent chat endpoint additionally opts out of the server-wide `WriteTimeout`). SSE comments carry no `data:` payload and are ignored by WHATWG-conformant clients; clients that only parse `data:` lines are unaffected. Contracts: `API.md`, `docs/api-contracts/{chat-sse-early-open,agent-chat,owui-compat}.md`.
 - **Verify the ILIAS LfAssistant plugin's stream reader skips non-`data:` lines before enabling `owui_compat_enabled`** — the plugin is not in this repository and its parser has not been checked here.
+- **Migration 0098 — explicit default model per provider and kind (`ai_models.is_default`).** Run `/app/migrate` before the new server and worker start: model resolution reads the column, so every chat and ingest fails on an unmigrated database. The backfill marks the model the old code picked (the first row of an unordered query), so no KB's effective model changes on deploy. Until the admin form shows the flag, a provider save keeps the current default; before, a save could move it silently. No re-ingest, no `site_config` change.
 
 ## v26.10.1 — 2026-10-27
 

@@ -3,6 +3,7 @@ package adminconfigs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -55,7 +56,8 @@ type aiConfigModelRow struct {
 	IsStt       bool   `db:"is_stt"`
 	Dimensions  int    `db:"dimensions"`
 	// ContextWindow is COALESCE(context_window, 0): 0 = unknown.
-	ContextWindow int `db:"context_window"`
+	ContextWindow int  `db:"context_window"`
+	IsDefault     bool `db:"is_default"`
 }
 
 // buildAIConfigResponse assembles an AIConfigResponse from a provider row and its model rows.
@@ -83,6 +85,7 @@ func buildAIConfigResponse(p aiConfigProviderRow, models []aiConfigModelRow) AIC
 			IsTts:       m.IsTts,
 			IsStt:       m.IsStt,
 			Dimensions:  m.Dimensions,
+			IsDefault:   m.IsDefault,
 		}
 		switch {
 		case m.IsEmbedding:
@@ -131,7 +134,7 @@ func fetchModelsForProviders(ctx context.Context, q pgxutil.Querier, ids []strin
 	}
 	return pgxutil.QueryRows[aiConfigModelRow](ctx, q,
 		`SELECT id, provider_id, name, is_reasoning, is_embedding, is_rerank, is_tts, is_stt, dimensions,
-		        COALESCE(context_window, 0) AS context_window
+		        COALESCE(context_window, 0) AS context_window, is_default
 		 FROM ai_models WHERE provider_id = ANY($1) ORDER BY name`, ids)
 }
 
@@ -149,6 +152,114 @@ type aiModelInsert struct {
 	dims        int
 	// contextWindow is stored as NULL when 0 (unknown); chat models only.
 	contextWindow int
+}
+
+// modelCategory wraps the WHERE clause that scopes one category of models:
+// the delete-then-insert of UpdateAIConfig and the default-model helpers.
+// The unexported field forces every value to be one of the package-level
+// constants below — a raw string literal cannot reach the SQL builder.
+type modelCategory struct{ whereClause string }
+
+var (
+	// categoryChat covers all conversational chat models, including those
+	// flagged as reasoning. is_reasoning is a flag on chat models, not a
+	// separate category — see buildAIConfigResponse for the read-side
+	// contract. It is also the kind whose default a reasoning model can be.
+	categoryChat      = modelCategory{"is_embedding = false AND is_rerank = false AND is_tts = false AND is_stt = false"}
+	categoryReasoning = modelCategory{"is_reasoning = true AND is_embedding = false AND is_rerank = false AND is_tts = false AND is_stt = false"}
+	categoryEmbedding = modelCategory{"is_embedding = true"}
+	categoryRerank    = modelCategory{"is_rerank = true"}
+	categoryTts       = modelCategory{"is_tts = true"}
+	categoryStt       = modelCategory{"is_stt = true"}
+)
+
+// defaultRequest reads a kind's submitted model list: the name of the first
+// model flagged isDefault ("" if none) and the first model's name ("" if the
+// list is empty). Names are trimmed like the insert path trims them.
+func defaultRequest(models []AIModelInput) (requested, first string) {
+	for _, m := range models {
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			continue
+		}
+		if first == "" {
+			first = name
+		}
+		if m.IsDefault && requested == "" {
+			requested = name
+		}
+	}
+	return requested, first
+}
+
+// kindDefaultName returns the name of the provider's current default model
+// of kind, or "" when the kind has none.
+func kindDefaultName(ctx context.Context, tx pgx.Tx, providerID string, kind modelCategory) (string, error) {
+	var name string
+	err := tx.QueryRow(ctx,
+		`SELECT name FROM ai_models WHERE provider_id = $1 AND is_default AND `+kind.whereClause+` LIMIT 1`,
+		providerID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return name, err
+}
+
+// applyKindDefault settles the default of one kind after its models were
+// written (KI-939). An explicit request moves the default to that model. With
+// none, the kind keeps a default it still has, else gets the first of the
+// candidates that exists, else its first model by name. A kind without
+// models ends up without a default. The unique index allows one default per
+// kind and is not deferrable, so the old flag is cleared before the new one
+// is set.
+func applyKindDefault(ctx context.Context, tx pgx.Tx, providerID string, kind modelCategory, requested string, candidates ...string) error {
+	if requested == "" {
+		var has bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM ai_models WHERE provider_id = $1 AND is_default AND `+kind.whereClause+`)`,
+			providerID).Scan(&has); err != nil {
+			return err
+		}
+		if has {
+			return nil
+		}
+	}
+	for _, name := range append([]string{requested}, candidates...) {
+		if name == "" {
+			continue
+		}
+		ok, err := setKindDefault(ctx, tx, providerID, kind,
+			`SELECT id FROM ai_models WHERE provider_id = $1 AND name = $2 AND `+kind.whereClause+` ORDER BY id LIMIT 1`,
+			providerID, name)
+		if err != nil || ok {
+			return err
+		}
+	}
+	_, err := setKindDefault(ctx, tx, providerID, kind,
+		`SELECT id FROM ai_models WHERE provider_id = $1 AND `+kind.whereClause+` ORDER BY name, id LIMIT 1`,
+		providerID)
+	return err
+}
+
+// setKindDefault makes the row the pick query selects the kind's only
+// default. It reports false, changing nothing, when the query finds no row.
+func setKindDefault(ctx context.Context, tx pgx.Tx, providerID string, kind modelCategory, pick string, args ...any) (bool, error) {
+	var id string
+	if err := tx.QueryRow(ctx, pick, args...).Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE ai_models SET is_default = false WHERE provider_id = $1 AND is_default AND id <> $2 AND `+kind.whereClause,
+		providerID, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ai_models SET is_default = true WHERE id = $1`, id); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // batchInsertModels executes a single multi-row INSERT for all models, or a
@@ -262,6 +373,23 @@ func (s *PGStore) CreateAIConfig(ctx context.Context, input CreateAIConfigInput)
 		if err := batchInsertModels(ctx, tx, providerID, allModels); err != nil {
 			return fmt.Errorf("CreateAIConfig insert models: %w", err)
 		}
+		// One default per non-empty kind: the flagged model, else the first
+		// submitted. Chat and the legacy reasoning list are one kind.
+		for _, k := range []struct {
+			kind   modelCategory
+			models []AIModelInput
+		}{
+			{categoryChat, append(append([]AIModelInput{}, input.ChatModels...), input.ReasoningModels...)},
+			{categoryEmbedding, input.EmbeddingModels},
+			{categoryRerank, input.RerankModels},
+			{categoryTts, input.TtsModels},
+			{categoryStt, input.SttModels},
+		} {
+			requested, first := defaultRequest(k.models)
+			if err := applyKindDefault(ctx, tx, providerID, k.kind, requested, "", first); err != nil {
+				return fmt.Errorf("CreateAIConfig set default model: %w", err)
+			}
+		}
 
 		// Build the response from inside the transaction so a concurrent
 		// DeleteAIConfig that lands between COMMIT and a fresh SELECT can't
@@ -365,32 +493,26 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 			}
 		}
 
-		// modelCategory wraps the WHERE clause used to scope a delete-then-insert
-		// of one category of models. The unexported field forces every value to be
-		// constructed from one of the package-level constants below — a raw string
-		// literal cannot reach the SQL builder.
-		type modelCategory struct{ whereClause string }
-		var (
-			// categoryChat covers all conversational chat models, including those
-			// flagged as reasoning. is_reasoning is a flag on chat models, not a
-			// separate category — see buildAIConfigResponse for the read-side contract.
-			categoryChat      = modelCategory{"is_embedding = false AND is_rerank = false AND is_tts = false AND is_stt = false"}
-			categoryReasoning = modelCategory{"is_reasoning = true AND is_embedding = false AND is_rerank = false AND is_tts = false AND is_stt = false"}
-			categoryEmbedding = modelCategory{"is_embedding = true"}
-			categoryRerank    = modelCategory{"is_rerank = true"}
-			categoryTts       = modelCategory{"is_tts = true"}
-			categoryStt       = modelCategory{"is_stt = true"}
-		)
-
 		// replaceModels DELETEs the named category and batch-inserts its
 		// replacement in two round-trips total, regardless of the number of
 		// models — the previous per-model loop made it N+1 round-trips per
 		// category, which was visible on providers with many chat models.
-		replaceModels := func(category modelCategory, rows []aiModelInsert) error {
+		// Then it settles the kind's default (see applyKindDefault): the
+		// flagged model, else the previous default if it survived the
+		// replace, else the first model submitted.
+		replaceModels := func(category, kind modelCategory, rows []aiModelInsert, in []AIModelInput) error {
+			prev, e := kindDefaultName(ctx, tx, id, kind)
+			if e != nil {
+				return e
+			}
 			if _, e := tx.Exec(ctx, `DELETE FROM ai_models WHERE provider_id = $1 AND `+category.whereClause, id); e != nil {
 				return e
 			}
-			return batchInsertModels(ctx, tx, id, rows)
+			if e := batchInsertModels(ctx, tx, id, rows); e != nil {
+				return e
+			}
+			requested, first := defaultRequest(in)
+			return applyKindDefault(ctx, tx, id, kind, requested, prev, first)
 		}
 
 		if input.ChatModels != nil {
@@ -400,7 +522,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 					rows = append(rows, aiModelInsert{name: name, isReasoning: m.IsReasoning, dims: 0, contextWindow: m.ContextWindow})
 				}
 			}
-			if err := replaceModels(categoryChat, rows); err != nil {
+			if err := replaceModels(categoryChat, categoryChat, rows, input.ChatModels); err != nil {
 				return fmt.Errorf("UpdateAIConfig replace chat models: %w", err)
 			}
 		}
@@ -417,7 +539,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 					rows = append(rows, aiModelInsert{name: name, isReasoning: true, dims: 0, contextWindow: m.ContextWindow})
 				}
 			}
-			if err := replaceModels(categoryReasoning, rows); err != nil {
+			if err := replaceModels(categoryReasoning, categoryChat, rows, input.ReasoningModels); err != nil {
 				return fmt.Errorf("UpdateAIConfig replace reasoning models: %w", err)
 			}
 		}
@@ -432,7 +554,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 				// clamp negatives.
 				rows = append(rows, aiModelInsert{name: name, isEmbedding: true, dims: max(m.Dimensions, 0)})
 			}
-			if err := replaceModels(categoryEmbedding, rows); err != nil {
+			if err := replaceModels(categoryEmbedding, categoryEmbedding, rows, input.EmbeddingModels); err != nil {
 				return fmt.Errorf("UpdateAIConfig replace embedding models: %w", err)
 			}
 		}
@@ -443,7 +565,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 					rows = append(rows, aiModelInsert{name: name, isRerank: true, dims: 0})
 				}
 			}
-			if err := replaceModels(categoryRerank, rows); err != nil {
+			if err := replaceModels(categoryRerank, categoryRerank, rows, input.RerankModels); err != nil {
 				return fmt.Errorf("UpdateAIConfig replace rerank models: %w", err)
 			}
 		}
@@ -454,7 +576,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 					rows = append(rows, aiModelInsert{name: name, isTts: true, dims: 0})
 				}
 			}
-			if err := replaceModels(categoryTts, rows); err != nil {
+			if err := replaceModels(categoryTts, categoryTts, rows, input.TtsModels); err != nil {
 				return fmt.Errorf("UpdateAIConfig replace tts models: %w", err)
 			}
 		}
@@ -465,7 +587,7 @@ func (s *PGStore) UpdateAIConfig(ctx context.Context, id string, input UpdateAIC
 					rows = append(rows, aiModelInsert{name: name, isStt: true, dims: 0})
 				}
 			}
-			if err := replaceModels(categoryStt, rows); err != nil {
+			if err := replaceModels(categoryStt, categoryStt, rows, input.SttModels); err != nil {
 				return fmt.Errorf("UpdateAIConfig replace stt models: %w", err)
 			}
 		}
