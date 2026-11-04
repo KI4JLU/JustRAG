@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
 
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/jobs"
@@ -242,29 +240,13 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			}
 		}
 
-		// If storage is S3, stream the file to a temp path for local processing.
-		// Uses ReadFileStream to avoid buffering the entire file in memory.
-		localPath := payload.FilePath
-		if storageBackend != nil && storageBackend.IsS3() {
-			stream, dlErr := storageBackend.ReadFileStream(ctx, payload.FilePath)
-			if dlErr != nil {
-				return fmt.Errorf("download file from storage: %w", dlErr)
-			}
-			tmpFile, tmpErr := os.CreateTemp("", "justrag-file-*")
-			if tmpErr != nil {
-				stream.Close()
-				return fmt.Errorf("create temp file: %w", tmpErr)
-			}
-			defer os.Remove(tmpFile.Name())
-			if _, wErr := io.Copy(tmpFile, stream); wErr != nil {
-				stream.Close()
-				tmpFile.Close()
-				return fmt.Errorf("write temp file: %w", wErr)
-			}
-			stream.Close()
-			tmpFile.Close()
-			localPath = tmpFile.Name()
+		// Stream the blob to a temp file for the parser, whatever the backend
+		// (see materializeBlob). ReadFileStream avoids buffering it in memory.
+		localPath, cleanup, err := materializeBlob(ctx, storageBackend, payload.FilePath, "justrag-file-*")
+		if err != nil {
+			return err
 		}
+		defer cleanup()
 
 		outcome, err := proc.ProcessFileWithResult(ctx, processor.ProcessFileInput{
 			FileID:       payload.FileID,
