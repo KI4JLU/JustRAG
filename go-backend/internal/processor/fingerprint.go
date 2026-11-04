@@ -16,8 +16,11 @@ import (
 )
 
 // fingerprintVersion is bumped whenever the fingerprint's input set or
-// encoding changes, so old fingerprints never match new ones.
-const fingerprintVersion = 1
+// encoding changes, so old fingerprints never match new ones — and whenever
+// the index the same inputs produce changes shape, so copy mode never hands
+// out an index built the old way. 2: markdown table headers repeated in
+// every chunk of a split table (KI-853).
+const fingerprintVersion = 2
 
 // FingerprintInputs is the resolved, ordered input set (exported for tests/logs).
 type FingerprintInputs map[string]string

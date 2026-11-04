@@ -202,6 +202,30 @@ func TestWorkerConcurrencyExplicitOverride(t *testing.T) {
 	}
 }
 
+// KI-593: with REDIS_POOL_SIZE unset the pool follows the worker count, so
+// the defaults never warn against themselves; an explicit value still wins.
+func TestRedisPoolSizeDefaultFollowsWorkerConcurrency(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret-that-is-at-least-32-characters-long")
+	for _, tc := range []struct {
+		workers, pool string
+		want          int
+	}{
+		{"40", "", 80}, // 2 × 40 beats the floor
+		{"4", "", 32},  // the floor of 32 stays
+		{"40", "16", 16},
+	} {
+		t.Setenv("WORKER_CONCURRENCY", tc.workers)
+		t.Setenv("REDIS_POOL_SIZE", tc.pool)
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Redis.PoolSize != tc.want {
+			t.Errorf("workers=%s pool=%q: PoolSize = %d, want %d", tc.workers, tc.pool, cfg.Redis.PoolSize, tc.want)
+		}
+	}
+}
+
 func TestPoolSizingValidation(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -55,8 +55,9 @@ type RedisConfig struct {
 	// shared client + the Asynq client) may open. Set explicitly to override
 	// go-redis's default of 10×GOMAXPROCS, which on a 16-CPU container would
 	// be 160 — far larger than the workload needs and out of step with the
-	// pgxpool cap (~20). Set via REDIS_POOL_SIZE; default is sized to roughly
-	// match WorkerConcurrency × 2 plus a margin for HTTP-side traffic.
+	// pgxpool cap (~20). Set via REDIS_POOL_SIZE; unset, it is the larger of
+	// 32 and 2 × WorkerConcurrency, so the default never trips the coherence
+	// check in Load.
 	PoolSize int
 }
 
@@ -396,6 +397,12 @@ func Load() (*Config, error) {
 		cfg.WorkerConcurrency = max(runtime.GOMAXPROCS(0)*2, 8)
 	} else {
 		cfg.WorkerConcurrency = mustInt("WORKER_CONCURRENCY", 8)
+	}
+	if cfg.WorkerConcurrency >= 1 && os.Getenv("REDIS_POOL_SIZE") == "" {
+		// The default pool follows the worker count, which itself scales
+		// with the CPUs: a fixed 32 made the coherence check below warn on
+		// every host above 16 CPUs with no setting changed (KI-593).
+		cfg.Redis.PoolSize = max(cfg.Redis.PoolSize, cfg.WorkerConcurrency*2)
 	}
 	if cfg.WorkerConcurrency < 1 {
 		errs = append(errs, fmt.Sprintf("WORKER_CONCURRENCY=%d must be at least 1", cfg.WorkerConcurrency))

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"time"
 
@@ -87,6 +88,13 @@ func NewServer(cfg ServerConfig) *asynq.Server {
 // CLI". File-processing tasks additionally mark their file status=error via
 // MarkErrorOnExhaustion; this hook covers every other task type too.
 func handleTaskError(ctx context.Context, task *asynq.Task, err error) {
+	// A revoked task (e.g. its file was deleted, KI-828) is done on purpose:
+	// asynq neither retries nor archives it, so "will retry" would be wrong.
+	if errors.Is(err, asynq.RevokeTask) {
+		logctx.From(ctx).Info("worker: task revoked, not retried",
+			"task_type", task.Type(), "reason", err)
+		return
+	}
 	retried, _ := asynq.GetRetryCount(ctx)
 	maxRetry, _ := asynq.GetMaxRetry(ctx)
 	queue, _ := asynq.GetQueueName(ctx)

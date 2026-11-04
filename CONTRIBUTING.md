@@ -36,6 +36,13 @@ docker compose up -d db vectordb redis minio
 cp .env.example .env
 ```
 
+The values match the containers from step 2 (Postgres on 5432, the vector
+database on 5433, Redis on 6379 with password `changeme`). If one of these host
+ports is already taken, pick another one for the container and in `.env`:
+`DB_HOST_PORT`/`DB_PORT`, `VECTOR_DB_HOST_PORT`/`VECTOR_DB_PORT`,
+`REDIS_HOST_PORT`/`REDIS_PORT` (and `HTTP_HOST_PORT` for nginx on 3001), e.g.
+`DB_HOST_PORT=15432` and `DB_PORT=15432`, then rerun step 2.
+
 `.env.example` is the best local reference. AI provider configuration is managed in the admin UI.
 
 ### 4. Run the Go backend

@@ -31,7 +31,7 @@ The overlay disables the default `go-worker` service and scales dedicated worker
 
 ### Other compose files
 
-- [`docker-compose.local.yml`](docker-compose.local.yml) — local development; builds the Go image from source (`docker compose -f docker-compose.local.yml up --build`).
+- [`docker-compose.local.yml`](docker-compose.local.yml) — the full stack built from source (`docker compose -f docker-compose.local.yml up --build`): the release image with prebuilt assets, production mode, no hot reload. To check that the image builds, not a dev loop; for day-to-day development (Go on the host, Vite with hot reload) see [CONTRIBUTING.md](CONTRIBUTING.md#local-development).
 - [`docker-compose.k8s.yml`](docker-compose.k8s.yml) — app-only variant (no `go-worker`); workers run as separate Kubernetes deployments.
 - [`docker-compose.docling.yml`](docker-compose.docling.yml) — opt-in sidecar overlay for layout-aware PDF/DOCX/PPTX parsing; layer it on the base file.
 
