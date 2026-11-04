@@ -47,10 +47,11 @@ func chatAttachmentUploadRequest(t *testing.T, fileBytes int) *http.Request {
 	return req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "u1"}))
 }
 
-// Oracle: chat_attachments_max_file_bytes bounds the upload, and the 413
-// carries that limit as limitBytes (the composer chip names it). A file under
-// the limit reaches the ingester; unset, the limit is the 50 MiB default, so
-// a 2 MiB file (refused by the old 1 MiB global body cap) gets through.
+// Oracle: chat_attachments_max_file_bytes bounds the file, not the multipart
+// body, and the 413 carries that limit as limitBytes (the composer chip names
+// it) whether the file or the whole body is over. A file at the limit reaches
+// the ingester; unset, the limit is the 50 MiB default, so a 2 MiB file
+// (refused by the old 1 MiB global body cap) gets through.
 func TestUploadChatAttachment_FileSizeLimit(t *testing.T) {
 	oneMiB := strconv.Itoa(1 << 20)
 	cases := []struct {
@@ -59,7 +60,9 @@ func TestUploadChatAttachment_FileSizeLimit(t *testing.T) {
 		fileBytes   int
 		wantRefused bool
 	}{
-		{"over the configured limit", map[string]*string{"chat_attachments_max_file_bytes": &oneMiB}, 1<<20 + 1, true},
+		{"one byte over the configured limit", map[string]*string{"chat_attachments_max_file_bytes": &oneMiB}, 1<<20 + 1, true},
+		{"body over the framing allowance", map[string]*string{"chat_attachments_max_file_bytes": &oneMiB}, 1<<20 + multipartFramingBytes, true},
+		{"exactly the configured limit", map[string]*string{"chat_attachments_max_file_bytes": &oneMiB}, 1 << 20, false},
 		{"under the configured limit", map[string]*string{"chat_attachments_max_file_bytes": &oneMiB}, 512 << 10, false},
 		{"2 MiB under the default", map[string]*string{}, 2 << 20, false},
 	}
