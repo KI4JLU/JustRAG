@@ -26,6 +26,7 @@ func TestValidateGlobalValues(t *testing.T) {
 	typoQuota, negQuota, hugeQuota := "5GB", "-1", "1099511627777"
 
 	ftOK, ftLow, ftHigh, ftTypo := "60000", "3999", "200001", "60k"
+	attOK, attLow, attHigh, attTypo := "52428800", "1048575", "524288001", "50MB"
 
 	cases := []struct {
 		name    string
@@ -50,6 +51,10 @@ func TestValidateGlobalValues(t *testing.T) {
 		{"fulltext low", []siteconfig.KeyValue{{Key: "chat_library_fulltext_max_tokens", Value: &ftLow}}, "chat_library_fulltext_max_tokens"},
 		{"fulltext high", []siteconfig.KeyValue{{Key: "chat_library_fulltext_max_tokens", Value: &ftHigh}}, "chat_library_fulltext_max_tokens"},
 		{"fulltext typo", []siteconfig.KeyValue{{Key: "chat_library_fulltext_max_tokens", Value: &ftTypo}}, "chat_library_fulltext_max_tokens"},
+		{"attachment size ok", []siteconfig.KeyValue{{Key: "chat_attachments_max_file_bytes", Value: &attOK}}, ""},
+		{"attachment size low", []siteconfig.KeyValue{{Key: "chat_attachments_max_file_bytes", Value: &attLow}}, "chat_attachments_max_file_bytes"},
+		{"attachment size high", []siteconfig.KeyValue{{Key: "chat_attachments_max_file_bytes", Value: &attHigh}}, "chat_attachments_max_file_bytes"},
+		{"attachment size typo", []siteconfig.KeyValue{{Key: "chat_attachments_max_file_bytes", Value: &attTypo}}, "chat_attachments_max_file_bytes"},
 		{"valid tool map", []siteconfig.KeyValue{{Key: "chat_answer_tools_by_route", Value: &goodTools}}, ""},
 		{"invalid tool map", []siteconfig.KeyValue{{Key: "chat_answer_tools_by_route", Value: &badTools}}, "chat_answer_tools_by_route"},
 		{

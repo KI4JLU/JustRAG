@@ -329,11 +329,11 @@ codes. A code in parentheses is the `code` the response now carries.
 - `files/from_library.go:111` (body from `userfiles/http.go:84–92`) – 413 `quota_exceeded` (in `error` and `code`)
 - `files/from_library.go:126`, `:143` – 409 `already_in_kb` (in `error` and `code`)
 - `files/http_ingest.go:467`, `:487`, `:506` – URL fetch: 400 validation error, 502 `Failed to fetch URL` (no code; B08, B09)
-- `chat/attachments_http.go:76`, `:91` – 503 `chat attachments are not available` (no code); the `uploadcheck` error with its code
-- `chat/attachments_http.go:151–162` (used at `:121` and `:265`) – 415 `unsupported file type` (`unsupported_file_type`), 422 `the file %q could not be read` (`file_unreadable`), 422 `the file %q took too long to read` (`parse_timeout`), 422 `the file contained no extractable text` (`no_text`), 500 `failed to read the file` (no code)
-- `chat/attachments_http.go:164–175` – 422 `too_large_for_context` (in `error` and `code`) with `tokens`, `limit`
-- `chat/attachments_http.go:222–276` – send-time attachment refusals without a code: 503 not available, 400 `at most %d attachments per message`, 400 comparison combination, 400 regenerate, 404 `attachment not found`, 500 read failure; file refusals carry the codes above
-- `chat/library_text.go:21`, `:28`, `:32` – sentinels `ErrUnsupportedType`, `ErrUnparseable`, `ErrLibraryParseTimeout`; mapped in `chat/attachments_http.go:151–162` and `chat/library_http.go:354–360`
+- `chat/attachments_http.go:76`, `:89`, `:94` – 503 `chat attachments are not available` (no code); the upload cap `chat_attachments_max_file_bytes` and the `uploadcheck` error with its code (413 `file_too_large` with `limitBytes`)
+- `chat/attachments_http.go:154–167` (used at `:124` and `:275`) – 415 `unsupported file type` (`unsupported_file_type`), 422 `the file %q could not be read` (`file_unreadable`), 422 `the file %q took too long to read` (`parse_timeout`), 422 `the file contained no extractable text` (`no_text`), 500 `failed to read the file` (no code)
+- `chat/attachments_http.go:171–178` – 422 `too_large_for_context` (in `error` and `code`) with `tokens`, `limit`
+- `chat/attachments_http.go:227–289` – send-time attachment refusals without a code: 503 not available, 400 `at most %d attachments per message`, 400 comparison combination, 400 regenerate, 404 `attachment not found`, 500 read failure; file refusals carry the codes above
+- `chat/library_text.go:21`, `:28`, `:32` – sentinels `ErrUnsupportedType`, `ErrUnparseable`, `ErrLibraryParseTimeout`; mapped in `chat/attachments_http.go:154–167` and `chat/library_http.go:354–360`
 - `chat/http_attachment.go:97–104`, `:126`, `:154`, `:165`, `:177`, `:185`, `:189`, `:192`, `:196` – comparison upload: 413 `file is too large` (`file_too_large`, `limitBytes`), 503 `document comparison is disabled` (no code), 400 multipart and field errors (`invalid_upload`), 415 `unsupported file type` (`unsupported_file_type`), 422 `the file could not be read` (`file_unreadable`), 422 `the file contained no extractable text` (`no_text`), 500 `failed to parse file` (no code)
 - `chat/http_send_helpers.go:69–92` – 400 validation (`message is required`, length limit, regenerate checks)
 - `chat/http_send_helpers.go:152–164`, `:625` – 403 `access denied`, 500 chat-row errors

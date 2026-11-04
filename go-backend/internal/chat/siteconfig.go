@@ -722,6 +722,16 @@ func ChatAttachmentsMaxPerMessage(ctx context.Context, reader SiteConfigReader) 
 	return readInt(ctx, reader, "chat_attachments_max_per_message", 10, 1, 50)
 }
 
+// ChatAttachmentsMaxFileBytes caps the request body of one chat attachment
+// upload. Below the 500 MiB of a KB source on purpose: a source is parsed by
+// the worker, an attachment inside the upload request, and only then checked
+// against the token budget, so a huge file would keep the user waiting for a
+// refusal. Global-only ("chat_attachments_max_file_bytes"), default 50 MiB,
+// range [1 MiB, 500 MiB].
+func ChatAttachmentsMaxFileBytes(ctx context.Context, reader SiteConfigReader) int64 {
+	return int64(readInt(ctx, reader, "chat_attachments_max_file_bytes", 50<<20, 1<<20, 500<<20))
+}
+
 // ChatLongContextTopK is the chunk-pool size Search() returns on the
 // long-context route. Default 200 (the historical constant), range [50, 500].
 // Wave-3's map-reduce consumer tunes this against the token budget. Tunable

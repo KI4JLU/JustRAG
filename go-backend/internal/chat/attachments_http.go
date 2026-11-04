@@ -84,6 +84,9 @@ func (h *Handler) UploadChatAttachment(w http.ResponseWriter, r *http.Request) {
 	kbID := parsed.String()
 	ctx = logctx.Attach(logctx.WithUser(logctx.WithKB(ctx, kbID), user.ID))
 
+	// The route is exempt from the global request-body cap; this is its own.
+	// Parse reads through it, so an oversize file is a 413 naming this limit.
+	r.Body = http.MaxBytesReader(w, r.Body, ChatAttachmentsMaxFileBytes(ctx, h.siteConfigReader))
 	up, err := uploadcheck.Parse(w, r, h.attachLimits)
 	if err != nil {
 		var ue *uploadcheck.Error
