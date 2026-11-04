@@ -4,8 +4,10 @@ package docling
 //
 // Shapes are docling-core's, not invented, from a live docling-serve
 // response (v1.10.0 document):
-//   - headings are texts with label "title" (no level) or "section_header"
-//     (level 1 = top; absent level renders like level 1),
+//   - headings are texts with label "title" (level 1) or "section_header"
+//     (level = the rendered hierarchy: raw level n renders as n+1 hashes,
+//     capped at 6, as in docling-core's _format_heading and fp-model's
+//     render.rs; a title is always level 1),
 //   - lists are groups with label "list" or "ordered_list"; nesting is
 //     expressed by nested groups, not by the item's level; a numbered
 //     DOCX list arrives as a "list" group whose items carry enumerated
@@ -203,7 +205,7 @@ func TestStructureFromJSONContent(t *testing.T) {
 			want: &parser.Structure{
 				Headings: []parser.StructHeading{
 					{Text: "Mein Titel", Level: 1},
-					{Text: "Unterabschnitt", Level: 2},
+					{Text: "Unterabschnitt", Level: 3},
 					{Text: "Abschnitt ohne Level", Level: 1},
 				},
 				Lists:  []parser.StructList{},
@@ -347,7 +349,7 @@ func TestClient_Convert_StructureIsPopulated(t *testing.T) {
 	want := &parser.Structure{
 		Headings: []parser.StructHeading{
 			{Text: "Mein Titel", Level: 1},
-			{Text: "Unterabschnitt", Level: 2},
+			{Text: "Unterabschnitt", Level: 3},
 			{Text: "Abschnitt ohne Level", Level: 1},
 		},
 		Lists:  []parser.StructList{},

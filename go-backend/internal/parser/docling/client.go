@@ -845,11 +845,19 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 						if t.ContentLayer != contentLayerFurniture {
 							switch label {
 							case "title", "section_header":
-								// A missing or zero level renders like
-								// the top level, like the markdown does.
-								lvl := t.Level
-								if lvl <= 0 {
-									lvl = 1
+								// The goldset level is the rendered heading
+								// hierarchy, not the item's raw outline level:
+								// both docling-core (_format_heading) and
+								// fp-model (render.rs) give a level-n section
+								// header n+1 hashes and a title one, reserving
+								// H1 for the title. A missing level renders as
+								// one hash, like the title.
+								lvl := 1
+								if label == "section_header" {
+									lvl = t.Level + 1
+									if lvl > 6 {
+										lvl = 6
+									}
 								}
 								res.structure.Headings = append(res.structure.Headings, parser.StructHeading{Text: s, Level: lvl})
 							case "list_item":
