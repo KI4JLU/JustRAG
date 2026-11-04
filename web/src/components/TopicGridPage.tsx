@@ -1,5 +1,10 @@
 import { Container, Grid, PageHeader } from '@ki4jlu/design-system';
 import type { ReactNode } from 'react';
+import { SortableBoard, SortableDropZone, SortableGroup, type SortableBoardProps } from './SortableGrid';
+
+/** The two groups of a sortable page: the favorites on top, then the rest. */
+export const PINNED_GROUP = 'pinned';
+export const REST_GROUP = 'rest';
 
 /* ---------------------------------------------------------------------------
  * A page that is one flat grid of cards — no sections, no disclosure.
@@ -75,6 +80,28 @@ export interface TopicGridPageProps {
    * change. Ignored in list view: one-line rows are not cards.
    */
   uniformRows?: boolean;
+  /**
+   * Card mode only: the cards can be dragged into a new order (`useKbSortable`
+   * builds it). `ids[i]` is `items[i]`'s id, `pinnedIds[i]` `pinned.items[i]`'s.
+   * A card dropped into the other group calls `onMoveToGroup` with
+   * `PINNED_GROUP` or `REST_GROUP`. Ignored in list view.
+   */
+  sortable?: Omit<SortableBoardProps, 'children' | 'renderOverlay'> & {
+    ids: string[];
+    pinnedIds: string[];
+    /** The drop zone shown for the pinned group while it is empty. */
+    dropZoneLabel: string;
+  };
+  /**
+   * The favorites, on lines of their own above `items` — a grid of their own,
+   * so the rest always starts on a new line. With both groups non-empty each
+   * gets a small label.
+   */
+  pinned?: {
+    label: string;
+    restLabel: string;
+    items: ReactNode[];
+  };
 }
 
 export function TopicGridPage({
@@ -87,13 +114,74 @@ export function TopicGridPage({
   viewMode = 'card',
   uniformRows = false,
   listHeader,
+  sortable,
+  pinned,
 }: TopicGridPageProps) {
+  const grid = (cells: ReactNode[], ref?: (node: HTMLElement | null) => void, extraClass?: string) => (
+    <Grid
+      ref={ref}
+      cols={viewMode === 'list' ? 1 : 'auto'}
+      gap={viewMode === 'list' ? 'sm' : 'gutter'}
+      className={[uniformRows && viewMode === 'card' ? 'auto-rows-fr' : '', extraClass ?? ''].join(' ').trim() || undefined}
+    >
+      {cells}
+    </Grid>
+  );
+
+  const dnd = sortable && viewMode === 'card' ? sortable : undefined;
+  const group = (groupId: string, ids: string[], cells: ReactNode[]) => (
+    dnd ? <SortableGroup id={groupId} ids={ids} items={cells}>{grid}</SortableGroup> : grid(cells)
+  );
+  const pinnedItems = pinned?.items ?? [];
+
+  let groups: ReactNode;
+  if (pinnedItems.length > 0 && items.length > 0) {
+    groups = (
+      <>
+        <div className="flex flex-col gap-stack-sm">
+          <GroupLabel>{pinned!.label}</GroupLabel>
+          {group(PINNED_GROUP, dnd?.pinnedIds ?? [], pinnedItems)}
+        </div>
+        <div className="flex flex-col gap-stack-sm">
+          <GroupLabel>{pinned!.restLabel}</GroupLabel>
+          {group(REST_GROUP, dnd?.ids ?? [], items)}
+        </div>
+      </>
+    );
+  } else if (pinnedItems.length > 0) {
+    groups = group(PINNED_GROUP, dnd?.pinnedIds ?? [], pinnedItems);
+  } else {
+    groups = (
+      <>
+        {dnd && pinned && <SortableDropZone group={PINNED_GROUP} label={dnd.dropZoneLabel} />}
+        {group(REST_GROUP, dnd?.ids ?? [], items)}
+      </>
+    );
+  }
+
+  if (dnd) {
+    const byId = new Map<string, ReactNode>();
+    dnd.pinnedIds.forEach((cardId, i) => byId.set(cardId, pinnedItems[i]));
+    dnd.ids.forEach((cardId, i) => byId.set(cardId, items[i]));
+    groups = (
+      <SortableBoard
+        onMove={dnd.onMove}
+        onMoveToGroup={dnd.onMoveToGroup}
+        announcements={dnd.announcements}
+        screenReaderInstructions={dnd.screenReaderInstructions}
+        renderOverlay={cardId => byId.get(cardId)}
+      >
+        {groups}
+      </SortableBoard>
+    );
+  }
+
   return (
     <section id={id} aria-label={title} className="flex flex-col">
       <Container className="flex flex-col gap-stack-lg py-gutter md:py-margin-page">
         <PageHeader title={title} description={description} />
         {filterBar}
-        {items.length === 0 && emptyState}
+        {items.length === 0 && !pinned?.items.length && emptyState}
         {/* `auto`, not a number: the numbered variants are a BREAKPOINT ladder,
             so `cols={3}` renders two columns everywhere from 768 to 1279px. A
             wall of cards wants the count to follow the container — which also
@@ -103,15 +191,13 @@ export function TopicGridPage({
             objects, stacked rows do not — at 24px apart they read as unrelated
             bands rather than one list. The value is the design system's own
             gap scale, not a literal. */}
-        {viewMode === 'list' && items.length > 0 && listHeader && <div className="-mb-stack-md">{listHeader}</div>}
-        <Grid
-          cols={viewMode === 'list' ? 1 : 'auto'}
-          gap={viewMode === 'list' ? 'sm' : 'gutter'}
-          className={uniformRows && viewMode === 'card' ? 'auto-rows-fr' : undefined}
-        >
-          {items}
-        </Grid>
+        {viewMode === 'list' && (items.length > 0 || !!pinned?.items.length) && listHeader && <div className="-mb-stack-md">{listHeader}</div>}
+        {groups}
       </Container>
     </section>
   );
+}
+
+function GroupLabel({ children }: { children: ReactNode }) {
+  return <h2 className="m-0 text-sm font-semibold text-on-surface-variant">{children}</h2>;
 }

@@ -70,7 +70,7 @@ export const HIDDEN_CATEGORIES_KEY = `${STORAGE_NAMESPACE}topics.hiddenCategorie
    invite a second sort key later and quietly reorder the rest. Splitting the
    list in two and rejoining it keeps the server's order inside each half,
    which is the only ordering promise the API makes. */
-function favoritesFirst(kbs: KnowledgeBase[]): KnowledgeBase[] {
+export function favoritesFirst(kbs: KnowledgeBase[]): KnowledgeBase[] {
   const favorites = kbs.filter(kb => kb.isFavorite === true);
   if (favorites.length === 0 || favorites.length === kbs.length) return kbs;
   return [...favorites, ...kbs.filter(kb => kb.isFavorite !== true)];

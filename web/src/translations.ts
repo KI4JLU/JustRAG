@@ -1724,6 +1724,18 @@ export const translations = {
     kbListColSharing: { de: 'Freigabe', en: 'Sharing' },
     kbListColAsOf: { de: 'Stand', en: 'As of' },
     kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
+    // Dragging the topic cards into the user's own order.
+    kbMoveCard: { de: 'Verschieben', en: 'Move' },
+    kbGroupFavorites: { de: 'Favoriten', en: 'Favorites' },
+    kbGroupOthers: { de: 'Weitere Themen', en: 'Other topics' },
+    kbDragInstructions: { de: 'Leertaste nimmt das Thema auf. Pfeiltasten verschieben es, Leertaste legt es ab, Escape bricht ab.', en: 'Press space to pick up the topic. Use the arrow keys to move it, space to drop it, escape to cancel.' },
+    kbDragStart: { de: '{name} aufgenommen.', en: 'Picked up {name}.' },
+    kbDragOver: { de: '{name} ist bei Position {n} von {total}.', en: '{name} is at position {n} of {total}.' },
+    kbDragEnd: { de: '{name} an Position {n} von {total} abgelegt.', en: 'Dropped {name} at position {n} of {total}.' },
+    kbDragCancel: { de: 'Verschieben von {name} abgebrochen.', en: 'Moving {name} cancelled.' },
+    kbDragOverGroup: { de: '{name} ist über „{group}".', en: '{name} is over "{group}".' },
+    kbDragEndGroup: { de: '{name} in „{group}" abgelegt.', en: 'Dropped {name} in "{group}".' },
+    kbDropToFavorite: { de: 'Hierher ziehen, um es zu den Favoriten hinzuzufügen', en: 'Drop here to add it to your favorites' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },
