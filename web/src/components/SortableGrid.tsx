@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   DndContext, DragOverlay, KeyboardSensor, MeasuringStrategy, MouseSensor, TouchSensor, closestCenter, pointerWithin,
   useDndContext, useDroppable, useSensor, useSensors,
-  type Active, type Announcements, type CollisionDetection, type DragEndEvent, type Over, type ScreenReaderInstructions,
+  type Active, type Announcements, type Collision, type CollisionDetection, type DragEndEvent, type Over, type ScreenReaderInstructions,
 } from '@dnd-kit/core';
 import {
   SortableContext, rectSortingStrategy, sortableKeyboardCoordinates, useSortable,
@@ -241,8 +241,28 @@ export function SortableBoard({
   /* Under the pointer, a CARD wins over a group's area. Over the gaps of its
      own group a card snaps to the nearest card of that group (the area would
      read as „no move" and the grid would flicker back); over another group's
-     area it targets that group. Without a pointer (keyboard), nearest card. */
+     area it targets that group. Without a pointer (keyboard) the arrow keys
+     have already moved the card onto a target's top-left corner — a card, or
+     an empty group's drop zone — so the target is the one whose corner it
+     sits on; a card wins the tie with its own group's area. */
   const collision: CollisionDetection = args => {
+    if (!args.pointerCoordinates) {
+      const { left, top } = args.collisionRect;
+      let best: Collision | null = null;
+      let bestDistance = Infinity;
+      for (const container of args.droppableContainers) {
+        const rect = args.droppableRects.get(container.id);
+        if (!rect) continue;
+        const distance = Math.hypot(rect.left - left, rect.top - top);
+        const isCard = groupOfDrop(container.id) === null;
+        const tie = Math.abs(distance - bestDistance) < 1;
+        if ((!tie && distance < bestDistance) || (tie && isCard && best && groupOfDrop(best.id) !== null)) {
+          best = { id: container.id, data: { droppableContainer: container, value: distance } };
+          bestDistance = distance;
+        }
+      }
+      return best ? [best] : [];
+    }
     const cards = args.droppableContainers.filter(c => groupOfDrop(c.id) === null);
     const hits = pointerWithin(args);
     const cardHit = hits.find(h => groupOfDrop(h.id) === null);
@@ -296,8 +316,16 @@ export function SortableBoard({
       >
         {children}
         {/* Lifted: a little larger, with a shadow — under a finger the card
-            would otherwise read as not moving at all. */}
-        <DragOverlay>{activeId ? <div className="h-full scale-[1.03] rounded-xl shadow-xl">{renderOverlay(activeId)}</div> : null}</DragOverlay>
+            would otherwise read as not moving at all. The scale sits one level
+            down: dnd-kit measures the overlay's only child, and a scaled one
+            would put the keyboard's target corners 3px off the cards'. */}
+        <DragOverlay>
+          {activeId ? (
+            <div className="h-full">
+              <div className="h-full scale-[1.03] rounded-xl shadow-xl">{renderOverlay(activeId)}</div>
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
     </BoardContext.Provider>
   );
