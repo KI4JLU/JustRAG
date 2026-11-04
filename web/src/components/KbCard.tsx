@@ -242,8 +242,13 @@ function kbCardActions({
   }
   // Owners delete the KB, everyone else only leaves it (useKbRemoval decides
   // the request and asks first). Disabled while any removal is in flight.
+  // A global topic is left by unsubscribing (useKbRemoval sends exactly that);
+  // its label says so rather than „remove from my view".
+  const removeLabel = visibilityState(kb) === 'public'
+    ? t('unsubscribe')
+    : kb.myRole === 'owner' ? t('delete') : t('removeFromMyView');
   items.push({
-    label: `${kb.myRole === 'owner' ? t('delete') : t('removeFromMyView')}…`,
+    label: `${removeLabel}…`,
     icon: <Trash2 size={16} aria-hidden="true" />,
     destructive: true,
     disabled: removingKb,
@@ -450,7 +455,8 @@ export function PrivateKbCard({
                 value={formatRelativeCoarse(kb.lastIngestedAt, language)}
               />
             )}
-            {kb.userId !== currentUserId && (() => {
+            {/* A global topic has no owner — „Öffentlich" on the badge says whose it is. */}
+            {kb.userId !== currentUserId && visibilityState(kb) !== 'public' && (() => {
               const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
               const displayName = fullName || kb.ownerUsername || t('unknownUser');
               // „von {name}": the words around the name are the muted label, the

@@ -150,7 +150,8 @@ describe('KbCatalogPanel', () => {
         renderPanel();
 
         const row = (await screen.findByText('Rechtsfragen')).closest('[data-testid="catalog-entry"]');
-        await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /abbestellen|unsubscribe/i }));
+        // The subscribed state reads „Abonniert"; pressing it unsubscribes.
+        await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /abonniert|subscribed/i }));
 
         await waitFor(() => {
             expect(mockedAxios.delete).toHaveBeenCalledWith(
@@ -161,7 +162,7 @@ describe('KbCatalogPanel', () => {
 
     // The discovery rows are cards now, matching the other overview sections.
     // Two things have to hold for that to be usable: the card opens the KB,
-    // and the add-to-favorites control on it does not.
+    // and the subscribe control on it does not.
     it('opens the KB when the card is activated', async () => {
         const onOpenKb = vi.fn();
         renderPanel(vi.fn(), onOpenKb);
@@ -179,7 +180,7 @@ describe('KbCatalogPanel', () => {
         expect(onOpenKb).toHaveBeenCalledWith('kb-1');
     });
 
-    it('does not open the KB when the favorites toggle is clicked', async () => {
+    it('does not open the KB when the subscribe button is clicked', async () => {
         mockedAxios.put.mockResolvedValue({ status: 204 });
         const onOpenKb = vi.fn();
         renderPanel(vi.fn(), onOpenKb);
@@ -193,8 +194,8 @@ describe('KbCatalogPanel', () => {
         expect(onOpenKb).not.toHaveBeenCalled();
     });
 
-    // aria-pressed is what tells a screen-reader user whether the KB is
-    // already a favorite; the filled/outline star alone would not.
+    // aria-pressed is what tells a screen-reader user that the topic is
+    // already subscribed; the label change alone reads as two buttons.
     it('reflects the subscription state on the toggle', async () => {
         renderPanel();
 
@@ -203,7 +204,7 @@ describe('KbCatalogPanel', () => {
             .toHaveAttribute('aria-pressed', 'false');
 
         const subscribed = screen.getByText('Rechtsfragen').closest('[data-testid="catalog-entry"]');
-        expect(within(subscribed as HTMLElement).getByRole('button', { name: /abbestellen|unsubscribe/i }))
+        expect(within(subscribed as HTMLElement).getByRole('button', { name: /abonniert|subscribed/i }))
             .toHaveAttribute('aria-pressed', 'true');
     });
 

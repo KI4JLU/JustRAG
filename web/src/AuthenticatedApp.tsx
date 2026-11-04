@@ -562,6 +562,7 @@ function AuthenticatedAppInner() {
       >
         <SharedTopicsView
           kbs={kbMgmt.kbs}
+          globalKbs={kbMgmt.globalKbs}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}

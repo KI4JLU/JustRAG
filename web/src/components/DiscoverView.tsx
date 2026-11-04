@@ -6,8 +6,10 @@ import { TopicFilterBar } from './TopicFilterBar';
 import { useTopicFilters } from '../hooks/useTopicFilters';
 
 /* ---------------------------------------------------------------------------
- * „Entdecken" — the catalog of global topics you do NOT hold yet (developer
- * ruling, 18.09.2026).
+ * „Entdecken" — the catalog of global topics (developer ruling, 18.09.2026).
+ * A global topic is an open group: the card subscribes to it, which puts it
+ * into „Geteiltes Wissen"; subscribed ones stay listed, marked „Abonniert"
+ * (developer ruling, 03.11.2026 — see `KbCatalogPanel`).
  *
  * WHY IT IS A VIEW NOW. It used to be „KBs entdecken", the third of four
  * collapsible sections on the overview, and it never fitted there: the
@@ -56,7 +58,7 @@ export function DiscoverView({ onSubscriptionChange, onOpenKbById }: DiscoverVie
           {/* The row is the same chrome the other three views carry. The panel
               owns its own list and request, so the ACTIVE chip is handed down
               rather than applied here — see `KbCatalogPanel`. */}
-          <TopicFilterBar filters={filters} label={t('filterTopics')} />
+          <TopicFilterBar filters={filters} label={t('filterTopics')} showFavorites={false} />
           <KbCatalogPanel
             onSubscriptionChange={onSubscriptionChange}
             onOpenKb={onOpenKbById}
