@@ -257,8 +257,14 @@ func buildIndexedChunks(result *parser.ParseResult, cfg splitter.Config) []index
 			totalLen += len(pg.Text)
 		}
 		ichunks := make([]indexedChunk, 0, estimateChunkCount(totalLen, cfg))
+		// A table that runs on onto the next page continues there without
+		// its header; carry the open table across pages so those rows get
+		// it repeated like any other split (KI-853).
+		var carry splitter.TableCarry
 		for _, pg := range result.Pages {
-			for _, c := range splitter.Split(pg.Text, cfg) {
+			var chunks []string
+			chunks, carry = splitter.SplitCarry(pg.Text, cfg, carry)
+			for _, c := range chunks {
 				ichunks = append(ichunks, indexedChunk{Text: c, Pages: []int{pg.PageNumber}})
 			}
 		}
