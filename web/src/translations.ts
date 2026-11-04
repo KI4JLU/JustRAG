@@ -1865,6 +1865,11 @@ export const translations = {
         de: 'Wie viele Dateien eine Chatnachricht höchstens mitbringen darf (1–50).',
         en: 'The most files one chat message may carry (1–50).',
     },
+    chatAttachmentsMaxFileMb: { de: 'Max. Dateigröße pro Anhang (MB)', en: 'Max file size per attachment (MB)' },
+    chatAttachmentsMaxFileMbHelp: {
+        de: 'Größte Datei, die im Chat angehängt werden kann (1–500 MB, Standard 50). Ob ihr Text passt, entscheidet danach der Anteil am Kontextfenster; die Größe begrenzt nur, wie lange Hochladen und Lesen dauern.',
+        en: 'Largest file that can be attached in the chat (1–500 MB, default 50). Whether its text fits is then decided by the context-window share; the size only bounds how long upload and reading take.',
+    },
     chatAnswerHistoryEnabled: { de: 'Chat-Verlauf an Antwort-LLM', en: 'Conversation history to answer LLM' },
     chatAnswerHistoryEnabledHelp: {
         de: 'Übergibt die letzten Gesprächsrunden an das Antwort-Modell, damit Folgefragen wie „kannst du das als Tabelle erstellen?" sich auf die vorherige Antwort beziehen können. Standard: an (Korrektheits-Fix, kein Opt-in-Feature).',
