@@ -45,7 +45,8 @@ type aiModelInfoRow struct {
 	Dimensions  int    `db:"dimensions"`
 	// ContextWindow is NULL for models without an admin-set window; COALESCE
 	// in the query turns that into 0 = unknown.
-	ContextWindow int `db:"context_window"`
+	ContextWindow int  `db:"context_window"`
+	IsDefault     bool `db:"is_default"`
 }
 
 // kbModelOverridesRow is an internal struct for scanning model-override columns on knowledge_bases.
@@ -112,8 +113,9 @@ func (s *PGStore) GetAIProviderByID(ctx context.Context, id string) (*AIProvider
 func (s *PGStore) GetAIModelsByProvider(ctx context.Context, providerID string) ([]AIModelInfo, error) {
 	rows, err := pgxutil.QueryRows[aiModelInfoRow](ctx, s.pool,
 		`SELECT name, is_reasoning, is_embedding, is_rerank, is_tts, is_stt, dimensions,
-		        COALESCE(context_window, 0) AS context_window
-		 FROM ai_models WHERE provider_id = $1`, providerID)
+		        COALESCE(context_window, 0) AS context_window, is_default
+		 FROM ai_models WHERE provider_id = $1
+		 ORDER BY name, id`, providerID)
 	if err != nil {
 		return nil, fmt.Errorf("GetAIModelsByProvider: %w", err)
 	}

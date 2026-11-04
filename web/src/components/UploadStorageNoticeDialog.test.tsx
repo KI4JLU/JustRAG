@@ -19,14 +19,24 @@ class MemoryStorage implements Storage {
   setItem(k: string, v: string) { this.data.set(k, v); }
 }
 
-// An upload stands in as a button that asks the notice, beside the dialog;
-// `answers` collects what each upload was told.
+// Uploads stand in as buttons that ask the notice, beside the dialog: a chat
+// attachment ("upload") and a source ("source"). `answers` collects what each
+// upload was told.
 let answers: boolean[] = [];
 function App() {
-  const { confirm } = useUploadStorageNotice(userId);
-  return <><Button type="button" onClick={() => { void confirm().then((ok) => answers.push(ok)); }}>upload</Button><UploadStorageNoticeDialog /></>;
+  const chat = useUploadStorageNotice(userId, 'chat');
+  const source = useUploadStorageNotice(userId, 'source');
+  return (
+    <>
+      <Button type="button" onClick={() => { void chat.confirm().then((ok) => answers.push(ok)); }}>upload</Button>
+      <Button type="button" onClick={() => { void source.confirm().then((ok) => answers.push(ok)); }}>source</Button>
+      <UploadStorageNoticeDialog />
+    </>
+  );
 }
 const upload = () => fireEvent.click(screen.getByRole('button', { name: 'upload' }));
+const uploadSource = () => fireEvent.click(screen.getByRole('button', { name: 'source' }));
+const acceptNotice = () => fireEvent.click(screen.getByRole('button', { name: 'uploadStorageNoticeAccept' }));
 const dialog = () => screen.queryByRole('dialog', { name: 'uploadStorageNoticeTitle' });
 
 // The shared flags are cached per key for the module's lifetime, so every
@@ -47,20 +57,46 @@ describe('UploadStorageNoticeDialog', () => {
     expect(dialog()).not.toBeInTheDocument();
   });
 
-  it('opens on an upload with the storage text', () => {
+  it('opens on a chat attachment with the attachment text', () => {
     render(<App />);
     upload();
-    expect(dialog()).toHaveTextContent('uploadStorageNotice');
+    expect(dialog()).toHaveTextContent('uploadStorageNoticeChat');
     expect(answers).toEqual([]);
+  });
+
+  it('opens on a source upload with the source text', () => {
+    render(<App />);
+    uploadSource();
+    expect(dialog()).toHaveTextContent('uploadStorageNoticeSource');
+  });
+
+  it('asks for sources again after the attachment notice was accepted', async () => {
+    render(<App />);
+    upload();
+    acceptNotice();
+    await waitFor(() => expect(answers).toEqual([true]));
+    uploadSource();
+    expect(dialog()).toHaveTextContent('uploadStorageNoticeSource');
+  });
+
+  it('shows a waiting source notice after the attachment notice is answered', async () => {
+    render(<App />);
+    upload();
+    // A source upload already under way asks behind the open dialog (hidden by it).
+    fireEvent.click(screen.getByRole('button', { name: 'source', hidden: true }));
+    expect(dialog()).toHaveTextContent('uploadStorageNoticeChat');
+    acceptNotice();
+    await waitFor(() => expect(answers).toEqual([true]));
+    await waitFor(() => expect(dialog()).toHaveTextContent('uploadStorageNoticeSource'));
   });
 
   it('lets the upload go on "Verstanden" and never asks again', async () => {
     const { unmount } = render(<App />);
     upload();
-    fireEvent.click(screen.getByRole('button', { name: 'uploadStorageNoticeAccept' }));
+    acceptNotice();
     await waitFor(() => expect(answers).toEqual([true]));
     expect(dialog()).not.toBeInTheDocument();
-    expect(window.localStorage.getItem(`${uploadStorageNoticeKey(userId)}.accepted`)).toBe('1');
+    expect(window.localStorage.getItem(uploadStorageNoticeKey(userId, 'chat'))).toBe('1');
     unmount();
     render(<App />);
     upload();
@@ -74,7 +110,7 @@ describe('UploadStorageNoticeDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /close|schließen/i }));
     await waitFor(() => expect(answers).toEqual([false]));
     expect(dialog()).not.toBeInTheDocument();
-    expect(window.localStorage.getItem(`${uploadStorageNoticeKey(userId)}.accepted`)).toBeNull();
+    expect(window.localStorage.getItem(uploadStorageNoticeKey(userId, 'chat'))).toBeNull();
     upload();
     expect(dialog()).toBeInTheDocument();
   });
@@ -101,7 +137,7 @@ describe('UploadStorageNoticeDialog', () => {
   it('is per user', () => {
     const { unmount } = render(<App />);
     upload();
-    fireEvent.click(screen.getByRole('button', { name: 'uploadStorageNoticeAccept' }));
+    acceptNotice();
     unmount();
     userId = `u${++n}`;
     render(<App />);
