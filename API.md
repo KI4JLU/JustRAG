@@ -129,6 +129,15 @@ The caller's own long-term memory entries. Available whether or not `chat_longme
 | DELETE | `/user/memory/{id}` | authenticated |
 | DELETE | `/user/memory` | authenticated (deletes all) |
 
+### Usage-policy acceptance
+
+The caller's acceptance of the usage policy (AI-use notice, terms, privacy). The version to accept is the global-only site_config key `policy_acceptance_version`; empty means nobody is asked. The web app shows the notice while `required` is true. No other route checks acceptance — API keys, `/owui` and MCP clients are not gated.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/user/policy-acceptance` | authenticated — `{version, required, acceptedAt?}`; `version` is `""` and `required` false while the notice is off |
+| POST | `/user/policy-acceptance` | authenticated — body `{version}`; stores the acceptance (a repeat keeps the first time) and answers like GET; `409 policy_version_changed` when `version` is not the current one or the notice is off, `400` without a version |
+
 ### Knowledge bases
 
 | Method | Path |

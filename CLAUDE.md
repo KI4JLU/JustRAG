@@ -10,7 +10,7 @@ one before changing a feature**:
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0097**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0098**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
 | `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
@@ -47,6 +47,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - `chat_attachments_*` (no gate, global-only) — composer attachments as context (`user_files.scope='chat'`). Mig 0090. `internal/chat/attachments*.go`.
 - `owui_compat_enabled` (global-only, off) — Open WebUI surface `/owui` for the ILIAS plugin. Mig 0088. Contract `docs/api-contracts/owui-compat.md`.
 - `mcp_server_enabled` (off) — KB as MCP server (`ask_kb`). `internal/mcpserver`.
+- `policy_acceptance_version` (global-only, empty = off) — usage-policy / AI-use notice the web app shows until the user accepted this version; bumping it asks everyone again. Stored per user and version (`user_policy_acceptances`), `GET`/`POST /api/user/policy-acceptance`. Only the web app gates on it — API keys, `/owui`, MCP are not gated. Mig 0098. `internal/policyaccept`.
 
 **Retrieval**
 - `crag_*`, `adaptive_routing_*`, `query_decompose_*`, `step_back_*`, `mmr_*`, `rerank_blend_alpha*`, `top_n_*`, `rerank_candidate_depth*`, `query_cache_*`, `hybrid_dynamic_alpha_*`, `recency_*`.
@@ -149,7 +150,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 | Retrieval / ingest | `vector`, `ai`, `splitter`, `processor` (incl. KG write path), `parser` (+ `parser/docling`), `pptx`, `sheetsource`, `tabular` (+ `profile`, `render`, `ingest`, `sqlcheck`, `sqlexec`), `promptsafety` |
 | Tools (MCP) | `mcp`, `mcp/builtin`, `sessionmem`, `aibudget` |
 | Knowledge graph | `kg` (read path), `kggraph`, `kgevents`, `canonicalize`, `community` |
-| Storage / data | `database`, `store`, `storage`, `pgxutil`, `files`, `userfiles`, `uploadcheck`, `libpaths`, `kbaccess`, `kbvisibility`, `kbsubs`, `kbcategories`, `kbfilters`, `kbmembers`, `kbinvites`, `kbconfig`, `memory`, `cascade` |
+| Storage / data | `database`, `store`, `storage`, `pgxutil`, `files`, `userfiles`, `uploadcheck`, `libpaths`, `kbaccess`, `kbvisibility`, `kbsubs`, `kbcategories`, `kbfilters`, `kbmembers`, `kbinvites`, `kbconfig`, `memory`, `policyaccept`, `cascade` |
 | Search | `globalsearch` |
 | Admin | `adminagentmetrics`, `adminconfigs`, `adminfeedback`, `admineval`, `adminglobalkbs`, `adminkboverview`, `adminmaintenance`, `adminmcp`, `adminproviders`, `adminusers`, `kb`, `users`, `apikeys`, `auditlogs` |
 | Eval / observability | `eval`, `observability`, `logctx`, `analytics`, `health`, `systemhealth`, `apidocs`, `usage`, `ragassamples`, `feedback`, `pipeline` |

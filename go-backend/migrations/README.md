@@ -126,3 +126,4 @@ What each notable migration adds. Keep this table current when adding one.
 | 0095 | `role_templates` (new table): the catalog's template roles, curated in „Vorlagen" › Rollen — texts de/en, icon, cover gradient, `disabled`, one `is_default` (partial unique index); empty until the first server/worker seeds it from the code's roles (`internal/kbbehavior`) |
 | 0096 | `kb_categories.color` (nullable `#rrggbb`, lowercase, CHECK): a category's freely picked colour; NULL keeps the 0093 palette slot (`internal/kbcategories`) |
 | 0097 | `role_templates.start` (jsonb, NULL = input field): how a template's chat starts — input field, instruction or file upload, texts de/en; a KB without its own start for the role uses it. |
+| 0098 | `user_policy_acceptances` (new table): one row per user and accepted usage-policy version, `PRIMARY KEY (user_id, policy_version)`, `ON DELETE CASCADE`; nobody is asked until an admin sets `policy_acceptance_version` (`internal/policyaccept`) |
