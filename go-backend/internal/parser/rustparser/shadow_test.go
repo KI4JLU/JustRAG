@@ -144,6 +144,25 @@ func TestShadowWritesDumpFile(t *testing.T) {
 	if dump.Primary.Error != nil || dump.Shadow.Error != nil {
 		t.Errorf("unexpected errors in dump: primary=%v shadow=%v", dump.Primary.Error, dump.Shadow.Error)
 	}
+	// goldset's serde deserializer reads pages as a sequence and rejects
+	// null, so both sides must carry an empty array, not null. Compare the
+	// raw JSON tokens, not the encoded bytes, so the assertion does not
+	// depend on the encoder's indentation.
+	var pages struct {
+		Primary struct {
+			Pages *json.RawMessage `json:"pages"`
+		} `json:"primary"`
+		Shadow struct {
+			Pages *json.RawMessage `json:"pages"`
+		} `json:"shadow"`
+	}
+	if err := json.Unmarshal(data, &pages); err != nil {
+		t.Fatalf("dump is not valid JSON: %v", err)
+	}
+	if pages.Primary.Pages == nil || string(*pages.Primary.Pages) != "[]" ||
+		pages.Shadow.Pages == nil || string(*pages.Shadow.Pages) != "[]" {
+		t.Errorf("pages must serialize as an empty array on both sides:\n%s", data)
+	}
 }
 
 // TestShadowSkipsWhenSaturated checks the concurrency cap: with two shadow

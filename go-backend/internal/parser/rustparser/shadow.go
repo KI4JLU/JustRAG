@@ -203,7 +203,14 @@ type dumpPage struct {
 
 // dumpResult renders one parse result (or failure) in the parsedump shape.
 func dumpResult(name, doc string, res *parser.ParseResult, elapsed time.Duration, err error) *parseDump {
-	d := &parseDump{Parser: name, Doc: doc, ElapsedMS: uint64(elapsed / time.Millisecond)}
+	d := &parseDump{
+		Parser:    name,
+		Doc:       doc,
+		ElapsedMS: uint64(elapsed / time.Millisecond),
+		// Always an empty array, never null: goldset's serde
+		// deserializer reads pages as a sequence and rejects null.
+		Pages: []dumpPage{},
+	}
 	if res != nil {
 		d.Text = resultText(res)
 		d.IsMarkdown = res.IsMarkdown
