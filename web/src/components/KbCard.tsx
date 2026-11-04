@@ -9,6 +9,8 @@ import { formatRelativeCoarse } from '../utils/dates';
 import { CategoryPill } from './CategoryPill';
 import { categoryDotColor } from './kbSettings/assistant/startPageModel';
 import { canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
+import { useFittingLineClamp } from '../hooks/useFittingLineClamp';
+import { SortableHandle } from './SortableGrid';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
@@ -251,6 +253,43 @@ function kbCardActions({
   return items;
 }
 
+/* THE HOVER SWAP. Out first, then in: what leaves fades fast (150ms) and what
+   arrives follows after 100ms over 300ms, so the two texts never sit on top of
+   each other half-transparent. Each side carries its own delay for both
+   directions — a transition takes its timing from the state it moves TO. The
+   description also rises 4px into place; with reduced motion it only fades. */
+const AT_REST_FADE =
+  'transition-opacity duration-300 delay-100 ease-out group-focus-within/kb-card:opacity-0 group-focus-within/kb-card:duration-150 group-focus-within/kb-card:delay-0 group-hover/kb-card:opacity-0 group-hover/kb-card:duration-150 group-hover/kb-card:delay-0';
+
+const DESCRIPTION_FADE =
+  'translate-y-1 opacity-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:translate-y-0 group-focus-within/kb-card:translate-y-0 group-focus-within/kb-card:opacity-100 group-focus-within/kb-card:duration-300 group-focus-within/kb-card:delay-100 group-hover/kb-card:translate-y-0 group-hover/kb-card:opacity-100 group-hover/kb-card:duration-300 group-hover/kb-card:delay-100';
+
+/**
+ * The card's description, over the meta block and the footer (`inset-x-5`
+ * and `bottom-4` are the footer's own padding). The OUTER box is set by the
+ * card and measured; the text inside keeps its own height and clamps to the
+ * whole lines that fit the box. The clamp has to sit on a box as tall as its
+ * text: `line-clamp` only places the ellipsis, and in a taller box the lines
+ * after it still render, so the next one would show up cut.
+ */
+function CardDescription({ text }: { text: string }) {
+  const [ref, lines] = useFittingLineClamp<HTMLDivElement>();
+  return (
+    <div
+      ref={ref}
+      className={`pointer-events-none absolute inset-x-5 top-0 bottom-4 min-w-0 overflow-hidden text-sm text-on-surface-variant ${DESCRIPTION_FADE} group-focus-within/kb-card:pointer-events-auto group-hover/kb-card:pointer-events-auto`}
+    >
+      <p
+        className="m-0 line-clamp-4"
+        style={lines ? { WebkitLineClamp: lines } : undefined}
+        data-testid="kb-card-description"
+      >
+        {text}
+      </p>
+    </div>
+  );
+}
+
 /** A click on one of the card's own controls — or on its portaled menu, whose
  *  React events still bubble through the card. */
 const isControlClick = (e: React.MouseEvent) =>
@@ -353,7 +392,7 @@ export function PrivateKbCard({
     <Card
       interactive
       accentColor={kb.category ? categoryDotColor(kb.category) : undefined}
-      className="group/kb-card h-full cursor-pointer"
+      className="group/kb-card relative h-full cursor-pointer"
       data-testid="kb-card"
       role="presentation"
       onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
@@ -362,9 +401,22 @@ export function PrivateKbCard({
           favorite star and ⋯ on a faint tint of the category's colour, closed
           by a rule in that colour with the category on it. Without a category
           the card stays neutral: a grey tint and rule. */}
+      {/* The drag grip: top centre, over the band's top padding, so it takes
+          no room from the title. Only inside a sortable grid; shown on hover
+          and to the keyboard. */}
+      <SortableHandle
+        label={`${t('kbMoveCard')}: ${kb.name}`}
+        className="absolute top-0.5 left-1/2 z-10 h-5 w-9 -translate-x-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100"
+      />
       <CardBand data-testid="kb-card-band">
         <CardTitle>{nameButton}</CardTitle>
-        {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
+        {/* „Make favorite" (the empty star) shows on hover and to the keyboard
+            only; a favorite keeps its filled star. Without hover (touch) it
+            stays visible, since nothing would ever reveal it. */}
+        {favoriteButton(
+          `size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant${kb.isFavorite ? '' : ' opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100 [@media(hover:none)]:opacity-100'}`,
+          16,
+        )}
         {menu}
       </CardBand>
       <CardHairline>{kb.category && <CategoryPill category={kb.category} onHairline />}</CardHairline>
@@ -372,55 +424,58 @@ export function PrivateKbCard({
       {/* At rest, the activity — the meta block and the footer; hovered (or
           holding the focus) the card says what the topic is instead: its
           description, as on its title card. The description lies over both and
-          they fade out, so it adds no height: the meta block is at least two
-          lines tall, and the description takes its space and the footer's. */}
-      <CardContent className="relative flex flex-col pb-0">
-        <p className="pointer-events-none absolute inset-x-5 top-0 bottom-0 m-0 line-clamp-4 min-w-0 text-sm text-on-surface-variant opacity-0 transition-opacity group-focus-within/kb-card:pointer-events-auto group-focus-within/kb-card:opacity-100 group-hover/kb-card:pointer-events-auto group-hover/kb-card:opacity-100" data-testid="kb-card-description">{kb.description?.trim() || t('kbHeaderDefault')}</p>
-        <div className="mb-3 flex min-h-11 min-w-0 flex-col gap-1 transition-opacity group-focus-within/kb-card:opacity-0 group-hover/kb-card:opacity-0">
-          {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
-              „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
-              omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
-              are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
-              Stunden" (the unit rule is written down in utils/dates.ts). */}
-          <MetaLine
-            testId="kb-meta-used"
-            icon={<Clock size={16} aria-hidden="true" />}
-            label={t('kbCardUsed')}
-            value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
-          />
-          {kb.lastIngestedAt && (
+          they fade out, so it adds no height. It spans the meta block AND the
+          footer (the wrapper holds both), and clamps to the lines that fit
+          there, so it never ends in a half-cut line. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <CardDescription text={kb.description?.trim() || t('kbHeaderDefault')} />
+        <CardContent className={`flex flex-col pb-0 ${AT_REST_FADE}`}>
+          <div className="mb-3 flex min-h-11 min-w-0 flex-col gap-1">
+            {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
+                „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
+                omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
+                are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
+                Stunden" (the unit rule is written down in utils/dates.ts). */}
             <MetaLine
-              testId="kb-meta-updated"
-              icon={<RefreshCw size={16} aria-hidden="true" />}
-              label={t('kbCardUpdated')}
-              value={formatRelativeCoarse(kb.lastIngestedAt, language)}
+              testId="kb-meta-used"
+              icon={<Clock size={16} aria-hidden="true" />}
+              label={t('kbCardUsed')}
+              value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
             />
-          )}
-          {kb.userId !== currentUserId && (() => {
-            const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
-            const displayName = fullName || kb.ownerUsername || t('unknownUser');
-            // „von {name}": the words around the name are the muted label, the
-            // name is the bold value — one template, so translators keep the
-            // word order.
-            const [before, after = ''] = t('sharedBy').split('{name}');
-            return (
+            {kb.lastIngestedAt && (
               <MetaLine
-                testId="kb-meta-owner"
-                icon={<User size={16} aria-hidden="true" />}
-                label={before.trim()}
-                value={<>{displayName}{after}</>}
+                testId="kb-meta-updated"
+                icon={<RefreshCw size={16} aria-hidden="true" />}
+                label={t('kbCardUpdated')}
+                value={formatRelativeCoarse(kb.lastIngestedAt, language)}
               />
-            );
-          })()}
-        </div>
-      </CardContent>
-      {/* Footer: scent chips left (wrapping when they do not fit), the
-          visibility badge right — both inside the card at every width the
-          grid renders (card KI-843). Hidden while the description shows. */}
-      <CardFooter className="justify-between transition-opacity group-focus-within/kb-card:pointer-events-none group-focus-within/kb-card:opacity-0 group-hover/kb-card:pointer-events-none group-hover/kb-card:opacity-0">
-        <KbCardChips kb={kb} t={t} />
-        <VisibilityBadge kb={kb} t={t} />
-      </CardFooter>
+            )}
+            {kb.userId !== currentUserId && (() => {
+              const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
+              const displayName = fullName || kb.ownerUsername || t('unknownUser');
+              // „von {name}": the words around the name are the muted label, the
+              // name is the bold value — one template, so translators keep the
+              // word order.
+              const [before, after = ''] = t('sharedBy').split('{name}');
+              return (
+                <MetaLine
+                  testId="kb-meta-owner"
+                  icon={<User size={16} aria-hidden="true" />}
+                  label={before.trim()}
+                  value={<>{displayName}{after}</>}
+                />
+              );
+            })()}
+          </div>
+        </CardContent>
+        {/* Footer: scent chips left (wrapping when they do not fit), the
+            visibility badge right — both inside the card at every width the
+            grid renders (card KI-843). Hidden while the description shows. */}
+        <CardFooter className={`justify-between ${AT_REST_FADE} group-focus-within/kb-card:pointer-events-none group-hover/kb-card:pointer-events-none`}>
+          <KbCardChips kb={kb} t={t} />
+          <VisibilityBadge kb={kb} t={t} />
+        </CardFooter>
+      </div>
     </Card>
   );
 }
