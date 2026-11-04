@@ -95,10 +95,11 @@ export default function AuthenticatedApp() {
    */
   return (
     <ModalProvider>
-      <AuthenticatedAppInner />
-      <UploadStorageNoticeDialog />
       {/* Over every view: the AI-use notice until the user accepted it. */}
-      <PolicyAcceptanceGate />
+      <PolicyAcceptanceGate>
+        <AuthenticatedAppInner />
+      </PolicyAcceptanceGate>
+      <UploadStorageNoticeDialog />
     </ModalProvider>
   );
 }

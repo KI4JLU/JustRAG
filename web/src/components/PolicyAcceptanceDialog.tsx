@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import axios from 'axios';
 import { useLocation } from '@tanstack/react-router';
 import { NoticeDialog, NoticeDialogLink } from '@ki4jlu/design-system';
@@ -20,40 +20,98 @@ interface PolicyState {
     acceptedAt?: string;
 }
 
+/** Re-check at most this often when the tab comes back, so a long-open tab picks up a new version. */
+const RECHECK_MIN_INTERVAL_MS = 30_000;
+
 /**
  * The AI-use notice every signed-in user has to accept once per
  * `policy_acceptance_version` before using the web app. It cannot be closed:
  * the only ways out are accepting or signing out.
  *
+ * The gate wraps the app. Until the first state request has answered, the app
+ * is rendered but `inert`, so nothing can be used before the gate knows
+ * whether a notice is due. The state is checked again whenever the tab comes
+ * back into view (at most every 30 seconds), so a version an admin sets while
+ * the app is open reaches open tabs too.
+ *
  * The gate is the web app's only. The backend stores acceptances but refuses
  * nothing to a user who has not accepted, so a failed state request leaves the
- * app usable (the notice comes back on the next page load) rather than locking
- * everyone out while the endpoint is down.
+ * app usable (the next check shows the notice) rather than locking everyone
+ * out while the endpoint is down.
  */
-export function PolicyAcceptanceGate() {
+export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
     const { pathname } = useLocation();
     const [state, setState] = useState<PolicyState | null>(null);
+    // Only the first request blocks; once it answered or failed, the app stays usable.
+    const [settled, setSettled] = useState(false);
+    const lastCheck = useRef(0);
+    // Bumped by every request and by an acceptance: an answer that is no longer
+    // the newest (a re-check sent before the user accepted) is dropped.
+    const generation = useRef(0);
 
     const load = useCallback(() => {
+        lastCheck.current = Date.now();
+        const mine = ++generation.current;
         axios.get<PolicyState>(POLICY_URL)
-            .then(res => setState(res.data))
-            .catch((err: unknown) => console.error('Failed to load policy acceptance:', err));
+            .then(res => { if (mine === generation.current) setState(res.data); })
+            // A failed re-check keeps the last known state.
+            .catch((err: unknown) => console.error('Failed to load policy acceptance:', err))
+            // Only the newest request lifts the initial block; a superseded one would lift it early.
+            .finally(() => { if (mine === generation.current) setSettled(true); });
     }, []);
 
     useEffect(load, [load]);
 
-    if (!state?.required || LEGAL_PATHS.has(pathname)) return null;
-    return <PolicyAcceptanceDialog key={state.version} version={state.version} onAccepted={setState} onStale={load} />;
+    useEffect(() => {
+        const recheck = () => {
+            if (document.visibilityState !== 'visible') return;
+            if (Date.now() - lastCheck.current < RECHECK_MIN_INTERVAL_MS) return;
+            load();
+        };
+        document.addEventListener('visibilitychange', recheck);
+        window.addEventListener('focus', recheck);
+        return () => {
+            document.removeEventListener('visibilitychange', recheck);
+            window.removeEventListener('focus', recheck);
+        };
+    }, [load]);
+
+    // A check that started while the acceptance was in flight may have read
+    // the state before it, or a newer version after it; its answer and this
+    // one cannot be ordered, so the state is loaded once more instead.
+    const accept = useCallback(async (version: string) => {
+        const startedAt = generation.current;
+        const res = await axios.post<PolicyState>(POLICY_URL, { version });
+        if (startedAt !== generation.current) {
+            load();
+            return;
+        }
+        generation.current++;
+        setState(res.data);
+    }, [load]);
+
+    const exempt = LEGAL_PATHS.has(pathname);
+    return (
+        <>
+            <div className="contents" inert={!settled && !exempt} aria-busy={!settled && !exempt}>
+                {children}
+            </div>
+            {state?.required && !exempt && (
+                <PolicyAcceptanceDialog key={state.version} version={state.version} onAccept={accept} onStale={load} />
+            )}
+        </>
+    );
 }
 
 interface PolicyAcceptanceDialogProps {
     version: string;
-    onAccepted: (state: PolicyState) => void;
+    /** Stores the acceptance of `version`; rejects with the request's error. */
+    onAccept: (version: string) => Promise<void>;
     /** The version changed while the notice was open: load the current one. */
     onStale: () => void;
 }
 
-export function PolicyAcceptanceDialog({ version, onAccepted, onStale }: PolicyAcceptanceDialogProps) {
+export function PolicyAcceptanceDialog({ version, onAccept, onStale }: PolicyAcceptanceDialogProps) {
     const { t } = useTheme();
     const { logout } = useAuth();
     const toast = useToast();
@@ -65,8 +123,7 @@ export function PolicyAcceptanceDialog({ version, onAccepted, onStale }: PolicyA
     const accept = async () => {
         setSaving(true);
         try {
-            const res = await axios.post<PolicyState>(POLICY_URL, { version });
-            onAccepted(res.data);
+            await onAccept(version);
         } catch (err) {
             if (errorInfo(err).code === 'policy_version_changed') {
                 toast.info(t('policyNoticeUpdated'));
@@ -74,6 +131,7 @@ export function PolicyAcceptanceDialog({ version, onAccepted, onStale }: PolicyA
             } else {
                 toast.error(userErrorMessage(err, t));
             }
+        } finally {
             setSaving(false);
         }
     };
