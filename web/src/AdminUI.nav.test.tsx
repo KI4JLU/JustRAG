@@ -71,7 +71,7 @@ describe('AdminUI navigation — groups', () => {
 
     it('groups the sections for a superadmin', () => {
         renderAs('superadmin');
-        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels', 'adminTabAuth', 'adminTabSearch', 'adminTabAgents', 'adminTabSettings']);
+        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels', 'adminTabAuth', 'adminTabSearch', 'adminTabAgents', 'adminTabSettings', 'systemNotice']);
         expect(rowsOf('adminNavGroupKbs')).toEqual(['adminTabKbOverview', 'adminTabGlobalKbs', 'adminTabTemplates']);
         expect(rowsOf('adminNavGroupUsers')).toEqual(['adminTabUsers', 'adminTabRoles']);
         expect(rowsOf('adminNavGroupMonitoring')).toEqual(['adminTabHealth', 'evalRunner']);
@@ -79,7 +79,8 @@ describe('AdminUI navigation — groups', () => {
 
     it('leaves out what an admin may not use, and keeps the groups', () => {
         renderAs('admin');
-        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels']);
+        // The system notice is the one site setting an admin edits (PUT /api/admin/system-notice).
+        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels', 'systemNotice']);
         expect(rowsOf('adminNavGroupKbs')).toEqual(['adminTabKbOverview', 'adminTabGlobalKbs', 'adminTabTemplates']);
         expect(rowsOf('adminNavGroupMonitoring')).toEqual(['adminTabHealth']);
     });
