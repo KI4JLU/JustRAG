@@ -2,10 +2,11 @@
 //
 // Oracle: the contract in API.md — GET reports {version, required,
 // acceptedAt?} with version "" and required false while the key is unset;
-// POST stores only the current version (409 policy_version_changed for any
-// other, including while the notice is off), 400 for a missing version or bad
-// JSON, 200 with the acceptance time otherwise. The store and the site_config
-// reader are fakes whose answers the test picks.
+// POST answers 409 policy_version_changed when the store refuses the version
+// as not current (including while the notice is off), 400 for a missing
+// version or bad JSON, 200 with the acceptance time otherwise. The store and
+// the site_config reader are fakes whose answers the test picks; the store's
+// own version check is covered by the integration test.
 
 package policyaccept_test
 
@@ -39,6 +40,7 @@ func (f fakeCfg) GetSiteConfigValue(_ context.Context, key string) (*string, err
 
 type fakeStore struct {
 	accepted map[string]time.Time // version → time, for testUserID
+	current  string               // the version Accept takes; others are ErrVersionChanged
 	gotUser  string
 	err      error
 }
@@ -58,6 +60,9 @@ func (f *fakeStore) Accept(_ context.Context, userID, version string) (time.Time
 	f.gotUser = userID
 	if f.err != nil {
 		return time.Time{}, f.err
+	}
+	if version != f.current {
+		return time.Time{}, policyaccept.ErrVersionChanged
 	}
 	if at, ok := f.accepted[version]; ok {
 		return at, nil
@@ -144,27 +149,27 @@ func TestGet(t *testing.T) {
 func TestAccept(t *testing.T) {
 	tests := []struct {
 		name       string
-		cfg        fakeCfg
+		current    string
 		body       string
 		wantStatus int
 		wantCode   string
 		wantStored bool
 	}{
-		{name: "current version", cfg: fakeCfg{value: strp("2026-07-13")}, body: `{"version":"2026-07-13"}`,
+		{name: "current version", current: "2026-07-13", body: `{"version":"2026-07-13"}`,
 			wantStatus: 200, wantStored: true},
-		{name: "stale version", cfg: fakeCfg{value: strp("2026-11-01")}, body: `{"version":"2026-07-13"}`,
+		{name: "stale version", current: "2026-11-01", body: `{"version":"2026-07-13"}`,
 			wantStatus: 409, wantCode: "policy_version_changed"},
-		{name: "notice off", cfg: fakeCfg{}, body: `{"version":"2026-07-13"}`,
+		{name: "notice off", current: "", body: `{"version":"2026-07-13"}`,
 			wantStatus: 409, wantCode: "policy_version_changed"},
-		{name: "missing version", cfg: fakeCfg{value: strp("2026-07-13")}, body: `{}`, wantStatus: 400},
-		{name: "bad json", cfg: fakeCfg{value: strp("2026-07-13")}, body: `{`, wantStatus: 400},
-		{name: "oversized body", cfg: fakeCfg{value: strp("2026-07-13")},
+		{name: "missing version", current: "2026-07-13", body: `{}`, wantStatus: 400},
+		{name: "bad json", current: "2026-07-13", body: `{`, wantStatus: 400},
+		{name: "oversized body", current: "2026-07-13",
 			body: `{"version":"` + strings.Repeat("x", 2000) + `"}`, wantStatus: 400},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeStore{accepted: map[string]time.Time{}}
-			h := policyaccept.NewHandler(store, tc.cfg)
+			store := &fakeStore{accepted: map[string]time.Time{}, current: tc.current}
+			h := policyaccept.NewHandler(store, fakeCfg{value: strp(tc.current)})
 			rec := httptest.NewRecorder()
 			h.Accept(rec, authed(http.MethodPost, tc.body))
 			if rec.Code != tc.wantStatus {

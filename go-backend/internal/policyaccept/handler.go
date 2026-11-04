@@ -3,6 +3,7 @@ package policyaccept
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -59,22 +60,28 @@ type stateResponse struct {
 	AcceptedAt *time.Time `json:"acceptedAt,omitempty"`
 }
 
-// currentVersion reads VersionKey. A value that fails ValidateVersion (one
-// written past the validator) reads as off rather than as a version the
-// client could never echo back.
+// normalizeVersion turns a stored VersionKey value into the version to
+// accept. A value that fails ValidateVersion (one written past the
+// validator) reads as off ("") rather than as a version the client could
+// never echo back.
+func normalizeVersion(raw *string) string {
+	if raw == nil {
+		return ""
+	}
+	v := strings.TrimSpace(*raw)
+	if !versionPattern.MatchString(v) {
+		return ""
+	}
+	return v
+}
+
+// currentVersion reads VersionKey; "" means the notice is off.
 func (h *Handler) currentVersion(ctx context.Context) (string, error) {
 	raw, err := h.cfg.GetSiteConfigValue(ctx, VersionKey)
 	if err != nil {
 		return "", fmt.Errorf("policyaccept: read %s: %w", VersionKey, err)
 	}
-	if raw == nil {
-		return "", nil
-	}
-	v := strings.TrimSpace(*raw)
-	if !versionPattern.MatchString(v) {
-		return "", nil
-	}
-	return v, nil
+	return normalizeVersion(raw), nil
 }
 
 // Get handles GET /api/user/policy-acceptance.
@@ -105,6 +112,8 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // Accept handles POST /api/user/policy-acceptance with body {"version": "…"}.
 // The version must be the current one: a client that showed an older notice
 // gets 409 policy_version_changed and has to show the current one first.
+// The store checks the version and records the acceptance in one
+// transaction, so a version changed mid-request is a 409 too.
 func (h *Handler) Accept(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := auth.UserFromContext(ctx)
@@ -123,17 +132,13 @@ func (h *Handler) Accept(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "version is required")
 		return
 	}
-	version, err := h.currentVersion(ctx)
-	if err != nil {
-		httputil.WriteInternalErrorCtx(ctx, w, err)
-		return
-	}
-	if version == "" || body.Version != version {
+	version := body.Version
+	at, err := h.store.Accept(ctx, user.ID, version)
+	if errors.Is(err, ErrVersionChanged) {
 		httputil.WriteCodedErrorCtx(ctx, w, http.StatusConflict, "policy_version_changed",
 			"the policy version has changed; reload and accept the current version")
 		return
 	}
-	at, err := h.store.Accept(ctx, user.ID, version)
 	if err != nil {
 		httputil.WriteInternalErrorCtx(ctx, w, err)
 		return
