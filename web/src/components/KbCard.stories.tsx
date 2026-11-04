@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn } from 'storybook/test';
+import { expect, fn, waitFor } from 'storybook/test';
 import { Grid } from '@ki4jlu/design-system';
 import { PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
@@ -183,5 +183,38 @@ export const MockupCardsInUniformGrid: Story = {
     await expect(shared.querySelector('[data-testid="kb-meta-owner"]')).toHaveTextContent('von Ada Lovelace');
     await expect(noFiles.querySelector('[data-testid="kb-meta-updated"]')).toBeNull();
     await expect(noFiles.querySelectorAll('.home-view__chip')).toHaveLength(0);
+  },
+};
+
+/** A description much longer than the card's description box. */
+const LONG_KB = kb({
+  id: 'kb-d', name: 'Rollen-Test', fileCount: 3, turnCount: 12,
+  description: 'Die Plone-Infrastruktur und deren Firewall-Anpassungen, einschließlich aktueller Wartungsarbeiten. Du erfährst, wann und warum Netzwerkeinstellungen geändert wurden und welche Dienste davon betroffen sind.',
+  lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
+});
+
+/**
+ * The hover description ends on a whole line: its text is no taller than the
+ * box it lies in (so no line after the ellipsis shows cut in half), and it
+ * uses the lines the box has (so it is not clamped shorter than it fits).
+ * ORACLE: Chromium's layout of the real card, measured in one frame.
+ */
+export const HoverDescriptionEndsOnWholeLine: Story = {
+  args: { item: LONG_KB },
+  render: () => (
+    <Frame width={680}>
+      <TopicGridPage id="kb-card-description" title="Mein Wissen" uniformRows items={[LONG_KB, SCREENSHOT_KB].map(i => <Card key={i.id} item={i} />)} />
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const text = canvasElement.querySelector<HTMLElement>('[data-testid="kb-card-description"]')!;
+    const box = text.parentElement!;
+    const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+    await waitFor(() => expect(text.style.webkitLineClamp).not.toBe(''));
+    const textRect = text.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    await expect(textRect.bottom).toBeLessThanOrEqual(boxRect.bottom);
+    await expect(boxRect.bottom - textRect.bottom).toBeLessThan(lineHeight);
+    await expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
   },
 };
