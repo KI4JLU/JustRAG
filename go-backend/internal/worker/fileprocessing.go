@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -196,6 +197,16 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			"fileName", payload.OriginalName,
 		)
 
+		// A file deleted while its task waited in the queue: skip before the
+		// blob download (the blob is gone too, and the download error would
+		// be retried). RevokeTask: no retry and no dead-letter entry (KI-828).
+		if rc, ok := deps.Links.(processor.FileRowChecker); ok && payload.FileID != "" {
+			if exists, err := rc.FileExists(ctx, payload.FileID); err == nil && !exists {
+				slog.Info("file processing skipped: file was deleted", "fileId", payload.FileID)
+				return fmt.Errorf("%w: %w", processor.ErrFileDeleted, asynq.RevokeTask)
+			}
+		}
+
 		// Look up KB-specific chunk settings (0 means use defaults)
 		chunkSize, chunkOverlap := 0, 0
 		if kbStore != nil && payload.KbID != "" {
@@ -266,6 +277,12 @@ func NewFileProcessingHandlerWithDeps(deps FileProcessingDeps) asynq.HandlerFunc
 			UserFileID:   payload.UserFileID,
 			OwnerUserID:  ownerID,
 		})
+		if errors.Is(err, processor.ErrFileDeleted) {
+			// Stopped because the file was deleted mid-run; the processor
+			// already removed what it wrote. Nothing to retry.
+			slog.Info("file processing stopped: file was deleted", "fileId", payload.FileID)
+			return fmt.Errorf("%w: %w", err, asynq.RevokeTask)
+		}
 		if err != nil {
 			slog.Error("file processing failed",
 				"fileId", payload.FileID,

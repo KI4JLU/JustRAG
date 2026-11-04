@@ -734,7 +734,15 @@ func (p *Processor) ProcessFileWithResult(ctx context.Context, in ProcessFileInp
 	return out, err
 }
 
+// processFile runs one ingest, stopped early when the file is deleted
+// meanwhile (guardDeletedFile, KI-828).
 func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) error {
+	return p.guardDeletedFile(ctx, in, func(ctx context.Context) error {
+		return p.ingestFile(ctx, in, outcome)
+	})
+}
+
+func (p *Processor) ingestFile(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) error {
 	ctx = withIngestDegradedFlag(ctx)
 	// Resolve ingestion config through the file's KB so per-KB overrides
 	// (raptor/parent-child/enrichment/kg_extraction) take effect. Reassigning
