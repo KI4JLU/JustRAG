@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration tests for migration 0098 and the policyaccept store.
+// Integration tests for migration 0099 and the policyaccept store.
 //
 // Oracle: the table's own primary key and foreign key, checked with raw SQL —
 // one row per (user, version), the first acceptance time kept, rows gone with

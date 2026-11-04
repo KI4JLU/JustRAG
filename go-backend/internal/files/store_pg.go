@@ -394,6 +394,16 @@ func (s *PGStore) LibraryLink(ctx context.Context, fileID string) (userFileID, o
 // CurrentStoragePath returns files.storage_path ("" when NULL). Queued tasks
 // carry the path from enqueue time; library adoption can re-key the blob in
 // between, so the worker re-reads the current value.
+// FileExists reports whether the files row still exists. The ingest worker
+// polls it to stop a job whose file was deleted mid-run (KI-828).
+func (s *PGStore) FileExists(ctx context.Context, fileID string) (bool, error) {
+	var ok bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM files WHERE id = $1::uuid)`, fileID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("FileExists: %w", err)
+	}
+	return ok, nil
+}
+
 func (s *PGStore) CurrentStoragePath(ctx context.Context, fileID string) (string, error) {
 	var p string
 	err := s.pool.QueryRow(ctx, `SELECT COALESCE(storage_path,'') FROM files WHERE id = $1::uuid`, fileID).Scan(&p)
@@ -450,7 +460,7 @@ func (s *PGStore) UpdateFileStageDetail(ctx context.Context, fileID, detail stri
 // sites record the most recent attempt's failure. The raw Go error must
 // never be passed as message; it stays in logs (request_id-joinable).
 //
-// Stage vocabulary: unsupported_type, parse, embedding, canceled,
+// Stage vocabulary: unsupported_type, too_large, parse, embedding, canceled,
 // processing, timeout, queue. The frontend maps stages to translated
 // labels, so additions need a matching key in web/src/translations.ts.
 func (s *PGStore) MarkFileError(ctx context.Context, fileID, stage, message string) error {

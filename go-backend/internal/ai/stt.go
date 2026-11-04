@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -32,6 +33,24 @@ var sttMaxFileBytes = func() int64 {
 	}
 	return defaultMB << 20
 }()
+
+// STTMaxFileBytes is the largest audio file transcription accepts (see
+// sttMaxFileBytes). The upload check reads it too, so an oversized recording
+// is refused at upload instead of failing in the worker (KI-960).
+func STTMaxFileBytes() int64 { return sttMaxFileBytes }
+
+// SetSTTMaxFileBytesForTest overrides the limit so tests in other packages
+// need no 25 MB fixture; it returns the restore func. Not for production use.
+func SetSTTMaxFileBytesForTest(n int64) (restore func()) {
+	old := sttMaxFileBytes
+	sttMaxFileBytes = n
+	return func() { sttMaxFileBytes = old }
+}
+
+// ErrAudioTooLarge marks an audio file over STTMaxFileBytes. Deterministic:
+// a retry cannot succeed, so the processor records its own error stage and
+// skips the retries.
+var ErrAudioTooLarge = errors.New("stt: audio file exceeds the transcription size limit")
 
 // NewSTTHTTPClient constructs the long-timeout HTTP client used for STT
 // requests. Audio transcription can take a while, so the default timeout is
@@ -108,8 +127,8 @@ func TranscribeAudioFromPath(ctx context.Context, resolver *ConfigResolver, http
 	// but the STT endpoint typically caps at 25 MB. Buffering a 500 MB .wav
 	// only to get a 413 back wastes worker memory and stalls the queue.
 	if stat.Size() > sttMaxFileBytes {
-		return "", fmt.Errorf("stt: audio file %q is %d bytes, exceeds STT limit of %d bytes (%d MB)",
-			fileName, stat.Size(), sttMaxFileBytes, sttMaxFileBytes>>20)
+		return "", fmt.Errorf("%w: %q is %d bytes, limit %d bytes (%d MB)",
+			ErrAudioTooLarge, fileName, stat.Size(), sttMaxFileBytes, sttMaxFileBytes>>20)
 	}
 
 	slog.Info("STT request",

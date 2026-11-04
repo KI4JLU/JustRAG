@@ -158,7 +158,7 @@ function AuthenticatedAppInner() {
   const sidebar = useSidebarResize();
   // Existing hooks
   // A user's first source upload raises the notice on how long uploads are kept.
-  const { confirm: confirmStorageNotice } = useUploadStorageNotice(user.id);
+  const { confirm: confirmStorageNotice } = useUploadStorageNotice(user.id, 'source');
   const fileMgmt = useFileManagement({ currentKb, confirmUpload: confirmStorageNotice });
 
   const chat = useChat({

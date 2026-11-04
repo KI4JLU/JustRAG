@@ -243,11 +243,19 @@ var bm25FloorScratchPool = sync.Pool{
 	},
 }
 
-// ApplyMinThreshold removes any docs whose Score is strictly below minScore.
+// ApplyMinThreshold applies min_similarity_threshold: it removes docs whose
+// only evidence is a vector cosine similarity below minScore.
+//
+// It reads VectorScore, not Score. On the no-reranker path Score holds the
+// RRF score, at most about 1/61 per list, so a cosine-scale threshold such
+// as the 0.3 default removed every document (KI-826). Documents the keyword
+// arm found (KeywordRank > 0) and graph-injected chunks (no score at all,
+// they enter RRF by rank) have no cosine to judge and are kept.
 func ApplyMinThreshold(docs []RankedDoc, minScore float64) []RankedDoc {
 	result := docs[:0]
 	for _, doc := range docs {
-		if doc.Score >= minScore {
+		weakVectorOnly := doc.KeywordRank <= 0 && doc.VectorScore > 0 && doc.VectorScore < minScore
+		if !weakVectorOnly {
 			result = append(result, doc)
 		}
 	}

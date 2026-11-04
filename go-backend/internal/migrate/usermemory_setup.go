@@ -14,7 +14,8 @@ const (
 
 // activeEmbeddingDimSQL resolves the dimension of the embedding model that
 // ai.ConfigResolver.Resolve(ctx, "") would pick: the active provider's
-// first embedding-capable model, ordered by creation time.
+// default embedding model (ai_models.is_default, migration 0098), else the
+// first by name — the same order internal/ai GetAIModelsByProvider returns.
 const activeEmbeddingDimSQL = `
 	SELECT am.dimensions
 	  FROM ai_models am
@@ -22,7 +23,7 @@ const activeEmbeddingDimSQL = `
 	 WHERE ap.is_active = true
 	   AND am.is_embedding = true
 	   AND am.dimensions > 0
-	 ORDER BY am.created_at ASC
+	 ORDER BY am.is_default DESC, am.name, am.id
 	 LIMIT 1`
 
 // parseVectorDim extracts N from a "vector(N)" format_type string. Returns
