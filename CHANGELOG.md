@@ -11,6 +11,13 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
+## Unreleased
+
+### ⚠ Upgrade notes
+
+- **All SSE streams now carry `: ping` keep-alive comment lines in silent phases** (web chat incl. early open, library chat, research and academic-relay streams, agent chat, `/owui`, OpenAI-compat and the public API; the agent chat endpoint additionally opts out of the server-wide `WriteTimeout`). SSE comments carry no `data:` payload and are ignored by WHATWG-conformant clients; clients that only parse `data:` lines are unaffected. Contracts: `API.md`, `docs/api-contracts/{chat-sse-early-open,agent-chat,owui-compat}.md`.
+- **Verify the ILIAS LfAssistant plugin's stream reader skips non-`data:` lines before enabling `owui_compat_enabled`** — the plugin is not in this repository and its parser has not been checked here.
+
 ## v26.10.1 — 2026-10-27
 
 ### ⚠ Upgrade notes

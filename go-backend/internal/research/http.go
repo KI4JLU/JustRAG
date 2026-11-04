@@ -179,9 +179,13 @@ func (h *Handler) startStreamingResearch(
 	channel := "research:" + researchID
 	abortKey := "research:abort:" + researchID
 
-	// Write the session-id event first, before Run() sets SSE headers, by
-	// setting headers manually and flushing a preamble event.
-	httputil.EnableSSE(w)
+	// Open the stream here so the session-id preamble event goes out before
+	// Run() relays worker events. Run() calls StartSSE again — a no-op on
+	// this already-open stream (its own deferred Stop is idempotent with
+	// this one).
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop() // no ping may outlive this handler
+	w = sw
 
 	sessionEvent, _ := json.Marshal(map[string]string{"type": "session", "sessionId": session.ID})
 	_, _ = w.Write([]byte("data: " + string(sessionEvent) + "\n\n"))

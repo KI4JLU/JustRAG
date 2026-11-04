@@ -4,6 +4,8 @@ import axios from 'axios';
 import { useFileManagement } from './useFileManagement';
 import type { FileEntry, KnowledgeBase } from '../types';
 
+import { MAX_FILES_PER_KB } from '../constants';
+
 vi.mock('axios');
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (k: string) => k, language: 'de' }),
@@ -155,5 +157,42 @@ describe('useFileManagement.uploadFiles', () => {
     expect(result.current.files).toEqual([]);
     void done;
     unmount();
+  });
+});
+
+// Oracle: card F-17 as refined by the developer — a source upload waits on
+// the storage notice; declining it drops the files before anything is sent.
+describe('useFileManagement confirmUpload', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const pdf = () => new File(['a'], 'a.pdf', { type: 'application/pdf' });
+
+  it('uploads once the notice is accepted', async () => {
+    vi.mocked(axios.post).mockResolvedValue({ data: row('f-a', 'a.pdf') });
+    vi.mocked(axios.get).mockResolvedValue({ data: [] });
+    const confirmUpload = vi.fn(async () => true);
+    const { result } = renderHook(() => useFileManagement({ currentKb: kb, confirmUpload }));
+    await act(() => result.current.uploadFiles([pdf()]));
+    expect(confirmUpload).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends and lists nothing when the notice is declined', async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: [] });
+    const { result } = renderHook(() => useFileManagement({ currentKb: kb, confirmUpload: async () => false }));
+    await act(() => result.current.uploadFiles([pdf()]));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(result.current.uploads).toEqual([]);
+  });
+
+  it('keeps two batches that waited on the notice together within the file limit', async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: [] });
+    vi.mocked(axios.post).mockImplementation(() => new Promise(() => {}));
+    let accept!: (ok: boolean) => void;
+    const answer = new Promise<boolean>((r) => { accept = r; });
+    const { result } = renderHook(() => useFileManagement({ currentKb: kb, confirmUpload: () => answer }));
+    const batch = () => Array.from({ length: 300 }, (_, i) => new File(['a'], `${i}.pdf`, { type: 'application/pdf' }));
+    act(() => { void result.current.uploadFiles(batch()); void result.current.uploadFiles(batch()); });
+    await act(async () => { accept(true); await answer; });
+    expect(result.current.uploads).toHaveLength(MAX_FILES_PER_KB);
   });
 });
