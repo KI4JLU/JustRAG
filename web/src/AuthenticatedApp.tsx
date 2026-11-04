@@ -18,6 +18,8 @@ import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 import { useSidebarResize } from './hooks/useSidebarResize';
 import { useChat } from './hooks/useChat';
 import { useFileManagement } from './hooks/useFileManagement';
+import { useUploadStorageNotice } from './hooks/useUploadStorageNotice';
+import { UploadStorageNoticeDialog } from './components/UploadStorageNoticeDialog';
 import { useWebTools } from './hooks/useWebTools';
 import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
@@ -93,6 +95,7 @@ export default function AuthenticatedApp() {
   return (
     <ModalProvider>
       <AuthenticatedAppInner />
+      <UploadStorageNoticeDialog />
     </ModalProvider>
   );
 }
@@ -150,7 +153,9 @@ function AuthenticatedAppInner() {
   // Sidebar resize
   const sidebar = useSidebarResize();
   // Existing hooks
-  const fileMgmt = useFileManagement({ currentKb });
+  // A user's first source upload raises the notice on how long uploads are kept.
+  const { confirm: confirmStorageNotice } = useUploadStorageNotice(user.id);
+  const fileMgmt = useFileManagement({ currentKb, confirmUpload: confirmStorageNotice });
 
   const chat = useChat({
     currentKb, files: fileMgmt.files, enhance: kbSettings.enhance,
