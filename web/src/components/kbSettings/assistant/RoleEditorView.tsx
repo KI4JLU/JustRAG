@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Check, Copy, Info, Sparkles } from 'lucide-react';
 import { BreadcrumbBack, Button, Input, Notice, Shimmer } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { DEFAULT_NAMES } from '../../../utils/systemNames';
 import { defaultStart, describeRole, generateRolePrompt, NotAvailableError, reviseRolePrompt } from './api';
 import { RoleStartEditor } from './ChatStartEditor';
 import { RoleNameFields, RolePromptField } from './RoleFields';
@@ -29,7 +30,8 @@ function PromptEditor({ kbId, topic, editor, setEditor, maxPrompt }: {
 }) {
     const { t, language: uiLanguage } = useTheme();
     // The role prompt is written in the language the KB's prompt is compiled in.
-    const language = useAssistantSettings().catalog?.language ?? uiLanguage;
+    const { catalog } = useAssistantSettings();
+    const language = catalog?.language ?? uiLanguage;
     const promptRef = useRef<HTMLTextAreaElement>(null);
     const empty = !editor.prompt.trim();
     const { ai } = editor;
@@ -114,6 +116,7 @@ function PromptEditor({ kbId, topic, editor, setEditor, maxPrompt }: {
                     requestAnimationFrame(() => promptRef.current?.focus());
                 }}
                 onChange={(prompt) => setEditor({ ...editor, prompt, ai: { ...ai, undo: undefined } })}
+                names={catalog?.names ?? DEFAULT_NAMES}
             />
         </div>
     );

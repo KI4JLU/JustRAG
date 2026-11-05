@@ -31,12 +31,11 @@ export type AssistantAction =
     | { type: 'previewRole'; roleId: string };
 
 /**
- * What the opened section starts with: the Startseite on the „Nur über
- * Rolle" editor (a card added for `entryId`; `switched` when the mode was
- * changed for it), or Verhalten on a role's preview.
+ * What the opened section starts with: the Startseite on the role cards'
+ * editor (a card added for `entryId`), or Verhalten on a role's preview.
  */
 export type AssistantPending =
-    | { type: 'startRoles'; entryId: string | null; switched: boolean }
+    | { type: 'startRoles'; entryId: string | null }
     | { type: 'previewRole'; roleId: string };
 
 export type AssistantSection = 'start' | 'behavior';
@@ -107,13 +106,12 @@ export function draftAfterReset(draft: AssistantDraft | null, saved: AssistantDr
     const active = server.behavior.activeRoleId;
     const roleEntries = page.roleEntries.filter(e => roleIds.has(e.roleId) && e.roleId !== active);
     const roleStarts = Object.fromEntries(Object.entries(page.roleStarts).filter(([id]) => roleIds.has(id)));
-    const startMode = page.startMode === 'roles' && roleEntries.length === 0 ? 'input' : page.startMode;
     return {
         behavior: server.behavior,
         title: keep('title'),
         description: keep('description'),
         categoryId: keep('categoryId'),
-        startPage: { ...page, roleEntries, roleStarts, startMode },
+        startPage: { ...page, roleEntries, roleStarts },
     };
 }
 
@@ -195,9 +193,8 @@ export function useAssistantSettingsStore({ kb, onUpdateKb, onOpenSection }: Opt
                 const roleEntries = d.startPage.roleEntries.filter(e => e.roleId !== roleId && e.roleId !== activeRoleId);
                 const roleStarts = { ...d.startPage.roleStarts };
                 delete roleStarts[roleId];
-                // The last further role went: one role leaves nothing to choose, so the input field.
-                const startMode = d.startPage.startMode === 'roles' && roleEntries.length === 0 ? 'input' : d.startPage.startMode;
-                return { ...d.startPage, roleEntries, roleStarts, startMode };
+                // The last further role may go: the active role's card stays, alone.
+                return { ...d.startPage, roleEntries, roleStarts };
             })(),
         };
     }), [catalog]);
@@ -263,12 +260,11 @@ export function useAssistantSettingsStore({ kb, onUpdateKb, onOpenSection }: Opt
             const entryId = canAdd ? newId('re') : existing?.id ?? null;
             updateStartPage(p => ({
                 ...p,
-                startMode: 'roles',
                 roleEntries: canAdd && entryId
                     ? [...p.roleEntries, { id: entryId, roleId: action.roleId }]
                     : p.roleEntries,
             }));
-            setPending({ type: 'startRoles', entryId, switched: page.startMode !== 'roles' });
+            setPending({ type: 'startRoles', entryId });
         }
         onOpenSection(section);
     }, [onOpenSection, draft, updateStartPage]);

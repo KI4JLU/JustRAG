@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/justrag/go-backend/internal/kbassistant"
@@ -69,7 +70,7 @@ func TestAssistantSettings_SaveVersionsRestore(t *testing.T) {
 	in.Title = "Neuer Titel"
 	in.CategoryID = &cat.ID
 	in.Behavior = kbbehavior.Default()
-	in.Behavior.ActiveRoleID = "tutor"
+	in.Behavior.ActiveRoleID = "summary"
 	in.StartPage = kbstartpage.Default()
 	in.StartPage.Colors = &kbstartpage.Colors{From: "#112233", To: "#445566"}
 	if s, err = st.Save(ctx, kbID, in, owner); err != nil || s.Version != 3 || s.Title != "Neuer Titel" ||
@@ -93,18 +94,22 @@ func TestAssistantSettings_SaveVersionsRestore(t *testing.T) {
 		t.Fatalf("versions: %+v (%v)", vs, err)
 	}
 
+	// Version 1 is from a KB whose behavior was still NULL: it comes back in
+	// the form migration 0101 gives such a KB, its prompt as „Eigene Rolle".
 	if s, err = st.Restore(ctx, kbID, 1, 3, owner); err != nil || s.Version != 4 || s.Title != "kb-behavior-it" ||
-		s.Behavior.Customized || s.StartPageConfigured || s.CategoryID != nil {
+		s.Behavior.Behavior.ActiveRoleID != kbbehavior.LegacyRoleID || s.Behavior.Behavior.CustomRoles[0].Name != "Eigene Rolle" ||
+		s.StartPageConfigured || s.CategoryID != nil {
 		t.Fatalf("restore: %+v (%v)", s, err)
 	}
-	var behaviorNull, pageNull bool
+	var behavior string
+	var pageNull bool
 	var prompt *string
-	if err := pool.QueryRow(ctx, `SELECT behavior IS NULL, start_page IS NULL, system_prompt FROM knowledge_bases WHERE id = $1`, kbID).
-		Scan(&behaviorNull, &pageNull, &prompt); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(behavior::text, ''), start_page IS NULL, system_prompt FROM knowledge_bases WHERE id = $1`, kbID).
+		Scan(&behavior, &pageNull, &prompt); err != nil {
 		t.Fatal(err)
 	}
-	if !behaviorNull || !pageNull || prompt == nil || *prompt != legacy {
-		t.Fatalf("restored columns: behavior null %v, page null %v, prompt %v", behaviorNull, pageNull, prompt)
+	if !strings.Contains(behavior, `"activeRoleId": "legacy"`) || !pageNull || prompt == nil || *prompt != legacy {
+		t.Fatalf("restored columns: behavior %s, page null %v, prompt %v", behavior, pageNull, prompt)
 	}
 	vs, _ = st.Versions(ctx, kbID)
 	if len(vs) != 4 || vs[0].Kind != kbassistant.KindRestore || vs[0].RestoredFrom == nil || *vs[0].RestoredFrom != 1 {
@@ -112,6 +117,16 @@ func TestAssistantSettings_SaveVersionsRestore(t *testing.T) {
 	}
 	if _, err := st.Restore(ctx, kbID, 99, 4, owner); err == nil {
 		t.Error("restoring a missing version must error")
+	}
+
+	// A version naming a template that no longer exists (migration 0100
+	// deleted research) comes back in the default role.
+	if _, err := pool.Exec(ctx, `UPDATE kb_settings_versions SET snapshot = jsonb_set(snapshot, '{behavior,activeRoleId}', '"research"')
+		WHERE kb_id = $1 AND number = 3`, kbID); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = st.Restore(ctx, kbID, 3, 4, owner); err != nil || s.Behavior.Behavior.ActiveRoleID != kbbehavior.DefaultRoleID() {
+		t.Fatalf("restore of a deleted role: %+v (%v)", s.Behavior.Behavior, err)
 	}
 }
 
@@ -133,21 +148,21 @@ func TestAssistantSettings_SavesACardKindChange(t *testing.T) {
 	in.Behavior = kbbehavior.Default()
 	in.StartPage = kbstartpage.Default()
 	in.StartPage.StartMode = kbstartpage.StartRoles
-	in.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": kbstartpage.DefaultStart()}
-	in.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "re-1", RoleID: "tutor"}}
+	in.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": kbstartpage.DefaultStart()}
+	in.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "re-1", RoleID: "summary"}}
 	if s, err = st.Save(ctx, kbID, in, owner); err != nil {
 		t.Fatalf("save roles: %v", err)
 	}
 	in = inputOf(s)
-	tutor := in.StartPage.RoleStarts["tutor"]
+	tutor := in.StartPage.RoleStarts["summary"]
 	tutor.Kind = kbstartpage.EntryFile
-	in.StartPage.RoleStarts["tutor"] = tutor
+	in.StartPage.RoleStarts["summary"] = tutor
 	if s, err = st.Save(ctx, kbID, in, owner); err != nil {
 		t.Fatalf("save kind: %v", err)
 	}
 	got, err := st.Get(ctx, kbID, true)
-	if err != nil || got.StartPage.RoleStarts["tutor"].Kind != kbstartpage.EntryFile || got.Version != s.Version {
-		t.Fatalf("read back: kind %q, version %d (%v)", got.StartPage.RoleStarts["tutor"].Kind, got.Version, err)
+	if err != nil || got.StartPage.RoleStarts["summary"].Kind != kbstartpage.EntryFile || got.Version != s.Version {
+		t.Fatalf("read back: kind %q, version %d (%v)", got.StartPage.RoleStarts["summary"].Kind, got.Version, err)
 	}
 }
 

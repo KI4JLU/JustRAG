@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/justrag/go-backend/internal/kbbehavior"
+	"github.com/justrag/go-backend/internal/prompts"
 )
 
 type fakeCompleter struct {
@@ -43,8 +46,11 @@ func TestGenerateAnswer_StitchesNumberedChunks(t *testing.T) {
 			t.Errorf("prompt missing %q\ngot: %s", needle, completer.capturedPrompt)
 		}
 	}
-	if completer.capturedSystem == "" {
-		t.Error("expected a non-empty system prompt")
+	// Oracle: a KB in the default template role — role first, then the
+	// fixed instructions, as the chat path composes it.
+	role := kbbehavior.DefaultRolePrompt("en", kbbehavior.DefaultNames())
+	if want := role + "\n\n" + prompts.ChatSystemPrompt("en"); role == "" || completer.capturedSystem != want {
+		t.Errorf("system prompt = %.200q, want the default role then the instructions", completer.capturedSystem)
 	}
 }
 

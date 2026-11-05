@@ -62,10 +62,9 @@ const renderDialog = ({
     dirty = false,
     onSave = vi.fn(() => Promise.resolve(true)),
     onClose = vi.fn(),
-    onOpenRagSettings = undefined as (() => void) | undefined,
 } = {}) => {
     const props = {
-        onSave, onClose, onOpenRagSettings, onUpdateKb: vi.fn(() => Promise.resolve(true)),
+        onSave, onClose, onUpdateKb: vi.fn(() => Promise.resolve(true)),
         kb: { id: 'kb-1', name: 'KB', description: null, myRole: 'owner' } as KnowledgeBase,
         flags: { ...SOURCE_FLAG_DEFAULTS }, onFlagsChange: vi.fn(), dirty,
     };
@@ -155,39 +154,21 @@ describe('KbSettingsDialog closing', () => {
     });
 });
 
-// Oracle: the card-menu guideline of 2026-10-29 — the RAG configuration left
-// the topic card's menu and lives under Verhalten, for those who may open it.
+// Oracle: developer ruling 2026-11-04 — the RAG configuration is never part
+// of the topic's settings; it is „RAG-Settings" on the topic card.
 describe('KbSettingsDialog RAG configuration', () => {
-    it('shows no entry without the callback', async () => {
+    it('shows no entry under Verhalten', async () => {
         renderDialog();
         await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
         await screen.findByRole('button', { name: /delete/ });
-        expect(screen.queryByRole('button', { name: 'kbAdvancedSettings' })).toBeNull();
-    });
-
-    it('closes the dialog, then opens it, from Verhalten', async () => {
-        const onOpenRagSettings = vi.fn();
-        const { onClose } = renderDialog({ onOpenRagSettings });
-        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
-        await userEvent.click(await screen.findByRole('button', { name: 'kbAdvancedSettings' }));
-        expect(onClose).toHaveBeenCalledTimes(1);
-        expect(onOpenRagSettings).toHaveBeenCalledTimes(1);
-    });
-
-    it('stays when unsaved changes are kept', async () => {
-        showConfirm.mockResolvedValue(false);
-        const onOpenRagSettings = vi.fn();
-        renderDialog({ dirty: true, onOpenRagSettings });
-        await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabBehavior' }));
-        await userEvent.click(await screen.findByRole('button', { name: 'kbAdvancedSettings' }));
-        expect(onOpenRagSettings).not.toHaveBeenCalled();
+        expect(screen.queryByRole('button', { name: /kbAdvancedSettings/ })).toBeNull();
     });
 });
 
 // Oracle: the developer's ask of 2026-10-20 — the topic settings are searchable
 // like the user settings.
 describe('KbSettingsDialog search', () => {
-    it('finds Rollen & Rechte by one of its rights', async () => {
+    it('finds Berechtigungen by one of its rights', async () => {
         renderDialog();
         await userEvent.type(screen.getByRole('searchbox', { name: 'settingsSearch' }), 'kbSettingsKeywordsRoles');
         // The open section (Startseite) drops out once its rows have had their moment to match (DS 0.71).
@@ -218,7 +199,7 @@ describe('KbSettingsDialog members', () => {
         expect(await screen.findByText('members-panel kb-1 members')).toBeInTheDocument();
     });
 
-    it('goes to Mitglieder from the assign button in Rollen & Rechte', async () => {
+    it('goes to Mitglieder from the assign button in Berechtigungen', async () => {
         renderDialog();
         await userEvent.click(screen.getByRole('button', { name: 'kbSettingsTabRoles' }));
         await userEvent.click(screen.getAllByRole('button', { name: 'rrAssignPeople' })[0]);

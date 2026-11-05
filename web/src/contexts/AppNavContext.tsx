@@ -68,6 +68,12 @@ export interface AppNavContextValue {
    * canOpenKbTopicSettings; the workspace applies the same gate again.
    */
   onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
+  /**
+   * Open a topic's RAG configuration (the full-page KbSettingsPanel, no URL of
+   * its own), from „RAG-Settings" in the row menu of the admin dialog's
+   * KB-Übersicht — its one entry point, for system admins.
+   */
+  onOpenRagSettings: (kb: { id: string; name: string }) => void;
 }
 
 const AppNavContext = createContext<AppNavContextValue | null>(null);

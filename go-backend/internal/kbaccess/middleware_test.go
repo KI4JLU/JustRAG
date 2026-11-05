@@ -143,6 +143,53 @@ func TestRequireKBRole_KBNotFound404(t *testing.T) {
 	}
 }
 
+// RequireOperableKB: a system admin on a global or shared KB, whatever their
+// KB role (none here), or on their own; somebody else's private KB nobody
+// shares stays closed, superadmin included; nobody else passes; a missing KB
+// is a 404.
+func TestRequireOperableKB(t *testing.T) {
+	var got *kbaccess.KBAccessResult
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = kbaccess.AccessFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+	cases := []struct {
+		name    string
+		kb      *kbaccess.KnowledgeBase
+		sysRole string
+		kbRole  string
+		want    int
+	}{
+		{"admin+global", &kbaccess.KnowledgeBase{ID: kbID, IsGlobal: true}, auth.RoleAdmin, "", http.StatusOK},
+		{"admin+shared", &kbaccess.KnowledgeBase{ID: kbID, Shared: true}, auth.RoleAdmin, "", http.StatusOK},
+		{"superadmin+shared", &kbaccess.KnowledgeBase{ID: kbID, Shared: true}, auth.RoleSuperAdmin, "", http.StatusOK},
+		{"admin+own-unshared", &kbaccess.KnowledgeBase{ID: kbID}, auth.RoleAdmin, kbaccess.RoleOwner, http.StatusOK},
+		{"superadmin+own-unshared", &kbaccess.KnowledgeBase{ID: kbID}, auth.RoleSuperAdmin, kbaccess.RoleOwner, http.StatusOK},
+		{"admin+unshared", &kbaccess.KnowledgeBase{ID: kbID}, auth.RoleAdmin, "", http.StatusForbidden},
+		{"superadmin+unshared", &kbaccess.KnowledgeBase{ID: kbID}, auth.RoleSuperAdmin, "", http.StatusForbidden},
+		{"api-user+shared", &kbaccess.KnowledgeBase{ID: kbID, Shared: true}, auth.RoleAPIUser, "", http.StatusForbidden},
+		{"api-user+own-unshared", &kbaccess.KnowledgeBase{ID: kbID}, auth.RoleAPIUser, kbaccess.RoleOwner, http.StatusForbidden},
+		{"user+global", &kbaccess.KnowledgeBase{ID: kbID, IsGlobal: true}, auth.RoleUser, "", http.StatusForbidden},
+		{"admin+missing", nil, auth.RoleAdmin, "", http.StatusNotFound},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got = nil
+			req := httptest.NewRequest(http.MethodGet, "/kb/"+kbID, nil)
+			req.SetPathValue("id", kbID)
+			req = req.WithContext(claimsCtx(req.Context(), auth.Claims{ID: userID, Role: c.sysRole}))
+			rec := httptest.NewRecorder()
+			kbaccess.NewMiddleware(&mockStore{kb: c.kb, role: c.kbRole}).RequireOperableKB()(next).ServeHTTP(rec, req)
+			if rec.Code != c.want {
+				t.Fatalf("code %d, want %d", rec.Code, c.want)
+			}
+			if c.want == http.StatusOK && (got == nil || got.KB.ID != kbID) {
+				t.Fatalf("access not stored: %+v", got)
+			}
+		})
+	}
+}
+
 // ---------- RequireAnalyticsAccess tests ----------
 
 func TestRequireAnalyticsAccess_NonGlobalKB403(t *testing.T) {

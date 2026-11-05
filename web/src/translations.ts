@@ -797,7 +797,7 @@ export const translations = {
     globalKbSettings: { de: 'Globale KB-Einstellungen', en: 'Global KB Settings' },
     openKb: { de: 'Knowledge Base öffnen', en: 'Open Knowledge Base' },
     // Entry point for KbSettingsPanel (RAG-Einstellungen / Evals / Workflow).
-    kbAdvancedSettings: { de: 'RAG Konfiguration', en: 'RAG configuration' },
+    kbAdvancedSettings: { de: 'RAG-Settings', en: 'RAG settings' },
     // KB rename (owner of a private KB / system admin on a public KB).
     renameKb: { de: 'Knowledge Base umbenennen', en: 'Rename Knowledge Base' },
     rename: { de: 'Umbenennen', en: 'Rename' },
@@ -871,7 +871,7 @@ export const translations = {
     kbBehaviorTitle: { de: 'Verhalten der Wissensdatenbank', en: 'Knowledge base behaviour' },
     kbSettingsTitle: { de: 'Thema-Einstellungen', en: 'Topic settings' },
     kbSettingsTabBehavior: { de: 'Verhalten', en: 'Behaviour' },
-    kbSettingsTabRoles: { de: 'Rollen & Rechte', en: 'Roles & rights' },
+    kbSettingsTabRoles: { de: 'Berechtigungen', en: 'Permissions' },
     rrSubtitle: { de: 'Legt fest, was Bearbeiter und Leser in diesem Thema dürfen.', en: 'Defines what editors and viewers may do in this topic.' },
     rrAssignPeople: { de: 'Personen zuweisen', en: 'Assign people' },
     rrColRight: { de: 'Recht', en: 'Right' },
@@ -1607,10 +1607,10 @@ export const translations = {
     arTipPrivateTopics: { de: 'Legt private Themen an', en: 'Creates private topics' },
     arTipTopicRole: { de: 'Darf in Themen, was seine Themenrolle erlaubt', en: 'May do in topics what their topic role allows' },
     arPerTopic: { de: 'pro Thema', en: 'per topic' },
-    arPerTopicHint: { de: 'Pro Thema einstellbar in Thema-Einstellungen → Rollen & Rechte. Standard: {default}.', en: 'Set per topic in Topic settings → Roles & rights. Default: {default}.' },
+    arPerTopicHint: { de: 'Pro Thema einstellbar in Thema-Einstellungen → Berechtigungen. Standard: {default}.', en: 'Set per topic in Topic settings → Permissions. Default: {default}.' },
     arDefaultOn: { de: 'an', en: 'on' },
     arDefaultOff: { de: 'aus', en: 'off' },
-    arKbFlagsNotice: { de: 'Was Bearbeiter und Leser mit Quellen dürfen, ist pro Thema einstellbar in Thema-Einstellungen → Rollen & Rechte.', en: 'What editors and viewers may do with sources is set per topic in Topic settings → Roles & rights.' },
+    arKbFlagsNotice: { de: 'Was Bearbeiter und Leser mit Quellen dürfen, ist pro Thema einstellbar in Thema-Einstellungen → Berechtigungen.', en: 'What editors and viewers may do with sources is set per topic in Topic settings → Permissions.' },
     arMappingTitle: { de: 'Systemrollen in Themen', en: 'System roles in topics' },
     arMapSuperadmin: { de: 'in jedem Thema Besitzer.', en: 'owner in every topic.' },
     arMapAdmin: { de: 'in jedem globalen Thema Admin, außer eine eigene Mitgliedschaft im Thema legt etwas anderes fest.', en: 'admin in every global topic, unless an own membership in the topic says otherwise.' },
@@ -2513,6 +2513,11 @@ export const translations = {
 
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
+    namesSection: { de: 'Namen', en: 'Names' },
+    systemNameLabel: { de: 'Systemname', en: 'System name' },
+    systemNameHelp: { de: 'Der Name der Anwendung: Titel des Browser-Tabs und {{system_name}} in Rollen-Prompts. Leer = Standard.', en: 'The application’s name: the browser tab title and {{system_name}} in role prompts. Blank = default.' },
+    assistantNameLabel: { de: 'Assistentenname', en: 'Assistant name' },
+    assistantNameHelp: { de: 'Der Name, mit dem sich der Assistent vorstellt: {{assistant_name}} in Rollen-Prompts. Leer = Standard.', en: 'The name the assistant introduces itself with: {{assistant_name}} in role prompts. Blank = default.' },
     // System notice (site_config system_notice_*): admin section + the shell's banner.
     systemNotice: { de: 'Systemmeldung', en: 'System notice' },
     systemNoticeEnabled: { de: 'Systemmeldung anzeigen', en: 'Show system notice' },

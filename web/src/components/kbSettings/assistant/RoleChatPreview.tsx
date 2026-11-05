@@ -78,7 +78,8 @@ export function RoleChatPreview({ entry, role, kbName, fileCount, dynamicSample,
                                 </span>
                             ) : entry.text}
                         </ChatBubble>
-                        <Shimmer className="m-0 text-sm">{(isFile ? t('asstRoleChecksFile') : t('asstRoleThinking')).replace('{role}', name)}</Shimmer>
+                        {/* The chat's own status line: no role name (developer, 05.11.2026). */}
+                        <Shimmer className="m-0 text-sm">{t('preparingAnswer')}</Shimmer>
                     </div>
                 ) : (
                     <div className="mx-auto max-w-2xl px-6 pb-4 pt-8 text-center">

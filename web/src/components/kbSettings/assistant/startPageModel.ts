@@ -67,7 +67,7 @@ export function roleAccent(cover: StartColors): string {
 }
 
 /** Translation keys of the chat start modes. */
-export const START_MODE_LABEL: Record<StartMode, string> = { input: 'asstStartInput', upload: 'asstStartUpload', roles: 'asstStartRoles' };
+export const START_MODE_LABEL: Record<StartMode, string> = { input: 'asstStartInput', task: 'asstStartTask', upload: 'asstStartUpload', roles: 'asstStartRoles' };
 
 /** The id of the active role's card, always the first. */
 export const DEFAULT_ENTRY_ID = 'default';
@@ -85,6 +85,41 @@ export function startOf(page: StartPage, roleId: string, roles?: RoleStarts): En
     return page.roleStarts[roleId] ?? roleDefaultStart(roles, roleId);
 }
 
+/**
+ * What the start page shows (developer ruling 05.11.2026: how a chat starts
+ * is the roles'): „Rollenauswahl" with further role cards, else the active
+ * role's start — the input field, its role-prompt card („Anweisung") or its
+ * upload area. The server derives the same (kbstartpage.ModeOf).
+ */
+export function pageMode(page: StartPage, activeRoleId: string, roles?: RoleStarts): StartMode {
+    if (page.roleEntries.length > 0) return 'roles';
+    const kind = startOf(page, activeRoleId, roles).kind;
+    return kind === 'task' ? 'task' : kind === 'file' ? 'upload' : 'input';
+}
+
+/** The start prompt the page shows as the active role's card: without further cards, an instruction with text. */
+export function activeTaskStart(page: StartPage, activeRoleId: string, roles?: RoleStarts): EntryStart | null {
+    if (pageMode(page, activeRoleId, roles) !== 'task') return null;
+    const s = startOf(page, activeRoleId, roles);
+    return s.text.trim() ? s : null;
+}
+
+/** The active role's start as its card: the one card of an „Anweisung" start. */
+export function taskModeEntry(start: EntryStart, activeRoleId: string): RoleEntry {
+    return { ...start, id: DEFAULT_ENTRY_ID, roleId: activeRoleId };
+}
+
+/**
+ * `page` with `roleId`'s start set to `next` — dropped back to the default
+ * (its template's start, else the input field) when it equals that.
+ */
+export function withRoleStart(page: StartPage, roleId: string, next: EntryStart, roles?: RoleStarts): StartPage {
+    const roleStarts = { ...page.roleStarts };
+    if (JSON.stringify(next) === JSON.stringify(roleDefaultStart(roles, roleId))) delete roleStarts[roleId];
+    else roleStarts[roleId] = next;
+    return { ...page, roleStarts };
+}
+
 /** The cards of „Rollenauswahl": the active role's first, then the further ones, each with its role's start. */
 export function startEntries(page: StartPage, activeRoleId: string, roles?: RoleStarts): RoleEntry[] {
     return [{ id: DEFAULT_ENTRY_ID, roleId: activeRoleId }, ...page.roleEntries]
@@ -96,33 +131,28 @@ export function entryIncomplete(e: EntryStart): boolean {
     return e.kind === 'task' && !e.text.trim();
 }
 
-/** Speichern waits until the chosen chat start is fully set up. */
+/** Speichern waits until every start the page shows is set up: the active role's, and every card's. */
 export function chatStartIncomplete(page: StartPage, activeRoleId: string, roles?: RoleStarts): boolean {
-    // A choice needs two roles; with the active role alone the input field starts the same chat.
-    if (page.startMode === 'roles') return page.roleEntries.length === 0 || startEntries(page, activeRoleId, roles).some(entryIncomplete);
-    return false;
+    return startEntries(page, activeRoleId, roles).some(entryIncomplete);
 }
 
-/** What members see of the starter questions: none unless on and in the input-field start. */
-export function visibleQuestions(page: StartPage | null | undefined, dynamicQuestions: string[]): string[] {
-    if (!page || page.startMode !== 'input') return [];
-    return suggestionQuestions(page, dynamicQuestions);
+/** The starter questions under the page's input field: the active role's, when it starts with the input field. */
+export function pageQuestions(page: StartPage, activeRoleId: string, roles: RoleStarts | undefined, dynamicQuestions: string[]): string[] {
+    if (pageMode(page, activeRoleId, roles) !== 'input') return [];
+    return suggestionQuestions(startOf(page, activeRoleId, roles).suggestions, dynamicQuestions);
 }
 
 /**
  * Whether an empty chat will show generated questions, so they are worth a
- * model call: a role card's input start, a configured input start or the
- * default start page — each with dynamic questions on. `page` is the
- * configured start page (null = the default one).
+ * model call: a role card's input start, or the page's input-field start
+ * (the active role's), each with dynamic questions on.
  */
 export function showsGeneratedQuestions(
     roleStart: { kind: string; suggestions?: { questionsOn: boolean; questionMode: string } | null } | null | undefined,
-    page: StartPage | null,
+    pageStart: { kind: string; suggestions?: { questionsOn: boolean; questionMode: string } | null } | null,
 ): boolean {
-    const dynamic = (s: { questionsOn: boolean; questionMode: string } | null | undefined) => !!s && s.questionsOn && s.questionMode === 'dynamic';
-    if (roleStart) return roleStart.kind === 'input' && dynamic(roleStart.suggestions);
-    if (page) return page.startMode === 'input' && dynamic(page);
-    return true;
+    const start = roleStart ?? pageStart;
+    return !!start && start.kind === 'input' && !!start.suggestions && start.suggestions.questionsOn && start.suggestions.questionMode === 'dynamic';
 }
 
 /** The questions a suggestions setting shows: none when off, else the generated ones cut to the count, or the fixed list. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Plus } from 'lucide-react';
-import { ActionMenu, Badge, Button, ButtonGroup, ButtonGroupSeparator, SelectableCard, cn, selectableCardClassName, type ActionMenuItem } from '@ki4jlu/design-system';
+import { ActionMenu, Badge, Button, SelectableCard, cn, selectableCardClassName, type ActionMenuItem } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { EntryStart } from './api';
 import type { RoleView } from './roleModel';
@@ -11,12 +11,12 @@ import { ROLE_CARD_SIZE, RoleCardBody } from './StartPageParts';
  * A role in the role overview, as the start page's role card: band and avatar
  * show how its chat starts on the start page (none set = the input field). It
  * is one radio of the overview's SelectableCardGroup: a click only VIEWS the
- * role (the selected look; the preview panel below shows it); the active role
- * keeps its 2px primary border; its badges („Aktiv", „Rollenauswahl",
- * „Eigene") sit in the body. The ⋯ menu sits in the card's
- * action slot; on hover (or keyboard focus inside) it becomes a split button with
- * „Verwenden" on its left (not on the active role). Both are siblings of the
- * pick target, never inside it.
+ * role (the preview panel below shows it), so the pick is a dotted border, no
+ * tint (developer, 05.11.2026); the active role keeps its 2px primary border;
+ * its badges („Aktiv", „Rollenauswahl", „Eigene") sit in the body. The ⋯ menu
+ * sits in the card's action slot; on hover (or keyboard focus inside)
+ * „Verwenden" shows centred at the card's foot (not on the active role), in
+ * place of the badges. Both are siblings of the pick target, never inside it.
  */
 export function RoleTile({
     role, start, onStartPage, active, onUse, actions, actionsLabel,
@@ -79,28 +79,24 @@ export function RoleTile({
                 value={role.id}
                 aria-label={label}
                 accentColor={roleAccent(roleCardCover(role, kind))}
+                selectedLook="outline"
                 className={cn(
                     ROLE_CARD_SIZE,
                     'select-none',
                     active && 'border-2 border-primary',
                 )}
-                action={(
-                    <ButtonGroup>
-                        {hot && !active && (
-                            <>
-                                <Button size="sm" aria-label={t('asstUseThisRole')} onClick={onUse}>
-                                    <Check className="size-4" aria-hidden="true" /> {t('asstUse')}
-                                </Button>
-                                <ButtonGroupSeparator className="bg-on-primary/30" />
-                            </>
-                        )}
-                        {/* At rest a ghost ⋯; hovered, the split's primary half (it shows on a dark band too). */}
-                        <ActionMenu label={actionsLabel} actions={actions} variant={hot ? 'default' : 'ghost'} />
-                    </ButtonGroup>
-                )}
+                // The DS's own ⋯, as on the topic cards: it lights up when it is
+                // hovered itself, not with the card (developer, 05.11.2026).
+                action={<ActionMenu label={actionsLabel} actions={actions} />}
+                footerAction={hot && !active ? (
+                    <Button size="sm" aria-label={t('asstUseThisRole')} onClick={onUse}>
+                        <Check className="size-4" aria-hidden="true" /> {t('asstUse')}
+                    </Button>
+                ) : undefined}
             >
                 <RoleCardBody kind={kind} title={role.name} description={role.description}>
-                    {badges && (
+                    {/* „Verwenden" takes the badges' place while it shows. */}
+                    {badges && !(hot && !active) && (
                         <span className="mt-auto flex flex-wrap gap-1 pt-1">
                             {active && <Badge tone="primary">{t('asstActive')}</Badge>}
                             {onStartPage && <Badge tone="secondary">{t('asstStartSetUpBadge')}</Badge>}

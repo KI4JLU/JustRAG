@@ -100,6 +100,7 @@ const NAV = {
   // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
   // Mitglieder through this jump.
   onOpenTopicSettings: vi.fn(),
+  onOpenRagSettings: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and

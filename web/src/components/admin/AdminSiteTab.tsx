@@ -3,6 +3,7 @@ import { Save } from 'lucide-react';
 import { Button, PanelSection } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { CheckboxFieldRow, FieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
+import { DEFAULT_NAMES, NAME_MAX } from '../../utils/systemNames';
 import { FooterActions } from './FooterActions';
 
 interface AdminSiteTabProps {
@@ -20,6 +21,32 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
 
     return (
         <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-6">
+            {/* The deployment's names; blank = the default, shown as the placeholder. */}
+            <PanelSection title={t('namesSection')}>
+                <div className="flex flex-col gap-5">
+                    <FieldRow
+                        width="wide"
+                        label={t('systemNameLabel')}
+                        help={t('systemNameHelp')}
+                        type="text"
+                        maxLength={NAME_MAX}
+                        value={siteConfigs.system_name || ''}
+                        onChange={e => set('system_name', e.target.value)}
+                        placeholder={DEFAULT_NAMES.system}
+                    />
+                    <FieldRow
+                        width="wide"
+                        label={t('assistantNameLabel')}
+                        help={t('assistantNameHelp')}
+                        type="text"
+                        maxLength={NAME_MAX}
+                        value={siteConfigs.assistant_name || ''}
+                        onChange={e => set('assistant_name', e.target.value)}
+                        placeholder={DEFAULT_NAMES.assistant}
+                    />
+                </div>
+            </PanelSection>
+
             {/* The site-logo upload group was here. Logo upload is
                 deprecated (developer ruling, 17.09.2026): the logo is built
                 from the app name, and the app shell renders the design

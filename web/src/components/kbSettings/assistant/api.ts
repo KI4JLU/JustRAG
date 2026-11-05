@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../../../api';
 import type { KbCategory } from '../../../types';
+import type { SystemNames } from '../../../utils/systemNames';
 
 /*
  * The assistant's behavior (roles and rules) and start page: the wire types
@@ -11,7 +12,10 @@ import type { KbCategory } from '../../../types';
  * The AI helpers at the bottom have no backend yet and are marked as such.
  */
 
-/** One of the KB's own roles. `id: "legacy"` is the pre-roles system prompt. */
+/**
+ * One of the KB's own roles. `id: "legacy"` holds the pre-roles system prompt
+ * („Eigene Rolle" unless renamed); otherwise an own role like any other.
+ */
 export interface CustomRole {
     id: string;
     name: string;
@@ -46,7 +50,7 @@ export interface Behavior {
 
 export interface BehaviorSettings {
     behavior: Behavior;
-    /** False while the KB still answers from its pre-roles system prompt. */
+    /** False while the KB has no behavior stored, which migration 0101 left no KB with. */
     customized: boolean;
     /** The language the KB's prompt is compiled in; read the catalog in it. */
     language: 'de' | 'en';
@@ -71,7 +75,10 @@ export interface CatalogRule {
     id: string;
     label: string;
     description: string;
+    /** Sent while the rule is on. */
     text: string;
+    /** Sent while a set switches the rule off (not while it does not name it): a choice of two forms, like „du"/„Sie". */
+    offText?: string;
     defaultOn: boolean;
 }
 
@@ -87,10 +94,12 @@ export interface BehaviorCatalog {
     ruleGroups: CatalogRuleGroup[];
     rulesHeading: string;
     limits: { promptMax: number; roleNameMax: number; ruleMax: number; customRolesMax: number; customRulesMax: number };
+    /** What `{{assistant_name}}` and `{{system_name}}` in a prompt answer as; absent = the defaults. */
+    names?: SystemNames;
 }
 
 export type EntryKind = 'input' | 'task' | 'file';
-export type StartMode = 'input' | 'upload' | 'roles';
+export type StartMode = 'input' | 'task' | 'upload' | 'roles';
 /** The start page's gradient, `#RRGGBB` each. */
 export interface StartColors {
     from: string;
@@ -142,7 +151,8 @@ export interface RoleEntry extends RoleEntryRef, EntryStart {}
 
 /** The page's own suggestions (under the input field) are its flat fields. */
 export interface StartPage extends Suggestions {
-    version: 1;
+    /** 2; 1 is a page saved before starts were the roles' — the server answers 2 and migrates it. */
+    version: 1 | 2;
     /** The glow and the „Entdecken" band; null = no colour. */
     colors: StartColors | null;
     startMode: StartMode;

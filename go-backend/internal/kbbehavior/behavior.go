@@ -9,17 +9,17 @@
 // The answer paths append the fixed RAG instructions (prompts.ChatSystemPrompt)
 // after it, as they did with the free system prompt before.
 //
-// A KB that was never customized (behavior IS NULL) answers from system_prompt
-// alone, byte for byte as before: it reads as the KB's own role "legacy"
-// ("Bisheriger Prompt") with no rule on. system_prompt stays the storage of
-// that role's prompt after customizing too.
+// A KB's pre-roles system prompt is its own role "legacy" („Eigene Rolle"),
+// with no rule on unless its author sets some; system_prompt is the storage of
+// that role's prompt. Migration 0101 gave every KB an explicit behavior; a
+// behavior still NULL (a row an older build wrote) reads as that role when
+// system_prompt is set, else as the default template role.
 package kbbehavior
 
 import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -126,18 +126,19 @@ func Lang(kbLanguage string) string {
 
 // Effective is the behavior a KB answers with, complete for display: stored
 // is the saved behavior (nil when never customized), legacyPrompt the
-// system_prompt column, kbName the KB's name, lang the prompt language (Lang).
-// The legacy role gets its prompt filled in here, and its name and description
-// unless the author set their own (stored on the role, see ForStorage);
-// without a legacy prompt it is named after the KB.
-// Callers that only compile or compare pass kbName "" — the name never reaches
-// the prompt.
-func Effective(stored *Behavior, legacyPrompt *string, kbName, lang string) Behavior {
+// system_prompt column, lang the prompt language (Lang). The legacy role gets
+// its prompt filled in here, and its name and description unless the author
+// set their own (stored on the role, see ForStorage). A NULL behavior is the
+// legacy role when there is a legacy prompt, else Default.
+func Effective(stored *Behavior, legacyPrompt *string, lang string) Behavior {
 	if stored == nil {
+		if legacyPrompt == nil || *legacyPrompt == "" {
+			return Default()
+		}
 		return Behavior{
 			Version:      currentVersion,
 			ActiveRoleID: LegacyRoleID,
-			CustomRoles:  []Role{legacyRole(Role{}, legacyPrompt, kbName, lang)},
+			CustomRoles:  []Role{legacyRole(Role{}, legacyPrompt, lang)},
 			RoleRules:    map[string]RuleSet{},
 		}
 	}
@@ -149,7 +150,7 @@ func Effective(stored *Behavior, legacyPrompt *string, kbName, lang string) Beha
 	}
 	for _, r := range stored.CustomRoles {
 		if r.ID == LegacyRoleID {
-			r = legacyRole(r, legacyPrompt, kbName, lang)
+			r = legacyRole(r, legacyPrompt, lang)
 		}
 		out.CustomRoles = append(out.CustomRoles, r)
 	}
@@ -171,16 +172,10 @@ func Effective(stored *Behavior, legacyPrompt *string, kbName, lang string) Beha
 	return out
 }
 
-func legacyRole(stored Role, prompt *string, kbName, lang string) Role {
-	r := Role{ID: LegacyRoleID, Name: legacyRoleName.in(lang), Icon: legacyIcon}
-	if prompt != nil && *prompt != "" {
+func legacyRole(stored Role, prompt *string, lang string) Role {
+	r := Role{ID: LegacyRoleID, Name: legacyRoleName.in(lang), Description: legacyRoleDescription.in(lang), Icon: legacyIcon}
+	if prompt != nil {
 		r.Prompt = *prompt
-		r.Description = legacyRoleDescription.in(lang)
-	} else {
-		if name := strings.TrimSpace(kbName); name != "" {
-			r.Name = name
-		}
-		r.Description = legacyRoleDescriptionEmpty.in(lang)
 	}
 	// The author's own name and description win over the defaults.
 	if stored.Name != "" {
@@ -193,10 +188,10 @@ func legacyRole(stored Role, prompt *string, kbName, lang string) Role {
 }
 
 // DropLegacyDefaults clears the legacy role's stored name and description
-// where they are only the defaults Effective fills in (in either language, or
-// the KB's name in kbNames): a default stored as the author's own would no
-// longer follow a rename of the KB or a change of its language.
-func DropLegacyDefaults(b *Behavior, kbNames ...string) {
+// where they are only defaults Effective fills in (today's or a former one, in
+// either language): a default stored as the author's own would no longer
+// follow a change of the KB's language.
+func DropLegacyDefaults(b *Behavior) {
 	if b == nil {
 		return
 	}
@@ -204,10 +199,10 @@ func DropLegacyDefaults(b *Behavior, kbNames ...string) {
 		if r.ID != LegacyRoleID {
 			continue
 		}
-		if isDefault(r.Name, legacyRoleName) || slices.Contains(kbNames, r.Name) {
+		if isDefault(r.Name, legacyRoleName, formerLegacyRoleName) {
 			b.CustomRoles[i].Name = ""
 		}
-		if isDefault(r.Description, legacyRoleDescription, legacyRoleDescriptionEmpty) {
+		if isDefault(r.Description, legacyRoleDescription, formerLegacyRoleDescriptionEmpty) {
 			b.CustomRoles[i].Description = ""
 		}
 	}
@@ -249,13 +244,16 @@ func Compile(eff Behavior, roleID, lang string) (prompt string, found bool) {
 		roleID = eff.ActiveRoleID
 	}
 	rolePrompt := rolePromptFor(eff, roleID, lang)
+	if roleID == LegacyRoleID {
+		rolePrompt = withLegacyIdentity(rolePrompt, lang)
+	}
 	set := RulesFor(eff, roleID)
 
 	var lines []string
 	for _, g := range ruleGroups {
 		for _, r := range g.rules {
-			if set.Rules[r.id] {
-				lines = append(lines, "- "+r.text.in(lang))
+			if text := r.sent(set, lang); text != "" {
+				lines = append(lines, "- "+text)
 			}
 		}
 	}
@@ -272,6 +270,29 @@ func Compile(eff Behavior, roleID, lang string) (prompt string, found bool) {
 		return rules, found
 	}
 	return rolePrompt + "\n\n" + rules, found
+}
+
+// withLegacyIdentity is a pre-roles prompt followed by the identity the fixed
+// instructions carried before roles existed (legacyIdentity).
+func withLegacyIdentity(prompt, lang string) string {
+	id := legacyIdentity.in(lang)
+	if strings.TrimSpace(prompt) == "" {
+		return id
+	}
+	return prompt + "\n\n" + id
+}
+
+// sent is what rule r puts into the prompt under set: its text while on, its
+// offText while switched off, nothing when the set does not name it.
+func (r templateRule) sent(set RuleSet, lang string) string {
+	on, named := set.Rules[r.id]
+	switch {
+	case on:
+		return r.text.in(lang)
+	case named:
+		return r.offText.in(lang)
+	}
+	return ""
 }
 
 func rolePromptFor(eff Behavior, id, lang string) string {
