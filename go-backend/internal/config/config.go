@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type DBConfig struct {
@@ -319,8 +320,8 @@ func Load() (*Config, error) {
 
 	cfg.CSPHeader = os.Getenv("CSP_HEADER")
 
-	cfg.AppNamePrefix = trimmedEnvOr("APP_NAME_PREFIX", "JLU")
-	cfg.AppNameProduct = trimmedEnvOr("APP_NAME_PRODUCT", "RAG")
+	cfg.AppNamePrefix = appNamePart("APP_NAME_PREFIX", "JLU")
+	cfg.AppNameProduct = appNamePart("APP_NAME_PRODUCT", "RAG")
 
 	cfg.SQLToolReadOnlyURL = os.Getenv("JUSTRAG_DB_URL_READONLY")
 
@@ -561,6 +562,24 @@ func jwtSecretCharClasses(s string) int {
 
 // trimmedEnvOr is envOr for display text: surrounding whitespace is dropped,
 // and a value that is only whitespace counts as unset.
+// appNameMaxRunes mirrors kbbehavior.MaxNameRunes: an app-name part is also
+// a name role prompts resolve to.
+const appNameMaxRunes = 40
+
+// appNamePart reads one app-name part: trimmed, blank = fallback. A value no
+// name may be (kbbehavior.ValidateName: more than one line, or longer than
+// appNameMaxRunes) is refused with a warning and reads as fallback too, so the
+// site config, the app shell and the prompts all use the same name.
+func appNamePart(key, fallback string) string {
+	v := trimmedEnvOr(key, fallback)
+	if strings.ContainsAny(v, "\r\n") || utf8.RuneCountInString(v) > appNameMaxRunes {
+		slog.Warn("config: app name part is not a single line of at most 40 characters; using the default",
+			"key", key, "default", fallback)
+		return fallback
+	}
+	return v
+}
+
 func trimmedEnvOr(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
