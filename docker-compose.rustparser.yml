@@ -1,0 +1,59 @@
+# Opt-in overlay that adds the Rust fileparser (fp-server) as the DOCX
+# parser. It speaks the docling-serve wire protocol, so the Go worker drives
+# it with its existing docling client — the overlay only adds the service
+# and the worker environment variables.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.rustparser.yml up -d
+#
+# The image is built from the fileparser repo's multi-stage Dockerfile:
+#   docker build -t fileparser:dev <fileparser repo>
+# Pin the tag you actually deploy; `fileparser:dev` is the local build name.
+#
+# Shadow mode (default below): DOCX is still answered by whatever parser is
+# currently active (Docling if enabled, built-in otherwise); the fileparser
+# runs the same file in the background and the differences show up as the
+# rustparser_shadow_total / rustparser_shadow_similarity metrics. With
+# RUSTPARSER_SHADOW_DIR set, every run also writes a parsedump-shaped JSON
+# dump that goldset can score offline.
+#
+# After reviewing the similarity histogram and the goldset scores of the
+# dumps, switch to primary mode:
+#   RUSTPARSER_MODE=primary
+# In primary mode the fileparser answers DOCX and the worker falls back to
+# the previous parser when it errors — but only after the worker verified
+# the service at startup via GET /v1/capabilities.
+#
+# Note: like the Docling overlay, this maps host port 5001. Running both
+# overlays at once makes the second `up` fail on the port; the containers
+# still reach each other via the service name, so remove the `ports` block
+# if you need both simultaneously.
+
+services:
+  rustparser:
+    image: fileparser:dev
+    container_name: justrag-rustparser
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    # The service binds 0.0.0.0:5001 by default; per-document processing is
+    # bounded by its own 120 s limit, no configuration needed here.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  go-worker:
+    depends_on:
+      - rustparser
+    environment:
+      RUSTPARSER_MODE: shadow
+      RUSTPARSER_URL: http://rustparser:5001
+      # RUSTPARSER_TIMEOUT_SECONDS: "300"   # default
+      # RUSTPARSER_SHADOW_DIR: /tmp/rustparser-shadow   # enable dumps

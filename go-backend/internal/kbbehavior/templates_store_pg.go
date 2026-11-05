@@ -119,7 +119,7 @@ func NewTemplateStore(pool *pgxpool.Pool) *TemplateStore { return &TemplateStore
 const templateColumns = `id, icon, is_default, disabled, name_de, name_en, description_de, description_en,
 	prompt_de, prompt_en, cover_from, cover_to, start`
 
-// Refresh loads role_templates into this process's catalog (migration 0099
+// Refresh loads role_templates into this process's catalog (migration 0100
 // fills the table). An empty table leaves the catalog as it is.
 func (s *TemplateStore) Refresh(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT `+templateColumns+` FROM role_templates ORDER BY position, id`)

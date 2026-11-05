@@ -37,9 +37,8 @@ func isUploadExempt(r *http.Request) bool {
 		"/owui/api/chat/completions": // ILIAS plugin chat, 4 MiB (owuicompat.maxChatBodyBytes)
 		return true
 	}
-	// POST /api/kb/{id}/files (500 MiB) and POST /api/kb/{id}/eval/golden-sets
-	// (5 MiB): the {id} segment sits mid-path, so match the shape explicitly.
-	// Deeper paths (e.g. .../eval/golden-sets/generate) deliberately don't match.
+	// The {id} segment sits mid-path, so match the shape explicitly. Deeper
+	// paths (e.g. .../eval/golden-sets/generate) deliberately don't match.
 	rest, ok := strings.CutPrefix(r.URL.Path, "/api/kb/")
 	if !ok {
 		return false
@@ -48,7 +47,14 @@ func isUploadExempt(r *http.Request) bool {
 	if !ok || id == "" {
 		return false
 	}
-	return tail == "files" || tail == "eval/golden-sets"
+	switch tail {
+	case "files", // KB source upload, 500 MiB (uploadcheck.MaxUploadSize)
+		"eval/golden-sets", // golden-set JSONL upload, 5 MiB (admineval)
+		"chat/attachments", // chat attachment, chat_attachments_max_file_bytes (chat.UploadChatAttachment)
+		"chat/attachment":  // comparison upload, chat_compare_max_file_bytes (chat.UploadAttachment)
+		return true
+	}
+	return false
 }
 
 // RunServer starts the HTTP server with all wiring. It blocks until the server

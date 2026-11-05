@@ -65,6 +65,47 @@ func TestSeedUsers(t *testing.T) {
 			t.Errorf("seedUsers() = %+v, want tester alone", got)
 		}
 	})
+
+	// The ILIAS LfAssistant plugin talks to /owui with one service user's API
+	// key, and that user owns every KB the plugin creates. No other path
+	// creates a local account, so the seeder is how that user comes to exist.
+	t.Run("owui service user is seeded from OWUI_SERVICE_PASSWORD", func(t *testing.T) {
+		t.Parallel()
+		got := seedUsers(envFunc(map[string]string{"OWUI_SERVICE_PASSWORD": "s"}))
+		if len(got) != 1 {
+			t.Fatalf("seedUsers() = %+v, want the owui service user alone", got)
+		}
+		svc := got[0]
+		if svc.username != "ilias-lfassistant" || svc.password != "s" {
+			t.Errorf("owui service seed wrong: %+v", svc)
+		}
+		if svc.role != "api-user" {
+			t.Errorf("owui service role = %q, want %q", svc.role, "api-user")
+		}
+		if !svc.resetRole {
+			t.Error("owui service user must reset its role on conflict: its key is handed to an external system, so a promotion must not survive a re-seed")
+		}
+	})
+
+	t.Run("all three in a stable order", func(t *testing.T) {
+		t.Parallel()
+		got := seedUsers(envFunc(map[string]string{
+			"ADMIN_PASSWORD": "a", "TESTER_PASSWORD": "p", "OWUI_SERVICE_PASSWORD": "s",
+		}))
+		var names []string
+		for _, u := range got {
+			names = append(names, u.username)
+		}
+		want := []string{"admin", "tester", "ilias-lfassistant"}
+		if len(names) != len(want) {
+			t.Fatalf("seedUsers() usernames = %v, want %v", names, want)
+		}
+		for i := range want {
+			if names[i] != want[i] {
+				t.Fatalf("seedUsers() usernames = %v, want %v", names, want)
+			}
+		}
+	})
 }
 
 func TestSeedUpsertSQL(t *testing.T) {

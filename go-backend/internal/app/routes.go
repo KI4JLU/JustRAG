@@ -79,6 +79,7 @@ import (
 	"github.com/justrag/go-backend/internal/owuicompat"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/pipeline"
+	"github.com/justrag/go-backend/internal/policyaccept"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/proxy"
 	"github.com/justrag/go-backend/internal/publicapi"
@@ -519,6 +520,8 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.Handle("GET /api/site-config", rc.authMw.OptionalAuth(http.HandlerFunc(siteConfigHandler.GetSiteConfig)))
 	rc.mux.Handle("POST /api/site-config", rc.superadminChain(siteConfigHandler.UpdateSiteConfig))
 	rc.mux.Handle("POST /api/site-config/logo", rc.superadminChain(siteConfigHandler.UploadLogo))
+	// The system notice (system_notice_* keys only) is editable by plain admins too.
+	rc.mux.Handle("PUT /api/admin/system-notice", rc.adminChain(siteConfigHandler.UpdateSystemNotice))
 
 	// Public configs — requires auth
 	publicConfigsHandler := publicconfigs.NewHandler(publicconfigs.NewStore(rc.infra.db.Main))
@@ -536,6 +539,14 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.Handle("GET /api/user/memory/export", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.Export)))
 	rc.mux.Handle("DELETE /api/user/memory/{id}", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.DeleteOne)))
 	rc.mux.Handle("DELETE /api/user/memory", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.DeleteAll)))
+
+	// Usage-policy acceptance (AI-use notice). The web app shows the notice
+	// until the caller accepted policy_acceptance_version; nothing else is gated.
+	// The version is read uncached (not through chatStore's snapshot), so a
+	// changed version is refused at once instead of accepted for a few seconds.
+	policyHandler := policyaccept.NewHandler(policyaccept.NewStore(rc.infra.db.Main), siteconfig.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/user/policy-acceptance", rc.authMw.Authenticate(http.HandlerFunc(policyHandler.Get)))
+	rc.mux.Handle("POST /api/user/policy-acceptance", rc.authMw.Authenticate(http.HandlerFunc(policyHandler.Accept)))
 
 	// API Keys
 	apiKeysHandler := apikeys.NewHandler(apikeys.NewStore(rc.infra.db.Main))
@@ -1718,6 +1729,16 @@ func registerPublicAPIRoutes(rc *routeCtx, apiRL *middleware.RedisRateLimiter) {
 	mcpKBHandler.SetUsageRecorder(usage.NewRecorder(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/v1/kb/{id}/mcp", apiRL.Middleware(apiKeyAuth.Authenticate(
 		rc.kbMw.RequireKBRole(kbaccess.RoleView)(http.HandlerFunc(mcpKBHandler.ServeHTTP)))))
+
+	// The system notice banner, for automation (a monitoring job switching it
+	// on during an outage). The API key's owner must be an admin or a
+	// superadmin — the same people who edit it in the admin dialog.
+	noticeHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main))
+	adminKey := func(h http.HandlerFunc) http.Handler {
+		return apiRL.Middleware(apiKeyAuth.Authenticate(rc.authMw.RequireRole(auth.RoleAdmin)(h)))
+	}
+	rc.mux.Handle("GET /api/v1/system-notice", adminKey(noticeHandler.GetSystemNoticeAPI))
+	rc.mux.Handle("PUT /api/v1/system-notice", adminKey(noticeHandler.UpdateSystemNoticeAPI))
 }
 
 func registerMiscRoutes(rc *routeCtx) {

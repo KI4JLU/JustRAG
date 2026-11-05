@@ -50,7 +50,7 @@ export interface Behavior {
 
 export interface BehaviorSettings {
     behavior: Behavior;
-    /** False while the KB has no behavior stored, which migration 0100 left no KB with. */
+    /** False while the KB has no behavior stored, which migration 0101 left no KB with. */
     customized: boolean;
     /** The language the KB's prompt is compiled in; read the catalog in it. */
     language: 'de' | 'en';

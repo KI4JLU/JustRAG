@@ -248,8 +248,12 @@ func (h *Handler) StartResearch(w http.ResponseWriter, r *http.Request) {
 	channel := "academic-research:" + researchID
 	abortKey := "academic-research:abort:" + researchID
 
-	// Write SSE headers + session-id preamble event before handing off to relay.
-	httputil.EnableSSE(w)
+	// Write SSE headers + session-id preamble event before handing off to
+	// relay. Run() calls StartSSE again — a no-op on this already-open
+	// stream (its own deferred Stop is idempotent with this one).
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop() // no ping may outlive this handler
+	w = sw
 
 	sessionEvent, _ := json.Marshal(map[string]string{"type": "session", "sessionId": session.ID})
 	_, _ = w.Write([]byte("data: " + string(sessionEvent) + "\n\n"))

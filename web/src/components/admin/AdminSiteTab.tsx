@@ -99,6 +99,19 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
                 />
             </div>
 
+            <PanelSection title={t('policyAcceptanceSection')}>
+                <FieldRow
+                    width="wide"
+                    label={t('policyAcceptanceVersion')}
+                    help={t('policyAcceptanceVersionHelp')}
+                    type="text"
+                    value={siteConfigs.policy_acceptance_version || ''}
+                    onChange={e => set('policy_acceptance_version', e.target.value)}
+                    placeholder="2026-07-13"
+                    maxLength={64}
+                />
+            </PanelSection>
+
             <PanelSection title={t('confluenceSettings')}>
                 <div className="flex flex-col gap-5">
                     <CheckboxFieldRow

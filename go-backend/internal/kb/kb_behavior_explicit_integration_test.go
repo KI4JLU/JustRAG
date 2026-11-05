@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration test for migration 0100 (every KB gets an explicit behavior, no
+// Integration test for migration 0101 (every KB gets an explicit behavior, no
 // empty legacy role). The cases run in a transaction that is rolled back, so
 // the shared knowledge_bases table is left as it was. Skipped when DB_* env is
 // unset.
@@ -16,16 +16,16 @@ import (
 	mainmigrations "github.com/justrag/go-backend/migrations/main"
 )
 
-func up0100(t *testing.T) string {
+func up0101(t *testing.T) string {
 	t.Helper()
-	raw, err := mainmigrations.FS.ReadFile("0100_kb_behavior_explicit.sql")
+	raw, err := mainmigrations.FS.ReadFile("0101_kb_behavior_explicit.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	sql := string(raw)
 	end := strings.Index(sql, "-- +goose Down")
 	if end < 0 {
-		t.Fatal("0100 has no -- +goose Down marker")
+		t.Fatal("0101 has no -- +goose Down marker")
 	}
 	return sql[:end]
 }
@@ -82,8 +82,8 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 	}
 	before := read()
 
-	if _, err := tx.Exec(ctx, up0100(t)); err != nil {
-		t.Fatalf("0100: %v", err)
+	if _, err := tx.Exec(ctx, up0101(t)); err != nil {
+		t.Fatalf("0101: %v", err)
 	}
 	after := read()
 	var nulls int
@@ -142,8 +142,8 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 	if err := tx.QueryRow(ctx, `SELECT string_agg(id::text || behavior::text, ',' ORDER BY id) FROM knowledge_bases`).Scan(&snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(ctx, up0100(t)); err != nil {
-		t.Fatalf("0100 again: %v", err)
+	if _, err := tx.Exec(ctx, up0101(t)); err != nil {
+		t.Fatalf("0101 again: %v", err)
 	}
 	var again string
 	if err := tx.QueryRow(ctx, `SELECT string_agg(id::text || behavior::text, ',' ORDER BY id) FROM knowledge_bases`).Scan(&again); err != nil {

@@ -5,10 +5,11 @@
 package sserelay
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -72,8 +73,13 @@ func (r *Relay) Run(ctx context.Context, w http.ResponseWriter, opts Options) er
 	}
 
 	// Set SSE headers + disable the global server WriteTimeout for this
-	// connection before writing any body.
-	httputil.EnableSSE(w)
+	// connection before writing any body. Every frame below flows through
+	// the wrapper, whose heartbeat pings if the relay goes silent. The
+	// deferred Stop makes sure no ping outlives Run (a caller that opened
+	// the stream before Run keeps its own — idempotent).
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop()
+	w = sw
 
 	// Subscribe BEFORE enqueuing so we never miss the first event.
 	sub := r.redis.Subscribe(ctx, opts.Channel)
@@ -172,26 +178,35 @@ var (
 	sseFrameEnd   = []byte("\n\n")
 )
 
-// writeSSEEvent writes a single SSE data frame and flushes the response writer.
-// Direct writes avoid the per-frame allocation fmt.Fprintf incurs boxing the
-// payload into an `any` and running the format machinery — at 30-60 frames/s
-// per stream that is measurable GC pressure.
+// sseFramePool reuses the per-frame buffer: writeSSEEvent assembles the whole
+// frame in it and returns it to the pool before it returns, so the pool
+// amortizes the allocation across the stream.
+var sseFramePool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+// writeSSEEvent writes a single SSE data frame and flushes the response
+// writer. The whole frame goes out in ONE Write: split across several writes
+// it could interleave with the stream-level heartbeat's `: ping` and the
+// client would see a broken frame (SSEStream's mutex only serialises whole
+// Write calls). The frame is assembled in a pooled buffer instead of the
+// per-frame make a fresh slice would incur (or the boxing + format
+// machinery fmt.Fprintf adds) — at 30-60 frames/s per stream that is
+// measurable GC pressure.
 //
-// Returns the first write error: on a streaming ResponseWriter that means the
+// Returns the write error: on a streaming ResponseWriter that means the
 // client is gone and the relay loop should stop instead of draining the rest
 // of the worker's events into a dead connection.
 func writeSSEEvent(w http.ResponseWriter, data string) error {
+	buf := sseFramePool.Get().(*bytes.Buffer)
+	buf.Reset()
+	buf.Write(sseDataPrefix)
+	buf.WriteString(data)
+	buf.Write(sseFrameEnd)
+	defer sseFramePool.Put(buf)
 	// Slide the write deadline forward so a half-open client can only
 	// block this write for SSEWriteTimeout, not forever (while blocked
 	// here, the inactivity/heartbeat select can't fire).
 	httputil.RearmSSEWriteDeadline(w)
-	if _, err := w.Write(sseDataPrefix); err != nil {
-		return err
-	}
-	if _, err := io.WriteString(w, data); err != nil {
-		return err
-	}
-	if _, err := w.Write(sseFrameEnd); err != nil {
+	if _, err := w.Write(buf.Bytes()); err != nil {
 		return err
 	}
 	if f, ok := w.(http.Flusher); ok {

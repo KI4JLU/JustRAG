@@ -1,6 +1,6 @@
 //go:build integration
 
-// Integration tests for migration 0099 (the default role templates, and only
+// Integration tests for migration 0100 (the default role templates, and only
 // these): what a fresh install gets, and what an install the old Go seed
 // filled ends up with — its other templates deleted, whatever used them
 // falling back to chat.
@@ -25,7 +25,7 @@ import (
 	mainmigrations "github.com/justrag/go-backend/migrations/main"
 )
 
-// Oracle: kbbehavior.BuiltinTemplates — the rows migration 0099 writes on a
+// Oracle: kbbehavior.BuiltinTemplates — the rows migration 0100 writes on a
 // freshly migrated database are the code's built-in templates, field for
 // field and in that order, chat the default.
 func TestRoleTemplateDefaults_FreshInstallIsTheBuiltinSet(t *testing.T) {
@@ -54,17 +54,17 @@ func TestRoleTemplateDefaults_FreshInstallIsTheBuiltinSet(t *testing.T) {
 	}
 }
 
-// up0099 is migration 0099's Up section.
-func up0099(t *testing.T) string {
+// up0100 is migration 0100's Up section.
+func up0100(t *testing.T) string {
 	t.Helper()
-	raw, err := mainmigrations.FS.ReadFile("0099_role_template_defaults.sql")
+	raw, err := mainmigrations.FS.ReadFile("0100_role_template_defaults.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	sql := string(raw)
 	end := strings.Index(sql, "-- +goose Down")
 	if end < 0 {
-		t.Fatal("0099 has no -- +goose Down marker")
+		t.Fatal("0100 has no -- +goose Down marker")
 	}
 	return sql[:end]
 }
@@ -117,7 +117,7 @@ func seedOld0095(t *testing.T, tx pgx.Tx) {
 }
 
 // upgrade puts role_templates back to what the old Go seed wrote, applies
-// edit (an admin's change), runs 0099 twice and returns the rows after the
+// edit (an admin's change), runs 0100 twice and returns the rows after the
 // first and the second run. Everything is rolled back.
 func upgrade(t *testing.T, edit string) (first, second map[string]templateRow) {
 	t.Helper()
@@ -134,12 +134,12 @@ func upgrade(t *testing.T, edit string) (first, second map[string]templateRow) {
 			t.Fatalf("edit: %v", err)
 		}
 	}
-	if _, err := tx.Exec(ctx, up0099(t)); err != nil {
-		t.Fatalf("0099: %v", err)
+	if _, err := tx.Exec(ctx, up0100(t)); err != nil {
+		t.Fatalf("0100: %v", err)
 	}
 	first = templateRows(t, tx)
-	if _, err := tx.Exec(ctx, up0099(t)); err != nil {
-		t.Fatalf("0099 again: %v", err)
+	if _, err := tx.Exec(ctx, up0100(t)); err != nil {
+		t.Fatalf("0100 again: %v", err)
 	}
 	return first, templateRows(t, tx)
 }
@@ -267,8 +267,8 @@ func TestRoleTemplateDefaults_DeletedTemplatesFallBackToChat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := tx.Exec(ctx, up0099(t)); err != nil {
-		t.Fatalf("0099: %v", err)
+	if _, err := tx.Exec(ctx, up0100(t)); err != nil {
+		t.Fatalf("0100: %v", err)
 	}
 	// The catalog that compiles a prompt holds the four standard templates
 	// (builtinRoles, or the same rows of the test database): no deleted one.

@@ -92,8 +92,8 @@ export const translations = {
 
     sharedTopics: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
     sharedTopicsDescription: {
-      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben.',
-      en: 'Topics other people have shared with you or with your groups.',
+      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben, und öffentliche Themen, die du abonniert hast.',
+      en: 'Topics other people have shared with you or with your groups, and public topics you subscribed to.',
     },
 
     /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
@@ -667,14 +667,13 @@ export const translations = {
     // leaving a membership, this deletes no chats — access survives via rule
     // 4 of EffectiveRole — so the wording must not carry a chat warning.
     confirmUnsubscribeKb: { de: 'Diese Knowledge Base nicht mehr abonnieren?', en: 'Unsubscribe from this knowledge base?' },
-    // Der Stern auf einer Favoriten-Kachel ist ein reiner Favoriten-Schalter:
-    // keine Mitgliedschaft wird aufgeloest, keine Chats werden geloescht, die
-    // KB bleibt unter „KBs entdecken" auffindbar. Genau das muss der Text
-    // sagen — vorher las sich derselbe Dialog wie ein Verlassen samt
-    // Chat-Verlust (siehe useKbRemoval).
-    confirmRemoveFavorite: {
-        de: 'Diese Knowledge Base aus den Favoriten entfernen? Deine Chats bleiben erhalten, und du findest sie jederzeit unter „KBs entdecken" wieder.',
-        en: 'Remove this knowledge base from your favorites? Your chats are kept, and you can find it again any time under "Discover KBs".',
+    // Ein globales Thema abbestellen („Abbestellen…" im Kartenmenü von
+    // „Geteiltes Wissen"): keine Mitgliedschaft wird aufgeloest, keine Chats
+    // werden geloescht, das Thema bleibt unter „Entdecken" auffindbar. Genau
+    // das muss der Text sagen (siehe useKbRemoval).
+    confirmUnsubscribeTopic: {
+        de: 'Dieses Thema abbestellen? Deine Chats bleiben erhalten, und du findest es jederzeit unter „Entdecken" wieder.',
+        en: 'Unsubscribe from this topic? Your chats are kept, and you can find it again any time under "Discover".',
     },
     confirmDeleteFile: { de: 'Bist du sicher, dass du diese Datei löschen möchtest? Dies entfernt auch alle daraus extrahierten Informationen.', en: 'Are you sure you want to delete this file? This will also remove all extracted information.' },
     enterKBName: { de: 'Name für deine Knowledge Base eingeben:', en: 'Enter name for your Knowledge Base:' },
@@ -1239,6 +1238,10 @@ export const translations = {
     contextWindowDetectFailed: { de: 'Kontextfenster konnten nicht ermittelt werden.', en: 'Could not detect the context windows.' },
     chatAttachmentsLabel: { de: 'Angehängte Dateien', en: 'Attached files' },
     chatAttachmentUploading: { de: 'Wird hochgeladen', en: 'Uploading' },
+    uploadStorageNoticeTitle: { de: 'Speicherung hochgeladener Dokumente', en: 'Storage of uploaded documents' },
+    uploadStorageNoticeAccept: { de: 'Verstanden', en: 'Understood' },
+    uploadStorageNoticeChat: { de: 'Ein Anhang bleibt gespeichert, solange ein Chat ihn enthält. Löschst du den Chat oder wird dein Account gelöscht, wird er mitgelöscht. Nicht gesendete Anhänge werden automatisch gelöscht, frühestens nach 24 Stunden.', en: 'An attachment stays stored as long as a chat contains it. It is deleted when you delete the chat or your account is deleted. Attachments you do not send are deleted automatically, after 24 hours at the earliest.' },
+    uploadStorageNoticeSource: { de: 'Als Quelle hochgeladene Dokumente bleiben gespeichert, bis dein Account gelöscht wird. Entfernst du eine Quelle aus einer Wissensbasis, verschwindet sie nur aus dieser Wissensbasis; das Dokument selbst bleibt gespeichert.', en: 'Documents you upload as sources stay stored until your account is deleted. Removing a source from a knowledge base only removes it from that knowledge base; the document itself stays stored.' },
     chatAttachmentsStillUploading: { de: 'Die Anhänge werden noch hochgeladen – bitte kurz warten.', en: 'The attachments are still uploading – please wait a moment.' },
     chatAttachmentsTooLongTogether: { de: 'Die angehängten Dateien sind zusammen zu lang, um im Chat als Kontext mitgelesen zu werden. Entferne eine Datei und sende erneut.', en: 'Together, the attached files are too long to be read as context in the chat. Remove a file and send again.' },
     chatAttachmentRemoveHint: { de: 'Entferne die Datei und sende erneut.', en: 'Remove the file and send again.' },
@@ -1724,6 +1727,19 @@ export const translations = {
     kbListColSharing: { de: 'Freigabe', en: 'Sharing' },
     kbListColAsOf: { de: 'Stand', en: 'As of' },
     kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
+    // Dragging the topic cards into the user's own order.
+    kbMoveCard: { de: 'Verschieben', en: 'Move' },
+    kbGroupFavorites: { de: 'Favoriten', en: 'Favorites' },
+    kbGroupOthers: { de: 'Weitere Themen', en: 'Other topics' },
+    kbDragInstructions: { de: 'Leertaste nimmt das Thema auf. Pfeiltasten verschieben es, Leertaste legt es ab, Escape bricht ab.', en: 'Press space to pick up the topic. Use the arrow keys to move it, space to drop it, escape to cancel.' },
+    kbDragStart: { de: '{name} aufgenommen.', en: 'Picked up {name}.' },
+    kbDragOver: { de: '{name} ist bei Position {n} von {total}.', en: '{name} is at position {n} of {total}.' },
+    kbDragEnd: { de: '{name} an Position {n} von {total} abgelegt.', en: 'Dropped {name} at position {n} of {total}.' },
+    kbDragCancel: { de: 'Verschieben von {name} abgebrochen.', en: 'Moving {name} cancelled.' },
+    kbDragOverGroup: { de: '{name} ist über „{group}".', en: '{name} is over "{group}".' },
+    kbDragEndGroup: { de: '{name} in „{group}" abgelegt.', en: 'Dropped {name} in "{group}".' },
+    kbDropToFavorite: { de: 'Hierher ziehen, um es zu den Favoriten hinzuzufügen', en: 'Drop here to add it to your favorites' },
+    kbDropToUnfavorite: { de: 'Hierher ziehen, um es aus den Favoriten zu nehmen', en: 'Drop here to remove it from your favorites' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },
@@ -1860,6 +1876,11 @@ export const translations = {
     chatAttachmentsMaxPerMessageHelp: {
         de: 'Wie viele Dateien eine Chatnachricht höchstens mitbringen darf (1–50).',
         en: 'The most files one chat message may carry (1–50).',
+    },
+    chatAttachmentsMaxFileMb: { de: 'Max. Dateigröße pro Anhang (MB)', en: 'Max file size per attachment (MB)' },
+    chatAttachmentsMaxFileMbHelp: {
+        de: 'Größte Datei, die im Chat angehängt werden kann (1–500 MB, Standard 50). Ob ihr Text passt, entscheidet danach der Anteil am Kontextfenster; die Größe begrenzt nur, wie lange Hochladen und Lesen dauern.',
+        en: 'Largest file that can be attached in the chat (1–500 MB, default 50). Whether its text fits is then decided by the context-window share; the size only bounds how long upload and reading take.',
     },
     chatAnswerHistoryEnabled: { de: 'Chat-Verlauf an Antwort-LLM', en: 'Conversation history to answer LLM' },
     chatAnswerHistoryEnabledHelp: {
@@ -2497,6 +2518,43 @@ export const translations = {
     systemNameHelp: { de: 'Der Name der Anwendung: Titel des Browser-Tabs und {{system_name}} in Rollen-Prompts. Leer = Standard.', en: 'The application’s name: the browser tab title and {{system_name}} in role prompts. Blank = default.' },
     assistantNameLabel: { de: 'Assistentenname', en: 'Assistant name' },
     assistantNameHelp: { de: 'Der Name, mit dem sich der Assistent vorstellt: {{assistant_name}} in Rollen-Prompts. Leer = Standard.', en: 'The name the assistant introduces itself with: {{assistant_name}} in role prompts. Blank = default.' },
+    // System notice (site_config system_notice_*): admin section + the shell's banner.
+    systemNotice: { de: 'Systemmeldung', en: 'System notice' },
+    systemNoticeEnabled: { de: 'Systemmeldung anzeigen', en: 'Show system notice' },
+    systemNoticeEnabledHelp: { de: 'Erscheint für alle Nutzer auf jeder Seite.', en: 'Shown to every user on every page.' },
+    systemNoticeTitle: { de: 'Titel (optional)', en: 'Title (optional)' },
+    systemNoticeTitleHelp: { de: 'Steht fett vor dem Meldungstext.', en: 'Shown in bold before the message.' },
+    systemNoticeTitlePlaceholder: { de: 'z. B. Hohe Auslastung', en: 'e.g. High load' },
+    systemNoticeText: { de: 'Meldungstext', en: 'Message' },
+    systemNoticeTextPlaceholder: { de: 'z. B. Das Feature befindet sich gerade noch im Testbetrieb.', en: 'e.g. This feature is still in test operation.' },
+    systemNoticeTone: { de: 'Art der Meldung', en: 'Type' },
+    systemNoticeToneHelp: { de: 'Eine Störung erscheint als roter Balken über der ganzen App. Alle anderen Arten als kleine Meldung oben im Inhaltsbereich.', en: 'A disruption appears as a red bar across the whole app. All other types as a small message at the top of the content area.' },
+    systemNoticeToneNeutral: { de: 'Neutral', en: 'Neutral' },
+    systemNoticeToneInfo: { de: 'Information', en: 'Information' },
+    systemNoticeToneWarning: { de: 'Warnung', en: 'Warning' },
+    systemNoticeToneError: { de: 'Störung', en: 'Disruption' },
+    systemNoticeDismissible: { de: 'Schließbar', en: 'Can be closed' },
+    systemNoticeDismissibleHelp: { de: 'Nutzer können die Meldung ausblenden. Sie bleibt im jeweiligen Browser ausgeblendet, bis die Meldung geändert wird.', en: 'Users can hide the notice. It stays hidden in that browser until the notice is changed.' },
+    systemNoticeLinkUrl: { de: 'Link (optional)', en: 'Link (optional)' },
+    systemNoticeLinkUrlHelp: { de: 'Eine https-Adresse, eine E-Mail-Adresse (mailto:…) oder ein Pfad in der App, z. B. /kb/…', en: 'An https address, an email address (mailto:…) or a path in the app, e.g. /kb/…' },
+    systemNoticeLinkUrlInvalid: { de: 'Nur http(s)-Adressen, mailto: mit einer E-Mail-Adresse oder Pfade, die mit / beginnen.', en: 'Only http(s) addresses, mailto: with one email address, or paths starting with /.' },
+    systemNoticeLinkLabel: { de: 'Linktext', en: 'Link text' },
+    systemNoticeLinkDefault: { de: 'Mehr erfahren', en: 'Learn more' },
+    systemNoticePreview: { de: 'Vorschau', en: 'Preview' },
+    systemNoticePreviewEmpty: { de: 'Gib einen Meldungstext ein, um die Vorschau zu sehen.', en: 'Enter a message to see the preview.' },
+    systemNoticeDismiss: { de: 'Meldung schließen', en: 'Close notice' },
+    systemNoticeTemplates: { de: 'Vorlagen', en: 'Templates' },
+    systemNoticeTemplatesHelp: { de: '„Übernehmen" füllt das Formular aus. Veröffentlicht wird erst mit „Anzeigen" und Speichern.', en: '"Apply" fills in the form. Nothing is published until the notice is switched on and saved.' },
+    systemNoticeTemplatesEmpty: { de: 'Keine Vorlagen gespeichert.', en: 'No templates saved.' },
+    systemNoticeTemplateApply: { de: 'Übernehmen', en: 'Apply' },
+    systemNoticeTemplateDelete: { de: 'Vorlage „{{name}}" löschen', en: 'Delete template "{{name}}"' },
+    systemNoticeTemplateDeleteConfirm: { de: 'Vorlage „{{name}}" löschen?', en: 'Delete template "{{name}}"?' },
+    systemNoticeTemplateName: { de: 'Als Vorlage speichern', en: 'Save as template' },
+    systemNoticeTemplateNameHelp: { de: 'Name für die aktuelle Meldung, um sie später wiederzuverwenden.', en: 'A name for the current notice, to reuse it later.' },
+    systemNoticeTemplateSave: { de: 'Vorlage speichern', en: 'Save template' },
+    systemNoticeTemplateReplaces: { de: 'Ersetzt die Vorlage mit diesem Namen.', en: 'Replaces the template with this name.' },
+    systemNoticeTemplatesLimit: { de: 'Höchstens 20 Vorlagen – lösche zuerst eine.', en: 'At most 20 templates – delete one first.' },
+    systemNoticeTemplatesSaved: { de: 'Vorlagen gespeichert', en: 'Templates saved' },
     chatFooterLabel: { de: 'Text f\u00fcr Chat-Fu\u00dfzeile', en: 'Chat Footer Text' },
     // chatFooter already defined in Chat Area section
     chatFooterPlaceholder: { de: 'Text, der unter der Chat-Oberfläche angezeigt wird', en: 'Text displayed below the chat interface' },
@@ -3094,6 +3152,43 @@ export const translations = {
     start: { de: 'Starten', en: 'Start' },
     agentActiveChip: { de: 'Antwortet mit', en: 'Answering with' },
     membersCount: { de: 'Mitglieder', en: 'members' },
+
+    // Usage-policy acceptance (AI-use notice, PolicyAcceptanceDialog)
+    policyNoticeTitle: { de: 'Hinweis zur Nutzung von KI', en: 'Notice on the use of AI' },
+    policyNoticeAiSystem: {
+        de: 'Du arbeitest hier mit einem KI-System. Antworten, Zusammenfassungen und andere Ausgaben erzeugt ein Sprachmodell, nicht ein Mensch.',
+        en: 'You are working with an AI system here. Answers, summaries and other output are generated by a language model, not by a person.',
+    },
+    policyNoticeCheckOutput: {
+        de: 'KI-Ausgaben können ungenau, unvollständig oder diskriminierend sein und Quellen falsch wiedergeben. Prüfe jede Ausgabe kritisch, bevor du sie weiterverwendest.',
+        en: 'AI output can be inaccurate, incomplete or discriminatory and can misquote its sources. Check every output critically before you use it.',
+    },
+    policyNoticeResponsibility: {
+        de: 'Das KI-System darf nicht für private Zwecke eingesetzt werden. Du bist für deine Eingaben, hochgeladene Inhalte und die Weiterverwendung des KI-Outputs verantwortlich. Deine Rechte und Pflichten sind in den {terms} und der {privacy} beschrieben.',
+        en: 'The AI system must not be used for private purposes. You are responsible for what you enter and upload and for how you reuse the AI output. Your rights and obligations are described in the {terms} and the {privacy}.',
+    },
+    policyNoticeConfirm: {
+        de: 'Ich habe den Hinweis gelesen und akzeptiere die Nutzungsbedingungen.',
+        en: 'I have read this notice and accept the terms of use.',
+    },
+    policyNoticeAccept: { de: 'Akzeptieren', en: 'Accept' },
+    opensInNewTab: { de: 'öffnet in neuem Tab', en: 'opens in a new tab' },
+    policyNoticeUpdated: {
+        de: 'Der Hinweis wurde gerade aktualisiert. Bitte lies ihn noch einmal.',
+        en: 'The notice was just updated. Please read it again.',
+    },
+    policyNoticeLoadFailedTitle: { de: 'Hinweis konnte nicht geladen werden', en: 'The notice could not be loaded' },
+    policyNoticeLoadFailedText: {
+        de: 'Wir konnten nicht prüfen, ob du den Hinweis zur Nutzung von KI schon akzeptiert hast. Die App ist erst danach nutzbar. Bitte versuche es erneut.',
+        en: 'We could not check whether you have already accepted the notice on the use of AI. The app can only be used after that. Please try again.',
+    },
+    policyNoticeRetry: { de: 'Erneut versuchen', en: 'Try again' },
+    policyAcceptanceSection: { de: 'Hinweis zur KI-Nutzung', en: 'AI-use notice' },
+    policyAcceptanceVersion: { de: 'Version des Hinweises', en: 'Notice version' },
+    policyAcceptanceVersionHelp: {
+        de: 'Alle Nutzenden müssen den Hinweis zur KI-Nutzung einmal je Version akzeptieren, bevor sie die App verwenden. Eine neue Version (z. B. das „Stand"-Datum der Nutzungsbedingungen) fragt alle erneut. Leer = kein Hinweis. Buchstaben, Ziffern, „.", „_" und „-", höchstens 64 Zeichen. Gilt nur für die Web-App, nicht für API-Schlüssel.',
+        en: 'Every user has to accept the AI-use notice once per version before using the app. A new version (e.g. the terms\' "as of" date) asks everyone again. Empty = no notice. Letters, digits, ".", "_" and "-", at most 64 characters. Applies to the web app only, not to API keys.',
+    },
 
     // Assistant settings: Startseite + Verhalten (translations.assistant.ts)
     ...assistantTranslations,

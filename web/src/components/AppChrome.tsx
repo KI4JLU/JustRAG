@@ -17,6 +17,7 @@ import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
+import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
 // header for why the `home-view__` block name outlived the component.
@@ -103,6 +104,9 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
      (`HomeView`, `SharedKbsView`) get the same remembered column without
      either of them knowing the toggle exists. */
   const sidebar = useSidebarCollapse();
+  // The admin's system notice, under the bar on every view (KI-936). After a
+  // dismiss, focus goes to the skip link's target, the start of the content.
+  const systemNotice = useSystemNoticeBanner(() => document.getElementById(contentId));
 
   /* Which area the narrow-screen tab bar is showing (design-system 0.30.0).
    *
@@ -399,6 +403,9 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         activeMobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         mobileTabBarLabel={t('switchArea')}
+        notice={systemNotice.notice}
+        status={systemNotice.status}
+        noticeLabel={t('systemNotice')}
       >
         {children}
       </AppShellLayout>

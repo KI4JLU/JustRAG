@@ -28,6 +28,11 @@ type AIModelInput struct {
 	// ContextWindow is the chat model's context window in tokens; 0 or
 	// absent = unknown. Ignored for every other model category.
 	ContextWindow int `json:"contextWindow,omitempty"`
+	// IsDefault makes this model the provider's default of its kind: the one
+	// a KB without its own model override uses. If several models of one
+	// kind are flagged, the first wins. If none is flagged, a save keeps the
+	// previous default when it is still in the list, else the first model.
+	IsDefault bool `json:"isDefault,omitempty"`
 }
 
 // AIModelRow is the response shape for a single AI model.
@@ -43,6 +48,9 @@ type AIModelRow struct {
 	// ContextWindow is ai_models.context_window (chat models); omitted when
 	// unknown.
 	ContextWindow int `json:"contextWindow,omitempty" db:"context_window"`
+	// IsDefault is ai_models.is_default: exactly one model per non-empty
+	// kind (chat incl. reasoning, embedding, rerank, tts, stt).
+	IsDefault bool `json:"isDefault" db:"is_default"`
 }
 
 // AIConfigResponse is the full config shape returned to API consumers (key masked).

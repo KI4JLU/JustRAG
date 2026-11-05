@@ -401,16 +401,19 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx = withTurnDocuments(ctx, h.prepareTurnDocuments(ctx, kbID, lang, attachLimits, convRows, regenQuestion, newAttachments))
 
-	// chat_sse_early_open_enabled: headers + a heartbeat go out now, so the
-	// client sees bytes during condense/classify/retrieval, and progress
-	// events stream live instead of being replayed after retrieval. Every
-	// validation error (4xx) is decided above this line; the two late errors
-	// below end the open stream with an error frame + [DONE] instead of an
-	// HTTP 500. The deferred handOff backs up the explicit ones (idempotent).
+	// chat_sse_early_open_enabled: headers + the `: open` comment go out
+	// now, so the client sees bytes during condense/classify/retrieval, and
+	// progress events stream live instead of being replayed after retrieval.
+	// The stream wrapper's heartbeat (httputil.StartSSE) keeps pinging until
+	// this handler returns. Every validation error (4xx) is decided above
+	// this line; the two late errors below end the open stream with an error
+	// frame + [DONE] instead of an HTTP 500.
 	var turn *sseTurn
 	if streamMode && ChatSSEEarlyOpenEnabled(ctx, h.siteConfigReader) {
-		turn = openSSETurn(ctx, w, sseHeartbeatInterval)
-		defer turn.handOff()
+		sw, t := openSSETurn(ctx, w)
+		// No ping may outlive this handler (httputil.SSEStream).
+		defer sw.Stop()
+		w, turn = sw, t
 	}
 
 	// Condensing needs a preceding turn. A regenerate at the start of a chat
@@ -584,7 +587,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: prepare context", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
 		if turn != nil {
-			turn.handOff()
 			writeSSE(ctx, w, map[string]string{"error": "failed to prepare context"})
 			writeSSEDone(ctx, w)
 			return
@@ -610,7 +612,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save user message", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
 		if turn != nil {
-			turn.handOff()
 			writeSSE(ctx, w, map[string]string{"error": "failed to save user message"})
 			writeSSEDone(ctx, w)
 			return
@@ -1352,15 +1353,15 @@ func (h *Handler) tryDeepChat(
 		return false
 	}
 
-	// From here on this function writes the stream itself: stop the
-	// early-open heartbeat first (no-op when the flag is off). EnableSSE
-	// only sets header-map entries and the write deadline — it neither
-	// calls WriteHeader nor writes bytes — so it is harmless on a stream
-	// that is already open.
-	turn.handOff()
-
-	// Set SSE headers + opt out of the server-wide WriteTimeout.
-	httputil.EnableSSE(w)
+	// From here on this function writes the stream itself. StartSSE is a
+	// no-op on an early-opened stream (returns the existing wrapper, so no
+	// second heartbeat starts) and sets the SSE headers + stream heartbeat
+	// otherwise. The deferred Stop (idempotent on an early-opened stream,
+	// whose own defer runs later in the handler) is what guarantees no ping
+	// outlives this function's writes.
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop()
+	w = sw
 
 	sseFinished := false
 	defer func() {

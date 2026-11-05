@@ -208,7 +208,9 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, kbID string, history []ai.ChatHistoryEntry,
 	prompt, systemPrompt string, req chatRequest, id string, created int64, sources []chat.ChatSource) {
-	httputil.EnableSSE(w)
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop() // no ping may outlive this handler
+	w = sw
 
 	if len(sources) > 0 {
 		fileIDs := make([]string, 0, len(sources))

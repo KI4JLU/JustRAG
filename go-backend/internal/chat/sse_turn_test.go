@@ -6,68 +6,65 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justrag/go-backend/internal/httputil"
 )
 
+// TestSSETurn_OpensWithHeadersAndComment verifies the early-open contract:
+// SSE headers out, the `: open` comment first, everything flushed. Stop
+// before reading the body: the heartbeat must not write after the stream is
+// stopped (and the recorder is not safe against a concurrent write).
 func TestSSETurn_OpensWithHeadersAndComment(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	rec := httptest.NewRecorder()
-	turn := openSSETurn(context.Background(), rec, time.Hour)
-	turn.handOff()
+	sw, _ := openSSETurn(ctx, rec)
+	sw.Stop()
 	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("Content-Type = %q", ct)
 	}
-	if !strings.HasPrefix(rec.Body.String(), ":") {
-		t.Fatalf("first bytes = %q, want an SSE comment", rec.Body.String())
+	if !strings.HasPrefix(rec.Body.String(), ": open\n\n") {
+		t.Fatalf("first bytes = %q, want the `: open` comment", rec.Body.String())
 	}
 	if !rec.Flushed {
 		t.Fatal("headers were not flushed")
 	}
 }
 
-func TestSSETurn_HeartbeatStopsOnHandOff(t *testing.T) {
-	rec := httptest.NewRecorder()
-	turn := openSSETurn(context.Background(), rec, 5*time.Millisecond)
-	time.Sleep(30 * time.Millisecond)
-	turn.handOff()
-	n := strings.Count(rec.Body.String(), ": ping")
-	if n == 0 {
-		t.Fatal("no heartbeat written")
-	}
-	time.Sleep(30 * time.Millisecond)
-	if strings.Count(rec.Body.String(), ": ping") != n {
-		t.Fatal("heartbeat kept writing after handOff")
-	}
-	turn.handOff() // idempotent
-}
+// TestSSETurn_EmitWritesFrames runs emit against the stream wrapper so the
+// -race build sees frame writes serialised with the heartbeat: the interval
+// is shrunken (the package var StartSSE reads) and the loop pauses long
+// enough for pings to interleave with the frames. (The heartbeat itself is
+// covered in internal/httputil.)
+func TestSSETurn_EmitWritesFrames(t *testing.T) {
+	old := httputil.SSEHeartbeatInterval
+	httputil.SSEHeartbeatInterval = 5 * time.Millisecond
+	t.Cleanup(func() { httputil.SSEHeartbeatInterval = old })
 
-func TestSSETurn_EmitDuringHeartbeatIsRaceFree(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	rec := httptest.NewRecorder()
-	turn := openSSETurn(context.Background(), rec, time.Millisecond)
+	sw, turn := openSSETurn(ctx, rec)
 	for i := range 100 {
 		turn.emit(map[string]any{"stage": "x", "i": i})
+		// A pause longer than the interval, so the heartbeat fires while
+		// the stream is open and its pings race the frame writes.
+		if i%25 == 24 {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	turn.handOff()
-	if strings.Count(rec.Body.String(), `data: {"i":`) != 100 {
+	sw.Stop() // no ping may follow; the body read below is then race-free
+	body := rec.Body.String()
+	if strings.Count(body, `data: {"i":`) != 100 {
 		t.Fatal("lost emitted frames")
+	}
+	if !strings.Contains(body, ": ping\n\n") {
+		t.Fatal("no heartbeat ping observed during the pauses")
 	}
 }
 
+// TestSSETurn_NilIsNoOp: a nil turn (flag off) never touches the writer.
 func TestSSETurn_NilIsNoOp(t *testing.T) {
 	var turn *sseTurn
 	turn.emit(map[string]any{"x": 1})
-	turn.handOff()
-}
-
-// A cancelled request context ends the heartbeat on its own; handOff after
-// that must still return instead of blocking on the done channel.
-func TestSSETurn_HandOffAfterContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	turn := openSSETurn(ctx, httptest.NewRecorder(), time.Millisecond)
-	cancel()
-	finished := make(chan struct{})
-	go func() { turn.handOff(); close(finished) }()
-	select {
-	case <-finished:
-	case <-time.After(2 * time.Second):
-		t.Fatal("handOff blocked after the request context was cancelled")
-	}
 }

@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks } from 'lucide-react';
+import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks, Megaphone } from 'lucide-react';
 import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
+import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
 import { useToast } from './contexts/ToastContext';
 import { useTheme } from './contexts/ThemeContext';
 import { useModalContext } from './contexts/ModalContext';
@@ -17,6 +18,8 @@ import AdminAuthTab from './components/admin/AdminAuthTab';
 import AdminUsersTab from './components/admin/AdminUsersTab';
 import AdminRolesTab from './components/admin/AdminRolesTab';
 import AdminSiteTab from './components/admin/AdminSiteTab';
+import AdminSystemNoticeTab from './components/admin/AdminSystemNoticeTab';
+import type { SystemNoticeTemplate } from './utils/systemNoticeTemplates';
 import AdminSearchTab from './components/admin/AdminSearchTab';
 import AdminAgentTab from './components/admin/AdminAgentTab';
 import AdminEvalTab from './components/admin/AdminEvalTab';
@@ -133,7 +136,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     const visibleTabs: AdminTab[] = [
         'configs',
         ...(isSuperadmin ? ['auth', 'search', 'agent', 'site'] as const : []),
-        ...(isAdmin ? ['kb-overview'] as const : []),
+        // The system notice is the one site setting admins edit (PUT /api/admin/system-notice).
+        ...(isAdmin ? ['notice', 'kb-overview'] as const : []),
         'global-kbs',
         ...(isAdmin ? ['templates', 'users', 'roles', 'health'] as const : []),
         ...(isSuperadmin ? ['eval'] as const : []),
@@ -155,6 +159,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     // instead of reading the empty list as "0 users" per role.
     const [usersFetchFailed, setUsersFetchFailed] = useState(false);
     const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
+    // The site config as last loaded or saved — what the notice form's edits are measured against.
+    const noticeBaselineRef = useRef<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     // The dialog's footer, where an open add/edit form puts its actions (see KbSettingsDialog).
@@ -239,6 +245,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         try {
             const res = await axios.get(`${API_BASE_URL}/api/site-config`);
             setSiteConfigs(res.data);
+            noticeBaselineRef.current = res.data;
         } catch (error: unknown) {
             console.error('Failed to fetch site configs:', error);
             toast.error(t('siteConfigFetchError'));
@@ -256,6 +263,50 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         } catch {
             setSiteConfigs(prev);
             toast.error(t('settingsSaveError'));
+        }
+    };
+
+    // The system notice saves through its own admin route, which takes these
+    // keys and nothing else — a plain admin may not write the rest. Only the
+    // fields edited since the dialog loaded go out: an automation job or
+    // another admin may have changed the others meanwhile, and a full snapshot
+    // would silently revert them.
+    const handleSystemNoticeSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const baseline = noticeBaselineRef.current;
+        const notice = Object.fromEntries(
+            Object.entries(siteConfigs).filter(([key, value]) =>
+                key.startsWith('system_notice_') && key !== 'system_notice_templates'
+                && (value ?? '') !== (baseline[key] ?? '')),
+        );
+        if (Object.keys(notice).length === 0) {
+            toast.success(t('settingsSaved'));
+            return;
+        }
+        try {
+            await axios.put(`${API_BASE_URL}/api/admin/system-notice`, { configs: notice });
+            noticeBaselineRef.current = { ...baseline, ...notice };
+            // AppRoot's copy feeds the shell: hand it the saved values, so the
+            // banner changes without a reload.
+            window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: notice }));
+            toast.success(t('settingsSaved'));
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, t('settingsSaveError')));
+        }
+    };
+
+    // Templates are stored at once, apart from the notice itself (a template
+    // saved or deleted must not wait for, or publish, the message being edited).
+    const handleSaveSystemNoticeTemplates = async (templates: SystemNoticeTemplate[]): Promise<boolean> => {
+        const value = JSON.stringify(templates);
+        try {
+            await axios.put(`${API_BASE_URL}/api/admin/system-notice`, { configs: { system_notice_templates: value } });
+            setSiteConfigs(prev => ({ ...prev, system_notice_templates: value }));
+            toast.success(t('systemNoticeTemplatesSaved'));
+            return true;
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, t('settingsSaveError')));
+            return false;
         }
     };
 
@@ -308,7 +359,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             fetchSiteConfigs();
         } else if (activeTab === 'auth') fetchAuthProviders();
         else if (activeTab === 'users' || activeTab === 'roles') fetchUsers();
-        else if (activeTab === 'site' || activeTab === 'search' || activeTab === 'agent') fetchSiteConfigs();
+        else if (activeTab === 'site' || activeTab === 'search' || activeTab === 'agent' || activeTab === 'notice') fetchSiteConfigs();
     }, [activeTab, fetchConfigs, fetchSiteConfigs, fetchAuthProviders, fetchUsers]);
 
     const handleRoleChange = async (id: string, newRole: string) => {
@@ -553,6 +604,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                 return <AdminRolesTab users={loading || usersFetchFailed ? null : usersList} />;
             case 'site':
                 return <AdminSiteTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
+            case 'notice':
+                return <AdminSystemNoticeTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSystemNoticeSubmit} footerSlot={footerSlot} onSaveTemplates={handleSaveSystemNoticeTemplates} />;
             case 'search':
                 return <AdminSearchTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
             case 'agent':
@@ -591,6 +644,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         search: { icon: Search, label: t('adminTabSearch'), group: t('adminNavGroupConfig') },
         agent: { icon: FileText, label: t('adminTabAgents'), group: t('adminNavGroupConfig') },
         site: { icon: Settings, label: t('adminTabSettings'), group: t('adminNavGroupConfig') },
+        notice: { icon: Megaphone, label: t('systemNotice'), group: t('adminNavGroupConfig') },
         'kb-overview': { icon: Database, label: t('adminTabKbOverview'), group: t('adminNavGroupKbs') },
         'global-kbs': { icon: Globe, label: t('adminTabGlobalKbs'), group: t('adminNavGroupKbs') },
         templates: { icon: Blocks, label: t('adminTabTemplates'), group: t('adminNavGroupKbs') },
@@ -619,7 +673,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     // The tabs portal their own into `footerSlot` (Speichern, or the open form's Abbrechen and
     // Speichern); AdminUI adds „hinzufügen" to the two sections that list things.
     const addLabel = activeTab === 'configs' ? t('addConfig') : activeTab === 'auth' ? t('addProvider') : null;
-    const hasFooterActions = addLabel !== null || activeTab === 'templates' || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
+    const hasFooterActions = addLabel !== null || activeTab === 'templates' || activeTab === 'site' || activeTab === 'notice' || activeTab === 'search' || activeTab === 'agent';
     const footerSlotElement = (
         <div ref={setFooterSlot} className="ml-auto flex flex-col-reverse gap-2 sm:flex-row sm:justify-end" />
     );

@@ -16,6 +16,7 @@ import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
 import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 
 interface KbWorkspaceLayoutProps {
   mobileTab: MobileTab;
@@ -62,6 +63,9 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   const { user } = useAuth();
   const { currentKb, setKbView, handleGoHome } = useKbCore();
   const { sidebar, systemPromptOpen, setSystemPromptOpen } = useKbLayout();
+  // The admin's system notice, the same one AppChrome shows. After a dismiss,
+  // focus goes to the chat composer.
+  const systemNotice = useSystemNoticeBanner(() => document.querySelector<HTMLElement>('main textarea'));
 
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
@@ -222,6 +226,9 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       activeMobileTab={activeMobileTab}
       onMobileTabChange={handleMobileTabChange}
       mobileTabBarLabel={t('switchArea')}
+      notice={systemNotice.notice}
+      status={systemNotice.status}
+      noticeLabel={t('systemNotice')}
     >
       <ChatView />
     </AppShellLayout>

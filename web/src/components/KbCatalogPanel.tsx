@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, Loader2, Star } from 'lucide-react';
-import { Badge, Card, cardNeutralAccent, CardBand, CardContent, CardDescription, CardFooter, CardHairline, CardMeta, CardTitle } from '@ki4jlu/design-system';
+import { Check, FileText, Loader2, Plus } from 'lucide-react';
+import { Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardDescription, CardFooter, CardHairline, CardMeta, CardTitle } from '@ki4jlu/design-system';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbSearch } from '../contexts/KbSearchContext';
-import { FILTER_ALL, FILTER_FAVORITES } from '../hooks/useTopicFilters';
+import { FILTER_ALL } from '../hooks/useTopicFilters';
 import type { KbCatalogEntry, KbCategory } from '../types';
 import { CategoryPill } from './CategoryPill';
 import { TitleCardMeta } from './kbSettings/assistant/StartPageParts';
@@ -14,30 +14,29 @@ import { categoryDotColor } from './kbSettings/assistant/startPageModel';
 
 interface KbCatalogPanelProps {
     /** Called after every successful subscribe/unsubscribe toggle, so the
-     * caller can refetch the Favoriten list — a subscription change changes
-     * what that list shows. */
+     * caller can refetch the topic lists — a subscription moves a topic into
+     * (or out of) „Geteiltes Wissen". */
     onSubscriptionChange: () => void;
     /** Opens a KB known only by its id — the catalog rows carry nothing else. */
     onOpenKb: (id: string) => void;
     /**
-     * The active chip from the page's `TopicFilterBar` — `FILTER_ALL`,
-     * `FILTER_FAVORITES`, a system category's id or one of the caller's own.
+     * The active chip from the page's `TopicFilterBar` — `FILTER_ALL` or a
+     * system category's id. The page shows no „Favoriten" chip: a favorite is
+     * a subscribed topic pinned in „Geteiltes Wissen", not a catalog state.
      *
      * It arrives as a prop rather than being read from a context here because
      * this panel owns its own list: the catalog is a REQUEST, not the `kbs`
      * array the other views filter, so applying the chip is its job and not the
-     * page's. Every catalog row already carries `isFavorite` and
-     * `userCategoryIds` (migration 0077), so it stays a client-side filter over
-     * the response and adds no request.
+     * page's.
      */
     topicFilter?: string;
     /** Cards or one row per topic — the page's Karten/Liste switch. */
     viewMode?: 'card' | 'list';
 }
 
-/** The list view's columns: name (elastic), size, „Stand", star. Below `md` size and date drop out. */
+/** The list view's columns: name (elastic), size, „Stand", subscribe. Below `md` size and date drop out. */
 const CATALOG_ROW_COLUMNS =
-    'grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_auto] [&>*:nth-child(2)]:max-md:hidden [&>*:nth-child(3)]:max-md:hidden';
+    'grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_8.5rem] [&>*:nth-child(2)]:max-md:hidden [&>*:nth-child(3)]:max-md:hidden';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -52,10 +51,19 @@ const INITIAL_VISIBLE = 8;
  * so both fetches below re-run each time the section is expanded, and a KB
  * published after the page loaded appears without a reload.
  *
- * It is also the counterpart of the star on a Favoriten card: that star only
- * ever writes an opt-out (no membership change, no chat deletion), so every
- * KB removed there lands back here — including a staged one the caller
- * curates, which GET /api/kb/catalog lists to its members for that reason.
+ * SUBSCRIBING, NOT STARRING (developer ruling, 03.11.2026). A global topic is
+ * an open group: nobody is invited, anybody may join. The card's control is
+ * „Abonnieren" — the subscription puts the topic into „Geteiltes Wissen",
+ * where (and only where) it can then be starred like any other topic. The
+ * catalog used to carry a star for the subscription, which read as „make
+ * favorite" and was not.
+ *
+ * SUBSCRIBED TOPICS STAY LISTED, marked „Abonniert": the catalog is the whole
+ * directory, so a search finds a topic whether or not the user holds it, and
+ * this is the one place to leave it again and come back. Unsubscribing only
+ * writes an opt-out (no membership change, no chat deletion) — including for a
+ * staged topic the caller curates, which GET /api/kb/catalog lists to its
+ * members for that reason.
  *
  * IT NO LONGER OWNS THE SEARCH FIELD (card KI-787). The developer moved that
  * one field into the shell's top bar — a move, not a copy: there is no input
@@ -150,18 +158,12 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
         }
     }, [onSubscriptionChange, toast, t]);
 
-    /* The page's chip, applied to the response.
-     *
-     * BEFORE the fold, deliberately: folding first and filtering after would
-     * make „show N more" a count of rows the filter had already removed, and a
-     * favorite sitting at position 9 would be unreachable behind a button that
-     * claimed to reveal it. */
+    /* The page's chip, applied to the response — BEFORE the fold, so „show N
+     * more" never counts rows the filter has removed. A category not in the
+     * catalog's list (stale, or hidden meanwhile) matches nothing. */
     const filtered = topicFilter === undefined || topicFilter === FILTER_ALL || activeCategory !== null
         ? entries
-        : topicFilter === FILTER_FAVORITES
-            ? entries.filter(e => e.isFavorite)
-            // A category not in the catalog's list (stale, or hidden meanwhile) matches nothing.
-            : [];
+        : [];
 
     // The catalog can hold every public KB in the deployment; showing all of
     // them at once buries the four sections below it. The fold is client-side
@@ -193,7 +195,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                         <span>{t('kbListColTopic')}</span>
                         <span className="text-right">{t('kbListColSources')}</span>
                         <span className="text-right">{t('kbListColAsOf')}</span>
-                        <span className="w-7" />
+                        <span />
                     </div>
                 )}
                 {/* Cards: two columns at most, the title and description want
@@ -223,23 +225,27 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                                 {entry.name}
                             </button>
                         );
-                        /* Mirror image of the filled star on a Favoriten card:
-                           outline means "not in my favorites yet, click to add",
-                           filled means "already there, click to drop it". The
+                        /* „Abonnieren" — or, once subscribed, „Abonniert" as a
+                           pressed toggle; pressing it again unsubscribes. The
                            card itself opens the KB, so this must not bubble. */
-                        const star = (
-                            <button
+                        const busy = pending.has(entry.id);
+                        const subscribeButton = (
+                            <Button
+                                size="sm"
+                                variant={entry.subscribed ? 'outline' : 'default'}
+                                className="shrink-0"
                                 onClick={(e) => { e.stopPropagation(); void toggle(entry); }}
-                                disabled={pending.has(entry.id)}
-                                className="home-view__mini-icon shrink-0"
+                                disabled={busy}
                                 aria-pressed={entry.subscribed}
-                                title={entry.subscribed ? t('unsubscribe') : t('subscribe')}
-                                aria-label={entry.subscribed ? t('unsubscribe') : t('subscribe')}
+                                title={entry.subscribed ? t('unsubscribe') : undefined}
                             >
-                                {pending.has(entry.id)
-                                    ? <Loader2 className="animate-spin" size={16} aria-hidden="true" />
-                                    : <Star size={16} aria-hidden="true" fill={entry.subscribed ? 'currentColor' : 'none'} />}
-                            </button>
+                                {busy
+                                    ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                    : entry.subscribed
+                                        ? <Check className="size-4" aria-hidden="true" />
+                                        : <Plus className="size-4" aria-hidden="true" />}
+                                {entry.subscribed ? t('subscribedBadge') : t('subscribe')}
+                            </Button>
                         );
                         const documents = entry.fileCount !== undefined && (
                             <Badge>
@@ -251,7 +257,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                             /* The row, as on „Mein Wissen": the category's colour
                                as the left edge with a faint tint from it (grey,
                                no tint, without one), the name with its category
-                               under it, then size, „Stand" and the star. */
+                               under it, then size, „Stand" and „Abonnieren". */
                             return (
                                 <li key={entry.id} className="min-w-0">
                                     <Card
@@ -271,7 +277,8 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                                         <span className="truncate text-right text-sm text-on-surface-variant">
                                             <TitleCardMeta asOf={entry.lastIngestedAt ?? undefined} leading={false} />
                                         </span>
-                                        {star}
+                                        {/* A fixed column, so the header's labels stand over every row's values. */}
+                                        <div className="flex justify-end">{subscribeButton}</div>
                                     </Card>
                                 </li>
                             );
@@ -279,7 +286,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                         return (
                             <li key={entry.id} className="flex min-w-0">
                                 {/* The hairline card (developer mockup „Hairline", 30.10.2026):
-                                    name and star on a faint tint of the category's colour,
+                                    name and „Abonnieren" on a faint tint of the category's colour,
                                     the category on the rule, the description, then size and
                                     „Stand". Grey without a category. */}
                                 <Card
@@ -291,7 +298,7 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                                 >
                                     <CardBand data-testid="catalog-band">
                                         <CardTitle>{nameButton}</CardTitle>
-                                        {star}
+                                        {subscribeButton}
                                     </CardBand>
                                     <CardHairline>{category && <CategoryPill category={category} onHairline />}</CardHairline>
                                     <CardContent>

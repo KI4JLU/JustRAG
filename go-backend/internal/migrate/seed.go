@@ -27,9 +27,10 @@ type seedUser struct {
 	password  string
 	// resetRole overwrites the role of an already-existing row. True for admin
 	// so a demoted or locked-out superadmin is recoverable by re-running
-	// migrate. False for tester: promoting it in the admin UI is exactly what
-	// the account is for (checking a privileged view), and a re-seed must not
-	// silently undo that.
+	// migrate, and for the owui service user so its role stays api-user. False
+	// for tester: promoting it in the admin UI is exactly what the account is
+	// for (checking a privileged view), and a re-seed must not silently undo
+	// that.
 	resetRole bool
 }
 
@@ -53,6 +54,16 @@ func seedUsers(getenv func(string) string) []seedUser {
 			role: "user", password: pw, resetRole: false,
 		})
 	}
+	// The service account behind the /owui surface (ILIAS LfAssistant plugin):
+	// it mints the API key the plugin uses and owns every KB the plugin
+	// creates. Its role is reset on re-seed because its key lives in an
+	// external system — a promotion must not quietly widen what that key can do.
+	if pw := getenv("OWUI_SERVICE_PASSWORD"); pw != "" {
+		users = append(users, seedUser{
+			username: "ilias-lfassistant", firstName: "ILIAS", lastName: "LfAssistant",
+			role: "api-user", password: pw, resetRole: true,
+		})
+	}
 	return users
 }
 
@@ -74,9 +85,10 @@ func seedUpsertSQL(u seedUser) string {
 }
 
 // Seed ensures the seeded users exist and have the configured password.
-// Passwords are read from ADMIN_PASSWORD and TESTER_PASSWORD; a user whose
-// var is empty is skipped. An existing row always has its password refreshed;
-// its role is overwritten only for admin (see seedUser.resetRole).
+// Passwords are read from ADMIN_PASSWORD, TESTER_PASSWORD and
+// OWUI_SERVICE_PASSWORD; a user whose var is empty is skipped. An existing row
+// always has its password refreshed; its role is overwritten for admin and the
+// owui service user, not for tester (see seedUser.resetRole).
 func Seed(ctx context.Context, cfg config.DBConfig) error {
 	users := seedUsers(os.Getenv)
 	if len(users) == 0 {

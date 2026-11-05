@@ -2,6 +2,7 @@ package vector
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -336,25 +337,29 @@ func TestApplyScoreDrop_NoCutWhenClose(t *testing.T) {
 	}
 }
 
-// TestApplyMinThreshold verifies that docs with scores below the minimum are removed.
+// TestApplyMinThreshold pins KI-826: the threshold judges the cosine
+// similarity, not the fused RRF score. Score holds hand-computed RRF values
+// (1/(60+rank)), all far below 0.3, so a filter on Score keeps nothing.
 func TestApplyMinThreshold(t *testing.T) {
 	t.Parallel()
 	docs := []RankedDoc{
-		{ID: "a", Score: 0.9},
-		{ID: "b", Score: 0.5},
-		{ID: "c", Score: 0.2},
-		{ID: "d", Score: 0.0},
+		{ID: "strong", Score: 1.0 / 61, VectorScore: 0.8},
+		{ID: "weak", Score: 1.0 / 62, VectorScore: 0.2},
+		{ID: "edge", Score: 1.0 / 63, VectorScore: 0.3},                             // == threshold: kept
+		{ID: "weak+kw", Score: 1.0/64 + 1.0/61, VectorScore: 0.1, KeywordRank: 0.4}, // lexical evidence
+		{ID: "kw-only", Score: 1.0 / 62, KeywordRank: 0.2},
+		{ID: "graph", Score: 1.0 / 65}, // graph-injected: no score, rank only
 	}
 
-	result := ApplyMinThreshold(docs, 0.5)
+	result := ApplyMinThreshold(docs, 0.3)
 
-	if len(result) != 2 {
-		t.Fatalf("expected 2 docs, got %d", len(result))
+	var got []string
+	for _, d := range result {
+		got = append(got, d.ID)
 	}
-	for _, doc := range result {
-		if doc.Score < 0.5 {
-			t.Errorf("doc '%s' with score %.2f should have been filtered", doc.ID, doc.Score)
-		}
+	want := []string{"strong", "edge", "weak+kw", "kw-only", "graph"}
+	if !slices.Equal(got, want) {
+		t.Errorf("kept %v, want %v", got, want)
 	}
 }
 

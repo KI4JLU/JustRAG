@@ -257,8 +257,14 @@ func buildIndexedChunks(result *parser.ParseResult, cfg splitter.Config) []index
 			totalLen += len(pg.Text)
 		}
 		ichunks := make([]indexedChunk, 0, estimateChunkCount(totalLen, cfg))
+		// A table that runs on onto the next page continues there without
+		// its header; carry the open table across pages so those rows get
+		// it repeated like any other split (KI-853).
+		var carry splitter.TableCarry
 		for _, pg := range result.Pages {
-			for _, c := range splitter.Split(pg.Text, cfg) {
+			var chunks []string
+			chunks, carry = splitter.SplitCarry(pg.Text, cfg, carry)
+			for _, c := range chunks {
 				ichunks = append(ichunks, indexedChunk{Text: c, Pages: []int{pg.PageNumber}})
 			}
 		}
@@ -734,7 +740,15 @@ func (p *Processor) ProcessFileWithResult(ctx context.Context, in ProcessFileInp
 	return out, err
 }
 
+// processFile runs one ingest, stopped early when the file is deleted
+// meanwhile (guardDeletedFile, KI-828).
 func (p *Processor) processFile(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) error {
+	return p.guardDeletedFile(ctx, in, func(ctx context.Context) error {
+		return p.ingestFile(ctx, in, outcome)
+	})
+}
+
+func (p *Processor) ingestFile(ctx context.Context, in ProcessFileInput, outcome *ProcessOutcome) error {
 	ctx = withIngestDegradedFlag(ctx)
 	// Resolve ingestion config through the file's KB so per-KB overrides
 	// (raptor/parent-child/enrichment/kg_extraction) take effect. Reassigning
@@ -1501,6 +1515,12 @@ func (p *Processor) parseDocument(ctx context.Context, in ProcessFileInput, outc
 		KbID:      in.KBID,
 		ChunkSize: in.ChunkSize,
 	})
+	if errors.Is(parseErr, ai.ErrAudioTooLarge) {
+		// Over the transcription limit: no retry can fix it, and "could not
+		// be parsed" would tell the user the file is damaged (KI-960).
+		_ = p.store.MarkFileError(ctx, fileID, "too_large", "The audio file exceeds the transcription size limit")
+		return nil, fmt.Errorf("processor: parse file: %w: %w", parseErr, asynq.SkipRetry)
+	}
 	if parseErr != nil {
 		p.markFailed(ctx, fileID, "parse", "The file could not be parsed")
 		return nil, fmt.Errorf("processor: parse file: %w", parseErr)

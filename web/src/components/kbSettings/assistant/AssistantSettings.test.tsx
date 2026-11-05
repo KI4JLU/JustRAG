@@ -242,7 +242,7 @@ describe('Verhalten · roles', () => {
 
     // Oracle: developer ruling 28.10.2026 — every own role's description is
     // editable, the legacy role's too; it is the text on the start page's card.
-    // Since migration 0100 the legacy role („Eigene Rolle") is an own role like
+    // Since migration 0101 the legacy role („Eigene Rolle") is an own role like
     // any other: it cannot be saved without a name.
     it('edits a role\'s description', async () => {
         behavior = { ...behavior, customRoles: [...behavior.customRoles, { id: 'legacy', name: 'Eigene Rolle', description: 'Der bisher hinterlegte System-Prompt.', prompt: 'ALTER PROMPT', icon: 'user-round' }] };

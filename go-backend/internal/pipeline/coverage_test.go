@@ -306,6 +306,7 @@ var ignoredKeys = map[string]string{
 	"chat_attachments_context_share":           "global-only share of the answer model's window for chat attachments; sizes the user's own documents, not a retrieval stage",
 	"chat_attachments_fallback_context_window": "global-only window assumed for an answer model without ai_models.context_window; attachment budgeting, not a retrieval stage",
 	"chat_attachments_max_per_message":         "global-only cap on attachments per chat message; a request bound, not a retrieval stage",
+	"chat_attachments_max_file_bytes":          "global-only size cap of one chat attachment upload; a request bound, not a retrieval stage",
 
 	// Operational budget siblings of the already-ignored chat_turn_budget_seconds.
 	"chat_turn_budget_tokens":     "operational budget, sibling of chat_turn_budget_seconds",

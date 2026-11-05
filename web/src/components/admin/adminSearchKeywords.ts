@@ -26,6 +26,12 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     site: [
         'namesSection', 'systemNameLabel', 'assistantNameLabel', 'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
         'confluenceSettings', 'confluenceEnabled', 'confluenceBaseUrl', 'gitRepoSettings', 'gitRepoEnabled',
+        'policyAcceptanceSection', 'policyAcceptanceVersion',
+    ],
+    notice: [
+        'systemNoticeEnabled', 'systemNoticeTitle', 'systemNoticeText', 'systemNoticeTone', 'systemNoticeDismissible',
+        'systemNoticeLinkUrl', 'systemNoticeLinkLabel', 'systemNoticePreview',
+        'systemNoticeTemplates', 'systemNoticeTemplateName',
     ],
     'kb-overview': [
         'colName', 'colOwner', 'tabFiles', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',
