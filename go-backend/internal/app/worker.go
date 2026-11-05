@@ -86,8 +86,9 @@ func RunWorker(cfg *config.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// {{system_name}} in the prompts the worker compiles defaults to the app name.
-	kbbehavior.SetDefaultSystemName(cfg.AppName())
+	// {{institution_name}} / {{system_name}} in the prompts the worker compiles
+	// default to the app name from the environment.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
 
 	// nil redactor: the worker serves no HTTP surface, so no URL path — and
 	// therefore no invite token — ever reaches a span here.

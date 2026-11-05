@@ -114,7 +114,7 @@ rate limits, server errors); map it by status.
 | GET | `/api-keys` |
 | DELETE | `/api-keys/{id}` |
 
-`GET /site-config` answers every caller, logged in or not, with the public keys (admins get every key, secrets masked). It always carries `app_name_prefix` and `app_name_product`, the app name from `APP_NAME_PREFIX` / `APP_NAME_PRODUCT` (default `JLU` / `RAG`), which the web app renders as its logo and window title; `POST /site-config` ignores both keys. `POST /site-config` is superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
+`GET /site-config` answers every caller, logged in or not, with the public keys (admins get every key, secrets masked). It always carries `app_name_prefix` and `app_name_product`, the env app name `APP_NAME_PREFIX` / `APP_NAME_PRODUCT` (default `JLU` / `RAG`): the defaults of the admin settings `institution_name` / `system_name`, which the web app renders as its logo and window title; `POST /site-config` ignores both env keys. `POST /site-config` is superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
 
 ### Long-term memory ("Mein Gedächtnis")
 
@@ -356,10 +356,11 @@ followed the free system prompt. Every answer surface reads this one compiled pr
   on a start page. Both are read-only for a KB, which references them
   by `id`, so a corrected template reaches every KB that uses it. Read it in the KB's `language` (below) for a
   preview that matches the compiled prompt. Prompts are served as written: the placeholders
-  `{{assistant_name}}` and `{{system_name}}` in any role prompt (template or own) resolve to `names`
-  when the prompt is compiled — the global-only site_config keys `assistant_name` (default `JLU RAG`) and
-  `system_name` (default: the app name, `APP_NAME_PREFIX` + space + `APP_NAME_PRODUCT`), each at most 40
-  characters on one line; blank means the default.
+  `{{assistant_name}}`, `{{institution_name}}` and `{{system_name}}` in any role prompt (template or own)
+  resolve to `names` (`assistant`, `institution`, `system`) when the prompt is compiled — the global-only
+  site_config keys `assistant_name` (default `JLU RAG`), `institution_name` (default `APP_NAME_PREFIX`) and
+  `system_name` (default `APP_NAME_PRODUCT`), each at most 40 characters on one line; blank means the
+  default.
   Every system template opens with „Du bist {{assistant_name}}, …"; the fixed RAG instructions carry no
   identity of their own. The legacy role (a pre-roles `system_prompt`) is followed by the former
   identity line „Du bist {{assistant_name}}, ein fortschrittlicher, …"; an own role with neither prompt

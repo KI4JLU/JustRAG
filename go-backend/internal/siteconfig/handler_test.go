@@ -38,12 +38,9 @@ func strPtr(s string) *string {
 
 func makeRows() []siteconfig.SiteConfigRow {
 	return []siteconfig.SiteConfigRow{
-		// A deployment that uploaded a logo before the upload was removed.
+		// Leftovers of removed settings: an uploaded logo, the imprint text.
 		{Key: "logo_path", Value: strPtr("/uploads/logo/logo_1.png")},
 		{Key: "imprint", Value: strPtr("Some imprint text")},
-		{Key: "kb_header", Value: strPtr("Welcome")},
-		{Key: "example_prompts", Value: strPtr("[]")},
-		{Key: "chat_footer", Value: strPtr("Footer text")},
 		{Key: "confluence_enabled", Value: strPtr("true")},
 		{Key: "web_search_enabled", Value: strPtr("true")},
 		{Key: "chat_web_search_enabled", Value: strPtr("false")},
@@ -75,8 +72,7 @@ func TestGetSiteConfig_Unauthenticated(t *testing.T) {
 	// Public keys should be present. chat_web_search_enabled is public so the
 	// UI can hide the per-turn web-search toggle when the admin gate is off.
 	publicKeys := []string{
-		"imprint", "kb_header", "example_prompts",
-		"chat_footer", "confluence_enabled", "web_search_enabled",
+		"confluence_enabled", "web_search_enabled",
 		"chat_web_search_enabled",
 		"academic_search_enabled", "academic_search_name",
 	}
@@ -86,9 +82,9 @@ func TestGetSiteConfig_Unauthenticated(t *testing.T) {
 		}
 	}
 
-	// Secret keys must be absent, and so must a leftover logo_path: the
-	// uploaded logo is no longer public, nothing renders it.
-	secretKeys := []string{"google_search_api_key", "openai_api_key", "logo_path"}
+	// Secret keys must be absent, and so must the leftovers of removed
+	// settings: nothing renders them any more.
+	secretKeys := []string{"google_search_api_key", "openai_api_key", "logo_path", "imprint"}
 	for _, k := range secretKeys {
 		if _, ok := body[k]; ok {
 			t.Errorf("expected secret key %q to be filtered out for unauthenticated user", k)
@@ -126,8 +122,7 @@ func TestGetSiteConfig_Admin(t *testing.T) {
 
 	// All non-null keys should be present
 	expectedKeys := []string{
-		"imprint", "kb_header", "example_prompts",
-		"chat_footer", "confluence_enabled", "web_search_enabled",
+		"imprint", "confluence_enabled", "web_search_enabled",
 		"academic_search_enabled", "academic_search_name",
 		"google_search_api_key", "openai_api_key",
 	}
@@ -207,8 +202,8 @@ func TestGetSiteConfig_RegularUser(t *testing.T) {
 	}
 
 	// But should see public keys
-	if _, ok := body["imprint"]; !ok {
-		t.Error("expected regular user to see imprint")
+	if _, ok := body["confluence_enabled"]; !ok {
+		t.Error("expected regular user to see confluence_enabled")
 	}
 }
 
@@ -238,7 +233,7 @@ func TestUpdateSiteConfig_MaskedSecretIsPreserved(t *testing.T) {
 	h := siteconfig.NewHandler(store)
 
 	// The admin saves the form without changing the masked key.
-	body := strings.NewReader(`{"configs":{"google_search_api_key":"********","kb_header":"new"}}`)
+	body := strings.NewReader(`{"configs":{"google_search_api_key":"********","academic_search_name":"new"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/site-config", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -253,14 +248,14 @@ func TestUpdateSiteConfig_MaskedSecretIsPreserved(t *testing.T) {
 		}
 	}
 	// The non-secret edit must still go through.
-	var sawKB bool
+	var sawName bool
 	for _, kv := range store.lastBatch {
-		if kv.Key == "kb_header" {
-			sawKB = true
+		if kv.Key == "academic_search_name" {
+			sawName = true
 		}
 	}
-	if !sawKB {
-		t.Error("expected non-secret kb_header update to be persisted")
+	if !sawName {
+		t.Error("expected non-secret academic_search_name update to be persisted")
 	}
 }
 
@@ -272,12 +267,12 @@ func TestUpdateSiteConfig_ValidBody(t *testing.T) {
 	val := "updated"
 	store := &mockStore{
 		batchRows: []siteconfig.SiteConfigRow{
-			{Key: "kb_header", Value: &val},
+			{Key: "academic_search_name", Value: &val},
 		},
 	}
 	h := siteconfig.NewHandler(store)
 
-	body := strings.NewReader(`{"configs":{"kb_header":"updated"}}`)
+	body := strings.NewReader(`{"configs":{"academic_search_name":"updated"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/site-config", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -292,8 +287,8 @@ func TestUpdateSiteConfig_ValidBody(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if result["kb_header"] != "updated" {
-		t.Errorf("expected kb_header=updated, got %q", result["kb_header"])
+	if result["academic_search_name"] != "updated" {
+		t.Errorf("expected academic_search_name=updated, got %q", result["academic_search_name"])
 	}
 }
 
@@ -400,7 +395,7 @@ func TestUpdateSiteConfig_AppNameIsNotStored(t *testing.T) {
 	store := &mockStore{batchRows: []siteconfig.SiteConfigRow{}}
 	h := siteconfig.NewHandler(store, siteconfig.WithAppName("JLU", "RAG"))
 
-	body := strings.NewReader(`{"configs":{"app_name_prefix":"JLU","app_name_product":"RAG","kb_header":"new"}}`)
+	body := strings.NewReader(`{"configs":{"app_name_prefix":"JLU","app_name_product":"RAG","academic_search_name":"new"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/site-config", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -409,7 +404,7 @@ func TestUpdateSiteConfig_AppNameIsNotStored(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(store.lastBatch) != 1 || store.lastBatch[0].Key != "kb_header" {
-		t.Errorf("expected only kb_header to be written, got %+v", store.lastBatch)
+	if len(store.lastBatch) != 1 || store.lastBatch[0].Key != "academic_search_name" {
+		t.Errorf("expected only academic_search_name to be written, got %+v", store.lastBatch)
 	}
 }

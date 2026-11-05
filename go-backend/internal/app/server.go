@@ -64,8 +64,9 @@ func RunServer(cfg *config.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// {{system_name}} and the window title default to the app name.
-	kbbehavior.SetDefaultSystemName(cfg.AppName())
+	// {{institution_name}} / {{system_name}}, logo and window title default to
+	// the app name from the environment.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
 
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-server", version, middleware.RedactSecretPath)
 	if err != nil {

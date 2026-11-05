@@ -20,8 +20,7 @@ const webIndexHTML = "../../../web/index.html"
 var inlineScriptRe = regexp.MustCompile(`(?s)<script>.*?</script>`)
 
 // Oracle: the shipped web/index.html and the frontend contract in
-// web/src/utils/appName.ts (meta names app-name-prefix, app-name-product,
-// system-name).
+// web/src/utils/appName.ts (meta names app-name-prefix / app-name-product).
 func TestRenderAppShell_RealIndexHTML(t *testing.T) {
 	t.Parallel()
 	shell, err := os.ReadFile(webIndexHTML)
@@ -37,13 +36,12 @@ func TestRenderAppShell_RealIndexHTML(t *testing.T) {
 		}
 	}
 
-	out := string(renderAppShell(shell, "THM", "Docs", "KI-Assistent"))
+	out := string(renderAppShell(shell, "TUM", "Wissen"))
 	for _, want := range []string{
-		"<title>KI-Assistent</title>",
-		`<meta name="description" content="KI-Assistent - Advanced Knowledge Retrieval System"`,
-		`<meta name="app-name-prefix" content="THM" />`,
-		`<meta name="app-name-product" content="Docs" />`,
-		`<meta name="system-name" content="KI-Assistent" />`,
+		"<title>TUM Wissen</title>",
+		`<meta name="description" content="TUM Wissen - Advanced Knowledge Retrieval System"`,
+		`<meta name="app-name-prefix" content="TUM" />`,
+		`<meta name="app-name-product" content="Wissen" />`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered shell lacks %q", want)
@@ -52,7 +50,7 @@ func TestRenderAppShell_RealIndexHTML(t *testing.T) {
 	if strings.Contains(out, "JLU RAG") {
 		t.Error("rendered shell still names the default app")
 	}
-	if i, j := strings.Index(out, "system-name"), strings.Index(out, "</head>"); i < 0 || i > j {
+	if i, j := strings.Index(out, "app-name-product"), strings.Index(out, "</head>"); i < 0 || i > j {
 		t.Error("app name metas are not inside <head>")
 	}
 	// The theme boot script is hashed into the CSP; the rename must not touch it.
@@ -64,13 +62,12 @@ func TestRenderAppShell_RealIndexHTML(t *testing.T) {
 func TestRenderAppShell_EscapesTheName(t *testing.T) {
 	t.Parallel()
 	shell := []byte(`<head><meta name="description" content="JLU RAG - x" /><title>JLU RAG</title></head>`)
-	out := string(renderAppShell(shell, `A&B`, `<i>"x"`, `A&B <i>"x"`))
+	out := string(renderAppShell(shell, `A&B`, `<i>"x"`))
 	for _, want := range []string{
 		"<title>A&amp;B &lt;i&gt;&#34;x&#34;</title>",
 		`content="A&amp;B &lt;i&gt;&#34;x&#34; - x"`,
 		`<meta name="app-name-prefix" content="A&amp;B" />`,
 		`<meta name="app-name-product" content="&lt;i&gt;&#34;x&#34;" />`,
-		`<meta name="system-name" content="A&amp;B &lt;i&gt;&#34;x&#34;" />`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered shell lacks %q:\n%s", want, out)
@@ -92,12 +89,11 @@ func newShellTestDir(t *testing.T) string {
 }
 
 // Every way to reach the shell — the root, /index.html (the service worker
-// precaches that URL) and a client-side route — gets the renamed one. Without
-// a system name the title is the app name.
+// precaches that URL) and a client-side route — gets the renamed one.
 func TestStaticServing_ShellCarriesTheAppName(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
-	setupStaticServing(mux, newShellTestDir(t), appShellNames{Prefix: "THM", Product: "Docs"})
+	setupStaticServing(mux, newShellTestDir(t), staticAppName("THM", "Docs"))
 
 	for _, path := range []string{"/", "/index.html", "/kb/123/chat"} {
 		rec := httptest.NewRecorder()
@@ -126,7 +122,7 @@ func TestStaticServing_ShellETagFollowsTheName(t *testing.T) {
 	dir := newShellTestDir(t)
 	etag := func(prefix string, ifNoneMatch string) (string, int) {
 		mux := http.NewServeMux()
-		setupStaticServing(mux, dir, appShellNames{Prefix: prefix, Product: "Docs"})
+		setupStaticServing(mux, dir, staticAppName(prefix, "Docs"))
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		if ifNoneMatch != "" {
 			req.Header.Set("If-None-Match", ifNoneMatch)
@@ -183,7 +179,7 @@ func TestStaticServing_ManifestCarriesTheAppName(t *testing.T) {
 	}
 	get := func() *httptest.ResponseRecorder {
 		mux := http.NewServeMux()
-		setupStaticServing(mux, dir, appShellNames{Prefix: "THM", Product: "Docs", SystemName: func(context.Context) string { return "" }})
+		setupStaticServing(mux, dir, staticAppName("THM", "Docs"))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil))
 		return rec
@@ -212,18 +208,18 @@ func TestStaticServing_ManifestCarriesTheAppName(t *testing.T) {
 	}
 }
 
-// The title and the installed app follow the system name as it is read per
-// request (system_name, else the app name); the wordmark parts stay the app
-// name. A changed system name is a changed ETag.
-func TestStaticServing_SystemNameIsReadPerRequest(t *testing.T) {
+// The name is read per request (institution_name / system_name, else the
+// environment): shell and installed app follow a saved name without a
+// restart, and a changed name is a changed ETag.
+func TestStaticServing_AppNameIsReadPerRequest(t *testing.T) {
 	t.Parallel()
 	dir := newShellTestDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "manifest.webmanifest"), []byte(`{"name":"JLU RAG","short_name":"JLU RAG"}`), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
-	system := "KI-Assistent"
+	prefix, product := "TUM", "Wissen"
 	mux := http.NewServeMux()
-	setupStaticServing(mux, dir, appShellNames{Prefix: "THM", Product: "Docs", SystemName: func(context.Context) string { return system }})
+	setupStaticServing(mux, dir, func(context.Context) (string, string) { return prefix, product })
 	get := func(path string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -232,21 +228,21 @@ func TestStaticServing_SystemNameIsReadPerRequest(t *testing.T) {
 
 	shell := get("/")
 	body := shell.Body.String()
-	for _, want := range []string{"<title>KI-Assistent</title>", `name="system-name" content="KI-Assistent"`, `name="app-name-prefix" content="THM"`} {
+	for _, want := range []string{"<title>TUM Wissen</title>", `name="app-name-prefix" content="TUM"`, `name="app-name-product" content="Wissen"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("shell lacks %q:\n%s", want, body)
 		}
 	}
 	var m map[string]string
-	if err := json.Unmarshal(get("/manifest.webmanifest").Body.Bytes(), &m); err != nil || m["name"] != "KI-Assistent" {
-		t.Errorf("manifest = %v (%v), want the system name", m, err)
+	if err := json.Unmarshal(get("/manifest.webmanifest").Body.Bytes(), &m); err != nil || m["name"] != "TUM Wissen" {
+		t.Errorf("manifest = %v (%v), want the app name", m, err)
 	}
 
-	system = "" // unset: the app name
-	if body := get("/").Body.String(); !strings.Contains(body, "<title>THM Docs</title>") {
-		t.Errorf("without a system name the title is the app name:\n%s", body)
+	prefix = "JLU" // an admin saved another institution name
+	if body := get("/").Body.String(); !strings.Contains(body, "<title>JLU Wissen</title>") {
+		t.Errorf("the saved name did not reach the shell:\n%s", body)
 	}
 	if get("/").Header().Get("ETag") == shell.Header().Get("ETag") {
-		t.Error("a changed system name kept the ETag")
+		t.Error("a changed name kept the ETag")
 	}
 }
