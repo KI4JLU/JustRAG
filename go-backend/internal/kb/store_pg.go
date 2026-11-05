@@ -539,18 +539,15 @@ func (s *PGStore) GetKnowledgeBase(ctx context.Context, kbID, userID string) (*K
 //
 // A KB created without a system prompt starts with the default behavior
 // (template role and default rules, kbbehavior.Default); one created with a
-// systemPrompt (the API) keeps it as its legacy role, as an existing KB does.
+// systemPrompt (the API) has it as its own role „Eigene Rolle"
+// (kbbehavior.InitialJSON).
 func (s *PGStore) CreateKnowledgeBase(ctx context.Context, name string, description *string, userID string, systemPrompt *string) (*KBRow, error) {
-	var behavior []byte
-	if systemPrompt == nil || *systemPrompt == "" {
-		raw, err := kbbehavior.DefaultJSON()
-		if err != nil {
-			return nil, fmt.Errorf("CreateKnowledgeBase: %w", err)
-		}
-		behavior = raw
+	behavior, err := kbbehavior.InitialJSON(systemPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("CreateKnowledgeBase: %w", err)
 	}
 	var result *KBRow
-	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		const sql = `
 			INSERT INTO knowledge_bases (name, description, user_id, system_prompt, behavior)
 			VALUES ($1, $2, $3, $4, $5)

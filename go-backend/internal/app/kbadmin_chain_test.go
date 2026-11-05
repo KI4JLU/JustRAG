@@ -101,8 +101,8 @@ func TestKbAdminChain_PlainUserWithKbAdminRolePasses(t *testing.T) {
 // TestKbAdvancedChain_PlainUserRefused is the restored gate, stated as an
 // intent: the KB "advanced settings" surface (RAG settings, Agenten & Teams,
 // Evals, Workflow, and the per-KB re-embed sweep the settings Save flow
-// offers) requires a system role in {api-user, admin, superadmin} IN ADDITION
-// to KB role admin.
+// offers) requires the system role admin (or superadmin); no KB role is the
+// permission for it.
 //
 // The caller here is the strongest possible plain user — 'owner' on the KB,
 // which is what every user who creates a KB gets — and is still refused. That
@@ -138,50 +138,52 @@ func TestKbAdvancedChain_PlainUserRefused(t *testing.T) {
 	}
 }
 
-// TestKbAdvancedChain table-drives the two-term gate: both the system role and
-// the KB role must clear, and neither one alone is enough.
+// TestKbAdvancedChain table-drives the gate: the system role admin (or
+// superadmin) is the whole permission — on a global or shared KB whatever the
+// KB role, and on their own — and no KB role stands in for it, not even for
+// an api-user. Somebody else's private KB nobody shares stays closed (its
+// evals would read its content).
 func TestKbAdvancedChain(t *testing.T) {
 	ownerID := "user-1"
+	private := &kbaccess.KnowledgeBase{ID: "kb1", UserID: &ownerID}
+	shared := &kbaccess.KnowledgeBase{ID: "kb1", UserID: &ownerID, Shared: true}
+	global := &kbaccess.KnowledgeBase{ID: "kb1", IsGlobal: true, IsPublished: true}
 	cases := []struct {
 		name     string
+		kb       *kbaccess.KnowledgeBase
 		sysRole  string
 		userID   string
 		kbRole   string // the caller's kb_members role, "" for none
 		wantCode int
 	}{
-		// System role clears, KB role clears.
-		{"api-user+kb-owner", auth.RoleAPIUser, ownerID, kbaccess.RoleOwner, http.StatusOK},
-		{"api-user+kb-admin", auth.RoleAPIUser, "other", kbaccess.RoleAdmin, http.StatusOK},
-		{"admin+kb-owner", auth.RoleAdmin, ownerID, kbaccess.RoleOwner, http.StatusOK},
-		{"admin+kb-admin", auth.RoleAdmin, "other", kbaccess.RoleAdmin, http.StatusOK},
-		// Superadmin passes RequireRole through its hoisted bypass and
-		// resolves to KB role 'owner', so it needs no kb_members row.
-		{"superadmin+no-kb-row", auth.RoleSuperAdmin, "other", "", http.StatusOK},
+		// A system admin on a shared or global KB, whatever their role in it.
+		{"admin+shared+no-kb-row", shared, auth.RoleAdmin, "other", "", http.StatusOK},
+		{"admin+shared+kb-view", shared, auth.RoleAdmin, "other", kbaccess.RoleView, http.StatusOK},
+		{"admin+global+no-kb-row", global, auth.RoleAdmin, "other", "", http.StatusOK},
+		{"superadmin+shared", shared, auth.RoleSuperAdmin, "other", "", http.StatusOK},
 
-		// KB role clears, system role does not. This is the restored gate.
-		{"plain-user+kb-owner", auth.RoleUser, ownerID, kbaccess.RoleOwner, http.StatusForbidden},
-		{"plain-user+kb-admin", auth.RoleUser, "other", kbaccess.RoleAdmin, http.StatusForbidden},
+		// A system admin's own private KB, shared or not (developer ruling
+		// 2026-11-05).
+		{"admin+own-unshared", private, auth.RoleAdmin, ownerID, kbaccess.RoleOwner, http.StatusOK},
+		{"superadmin+own-unshared", private, auth.RoleSuperAdmin, ownerID, kbaccess.RoleOwner, http.StatusOK},
 
-		// System role clears, KB role does not. The KB-role requirement is
-		// still load-bearing: an api-user or admin gets nothing on a private
-		// KB they have no admin-level row on.
-		{"api-user+kb-edit", auth.RoleAPIUser, "other", kbaccess.RoleEdit, http.StatusForbidden},
-		{"api-user+kb-view", auth.RoleAPIUser, "other", kbaccess.RoleView, http.StatusForbidden},
-		{"api-user+no-kb-row", auth.RoleAPIUser, "other", "", http.StatusForbidden},
-		{"admin+no-kb-row-private-kb", auth.RoleAdmin, "other", "", http.StatusForbidden},
+		// Somebody else's private KB nobody shares: closed, superadmin
+		// included, whatever other KB role.
+		{"admin+unshared+no-kb-row", private, auth.RoleAdmin, "other", "", http.StatusForbidden},
+		{"superadmin+unshared", private, auth.RoleSuperAdmin, "other", "", http.StatusForbidden},
 
-		// Neither clears.
-		{"plain-user+kb-edit", auth.RoleUser, "other", kbaccess.RoleEdit, http.StatusForbidden},
-		{"plain-user+no-kb-row", auth.RoleUser, "other", "", http.StatusForbidden},
+		// Any KB role without the system role: refused. An api-user is no
+		// operator either (developer ruling 2026-11-05).
+		{"api-user+shared+kb-owner", shared, auth.RoleAPIUser, ownerID, kbaccess.RoleOwner, http.StatusForbidden},
+		{"api-user+global", global, auth.RoleAPIUser, "other", "", http.StatusForbidden},
+		{"plain-user+shared+kb-owner", shared, auth.RoleUser, ownerID, kbaccess.RoleOwner, http.StatusForbidden},
+		{"plain-user+global+kb-admin", global, auth.RoleUser, "other", kbaccess.RoleAdmin, http.StatusForbidden},
 	}
 
 	authMw := auth.NewMiddleware("test-secret-at-least-32-characters-long", nil)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			kbMw := kbaccess.NewMiddleware(kbStoreStub{
-				kb:   &kbaccess.KnowledgeBase{ID: "kb1", UserID: &ownerID, IsGlobal: false},
-				role: c.kbRole,
-			})
+			kbMw := kbaccess.NewMiddleware(kbStoreStub{kb: c.kb, role: c.kbRole})
 			chain := buildAdvancedChain(authMw, kbMw)
 
 			handlerCalled := false
@@ -204,37 +206,59 @@ func TestKbAdvancedChain(t *testing.T) {
 	}
 }
 
-// TestKbAdvancedChain_GlobalKBAdminRule covers rule 3 of the effective-role
-// ladder through this chain: a system admin with no kb_members row resolves to
-// KB admin on a PUBLIC KB (and to nothing on a private one, which the table
-// above pins). Included because it is the one combination where the two terms
-// are not independent — the same system role satisfies both.
-func TestKbAdvancedChain_GlobalKBAdminRule(t *testing.T) {
+// A system admin needs no KB role, but the KB must exist: a missing one is
+// a 404, not a handler call on nothing.
+func TestKbAdvancedChain_SystemAdminMissingKB404(t *testing.T) {
 	authMw := auth.NewMiddleware("test-secret-at-least-32-characters-long", nil)
-	kbMw := kbaccess.NewMiddleware(kbStoreStub{
-		kb:   &kbaccess.KnowledgeBase{ID: "kb1", IsGlobal: true, IsPublished: true},
-		role: "",
-	})
-	chain := buildAdvancedChain(authMw, kbMw)
-
-	handlerCalled := false
+	chain := buildAdvancedChain(authMw, kbaccess.NewMiddleware(kbStoreStub{kb: nil}))
 	h := chain(func(w http.ResponseWriter, r *http.Request) {
-		handlerCalled = true
-		w.WriteHeader(http.StatusOK)
+		t.Fatal("handler must not run for a missing KB")
 	})
-
 	req := httptest.NewRequest(http.MethodGet, "/api/kb/kb1/settings", nil)
 	req.SetPathValue("id", "kb1")
 	req = req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "u", Role: auth.RoleAdmin}))
-
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("got %d want 200 (handlerCalled=%v)", w.Code, handlerCalled)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("got %d want 404", w.Code)
 	}
-	if !handlerCalled {
-		t.Fatal("expected handler to be called")
+}
+
+// TestKbAgentListChain: the agent list stays readable with KB role view (the
+// chat's agent picker) and opens to system admins on every KB they operate,
+// shared or global (the RAG-Settings page's agent tab), but not on a private
+// KB nobody shares that is not theirs.
+func TestKbAgentListChain(t *testing.T) {
+	private := &kbaccess.KnowledgeBase{ID: "kb1"}
+	shared := &kbaccess.KnowledgeBase{ID: "kb1", Shared: true}
+	cases := []struct {
+		name     string
+		kb       *kbaccess.KnowledgeBase
+		sysRole  string
+		kbRole   string
+		wantCode int
+	}{
+		{"user+kb-view", private, auth.RoleUser, kbaccess.RoleView, http.StatusOK},
+		{"user+no-kb-row", shared, auth.RoleUser, "", http.StatusForbidden},
+		{"api-user+no-kb-row", shared, auth.RoleAPIUser, "", http.StatusForbidden},
+		{"admin+shared+no-kb-row", shared, auth.RoleAdmin, "", http.StatusOK},
+		{"admin+unshared+no-kb-row", private, auth.RoleAdmin, "", http.StatusForbidden},
+		{"admin+unshared+kb-owner", private, auth.RoleAdmin, kbaccess.RoleOwner, http.StatusOK},
+		{"superadmin+unshared", private, auth.RoleSuperAdmin, "", http.StatusOK},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			kbMw := kbaccess.NewMiddleware(kbStoreStub{kb: c.kb, role: c.kbRole})
+			h := kbAgentListInner(kbMw)(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+			req := httptest.NewRequest(http.MethodGet, "/api/kb/kb1/agents", nil)
+			req.SetPathValue("id", "kb1")
+			req = req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "u", Role: c.sysRole}))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != c.wantCode {
+				t.Fatalf("got %d want %d", w.Code, c.wantCode)
+			}
+		})
 	}
 }
 

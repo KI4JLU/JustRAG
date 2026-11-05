@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { LeaveGuard } from './LeaveGuard';
-import { ArrowUpRight, Check, History, House, Info, Loader2, Shield, SlidersHorizontal, Trash2, Users } from 'lucide-react';
+import { Check, History, House, Info, Loader2, Shield, SlidersHorizontal, Trash2, Users } from 'lucide-react';
 import { Button, Notice, SettingsDialog } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
@@ -20,13 +20,13 @@ import { AssistantSettingsContext, useAssistantSettingsStore, type AssistantSett
 const KbMembersPanel = lazy(() => import('./kbSettings/KbMembersPanel').then(m => ({ default: m.KbMembersPanel })));
 
 interface KbSettingsDialogProps {
-    /** Saves the drafted source flags (Rollen & Rechte); resolves false when the save failed. */
+    /** Saves the drafted source flags (Berechtigungen); resolves false when the save failed. */
     onSave: () => Promise<boolean>;
     /** PATCH /api/kb/{id} through the app's KB store: brings the KB lists in step after a save. */
     onUpdateKb: (update: Record<string, unknown>) => Promise<boolean>;
     /** Drops the drafts and closes. Called only once a dirty close was confirmed. */
     onClose: () => void;
-    /** Drafted per-KB source flags for the "Rollen & Rechte" tab. */
+    /** Drafted per-KB source flags for the "Berechtigungen" tab. */
     flags: KbSourceFlags;
     onFlagsChange: (next: KbSourceFlags) => void;
     /** The KB being edited, for the Mitglieder section. */
@@ -38,12 +38,6 @@ interface KbSettingsDialogProps {
     onSectionChange?: (section: KbSettingsSection) => void;
     /** The flags changed: enables Speichern (so do the drafts held here). */
     dirty: boolean;
-    /**
-     * Opens the topic's RAG configuration. Given only to callers who may open
-     * it (system admin + canOpenKbAdvancedSettings); without it Verhalten shows
-     * no entry. The dialog closes first (asking about unsaved changes).
-     */
-    onOpenRagSettings?: () => void;
 }
 
 /** The section body while the assistant settings load or failed to. */
@@ -79,7 +73,7 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'invalid';
  *     ONE draft (useAssistantSettingsStore), so the cross-links between them
  *     — a role offered as a starter, a role deleted with its cards — hold
  *     before anything is saved, and they are saved as one version.
- *   - Rollen & Rechte: the KB's role × right matrix (KbRolesRightsTab).
+ *   - Berechtigungen: the KB's role × right matrix (KbRolesRightsTab).
  *   - Mitglieder: members, invites and invite links (KbMembersPanel). Role
  *     changes are drafts saved with the rest; adding and removing members,
  *     ownership and invite links apply at once (each has its own confirm or
@@ -101,7 +95,7 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'invalid';
  * overlay and Abbrechen close it, and with unsaved changes they ask first.
  */
 export function KbSettingsDialog({
-    kb, initialSection = 'start', section: ownedSection, onSectionChange, onSave, onUpdateKb, onClose, flags, onFlagsChange, dirty, onOpenRagSettings,
+    kb, initialSection = 'start', section: ownedSection, onSectionChange, onSave, onUpdateKb, onClose, flags, onFlagsChange, dirty,
 }: KbSettingsDialogProps) {
     const { t } = useTheme();
     const { showConfirm } = useModalContext();
@@ -247,24 +241,12 @@ export function KbSettingsDialog({
                         label: t('kbSettingsTabBehavior'),
                         icon: <SlidersHorizontal aria-hidden="true" />,
                         keywords: [...kbSettingsKeywords('behavior', t), ...roleNames],
+                        // The RAG configuration is not here: it is the topic card's
+                        // „RAG-Settings" (system admins).
                         content: (
-                            <>
-                                <AssistantGate store={assistant}>
-                                    <BehaviorSection footerSlot={editingRole ? footerSlot : null} onSubViewChange={setRoleEditorOpen} onEditorDirtyChange={setRoleEditorDirty} />
-                                </AssistantGate>
-                                {/* The RAG configuration lives under Verhalten (it changes how
-                                    the topic answers), for the few who may open it; it leaves
-                                    the dialog, hence the ↗. It does not depend on the role
-                                    settings loading. */}
-                                {onOpenRagSettings && !editingRole && (
-                                    <div className="mt-6 flex justify-end">
-                                        <Button variant="outline" onClick={() => { void requestClose().then(closed => { if (closed) onOpenRagSettings(); }); }}>
-                                            {t('kbAdvancedSettings')}
-                                            <ArrowUpRight size={16} aria-hidden="true" />
-                                        </Button>
-                                    </div>
-                                )}
-                            </>
+                            <AssistantGate store={assistant}>
+                                <BehaviorSection footerSlot={editingRole ? footerSlot : null} onSubViewChange={setRoleEditorOpen} onEditorDirtyChange={setRoleEditorDirty} />
+                            </AssistantGate>
                         ),
                     },
                     {

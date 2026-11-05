@@ -24,7 +24,7 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     ],
     agent: [...AGENT_SEARCH_KEYS],
     site: [
-        'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
+        'namesSection', 'systemNameLabel', 'assistantNameLabel', 'chatFooterLabel', 'kbHeaderLabel', 'imprintLabel', 'examplePromptsLabel', 'webProxy',
         'confluenceSettings', 'confluenceEnabled', 'confluenceBaseUrl', 'gitRepoSettings', 'gitRepoEnabled',
         'policyAcceptanceSection', 'policyAcceptanceVersion',
     ],

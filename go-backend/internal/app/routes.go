@@ -153,8 +153,10 @@ type routeCtx struct {
 	kbEditChain     func(http.HandlerFunc) http.Handler
 	kbAdminChain    func(http.HandlerFunc) http.Handler
 	kbAdvancedChain func(http.HandlerFunc) http.Handler
-	analyticsChain  func(http.HandlerFunc) http.Handler
-	apiKeyChain     func(http.HandlerFunc) http.Handler
+	// kbAgentListChain: KB role view, or a system admin on any KB.
+	kbAgentListChain func(http.HandlerFunc) http.Handler
+	analyticsChain   func(http.HandlerFunc) http.Handler
+	apiKeyChain      func(http.HandlerFunc) http.Handler
 
 	// The four source-permission chains (migration 0089): a KB role plus
 	// a kbaccess capability (for list/add/download one the KB's flags may
@@ -347,11 +349,12 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		},
 		// kbAdvancedChain gates the KB "advanced settings" surface
 		// (KbSettingsPanel: RAG settings, Agenten & Teams, Evals, Workflow)
-		// on BOTH a system role in {api-user, admin, superadmin} AND the KB
-		// role 'admin'. Order — Authenticate -> RequireRole -> RequireKBRole
-		// — matches adminChain/superadminChain (auth.RoleChain) with the KB
-		// check appended, and puts the free in-memory system-role test ahead
-		// of the KB lookup's database round-trip.
+		// on the system role admin (or superadmin), on every global or shared
+		// KB whatever the caller's KB role and on their own — see
+		// kbAdvancedInner. Order —
+		// Authenticate -> RequireRole -> RequireOperableKB — matches adminChain/superadminChain
+		// (auth.RoleChain) with the KB lookup appended, and puts the free
+		// in-memory system-role test ahead of the lookup's database round-trip.
 		//
 		// This restores the hurdle the deleted kbTuningChain used to impose
 		// and that 9a4f83a dropped when it folded that chain into
@@ -359,16 +362,17 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		// user who ever created a KB — an operator of the 52-key per-KB
 		// site_config registry (three of whose keys force a full re-ingest),
 		// of eval runs, and of the workflow presets that rewrite how the KB
-		// answers. Those are deployment-operator controls, so they need an
-		// operator system role on top of the KB role; the KB role alone is
-		// not the intended permission for them. Note this is layered ON TOP
-		// of kbaccess.EffectiveRole, which is unchanged: KB roles still mean
+		// answers. Those are deployment-operator controls, so the system role
+		// is the permission for them, not the KB role. Note this sits beside
+		// kbaccess.EffectiveRole, which is unchanged: KB roles still mean
 		// exactly what they meant.
 		//
-		// Superadmin passes RequireRole via its hoisted bypass and resolves
-		// to KB role 'owner', so it reaches everything as before.
+		// Superadmin passes RequireRole via its hoisted bypass.
 		kbAdvancedChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(kbAdvancedInner(authMiddleware, kbMw)(h))
+		},
+		kbAgentListChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(kbAgentListInner(kbMw)(h))
 		},
 		kbSourceListChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(sourceListInner(kbMw)(h))
@@ -1513,13 +1517,14 @@ func registerAgentTeamRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/agent-teams/{id}", rc.authMw.Authenticate(http.HandlerFunc(h.GetTeam)))
 	rc.mux.Handle("PUT /api/agent-teams/{id}", rc.authMw.Authenticate(http.HandlerFunc(h.UpdateTeam)))
 	rc.mux.Handle("DELETE /api/agent-teams/{id}", rc.authMw.Authenticate(http.HandlerFunc(h.DeleteTeam)))
-	// KB attachment. The LIST stays on kbViewChain: the chat session's agent
-	// picker (useKbAgents) reads it for every ordinary user, and gating it
-	// would break agent selection in chat. Attach/detach are the "Agenten &
-	// Teams" tab of the advanced settings panel — and the same two PUTs carry
-	// the workflow canvas's default-binding write — so they sit on
-	// kbAdvancedChain.
-	rc.mux.Handle("GET /api/kb/{id}/agents", rc.kbViewChain(h.ListKBAgents))
+	// KB attachment. The LIST stays open to KB role view: the chat session's
+	// agent picker (useKbAgents) reads it for every ordinary user, and gating
+	// it would break agent selection in chat; kbAgentListChain adds the system
+	// admins, whose RAG-Settings page reads it on every KB. Attach/detach are
+	// the "Agenten & Teams" tab of the advanced settings panel — and the same
+	// two PUTs carry the workflow canvas's default-binding write — so they sit
+	// on kbAdvancedChain.
+	rc.mux.Handle("GET /api/kb/{id}/agents", rc.kbAgentListChain(h.ListKBAgents))
 	rc.mux.Handle("PUT /api/kb/{id}/agents/{agentId}", rc.kbAdvancedChain(h.AttachAgent))
 	rc.mux.Handle("DELETE /api/kb/{id}/agents/{agentId}", rc.kbAdvancedChain(h.DetachAgent))
 	rc.mux.Handle("PUT /api/kb/{id}/teams/{teamId}", rc.kbAdvancedChain(h.AttachTeam))
@@ -2003,7 +2008,7 @@ func manageSourcesInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.H
 }
 
 // kbAdvancedInner is the authorization core of kbAdvancedChain: the system-role
-// test and the KB-role test, without the outer Authenticate wrapper.
+// test and the KB lookup, without the outer Authenticate wrapper.
 //
 // It exists as a named function for one reason: the chain tests must exercise
 // the composition this file actually installs, not a copy of it. They used to
@@ -2013,12 +2018,27 @@ func manageSourcesInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.H
 // their own mirror. Anything that changes who passes must change this function,
 // and every caller sees it.
 //
-// The nesting order is load-bearing: RequireRole outside, RequireKBRole inside,
-// so a caller without the system role is refused before any KB lookup runs.
+// System admins (admin, superadmin) only, on every global or shared KB
+// whatever their role in it, and on their own (kbaccess.SystemAdminMayOperate):
+// the admin console's KB-Übersicht is the surface's one entry point
+// („RAG-Settings"). Somebody else's private KB nobody shares stays closed —
+// its evals would read its content. No KB role opens the surface — not to a plain user, not to an
+// api-user, however high their KB role.
+//
+// The nesting order is load-bearing: RequireRole outside, the KB lookup inside,
+// so a caller without the system role is refused before any lookup runs.
 func kbAdvancedInner(authMw *auth.Middleware, kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
 	return func(h http.HandlerFunc) http.Handler {
-		return authMw.RequireRole(auth.RoleAPIUser, auth.RoleAdmin)(
-			kbMw.RequireKBRole(kbaccess.RoleAdmin)(http.HandlerFunc(h)))
+		return authMw.RequireRole(auth.RoleAdmin)(kbMw.RequireOperableKB()(h))
+	}
+}
+
+// kbAgentListInner is kbAgentListChain without its Authenticate: KB role view,
+// or a system admin on a KB they operate (kbaccess.RequireKBRoleOrOperable) —
+// the RAG-Settings page's agent tab reads the list there (kbAdvancedInner).
+func kbAgentListInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+	return func(h http.HandlerFunc) http.Handler {
+		return kbMw.RequireKBRoleOrOperable(kbaccess.RoleView)(h)
 	}
 }
 

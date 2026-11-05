@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -16,8 +17,8 @@ import (
 // Settings is a KB's behavior as the settings read it.
 type Settings struct {
 	Behavior Behavior `json:"behavior"`
-	// Customized is false while the KB still answers from its pre-roles
-	// system prompt (behavior IS NULL).
+	// Customized is false while the KB has no behavior stored (behavior IS
+	// NULL), which migration 0101 left no KB with.
 	Customized bool `json:"customized"`
 	// Language is the prompt language the KB's prompt is compiled in, and so
 	// the language to read the catalog in for a faithful preview.
@@ -63,11 +64,10 @@ func (s *Store) Load(ctx context.Context, kbID string) (Settings, error) {
 		sp       *string
 		raw      []byte
 		language string
-		name     string
 	)
 	err := s.q.QueryRow(ctx,
-		`SELECT system_prompt, behavior, language, name FROM knowledge_bases WHERE id = $1`, kbID,
-	).Scan(&sp, &raw, &language, &name)
+		`SELECT system_prompt, behavior, language FROM knowledge_bases WHERE id = $1`, kbID,
+	).Scan(&sp, &raw, &language)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Settings{}, fmt.Errorf("kbbehavior load kb=%s: %w", kbID, store.ErrNotFound)
 	}
@@ -76,7 +76,7 @@ func (s *Store) Load(ctx context.Context, kbID string) (Settings, error) {
 	}
 	lang := Lang(language)
 	stored := decode(ctx, kbID, raw)
-	return Settings{Behavior: Effective(stored, sp, name, lang), Customized: stored != nil, Language: lang}, nil
+	return Settings{Behavior: Effective(stored, sp, lang), Customized: stored != nil, Language: lang}, nil
 }
 
 // Save writes a validated Behavior: the behavior column plus system_prompt as
@@ -100,26 +100,40 @@ func (s *Store) Save(ctx context.Context, kbID string, b Behavior) error {
 	return nil
 }
 
+// Names reads the deployment's names. A failed read is logged and reads as
+// the default, like an unset value.
+func (s *Store) Names(ctx context.Context) Names {
+	var assistant, system *string
+	if err := s.q.QueryRow(ctx, `SELECT `+namesSQL).Scan(&assistant, &system); err != nil {
+		logctx.From(ctx).Warn("kbbehavior: reading the names failed; using the defaults", "error", err)
+		return DefaultNames()
+	}
+	return namesFrom(assistant, system)
+}
+
 // SystemPrompt is the KB part of the answer prompt — the one reader every
 // answer surface goes through (chat.Store, kb.PGStore and through it the
 // public API, OpenAI-compat, /owui, MCP, the agent chat and eval). chatID
 // names the chat whose role applies ("" = the KB's active role); a chat of
 // another KB, a chat without a role and a role the KB no longer has all fall
-// back to the active role. Returns nil when the KB does not exist or the
-// compiled prompt is empty — callers treat both as "no KB prompt", as they
-// treated a NULL system_prompt.
+// back to the active role. The placeholders resolve to the deployment's names
+// (Names). Returns nil when the KB does not exist or the compiled prompt is
+// empty — callers treat both as "no KB prompt", as they treated a NULL
+// system_prompt.
 func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (*string, error) {
 	var (
-		sp       *string
-		raw      []byte
-		language string
-		roleID   *string
+		sp                *string
+		raw               []byte
+		language          string
+		roleID            *string
+		assistant, system *string
 	)
 	err := q.QueryRow(ctx, `
 		SELECT kb.system_prompt, kb.behavior, kb.language,
-		       (SELECT c.role_id FROM chats c WHERE c.id = NULLIF($2, '')::uuid AND c.kb_id = kb.id)
+		       (SELECT c.role_id FROM chats c WHERE c.id = NULLIF($2, '')::uuid AND c.kb_id = kb.id),
+		       `+namesSQL+`
 		FROM knowledge_bases kb WHERE kb.id = $1`, kbID, chatID,
-	).Scan(&sp, &raw, &language, &roleID)
+	).Scan(&sp, &raw, &language, &roleID, &assistant, &system)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -131,21 +145,25 @@ func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (
 	if roleID != nil {
 		rid = *roleID
 	}
-	if stored == nil && (rid == "" || rid == LegacyRoleID) {
-		// Never customized and no other role asked for: the pre-roles
-		// prompt, untouched. A chat started in a template role compiles
-		// that role from the default behavior below.
-		return sp, nil
+	if stored == nil && sp != nil && *sp != "" && (rid == "" || rid == LegacyRoleID) {
+		// A NULL behavior with a pre-roles prompt and no other role asked
+		// for: that prompt, untouched, as the legacy role without rules
+		// compiles it. Without a prompt Effective is the default role.
+		resolved := namesFrom(assistant, system).Resolve(withLegacyIdentity(*sp, Lang(language)))
+		return &resolved, nil
 	}
 	lang := Lang(language)
-	prompt, found := Compile(Effective(stored, sp, "", lang), rid, lang)
+	prompt, found := Compile(Effective(stored, sp, lang), rid, lang)
 	if !found {
 		logctx.From(ctx).Info("kbbehavior: chat role no longer exists; using the active role",
 			"kb_id", kbID, "chat_id", chatID, "role_id", rid)
 	}
-	if prompt == "" {
-		return nil, nil
+	if strings.TrimSpace(prompt) == "" {
+		// An own role without prompt or rules: answer as the default role
+		// rather than with no identity at all.
+		prompt, _ = Compile(Default(), "", lang)
 	}
+	prompt = namesFrom(assistant, system).Resolve(prompt)
 	return &prompt, nil
 }
 
@@ -170,7 +188,7 @@ func HasRole(ctx context.Context, q pgxutil.Querier, kbID, roleID string) (bool,
 	if err != nil {
 		return false, fmt.Errorf("kbbehavior has role: %w", err)
 	}
-	return Effective(decode(ctx, kbID, raw), sp, "", "de").HasRole(roleID), nil
+	return Effective(decode(ctx, kbID, raw), sp, "de").HasRole(roleID), nil
 }
 
 // RoleBrief is what a role says about itself: its name, description and
@@ -200,16 +218,18 @@ func Brief(eff Behavior, roleID, lang string) RoleBrief {
 
 // StarterRole reads the brief of the role a new chat in kbID starts in —
 // roleID, or the active role for "" or a role the KB no longer has — for the
-// starter questions. Zero for a KB that does not exist.
+// starter questions, with the placeholders resolved. Zero for a KB that does
+// not exist.
 func StarterRole(ctx context.Context, q pgxutil.Querier, kbID, roleID string) (RoleBrief, error) {
 	var (
-		sp       *string
-		raw      []byte
-		language string
-		name     string
+		sp                *string
+		raw               []byte
+		language          string
+		assistant, system *string
 	)
-	err := q.QueryRow(ctx, `SELECT system_prompt, behavior, language, name FROM knowledge_bases WHERE id = $1`, kbID).
-		Scan(&sp, &raw, &language, &name)
+	err := q.QueryRow(ctx, `SELECT system_prompt, behavior, language, `+namesSQL+`
+		FROM knowledge_bases WHERE id = $1`, kbID).
+		Scan(&sp, &raw, &language, &assistant, &system)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RoleBrief{}, nil
 	}
@@ -217,15 +237,22 @@ func StarterRole(ctx context.Context, q pgxutil.Querier, kbID, roleID string) (R
 		return RoleBrief{}, fmt.Errorf("kbbehavior starter role: %w", err)
 	}
 	lang := Lang(language)
-	return Brief(Effective(decode(ctx, kbID, raw), sp, name, lang), roleID, lang), nil
+	b := Brief(Effective(decode(ctx, kbID, raw), sp, lang), roleID, lang)
+	n := namesFrom(assistant, system)
+	return RoleBrief{Name: n.Resolve(b.Name), Description: n.Resolve(b.Description), Prompt: n.Resolve(b.Prompt)}, nil
 }
 
-// DefaultJSON is the behavior column of a new KB created without a system
-// prompt of its own (Default).
-func DefaultJSON() ([]byte, error) {
-	raw, err := json.Marshal(Default())
+// InitialJSON is the behavior column of a new KB: the default template role
+// (Default), or — created with a system prompt of its own (the API) — its own
+// role "legacy" holding that prompt, which goes into system_prompt.
+func InitialJSON(systemPrompt *string) ([]byte, error) {
+	b := Default()
+	if systemPrompt != nil && *systemPrompt != "" {
+		b, _ = ForStorage(Effective(nil, systemPrompt, "de"))
+	}
+	raw, err := json.Marshal(b)
 	if err != nil {
-		return nil, fmt.Errorf("kbbehavior: encode default: %w", err)
+		return nil, fmt.Errorf("kbbehavior: encode initial behavior: %w", err)
 	}
 	return raw, nil
 }

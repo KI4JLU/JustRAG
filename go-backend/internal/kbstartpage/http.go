@@ -75,7 +75,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": "))
 		return
 	}
-	if err := h.pages.Save(ctx, kbID(r), Normalize(p)); err != nil {
+	if err := h.pages.Save(ctx, kbID(r), Settle(Normalize(p), settings.Behavior.ActiveRoleID, settings.Language)); err != nil {
 		h.writeStoreError(w, r, err)
 		return
 	}
@@ -95,7 +95,7 @@ func (h *Handler) write(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSONCtx(ctx, w, http.StatusOK, response{
-		StartPage:  Effective(stored, settings.Behavior.ActiveRoleID, settings.Behavior.HasRole),
+		StartPage:  Effective(stored, settings.Behavior.ActiveRoleID, settings.Language, settings.Behavior.HasRole),
 		Configured: stored != nil,
 	})
 }

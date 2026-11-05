@@ -10,7 +10,7 @@ one before changing a feature**:
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0099**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0101**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
 | `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
@@ -41,7 +41,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - `chat_compare_*` (off) — in-chat single-file comparison (`internal/chatattach`).
 - `chat_condense_keep_raw_enabled` (off — stays off, measured no gain).
 - `chat_tabular_*`, `tabular_*` — spreadsheet Q&A: typed SQL tables + hybrid text, tabular router (`chat_tabular_router_enabled` **on**), AST SQL validator. Needs `JUSTRAG_DB_URL_READONLY` grants. Runbook `docs/runbooks/spreadsheet-ingest-ops.md`.
-- Roles and rules (no gate) — a KB's answer prompt is compiled from `knowledge_bases.behavior`: role prompt, then "Regeln:" with the active rules, then the fixed RAG instructions; `behavior IS NULL` = the old `system_prompt` byte for byte. `roleId` on `POST /api/kb/{id}/chat` starts a chat in another role (`chats.role_id`). Every surface reads the prompt through `kbbehavior.SystemPrompt`. The template roles live in `role_templates`, seeded from the code's roles. Mig 0092, 0095. `internal/kbbehavior`.
+- Roles and rules (no gate) — a KB's answer prompt is compiled from `knowledge_bases.behavior`: role prompt, then "Regeln:" with the active rules, then the fixed RAG instructions. `roleId` on `POST /api/kb/{id}/chat` starts a chat in another role (`chats.role_id`). Every surface reads the prompt through `kbbehavior.SystemPrompt`, which resolves `{{assistant_name}}` / `{{system_name}}` (global-only `assistant_name` and `system_name`, both default `JLU RAG`). The fixed RAG instructions carry no identity — the role does. The template roles live in `role_templates` (mig 0100 writes the four standard ones — `chat`, `summary`, `filecheck`, `it` — and deletes the earlier shipped ones; `kbbehavior.BuiltinTemplates` is the fresh-install set). Every KB has an explicit behavior (mig 0101); a pre-roles `system_prompt` is the own role `legacy` („Eigene Rolle"). Mig 0092, 0095, 0100, 0101. `internal/kbbehavior`.
 - Start page (no gate) — `GET`/`PUT /api/kb/{id}/start-page`: role entries (start a chat in a role), fixed or dynamic starter questions, input or upload-only start. One catalog category per KB with a fixed `color_slot`. Mig 0093. `internal/kbstartpage`.
 - Assistant settings (no gate) — `PUT /api/kb/{id}/assistant-settings` saves title, description, category, behavior and start page in one transaction and writes a version (`kb_settings_versions`, baseline + save + restore, nothing overwritten); restore via `…/versions/{n}/restore`. Mig 0094. `internal/kbassistant`.
 - `chat_attachments_*` (no gate, global-only) — composer attachments as context (`user_files.scope='chat'`); upload cap `chat_attachments_max_file_bytes` (50 MiB). Mig 0090. `internal/chat/attachments*.go`.
@@ -77,7 +77,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 ## KB access (summary — full model in `docs/kb-access.md`)
 
 - Four roles `view < edit < admin < owner`. `kb_members` is the **sole authority**; `knowledge_bases.user_id` is a trigger-maintained mirror — never write it.
-- Resolution: `kbaccess.EffectiveRole` (only ladder), `kbaccess.RequireKBRole(min)` (only route gate). SQL mirrors `kbaccess.VisibleKBsCTE` and `kbaccess.SeeSourcesSQL` must change in the same commit as the Go logic (parity test `TestVisibilityAgreesWithEffectiveRole`).
+- Resolution: `kbaccess.EffectiveRole` (only ladder), `kbaccess.RequireKBRole(min)` (only route gate; `RequireOperableKB`/`RequireKBRoleOrOperable` admit system admins to shared, global or their own KBs on `kbAdvancedChain`/`kbAgentListChain` only). SQL mirrors `kbaccess.VisibleKBsCTE` and `kbaccess.SeeSourcesSQL` must change in the same commit as the Go logic (parity test `TestVisibilityAgreesWithEffectiveRole`).
 - Per-KB source permissions: `kbaccess.CapabilitiesFor` → `seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources` (mig 0089). `seeCitations` is enforced on output only.
 - `visibility` (`private`|`public`) is the truth; `is_global` is a generated column no Go code reads. Public KBs have no owner; publishing is staged (`is_published=false`).
 
@@ -131,7 +131,7 @@ Env (via `.env`):
 - **Redis:** `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`. Non-compose deployments need `--maxmemory <size> --maxmemory-policy volatile-lru` (not `allkeys-lru`, not `noeviction`).
 - **Auth:** `JWT_SECRET` (≥32 chars), `ALLOWED_ORIGINS` (required in production; set it on staging too), `AUTH_PROVIDER_SECRET_KEY` (encrypts OIDC/LDAP secrets). Login providers are superadmin-only.
 - **Storage:** `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` (else local disk).
-- **Worker:** `WORKER_QUEUES`, `WORKER_MAINTENANCE` (maintenance loops, metrics ticks and sweeps need it).
+- **Worker:** `WORKER_QUEUES`, `WORKER_MAINTENANCE` (maintenance loops, metrics ticks and sweeps need it), `WORKER_METRICS=true` (serves the worker's own `/metrics` on the health port 8081 — unauthenticated, keep the port internal; off by default).
 - **Tracing:** `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS`.
 
 Details: `docs/feature-reference.md` § Environment variables.

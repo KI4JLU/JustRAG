@@ -17,7 +17,7 @@ export const KB_SETTINGS_SEARCH_KEYS: Record<KbSettingsSection, readonly string[
     ],
     behavior: [
         'asstTabRole', 'asstTabRules', 'asstRagInstructions', 'kbSettingsKeywordsBehavior', 'asstSystemPrompt',
-        'asstRagSearch', 'asstRulesForThisRole', 'kbAdvancedSettings',
+        'asstRagSearch', 'asstRulesForThisRole',
     ],
     roles: ['kbSettingsKeywordsRoles', ...Object.values(RIGHT_LABEL_KEY), 'kbRoleOwner', 'kbRoleAdmin', 'kbRoleEdit', 'kbRoleView'],
     members: [

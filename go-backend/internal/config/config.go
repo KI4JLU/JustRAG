@@ -113,6 +113,11 @@ type Config struct {
 	WorkerConcurrency int      // WORKER_CONCURRENCY — total goroutines (default: max(2×GOMAXPROCS, 8))
 	WorkerMaintenance bool     // WORKER_MAINTENANCE — run maintenance tasks (default true)
 	WorkerHealthPort  int      // WORKER_HEALTH_PORT — health endpoint port (default 8081)
+	// WorkerMetrics serves the worker's Prometheus registry at /metrics on
+	// the health port (WORKER_METRICS=true; default off). Unauthenticated,
+	// unlike the server's admin-gated /metrics, so only for a port that
+	// stays inside the cluster / compose network.
+	WorkerMetrics bool
 
 	// StuckFileTimeout is how long a file may sit in "processing" without its
 	// progress advancing before the maintenance sweep marks it error/timeout
@@ -416,6 +421,7 @@ func Load() (*Config, error) {
 			"worker_concurrency", cfg.WorkerConcurrency)
 	}
 	cfg.WorkerHealthPort = mustInt("WORKER_HEALTH_PORT", 8081)
+	cfg.WorkerMetrics = os.Getenv("WORKER_METRICS") == "true"
 	cfg.WorkerMaintenance = os.Getenv("WORKER_MAINTENANCE") != "false"
 	stuckFileTimeoutMin := mustInt("STUCK_FILE_TIMEOUT_MINUTES", 30)
 	if stuckFileTimeoutMin <= 0 {

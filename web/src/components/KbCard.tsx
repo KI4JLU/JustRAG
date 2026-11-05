@@ -212,8 +212,8 @@ export interface PrivateKbCardProps {
  * „…" opens a dialog and keeps the overview, ↗ lands in the topic. Teilen…
  * and Einstellungen jump straight to their section of the topic's settings
  * (Mitglieder, Startseite) rather than rebuilding them here. An entry the
- * caller may not use is not shown — no badges; the RAG configuration moved
- * to Verhalten in the settings. The favorite is the star on the card / row.
+ * caller may not use is not shown — no badges; the RAG configuration is a
+ * row action of the admin console's KB-Übersicht. The favorite is the star on the card / row.
  * Every gate is the shared predicate the rest of the app uses. The handlers
  * only call `stopPropagation`, which a menu's DOM `Event` shares with a
  * `React.MouseEvent`.

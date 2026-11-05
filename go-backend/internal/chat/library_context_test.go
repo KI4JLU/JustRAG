@@ -11,8 +11,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/parser"
+	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/splitter"
 )
 
@@ -68,6 +70,23 @@ func TestBuildLibraryContext_FullText(t *testing.T) {
 	b, _ := json.Marshal(cc.Sources[0])
 	if !strings.Contains(string(b), `"userFileId":"uf-1"`) {
 		t.Errorf("json: %s", b)
+	}
+}
+
+// Oracle: kbbehavior.DefaultRolePrompt — a library chat has no KB role, so it
+// answers in the default template role (names from site_config), and the
+// library notice follows before the fixed instructions.
+func TestBuildLibraryContext_AnswersInTheDefaultRole(t *testing.T) {
+	cfg := libCfg("", "")
+	cfg.values[kbbehavior.AssistantNameKey] = strPtr("Kira")
+	cc, err := buildLibraryContextWith(context.Background(), nil, nil, cfg,
+		LibraryContextParams{Files: twoFiles(), Query: "q", Language: "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := kbbehavior.DefaultRolePrompt("en", kbbehavior.Names{Assistant: "Kira", System: kbbehavior.DefaultSystemName})
+	if role == "" || !strings.HasPrefix(cc.SystemPrompt, role+"\n\n"+prompts.LibraryNotice("en")+"\n\n"+prompts.ChatSystemPrompt("en")) {
+		t.Fatalf("prompt does not open with role, notice, instructions:\n%.300s", cc.SystemPrompt)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -30,15 +31,22 @@ const (
 	MaxQuestionRunes    = 120
 	MaxUploadLabelRunes = 80
 	MaxInstructionRunes = 300
-	currentVersion      = 1
-	QuestionsDynamic    = "dynamic"
-	QuestionsFixed      = "fixed"
-	StartInput          = "input"
-	StartUpload         = "upload"
-	StartRoles          = "roles"
-	EntryInput          = "input"
-	EntryTask           = "task"
-	EntryFile           = "file"
+	// legacyVersion is a page saved before starts were the roles': its
+	// StartMode, starter questions and upload texts are the page's own, and
+	// Settle moves them to the active role. currentVersion pages are settled.
+	legacyVersion    = 1
+	currentVersion   = 2
+	QuestionsDynamic = "dynamic"
+	QuestionsFixed   = "fixed"
+	StartInput       = "input"
+	StartUpload      = "upload"
+	StartRoles       = "roles"
+	// StartTask („Anweisung"): the active role's card with its start prompt,
+	// alone; one click starts the chat with it.
+	StartTask  = "task"
+	EntryInput = "input"
+	EntryTask  = "task"
+	EntryFile  = "file"
 )
 
 // Colors are the start page's two colours, a gradient From → To: the glow
@@ -97,20 +105,27 @@ type RoleEntry struct {
 	RoleID string `json:"roleId"`
 }
 
-// StartPage is the stored and wire shape. The settings of all three start
-// modes are kept when the mode changes.
+// StartPage is the stored and wire shape. How a chat starts is the roles'
+// (developer ruling 05.11.2026): the KB's active role's start, or — with
+// further role cards — the choice of roles. The page only says which roles
+// it offers; StartMode merely names what that makes (Settle).
 type StartPage struct {
+	// Version: 2, or 1 for a page saved before starts were the roles'
+	// (Settle migrates it once and answers 2).
 	Version int `json:"version"`
 	// Colors: the gradient; nil shows no colour.
 	Colors *Colors `json:"colors"`
-	// StartMode: "input" (composer, optionally with starter questions),
-	// "upload" (a file first), "roles" (role cards only, no composer).
+	// StartMode, derived (ModeOf): "roles" with further role cards, else the
+	// active role's start: "input" (the input field with its questions),
+	// "task" (its card with the start prompt) or "upload" (a file first).
+	// A client's value is ignored.
 	StartMode string `json:"startMode"`
-	// Starter questions under the input field ("input" mode), flat on the
-	// page: questionsOn, questionMode, dynamicCount, fixedQuestions.
+	// Pages saved before starts were the roles' only: starter questions under
+	// the input field, flat on the page (questionsOn, questionMode,
+	// dynamicCount, fixedQuestions). Settle moves them to the active role.
 	Suggestions
-	// "upload" mode. UploadLabel "" is the client's default label;
-	// UploadInstruction "" sends the client's default text with the file.
+	// Pages saved before starts were the roles' only: the "upload" mode's
+	// label and instruction. Settle moves them to the active role.
 	UploadLabel       string `json:"uploadLabel"`
 	UploadInstruction string `json:"uploadInstruction"`
 	// RoleStarts is how a role starts its chat, by role id (set up in
@@ -145,6 +160,102 @@ func Default() StartPage {
 		RoleStarts:  map[string]EntryStart{},
 		RoleEntries: []RoleEntry{},
 	}
+}
+
+// defaultStartOf is how roleID starts where the page sets up nothing: its
+// template's start („Vorlagen") in lang (kbbehavior.Lang), else the input
+// field.
+func defaultStartOf(roleID, lang string) EntryStart {
+	if t, ok := kbbehavior.TemplateStartOf(roleID); ok {
+		return templateEntry(t, kbbehavior.Lang(lang))
+	}
+	return DefaultStart()
+}
+
+// ActiveStart is how the page's chat starts without a choice of roles: the
+// active role's start, set up on the page or its template's (in lang).
+func (p StartPage) ActiveStart(activeRoleID, lang string) EntryStart {
+	if e, ok := p.RoleStarts[activeRoleID]; ok {
+		return e
+	}
+	return defaultStartOf(activeRoleID, lang)
+}
+
+// ModeOf names what the page shows: "roles" with further role cards, else
+// the active role's start as "input", "task" or "upload".
+func ModeOf(p StartPage, activeRoleID string) string {
+	if len(p.RoleEntries) > 0 {
+		return StartRoles
+	}
+	// The kind of a template's start is the same in both languages.
+	switch p.ActiveStart(activeRoleID, "de").Kind {
+	case EntryTask:
+		return StartTask
+	case EntryFile:
+		return StartUpload
+	}
+	return StartInput
+}
+
+// Settle brings a page into the form where every start is a role's
+// (developer ruling 05.11.2026). A page saved before kept its own: the
+// "upload" mode's label and instruction become the active role's file start,
+// and starter questions under the page's input field the active role's
+// input start's questions, switched off and kept drafts included. Only a legacyVersion page
+// is migrated: a settled page's StartMode is derived, and names the start of
+// the role that was active when it was derived, not a choice of the page.
+// An input page whose active role starts otherwise (a template's task or
+// file start) keeps its input field when it set up starter questions: the
+// role gets an input start with them. lang (kbbehavior.Lang) is the KB's
+// language, the one a template's texts are copied in.
+// Then the page's own fields are cleared and StartMode is derived (ModeOf).
+// Settling a settled page changes nothing.
+func Settle(p StartPage, activeRoleID, lang string) StartPage {
+	out := p
+	out.RoleStarts = make(map[string]EntryStart, len(p.RoleStarts)+1)
+	for id, e := range p.RoleStarts {
+		out.RoleStarts[id] = e
+	}
+	if p.Version < currentVersion {
+		start := out.ActiveStart(activeRoleID, lang)
+		switch {
+		case p.StartMode == StartUpload && (start.Kind != EntryFile || p.UploadLabel != "" || p.UploadInstruction != ""):
+			file := EntryStart{Kind: EntryFile, Text: p.UploadLabel, Instruction: p.UploadInstruction, Suggestions: start.Suggestions}
+			if start.Kind == EntryFile {
+				if file.Text == "" {
+					file.Text = start.Text
+				}
+				if file.Instruction == "" {
+					file.Instruction = start.Instruction
+				}
+			}
+			out.RoleStarts[activeRoleID] = file
+		case p.StartMode == StartInput && start.Kind == EntryInput && !sameSuggestions(start.Suggestions, p.Suggestions):
+			start.Suggestions = p.Suggestions
+			out.RoleStarts[activeRoleID] = start
+		case p.StartMode == StartInput && start.Kind != EntryInput && !sameSuggestions(DefaultSuggestions(), p.Suggestions):
+			input := DefaultStart()
+			input.Suggestions = p.Suggestions
+			out.RoleStarts[activeRoleID] = input
+		}
+	}
+	out.Version = currentVersion
+	out.Suggestions = DefaultSuggestions()
+	out.UploadLabel, out.UploadInstruction = "", ""
+	if out.RoleEntries == nil {
+		out.RoleEntries = []RoleEntry{}
+	}
+	out.StartMode = ModeOf(out, activeRoleID)
+	return out
+}
+
+// sameSuggestions reports whether two sets of starter questions are the
+// same, the switched-off fixed questions and count included: a page's kept
+// draft moves to the role like the questions it shows.
+func sameSuggestions(a, b Suggestions) bool {
+	a, b = normalizeSuggestions(a), normalizeSuggestions(b)
+	return a.QuestionsOn == b.QuestionsOn && a.QuestionMode == b.QuestionMode &&
+		a.DynamicCount == b.DynamicCount && slices.Equal(a.FixedQuestions, b.FixedQuestions)
 }
 
 // ErrInvalid wraps every validation failure; the message is safe to return.
@@ -201,14 +312,17 @@ func validateSuggestions(s Suggestions) error {
 // active role, which the roles start shows first on its own; hasRole reports
 // whether the KB can answer in a role id (kbbehavior). Lengths count runes.
 func Validate(p StartPage, activeRoleID string, hasRole func(string) bool) error {
-	if p.Version != currentVersion {
-		return invalid("version must be %d", currentVersion)
+	if p.Version != currentVersion && p.Version != legacyVersion {
+		return invalid("version must be %d (or %d for a page saved before starts were the roles')", currentVersion, legacyVersion)
 	}
 	if p.Colors != nil && (!hexPattern.MatchString(p.Colors.From) || !hexPattern.MatchString(p.Colors.To)) {
 		return invalid("colors must be #RRGGBB")
 	}
-	if p.StartMode != StartInput && p.StartMode != StartUpload && p.StartMode != StartRoles {
-		return invalid("startMode must be %q, %q or %q", StartInput, StartUpload, StartRoles)
+	// Derived on save (Settle); a known value or none is accepted.
+	switch p.StartMode {
+	case "", StartInput, StartUpload, StartRoles, StartTask:
+	default:
+		return invalid("startMode must be %q, %q, %q or %q", StartInput, StartTask, StartUpload, StartRoles)
 	}
 	if err := validateSuggestions(p.Suggestions); err != nil {
 		return err
@@ -219,11 +333,13 @@ func Validate(p StartPage, activeRoleID string, hasRole func(string) bool) error
 	if runes(p.UploadInstruction) > MaxInstructionRunes {
 		return invalid("uploadInstruction must not exceed %d characters", MaxInstructionRunes)
 	}
-	roles := p.StartMode == StartRoles
 	if len(p.RoleStarts) > MaxRoleStarts {
 		return invalid("at most %d role starts", MaxRoleStarts)
 	}
-	shown := map[string]bool{}
+	// Every start the page shows must be complete: the active role's (its
+	// own; a template's is checked in „Vorlagen") and every card's. Any other
+	// role's start may stay a draft.
+	shown := map[string]bool{activeRoleID: true}
 	for _, e := range p.RoleEntries {
 		shown[e.RoleID] = true
 	}
@@ -231,17 +347,12 @@ func Validate(p StartPage, activeRoleID string, hasRole func(string) bool) error
 		if !hasRole(roleID) {
 			return invalid("role %q does not exist", roleID)
 		}
-		if err := validateStart(e, roles && shown[roleID]); err != nil {
+		if err := validateStart(e, shown[roleID]); err != nil {
 			return err
 		}
 	}
 	if len(p.RoleEntries) > MaxRoleEntries {
 		return invalid("at most %d further role cards", MaxRoleEntries)
-	}
-	// A choice needs two roles: with the active role alone, the input field
-	// (StartInput) starts the same chat.
-	if roles && len(p.RoleEntries) == 0 {
-		return invalid("the roles start needs at least one further role card")
 	}
 	seen := map[string]bool{}
 	// A role shows once: the active role first, every further role on one card.
@@ -315,9 +426,9 @@ func Normalize(p StartPage) StartPage {
 // a role in the behavior settings removes them there too; this read-side
 // filter keeps a role deleted any other way from leaving a dead card behind,
 // and a page stored before roles were unique from showing one twice.
-func Effective(stored *StartPage, activeRoleID string, hasRole func(string) bool) StartPage {
+func Effective(stored *StartPage, activeRoleID, lang string, hasRole func(string) bool) StartPage {
 	if stored == nil {
-		return Default()
+		return Settle(Default(), activeRoleID, lang)
 	}
 	out := Normalize(*stored)
 	for id := range out.RoleStarts {
@@ -334,12 +445,7 @@ func Effective(stored *StartPage, activeRoleID string, hasRole func(string) bool
 		}
 	}
 	out.RoleEntries = entries
-	// The last further role went (deleted outside the settings): one role
-	// leaves nothing to choose, so the page starts with the input field.
-	if out.StartMode == StartRoles && len(entries) == 0 {
-		out.StartMode = StartInput
-	}
-	return out
+	return Settle(out, activeRoleID, lang)
 }
 
 // ValidateTemplateStart checks a role template's start (kbbehavior, set in

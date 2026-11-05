@@ -1,7 +1,7 @@
 //go:build integration
 
 // Integration tests for the role templates („Vorlagen" › Rollen, migration
-// 0095, internal/kbbehavior) against a live schema: seeding, the admin
+// 0095, 0100, internal/kbbehavior) against a live schema: the admin
 // writes and their guards, and that a write reaches this process's catalog.
 // The table is shared with the running app, so the tests only add their own
 // templates and put the default back. Skipped when DB_* env is unset.
@@ -22,15 +22,9 @@ func TestRoleTemplates_AdminWrites(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	st := kbbehavior.NewTemplateStore(pool)
-	if err := st.Seed(ctx); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := st.Seed(ctx); err != nil {
-		t.Fatalf("second seed must be a no-op: %v", err)
-	}
 	before, err := st.List(ctx)
 	if err != nil || len(before) == 0 {
-		t.Fatalf("list after seed = %d, %v", len(before), err)
+		t.Fatalf("list after migrating = %d, %v", len(before), err)
 	}
 	var oldDefault kbbehavior.AdminTemplate
 	for _, r := range before {
@@ -39,7 +33,7 @@ func TestRoleTemplates_AdminWrites(t *testing.T) {
 		}
 	}
 	if oldDefault.ID == "" {
-		t.Fatal("no default template after seeding")
+		t.Fatal("no default template after migrating")
 	}
 
 	in := kbbehavior.TemplateInput{

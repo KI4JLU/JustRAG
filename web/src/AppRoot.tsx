@@ -9,6 +9,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { viewportHeight } from './utils/viewport';
+import { namesFromSiteConfig } from './utils/systemNames';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ToastContainer';
 import { ReloadPrompt } from './components/ReloadPrompt';
@@ -59,6 +60,10 @@ export function AppRoot() {
 
   // Config state (needed for Login too)
   const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
+  // The browser tab shows the deployment's system name (site_config
+  // `system_name`), the default until it is set or read.
+  const systemName = namesFromSiteConfig(siteConfigs).system;
+  useEffect(() => { document.title = systemName; }, [systemName]);
 
   // Auth handlers
   // SECURITY (tracked follow-up): the JWT lives in localStorage, which is

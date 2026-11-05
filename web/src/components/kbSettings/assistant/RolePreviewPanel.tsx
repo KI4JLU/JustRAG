@@ -2,39 +2,48 @@ import { forwardRef } from 'react';
 import { X } from 'lucide-react';
 import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger, cardAccentStyle } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { defaultStart, type EntryStart, type RuleSet } from './api';
+import { defaultStart, type EntryStart, type RuleSet, type StartPage } from './api';
 import { RoleChatMock } from './RoleChatMock';
-import type { RoleView } from './roleModel';
+import { allRoles, type RoleView } from './roleModel';
 import { RoleCover } from './StartPageParts';
-import { roleAccent, roleCardCover } from './startPageModel';
+import { pageQuestions, roleAccent, roleCardCover } from './startPageModel';
 import { SystemPromptPanel } from './SystemPromptPanel';
 import { useAssistantSettings } from './useAssistantSettings';
 
 /**
- * How a chat in the role begins, as a still image at least as tall as the
- * chat's empty stage (it grows for a taller start, e.g. an upload area): the
- * topic's title block, the role badge, the role's start and its suggestions.
+ * The start page the role makes, as a still image at least as tall as the
+ * chat's empty stage: for the active role exactly the Startseite's preview
+ * (its mode, cards and questions); for another role the page it would make
+ * as the start role — its role-prompt card, its upload area or the input
+ * field with its suggestions. Drawn by the same StartView as the Startseite.
  * It fills the frame's lower section (RolePanelFrame `stage`) edge to edge.
  */
-function RoleChatImage({ roleName, start, dynamicSample }: {
-    roleName: string;
+function RoleChatImage({ roleId, start, active, dynamicSample }: {
+    roleId: string;
     start: EntryStart;
+    active: boolean;
     dynamicSample: string[];
 }) {
     const { t } = useTheme();
-    const { draft, kb, categories } = useAssistantSettings();
-    if (!draft) return null;
+    const { draft, kb, categories, catalog } = useAssistantSettings();
+    if (!draft || !catalog) return null;
+    const roles = allRoles(catalog, draft.behavior);
+    const stored = draft.startPage;
+    // Another role: the page as it would be with that role as the start role, alone.
+    const page: StartPage = active ? stored : { ...stored, roleStarts: { ...stored.roleStarts, [roleId]: start }, roleEntries: [] };
+    const questions = pageQuestions(page, roleId, roles, dynamicSample);
     return (
         <div className="flex min-h-[28.75rem] flex-1 flex-col">
             <RoleChatMock
-                roleName={roleName}
-                start={start}
+                page={page}
+                activeRoleId={roleId}
+                roles={roles}
                 kbTitle={draft.title.trim()}
                 category={categories.find(c => c.id === draft.categoryId) ?? null}
                 description={draft.description ?? t('kbHeaderDefault')}
                 fileCount={kb.fileCount}
                 asOf={kb.lastIngestedAt}
-                dynamicSample={dynamicSample}
+                questions={questions}
             />
         </div>
     );
@@ -109,7 +118,7 @@ export const RolePreviewPanel = forwardRef<HTMLElement, {
                     {role.description && <p className="m-0 mt-1 text-sm leading-6 text-on-surface-variant">{role.description}</p>}
                 </div>
             )}
-            stage={<RoleChatImage roleName={role.name} start={shown} dynamicSample={dynamicSample} />}
+            stage={<RoleChatImage roleId={role.id} start={shown} active={active} dynamicSample={dynamicSample} />}
             right={(
                 <SystemPromptPanel
                     prompt={role.prompt}

@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/justrag/go-backend/internal/ai"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/parser"
@@ -103,7 +104,10 @@ func buildLibraryContextWith(ctx context.Context, resolver *ai.ConfigResolver, e
 		}
 	}
 
-	notice := prompts.LibraryNotice(p.Language)
+	// A library chat has no KB, so no KB role: it answers in the default
+	// template role, followed by the library notice.
+	notice := kbbehavior.DefaultRolePrompt(p.Language, kbbehavior.ReadNames(ctx, cfg)) +
+		"\n\n" + prompts.LibraryNotice(p.Language)
 	var cc *ChatContext
 	var err error
 	switch {

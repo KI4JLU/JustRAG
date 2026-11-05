@@ -1,9 +1,4 @@
 {
-  "src/AuthenticatedApp.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
   "src/MessageBubble.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
