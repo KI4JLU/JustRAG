@@ -1,7 +1,7 @@
 import type { KbRole, KbSourceFlag, KbSourceFlags, KnowledgeBase } from '../types';
 
 /**
- * The "Rollen & Rechte" matrix of one KB: what each KB role may do in it.
+ * The "Berechtigungen" matrix of one KB: what each KB role may do in it.
  * Rendered rotated (decided 2026-10-16): rights are rows, grouped; roles are
  * columns.
  *
@@ -29,7 +29,7 @@ export const KB_RIGHT_GROUPS: readonly { id: 'topic' | 'sidebar' | 'answers'; ri
 
 export const KB_RIGHTS: readonly KbRight[] = KB_RIGHT_GROUPS.flatMap(g => g.rights);
 
-/** Each right's row label (a translation key); also the KB settings search's keywords for Rollen & Rechte. */
+/** Each right's row label (a translation key); also the KB settings search's keywords for Berechtigungen. */
 export const RIGHT_LABEL_KEY: Record<KbRight, string> = {
     invite: 'rrRightInvite', seeSources: 'rrRightSeeSources', addSources: 'rrRightAddSources',
     downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',

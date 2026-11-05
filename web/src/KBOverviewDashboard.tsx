@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import axios from 'axios';
-import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe, FileText, ShieldAlert } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Search, ChevronDown, Hourglass, Play, XCircle, Trash2, UserCog, Globe, FileText, ShieldAlert, SlidersHorizontal } from 'lucide-react';
 import {
     ActionMenu, Alert, AlertDescription, Badge, Button, Card, Checkbox, DashboardLayout, Input, Label, ListToolbar, Popover,
     PopoverContent, PopoverTrigger, Spinner, Stack, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
@@ -72,6 +72,8 @@ interface KBRow {
     ownerUsername?: string;
     isGlobal: boolean;
     isPublished: boolean;
+    /** Somebody besides the owner is a member (kbaccess.SharedSQL). */
+    shared?: boolean;
     fileCount: number;
     totalSizeBytes: number;
     failedFileCount: number;
@@ -273,7 +275,16 @@ function formatBytes(bytes: number): string {
 
 const QUEUE_NAMES = ['rag-quick', 'rag-heavy', 'rag-batch'];
 
-export default function KBOverviewDashboard() {
+export interface KBOverviewDashboardProps {
+    /**
+     * „RAG-Settings" in a row's ⋯ menu: opens that topic's RAG configuration
+     * (KbSettingsPanel) — its one entry point, for system admins, on shared
+     * and public topics and their own. Absent = no entry.
+     */
+    onOpenRagSettings?: (kb: { id: string; name: string }) => void;
+}
+
+export default function KBOverviewDashboard({ onOpenRagSettings }: KBOverviewDashboardProps) {
     const { t, language } = useTheme();
     const settingsSearch = useSettingsSearch();
     const { user } = useAuth();
@@ -282,6 +293,11 @@ export default function KBOverviewDashboard() {
     // admins get that one action — and therefore the actions column — too.
     const canManage = user?.role === 'superadmin';
     const canPublish = user?.role === 'admin' || user?.role === 'superadmin';
+    // The RAG configuration: system admins, on shared and public topics
+    // whatever their role in them, and on their own (kbaccess.SystemAdminMayOperate)
+    // — somebody else's topic nobody shares stays private, its evals would read
+    // its content.
+    const openRagSettings = canPublish ? onOpenRagSettings : undefined;
     const showActions = canManage || canPublish;
     const [deleteTarget, setDeleteTarget] = useState<KBRow | null>(null);
     const [publishTarget, setPublishTarget] = useState<KBRow | null>(null);
@@ -481,13 +497,23 @@ export default function KBOverviewDashboard() {
     // One ⋯ menu per row, as on every list of the app. isGlobal is the generated mirror of
     // (visibility = 'public'), so !isGlobal is exactly "still private" — the only state Publish accepts
     // (it answers 409 otherwise); the reverse direction lives in the global-KB admin tab. Delete and
-    // transfer stay superadmin-only.
+    // transfer stay superadmin-only. „RAG-Settings" leads: it leaves the console for the topic's
+    // RAG configuration page.
     const rowActions = (row: KBRow): ActionMenuItem[] => {
         const items: ActionMenuItem[] = [];
+        if (openRagSettings && (row.isGlobal || row.shared || (!!user && row.ownerId === user.id))) {
+            items.push({
+                label: t('kbAdvancedSettings'),
+                icon: <SlidersHorizontal size={16} aria-hidden="true" />,
+                opensPage: true,
+                onSelect: () => openRagSettings({ id: row.id, name: row.name }),
+            });
+        }
         if (canPublish && !row.isGlobal) {
             items.push({
                 label: t('kbActionPublish'),
                 icon: <Globe size={16} aria-hidden="true" />,
+                separatorBefore: items.length > 0,
                 onSelect: () => { setActionError(null); setPublishTarget(row); },
             });
         }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { SettingsVersion, StartPage } from './api';
-import { ROLE_COVER_DEFAULTS, categoryGlowStyle, chatStartIncomplete, roleCardCover, showsGeneratedQuestions, suggestionQuestions, startEntries, visibleQuestions } from './startPageModel';
+import { defaultStart, type SettingsVersion, type StartPage } from './api';
+import { ROLE_COVER_DEFAULTS, activeTaskStart, categoryGlowStyle, chatStartIncomplete, pageMode, pageQuestions, roleCardCover, showsGeneratedQuestions, startEntries, suggestionQuestions, withRoleStart } from './startPageModel';
 import { changeValue, versionNote } from './versionModel';
 import { draftAfterReset, type AssistantDraft } from './useAssistantSettings';
 
@@ -66,24 +66,24 @@ describe('chat start', () => {
         expect(chatStartIncomplete(page({ startMode: 'roles', roleEntries: [{ id: 'r', roleId: 'tutor' }] }), 'research', [{ id: 'tutor', start: task('') }])).toBe(true);
     });
 
-    it('is incomplete in the roles mode without a further role or with a shown start prompt without text', () => {
-        expect(chatStartIncomplete(page({ startMode: 'upload' }), 'research')).toBe(false);
-        // One role leaves nothing to choose: the input field starts the same chat.
-        expect(chatStartIncomplete(page({ startMode: 'roles' }), 'research')).toBe(true);
+    // Oracle: developer ruling 05.11.2026 — every start the page shows must
+    // be set up: the active role's and every card's; any other may be a draft.
+    it('is incomplete only with a shown start prompt without text', () => {
+        expect(chatStartIncomplete(page(), 'research')).toBe(false);
+        expect(chatStartIncomplete(page({ roleStarts: { research: task(' ') } }), 'research')).toBe(true);
         const further = { roleStarts: { tutor: task('Los') }, roleEntries: [{ id: 'r', roleId: 'tutor' }] };
-        expect(chatStartIncomplete(page({ startMode: 'roles', ...further }), 'research')).toBe(false);
-        expect(chatStartIncomplete(page({ startMode: 'roles', ...further, roleStarts: { ...further.roleStarts, research: task(' ') } }), 'research')).toBe(true);
-        // A role set up but not shown may stay a draft.
-        expect(chatStartIncomplete(page({ startMode: 'roles', ...further, roleStarts: { ...further.roleStarts, editor: task('') } }), 'research')).toBe(false);
-        expect(chatStartIncomplete(page({ startMode: 'input', roleStarts: { research: task('') } }), 'research')).toBe(false);
+        expect(chatStartIncomplete(page(further), 'research')).toBe(false);
+        expect(chatStartIncomplete(page({ ...further, roleStarts: { tutor: task('') } }), 'research')).toBe(true);
+        expect(chatStartIncomplete(page({ ...further, roleStarts: { ...further.roleStarts, editor: task('') } }), 'research')).toBe(false);
     });
 
-    it('shows suggestions only when on and in the input-field start', () => {
-        expect(visibleQuestions(page(), ['D1'])).toEqual([]);
-        expect(visibleQuestions(page({ questionsOn: true }), ['D1', 'D2'])).toEqual(['D1', 'D2']);
-        expect(visibleQuestions(page({ questionsOn: true, questionMode: 'fixed' }), ['D1'])).toEqual(['Fix']);
-        expect(visibleQuestions(page({ questionsOn: true, startMode: 'upload' }), ['D1'])).toEqual([]);
-        expect(visibleQuestions(page({ questionsOn: true, startMode: 'roles' }), ['D1'])).toEqual([]);
+    it('shows the active role\'s questions under the input field, only when it starts there', () => {
+        const on = { questionsOn: true, questionMode: 'fixed' as const, dynamicCount: 4 as const, fixedQuestions: ['Wie?'] };
+        const input = { kind: 'input' as const, text: '', send: true, instruction: '', suggestions: on };
+        expect(pageQuestions(page({ roleStarts: { research: input } }), 'research', undefined, ['D1'])).toEqual(['Wie?']);
+        expect(pageQuestions(page(), 'research', undefined, ['D1'])).toEqual([]);
+        expect(pageQuestions(page({ roleStarts: { research: { ...input, kind: 'file' } } }), 'research', undefined, ['D1'])).toEqual([]);
+        expect(pageQuestions(page({ roleStarts: { research: input }, roleEntries: [{ id: 'r', roleId: 'tutor' }] }), 'research', undefined, ['D1'])).toEqual([]);
     });
 });
 
@@ -97,20 +97,18 @@ describe('card suggestions', () => {
     });
 });
 
-// Oracle: what the chat start shows (visibleQuestions / suggestionQuestions):
+// Oracle: what the chat start shows (pageQuestions / suggestionQuestions):
 // a model call only where generated questions will appear.
 describe('generated questions', () => {
     const dyn = { questionsOn: true, questionMode: 'dynamic' };
     it('asks for them only where they will be shown', () => {
-        expect(showsGeneratedQuestions(null, null)).toBe(true);
-        expect(showsGeneratedQuestions(null, page({ questionsOn: true }))).toBe(true);
-        expect(showsGeneratedQuestions(null, page({ questionsOn: false }))).toBe(false);
-        expect(showsGeneratedQuestions(null, page({ questionsOn: true, questionMode: 'fixed' }))).toBe(false);
-        expect(showsGeneratedQuestions(null, page({ questionsOn: true, startMode: 'upload' }))).toBe(false);
-        expect(showsGeneratedQuestions(null, page({ questionsOn: true, startMode: 'roles' }))).toBe(false);
-        expect(showsGeneratedQuestions({ kind: 'input', suggestions: dyn }, page())).toBe(true);
+        expect(showsGeneratedQuestions(null, { kind: 'input', suggestions: dyn })).toBe(true);
+        expect(showsGeneratedQuestions(null, { kind: 'input', suggestions: { ...dyn, questionsOn: false } })).toBe(false);
+        expect(showsGeneratedQuestions(null, { kind: 'input', suggestions: { ...dyn, questionMode: 'fixed' } })).toBe(false);
+        expect(showsGeneratedQuestions(null, { kind: 'task', suggestions: dyn })).toBe(false);
+        expect(showsGeneratedQuestions(null, null)).toBe(false);
+        expect(showsGeneratedQuestions({ kind: 'input', suggestions: dyn }, { kind: 'task', suggestions: dyn })).toBe(true);
         expect(showsGeneratedQuestions({ kind: 'file', suggestions: dyn }, null)).toBe(false);
-        expect(showsGeneratedQuestions({ kind: 'input', suggestions: { ...dyn, questionsOn: false } }, null)).toBe(false);
     });
 });
 
@@ -128,7 +126,8 @@ describe('draft after a behaviour reset', () => {
         expect(next.title).toBe('T neu');
         expect(next.startPage.roleEntries).toEqual([]);
         expect(next.startPage.roleStarts).toEqual({});
-        expect(next.startPage.startMode).toBe('input');
+        // The active role's card stays, alone (developer ruling 05.11.2026).
+        expect(next.startPage.startMode).toBe('roles');
     });
     it('takes the server state where nothing was edited', () => {
         const server = { ...base, title: 'Server' };
@@ -155,5 +154,34 @@ describe('version history', () => {
         expect(changeValue({ area: 'start', field: 'description' }, '', t)).toBe('asstAutomatic');
         expect(changeValue({ area: 'behavior', field: 'roleStart' }, 'task (prefill): Los', t)).toBe('asstKind_task „Los“ (asstPrefillOnly)');
         expect(changeValue({ area: 'behavior', field: 'roleStart' }, '', t)).toBe('asstRoleStartNone');
+    });
+});
+
+// Oracle: developer rulings 05.11.2026 — how a chat starts is the roles':
+// the page shows „Rollenauswahl" with further cards, else the active role's
+// own start (its own, else its template's); the server derives the same.
+describe('the page follows the roles', () => {
+    const task = { ...defaultStart(), kind: 'task' as const, text: 'Fasse zusammen.', send: true };
+    const roles = [{ id: 'summary', start: { ...task } }, { id: 'filecheck', start: { ...task, kind: 'file' as const, text: 'Datei hochladen' } }, { id: 'chat' }];
+
+    it('names what it shows', () => {
+        expect(pageMode(page(), 'summary', roles)).toBe('task');
+        expect(pageMode(page(), 'filecheck', roles)).toBe('upload');
+        expect(pageMode(page(), 'chat', roles)).toBe('input');
+        expect(pageMode(page({ roleEntries: [{ id: 're-1', roleId: 'chat' }] }), 'summary', roles)).toBe('roles');
+        // A stored mode says nothing any more.
+        expect(pageMode(page({ startMode: 'upload' }), 'chat', roles)).toBe('input');
+    });
+
+    it('shows the active role\'s start prompt as its card, the own over the template\'s', () => {
+        expect(activeTaskStart(page(), 'summary', roles)).toMatchObject({ text: 'Fasse zusammen.' });
+        expect(activeTaskStart(page({ roleStarts: { chat: { ...task, text: 'Los' } } }), 'chat', roles)).toMatchObject({ text: 'Los' });
+        expect(activeTaskStart(page(), 'chat', roles)).toBeNull();
+        expect(activeTaskStart(page({ roleEntries: [{ id: 're-1', roleId: 'chat' }] }), 'summary', roles)).toBeNull();
+    });
+
+    it('keeps a start equal to the template\'s as the template\'s', () => {
+        expect(withRoleStart(page(), 'summary', { ...task }, roles).roleStarts.summary).toBeUndefined();
+        expect(withRoleStart(page(), 'summary', { ...task, text: 'Anders' }, roles).roleStarts.summary).toMatchObject({ text: 'Anders' });
     });
 });

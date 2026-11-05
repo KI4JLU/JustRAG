@@ -20,6 +20,7 @@ const maxBodyBytes = 1 << 20
 type settingsStore interface {
 	Load(ctx context.Context, kbID string) (Settings, error)
 	Save(ctx context.Context, kbID string, b Behavior) error
+	Names(ctx context.Context) Names
 }
 
 // Handler serves the behavior settings routes. The {id} routes sit behind
@@ -44,9 +45,12 @@ func kbID(r *http.Request) string {
 }
 
 // Catalog handles GET /api/kb-behavior/catalog?lang=de|en (authentication
-// only): the template roles and rule groups, in German unless lang is "en".
+// only): the template roles and rule groups, in German unless lang is "en",
+// and the names their placeholders resolve to.
 func (h *Handler) Catalog(w http.ResponseWriter, r *http.Request) {
-	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, CatalogFor(Lang(r.URL.Query().Get("lang"))))
+	c := CatalogFor(Lang(r.URL.Query().Get("lang")))
+	c.Names = h.store.Names(r.Context())
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, c)
 }
 
 // Get handles GET /api/kb/{id}/behavior.

@@ -23,7 +23,7 @@ import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUplo
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
 import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
-import { showsGeneratedQuestions, startEntries, suggestionQuestions, visibleQuestions } from './kbSettings/assistant/startPageModel';
+import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
@@ -39,7 +39,7 @@ import {
 import MessageBubble from '../MessageBubble';
 import { getBranchInfo } from '../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { canOpenKbAdvancedSettings, canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../utils/kbAccess';
+import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../utils/kbAccess';
 import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
@@ -103,7 +103,7 @@ const ChatViewComp = () => {
   const reducedMotion = useReducedMotion();
 
   const {
-    currentKb, availableConfigs, handleUpdateKBSettings, onOpenRagSettings,
+    currentKb, availableConfigs, handleUpdateKBSettings,
   } = useKbCore();
   const {
     chat, reasoningEnabled, setReasoningEnabled,
@@ -167,7 +167,7 @@ const ChatViewComp = () => {
   // The composer's notch around its two control groups (useComposerNotch).
   const { notch, observeNotch } = useComposerNotch();
 
-  // The "Rollen & Rechte" draft: the KB's source flags, reset whenever the KB
+  // The "Berechtigungen" draft: the KB's source flags, reset whenever the KB
   // (or its stored flags) changes — during render with a prev-comparison
   // instead of an effect, per
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
@@ -190,24 +190,9 @@ const ChatViewComp = () => {
     setFlagsDraft(savedFlags);
   }
 
-  // The advanced settings (KbSettingsPanel) trigger. Shares its predicate with
-  // HomeView's sliders icon so the two entry points cannot drift: system role
-  // in {api-user, admin, superadmin} AND effective KB role admin or better.
-  //
-  // The KB half used to be `currentKb.userId === user?.id || admin ||
-  // superadmin` — the legacy owner-mirror column, which is NULL on every
-  // public KB (publishing NULLs knowledge_bases.user_id) and says nothing about
-  // a KB admin who is not the owner. canOpenKbAdvancedSettings reads myRole
-  // through the same ladder kbaccess.EffectiveRole applies server-side, so the
-  // button now appears exactly where kbAdvancedChain would let the request
-  // through.
   // System prompt: owners and KB admins (the gear in the chrome bar,
   // KbWorkspaceLayout, uses the same predicate).
   const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
-  // The RAG configuration page, entered from Verhalten: system admins only,
-  // as the topic card's menu used to offer it.
-  const canOpenRagSettings = !!currentKb && (user?.role === 'admin' || user?.role === 'superadmin')
-    && canOpenKbAdvancedSettings(currentKb, user?.role);
 
   const {
     hasFiles, filesLoaded, selectedFileCount,
@@ -241,19 +226,28 @@ const ChatViewComp = () => {
   // The assistant settings' start page; re-read whenever the settings dialog closes.
   const startPage = useKbStartPage(currentKb?.id, showSystemPrompt);
   const configuredStart = startPage?.configured ? startPage : null;
+  // How the chat starts is the roles' (developer ruling 05.11.2026): with
+  // further role cards „Rollenauswahl", else the active role's own start —
+  // the input field, its role-prompt card or its upload area.
+  const startMode = startPage ? pageMode(startPage.page, startPage.activeRoleId, startPage.roles) : 'input';
+  const activeStart = startPage ? startOf(startPage.page, startPage.activeRoleId, startPage.roles) : null;
+  const activeRoleName = startPage?.roles.find(r => r.id === startPage.activeRoleId)?.name ?? t('asstAssistant');
+  // „Anweisung": the active role's card with its start prompt, alone.
+  const taskStart = startPage && !chat.roleStart ? activeTaskStart(startPage.page, startPage.activeRoleId, startPage.roles) : null;
   // Generated questions cost a model call, so they are asked for only once the
   // start page is known and only where they will be shown: a role card's
-  // input start, a configured input start, or the default start page — each
-  // with dynamic questions on.
-  const wantsGenerated = !!startPage && showsGeneratedQuestions(chat.roleStart, configuredStart?.page ?? null);
+  // input start, the active role's, or a page never set up — each with
+  // dynamic questions on.
+  const wantsGenerated = !!startPage && (configuredStart || chat.roleStart ? showsGeneratedQuestions(chat.roleStart, activeStart) : true);
   // For the role the chat starts in: a role card's, else the active role.
   const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
-  const startMode = configuredStart?.page.startMode ?? 'input';
   const [composerFileCount, setComposerFileCount] = useState(0);
   const composerAddRef = useRef<((files: File[]) => void) | null>(null);
   const emptyChat = chat.messages.length === 0 && !noSources;
   // „Rollenauswahl": the role cards stand in for the composer until one is picked.
-  const rolesGate = !!configuredStart && startMode === 'roles' && emptyChat && !chat.roleStart;
+  const rolesGate = startMode === 'roles' && emptyChat && !chat.roleStart;
+  // „Anweisung": its card stands in for the composer the same way.
+  const taskGate = !!taskStart && emptyChat;
   // The upload area stands in for the composer until the first file is attached:
   // the upload-only start's, or a file card's.
   const fileCard = chat.roleStart?.kind === 'file' ? chat.roleStart : null;
@@ -263,9 +257,10 @@ const ChatViewComp = () => {
       title: fileCard.text.trim() || t('asstFileDropTitle').replace('{role}', startPage?.roles.find(r => r.id === (fileCard.roleId ?? startPage.activeRoleId))?.name ?? t('asstAssistant')),
       message: fileCard.instruction.trim() || t('asstFileDefaultMessage'),
     }
-      : configuredStart && startMode === 'upload' && !chat.roleStart ? {
-        title: configuredStart.page.uploadLabel.trim() || t('asstUploadLabelDefault'),
-        message: configuredStart.page.uploadInstruction.trim() || t('asstFileDefaultMessage'),
+      // The active role starting with a file: its upload area, as its card's.
+      : startMode === 'upload' && activeStart && !chat.roleStart ? {
+        title: activeStart.text.trim() || t('asstFileDropTitle').replace('{role}', activeRoleName),
+        message: activeStart.instruction.trim() || t('asstFileDefaultMessage'),
       }
         : null;
   const uploadGate = !!uploadStart;
@@ -305,8 +300,8 @@ const ChatViewComp = () => {
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
-    // Configured start page: its own suggestions (fixed, or the generated ones cut to its count), if on.
-    if (configuredStart) return visibleQuestions(configuredStart.page, generatedPrompts);
+    // A start page set up: the active role's questions under its input field, if on.
+    if (configuredStart) return pageQuestions(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles, generatedPrompts);
     const raw = currentKb?.isGlobal && currentKb?.examplePrompts
       ? currentKb.examplePrompts
       : siteConfigs.example_prompts;
@@ -418,13 +413,13 @@ const ChatViewComp = () => {
                   // composer, role cards and dropzone alike; with messages the
                   // composer takes the transcript's column.
                   <div className={chat.messages.length === 0 ? 'input-container input-container--start' : 'input-container'}>
-                    {rolesGate && configuredStart && (
+                    {(rolesGate || taskGate) && startPage && (
                       <div>
                       <RoleStartCards
-                        entries={startEntries(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles)}
-                        roles={configuredStart.roles}
+                        entries={taskStart ? [taskModeEntry(taskStart, startPage.activeRoleId)] : startEntries(startPage.page, startPage.activeRoleId, startPage.roles)}
+                        roles={startPage.roles}
                         // The default role's card starts a normal chat (the active role).
-                        onStart={(entry) => chat.startRoleChat({ ...entry, roleId: entry.roleId === configuredStart.activeRoleId ? null : entry.roleId })}
+                        onStart={(entry) => chat.startRoleChat({ ...entry, roleId: entry.roleId === startPage.activeRoleId ? null : entry.roleId })}
                       />
                       </div>
                     )}
@@ -475,7 +470,7 @@ const ChatViewComp = () => {
                           throw new Error('message not sent');
                         }
                       }}
-                      className={noSources ? 'pointer-events-none opacity-55' : uploadGate || rolesGate ? 'hidden' : undefined}
+                      className={noSources ? 'pointer-events-none opacity-55' : uploadGate || rolesGate || taskGate ? 'hidden' : undefined}
                       aria-disabled={noSources || undefined}
                     >
                       <ComposerAttachmentsBridge addRef={composerAddRef} onCount={setComposerFileCount} onAdded={onComposerFilesAdded} />
@@ -661,7 +656,7 @@ const ChatViewComp = () => {
                         )}
                       </InputGroupAddon>
                     </PromptInput>
-                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && examplePrompts.length > 0 && (
+                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && examplePrompts.length > 0 && (
                       <PromptSuggestions
                         // Lines up with the composer's text start on the left (the
                         // measured + group, `notch.left`) and with the send button on
@@ -962,7 +957,6 @@ const ChatViewComp = () => {
             setFlagsDraft(savedFlags);
             setShowSystemPrompt(false);
           }}
-          onOpenRagSettings={canOpenRagSettings ? onOpenRagSettings : undefined}
         />
       )}
     </div>

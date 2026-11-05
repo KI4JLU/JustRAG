@@ -4,12 +4,13 @@ import { Loader2 } from 'lucide-react';
 import type { User as UserType } from './types';
 import { API_BASE_URL } from './api';
 import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
-import { appNameConfigsFromDocument, appNameFrom, applyAppNameToDocument } from './utils/appName';
+import { applySystemNameToDocument, siteConfigSeedFromDocument } from './utils/appName';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { viewportHeight } from './utils/viewport';
+import { namesFromSiteConfig } from './utils/systemNames';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ToastContainer';
 import { ReloadPrompt } from './components/ReloadPrompt';
@@ -58,17 +59,14 @@ export function AppRoot() {
     return saved;
   });
 
-  // Config state (needed for Login too). It starts with the app name the
-  // server wrote into the page, so the wordmark never shows the default name
-  // while /api/site-config is in flight.
-  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => appNameConfigsFromDocument());
-
-  // The window title follows the configured app name (APP_NAME_PREFIX /
-  // APP_NAME_PRODUCT), on the login page too.
-  const { prefix: appNamePrefix, product: appNameProduct } = appNameFrom(siteConfigs);
-  useEffect(() => {
-    applyAppNameToDocument({ prefix: appNamePrefix, product: appNameProduct });
-  }, [appNamePrefix, appNameProduct]);
+  // Config state (needed for Login too). It starts with the names the server
+  // wrote into the page, so neither the wordmark nor the tab title shows the
+  // default while /api/site-config is in flight.
+  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => siteConfigSeedFromDocument());
+  // The browser tab shows the deployment's system name (site_config
+  // `system_name`, else the app name), on the login page too.
+  const systemName = namesFromSiteConfig(siteConfigs).system;
+  useEffect(() => { applySystemNameToDocument(systemName); }, [systemName]);
 
   // Auth handlers
   // SECURITY (tracked follow-up): the JWT lives in localStorage, which is

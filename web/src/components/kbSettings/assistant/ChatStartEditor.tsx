@@ -1,20 +1,20 @@
 import { useContext, useEffect, useId, useRef, useState } from 'react';
 import {
-    ArrowDown, ArrowUp, GripVertical, Info, Lightbulb, MessageSquareText, Pencil, Plus, RefreshCw,
-    SendHorizontal, Sparkles, TextCursorInput, Trash2, Upload, X,
+    ArrowDown, ArrowUp, GripVertical, Info, Lightbulb, Pencil, Plus, RefreshCw,
+    SendHorizontal, Sparkles, Trash2, X,
 } from 'lucide-react';
 import {
     ActionMenu, Badge, Button, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
-    Input, Notice, SegmentedControl, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Shimmer, Switch, Textarea, cardAccentStyle, cn,
+    Input, Notice, SegmentedControl, Shimmer, Switch, Textarea, cardAccentStyle, cn,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { Skeleton } from '../../Skeleton';
 import {
     FIXED_QUESTION_MAX, INSTRUCTION_MAX_LEN, QUESTION_MAX_LEN, ROLE_ENTRY_MAX, UPLOAD_LABEL_MAX_LEN,
-    suggestStarterQuestions, type EntryKind, type EntryStart, type RoleEntry, type StartMode, type StartPage, type Suggestions,
+    suggestStarterQuestions, type EntryKind, type EntryStart, type RoleEntry, type StartPage, type Suggestions,
 } from './api';
 import { newId, type RoleView } from './roleModel';
-import { DEFAULT_ENTRY_ID, START_MODE_LABEL, roleAccent, roleCardCover, startEntries, startOf } from './startPageModel';
+import { DEFAULT_ENTRY_ID, roleAccent, roleCardCover, startEntries, startOf } from './startPageModel';
 import { ComposerPreview } from './ComposerPreview';
 import { KindIcon } from './entryKinds';
 import { IconTile } from './roles';
@@ -276,49 +276,6 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
     );
 }
 
-/** „Nur Datei-Upload": the members' dropzone with its label editable in it, plus the instruction. */
-function UploadEditor({ page }: { page: StartPage }) {
-    const { t } = useTheme();
-    const store = useAssistantSettings();
-    const instrId = useId();
-    const set = (patch: Partial<StartPage>) => store.updateStartPage(p => ({ ...p, ...patch }));
-    return (
-        <div className="flex flex-col gap-2">
-            {/* The members' dropzone (UploadStart), its label edited in place. */}
-            <UploadStart
-                onFiles={() => undefined}
-                title={(
-                    <Input
-                        variant="editable"
-                        aria-label={t('asstUploadLabel')}
-                        value={page.uploadLabel}
-                        maxLength={UPLOAD_LABEL_MAX_LEN}
-                        placeholder={t('asstUploadLabelDefault')}
-                        onChange={(e) => set({ uploadLabel: e.target.value })}
-                        className="w-auto min-w-48 max-w-full text-center"
-                    />
-                )}
-            />
-            <div className="flex flex-col gap-1.5 rounded-[var(--ui-radius-box)] border border-outline-variant bg-surface-container-lowest px-4 py-3">
-                <label htmlFor={instrId} className="text-sm font-medium text-on-surface">{t('asstUploadInstruction')}</label>
-                <div className="text-sm leading-6 text-on-surface">
-                    <Textarea
-                        variant="editable"
-                        id={instrId}
-                        rows={2}
-                        maxLength={INSTRUCTION_MAX_LEN}
-                        value={page.uploadInstruction}
-                        placeholder={t('asstUploadInstructionPlaceholder')}
-                        onChange={(e) => set({ uploadInstruction: e.target.value })}
-                    />
-                </div>
-                <span className="text-xs text-on-surface-variant">{t('asstUploadInstructionHint')}</span>
-            </div>
-            <p className="m-0 text-xs text-on-surface-variant">{t('asstUploadModeFooter')}</p>
-        </div>
-    );
-}
-
 const KINDS = ['input', 'task', 'file'] as const satisfies readonly EntryKind[];
 
 /**
@@ -541,7 +498,6 @@ function RolesEditor({ page, roles, activeRoleId, focusEntryId, onAdded, onFocus
                 </span>
             </span>
             {/* Shown once Speichern or „Fertig" was refused, not while the cards are being picked. */}
-            {store.showErrors && page.roleEntries.length === 0 && <p role="alert" className="m-0 text-sm text-error">{t('asstRolesNeedSecond')}</p>}
             {/* One row: centred while it fits, scrolling sideways once it does not. */}
             <div className="-mx-1 overflow-x-auto px-1 pb-2 pt-1">
                 <ol className="m-0 mx-auto flex w-max list-none gap-4 p-0">
@@ -587,27 +543,17 @@ function RolesEditor({ page, roles, activeRoleId, focusEntryId, onAdded, onFocus
     );
 }
 
-const MODES: { value: StartMode; text: string; icon: React.ReactNode }[] = [
-    { value: 'input', text: 'asstStartInputText', icon: <TextCursorInput className="size-4" aria-hidden="true" /> },
-    { value: 'upload', text: 'asstStartUploadText', icon: <Upload className="size-4" aria-hidden="true" /> },
-    { value: 'roles', text: 'asstStartRolesText', icon: <MessageSquareText className="size-4" aria-hidden="true" /> },
-];
-
 /**
- * The Chat-Start block in edit mode: the mode (Eingabefeld | Nur Datei-Upload
- * | Rollenauswahl) and its editor. The settings of every mode are kept when
- * the mode changes.
+ * The Chat-Start block in edit mode (developer ruling 05.11.2026): how a
+ * chat starts is the roles' — the default role's start, set in „Verhalten" —
+ * so only the choice of roles is set here. Further role cards turn the start
+ * page into „Rollenauswahl"; without them it starts as the default role does.
  */
 export function ChatStartEditor({
-    roles, activeRoleId, dynamicSample, sampleLoading, onNewExample, modeNote, focusEntryId, onAdded, onFocused, onTry, onViewRole,
+    roles, activeRoleId, focusEntryId, onAdded, onFocused, onTry, onViewRole,
 }: {
     roles: RoleView[];
     activeRoleId: string;
-    dynamicSample: string[];
-    sampleLoading: boolean;
-    onNewExample: () => void;
-    /** The mode was switched by „Für Rollenwahl selektieren" in Verhalten. */
-    modeNote: boolean;
     focusEntryId: string | null;
     onAdded: (entryId: string) => void;
     onFocused: () => void;
@@ -616,66 +562,30 @@ export function ChatStartEditor({
 }) {
     const { t } = useTheme();
     const store = useAssistantSettings();
-    const labelId = useId();
     const page = store.draft?.startPage;
     if (!page) return null;
-    const setMode = (v: string) => store.updateStartPage(p => ({ ...p, startMode: v as StartMode }));
-    const mode = MODES.find(m => m.value === page.startMode) ?? MODES[0];
-
+    const roleName = roles.find(r => r.id === activeRoleId)?.name ?? t('asstAssistant');
+    const kind = startOf(page, activeRoleId, roles).kind;
     return (
         <div className="flex w-full flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <span id={labelId} className="text-sm font-medium text-on-surface">{t('asstChatStart')}</span>
-                <div className="hidden @xl:block">
-                    <SegmentedControl
-                        variant="nav"
-                        aria-labelledby={labelId}
-                        value={page.startMode}
-                        onValueChange={setMode}
-                        options={MODES.map(m => ({ value: m.value, label: t(START_MODE_LABEL[m.value]), icon: m.icon, showLabel: true }))}
-                    />
-                </div>
-                <div className="w-full @xl:hidden">
-                    <Select value={page.startMode} onValueChange={setMode}>
-                        <SelectTrigger aria-labelledby={labelId}><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                            {MODES.map(m => (
-                                <SelectItem key={m.value} value={m.value}>
-                                    <span className="flex items-center gap-2">{m.icon} {t(START_MODE_LABEL[m.value])}</span>
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <span className="w-full text-sm text-on-surface-variant">{t(mode.text)}</span>
-            </div>
-            {modeNote && page.startMode === 'roles' && <Notice tone="info" icon={<Info />}>{t('asstModeSwitchedNotice')}</Notice>}
-            {page.startMode === 'roles' ? (
-                <RolesEditor
-                    page={page}
-                    roles={roles}
-                    activeRoleId={activeRoleId}
-                    focusEntryId={focusEntryId}
-                    onAdded={onAdded}
-                    onFocused={onFocused}
-                    onTry={onTry}
-                    onViewRole={onViewRole}
-                />
-            ) : page.startMode === 'upload' ? (
-                <UploadEditor page={page} />
-            ) : (
-                <>
-                    <ComposerPreview kbName={store.draft?.title.trim() ?? ''} fileCount={store.kb.fileCount} />
-                    <SuggestionsEditor
-                        value={page}
-                        onChange={(fn) => store.updateStartPage(p => ({ ...p, ...fn(p) }))}
-                        dynamicSample={dynamicSample}
-                        sampleLoading={sampleLoading}
-                        onNewExample={onNewExample}
-                        fileCount={store.kb.fileCount ?? 0}
-                    />
-                </>
-            )}
+            <Notice tone="info" icon={<Info />}>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {t('asstStartFromRole').replace('{role}', roleName).replace('{start}', t(`asstKind_${kind}`))}
+                    <Button variant="link" size="sm" className="h-auto p-0" onClick={() => onViewRole(activeRoleId)}>
+                        {t('asstEditStartInBehavior')}
+                    </Button>
+                </span>
+            </Notice>
+            <RolesEditor
+                page={page}
+                roles={roles}
+                activeRoleId={activeRoleId}
+                focusEntryId={focusEntryId}
+                onAdded={onAdded}
+                onFocused={onFocused}
+                onTry={onTry}
+                onViewRole={onViewRole}
+            />
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import {
     Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
     FileDropzone, cn, useCarousel, useCarouselSlides,
@@ -97,10 +97,10 @@ export function TitleCard({
  * (or the frame) around it. The role card and the role preview share it, so
  * both heads look the same.
  */
-export function RoleCover({ kind, corner }: { kind: EntryKind; corner?: React.ReactNode }) {
+export function RoleCover({ kind, corner, compact }: { kind: EntryKind; corner?: React.ReactNode; compact?: boolean }) {
     return (
         <>
-            <CardBand className="min-h-16 items-start">
+            <CardBand className={cn('items-start', compact ? 'min-h-10' : 'min-h-16')}>
                 {corner && <span className="flex flex-wrap gap-1">{corner}</span>}
             </CardBand>
             <CardHairline>
@@ -249,7 +249,8 @@ const CAROUSEL_OPTS = { align: () => PEEK_OFFSET_PX, slidesToScroll: 1, inViewTh
  * preselected or singled out (developer ruling 30.10.2026: once several roles
  * are offered, every card behaves the same) — in a carousel of one, two or three cards per view (by the
  * width it gets), with a counter, previous/next (one card a click) and dots
- * once not all fit.
+ * once not all fit. A single role's card stands alone, centred, without the
+ * heading: there is nothing to choose.
  * The whole card is the button: it starts a NEW chat in that role (the
  * caller decides how); its avatar shows how — input field, instruction or
  * file.
@@ -263,6 +264,35 @@ export function RoleStartCards({
 }) {
     const { t } = useTheme();
     const headingId = useId();
+    const card = (e: RoleEntry) => {
+        const role = roles.find(r => r.id === e.roleId);
+        // A card with a start prompt shows the prompt, as the message it
+        // sends, in place of the role's description (developer, 05.11.2026).
+        const prompt = e.kind === 'task' ? e.text.trim() : '';
+        return (
+            <RoleCardFrame
+                cover={roleCardCover(role, e.kind)}
+                kind={e.kind}
+                title={role?.name}
+                description={prompt ? undefined : role?.description}
+                className="transition-colors hover:border-primary"
+                onActivate={() => onStart(e)}
+                label={`${role?.name ?? ''}: ${prompt || (e.kind === 'file' ? t('asstUploadFile') : e.kind === 'task' ? t('asstGetStarted') : t('asstStartChat'))}`}
+            >
+                {prompt && <StartPromptQuote text={prompt} lines="line-clamp-4" />}
+            </RoleCardFrame>
+        );
+    };
+    // One role leaves nothing to choose (developer, 05.11.2026): its card
+    // alone, centred — no „Wähle eine Rolle", no carousel.
+    if (entries.length === 1) {
+        const [only] = entries;
+        // A role that starts with a start prompt: the wide role-prompt card (developer mockup 05.11.2026).
+        if (only.kind === 'task' && only.text.trim()) {
+            return <RolePromptCard text={only.text.trim()} role={roles.find(r => r.id === only.roleId)} onStart={() => onStart(only)} />;
+        }
+        return <div className="flex justify-center">{card(only)}</div>;
+    }
     return (
         <div className="@container">
             {/* `wheel`: the mouse wheel and the trackpad scroll it too, card by card. */}
@@ -270,22 +300,11 @@ export function RoleStartCards({
                 <RoleCarouselHeader headingId={headingId} />
                 {/* Faded where more cards lie, so a peeking card fades out instead of ending in a clip. */}
                 <CarouselContent fadeEdges>
-                    {entries.map(e => {
-                        const role = roles.find(r => r.id === e.roleId);
-                        return (
-                            <CarouselItem key={e.id} className={ROLE_SLIDE}>
-                                <RoleCardFrame
-                                    cover={roleCardCover(role, e.kind)}
-                                    kind={e.kind}
-                                    title={role?.name}
-                                    description={role?.description}
-                                    className="transition-colors hover:border-primary"
-                                    onActivate={() => onStart(e)}
-                                    label={`${role?.name ?? ''}: ${e.kind === 'file' ? t('asstUploadFile') : e.kind === 'task' ? t('asstGetStarted') : t('asstStartChat')}`}
-                                />
-                            </CarouselItem>
-                        );
-                    })}
+                    {entries.map(e => (
+                        <CarouselItem key={e.id} className={ROLE_SLIDE}>
+                            {card(e)}
+                        </CarouselItem>
+                    ))}
                 </CarouselContent>
                 <CarouselDots
                     className="mt-2"
@@ -293,6 +312,70 @@ export function RoleStartCards({
                 />
             </Carousel>
         </div>
+    );
+}
+
+/**
+ * A role's start prompt, quoted (the marks in the accent colour) and cut to
+ * `lines` (a Tailwind line-clamp class).
+ */
+export function StartPromptQuote({ text, lines }: { text: string; lines: string }) {
+    const { t } = useTheme();
+    return (
+        <span data-testid="start-prompt" className={cn('m-0 min-h-0 break-words italic text-on-surface', lines)}>
+            <span aria-hidden="true" className="not-italic font-semibold text-primary">{t('asstQuoteOpen')}</span>
+            {text}
+            <span aria-hidden="true" className="not-italic font-semibold text-primary">{t('asstQuoteClose')}</span>
+        </span>
+    );
+}
+
+/**
+ * The role-prompt card (developer mockup 05.11.2026): a role that starts with
+ * a start prompt, alone on the start page („Anweisung", or „Rollenauswahl"
+ * with one role). Wide, with the role's head, its name, the prompt quoted and
+ * „Klicken zum Starten" with the send arrow; hovering or focusing it lights
+ * the border, the line and the arrow. The whole card is the button.
+ */
+export function RolePromptCard({ text, role, onStart }: {
+    text: string;
+    role: Pick<RoleView, 'name' | 'cover'> | undefined;
+    onStart: () => void;
+}) {
+    const { t } = useTheme();
+    const cover = roleCardCover(role, 'task');
+    return (
+        <Card
+            accentColor={roleAccent(cover)}
+            interactive
+            role="button"
+            tabIndex={0}
+            aria-label={`${role?.name ?? ''}: ${text}`}
+            onClick={onStart}
+            onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onStart();
+                }
+            }}
+            data-testid="role-prompt-card"
+            className="group/prompt mx-auto w-full max-w-sm cursor-pointer select-none overflow-hidden transition-[border-color,box-shadow] hover:border-primary hover:ring-4 hover:ring-primary/15 focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/25"
+        >
+            <RoleCover kind="task" compact />
+            <span className="flex flex-col gap-1 px-4 pb-3">
+                <span className="text-base font-semibold leading-snug text-on-surface">{role?.name}</span>
+                <StartPromptQuote text={text} lines="line-clamp-3 text-sm leading-6" />
+                <span className="mt-1.5 flex items-center justify-between gap-3">
+                    <span className="text-xs text-on-surface-variant transition-colors group-hover/prompt:text-primary group-focus-visible/prompt:text-primary">{t('asstClickToStart')}</span>
+                    <span
+                        aria-hidden="true"
+                        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-on-surface transition-colors group-hover/prompt:bg-primary group-hover/prompt:text-on-primary group-focus-visible/prompt:bg-primary group-focus-visible/prompt:text-on-primary"
+                    >
+                        <ArrowUp className="size-3.5" />
+                    </span>
+                </span>
+            </span>
+        </Card>
     );
 }
 

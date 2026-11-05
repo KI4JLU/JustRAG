@@ -63,7 +63,7 @@ const KB_RIGHT_HINT_KEY: Record<KbRight, string> = {
 const KB_GROUP_LABEL_KEY = { topic: 'rrGroupTopic', sidebar: 'rrGroupSidebar', answers: 'rrGroupAnswers' } as const;
 const LAST_KB_RIGHT = KB_RIGHT_GROUPS[KB_RIGHT_GROUPS.length - 1].rights.at(-1);
 const isKbAlwaysAll = (role: KbRole) => KB_ALWAYS_ALL_ROLES.includes(role);
-/** Owner + admin read as ONE muted band, as in the topic's own Rollen & Rechte tab. */
+/** Owner + admin read as ONE muted band, as in the topic's own Berechtigungen tab. */
 const kbMutedJoin = (role: KbRole): 'start' | 'end' | undefined =>
     role === 'owner' ? 'start' : role === 'admin' ? 'end' : undefined;
 
@@ -76,7 +76,7 @@ interface AdminRolesTabProps {
  * Admin panel → "Rollen & Rechte": a read-only reference of what each system
  * role and each topic role may do. Nothing here is editable — roles are code,
  * not data (utils/systemRoleRights.ts, utils/kbRoleRights.ts). Visual language
- * follows the topic's own Rollen & Rechte tab (kbSettings/KbRolesRightsTab):
+ * follows the topic's own Berechtigungen tab (kbSettings/KbRolesRightsTab):
  * rights as grouped rows, roles as columns, roles that always have everything
  * as a muted band with plain marks.
  */

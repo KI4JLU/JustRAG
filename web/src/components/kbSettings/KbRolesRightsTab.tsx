@@ -51,7 +51,7 @@ interface KbRolesRightsTabProps {
 }
 
 /**
- * "Rollen & Rechte" tab of Thema-Einstellungen (mockup of 2026-10-16). The
+ * "Berechtigungen" tab of Thema-Einstellungen (mockup of 2026-10-16). The
  * model lives in utils/kbRoleRights.ts.
  *
  * Two layouts, chosen by a container query on the tab (not the viewport: the

@@ -6,6 +6,7 @@ import {
     Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Button, Input, SettingsRow, Switch, cn,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { DEFAULT_NAMES, resolveNames } from '../../../utils/systemNames';
 import type { CustomRule, RuleSet } from './api';
 import { useOpenGroups } from './openGroups';
 import { activeRuleTexts, newId, promptParts } from './roleModel';
@@ -153,7 +154,9 @@ export function SystemPromptPanel({
 
     const ruleTexts = activeRuleTexts(catalog, rules);
     const totalRules = catalog.ruleGroups.reduce((n, g) => n + g.rules.length, 0) + rules.customRules.length;
-    const parts = promptParts(prompt, ruleTexts, catalog.rulesHeading, ragPrompt ?? '');
+    // What the model gets: the placeholders filled in with the deployment's names.
+    const sent = resolveNames(prompt, catalog.names ?? DEFAULT_NAMES);
+    const parts = promptParts(sent, ruleTexts, catalog.rulesHeading, ragPrompt ?? '');
     const total = parts.role.length + parts.rules.length + parts.tools.length;
     const share = (n: number) => (total ? `${(n / total) * 100}%` : '0%');
     const legend = [
@@ -229,7 +232,7 @@ export function SystemPromptPanel({
                 <section className="border-b border-outline-variant px-5 py-4">
                     <LayerHead n={1} tone="primary" title={t('asstRolePromptLayer')} aside={template ? t('asstFromTemplate') : t('asstFromRoleEditable')} />
                     {promptEditor ?? (prompt
-                        ? <ClampedPrompt text={prompt} />
+                        ? <ClampedPrompt text={sent} />
                         : <p className="m-0 mt-2 text-sm text-on-surface-variant">{t('asstEmptyPrompt')}</p>)}
                 </section>
 
@@ -238,6 +241,8 @@ export function SystemPromptPanel({
                     <LayerHead
                         n={2}
                         tone="outline"
+                        // The count is the sentences listed below: a switched-off
+                        // rule with an off text (formal → „du") is sent too.
                         title={t('asstRulesLayer').replace('{n}', String(ruleTexts.length)).replace('{m}', String(totalRules))}
                         aside={t('asstRulesForThisRole')}
                     />

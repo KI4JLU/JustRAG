@@ -30,7 +30,7 @@ export function AppUserMenu() {
     const settingsDialog = useSettingsDialog();
     const adminDialog = useAdminDialog();
     const { user, logout } = useAuth();
-    const { onViewProfile, onViewLegal, onEditGlobalKb } = useAppNav();
+    const { onViewProfile, onViewLegal, onEditGlobalKb, onOpenRagSettings } = useAppNav();
     const isSystemAdmin = user?.role === 'admin' || user?.role === 'superadmin';
     // `?admin=` is for system admins: for anyone else it is ignored and taken off the URL.
     useEffect(() => {
@@ -122,6 +122,7 @@ export function AppUserMenu() {
                     onSectionChange={setAdminDialogSection}
                     user={user}
                     onEditGlobalKb={onEditGlobalKb}
+                    onOpenRagSettings={onOpenRagSettings}
                 />
             </Suspense>
         )}

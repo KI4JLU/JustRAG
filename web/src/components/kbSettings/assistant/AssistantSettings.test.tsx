@@ -12,6 +12,8 @@ import * as api from './api';
 const PLACEHOLDERS: Record<string, string> = {
     asstActionsFor: 'actions {name}',
     asstEntryActions: 'entry-actions {n}',
+    asstInsertPlaceholder: 'insert {token}',
+    asstPromptNamesHint: 'names {assistant} / {system}',
     asstQuestionLabel: 'question {n}',
     asstRestoreAs: 'restore-as v{m}',
     asstRestoredFlash: 'restored v{n} as v{m}',
@@ -55,8 +57,9 @@ vi.mock('./api', async (importOriginal) => {
             language: 'de',
             roles: [
                 { id: 'research', name: 'Forschung', description: 'd', prompt: 'FORSCHUNG', icon: 'graduation-cap', isDefault: true },
-                { id: 'tutor', name: 'Tutor', description: 'd', prompt: 'TUTOR', icon: 'book-open', isDefault: false },
+                { id: 'tutor', name: 'Tutor', description: 'd', prompt: 'TUTOR {{assistant_name}} auf {{system_name}}', icon: 'book-open', isDefault: false },
             ],
+            names: { assistant: 'Justus', system: 'Campus RAG' },
             ruleGroups: [{ id: 'style', title: 'Stil', rules: [{ id: 'short', label: 'Kurz', description: '', text: 'Kurz antworten.', defaultOn: true }] }],
             rulesHeading: 'Regeln:',
             limits: { promptMax: 8000, roleNameMax: 80, ruleMax: 300, customRolesMax: 20, customRulesMax: 20 },
@@ -134,7 +137,6 @@ const previewPanel = () => screen.getByRole('region', { name: 'asstPreviewOf' })
 const savedInput = () => vi.mocked(api.saveAssistantSettings).mock.calls[0][1];
 // „Bearbeiten" opens both editors; the chat start's „Fertig" closes both.
 const editChatStart = () => userEvent.click(screen.getByRole('button', { name: 'asstEditStartPage' }));
-const doneChatStart = () => userEvent.click(screen.getByRole('button', { name: /asstDone/ }));
 // „Start bearbeiten" in the role edit screen swaps the chat image for the start's editor.
 // The role's edit screen, from its card's ⋮ menu; „Änderungen übernehmen" takes it into the draft.
 const openEditor = async (name: string) => {
@@ -192,6 +194,34 @@ describe('Verhalten · roles', () => {
         await waitFor(() => expect(within(tutor).queryByRole('button', { name: /asstUseThisRole/ })).toBeNull());
     });
 
+    // Oracle: kbbehavior.Names — the preview shows the prompt as the model
+    // gets it, the placeholders filled in with the deployment's names; the
+    // edit screen says what they stand for.
+    it('fills in the name placeholders in the preview and names them in the editor', async () => {
+        await renderSection('behavior');
+        await userEvent.click(tile('Tutor'));
+        expect(previewPanel()).toHaveTextContent('TUTOR Justus auf Campus RAG');
+        expect(previewPanel()).not.toHaveTextContent('{{assistant_name}}');
+        await userEvent.click(screen.getByRole('button', { name: /asstNewRole/ }));
+        expect(screen.getByLabelText('asstPrompt')).toHaveAccessibleDescription('names Justus / Campus RAG');
+    });
+
+    // Oracle: the field's value — a click on a placeholder chip puts it
+    // where the cursor was; dragging one hands the browser its text, which
+    // the browser drops into the field itself.
+    it('inserts a name placeholder at the cursor and lets it be dragged', async () => {
+        await renderSection('behavior');
+        await userEvent.click(screen.getByRole('button', { name: /asstNewRole/ }));
+        const prompt = screen.getByLabelText('asstPrompt') as HTMLTextAreaElement;
+        await userEvent.type(prompt, 'Du bist .');
+        prompt.setSelectionRange(8, 8);
+        await userEvent.click(screen.getByRole('button', { name: 'insert {{assistant_name}}' }));
+        expect(prompt).toHaveValue('Du bist {{assistant_name}}.');
+        const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
+        fireEvent.dragStart(screen.getByRole('button', { name: 'insert {{system_name}}' }), { dataTransfer });
+        expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', '{{system_name}}');
+    });
+
     it('saves a new role without making it active', async () => {
         await renderSection('behavior');
         await userEvent.click(screen.getByRole('button', { name: /asstNewRole/ }));
@@ -212,16 +242,19 @@ describe('Verhalten · roles', () => {
 
     // Oracle: developer ruling 28.10.2026 — every own role's description is
     // editable, the legacy role's too; it is the text on the start page's card.
+    // Since migration 0101 the legacy role („Eigene Rolle") is an own role like
+    // any other: it cannot be saved without a name.
     it('edits a role\'s description', async () => {
-        behavior = { ...behavior, customRoles: [...behavior.customRoles, { id: 'legacy', name: 'Personalrecht', description: 'Durchsucht die bereitgestellten Quellen.', prompt: '', icon: 'user-round' }] };
+        behavior = { ...behavior, customRoles: [...behavior.customRoles, { id: 'legacy', name: 'Eigene Rolle', description: 'Der bisher hinterlegte System-Prompt.', prompt: 'ALTER PROMPT', icon: 'user-round' }] };
         await renderSection('behavior');
-        await userEvent.click(screen.getByRole('button', { name: 'actions Personalrecht' }));
+        await userEvent.click(screen.getByRole('button', { name: 'actions Eigene Rolle' }));
         await userEvent.click(await screen.findByRole('menuitem', { name: /asstEdit/ }));
         const desc = screen.getByLabelText('asstDescription');
-        expect(desc).toHaveValue('Durchsucht die bereitgestellten Quellen.');
+        expect(desc).toHaveValue('Der bisher hinterlegte System-Prompt.');
         await userEvent.clear(desc);
         await userEvent.type(desc, 'Prüft Arbeitsverträge.');
         await userEvent.clear(screen.getByLabelText('asstName'));
+        expect(screen.getByRole('button', { name: /asstApplyChanges/ })).toBeDisabled();
         await userEvent.type(screen.getByLabelText('asstName'), 'Vertragscheck');
         await userEvent.click(screen.getByRole('button', { name: /asstApplyChanges/ }));
         await userEvent.click(saveButton());
@@ -362,10 +395,9 @@ describe('Verhalten · roles', () => {
         expect(savedInput().startPage.roleStarts).toEqual({});
     });
 
-    // Oracle: developer ruling 27.10.2026 — „Rollenauswahl" needs a second
-    // role; with one role the input field starts the same chat.
-    it('falls back to the input field when the last further role card goes with its role', async () => {
-        startPage.startMode = 'roles';
+    // Oracle: developer ruling 05.11.2026 — without further cards the page
+    // starts as the default role does: the last card may go.
+    it('lets the last further role card go with its role', async () => {
         await renderSection('behavior');
         await userEvent.click(screen.getByRole('button', { name: 'actions Eigene' }));
         await userEvent.click(screen.getByRole('menuitem', { name: /delete/ }));
@@ -373,45 +405,43 @@ describe('Verhalten · roles', () => {
         await userEvent.click(within(dialog).getByRole('button', { name: /asstDeleteRoleConfirm/ }));
         await userEvent.click(saveButton());
         await waitFor(() => expect(api.saveAssistantSettings).toHaveBeenCalled());
-        expect(savedInput().startPage).toMatchObject({ startMode: 'input', roleEntries: [] });
+        expect(savedInput().startPage).toMatchObject({ roleEntries: [] });
     });
 
-    // Oracle: developer ruling 28.10.2026 — the error shows on Speichern, not while picking.
-    it('does not save „Rollenauswahl" with the default role alone and says why on Speichern', async () => {
+    // Oracle: developer ruling 05.11.2026 — the role preview in Verhalten and
+    // the Startseite's preview show the same start page.
+    it('shows the active role\'s start page in Verhalten as on the Startseite', async () => {
         startPage.roleEntries = [];
+        startPage.roleStarts = { ...startPage.roleStarts, research: { ...inputStart(), kind: 'task', text: 'Fasse zusammen.', send: true } };
+        await renderSection('behavior');
+        expect(within(previewPanel()).getByTestId('role-prompt-card')).toHaveTextContent('Fasse zusammen.');
+        cleanup();
         await renderSection('start');
-        await editChatStart();
-        await userEvent.click(screen.getByText('asstStartRoles'));
-        expect(screen.queryByText('asstRolesNeedSecond')).toBeNull();
-        await userEvent.click(saveButton());
-        expect(screen.getByText('asstRolesNeedSecond')).toBeInTheDocument();
-        expect(screen.getByText('asstSaveIncomplete')).toBeInTheDocument();
-        expect(api.saveAssistantSettings).not.toHaveBeenCalled();
+        expect(screen.getByTestId('role-prompt-card')).toHaveTextContent('Fasse zusammen.');
     });
 
-    // Oracle: developer ruling 28.10.2026 — „Fertig" refuses that choice too and says why.
-    it('keeps the chat start editor open on „Fertig" with the default role alone', async () => {
-        startPage.roleEntries = [];
+    // Oracle: developer ruling 05.11.2026 — how a chat starts is the roles':
+    // the Startseite offers no start mode, it names the default role's start
+    // and leads to Verhalten for it.
+    it('takes the chat start from the default role and offers only further roles', async () => {
         await renderSection('start');
         await editChatStart();
-        await userEvent.click(screen.getByText('asstStartRoles'));
+        expect(screen.getByText(/asstStartFromRole/)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'asstEditStartInBehavior' })).toBeInTheDocument();
         expect(screen.getByText('asstChooseRolesHeading')).toBeInTheDocument();
-        await doneChatStart();
-        expect(screen.getByText('asstRolesNeedSecond')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /asstDone/ })).toBeInTheDocument();
+        expect(screen.queryByText('asstStartUpload')).toBeNull();
+        expect(screen.queryByText('asstStartTask')).toBeNull();
     });
 
     // Oracle: ANWEISUNG §1.2 „Als Einstiegsfrage anbieten" / §2.2 „Von Verhalten aus".
-    it('offering a role as a starter switches the chat start to „Rollenauswahl" with a card for it', async () => {
+    it('offering a role as a starter adds its card to „Rollenauswahl"', async () => {
         startPage.roleEntries = [];
         await renderSection('behavior');
         await userEvent.click(screen.getByRole('button', { name: 'actions Tutor' }));
         await userEvent.click(screen.getByRole('menuitem', { name: /asstOfferAsEntry/ }));
-        expect(await screen.findByText('asstModeSwitchedNotice')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'entry-actions Tutor' })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'entry-actions Tutor' })).toBeInTheDocument();
         await userEvent.click(saveButton());
         await waitFor(() => expect(api.saveAssistantSettings).toHaveBeenCalled());
-        expect(savedInput().startPage.startMode).toBe('roles');
         expect(savedInput().startPage.roleEntries.map(e => e.roleId)).toEqual(['tutor']);
         // No start of its own: it starts with the input field.
         expect(savedInput().startPage.roleStarts.tutor).toBeUndefined();
@@ -423,28 +453,28 @@ describe('Startseite', () => {
     it('opens both editors from „Bearbeiten", closes both with „Fertig" and keeps nothing without Speichern', async () => {
         await renderSection('start');
         await userEvent.click(screen.getByRole('button', { name: 'asstEditStartPage' }));
-        // Both blocks are in edit mode: the title field and the chat start's modes.
+        // Both blocks are in edit mode: the title field and the role cards.
         expect(screen.getByLabelText('asstTitle')).toBeInTheDocument();
-        expect(screen.getByText('asstStartUpload')).toBeInTheDocument();
+        expect(screen.getByText('asstChooseRolesHeading')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'asstEditStartPage' })).toBeNull();
-        await userEvent.click(screen.getByText('asstStartUpload'));
+        await userEvent.clear(screen.getByLabelText('asstTitle'));
+        await userEvent.type(screen.getByLabelText('asstTitle'), 'Neu');
         // One „Fertig", under the chat start, closes both.
         await userEvent.click(screen.getByRole('button', { name: /asstDone/ }));
         expect(screen.queryByLabelText('asstTitle')).toBeNull();
-        expect(screen.getByRole('heading', { level: 2, name: 'Personalrecht' })).toBeInTheDocument();
-        // The view again: the upload start's dropzone, as members see it.
-        expect(screen.getByText('asstUploadLabelDefault')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 2, name: 'Neu' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'asstEditStartPage' })).toBeInTheDocument();
         expect(api.saveAssistantSettings).not.toHaveBeenCalled();
         expect(screen.getByText('asstUnsaved')).toBeInTheDocument();
     });
 
-    it('has suggestions off by default and keeps the fixed questions across dynamic and off', async () => {
-        await renderSection('start');
-        await editChatStart();
-        const sw = screen.getByRole('switch', { name: 'asstQuestionsShow' });
+    // Oracle: developer ruling 05.11.2026 — starter questions are the role's.
+    it('has a role\'s suggestions off by default and keeps the fixed questions across dynamic and off', async () => {
+        startPage.roleStarts['c-1'] = { ...inputStart(), suggestions: { ...inputStart().suggestions, fixedQuestions: ['Fix 1'] } };
+        await renderSection('behavior');
+        await openEditor('Eigene');
+        const sw = screen.getByRole('switch', { name: 'asstQuestionsShow · Eigene' });
         expect(sw).not.toBeChecked();
-        expect(screen.getByText(/asstQuestionsOff/)).toHaveTextContent('asstFixedKeptN');
         await userEvent.click(sw);
         await userEvent.click(screen.getByText('asstFixedMode'));
         expect(screen.getByDisplayValue('Fix 1')).toBeInTheDocument();
@@ -453,52 +483,20 @@ describe('Startseite', () => {
         await userEvent.click(screen.getByText('asstFixedMode'));
         // Back to fixed: the same list, not the dynamic example.
         expect(screen.getByDisplayValue('Fix 1')).toBeInTheDocument();
-        expect(screen.queryByDisplayValue('Dyn 1')).toBeNull();
-        await userEvent.click(screen.getByRole('switch', { name: 'asstQuestionsShow' }));
+        await userEvent.click(screen.getByRole('switch', { name: 'asstQuestionsShow · Eigene' }));
+        await applyEditor();
         await userEvent.click(saveButton());
         await waitFor(() => expect(api.saveAssistantSettings).toHaveBeenCalled());
-        expect(savedInput().startPage).toMatchObject({ questionsOn: false, questionMode: 'fixed', fixedQuestions: ['Fix 1'] });
+        expect(savedInput().startPage.roleStarts['c-1'].suggestions).toMatchObject({ questionsOn: false, questionMode: 'fixed', fixedQuestions: ['Fix 1'] });
     });
 
-    it('sorts the fixed questions with Alt + arrow keys', async () => {
-        startPage.questionsOn = true;
-        startPage.questionMode = 'fixed';
-        startPage.fixedQuestions = ['A', 'B'];
+    it('shows the default role\'s upload area, without suggestions, for a file start', async () => {
+        startPage.roleEntries = [];
+        startPage.roleStarts = { ...startPage.roleStarts, research: { ...inputStart(), kind: 'file', text: 'Antrag hochladen' } };
         await renderSection('start');
-        await editChatStart();
-        const first = screen.getByRole('textbox', { name: 'question 1' });
-        expect(first).toHaveAccessibleDescription('asstSortKeysHint');
-        fireEvent.keyDown(first, { key: 'ArrowRight', altKey: true });
-        expect(screen.getByRole('textbox', { name: 'question 1' })).toHaveValue('B');
-        expect(screen.getByRole('textbox', { name: 'question 2' })).toHaveValue('A');
-    });
-
-    it('keeps the settings of every mode when the mode changes', async () => {
-        await renderSection('start');
-        await editChatStart();
-        await userEvent.click(screen.getByText('asstStartUpload'));
-        await userEvent.type(screen.getByLabelText('asstUploadLabel'), 'Antrag hochladen');
-        await userEvent.click(screen.getByText('asstStartRoles'));
-        await userEvent.click(screen.getByText('asstStartInput'));
-        await userEvent.click(saveButton());
-        await waitFor(() => expect(api.saveAssistantSettings).toHaveBeenCalled());
-        expect(savedInput().startPage).toMatchObject({ startMode: 'input', uploadLabel: 'Antrag hochladen', fixedQuestions: ['Fix 1'] });
-        expect(savedInput().startPage.roleEntries).toHaveLength(1);
-    });
-
-    it('shows no suggestions with an upload-only start, whose dropzone takes any file', async () => {
-        startPage.questionsOn = true;
-        await renderSection('start');
-        expect(await screen.findByText('Dyn 1')).toBeInTheDocument();
-        await editChatStart();
-        await userEvent.click(screen.getByText('asstStartUpload'));
-        // The editor shows the members' dropzone with the label in it; no file-type choice.
-        expect(screen.getByLabelText('asstUploadLabel')).toBeInTheDocument();
-        expect(screen.queryByRole('group', { name: /asstUploadTypes/ })).toBeNull();
-        await doneChatStart();
+        expect(await screen.findByText('Antrag hochladen')).toBeInTheDocument();
         expect(screen.queryByText('Dyn 1')).toBeNull();
         expect(screen.queryByText(/asstStartIncomplete/)).toBeNull();
-        expect(saveButton()).toBeEnabled();
     });
 
     it('keeps the default role first, fixed and following the active role; further roles cannot pick it', async () => {

@@ -11,8 +11,8 @@ import (
 	"github.com/justrag/go-backend/internal/chat"
 )
 
-// Oracle: the prompts' fixed opening lines ("Du bist JustRAG" / "You are
-// JustRAG"), and the chat send path's language fallback (an unsupported or
+// Oracle: the prompts' fixed opening lines ("Deine oberste Priorität" /
+// "Your top priority"), and the chat send path's language fallback (an unsupported or
 // missing language is answered in German, defaultLanguage) — the endpoint
 // must show the prompt a turn with the same language input would get. The
 // numbered rules must start their line in what is served (the source literal
@@ -20,10 +20,10 @@ import (
 func TestRAGSystemPrompt_LanguageAndDisplayForm(t *testing.T) {
 	h := chat.NewHandler(&mockStore{}, nil, nil)
 	for _, tc := range []struct{ query, lang, opening string }{
-		{"?lang=de", "de", "Du bist JustRAG"},
-		{"?lang=en", "en", "You are JustRAG"},
-		{"", "de", "Du bist JustRAG"},
-		{"?lang=fr", "de", "Du bist JustRAG"},
+		{"?lang=de", "de", "Deine oberste Priorität"},
+		{"?lang=en", "en", "Your top priority"},
+		{"", "de", "Deine oberste Priorität"},
+		{"?lang=fr", "de", "Deine oberste Priorität"},
 	} {
 		rr := httptest.NewRecorder()
 		h.RAGSystemPrompt(rr, httptest.NewRequest(http.MethodGet, "/api/chat/rag-system-prompt"+tc.query, nil))

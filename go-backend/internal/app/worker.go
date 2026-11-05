@@ -86,6 +86,9 @@ func RunWorker(cfg *config.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// {{system_name}} in the prompts the worker compiles defaults to the app name.
+	kbbehavior.SetDefaultSystemName(cfg.AppName())
+
 	// nil redactor: the worker serves no HTTP surface, so no URL path — and
 	// therefore no invite token — ever reaches a span here.
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-worker", "", nil)
@@ -121,7 +124,7 @@ func RunWorker(cfg *config.Config) error {
 	// came up afterwards, k8s killed pods mid-DDL and the whole fleet
 	// restart-looped (observed 2026-07-03). Liveness = process is up;
 	// readiness (SetReady) still flips only after full wiring below.
-	healthSrv := worker.NewHealthServer(cfg.WorkerHealthPort)
+	healthSrv := worker.NewHealthServer(cfg.WorkerHealthPort, cfg.WorkerMetrics)
 	healthSrv.Start()
 	// Health server cleanup on any exit path. Registered first (LIFO: runs
 	// last) so the probe endpoint outlives every other teardown.

@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchMatches, useSearchReveal } from '../../../hooks/useSearchReveal';
 import { Check, Info, Pencil } from 'lucide-react';
-import { Button, Notice, PromptSuggestions } from '@ki4jlu/design-system';
+import { Button, Notice } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { RoleEntry } from './api';
 import { ChatStartEditor } from './ChatStartEditor';
-import { ComposerPreview } from './ComposerPreview';
 import { RoleChatPreview } from './RoleChatPreview';
 import { allRoles } from './roleModel';
-import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './StartPageParts';
-import { chatStartIncomplete, startEntries, visibleQuestions } from './startPageModel';
+import { StartGlow, TitleCard } from './StartPageParts';
+import { chatStartIncomplete, pageQuestions } from './startPageModel';
+import { StartView } from './StartView';
 import { TitleCardEditor } from './TitleCardEditor';
 import { useAssistantSettings } from './useAssistantSettings';
 import { useStarterSample } from './useStarterSample';
@@ -37,12 +37,11 @@ export function StartPageSection() {
     const [opened] = useState(() => (store.pending?.type === 'startRoles' ? store.pending : null));
     const [editing, setEditing] = useState<Record<Block, boolean>>({ card: false, start: !!opened });
     const [previewChat, setPreviewChat] = useState<RoleEntry | null>(null);
-    const [modeNote, setModeNote] = useState(!!opened?.switched);
     const [focusEntryId, setFocusEntryId] = useState<string | null>(opened?.entryId ?? null);
 
     // An example of the dynamic questions, generated for the role of the card
     // being tried, else the active role's (the input field's).
-    const { sample: dynamicSample, loading: sampleLoading, newExample } = useStarterSample(kb.id, language, previewChat?.roleId ?? undefined);
+    const { sample: dynamicSample } = useStarterSample(kb.id, language, previewChat?.roleId ?? undefined);
 
     const { pending, clearPending } = store;
     useEffect(() => {
@@ -67,7 +66,7 @@ export function StartPageSection() {
 
     if (!draft) return null;
     const page = draft.startPage;
-    const questions = visibleQuestions(page, dynamicSample);
+    const questions = pageQuestions(page, activeRoleId, roles, dynamicSample);
     const category = categories.find(c => c.id === draft.categoryId) ?? null;
     const open = (...blocks: Block[]) => {
         setPreviewChat(null);
@@ -81,7 +80,6 @@ export function StartPageSection() {
             return;
         }
         setEditing({ card: false, start: false });
-        setModeNote(false);
     };
     const viewRole = (roleId: string) => store.send('behavior', { type: 'previewRole', roleId });
 
@@ -90,27 +88,15 @@ export function StartPageSection() {
     // `input-container--start` here): composer, role cards and dropzone as
     // wide as the title card — as in ChatView's empty chat.
     const startView = (
-        <div className="input-container input-container--start">
-            {page.startMode === 'roles' ? (
-                <div>
-                    <RoleStartCards entries={startEntries(page, activeRoleId, roles)} roles={roles} onStart={setPreviewChat} />
-                </div>
-            ) : page.startMode === 'upload' ? (
-                <div>
-                    <UploadStart title={page.uploadLabel.trim() || t('asstUploadLabelDefault')} onFiles={() => undefined} onBrowse={() => undefined} />
-                </div>
-            ) : (
-                <ComposerPreview kbName={draft.title.trim()} fileCount={kb.fileCount} />
-            )}
-            {questions.length > 0 && (
-                <PromptSuggestions
-                    title={t('asstSuggestions')}
-                    suggestions={questions}
-                    onSelect={() => undefined}
-                    className="mt-4"
-                />
-            )}
-        </div>
+        <StartView
+            page={page}
+            activeRoleId={activeRoleId}
+            roles={roles}
+            kbTitle={draft.title.trim()}
+            fileCount={kb.fileCount}
+            questions={questions}
+            onStart={setPreviewChat}
+        />
     );
 
     return (
@@ -171,10 +157,6 @@ export function StartPageSection() {
                                 <ChatStartEditor
                                     roles={roles}
                                     activeRoleId={activeRoleId}
-                                    dynamicSample={dynamicSample}
-                                    sampleLoading={sampleLoading}
-                                    onNewExample={newExample}
-                                    modeNote={modeNote}
                                     focusEntryId={focusEntryId}
                                     onAdded={setFocusEntryId}
                                     onFocused={onFocused}

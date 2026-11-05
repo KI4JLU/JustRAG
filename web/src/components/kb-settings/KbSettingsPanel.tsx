@@ -22,22 +22,10 @@ interface Props {
 }
 
 // All four tabs are the KB "advanced settings" surface. Every endpoint they
-// call sits on kbAdvancedChain, which wants a system role in
-// {api-user, admin, superadmin} on TOP of KB role admin — the panel's two entry
-// points (the sliders icon in HomeView, the one in the ChatView header) share
-// canOpenKbAdvancedSettings so they gate on exactly that, and a caller who
-// arrives without it gets the explicit "Keine Berechtigung" state below rather
-// than four tabs that each 403.
-//
-// The Agenten tab in particular is where attaching agents/teams to a KB lives.
-// It has one other mount, the chat composer's system-prompt panel
-// (ChatView.tsx), which used to be gated on `currentKb.userId === user.id` —
-// the legacy owner-mirror column, NULL on every public KB (publishing NULLs
-// knowledge_bases.user_id) and silent about a KB admin who is not the owner.
-// That mount now takes the same predicate this panel's entry point does.
-//
-// The two mounts never render at once — `view === 'kb-settings'` returns before
-// ChatView in AuthenticatedApp — so there are no two live copies to disagree.
+// call sits on kbAdvancedChain (system admins only, on any KB). The panel's one
+// entry point is „RAG-Settings" in the row menu of the admin console's
+// KB-Übersicht; a caller who arrives without the right gets the explicit
+// "Keine Berechtigung" state below rather than four tabs that each 403.
 const TABS = [
   { id: 'settings', label: 'RAG Settings', Icon: SlidersHorizontal },
   { id: 'agents', label: 'Agenten & Teams', Icon: Bot },
@@ -212,10 +200,9 @@ export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
         <Alert tone="error" live="assertive" className="max-w-[560px]">
           <AlertTitle asChild><h2 className="text-sm">Keine Berechtigung</h2></AlertTitle>
           <AlertDescription>
-            Für die erweiterten Einstellungen dieser Knowledge Base brauchst du
-            zusätzlich zur KB-Rolle „admin" eine der Systemrollen „api-user",
-            „admin" oder „superadmin". Wende dich an deine Administration, wenn
-            du sie brauchst.
+            Die RAG-Settings sind Systemadmins vorbehalten, und das nur bei
+            eigenen, geteilten oder öffentlichen Themen: ein fremdes Thema, das
+            niemand mit anderen teilt, bleibt privat.
           </AlertDescription>
         </Alert>
       </div>
@@ -335,8 +322,7 @@ export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
 }
 
 // The OpenAI-compatible endpoint takes "kb-{uuid}" in the `model` field, NOT the
-// raw KB uuid — see extractKBID in internal/openaicompat/handler.go. Surfaced
-// here because this panel is the only in-KB surface api-users can reach.
+// raw KB uuid — see extractKBID in internal/openaicompat/handler.go.
 function KbModelNameRow({ kbId }: { kbId: string }) {
   const modelName = `kb-${kbId}`;
   const [copied, setCopied] = useState(false);

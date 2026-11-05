@@ -40,9 +40,9 @@ func TestDiff_StartAndBehaviorFields(t *testing.T) {
 		s.Title = "Neu"
 		s.StartPage.Colors = &kbstartpage.Colors{From: "#112233", To: "#445566"}
 		s.StartPage.StartMode = kbstartpage.StartRoles
-		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": {Kind: kbstartpage.EntryTask, Text: "Erkläre", Send: true}}
-		s.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "c1", RoleID: "tutor"}}
-		s.Behavior.ActiveRoleID = "editor"
+		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": {Kind: kbstartpage.EntryTask, Text: "Erkläre", Send: true}}
+		s.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "c1", RoleID: "summary"}}
+		s.Behavior.ActiveRoleID = "filecheck"
 		set := kbbehavior.DefaultRules()
 		set.Rules["pages"] = false
 		set.CustomRules = []kbbehavior.CustomRule{{ID: "r1", Text: "Sei nett", On: true}}
@@ -58,11 +58,11 @@ func TestDiff_StartAndBehaviorFields(t *testing.T) {
 	if c := got["title"]; *c.From != "KB" || *c.To != "Neu" || c.Area != AreaStart {
 		t.Errorf("title change = %+v", c)
 	}
-	if c := got["roleEntry"]; c.Added == nil || *c.Added != "Tutor" {
+	if c := got["roleEntry"]; c.Added == nil || *c.Added != "Zusammenfassen" {
 		t.Errorf("role entry change = %+v", c)
 	}
 	// A start set up in „Verhalten": from none to the task.
-	if c := got["roleStart"]; c.Area != AreaBehavior || c.Ref != "Tutor" || *c.From != "" || *c.To != "task: Erkläre" {
+	if c := got["roleStart"]; c.Area != AreaBehavior || c.Ref != "Zusammenfassen" || *c.From != "" || *c.To != "task: Erkläre" {
 		t.Errorf("role start change = %+v", c)
 	}
 	if c := got["rule"]; c.Area != AreaBehavior || c.Ref == "" || *c.To != "off" {
@@ -74,14 +74,14 @@ func TestDiff_StartAndBehaviorFields(t *testing.T) {
 // one card's suggestions is one change named after that card's role.
 func TestDiff_RoleSuggestions(t *testing.T) {
 	start := kbstartpage.DefaultStart()
-	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": start} })
+	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": start} })
 	b := snap(func(s *Snapshot) {
 		c := start
 		c.Suggestions = kbstartpage.Suggestions{QuestionsOn: true, QuestionMode: kbstartpage.QuestionsFixed, DynamicCount: 4, FixedQuestions: []string{"Wie?", "Wann?"}}
-		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": c}
+		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": c}
 	})
 	got := diff(a, b, "de", noCategory)
-	if len(got) != 1 || got[0].Field != "roleSuggestions" || got[0].Ref != "Tutor" || *got[0].From != "off" || *got[0].To != "fixed: Wie? | Wann?" {
+	if len(got) != 1 || got[0].Field != "roleSuggestions" || got[0].Ref != "Zusammenfassen" || *got[0].From != "off" || *got[0].To != "fixed: Wie? | Wann?" {
 		t.Fatalf("role suggestions = %+v", got)
 	}
 }
@@ -91,14 +91,14 @@ func TestDiff_RoleSuggestions(t *testing.T) {
 // the save was dropped. It is a change of that card's start now.
 func TestDiff_RoleEntryKind(t *testing.T) {
 	start := kbstartpage.DefaultStart()
-	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": start} })
+	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": start} })
 	b := snap(func(s *Snapshot) {
 		c := start
 		c.Kind = kbstartpage.EntryFile
-		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": c}
+		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": c}
 	})
 	got := diff(a, b, "de", noCategory)
-	if len(got) != 1 || got[0].Field != "roleStart" || got[0].Ref != "Tutor" || *got[0].From != "input" {
+	if len(got) != 1 || got[0].Field != "roleStart" || got[0].Ref != "Zusammenfassen" || *got[0].From != "input" {
 		t.Fatalf("kind change = %+v", got)
 	}
 }
@@ -120,22 +120,6 @@ func TestSameSnapshot(t *testing.T) {
 	}
 }
 
-// Oracle: a pure reorder is one change, not an add plus a remove.
-func TestDiff_FixedQuestionsReorder(t *testing.T) {
-	a := snap(func(s *Snapshot) { s.StartPage.FixedQuestions = []string{"A", "B"} })
-	b := snap(func(s *Snapshot) { s.StartPage.FixedQuestions = []string{"B", "A"} })
-	got := diff(a, b, "de", noCategory)
-	if len(got) != 1 || got[0].Field != "fixedQuestionsOrder" {
-		t.Fatalf("reorder = %+v", got)
-	}
-	c := snap(func(s *Snapshot) { s.StartPage.FixedQuestions = []string{"B", "C"} })
-	got = diff(a, c, "de", noCategory)
-	f := fields(got)
-	if len(got) != 2 || f["fixedQuestion"].Field == "" {
-		t.Fatalf("add+remove = %+v", got)
-	}
-}
-
 // Oracle: the legacy (uncustomized) baseline diffs against its effective
 // form, so switching to a template role reads as an activeRole change.
 func TestDiff_LegacyBaseline(t *testing.T) {
@@ -150,19 +134,19 @@ func TestDiff_LegacyBaseline(t *testing.T) {
 
 func TestSnapshotOf_Validates(t *testing.T) {
 	ok := Input{Title: "  KB  ", Behavior: kbbehavior.Default(), StartPage: kbstartpage.Default()}
-	s, err := snapshotOf(ok)
+	s, err := snapshotOf(ok, "de")
 	if err != nil || s.Title != "KB" || s.Description != nil {
 		t.Fatalf("valid input: %+v %v", s, err)
 	}
 	empty := "   "
 	ok.Description = &empty
-	if s, _ := snapshotOf(ok); s.Description != nil {
+	if s, _ := snapshotOf(ok, "de"); s.Description != nil {
 		t.Error("blank description must store as NULL")
 	}
 
 	bad := ok
 	bad.Title = " "
-	if _, err := snapshotOf(bad); !errors.Is(err, ErrInvalid) {
+	if _, err := snapshotOf(bad, "de"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("empty title: %v", err)
 	}
 	// A card for a role the behavior saved with it does not have.
@@ -170,7 +154,33 @@ func TestSnapshotOf_Validates(t *testing.T) {
 	bad.StartPage.StartMode = kbstartpage.StartRoles
 	bad.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"nope": kbstartpage.DefaultStart()}
 	bad.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "c1", RoleID: "nope"}}
-	if _, err := snapshotOf(bad); !errors.Is(err, ErrInvalid) {
+	if _, err := snapshotOf(bad, "de"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("unknown role card: %v", err)
+	}
+}
+
+// Oracle: PR #73 review — a role set that does not name „formal" sends
+// neither form, one that switches it off sends „du": the history shows that
+// change instead of "off" → "off".
+func TestDiff_FormalNamedOffIsAChange(t *testing.T) {
+	legacy := "alt"
+	role := func(rules map[string]bool) func(*Snapshot) {
+		return func(s *Snapshot) {
+			s.SystemPrompt = &legacy
+			s.Behavior.ActiveRoleID = kbbehavior.LegacyRoleID
+			s.Behavior.CustomRoles = []kbbehavior.Role{{ID: kbbehavior.LegacyRoleID}}
+			s.Behavior.RoleRules = map[string]kbbehavior.RuleSet{kbbehavior.LegacyRoleID: {Rules: rules, CustomRules: []kbbehavior.CustomRule{}}}
+		}
+	}
+	a := snap(role(map[string]bool{}))
+	b := snap(role(map[string]bool{"formal": false}))
+	var found bool
+	for _, c := range diff(a, b, "de", noCategory) {
+		if c.Field == "rule" && c.From != nil && c.To != nil && *c.From == "nicht gesetzt" && *c.To == "off" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("formal unnamed → off is no change: %+v", diff(a, b, "de", noCategory))
 	}
 }

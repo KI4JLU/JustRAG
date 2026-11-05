@@ -247,6 +247,7 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
             onOpenSource: idle(),
             onOpenChat: args.onOpenChat,
             onOpenTopicSettings: args.onOpenTopicSettings,
+            onOpenRagSettings: idle(),
           }}
         >
           <StoryKbSearchProvider>

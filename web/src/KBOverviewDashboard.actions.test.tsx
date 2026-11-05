@@ -81,6 +81,52 @@ describe('KBOverviewDashboard superadmin actions', () => {
     });
 });
 
+/* ORACLE: developer rulings 2026-11-05 — a topic's RAG configuration is
+   reachable only here, as „RAG-Settings" in the row's ⋯ menu, for system
+   admins, on shared or public topics and their own (somebody else's topic
+   nobody shares stays private). It leads the menu: it leaves the console. */
+describe('KBOverviewDashboard „RAG-Settings"', () => {
+    const withShared = {
+        ...overview,
+        rows: [
+            ...overview.rows,
+            { ...overview.rows[0], id: 'kb-3', name: 'Shared KB', shared: true },
+            { ...overview.rows[0], id: 'kb-4', name: 'Own KB', ownerId: 'op-1' },
+        ],
+    };
+    beforeEach(() => {
+        mockedAxios.get = vi.fn().mockResolvedValue({ data: withShared });
+    });
+
+    it.each(['admin', 'superadmin'])('offers a %s „RAG-Settings" first on shared, public and own topics, not on others\' unshared ones', async (role) => {
+        mockRole = role;
+        render(<KBOverviewDashboard onOpenRagSettings={vi.fn()} />);
+        await waitFor(() => expect(screen.getByText('Shared KB')).toBeTruthy());
+        for (const name of ['Shared KB', 'Global KB', 'Own KB']) {
+            expect((await rowMenu(name))[0]).toBe('kbAdvancedSettings');
+            await userEvent.keyboard('{Escape}');
+        }
+        expect(await rowMenu('Alpha KB')).not.toContain('kbAdvancedSettings');
+    });
+
+    it('opens the RAG page of the row\'s topic', async () => {
+        mockRole = 'admin';
+        const onOpenRagSettings = vi.fn();
+        render(<KBOverviewDashboard onOpenRagSettings={onOpenRagSettings} />);
+        await waitFor(() => expect(screen.getByText('Global KB')).toBeTruthy());
+        await rowMenu('Global KB');
+        await userEvent.click(screen.getByRole('menuitem', { name: 'kbAdvancedSettings' }));
+        expect(onOpenRagSettings).toHaveBeenCalledWith({ id: 'kb-2', name: 'Global KB' });
+    });
+
+    it('offers no entry without a page to open', async () => {
+        mockRole = 'superadmin';
+        render(<KBOverviewDashboard />);
+        await waitFor(() => expect(screen.getByText('Shared KB')).toBeTruthy());
+        expect(await rowMenu('Shared KB')).not.toContain('kbAdvancedSettings');
+    });
+});
+
 // POST /api/admin/kb/{id}/publish was registered, tested and audited on the
 // backend but had no caller anywhere in the frontend — the KB-Übersicht row is
 // its intended home, next to the published badge it already renders.

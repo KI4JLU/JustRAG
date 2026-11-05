@@ -3,8 +3,6 @@ import type { EntryStart, RuleSet } from './api';
 /** The own role an editor changes; none = it creates a new one. */
 export interface EditTarget {
     roleId: string;
-    /** The KB's original role: it may go without a name or prompt. */
-    legacy?: boolean;
 }
 
 /** The AI help on the role prompt: generate one from a description, or revise the one there is. */
@@ -54,6 +52,6 @@ export const editTarget = (e: RoleEditor): EditTarget | undefined => (e.kind ===
 /** Whether „Rolle speichern" / „Änderungen übernehmen" can run. */
 export function canSaveEditor(e: RoleEditor): boolean {
     if (e.ai.phase === 'busy') return false;
-    if (e.kind === 'template' || editTarget(e)?.legacy) return true;
+    if (e.kind === 'template') return true;
     return !!e.name.trim() && !!e.prompt.trim();
 }

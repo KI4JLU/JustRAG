@@ -3,6 +3,8 @@ import { Save } from 'lucide-react';
 import { Button, PanelSection } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { CheckboxFieldRow, FieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
+import { DEFAULT_NAMES, NAME_MAX } from '../../utils/systemNames';
+import { appNameFrom, appNameText } from '../../utils/appName';
 import { FooterActions } from './FooterActions';
 
 interface AdminSiteTabProps {
@@ -20,6 +22,33 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
 
     return (
         <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-6">
+            {/* The deployment's names; blank = the default, shown as the
+                placeholder. The system name's default is the app name. */}
+            <PanelSection title={t('namesSection')}>
+                <div className="flex flex-col gap-5">
+                    <FieldRow
+                        width="wide"
+                        label={t('systemNameLabel')}
+                        help={t('systemNameHelp')}
+                        type="text"
+                        maxLength={NAME_MAX}
+                        value={siteConfigs.system_name || ''}
+                        onChange={e => set('system_name', e.target.value)}
+                        placeholder={appNameText(appNameFrom(siteConfigs))}
+                    />
+                    <FieldRow
+                        width="wide"
+                        label={t('assistantNameLabel')}
+                        help={t('assistantNameHelp')}
+                        type="text"
+                        maxLength={NAME_MAX}
+                        value={siteConfigs.assistant_name || ''}
+                        onChange={e => set('assistant_name', e.target.value)}
+                        placeholder={DEFAULT_NAMES.assistant}
+                    />
+                </div>
+            </PanelSection>
+
             {/* No logo upload: the logo is the design system's wordmark,
                 built from APP_NAME_PREFIX / APP_NAME_PRODUCT in the
                 server's environment. */}

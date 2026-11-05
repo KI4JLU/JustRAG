@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appNameConfigsFromDocument, appNameFrom, appNameText, applyAppNameToDocument, DEFAULT_APP_NAME } from './appName';
+import { appNameFrom, appNameText, applySystemNameToDocument, DEFAULT_APP_NAME, siteConfigSeedFromDocument } from './appName';
 
 // Oracle: the server's contract in go-backend/internal/siteconfig — the app
 // name arrives as app_name_prefix / app_name_product, defaulting to JLU / RAG.
@@ -19,23 +19,22 @@ describe('appNameFrom', () => {
   });
 });
 
-describe('applyAppNameToDocument', () => {
-  it('sets the window title and the description to the configured name', () => {
+describe('applySystemNameToDocument', () => {
+  it('sets the window title and the description to the system name', () => {
     const doc = document.implementation.createHTMLDocument('JLU RAG');
     const meta = doc.createElement('meta');
     meta.setAttribute('name', 'description');
     meta.setAttribute('content', 'JLU RAG - Advanced Knowledge Retrieval System');
     doc.head.appendChild(meta);
 
-    applyAppNameToDocument({ prefix: 'THM', product: 'Docs' }, doc);
+    applySystemNameToDocument(appNameText({ prefix: 'THM', product: 'Docs' }), doc);
 
     expect(doc.title).toBe('THM Docs');
     expect(meta.getAttribute('content')).toBe('THM Docs - Advanced Knowledge Retrieval System');
-    expect(appNameText({ prefix: 'THM', product: 'Docs' })).toBe(doc.title);
   });
 });
 
-describe('appNameConfigsFromDocument', () => {
+describe('siteConfigSeedFromDocument', () => {
   const docWith = (metas: Record<string, string>) => {
     const doc = document.implementation.createHTMLDocument('JLU RAG');
     for (const [name, content] of Object.entries(metas)) {
@@ -47,14 +46,15 @@ describe('appNameConfigsFromDocument', () => {
     return doc;
   };
 
-  it('reads the name the server wrote into the page', () => {
-    const doc = docWith({ 'app-name-prefix': ' THM ', 'app-name-product': 'Docs' });
-    expect(appNameConfigsFromDocument(doc)).toEqual({ app_name_prefix: 'THM', app_name_product: 'Docs' });
+  it('reads the names the server wrote into the page', () => {
+    const doc = docWith({ 'app-name-prefix': ' THM ', 'app-name-product': 'Docs', 'system-name': 'KI-Assistent' });
+    expect(siteConfigSeedFromDocument(doc))
+      .toEqual({ app_name_prefix: 'THM', app_name_product: 'Docs', system_name: 'KI-Assistent' });
   });
 
   it('carries nothing for a page without the name, or with blank parts', () => {
-    expect(appNameConfigsFromDocument(docWith({}))).toEqual({});
-    expect(appNameConfigsFromDocument(docWith({ 'app-name-prefix': '  ', 'app-name-product': 'Docs' })))
+    expect(siteConfigSeedFromDocument(docWith({}))).toEqual({});
+    expect(siteConfigSeedFromDocument(docWith({ 'app-name-prefix': '  ', 'app-name-product': 'Docs' })))
       .toEqual({ app_name_product: 'Docs' });
   });
 });
