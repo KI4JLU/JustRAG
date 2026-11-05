@@ -48,16 +48,14 @@ type view struct {
 	start    kbstartpage.StartPage
 }
 
-// viewOf names the legacy role after kbName — the same name for both sides of
-// a diff, so a rename never reads as a role change.
-func viewOf(s Snapshot, kbName, lang string) view {
-	b := kbbehavior.Effective(s.Behavior, s.SystemPrompt, kbName, lang)
+func viewOf(s Snapshot, lang string) view {
+	b := kbbehavior.Effective(s.Behavior, s.SystemPrompt, lang)
 	return view{snap: s, behavior: b, start: kbstartpage.Effective(s.StartPage, b.ActiveRoleID, b.HasRole)}
 }
 
 // diff lists what changed from a to b. categoryName resolves a category id.
 func diff(a, b Snapshot, lang string, categoryName func(*string) string) []Change {
-	va, vb := viewOf(a, b.Title, lang), viewOf(b, b.Title, lang)
+	va, vb := viewOf(a, lang), viewOf(b, lang)
 	var out []Change
 	value := func(area, field, ref, from, to string) {
 		if from != to {
@@ -83,21 +81,9 @@ func diff(a, b Snapshot, lang string, categoryName func(*string) string) []Chang
 	value(AreaStart, "category", "", categoryName(a.CategoryID), categoryName(b.CategoryID))
 	sa, sb := va.start, vb.start
 	value(AreaStart, "colors", "", colorsValue(sa.Colors), colorsValue(sb.Colors))
+	// What the chat starts with follows the roles (kbstartpage.Settle): the
+	// mode names it, the role starts themselves are Verhalten's „roleStart".
 	value(AreaStart, "startMode", "", sa.StartMode, sb.StartMode)
-	value(AreaStart, "questionsOn", "", onOff(sa.QuestionsOn), onOff(sb.QuestionsOn))
-	value(AreaStart, "questionMode", "", sa.QuestionMode, sb.QuestionMode)
-	value(AreaStart, "dynamicCount", "", fmt.Sprint(sa.DynamicCount), fmt.Sprint(sb.DynamicCount))
-	list(AreaStart, "fixedQuestion", sa.FixedQuestions, sb.FixedQuestions)
-	// Same questions in another order: a reorder, which the list diff misses.
-	sameSet := len(sa.FixedQuestions) == len(sb.FixedQuestions)
-	for _, q := range sa.FixedQuestions {
-		sameSet = sameSet && slices.Contains(sb.FixedQuestions, q)
-	}
-	if sameSet && !slices.Equal(sa.FixedQuestions, sb.FixedQuestions) {
-		out = append(out, Change{Area: AreaStart, Field: "fixedQuestionsOrder"})
-	}
-	value(AreaStart, "uploadLabel", "", sa.UploadLabel, sb.UploadLabel)
-	value(AreaStart, "uploadInstruction", "", sa.UploadInstruction, sb.UploadInstruction)
 	cards := func(v view) []string {
 		var s []string
 		for _, e := range v.start.RoleEntries {

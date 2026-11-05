@@ -25,15 +25,15 @@ func TestStartPage_SaveLoad(t *testing.T) {
 		t.Fatalf("never configured: %v (%v), want nil", got, err)
 	}
 	p := kbstartpage.Default()
-	p.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": {Kind: kbstartpage.EntryTask, Text: "Elternzeit?", Send: false}}
-	p.RoleEntries = []kbstartpage.RoleEntry{{ID: "re-1", RoleID: "tutor"}}
+	p.RoleStarts = map[string]kbstartpage.EntryStart{"summary": {Kind: kbstartpage.EntryTask, Text: "Elternzeit?", Send: false}}
+	p.RoleEntries = []kbstartpage.RoleEntry{{ID: "re-1", RoleID: "summary"}}
 	p.QuestionMode, p.FixedQuestions = kbstartpage.QuestionsFixed, []string{"Eins", "Zwei"}
 	p.StartMode = kbstartpage.StartUpload
 	if err := st.Save(ctx, kbID, p); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.Load(ctx, kbID)
-	if err != nil || got == nil || got.RoleEntries[0].RoleID != "tutor" || got.RoleStarts["tutor"].Send ||
+	if err != nil || got == nil || got.RoleEntries[0].RoleID != "summary" || got.RoleStarts["summary"].Send ||
 		len(got.FixedQuestions) != 2 || got.StartMode != kbstartpage.StartUpload {
 		t.Fatalf("round trip = %+v (%v)", got, err)
 	}

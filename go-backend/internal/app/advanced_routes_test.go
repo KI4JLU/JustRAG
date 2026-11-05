@@ -42,8 +42,8 @@ func routeChains(t *testing.T) map[string]string {
 
 // advancedRoutes is the KB "advanced settings" surface: every endpoint
 // KbSettingsPanel's four tabs call, plus the per-KB re-embed sweep its Save
-// flow offers. All of them require a system role in
-// {api-user, admin, superadmin} on top of KB role admin.
+// flow offers. All of them require the system role admin (or superadmin), on
+// every KB.
 var advancedRoutes = []string{
 	// RAG Settings tab — the 52-key per-KB site_config registry.
 	"GET /api/kb/{id}/settings",
@@ -85,7 +85,7 @@ func TestAdvancedSurfaceIsOnKbAdvancedChain(t *testing.T) {
 			continue
 		}
 		if got != "kbAdvancedChain" {
-			t.Errorf("%s is on rc.%s, want rc.kbAdvancedChain — this route is part of the KB advanced settings surface and must require a system role in {api-user, admin, superadmin} as well as KB role admin", pattern, got)
+			t.Errorf("%s is on rc.%s, want rc.kbAdvancedChain — this route is part of the KB advanced settings surface and must require the system role admin (or superadmin)", pattern, got)
 		}
 	}
 }
@@ -95,7 +95,8 @@ func TestAdvancedSurfaceIsOnKbAdvancedChain(t *testing.T) {
 // every ordinary user with view access, so gating it would break agent
 // selection in chat for exactly the people the four-role model means to let
 // chat. Its siblings PUT/DELETE .../agents/{agentId} are on kbAdvancedChain;
-// the read is not.
+// the read is on kbAgentListChain — KB role view, plus the system admins the
+// advanced surface lets in on every KB (TestKbAgentListChain).
 func TestAgentListStaysOnViewChain(t *testing.T) {
 	chains := routeChains(t)
 	const pattern = "GET /api/kb/{id}/agents"
@@ -103,7 +104,7 @@ func TestAgentListStaysOnViewChain(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered in routes.go", pattern)
 	}
-	if got != "kbViewChain" {
-		t.Errorf("%s is on rc.%s, want rc.kbViewChain — the chat agent picker reads it for ordinary users", pattern, got)
+	if got != "kbAgentListChain" {
+		t.Errorf("%s is on rc.%s, want rc.kbAgentListChain — the chat agent picker reads it for ordinary users", pattern, got)
 	}
 }

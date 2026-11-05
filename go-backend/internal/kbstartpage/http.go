@@ -75,7 +75,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": "))
 		return
 	}
-	if err := h.pages.Save(ctx, kbID(r), Normalize(p)); err != nil {
+	if err := h.pages.Save(ctx, kbID(r), Settle(Normalize(p), settings.Behavior.ActiveRoleID)); err != nil {
 		h.writeStoreError(w, r, err)
 		return
 	}

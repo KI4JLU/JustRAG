@@ -169,7 +169,7 @@ func loadState(ctx context.Context, q pgxutil.Querier, kbID string, lock bool) (
 
 func settingsOf(st state, canRename bool) Settings {
 	lang := kbbehavior.Lang(st.language)
-	eff := kbbehavior.Effective(st.snap.Behavior, st.snap.SystemPrompt, st.snap.Title, lang)
+	eff := kbbehavior.Effective(st.snap.Behavior, st.snap.SystemPrompt, lang)
 	return Settings{
 		Title:               st.snap.Title,
 		Description:         st.snap.Description,
@@ -223,7 +223,7 @@ func snapshotOf(in Input) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("%w: %s", ErrInvalid, strings.TrimPrefix(err.Error(), kbstartpage.ErrInvalid.Error()+": "))
 	}
 	stored, legacy := kbbehavior.ForStorage(in.Behavior)
-	page := kbstartpage.Normalize(in.StartPage)
+	page := kbstartpage.Settle(kbstartpage.Normalize(in.StartPage), in.Behavior.ActiveRoleID)
 	return Snapshot{
 		Title: title, Description: desc, CategoryID: in.CategoryID,
 		Behavior: &stored, SystemPrompt: legacy, StartPage: &page,
@@ -256,8 +256,6 @@ func (s *Store) Save(ctx context.Context, kbID string, in Input, author Author) 
 		if next.Title != cur.snap.Title && !author.CanRename {
 			return ErrRenameForbidden
 		}
-		// The legacy role named after the KB keeps following its name.
-		kbbehavior.DropLegacyDefaults(next.Behavior, cur.snap.Title, next.Title)
 		out, err = commit(ctx, tx, kbID, cur, next, author.ID, KindSave, nil)
 		return err
 	})
@@ -268,8 +266,9 @@ func (s *Store) Save(ctx context.Context, kbID string, in Input, author Author) 
 }
 
 // ResetBehavior is the settings' „Löschen" (DELETE /api/kb/{id}/behavior):
-// back to no role and no rule, as deleting the system prompt was. It writes a
-// version like a save, so the KB's own roles and prompt stay restorable.
+// back to the default template role (kbbehavior.Default), without own roles
+// and without the pre-roles prompt. It writes a version like a save, so the
+// KB's own roles and prompt stay restorable.
 // There is no baseVersion: the reset is a deliberate act, not an edit of a
 // loaded state.
 func (s *Store) ResetBehavior(ctx context.Context, kbID string, author Author) (Settings, error) {
@@ -280,7 +279,8 @@ func (s *Store) ResetBehavior(ctx context.Context, kbID string, author Author) (
 			return err
 		}
 		next := cur.snap
-		next.Behavior, next.SystemPrompt = nil, nil
+		def := kbbehavior.Default()
+		next.Behavior, next.SystemPrompt = &def, nil
 		out, err = commit(ctx, tx, kbID, cur, next, author.ID, KindSave, nil)
 		return err
 	})
@@ -316,10 +316,21 @@ func (s *Store) Restore(ctx context.Context, kbID string, n, baseVersion int, au
 			return fmt.Errorf("kbassistant restore: decode: %w", err)
 		}
 		lang := kbbehavior.Lang(cur.language)
-		if snap.Behavior != nil {
-			if err := kbbehavior.Validate(kbbehavior.Effective(snap.Behavior, snap.SystemPrompt, "", lang)); err != nil {
-				return ErrNotRestorable
-			}
+		if snap.Behavior == nil {
+			// A version from before every KB had a behavior (migration
+			// 0100) comes back in the form that migration gave it.
+			stored, sp := kbbehavior.ForStorage(kbbehavior.Effective(nil, snap.SystemPrompt, lang))
+			snap.Behavior, snap.SystemPrompt = &stored, sp
+		}
+		// A version may name a role that no longer exists (a template
+		// migration 0099 deleted, or one an admin deleted since): it comes
+		// back in the default role. Its start page card goes on read
+		// (kbstartpage.Effective).
+		if !kbbehavior.Effective(snap.Behavior, snap.SystemPrompt, lang).HasRole(snap.Behavior.ActiveRoleID) {
+			snap.Behavior.ActiveRoleID = kbbehavior.DefaultRoleID()
+		}
+		if err := kbbehavior.Validate(kbbehavior.Effective(snap.Behavior, snap.SystemPrompt, lang)); err != nil {
+			return ErrNotRestorable
 		}
 		if !author.CanRename {
 			snap.Title = cur.snap.Title
@@ -393,7 +404,7 @@ func commit(ctx context.Context, tx pgx.Tx, kbID string, cur state, next Snapsho
 // description, category, and the behavior and start page in their effective
 // (displayed) form.
 func sameSnapshot(a, b Snapshot, lang string) bool {
-	va, vb := viewOf(a, "", lang), viewOf(b, "", lang)
+	va, vb := viewOf(a, lang), viewOf(b, lang)
 	ja, errA := json.Marshal([]any{a.Title, a.Description, a.CategoryID, va.behavior, va.start})
 	jb, errB := json.Marshal([]any{b.Title, b.Description, b.CategoryID, vb.behavior, vb.start})
 	return errA == nil && errB == nil && string(ja) == string(jb)
@@ -401,8 +412,8 @@ func sameSnapshot(a, b Snapshot, lang string) bool {
 
 func sameBehavior(a, b Snapshot, lang string) bool {
 	// Without the KB name: a rename alone is no behavior change.
-	ja, errA := json.Marshal(kbbehavior.Effective(a.Behavior, a.SystemPrompt, "", lang))
-	jb, errB := json.Marshal(kbbehavior.Effective(b.Behavior, b.SystemPrompt, "", lang))
+	ja, errA := json.Marshal(kbbehavior.Effective(a.Behavior, a.SystemPrompt, lang))
+	jb, errB := json.Marshal(kbbehavior.Effective(b.Behavior, b.SystemPrompt, lang))
 	return errA == nil && errB == nil && string(ja) == string(jb)
 }
 

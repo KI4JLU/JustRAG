@@ -40,9 +40,9 @@ func TestDiff_StartAndBehaviorFields(t *testing.T) {
 		s.Title = "Neu"
 		s.StartPage.Colors = &kbstartpage.Colors{From: "#112233", To: "#445566"}
 		s.StartPage.StartMode = kbstartpage.StartRoles
-		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": {Kind: kbstartpage.EntryTask, Text: "Erkläre", Send: true}}
-		s.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "c1", RoleID: "tutor"}}
-		s.Behavior.ActiveRoleID = "editor"
+		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": {Kind: kbstartpage.EntryTask, Text: "Erkläre", Send: true}}
+		s.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "c1", RoleID: "summary"}}
+		s.Behavior.ActiveRoleID = "filecheck"
 		set := kbbehavior.DefaultRules()
 		set.Rules["pages"] = false
 		set.CustomRules = []kbbehavior.CustomRule{{ID: "r1", Text: "Sei nett", On: true}}
@@ -58,11 +58,11 @@ func TestDiff_StartAndBehaviorFields(t *testing.T) {
 	if c := got["title"]; *c.From != "KB" || *c.To != "Neu" || c.Area != AreaStart {
 		t.Errorf("title change = %+v", c)
 	}
-	if c := got["roleEntry"]; c.Added == nil || *c.Added != "Tutor" {
+	if c := got["roleEntry"]; c.Added == nil || *c.Added != "Zusammenfassen" {
 		t.Errorf("role entry change = %+v", c)
 	}
 	// A start set up in „Verhalten": from none to the task.
-	if c := got["roleStart"]; c.Area != AreaBehavior || c.Ref != "Tutor" || *c.From != "" || *c.To != "task: Erkläre" {
+	if c := got["roleStart"]; c.Area != AreaBehavior || c.Ref != "Zusammenfassen" || *c.From != "" || *c.To != "task: Erkläre" {
 		t.Errorf("role start change = %+v", c)
 	}
 	if c := got["rule"]; c.Area != AreaBehavior || c.Ref == "" || *c.To != "off" {
@@ -74,14 +74,14 @@ func TestDiff_StartAndBehaviorFields(t *testing.T) {
 // one card's suggestions is one change named after that card's role.
 func TestDiff_RoleSuggestions(t *testing.T) {
 	start := kbstartpage.DefaultStart()
-	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": start} })
+	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": start} })
 	b := snap(func(s *Snapshot) {
 		c := start
 		c.Suggestions = kbstartpage.Suggestions{QuestionsOn: true, QuestionMode: kbstartpage.QuestionsFixed, DynamicCount: 4, FixedQuestions: []string{"Wie?", "Wann?"}}
-		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": c}
+		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": c}
 	})
 	got := diff(a, b, "de", noCategory)
-	if len(got) != 1 || got[0].Field != "roleSuggestions" || got[0].Ref != "Tutor" || *got[0].From != "off" || *got[0].To != "fixed: Wie? | Wann?" {
+	if len(got) != 1 || got[0].Field != "roleSuggestions" || got[0].Ref != "Zusammenfassen" || *got[0].From != "off" || *got[0].To != "fixed: Wie? | Wann?" {
 		t.Fatalf("role suggestions = %+v", got)
 	}
 }
@@ -91,14 +91,14 @@ func TestDiff_RoleSuggestions(t *testing.T) {
 // the save was dropped. It is a change of that card's start now.
 func TestDiff_RoleEntryKind(t *testing.T) {
 	start := kbstartpage.DefaultStart()
-	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": start} })
+	a := snap(func(s *Snapshot) { s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": start} })
 	b := snap(func(s *Snapshot) {
 		c := start
 		c.Kind = kbstartpage.EntryFile
-		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"tutor": c}
+		s.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"summary": c}
 	})
 	got := diff(a, b, "de", noCategory)
-	if len(got) != 1 || got[0].Field != "roleStart" || got[0].Ref != "Tutor" || *got[0].From != "input" {
+	if len(got) != 1 || got[0].Field != "roleStart" || got[0].Ref != "Zusammenfassen" || *got[0].From != "input" {
 		t.Fatalf("kind change = %+v", got)
 	}
 }
@@ -117,22 +117,6 @@ func TestSameSnapshot(t *testing.T) {
 	}
 	if sameSnapshot(a, b, "de") {
 		t.Error("an icon change must count as a change")
-	}
-}
-
-// Oracle: a pure reorder is one change, not an add plus a remove.
-func TestDiff_FixedQuestionsReorder(t *testing.T) {
-	a := snap(func(s *Snapshot) { s.StartPage.FixedQuestions = []string{"A", "B"} })
-	b := snap(func(s *Snapshot) { s.StartPage.FixedQuestions = []string{"B", "A"} })
-	got := diff(a, b, "de", noCategory)
-	if len(got) != 1 || got[0].Field != "fixedQuestionsOrder" {
-		t.Fatalf("reorder = %+v", got)
-	}
-	c := snap(func(s *Snapshot) { s.StartPage.FixedQuestions = []string{"B", "C"} })
-	got = diff(a, c, "de", noCategory)
-	f := fields(got)
-	if len(got) != 2 || f["fixedQuestion"].Field == "" {
-		t.Fatalf("add+remove = %+v", got)
 	}
 }
 

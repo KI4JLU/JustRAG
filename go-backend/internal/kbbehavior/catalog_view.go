@@ -23,12 +23,14 @@ type Cover struct {
 	To   string `json:"to"`
 }
 
-// CatalogRule is a template rule; Text is what Compile puts into the prompt.
+// CatalogRule is a template rule; Text is what Compile puts into the prompt
+// while it is on, OffText (when set) while a set switches it off.
 type CatalogRule struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
 	Text        string `json:"text"`
+	OffText     string `json:"offText,omitempty"`
 	DefaultOn   bool   `json:"defaultOn"`
 }
 
@@ -55,6 +57,9 @@ type Catalog struct {
 	RuleGroups   []CatalogRuleGroup `json:"ruleGroups"`
 	RulesHeading string             `json:"rulesHeading"`
 	Limits       CatalogLimits      `json:"limits"`
+	// Names are what {{assistant_name}} and {{system_name}} in a prompt
+	// resolve to when it is compiled; the prompts here are as written.
+	Names Names `json:"names"`
 }
 
 // CatalogFor renders the catalog in lang ("de" or "en").
@@ -72,6 +77,7 @@ func CatalogFor(lang string) Catalog {
 			CustomRolesMax: MaxCustomRoles,
 			CustomRulesMax: MaxCustomRules,
 		},
+		Names: DefaultNames(),
 	}
 	defaultID := DefaultRoleID()
 	for _, r := range roles {
@@ -91,7 +97,7 @@ func CatalogFor(lang string) Catalog {
 		for _, r := range g.rules {
 			cg.Rules = append(cg.Rules, CatalogRule{
 				ID: r.id, Label: r.label.in(lang), Description: r.description.in(lang),
-				Text: r.text.in(lang), DefaultOn: r.defaultOn,
+				Text: r.text.in(lang), OffText: r.offText.in(lang), DefaultOn: r.defaultOn,
 			})
 		}
 		c.RuleGroups = append(c.RuleGroups, cg)

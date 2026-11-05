@@ -28,6 +28,10 @@ var publicConfigKeys = map[string]bool{
 	"academic_search_enabled": true,
 	"academic_search_name":    true,
 	"git_repo_enabled":        true,
+	// Branding: the page title before login, and the names a prompt preview
+	// resolves its placeholders to.
+	"system_name":    true,
+	"assistant_name": true,
 }
 
 // sensitiveConfigKeys hold secrets that must never be echoed back to a client,
