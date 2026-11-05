@@ -20,15 +20,16 @@ import (
 // source attribution: no sources (file names, file ids, chunk text, pages,
 // dates), no conflict findings (they name files), no per-citation
 // verification, no retrieved-chunk previews in trajectory or tool-trace
-// frames, no provenance columns in a corpus table, no cited KB passages in
+// frames or stored steps, no provenance columns in a corpus table, no cited KB passages in
 // comparison findings, and no inline [n] markers in the answer text.
 //
 // What is STORED never changes: messages.sources, messages.conflicts,
-// messages.verification and the answer text with its markers are written in
-// full whoever asks. Redaction happens only on the way out, per request and
-// for the current reader, so a KB admin who later grants seeCitations makes
-// the existing history show its citations retroactively — and a reader
-// whose capability is withdrawn stops seeing them on the next read.
+// messages.verification, messages.trajectory and the answer text with its
+// markers are written in full whoever asks. Redaction happens only on the
+// way out, per request and for the current reader, so a KB admin who later
+// grants seeCitations makes the existing history show its citations
+// retroactively — and a reader whose capability is withdrawn stops seeing
+// them on the next read.
 //
 // The answer prompt is unchanged too, so the model still cites with [n]
 // markers and may, in prose, still name a document it read; the markers are
@@ -280,7 +281,9 @@ func textFrame(key, s string) []any {
 //     carries chatId / userMessageId too)
 //   - conflicts: removed ("absent means nothing to report")
 //   - verification: see redactVerification
-//   - agentTrajectory: retrieved-chunk previews removed, markers stripped
+//   - agentTrajectory: retrieved-chunk previews and tool-call arguments
+//     (with the search text taken from them) removed, markers stripped
+//     (redactTrajectory)
 //   - structuredTable: provenance columns removed (redactStructuredTable)
 //   - comparisonFindings: the cited KB file ids and passage removed
 //   - args / preview: the answer-tool trace's call arguments and result
@@ -399,6 +402,11 @@ func redactFlaggedClaims(in []FlaggedClaimStatus, keep map[int]bool) []FlaggedCl
 
 func redactTrajectory(e TrajectoryEvent, keep map[int]bool) TrajectoryEvent {
 	e.Chunks = nil
+	e.Args = ""
+	// A tool call's query is the model's argument, which can name a source.
+	if e.Decision == "agent_tool_call" {
+		e.Query = ""
+	}
 	e.RefinedText = stripCitationMarkersExcept(e.RefinedText, keep)
 	if e.Diff != nil {
 		e.Diff = redactRefineDiff(e.Diff, keep)
@@ -519,6 +527,9 @@ func RedactMessagesForReader(msgs []MessageRow) {
 		m.Verification = redactVerification(m.Verification, keep)
 		m.Conflicts = nil
 		m.StructuredTable = redactStructuredTable(m.StructuredTable)
+		for j := range m.Trajectory {
+			m.Trajectory[j] = redactTrajectory(m.Trajectory[j], keep)
+		}
 	}
 }
 

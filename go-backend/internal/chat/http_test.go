@@ -97,6 +97,10 @@ func (m *mockStore) UpdateMessageTraceID(_ context.Context, _ string, _ string) 
 	return m.err
 }
 
+func (m *mockStore) UpdateMessageTrajectory(_ context.Context, _ string, _ []chat.TrajectoryEvent) error {
+	return m.err
+}
+
 func (m *mockStore) GetKBSystemPrompt(_ context.Context, _ string) (*string, error) {
 	return nil, nil
 }

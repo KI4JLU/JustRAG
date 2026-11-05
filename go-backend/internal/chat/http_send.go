@@ -119,6 +119,9 @@ var sseBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 // KB), the frames that filter turns data into. Every frame of a KB chat turn
 // is written here, so the filter sees all of them.
 func writeSSE(ctx context.Context, w http.ResponseWriter, data any) {
+	// The turn's steps are recorded unredacted, before the filter: stored
+	// in full, redacted per reader on the way out (trajectory_record.go).
+	trajectoryRecorderFrom(ctx).observe(data)
 	if f := citationFilterFrom(ctx); f != nil {
 		for _, frame := range f.Frames(data) {
 			writeSSEFrame(ctx, w, frame)
@@ -254,6 +257,8 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// '[]' default. recordAgentDecision snapshots before its own
 	// detached insert goroutine.
 	ctx = WithToolCallRecorder(ctx, &ToolCallRecorder{})
+	// The turn's steps as they stream, stored with the AI message.
+	ctx = withTrajectoryRecorder(ctx)
 
 	body, ok := parseAndValidateMessage(w, r, user.ID)
 	if !ok {
@@ -1440,17 +1445,7 @@ func (h *Handler) tryDeepChat(
 	// falls through to the plain streaming answer below instead.
 	runAnswerTools := shouldRunAnswerToolsLoop(useAnswerTools, catalog)
 	if runAnswerTools {
-		answerTrace := func(stage, decision, reason string, details map[string]any) {
-			payload := map[string]any{
-				"stage":    stage,
-				"decision": decision,
-				"reason":   reason,
-			}
-			for k, v := range details {
-				payload[k] = v
-			}
-			writeSSE(ctx, w, payload)
-		}
+		answerTrace := answerToolSteps(func(pl map[string]any) { writeSSE(ctx, w, pl) })
 		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, chatCtx, answerTools.systemPrompt(chatCtx.SystemPrompt), answerHistory, body.Message)
 		err = RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
@@ -1597,6 +1592,8 @@ func (h *Handler) finishDeepChatAnswer(
 	}
 	// Derive team/agent attribution for AI message (reused for recordAgentDecision below).
 	decTeamID, decAgentID := attributionIDs(teamAuthoredTurn(orch, comparisonTeamAnswered), teamSel)
+	steps := trajectoryRecorderFrom(ctx)
+	savedSteps := steps.count()
 	aiMsg, err := h.store.AddMessage(ctx, AddMessageParams{
 		ChatID:          chatID,
 		Role:            "ai",
@@ -1606,6 +1603,7 @@ func (h *Handler) finishDeepChatAnswer(
 		ParentMessageID: &userMsgID,
 		StructuredTable: chatCtx.StructuredTable,
 		Conflicts:       ConflictsForWire(chatCtx.Conflicts),
+		Trajectory:      steps.stored(),
 		TeamID:          decTeamID,
 		AgentID:         decAgentID,
 	})
@@ -1630,6 +1628,7 @@ func (h *Handler) finishDeepChatAnswer(
 	if verification != nil {
 		writeSSE(ctx, w, map[string]any{"verification": verification})
 	}
+	h.persistLateTrajectory(ctx, aiMsg.ID, savedSteps)
 
 	if sc := trace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		if err := h.store.UpdateMessageTraceID(ctx, aiMsg.ID, sc.TraceID().String()); err != nil {
