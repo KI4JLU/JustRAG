@@ -178,11 +178,10 @@ function sessionFor(userId: string): Session {
 
 /**
  * The browser's old order of `view` against the account's: dropped when the
- * account has one, uploaded when it has none. Nothing to do once the view
- * was set in this session — that order is the one being saved.
+ * account has one, or when the view was dragged before the load came back
+ * (that order is the one being saved); uploaded when the account has none.
  */
 function settleBrowserOrder(s: Session, view: KbOrderView, orders: ServerOrders) {
-  if (s.latest[view]) return;
   const fromBrowser = readBrowserOrder(view);
   // Claimed by someone else, whose upload failed: not this user's to take,
   // and not to be kept for the next one either.
@@ -194,7 +193,7 @@ function settleBrowserOrder(s: Session, view: KbOrderView, orders: ServerOrders)
     }
     return;
   }
-  if (orders[view] !== null) {
+  if (s.latest[view] || orders[view] !== null) {
     forgetBrowserOrder(view, s.userId);
     return;
   }

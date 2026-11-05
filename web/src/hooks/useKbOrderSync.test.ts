@@ -289,4 +289,19 @@ describe('useKbOrder moving the browser order to the account', () => {
     await act(async () => { oldSave.resolve(); await oldSave.promise; });
     expect(JSON.parse(localStorage.getItem(kbOrderKey('my'))!)).toEqual({ owner: 'user-2', ids: ['b', 'a'] });
   });
+
+  it('drops the browser order when a drag beats the load, even if that save fails', async () => {
+    localStorage.setItem(kbOrderKey('my'), JSON.stringify(['b', 'a']));
+    const load = deferred();
+    mockedAxios.get.mockReturnValueOnce(load.promise.then(() => ({ data: { my: null, shared: null } })) as never);
+    mockedAxios.put.mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useKbOrder('my'));
+
+    act(() => result.current.set(['a', 'b']));
+    await act(async () => { load.resolve(); await load.promise; });
+
+    await waitFor(() => expect(localStorage.getItem(kbOrderKey('my'))).toBeNull());
+    expect(putCalls().map(([, ids]) => ids)).toEqual([['a', 'b']]);
+    expect(shown(result.current, 'a', 'b')).toEqual(['a', 'b']);
+  });
 });
