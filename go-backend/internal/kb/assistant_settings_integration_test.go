@@ -95,7 +95,7 @@ func TestAssistantSettings_SaveVersionsRestore(t *testing.T) {
 	}
 
 	// Version 1 is from a KB whose behavior was still NULL: it comes back in
-	// the form migration 0100 gives such a KB, its prompt as „Eigene Rolle".
+	// the form migration 0101 gives such a KB, its prompt as „Eigene Rolle".
 	if s, err = st.Restore(ctx, kbID, 1, 3, owner); err != nil || s.Version != 4 || s.Title != "kb-behavior-it" ||
 		s.Behavior.Behavior.ActiveRoleID != kbbehavior.LegacyRoleID || s.Behavior.Behavior.CustomRoles[0].Name != "Eigene Rolle" ||
 		s.StartPageConfigured || s.CategoryID != nil {
@@ -119,7 +119,7 @@ func TestAssistantSettings_SaveVersionsRestore(t *testing.T) {
 		t.Error("restoring a missing version must error")
 	}
 
-	// A version naming a template that no longer exists (migration 0099
+	// A version naming a template that no longer exists (migration 0100
 	// deleted research) comes back in the default role.
 	if _, err := pool.Exec(ctx, `UPDATE kb_settings_versions SET snapshot = jsonb_set(snapshot, '{behavior,activeRoleId}', '"research"')
 		WHERE kb_id = $1 AND number = 3`, kbID); err != nil {

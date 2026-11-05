@@ -757,10 +757,14 @@ func (h *Handler) runResponsePostTasks(ctx context.Context, p chatResponseParams
 // Caller has already saved the user message; ctx already carries the
 // turn budget + tool-call recorder.
 func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
-	// Early-opened turn: stop the heartbeat before the first write below.
-	// EnableSSE then only re-sets header-map entries that are no longer sent
-	// and re-arms the write deadline (no WriteHeader, no bytes).
-	p.turn.handOff()
+	// StartSSE is a no-op on an early-opened stream (returns the existing
+	// wrapper, so no second heartbeat starts) and sets the SSE headers +
+	// stream heartbeat otherwise. The deferred Stop (idempotent on an
+	// early-opened stream, whose own defer runs later in the handler) is
+	// what guarantees no ping outlives this function's writes.
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop()
+	w = sw
 
 	// Freshness dates for the cited files (one batch query, fail-soft).
 	// Runs before the `sources` frame below AND before the AddMessage that
@@ -773,8 +777,6 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
-
-	httputil.EnableSSE(w)
 
 	sseFinished := false
 	defer func() {

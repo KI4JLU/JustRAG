@@ -10,7 +10,9 @@ import { Button } from '@ki4jlu/design-system';
 import { Plus } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
-import { useTopicFilters } from '../hooks/useTopicFilters';
+import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';
+import { useKbOrder } from '../hooks/useKbOrder';
+import { useKbSortable } from '../hooks/useKbSortable';
 import './HomeView.css';
 
 const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
@@ -53,7 +55,7 @@ export interface MyTopicsViewProps {
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavorite: (kb: KnowledgeBase, e?: React.MouseEvent) => void;
   onUpdateKBSettings: (data: Record<string, unknown>) => void;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
@@ -94,6 +96,35 @@ export function MyTopicsView({
   const { ownedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
 
   const filters = useTopicFilters();
+  // The user's own order (dragged in card view), then the chip filter.
+  const order = useKbOrder('my');
+  const ordered = useMemo(() => order.apply(ownedKbs), [order, ownedKbs]);
+  const displayed = useMemo(() => filters.apply(ordered), [filters, ordered]);
+  // Favorites on lines of their own above the rest.
+  const all = useMemo(() => favoritesFirst(ordered), [ordered]);
+  const favorites = useMemo(() => displayed.filter(kb => kb.isFavorite === true), [displayed]);
+  const rest = useMemo(() => displayed.filter(kb => kb.isFavorite !== true), [displayed]);
+  // Dragged into the other group, a topic is (un)favorited.
+  const sortable = useKbSortable({ order, favorites, rest, all, onToggleFavorite });
+
+  const renderCard = (kb: KnowledgeBase) => (
+    <PrivateKbCard
+      key={kb.id}
+      kb={kb}
+      currentUserId={user?.id}
+      systemRole={user?.role}
+      removingKb={removingKb}
+      t={t}
+      language={language}
+      onSelectKB={onSelectKB}
+      onOpenShare={handleShare}
+      onToggleFavorite={onToggleFavorite}
+      compact={filters.viewMode === 'list'}
+      onOpenSettings={handleSettings}
+      onRenameKB={onRenameKB}
+      onDeleteKB={onDeleteKB}
+    />
+  );
 
   return (
     <AppChrome active="my-topics" contentId="my-topics-content">
@@ -117,24 +148,13 @@ export function MyTopicsView({
         viewMode={filters.viewMode}
         // One height for every card, across rows (KI-843).
         uniformRows
-        items={filters.apply(ownedKbs).map(kb => (
-          <PrivateKbCard
-            key={kb.id}
-            kb={kb}
-            currentUserId={user?.id}
-            systemRole={user?.role}
-            removingKb={removingKb}
-            t={t}
-            language={language}
-            onSelectKB={onSelectKB}
-            onOpenShare={handleShare}
-            onToggleFavorite={onToggleFavorite}
-            compact={filters.viewMode === 'list'}
-            onOpenSettings={handleSettings}
-            onRenameKB={onRenameKB}
-            onDeleteKB={onDeleteKB}
-          />
-        ))}
+        sortable={sortable}
+        pinned={{
+          label: t('kbGroupFavorites'),
+          restLabel: t('kbGroupOthers'),
+          items: favorites.map(renderCard),
+        }}
+        items={rest.map(renderCard)}
       />
 
       {/* Dormant here, exactly as it was on `HomeView`: nothing on this page

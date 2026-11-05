@@ -2,7 +2,7 @@ package kbbehavior
 
 // The central catalog: role templates and rule groups every KB can use. The
 // rules live in code, versioned with the release. The role templates live in
-// the role_templates table (migrations 0095, 0099), curated by system admins
+// the role_templates table (migrations 0095, 0100), curated by system admins
 // in „Vorlagen" (templates.go); builtinRoles below are what a fresh install
 // starts with. A KB references a template role or rule by id, never by a copy
 // of its text, so a corrected template reaches every KB that uses it on the
@@ -56,7 +56,7 @@ type templateRuleGroup struct {
 }
 
 // builtinRoles are the role templates a fresh install starts with — migration
-// 0099 writes the same rows, pinned by an integration test — and the catalog
+// 0100 writes the same rows, pinned by an integration test — and the catalog
 // of a process until its first load from role_templates (tests, a process
 // that cannot reach the table). After that the table is the truth: „Vorlagen"
 // changes it, a change here does not.
@@ -217,7 +217,7 @@ var rulesHeading = localized{"Regeln:", "Rules:"}
 
 // legacyRoleName / legacyRoleDescription name the KB's own role that holds
 // its pre-roles system prompt, unless its author named it. The former names
-// are cleared from stored roles (DropLegacyDefaults, migration 0100): a KB
+// are cleared from stored roles (DropLegacyDefaults, migration 0101): a KB
 // without a prompt was shown a role named after the KB, one with a prompt
 // „Bisheriger Prompt".
 var (

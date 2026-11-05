@@ -13,6 +13,8 @@ import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseFileManagementParams {
   currentKb: KnowledgeBase | null;
+  /** Asked before a batch goes out (the storage notice); false drops the files. */
+  confirmUpload?: () => Promise<boolean>;
 }
 
 /** A file whose upload is still running: listed from the drop on, until its
@@ -25,7 +27,7 @@ export interface PendingUpload {
   origin: 'upload';
 }
 
-export function useFileManagement({ currentKb }: UseFileManagementParams) {
+export function useFileManagement({ currentKb, confirmUpload }: UseFileManagementParams) {
   const { t, language } = useTheme();
   const { showConfirm } = useModalContext();
   const toast = useToast();
@@ -39,7 +41,16 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const [textSourceTitle, setTextSourceTitle] = useState('');
   const [textSourceContent, setTextSourceContent] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const [pendingUploads, setPendingUploadsState] = useState<PendingUpload[]>([]);
+  // Read by uploadFilesBatch after it awaited the storage notice: batches that
+  // waited on it together resume together, and each must see the rows the
+  // others just listed, or they share one file allowance between them.
+  const pendingRef = useRef<PendingUpload[]>([]);
+  const setPendingUploads = useCallback((next: (prev: PendingUpload[]) => PendingUpload[]) => {
+    pendingRef.current = next(pendingRef.current);
+    setPendingUploadsState(pendingRef.current);
+  }, []);
+  const fileCountRef = useRef(0);
   const uploadSeq = useRef(0);
   // Bumped whenever a row is added locally: a list request started before
   // that would drop the row again, so its response is discarded.
@@ -51,6 +62,8 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
   const listKbId = useRef<string | null>(null);
   // Files deleted here: an upload response arriving later must not bring one back.
   const deletedIds = useRef(new Set<string>());
+
+  useEffect(() => { fileCountRef.current = files.length; }, [files.length]);
 
   const hasFiles = useMemo(() => files.some(f => f.status === 'completed'), [files]);
   const filesLoaded = !!currentKb && filesKbId === currentKb.id;
@@ -114,11 +127,13 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
 
   const uploadFilesBatch = useCallback(async (filesToUpload: File[]) => {
     if (!currentKb || filesToUpload.length === 0) return;
+    // Declined storage notice: the files are dropped before anything is listed or sent.
+    if (confirmUpload && !(await confirmUpload())) return;
 
     const kbId = currentKb.id;
     const fileLimit = currentKb.isGlobal ? MAX_FILES_PER_GLOBAL_KB : MAX_FILES_PER_KB;
-    const inFlight = pendingUploads.filter(u => u.kbId === kbId).length;
-    const remaining = Math.max(0, fileLimit - files.length - inFlight);
+    const inFlight = pendingRef.current.filter(u => u.kbId === kbId).length;
+    const remaining = Math.max(0, fileLimit - fileCountRef.current - inFlight);
     const eligible = filesToUpload.slice(0, remaining);
 
     if (eligible.length < filesToUpload.length) {
@@ -149,6 +164,9 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
             const created = res.data;
             if (openKbId.current === kbId && listKbId.current === kbId && !deletedIds.current.has(created.id)) {
               listEpoch.current++;
+              // Counted now, before its pending row goes: a batch starting
+              // before the next render must not see the file in neither.
+              fileCountRef.current++;
               // Newest first, as the list endpoint orders them.
               setFiles(prev => prev.some(f => f.id === created.id) ? prev : [{ ...created, selected: true }, ...prev]);
             }
@@ -169,7 +187,7 @@ export function useFileManagement({ currentKb }: UseFileManagementParams) {
     } finally {
       setUploading(false);
     }
-  }, [currentKb, files.length, pendingUploads, fetchFiles, t, language, toast]);
+  }, [currentKb, setPendingUploads, fetchFiles, t, language, toast, confirmUpload]);
 
   const uploads = useMemo(
     () => pendingUploads.filter(u => u.kbId === currentKb?.id),

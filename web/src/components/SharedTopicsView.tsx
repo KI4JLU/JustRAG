@@ -10,26 +10,28 @@ import { Button } from '@ki4jlu/design-system';
 import { Plus } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
-import { useTopicFilters } from '../hooks/useTopicFilters';
+import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';
+import { useKbOrder } from '../hooks/useKbOrder';
+import { useKbSortable } from '../hooks/useKbSortable';
 
 /* ---------------------------------------------------------------------------
- * „Geteiltes Wissen" — the topics somebody else shared with you. One flat grid.
+ * „Geteiltes Wissen" — the topics you hold but do not own. One flat grid.
  *
- * WHAT IT IS NOW. Private topics this user holds a membership row on, and
- * nothing else. `splitKbsByOwnership` is the same predicate `MyTopicsView`
- * applies to the same list; only the other half is this page's.
+ * WHAT IT IS NOW. Two kinds of topic, one grid:
+ *   - private topics somebody shared with you (`splitKbsByOwnership`, the
+ *     same predicate `MyTopicsView` applies to the same list — the other half);
+ *   - global topics you SUBSCRIBED to in „Entdecken" (developer ruling,
+ *     03.11.2026). A global topic is an open group: subscribing is joining,
+ *     and the joined topic belongs here, beside the other topics you use but
+ *     did not make. Here — not in the catalog — it can be starred, so it pins
+ *     to the top like any other favorite.
+ * The catalog keeps listing subscribed topics, marked „Abonniert"; it is the
+ * directory, this page is what you hold.
  *
- * THE TWO SECTIONS ARE GONE (developer ruling, 18.09.2026), and with them the
- * global half they existed to separate. Global topics live in „Entdecken" now,
- * which already lists every one the caller may see — `GET /api/kb/catalog` has
- * no subscription filter, so a topic the user holds and one they have not
- * added yet are both there, told apart by the card's own star. Rendering them
- * here as well would have been a second list of the same rows.
- *
- * With one list left there is nothing to collapse past, so this page matches
+ * With one list there is nothing to collapse past, so this page matches
  * `MyTopicsView`: `TopicGridPage`, no disclosure, no count badges. The
- * `sharedview` / `sharedview-global` `useSectionOpen` keys are unused as of
- * this change — see `useSectionOpen.ts`.
+ * `sharedview` / `sharedview-global` `useSectionOpen` keys stay unused — see
+ * `useSectionOpen.ts`.
  *
  * THE TILE NAVIGATES, IT DOES NOT CREATE. „Thema hinzufügen" goes to
  * „Entdecken". That is deliberate and it is the second tile tried in this slot:
@@ -55,8 +57,8 @@ import { useTopicFilters } from '../hooks/useTopicFilters';
  * through the admin KB overview's publish action (`KBOverviewDashboard`, gated
  * on `role === admin | superadmin`, `POST /api/admin/kb/{id}/publish`).
  *
- * NO REQUEST OF ITS OWN. `GET /api/kb` is already fetched by
- * `useKnowledgeBases`; this view receives that list and filters it.
+ * NO REQUEST OF ITS OWN. `GET /api/kb` and `GET /api/kb/global` are already
+ * fetched by `useKnowledgeBases`; this view receives both lists and filters them.
  *
  * KNOWN WRINKLE, inherited from KI-783 and still true. Three card actions
  * navigate away through handlers this view does not own and all three land on
@@ -76,15 +78,18 @@ const CONTENT_ID = 'shared-topics-content';
 export interface SharedTopicsViewProps {
   /** `GET /api/kb` — split here; only the shared half is shown. */
   kbs: KnowledgeBase[];
+  /** `GET /api/kb/global` — the global topics the user subscribed to. */
+  globalKbs: KnowledgeBase[];
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
-  onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  onToggleFavorite: (kb: KnowledgeBase, e?: React.MouseEvent) => void;
 }
 
 export function SharedTopicsView({
   kbs,
+  globalKbs,
   onSelectKB,
   onDeleteKB,
   removingKb,
@@ -107,9 +112,45 @@ export function SharedTopicsView({
     onOpenTopicSettings(kb, 'start');
   };
 
-  const { sharedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
+  // Shared with the user, plus the global topics they subscribed to. The two
+  // requests are disjoint (GET /api/kb returns private topics only); the id
+  // check is a guard, not a known case.
+  const sharedKbs = useMemo(() => {
+    const shared = splitKbsByOwnership(kbs).sharedKbs;
+    const ids = new Set(shared.map(kb => kb.id));
+    return [...shared, ...globalKbs.filter(kb => !ids.has(kb.id))];
+  }, [kbs, globalKbs]);
 
   const filters = useTopicFilters();
+  // The user's own order (dragged in card view), then the chip filter.
+  const order = useKbOrder('shared');
+  const ordered = useMemo(() => order.apply(sharedKbs), [order, sharedKbs]);
+  const displayed = useMemo(() => filters.apply(ordered), [filters, ordered]);
+  // Favorites on lines of their own above the rest.
+  const all = useMemo(() => favoritesFirst(ordered), [ordered]);
+  const favorites = useMemo(() => displayed.filter(kb => kb.isFavorite === true), [displayed]);
+  const rest = useMemo(() => displayed.filter(kb => kb.isFavorite !== true), [displayed]);
+  // Dragged into the other group, a topic is (un)favorited.
+  const sortable = useKbSortable({ order, favorites, rest, all, onToggleFavorite });
+
+  const renderCard = (kb: KnowledgeBase) => (
+    <PrivateKbCard
+      key={kb.id}
+      kb={kb}
+      currentUserId={user?.id}
+      systemRole={user?.role}
+      removingKb={removingKb}
+      t={t}
+      language={language}
+      onSelectKB={onSelectKB}
+      onOpenShare={handleShare}
+      onToggleFavorite={onToggleFavorite}
+      compact={filters.viewMode === 'list'}
+      onOpenSettings={handleSettings}
+      onRenameKB={onRenameKB}
+      onDeleteKB={onDeleteKB}
+    />
+  );
 
   return (
     <AppChrome active="shared-topics" contentId={CONTENT_ID}>
@@ -132,24 +173,13 @@ export function SharedTopicsView({
         viewMode={filters.viewMode}
         // One height for every card, across rows (KI-843).
         uniformRows
-        items={filters.apply(sharedKbs).map(kb => (
-          <PrivateKbCard
-            key={kb.id}
-            kb={kb}
-            currentUserId={user?.id}
-            systemRole={user?.role}
-            removingKb={removingKb}
-            t={t}
-            language={language}
-            onSelectKB={onSelectKB}
-            onOpenShare={handleShare}
-            onToggleFavorite={onToggleFavorite}
-            compact={filters.viewMode === 'list'}
-            onOpenSettings={handleSettings}
-            onRenameKB={onRenameKB}
-            onDeleteKB={onDeleteKB}
-          />
-        ))}
+        sortable={sortable}
+        pinned={{
+          label: t('kbGroupFavorites'),
+          restLabel: t('kbGroupOthers'),
+          items: favorites.map(renderCard),
+        }}
+        items={rest.map(renderCard)}
       />
     </AppChrome>
   );

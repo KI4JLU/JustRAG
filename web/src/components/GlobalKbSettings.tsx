@@ -10,6 +10,7 @@ import { MAX_FILES_PER_GLOBAL_KB } from '../constants';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormValidation } from '../hooks/useFormValidation';
+import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useToast } from '../contexts/ToastContext';
 import { ConfluenceModal } from './sidebar/ConfluenceModal';
 import { SyncScheduleSelect } from './sidebar/SyncScheduleSelect';
@@ -25,7 +26,8 @@ interface GlobalKbSettingsProps {
 
 export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, onOpenKb, onUpdate }) => {
     const { t, language } = useTheme();
-    const { siteConfigs } = useAuth();
+    const { siteConfigs, user } = useAuth();
+    const { confirm: confirmStorageNotice } = useUploadStorageNotice(user?.id ?? '', 'source');
     const { errors, validate, clearError } = useFormValidation({
         name: (v) => !v.trim() && t('fieldRequired'),
     });
@@ -145,13 +147,19 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const selectedFiles = e.target.files;
-        if (!selectedFiles || selectedFiles.length === 0) return;
+        const input = e.target;
+        const selectedFiles = input.files ? Array.from(input.files) : [];
+        if (selectedFiles.length === 0) return;
+        // Declined storage notice: nothing is sent.
+        if (!(await confirmStorageNotice())) {
+            input.value = '';
+            return;
+        }
 
         setUploading(true);
         const failures: { name: string; err: unknown }[] = [];
         try {
-            for (const file of Array.from(selectedFiles)) {
+            for (const file of selectedFiles) {
                 if (files.length >= MAX_FILES_PER_GLOBAL_KB) {
                     toast.warning(`${t('fileLimitReached')} (${MAX_FILES_PER_GLOBAL_KB})`);
                     break;
@@ -169,7 +177,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
         } finally {
             setUploading(false);
             fetchFiles();
-            e.target.value = '';
+            input.value = '';
         }
     };
 

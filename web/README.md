@@ -26,7 +26,8 @@ Run these from `web/`:
 ## Development Notes
 
 - The frontend expects the API server to run separately in local development.
-- The usual local setup is Vite on `http://localhost:5173` and the Go API on `http://localhost:3000`.
+- The usual local setup is Vite on `http://localhost:5173` and the Go API on `http://localhost:3000`, which is where the dev build sends API calls by default (`src/api.ts`).
+- To point the dev server at another backend, set `VITE_API_URL`, e.g. `VITE_API_URL=http://localhost:3001 npm run dev` for the full Docker stack behind nginx.
 - In production, the built frontend is copied into `/app/client/dist` and served by the Go backend.
 
 ## Current Backend Compatibility Notes

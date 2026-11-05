@@ -64,7 +64,7 @@ func TemplateStartOf(id string) (TemplateStart, bool) {
 func DefaultRoleID() string { return registry.Load().defaultID }
 
 // BuiltinTemplates are the templates a fresh install starts with
-// (builtinRoles), in display order, as „Vorlagen" reads them. Migration 0099
+// (builtinRoles), in display order, as „Vorlagen" reads them. Migration 0100
 // writes the same rows; a test holds the two together.
 func BuiltinTemplates() []AdminTemplate {
 	out := make([]AdminTemplate, 0, len(builtinRoles))

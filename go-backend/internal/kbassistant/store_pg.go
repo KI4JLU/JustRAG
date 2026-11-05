@@ -318,12 +318,12 @@ func (s *Store) Restore(ctx context.Context, kbID string, n, baseVersion int, au
 		lang := kbbehavior.Lang(cur.language)
 		if snap.Behavior == nil {
 			// A version from before every KB had a behavior (migration
-			// 0100) comes back in the form that migration gave it.
+			// 0101) comes back in the form that migration gave it.
 			stored, sp := kbbehavior.ForStorage(kbbehavior.Effective(nil, snap.SystemPrompt, lang))
 			snap.Behavior, snap.SystemPrompt = &stored, sp
 		}
 		// A version may name a role that no longer exists (a template
-		// migration 0099 deleted, or one an admin deleted since): it comes
+		// migration 0100 deleted, or one an admin deleted since): it comes
 		// back in the default role. Its start page card goes on read
 		// (kbstartpage.Effective).
 		if !kbbehavior.Effective(snap.Behavior, snap.SystemPrompt, lang).HasRole(snap.Behavior.ActiveRoleID) {

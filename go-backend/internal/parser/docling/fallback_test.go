@@ -81,6 +81,15 @@ func TestFallbackParser_BothErrorIsError(t *testing.T) {
 	}
 }
 
+func TestFallbackLabelInName(t *testing.T) {
+	if got := (&FallbackParser{Label: "rustparser"}).Name(); got != "rustparser-fallback" {
+		t.Errorf("Name() with Label = %q, want %q", got, "rustparser-fallback")
+	}
+	if got := (&FallbackParser{}).Name(); got != "docling-fallback" {
+		t.Errorf("Name() with empty Label = %q, want %q", got, "docling-fallback")
+	}
+}
+
 func TestFallbackParser_CanParse_DelegatesToEither(t *testing.T) {
 	p := &FallbackParser{Primary: &stubParser{can: true}, Fallback: &stubParser{can: false}}
 	if !p.CanParse("application/pdf", "x.pdf") {

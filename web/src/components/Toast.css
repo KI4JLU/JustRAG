@@ -40,7 +40,9 @@
  */
 .toast-container {
   position: fixed;
-  top: 68px;
+  /* + the system banner above the chrome bar, when one is shown
+     (useSystemNoticeBanner publishes its height). */
+  top: calc(68px + var(--system-notice-height, 0px));
   right: 24px;
   z-index: 4000;
   display: flex;

@@ -30,16 +30,16 @@ export function useKbRemoval(): { removeKb: (kb: KnowledgeBase) => Promise<KbRem
     setRemoving(true);
     try {
       // Public KBs first, ahead of the owner check. Their only remove action
-      // is the star on the Favoriten card, and a favorites toggle must never
-      // destroy anything: it writes an opt-out, keeps the caller's chats and
-      // — for a curator — their kb_members row, and the KB stays reachable
-      // under "KBs entdecken" (the catalog lists staged KBs to their members
-      // for exactly this case). Deleting the KB outright stays the separate,
-      // system-admin-only trash button on the same card, and dropping a
+      // is „Abbestellen…" on the card in „Geteiltes Wissen", and unsubscribing
+      // must never destroy anything: it writes an opt-out, keeps the caller's
+      // chats and — for a curator — their kb_members row, and the topic stays
+      // reachable under „Entdecken" (the catalog lists staged KBs to their
+      // members for exactly this case). Deleting the KB outright stays the
+      // system-admin-only action in the admin KB overview, and dropping a
       // curator's membership belongs in the members dialog. Putting this
-      // branch first is what guarantees neither can be reached from the star.
+      // branch first is what guarantees neither can be reached from here.
       if (kb.visibility === 'public' || kb.isGlobal) {
-        const confirmed = await showConfirm(t('confirmRemoveFavorite'));
+        const confirmed = await showConfirm(t('confirmUnsubscribeTopic'));
         if (!confirmed) return 'cancelled';
         await axios.delete(`${API_BASE_URL}/api/kb/${kb.id}/subscription`);
         return 'unsubscribed';

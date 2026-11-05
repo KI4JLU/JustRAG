@@ -109,9 +109,14 @@ rate limits, server errors); map it by status.
 | GET | `/site-config` |
 | POST | `/site-config` |
 | POST | `/site-config/logo` |
+| PUT | `/admin/system-notice` |
+| GET | `/v1/system-notice` |
+| PUT | `/v1/system-notice` |
 | POST | `/api-keys` |
 | GET | `/api-keys` |
 | DELETE | `/api-keys/{id}` |
+
+`POST /site-config` and `/site-config/logo` are superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
 
 ### Long-term memory ("Mein Gedächtnis")
 
@@ -123,6 +128,15 @@ The caller's own long-term memory entries. Available whether or not `chat_longme
 | GET | `/user/memory/export` | authenticated |
 | DELETE | `/user/memory/{id}` | authenticated |
 | DELETE | `/user/memory` | authenticated (deletes all) |
+
+### Usage-policy acceptance
+
+The caller's acceptance of the usage policy (AI-use notice, terms, privacy). The version to accept is the global-only site_config key `policy_acceptance_version`; empty means nobody is asked. The web app shows the notice while `required` is true. No other route checks acceptance — API keys, `/owui` and MCP clients are not gated.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/user/policy-acceptance` | authenticated — `{version, required, acceptedAt?}`; `version` is `""` and `required` false while the notice is off |
+| POST | `/user/policy-acceptance` | authenticated — body `{version}`; stores the acceptance (a repeat keeps the first time) and answers like GET; `409 policy_version_changed` when `version` is not the current one or the notice is off, `400` without a version |
 
 ### Knowledge bases
 
@@ -359,7 +373,7 @@ followed the free system prompt. Every answer surface reads this one compiled pr
   are left out. `language` (`de`|`en`, from the KB's `language`) is the language
   template texts are compiled in.
 - A KB's pre-roles `systemPrompt` is its own role `id: "legacy"` ("Eigene Rolle" / "Custom role"
-  unless its author names it, no rule on without a `roleRules` set). Since migration 0100 every KB
+  unless its author names it, no rule on without a `roleRules` set). Since migration 0101 every KB
   has a behavior: one never customized got that role, active, when it had a `systemPrompt`, else the
   default template role. A behavior still `null` (`customized: false`, a row an older build wrote)
   reads the same way. That role's prompt is stored in `systemPrompt`, so `PATCH /kb/{id}` and
@@ -392,7 +406,7 @@ followed the free system prompt. Every answer surface reads this one compiled pr
 - `DELETE /kb/{id}/behavior` is the settings' "Löschen": back to the default template role with the
   catalog's default rules, without own roles (`systemPrompt` cleared). It writes a version in the
   assistant settings' history like a save, so the state before it can be restored; a version from
-  before migration 0100 (`behavior` null) is restored in the form that migration gives it. Answers like `GET`.
+  before migration 0101 (`behavior` null) is restored in the form that migration gives it. Answers like `GET`.
 - **A chat in a role.** `POST /kb/{id}/chat` with `roleId` (a template id or an id from
   `customRoles`) starts a NEW chat in that role instead of the active one; the role is stored on
   the chat and every later turn answers in it. It is refused with `400` before any chat or usage
@@ -850,7 +864,7 @@ budget (the KB's answer model); nothing about the KB is stored with the file.
 | Status | When |
 |---|---|
 | `201` | `{"id", "name", "mime", "size", "tokens"}`; `id` goes into `attachmentIds` of the send |
-| `400` / `413` | Invalid upload (`invalid_upload`, `empty_file`, `file_name_too_long`, `unsupported_file_type` for a blocked extension) / `file_too_large`, file over the upload size limit |
+| `400` / `413` | Invalid upload (`invalid_upload`, `empty_file`, `file_name_too_long`, `unsupported_file_type` for a blocked extension) / `file_too_large`: the file is over `chat_attachments_max_file_bytes` (default 50 MiB, global-only, 1 MiB–500 MiB), named in `limitBytes` |
 | `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes", "chatAttachmentBytes"}` — the library quota is full; `chatAttachmentBytes` is the part of `usedBytes` held by chat attachments, which the library list does not show |
 | `415` | `unsupported_file_type`: no parser handles the format (audio is not transcribed here) |
 | `422` | `file_unreadable`: the format is supported but parsing failed (corrupt file, image without OCR); `no_text`: no extractable text; `parse_timeout`: took too long to read; or `{"error": "too_large_for_context", "code": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |
@@ -1160,8 +1174,9 @@ Requires `git_repo_enabled`; HTTPS only, optional access token stored encrypted.
 All admin routes need a system role of `admin` or `superadmin`; these are **superadmin only**: `/admin/reembed-all`, `/admin/reembed-user-memory`, `/admin/agent/template`, `DELETE /admin/kbs/{id}` and `PATCH /admin/kbs/{id}/owner`.
 
 - `GET /admin/configs/{id}/model-info` lists the provider's models (`GET /models`) as `{"models": [{"id", "contextWindow"}]}`, with the context window where the server reports one (vLLM: `max_model_len`); `502` when the provider cannot be reached. The admin saves a window per chat model as `contextWindow` in the `chat_models` entries of `POST`/`PATCH /admin/configs` (0 or absent = unknown, at most 10 000 000).
+- **Default model per kind.** Every model entry in the `chat_models`, `reasoning_models`, `embedding_models`, `rerank_models`, `tts_models` and `stt_models` lists of `GET /admin/configs` carries `isDefault`: the provider's default of that kind, the model a KB without its own model setting uses. Each non-empty kind has exactly one (chat and reasoning models are one kind, so the flag shows on the same model in both lists). `POST`/`PATCH /admin/configs` take `isDefault: true` on one entry of a list to make it the default; if several entries are flagged, the first wins. A list sent without a flag keeps the current default when that model is still in the list, otherwise the first model in the list becomes the default — so an admin UI that does not know the flag yet changes nothing by saving. Changing the default embedding model affects every KB without its own embedding model and needs a re-embed (`POST /admin/reembed-all`).
 - `GET /admin/global-kbs` lists the public KBs, each with `fileCount` and `lastIngestedAt` (omitted before the first successful ingest) — the two „Entdecken" card fields the admin list checks for completeness.
-- `/admin/role-templates` is „Vorlagen" › Rollen, the template roles of the catalog (`role_templates`; migration 0099 writes the default set — `chat` (the default), `summary` and `it` (Support), both starting with a sent instruction, and `filecheck` — and deletes the earlier `research`, `tutor`, `admin`, `editor`, moving the topics and chats that used them to `chat`; templates an admin created stay). `GET` lists them in display order as `[{id, icon, isDefault, enabled, name: {de, en}, description: {de, en}, prompt: {de, en}, cover: {from, to}, start, usedBy}]` — `usedBy` counts the KBs that use the role as their active role or on a start page card. `POST` (create; the server picks the `id`, `t-` + 8 hex) and `PUT /{roleId}` take the same shape without `id`/`usedBy` and answer with the list. `lang` (`de`, the default, or `en`) names the language the admin wrote in; after the save the server translates that language's texts into the other one in the background (fast-tier model, no KB), and until then — or when the translation fails — the other language keeps its texts, an empty German text taking the English one. `start` is how a chat in the role starts where a KB sets up none of its own (`null` = the input field): `{kind: "input"|"task"|"file", text: {de, en}, send, instruction: {de, en}, suggestions: {questionsOn, questionMode, dynamicCount, fixedQuestions: {de: [], en: []}}}`, checked like a shown start page card in both languages; the catalog (`GET /kb-behavior/catalog`) serves it per role in the asked language, shaped like a start page `roleStarts` entry. `400` for an unknown `icon` or `lang`, a missing name or prompt in `lang`, a name over 80, a description over 200 or a prompt over 8000 characters, a `cover` colour that is not `#RRGGBB`, a disabled default, or `isDefault: false` on the default (another role takes it instead — setting `isDefault` on one clears it on the previous). An empty English text falls back to the German one. `enabled: false` stops offering the role for new picks; KBs and chats that use it keep it, and the catalog still lists it with `enabled: false`. `DELETE /{roleId}`: `400` for the default, `409` while `usedBy > 0`. `PUT /order` takes `{ids}` naming every role once. A change reaches the other server and worker instances within 30 seconds.
+- `/admin/role-templates` is „Vorlagen" › Rollen, the template roles of the catalog (`role_templates`; migration 0100 writes the default set — `chat` (the default), `summary` and `it` (Support), both starting with a sent instruction, and `filecheck` — and deletes the earlier `research`, `tutor`, `admin`, `editor`, moving the topics and chats that used them to `chat`; templates an admin created stay). `GET` lists them in display order as `[{id, icon, isDefault, enabled, name: {de, en}, description: {de, en}, prompt: {de, en}, cover: {from, to}, start, usedBy}]` — `usedBy` counts the KBs that use the role as their active role or on a start page card. `POST` (create; the server picks the `id`, `t-` + 8 hex) and `PUT /{roleId}` take the same shape without `id`/`usedBy` and answer with the list. `lang` (`de`, the default, or `en`) names the language the admin wrote in; after the save the server translates that language's texts into the other one in the background (fast-tier model, no KB), and until then — or when the translation fails — the other language keeps its texts, an empty German text taking the English one. `start` is how a chat in the role starts where a KB sets up none of its own (`null` = the input field): `{kind: "input"|"task"|"file", text: {de, en}, send, instruction: {de, en}, suggestions: {questionsOn, questionMode, dynamicCount, fixedQuestions: {de: [], en: []}}}`, checked like a shown start page card in both languages; the catalog (`GET /kb-behavior/catalog`) serves it per role in the asked language, shaped like a start page `roleStarts` entry. `400` for an unknown `icon` or `lang`, a missing name or prompt in `lang`, a name over 80, a description over 200 or a prompt over 8000 characters, a `cover` colour that is not `#RRGGBB`, a disabled default, or `isDefault: false` on the default (another role takes it instead — setting `isDefault` on one clears it on the previous). An empty English text falls back to the German one. `enabled: false` stops offering the role for new picks; KBs and chats that use it keep it, and the catalog still lists it with `enabled: false`. `DELETE /{roleId}`: `400` for the default, `409` while `usedBy > 0`. `PUT /order` takes `{ids}` naming every role once. A change reaches the other server and worker instances within 30 seconds.
 - `GET /admin/kb-overview` is the KB-Übersicht (activity, freshness, sync status, RAGAS, injection flags per KB).
 - `POST /admin/kb/{id}/publish` makes a KB public but staged (`is_published = false`); `unpublish` needs a new owner, and `unpublish-impact` returns the numbers and owner candidates for its confirmation dialog.
 - `GET /admin/feedback/chunks?kb_id=&limit=` lists the most net-negatively rated chunks; `GET /admin/agent-metrics` the orchestrator outcome distributions.
@@ -1235,6 +1250,7 @@ Notes:
 - `GET /api/v1/kb` rows carry the `capabilities` object (`seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources`) resolved for the API key's owner, the same shape as the web API's KB list. The `api-user` system role adds no KB rights of its own; only the owner's KB roles count.
 - KB permissions are still enforced. A file selection (`selectedFileIds` on `POST /kb/{id}/chat`, `fileIds` on `POST /kb/{id}/research`) is not gated by the per-KB source permissions: any caller with KB view access may restrict a turn to chosen files.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
+- Streaming responses (`POST /kb/{id}/chat` with `stream`, `POST /kb/{id}/research`) may carry SSE comment lines (`: ping`) in silent phases (model reasoning, slow tool calls): a keep-alive per the WHATWG SSE spec, carrying no `data:` payload. Clients that only parse `data:` lines are unaffected.
 - `POST /api/v1/kb/{id}/mcp` exposes the KB as an MCP server with the single tool `ask_kb` (KB view); `404` unless `mcp_server_enabled` is on.
 - Citations follow the key owner's `seeCitations` on the KB: without it, `POST /kb/{id}/chat`, `GET /kb/{id}/chats/{chatId}/messages` and `ask_kb` return no sources and no `[n]` markers (see the web API's [Citations](#citations)).
 
@@ -1301,6 +1317,11 @@ the opening chunk and the annotations ride the closing one:
 This lets a client render source cards while the answer is still streaming;
 annotation offsets only exist once the full text is assembled.
 
+The stream may also carry SSE comment lines (`: ping`) in silent phases (the
+model reasoning before the first token): a keep-alive per the WHATWG SSE spec,
+carrying no `data:` payload. Clients that only parse `data:` lines — the
+OpenAI SDKs included — are unaffected.
+
 **Caveat.** This endpoint does not run the citation validator (that is a
 post-response task on the in-app chat path), so annotations reflect what the
 model claimed, not what was verified. Markers referencing a source that was
@@ -1320,7 +1341,7 @@ key still gets the API-key middleware's `401 {"error"}`).
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/chat/completions` | RAG answer over the collection(s) in `files`; streams Open WebUI's `sources` frame first |
+| POST | `/api/chat/completions` | RAG answer over the collection(s) in `files`; streams Open WebUI's `sources` frame first; silent phases carry `: ping` comment lines (see the contract) |
 | GET | `/api/models` | The one advertised model, `justrag`; the request's `model` is ignored |
 | POST | `/api/v1/files/` | Stores the upload in the key's service-user file library — **no indexing** |
 | GET | `/api/v1/files/` | Lists the key's uploads |

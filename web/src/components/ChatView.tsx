@@ -20,6 +20,7 @@ import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
+import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
 import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
 import { showsGeneratedQuestions, startEntries, suggestionQuestions, visibleQuestions } from './kbSettings/assistant/startPageModel';
@@ -72,15 +73,28 @@ const chatSuspenseFallback = (
 /**
  * Inside the composer: reports how many files are attached and hands out the
  * composer's `add`, so the upload-only start (a dropzone shown instead of
- * the composer) can attach the first file to it.
+ * the composer) can attach the first file to it. Newly attached files go to
+ * `onAdded` with a way to take them out again (the storage notice declined).
  */
-function ComposerAttachmentsBridge({ addRef, onCount }: { addRef: React.MutableRefObject<((files: File[]) => void) | null>; onCount: (n: number) => void }) {
-  const { files, add } = usePromptInputAttachments();
+function ComposerAttachmentsBridge({ addRef, onCount, onAdded }: {
+  addRef: React.MutableRefObject<((files: File[]) => void) | null>;
+  onCount: (n: number) => void;
+  onAdded: (drop: () => void) => void;
+}) {
+  const { files, add, remove } = usePromptInputAttachments();
+  const seen = useRef<ReadonlySet<string>>(new Set());
   useEffect(() => { addRef.current = (f) => add(f); }, [add, addRef]);
   useEffect(() => { onCount(files.length); }, [files.length, onCount]);
+  useEffect(() => {
+    const added = files.filter(f => !seen.current.has(f.id)).map(f => f.id);
+    seen.current = new Set(files.map(f => f.id));
+    if (added.length > 0) onAdded(() => added.forEach(remove));
+  }, [files, onAdded, remove]);
   return null;
 }
 
+// Stands in for the composer's upload sync while the storage notice is unanswered.
+const holdComposerUploads = () => {};
 
 const ChatViewComp = () => {
   const { language, t } = useTheme();
@@ -261,6 +275,20 @@ const ChatViewComp = () => {
   const autoSendRef = useRef<string | null>(null);
   const autoSendNowRef = useRef<string | null>(null);
   const { uploads: composerUploadStates, readiness: composerReadiness } = composerUploads;
+  // Until the user has accepted the notice on how long uploads are kept, a
+  // file attached to the composer (picked, dropped, or put in the upload area)
+  // waits on it: nothing goes to the server, and closing the notice without
+  // accepting takes the file out again.
+  const storageNotice = useUploadStorageNotice(user?.id ?? '', 'chat');
+  const { confirm: confirmStorageNotice } = storageNotice;
+  const onComposerFilesAdded = useCallback((drop: () => void) => {
+    void confirmStorageNotice().then((ok) => {
+      if (ok) return;
+      autoSendRef.current = null;
+      drop();
+    });
+  }, [confirmStorageNotice]);
+  const syncComposerUploads = storageNotice.accepted ? composerUploads.sync : holdComposerUploads;
   useEffect(() => {
     if (!autoSendRef.current || composerFileCount === 0) return;
     const ready = composerReadiness();
@@ -450,10 +478,10 @@ const ChatViewComp = () => {
                       className={noSources ? 'pointer-events-none opacity-55' : uploadGate || rolesGate ? 'hidden' : undefined}
                       aria-disabled={noSources || undefined}
                     >
-                      <ComposerAttachmentsBridge addRef={composerAddRef} onCount={setComposerFileCount} />
+                      <ComposerAttachmentsBridge addRef={composerAddRef} onCount={setComposerFileCount} onAdded={onComposerFilesAdded} />
                       {/* Attached files: a header row above the input line, present only while files are attached.
                           Each is uploaded as it is attached; the chip shows the upload and a refusal. */}
-                      <ComposerUploadSync onFiles={composerUploads.sync} />
+                      <ComposerUploadSync onFiles={syncComposerUploads} />
                       <PromptInputAttachments id="chat-composer-attachments" className="order-first basis-full flex-nowrap overflow-x-auto border-b border-outline-variant px-3 pt-3 pb-2">
                         {(file) => {
                           const upload = composerUploads.uploads[file.id];

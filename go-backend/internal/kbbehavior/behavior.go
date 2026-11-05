@@ -11,7 +11,7 @@
 //
 // A KB's pre-roles system prompt is its own role "legacy" („Eigene Rolle"),
 // with no rule on unless its author sets some; system_prompt is the storage of
-// that role's prompt. Migration 0100 gave every KB an explicit behavior; a
+// that role's prompt. Migration 0101 gave every KB an explicit behavior; a
 // behavior still NULL (a row an older build wrote) reads as that role when
 // system_prompt is set, else as the default template role.
 package kbbehavior

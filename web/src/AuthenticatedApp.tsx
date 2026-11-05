@@ -18,6 +18,8 @@ import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 import { useSidebarResize } from './hooks/useSidebarResize';
 import { useChat } from './hooks/useChat';
 import { useFileManagement } from './hooks/useFileManagement';
+import { useUploadStorageNotice } from './hooks/useUploadStorageNotice';
+import { UploadStorageNoticeDialog } from './components/UploadStorageNoticeDialog';
 import { useWebTools } from './hooks/useWebTools';
 import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
@@ -49,6 +51,7 @@ const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then
 const KbSettingsPanel = lazy(() => import('./components/kb-settings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
 import { LegalPage } from './components/LegalPage';
+import { PolicyAcceptanceGate } from './components/PolicyAcceptanceDialog';
 import { viewportHeight } from './utils/viewport';
 import { chatWebSearchRequestField } from './utils/chatWebSearch';
 import { kbSourceRights } from './utils/kbAccess';
@@ -92,7 +95,11 @@ export default function AuthenticatedApp() {
    */
   return (
     <ModalProvider>
-      <AuthenticatedAppInner />
+      {/* Over every view: the AI-use notice until the user accepted it. */}
+      <PolicyAcceptanceGate>
+        <AuthenticatedAppInner />
+      </PolicyAcceptanceGate>
+      <UploadStorageNoticeDialog />
     </ModalProvider>
   );
 }
@@ -150,7 +157,9 @@ function AuthenticatedAppInner() {
   // Sidebar resize
   const sidebar = useSidebarResize();
   // Existing hooks
-  const fileMgmt = useFileManagement({ currentKb });
+  // A user's first source upload raises the notice on how long uploads are kept.
+  const { confirm: confirmStorageNotice } = useUploadStorageNotice(user.id, 'source');
+  const fileMgmt = useFileManagement({ currentKb, confirmUpload: confirmStorageNotice });
 
   const chat = useChat({
     currentKb, files: fileMgmt.files, enhance: kbSettings.enhance,
@@ -562,6 +571,7 @@ function AuthenticatedAppInner() {
       >
         <SharedTopicsView
           kbs={kbMgmt.kbs}
+          globalKbs={kbMgmt.globalKbs}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}

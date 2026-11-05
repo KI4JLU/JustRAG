@@ -17,7 +17,7 @@ import (
 type Settings struct {
 	Behavior Behavior `json:"behavior"`
 	// Customized is false while the KB has no behavior stored (behavior IS
-	// NULL), which migration 0100 left no KB with.
+	// NULL), which migration 0101 left no KB with.
 	Customized bool `json:"customized"`
 	// Language is the prompt language the KB's prompt is compiled in, and so
 	// the language to read the catalog in for a faithful preview.

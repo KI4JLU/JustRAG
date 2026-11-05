@@ -10,7 +10,7 @@ one before changing a feature**:
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0100**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0101**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
 | `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
@@ -41,12 +41,13 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - `chat_compare_*` (off) — in-chat single-file comparison (`internal/chatattach`).
 - `chat_condense_keep_raw_enabled` (off — stays off, measured no gain).
 - `chat_tabular_*`, `tabular_*` — spreadsheet Q&A: typed SQL tables + hybrid text, tabular router (`chat_tabular_router_enabled` **on**), AST SQL validator. Needs `JUSTRAG_DB_URL_READONLY` grants. Runbook `docs/runbooks/spreadsheet-ingest-ops.md`.
-- Roles and rules (no gate) — a KB's answer prompt is compiled from `knowledge_bases.behavior`: role prompt, then "Regeln:" with the active rules, then the fixed RAG instructions. `roleId` on `POST /api/kb/{id}/chat` starts a chat in another role (`chats.role_id`). Every surface reads the prompt through `kbbehavior.SystemPrompt`, which resolves `{{assistant_name}}` / `{{system_name}}` (global-only `assistant_name` and `system_name`, both default `JLU RAG`). The fixed RAG instructions carry no identity — the role does. The template roles live in `role_templates` (mig 0099 writes the four standard ones — `chat`, `summary`, `filecheck`, `it` — and deletes the earlier shipped ones; `kbbehavior.BuiltinTemplates` is the fresh-install set). Every KB has an explicit behavior (mig 0100); a pre-roles `system_prompt` is the own role `legacy` („Eigene Rolle"). Mig 0092, 0095, 0099, 0100. `internal/kbbehavior`.
+- Roles and rules (no gate) — a KB's answer prompt is compiled from `knowledge_bases.behavior`: role prompt, then "Regeln:" with the active rules, then the fixed RAG instructions. `roleId` on `POST /api/kb/{id}/chat` starts a chat in another role (`chats.role_id`). Every surface reads the prompt through `kbbehavior.SystemPrompt`, which resolves `{{assistant_name}}` / `{{system_name}}` (global-only `assistant_name` and `system_name`, both default `JLU RAG`). The fixed RAG instructions carry no identity — the role does. The template roles live in `role_templates` (mig 0100 writes the four standard ones — `chat`, `summary`, `filecheck`, `it` — and deletes the earlier shipped ones; `kbbehavior.BuiltinTemplates` is the fresh-install set). Every KB has an explicit behavior (mig 0101); a pre-roles `system_prompt` is the own role `legacy` („Eigene Rolle"). Mig 0092, 0095, 0100, 0101. `internal/kbbehavior`.
 - Start page (no gate) — `GET`/`PUT /api/kb/{id}/start-page`: role entries (start a chat in a role), fixed or dynamic starter questions, input or upload-only start. One catalog category per KB with a fixed `color_slot`. Mig 0093. `internal/kbstartpage`.
 - Assistant settings (no gate) — `PUT /api/kb/{id}/assistant-settings` saves title, description, category, behavior and start page in one transaction and writes a version (`kb_settings_versions`, baseline + save + restore, nothing overwritten); restore via `…/versions/{n}/restore`. Mig 0094. `internal/kbassistant`.
-- `chat_attachments_*` (no gate, global-only) — composer attachments as context (`user_files.scope='chat'`). Mig 0090. `internal/chat/attachments*.go`.
+- `chat_attachments_*` (no gate, global-only) — composer attachments as context (`user_files.scope='chat'`); upload cap `chat_attachments_max_file_bytes` (50 MiB). Mig 0090. `internal/chat/attachments*.go`.
 - `owui_compat_enabled` (global-only, off) — Open WebUI surface `/owui` for the ILIAS plugin. Mig 0088. Contract `docs/api-contracts/owui-compat.md`.
 - `mcp_server_enabled` (off) — KB as MCP server (`ask_kb`). `internal/mcpserver`.
+- `policy_acceptance_version` (global-only, empty = off) — usage-policy / AI-use notice the web app shows until the user accepted this version; bumping it asks everyone again. Stored per user and version (`user_policy_acceptances`), `GET`/`POST /api/user/policy-acceptance`. Only the web app gates on it — API keys, `/owui`, MCP are not gated. Mig 0099. `internal/policyaccept`.
 
 **Retrieval**
 - `crag_*`, `adaptive_routing_*`, `query_decompose_*`, `step_back_*`, `mmr_*`, `rerank_blend_alpha*`, `top_n_*`, `rerank_candidate_depth*`, `query_cache_*`, `hybrid_dynamic_alpha_*`, `recency_*`.
@@ -64,6 +65,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - **User-created agents & teams** (no gate) — `agents_allow_privileged_tools` (off) gates `code_exec`/`sql_query`/`web_search`. `internal/agentteams`.
 - `ragas_*`, `factcheck_*`, `citation_validation_*`, `langfuse_*` — validation + observability (RAGAS samples persisted, mig 0072).
 - `kb_stale_days` (global-only, 180) — freshness surface on the admin KB overview.
+- `system_notice_*` (global-only, off) — admin-set system message for every user (`error` = full-width banner above the app, other tones = floating pill over the main area); public keys, validated at save time, admins edit them via `PUT /api/admin/system-notice`, automation via `GET`/`PUT /api/v1/system-notice` with an admin's API key (`internal/siteconfig/system_notice*.go`).
 - `model_tier_fast` — see Model tier resolution.
 
 **Runtime-only knobs:** `hnsw.iterative_scan = relaxed_order` (set per pool connection), env `AI_MAX_CONCURRENT_REQUESTS` (caps unary model-provider requests per endpoint).
@@ -148,7 +150,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 | Retrieval / ingest | `vector`, `ai`, `splitter`, `processor` (incl. KG write path), `parser` (+ `parser/docling`), `pptx`, `sheetsource`, `tabular` (+ `profile`, `render`, `ingest`, `sqlcheck`, `sqlexec`), `promptsafety` |
 | Tools (MCP) | `mcp`, `mcp/builtin`, `sessionmem`, `aibudget` |
 | Knowledge graph | `kg` (read path), `kggraph`, `kgevents`, `canonicalize`, `community` |
-| Storage / data | `database`, `store`, `storage`, `pgxutil`, `files`, `userfiles`, `uploadcheck`, `libpaths`, `kbaccess`, `kbvisibility`, `kbsubs`, `kbcategories`, `kbfilters`, `kbmembers`, `kbinvites`, `kbconfig`, `memory`, `cascade` |
+| Storage / data | `database`, `store`, `storage`, `pgxutil`, `files`, `userfiles`, `uploadcheck`, `libpaths`, `kbaccess`, `kbvisibility`, `kbsubs`, `kbcategories`, `kbfilters`, `kbmembers`, `kbinvites`, `kbconfig`, `memory`, `policyaccept`, `cascade` |
 | Search | `globalsearch` |
 | Admin | `adminagentmetrics`, `adminconfigs`, `adminfeedback`, `admineval`, `adminglobalkbs`, `adminkboverview`, `adminmaintenance`, `adminmcp`, `adminproviders`, `adminusers`, `kb`, `users`, `apikeys`, `auditlogs` |
 | Eval / observability | `eval`, `observability`, `logctx`, `analytics`, `health`, `systemhealth`, `apidocs`, `usage`, `ragassamples`, `feedback`, `pipeline` |
