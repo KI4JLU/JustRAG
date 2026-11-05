@@ -25,8 +25,8 @@ func (s failingUserMessageStore) AddMessage(ctx context.Context, p AddMessagePar
 }
 
 // gradedSearcher returns one chunk the CRAG grader already called relevant,
-// so a crag_enabled turn emits exactly one trajectory event (crag_proceed)
-// without any grader call.
+// so a crag_enabled turn emits exactly two trajectory events (the search
+// step, then crag_proceed) without any grader call.
 type gradedSearcher struct{}
 
 func (gradedSearcher) Search(_ context.Context, _, _ string, _ int, _ vector.SearchOptions) (*vector.SearchResult, error) {
@@ -70,7 +70,8 @@ func streamTurn(t *testing.T, earlyOpen bool, store Store, extra map[string]stri
 
 const (
 	earlyOpenSourcesFrame = `data: {"chatId":"new-chat-id","enhancedQuery":"","sources":[{"index":1,"fileName":"f1.md","fileId":"f1","content":"some content","score":0,"pages":null}],"userMessageId":"user-msg-id"}` + "\n\n"
-	earlyOpenCragFrame    = `data: {"agentTrajectory":{"stage":"decision","decision":"crag_proceed","reason":"relevant_chunks_sufficient"}}` + "\n\n"
+	earlyOpenSearchFrame  = `data: {"agentTrajectory":{"stage":"retrieval","step":1,"query":"hello","chunks":[{"idx":1,"file_name":"f1.md","score":0}],"findings":1}}` + "\n\n"
+	earlyOpenStepFrames   = earlyOpenSearchFrame + `data: {"agentTrajectory":{"stage":"decision","decision":"crag_proceed","reason":"relevant_chunks_sufficient"}}` + "\n\n"
 	earlyOpenAnswerTail   = `data: {"content":"summary text"}` + "\n\n" + `data: {"aiMessageId":"ai-msg-id"}` + "\n\n" + "data: [DONE]\n\n"
 	forceSupervisorPolicy = `[{"when":{"query_type":["lookup"]},"orchestrator":"supervisor","mode":"force"}]`
 )
@@ -79,7 +80,7 @@ const (
 // comment line, opening frame first, trajectory replayed after it.
 func TestSendMessage_EarlyOpenOff_StreamUnchanged(t *testing.T) {
 	w := streamTurn(t, false, newMockStore(), nil)
-	want := earlyOpenSourcesFrame + earlyOpenCragFrame + earlyOpenAnswerTail
+	want := earlyOpenSourcesFrame + earlyOpenStepFrames + earlyOpenAnswerTail
 	if got := w.Body.String(); got != want {
 		t.Fatalf("flag-off body changed:\n got %q\nwant %q", got, want)
 	}
@@ -92,7 +93,7 @@ func TestSendMessage_EarlyOpenOn_StandardPath(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
-	want := ": open\n\n" + earlyOpenCragFrame + earlyOpenSourcesFrame + earlyOpenAnswerTail
+	want := ": open\n\n" + earlyOpenStepFrames + earlyOpenSourcesFrame + earlyOpenAnswerTail
 	if got := w.Body.String(); got != want {
 		t.Fatalf("flag-on body:\n got %q\nwant %q", got, want)
 	}
@@ -196,5 +197,48 @@ func TestChatSSEEarlyOpenEnabled_DefaultOff(t *testing.T) {
 	on := &fakeSiteConfigReader{values: map[string]*string{"chat_sse_early_open_enabled": strPtr("true")}}
 	if !ChatSSEEarlyOpenEnabled(context.Background(), on) {
 		t.Fatal("key true: want on")
+	}
+}
+
+// The steps a turn streamed are stored with its AI message, in wire order,
+// on the standard path (buffered and early-opened) and the orchestrator
+// path. Oracle: the agentTrajectory frames in the response body.
+func TestSendMessage_StoresTrajectory(t *testing.T) {
+	for name, tc := range map[string]struct {
+		earlyOpen bool
+		extra     map[string]string
+	}{
+		"standard":            {},
+		"standard_early_open": {earlyOpen: true},
+		"deep_chat":           {extra: map[string]string{"chat_orchestrator_policy": forceSupervisorPolicy}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := newMockStore()
+			w := streamTurn(t, tc.earlyOpen, store, tc.extra)
+			var ai *MessageRow
+			for i := range store.messages {
+				if store.messages[i].Role == "ai" {
+					ai = &store.messages[i]
+				}
+			}
+			if ai == nil {
+				t.Fatalf("no AI message stored; body %q", w.Body.String())
+			}
+			wire := strings.Count(w.Body.String(), `"agentTrajectory":`)
+			if wire == 0 {
+				t.Fatalf("turn streamed no steps: %q", w.Body.String())
+			}
+			if len(ai.Trajectory) != wire {
+				t.Fatalf("stored %d steps, streamed %d: %+v", len(ai.Trajectory), wire, ai.Trajectory)
+			}
+			if name != "deep_chat" {
+				if got := ai.Trajectory[0]; got.Stage != "retrieval" || got.Query != "hello" || got.Findings != 1 {
+					t.Errorf("stored step 0 = %+v, want the search step", got)
+				}
+				if got := ai.Trajectory[1]; got.Decision != "crag_proceed" || got.Reason != "relevant_chunks_sufficient" {
+					t.Errorf("stored step 1 = %+v, want the crag_proceed decision", got)
+				}
+			}
+		})
 	}
 }

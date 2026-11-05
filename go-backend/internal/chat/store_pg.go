@@ -104,6 +104,7 @@ type messageDBRow struct {
 	TraceID           *string         `db:"trace_id"`
 	StructuredTable   json.RawMessage `db:"structured_table"`
 	Conflicts         json.RawMessage `db:"conflicts"`
+	Trajectory        json.RawMessage `db:"trajectory"`
 	TeamID            *string         `db:"team_id"`
 	AgentID           *string         `db:"agent_id"`
 	CreatedAt         time.Time       `db:"created_at"`
@@ -181,6 +182,13 @@ func toMessageRow(r messageDBRow) (MessageRow, error) {
 			return MessageRow{}, fmt.Errorf("decode conflicts for message %s: %w", r.ID, err)
 		}
 		out.Conflicts = c
+	}
+	if len(r.Trajectory) > 0 && !isJSONNull(r.Trajectory) {
+		var steps []TrajectoryEvent
+		if err := json.Unmarshal(r.Trajectory, &steps); err != nil {
+			return MessageRow{}, fmt.Errorf("decode trajectory for message %s: %w", r.ID, err)
+		}
+		out.Trajectory = steps
 	}
 	return out, nil
 }
@@ -548,9 +556,9 @@ func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID stri
 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO messages (id, chat_id, parent_message_id, role, content, sources, is_enhanced, enhanced_query,
-			                      reasoning, verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at)
+			                      reasoning, verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at)
 			SELECT map.new_id, $3, parent.new_id, m.role, m.content, m.sources, m.is_enhanced, m.enhanced_query,
-			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.team_id, m.agent_id, m.created_at
+			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.trajectory, m.team_id, m.agent_id, m.created_at
 			FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
 			JOIN messages m ON m.id = map.old_id
 			LEFT JOIN unnest($1::uuid[], $2::uuid[]) AS parent(old_id, new_id) ON parent.old_id = m.parent_message_id`,
@@ -621,7 +629,7 @@ func (s *PGStore) GetChatMessages(ctx context.Context, chatID string) ([]Message
 	const sql = `
 		SELECT id, chat_id, parent_message_id, role, content, sources,
 		       is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-		       verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at
+		       verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at
 		FROM messages
 		WHERE chat_id = $1
 		ORDER BY created_at ASC`
@@ -648,13 +656,13 @@ func (s *PGStore) GetMessageAncestors(ctx context.Context, messageID, chatID str
 		WITH RECURSIVE message_tree AS (
 			SELECT id, chat_id, parent_message_id, role, content, sources,
 			       is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-			       verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at
+			       verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at
 			FROM messages
 			WHERE id = $1 AND chat_id = $2
 			UNION ALL
 			SELECT p.id, p.chat_id, p.parent_message_id, p.role, p.content, p.sources,
 			       p.is_enhanced, p.enhanced_query, p.reasoning, p.feedback, p.feedback_comment, p.feedback_updated_at,
-			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.team_id, p.agent_id, p.created_at
+			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.trajectory, p.team_id, p.agent_id, p.created_at
 			FROM messages p
 			INNER JOIN message_tree mt ON mt.parent_message_id = p.id
 			-- The walk must never leave the chat: a parent_message_id that
@@ -723,24 +731,29 @@ func (s *PGStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageR
 		}
 	}
 
+	trajectoryJSON, err := marshalTrajectory(p.Trajectory)
+	if err != nil {
+		return nil, fmt.Errorf("AddMessage: %w", err)
+	}
+
 	const insertSQL = `
-		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, team_id, agent_id)
+		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, team_id, agent_id, trajectory)
 		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7,
 		        -- A parent outside this chat (or a missing one) is stored as
 		        -- NULL: a foreign parent would let a later ancestor walk start
 		        -- in another user's conversation.
 		        (SELECT pm.id FROM messages pm WHERE pm.id = $8::uuid AND pm.chat_id = $1::uuid),
-		        $9::jsonb, $10::jsonb, $11, $12)
+		        $9::jsonb, $10::jsonb, $11, $12, $13::jsonb)
 		RETURNING id, chat_id, parent_message_id, role, content, sources,
 		          is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-		          verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at`
+		          verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at`
 	const updateChatSQL = `UPDATE chats SET updated_at = NOW() WHERE id = $1`
 
 	var row *messageDBRow
-	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		row, err = pgxutil.QueryOne[messageDBRow](ctx, tx, insertSQL,
-			p.ChatID, p.Role, p.Content, sourcesJSON, p.IsEnhanced, p.EnhancedQuery, p.Reasoning, p.ParentMessageID, structuredTableJSON, conflictsJSON, p.TeamID, p.AgentID)
+			p.ChatID, p.Role, p.Content, sourcesJSON, p.IsEnhanced, p.EnhancedQuery, p.Reasoning, p.ParentMessageID, structuredTableJSON, conflictsJSON, p.TeamID, p.AgentID, trajectoryJSON)
 		if err != nil {
 			return fmt.Errorf("AddMessage insert: %w", err)
 		}
@@ -885,6 +898,37 @@ func (s *PGStore) UpdateMessageContent(ctx context.Context, messageID string, co
 		return fmt.Errorf("message %s: %w", messageID, store.ErrNotFound)
 	}
 	return nil
+}
+
+// UpdateMessageTrajectory replaces the stored agent steps of a message
+// (migration 0102). Called once per turn at most, after the post-response
+// tasks, when they added steps (refine) to those AddMessage stored.
+func (s *PGStore) UpdateMessageTrajectory(ctx context.Context, messageID string, steps []TrajectoryEvent) error {
+	payload, err := marshalTrajectory(steps)
+	if err != nil {
+		return fmt.Errorf("UpdateMessageTrajectory: %w", err)
+	}
+	ct, err := s.pool.Exec(ctx, `UPDATE messages SET trajectory = $1::jsonb WHERE id = $2`, payload, messageID)
+	if err != nil {
+		return fmt.Errorf("UpdateMessageTrajectory exec: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("UpdateMessageTrajectory message=%s: %w", messageID, store.ErrNotFound)
+	}
+	return nil
+}
+
+// marshalTrajectory encodes stored agent steps; nil (SQL NULL) when empty,
+// so "absent means no steps" survives the round trip.
+func marshalTrajectory(steps []TrajectoryEvent) ([]byte, error) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(steps)
+	if err != nil {
+		return nil, fmt.Errorf("marshal trajectory: %w", err)
+	}
+	return b, nil
 }
 
 // UpdateMessageTraceID stores the OTel trace id on a saved message. Empty

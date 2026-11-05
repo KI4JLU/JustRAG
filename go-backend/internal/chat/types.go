@@ -191,6 +191,12 @@ type MessageRow struct {
 	// `omitempty` keeps the key absent for the overwhelming majority of
 	// turns, which is what makes "absent means not run" hold.
 	Conflicts []MessageConflict `json:"conflicts,omitempty" db:"conflicts"`
+	// Trajectory is the answer's agent steps (migration 0102): the
+	// TrajectoryEvent list its turn streamed as agentTrajectory frames, in
+	// wire order, plus a "reasoning" marker where the model's reasoning
+	// began (trajectory_record.go). Written by AddMessage, rewritten once
+	// when the post-response tasks add steps. Omitted when the turn had none.
+	Trajectory []TrajectoryEvent `json:"trajectory,omitempty" db:"trajectory"`
 	// Attachments are the files attached to a user message (migration 0090),
 	// filled by GetMessages; omitted when there are none.
 	Attachments []MessageAttachment `json:"attachments,omitempty" db:"-"`
@@ -234,6 +240,9 @@ type AddMessageParams struct {
 	// case) inserts SQL NULL rather than an empty array, so "absent means
 	// not run" survives the round trip.
 	Conflicts []MessageConflict
+	// Trajectory is the turn's agent steps (trajectoryRecorder.stored);
+	// empty inserts SQL NULL.
+	Trajectory []TrajectoryEvent
 	// TeamID / AgentID attribute an AI message to the user-created team or
 	// agent that produced it (nil on user messages and non-team turns).
 	TeamID  *string
@@ -267,6 +276,9 @@ type Store interface {
 	UpdateMessageFeedback(ctx context.Context, messageID, chatID, userID string, feedback *string, comment *string) error
 	UpdateMessageVerification(ctx context.Context, messageID string, verification *MessageVerification) error
 	UpdateMessageContent(ctx context.Context, messageID string, content string) error
+	// UpdateMessageTrajectory replaces the stored agent steps of an AI
+	// message; an empty list stores SQL NULL.
+	UpdateMessageTrajectory(ctx context.Context, messageID string, steps []TrajectoryEvent) error
 	UpdateMessageTraceID(ctx context.Context, messageID string, traceID string) error
 	GetKBSystemPrompt(ctx context.Context, kbID string) (*string, error)
 	// GetChatSystemPrompt is GetKBSystemPrompt in the role chatID was
