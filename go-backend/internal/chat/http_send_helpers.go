@@ -838,17 +838,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// falls through to the plain streaming answer below instead.
 	runAnswerTools := shouldRunAnswerToolsLoop(useAnswerTools, catalog)
 	if runAnswerTools {
-		answerTrace := func(stage, decision, reason string, details map[string]any) {
-			payload := map[string]any{
-				"stage":    stage,
-				"decision": decision,
-				"reason":   reason,
-			}
-			for k, v := range details {
-				payload[k] = v
-			}
-			writeSSE(ctx, w, payload)
-		}
+		answerTrace := answerToolSteps(func(pl map[string]any) { writeSSE(ctx, w, pl) })
 		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, p.chatCtx, answerTools.systemPrompt(systemPrompt), p.history, p.userMessage)
 		err := RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
@@ -958,6 +948,8 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		fullReasoning := reasoningBuf.String()
 		reasoningPtr = &fullReasoning
 	}
+	steps := trajectoryRecorderFrom(ctx)
+	savedSteps := steps.count()
 	aiMsg, err := h.store.AddMessage(ctx, AddMessageParams{
 		ChatID:          p.chatID,
 		Role:            "ai",
@@ -966,6 +958,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		Reasoning:       reasoningPtr,
 		ParentMessageID: &p.userMsgID,
 		Conflicts:       ConflictsForWire(p.chatCtx.Conflicts),
+		Trajectory:      steps.stored(),
 	})
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save AI message (stream)", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
@@ -994,6 +987,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	if verification != nil {
 		writeSSE(ctx, w, map[string]any{"verification": verification})
 	}
+	h.persistLateTrajectory(ctx, aiMsg.ID, savedSteps)
 
 	if sc := trace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		if err := h.store.UpdateMessageTraceID(ctx, aiMsg.ID, sc.TraceID().String()); err != nil {

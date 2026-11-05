@@ -162,6 +162,9 @@ func (s *wiringStore) UpdateMessageVerification(context.Context, string, *Messag
 }
 func (s *wiringStore) UpdateMessageContent(context.Context, string, string) error { return nil }
 func (s *wiringStore) UpdateMessageTraceID(context.Context, string, string) error { return nil }
+func (s *wiringStore) UpdateMessageTrajectory(context.Context, string, []TrajectoryEvent) error {
+	return nil
+}
 func (s *wiringStore) GetKBSystemPrompt(context.Context, string) (*string, error) { return nil, nil }
 func (s *wiringStore) GetChatSystemPrompt(context.Context, string, string) (*string, error) {
 	return nil, nil

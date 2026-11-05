@@ -19,6 +19,7 @@ import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled 
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
+import { hasAgentSteps } from './agentSteps/buildSteps';
 import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
@@ -798,7 +799,7 @@ const ChatViewComp = () => {
                               // here added a blank gap above the spinner that collapsed
                               // once the text streamed in.
                               const awaitingFirstToken = chat.loading && index === chat.messages.length - 1
-                                && msg.role === 'ai' && !msg.content && !msg.reasoning && !msg.trajectory?.length;
+                                && msg.role === 'ai' && !msg.content && !hasAgentSteps(msg.trajectory, msg.reasoning);
                               if (awaitingFirstToken) return null;
                               // A day separator above the first message of each day.
                               const prevAt = chat.messages.slice(0, index).reverse().find((m: Message) => m.createdAt)?.createdAt;

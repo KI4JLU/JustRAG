@@ -10,6 +10,11 @@ import (
 // existing `sources` event.
 const trajectoryChunkPreview = 5
 
+// retrievalStage is the standard path's search step (PrepareChatContext).
+// A stage of its own, not "search": the eval harness counts "search" events
+// as kb_search calls of an orchestrator (eval.ExtractToolCounts).
+const retrievalStage = "retrieval"
+
 // TrajectoryEvent is the unified envelope for streaming agentic-chat progress
 // to the frontend. The orchestrators (agentic_chat, plan_execute_chat) and
 // the standard CRAG path emit one event per decision point; the frontend
@@ -21,7 +26,10 @@ const trajectoryChunkPreview = 5
 //	iterate          — Plan-and-Execute iterate stage ran one round
 //	hop              — Agentic-chat ran one hop (1-based step)
 //	decision         — A non-search decision was taken (CRAG rewrite/abstain/proceed,
-//	                   plateau early-stop, etc.)
+//	                   plateau early-stop, the sufficient-context gate's
+//	                   insufficient_context, an answer-time tool call:
+//	                   agent_tool_call, agent_tool_call_result,
+//	                   agent_tool_call_failed, etc.)
 //	answer           — Orchestrator finished and is about to hand off to LLM
 //	refine_start     — AP-A2: factuality gate decided to refine; emitted BEFORE
 //	                   the refine LLM call so the frontend can paint a
@@ -60,6 +68,17 @@ const trajectoryChunkPreview = 5
 //	                   dropped web_search) reaches the client nowhere and is
 //	                   logged as chat.web_search.skipped. Emitted by
 //	                   answerToolsForTurn (web_search_turn.go).
+//	retrieval         — the standard path searched (PrepareChatContext): Step
+//	                   1, Query the question searched, Queries the decomposed
+//	                   sub-questions, Findings the hit count, Chunks a
+//	                   preview. A second event with Decision "context_reduced"
+//	                   and Dropped follows when compression or multi-pass
+//	                   extraction dropped passages
+//	recency_listing   — the deterministic recency listing ran: Findings the
+//	                   files listed, Reason the window start (ISO date)
+//	reasoning         — only in a STORED trajectory (messages.trajectory):
+//	                   where the answer model's reasoning began. Never
+//	                   streamed as a frame (trajectory_record.go).
 type TrajectoryEvent struct {
 	Stage    string         `json:"stage"`
 	Step     int            `json:"step,omitempty"`
@@ -93,6 +112,11 @@ type TrajectoryEvent struct {
 	// plain int: rule 0 is a perfectly ordinary rule, and omitempty would
 	// erase it from the wire. nil everywhere else.
 	PolicyRule *int `json:"policy_rule,omitempty"`
+	// Args is the argument preview of an answer-time tool call
+	// (agent_tool_call, answerToolSteps), shown when the call has no search
+	// text in Query. Redacted with the chunks for a reader without
+	// citations: tool arguments can name files and chunks.
+	Args string `json:"args,omitempty"`
 }
 
 // TrajChunkRef is the per-step chunk preview surfaced to the trajectory
