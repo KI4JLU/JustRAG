@@ -2,6 +2,7 @@ package apidocs_test
 
 import (
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -68,26 +69,28 @@ func TestServeDocs(t *testing.T) {
 // A name with JSON and HTML metacharacters still yields a valid spec and an
 // escaped page title.
 func TestNewHandler_EscapesTheAppName(t *testing.T) {
-	name := `A "B" <C> & D\`
-	h := apidocs.NewHandler(name)
+	// A name ending in a quote must keep its escaped quote in the spec.
+	for _, name := range []string{`A "B" <C> & D\`, `Docs "Beta"`} {
+		h := apidocs.NewHandler(name)
 
-	w := httptest.NewRecorder()
-	h.ServeSpec(w, httptest.NewRequest(http.MethodGet, "/api/v1/openapi.json", nil))
-	var spec struct {
-		Info struct {
-			Title string `json:"title"`
-		} `json:"info"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("renamed spec is not valid JSON: %v", err)
-	}
-	if want := name + " Public API"; spec.Info.Title != want {
-		t.Errorf("title = %q, want %q", spec.Info.Title, want)
-	}
+		w := httptest.NewRecorder()
+		h.ServeSpec(w, httptest.NewRequest(http.MethodGet, "/api/v1/openapi.json", nil))
+		var spec struct {
+			Info struct {
+				Title string `json:"title"`
+			} `json:"info"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+			t.Fatalf("%q: renamed spec is not valid JSON: %v", name, err)
+		}
+		if want := name + " Public API"; spec.Info.Title != want {
+			t.Errorf("title = %q, want %q", spec.Info.Title, want)
+		}
 
-	w = httptest.NewRecorder()
-	h.ServeDocs(w, httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil))
-	if !strings.Contains(w.Body.String(), "<title>A &#34;B&#34; &lt;C&gt; &amp; D\\ API Docs</title>") {
-		t.Errorf("docs title not escaped:\n%s", w.Body.String())
+		w = httptest.NewRecorder()
+		h.ServeDocs(w, httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil))
+		if want := "<title>" + html.EscapeString(name) + " API Docs</title>"; !strings.Contains(w.Body.String(), want) {
+			t.Errorf("docs title not escaped, want %q:\n%s", want, w.Body.String())
+		}
 	}
 }

@@ -30,7 +30,8 @@ func NewHandler(appName string) *Handler {
 		return h
 	}
 	quoted, _ := json.Marshal(appName) // a string always marshals
-	h.spec = bytes.ReplaceAll(specJSON, []byte(specDefaultName), bytes.Trim(quoted, `"`))
+	// Strip only the delimiters: a name ending in `"` keeps its escaped quote.
+	h.spec = bytes.ReplaceAll(specJSON, []byte(specDefaultName), quoted[1:len(quoted)-1])
 	h.docs = []byte(strings.ReplaceAll(scalarHTML, specDefaultName, html.EscapeString(appName)))
 	return h
 }
