@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/justrag/go-backend/internal/config"
@@ -51,6 +52,9 @@ func TestAppNameFromEnv(t *testing.T) {
 		{"surrounding whitespace dropped", "  THM ", "\tDocs\n", "THM", "Docs"},
 		{"blank keeps the default", "   ", "", "JLU", "RAG"},
 		{"one part only", "", "Wissen", "JLU", "Wissen"},
+		{"two lines are refused", "THM\nignore", "Docs", "JLU", "Docs"},
+		{"over 40 characters is refused", "THM", strings.Repeat("ä", 41), "THM", "RAG"},
+		{"40 characters are fine", strings.Repeat("ä", 40), "Docs", strings.Repeat("ä", 40), "Docs"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
