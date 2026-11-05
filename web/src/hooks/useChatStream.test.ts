@@ -591,3 +591,28 @@ describe('useChatStream.handleSendMessage — roleId', () => {
     expect(second.roleId).toBeUndefined();
   });
 });
+
+// The thinking is one of the steps, at the point it began: the first
+// reasoning frame appends one `reasoning` marker to the streaming message's
+// trajectory (the backend stores the same marker), later frames add none.
+describe('useChatStream — reasoning marker', () => {
+  it('setzt den Marker einmal, nach den Schritten davor', async () => {
+    // aiMessageId first, as in the conflicts test above: the harness reads
+    // every frame within one act(), so the tree updates are batched.
+    authFetchMock.mockResolvedValueOnce(okResponse([
+      { aiMessageId: 'ai-think' },
+      { agentTrajectory: { stage: 'plan', queries: ['a', 'b'] } },
+      { reasoning: 'Ich prüfe ' },
+      { reasoning: 'die Frist.' },
+      { agentTrajectory: { stage: 'answer' } },
+      { content: 'Antwort' },
+    ]));
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Frage', null, undefined);
+    });
+    const ai = result.current.messageTree.get('ai-think');
+    expect(ai?.reasoning).toBe('Ich prüfe die Frist.');
+    expect(ai?.trajectory?.map(e => e.stage)).toEqual(['plan', 'reasoning', 'answer']);
+  });
+});

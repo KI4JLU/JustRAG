@@ -102,6 +102,7 @@ func (h *Handler) SendLibraryMessage(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	span.SetAttributes(attribute.Bool("chat.stream", streamMode), attribute.Bool("chat.library", true))
 	ctx = h.attachTurnBudget(ctx)
+	ctx = withTrajectoryRecorder(ctx)
 
 	body, ok := parseLibraryMessage(w, r, user.ID)
 	if !ok {

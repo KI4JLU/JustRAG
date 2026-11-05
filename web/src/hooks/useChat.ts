@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, MessageConflict, MessageAttachment } from '../types';
+import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, MessageConflict, MessageAttachment, TrajectoryEvent } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -69,6 +69,7 @@ interface RawChatMessage {
   agentId?: string | null;
   conflicts?: MessageConflict[];
   attachments?: MessageAttachment[];
+  trajectory?: TrajectoryEvent[];
 }
 
 interface UseChatParams {
@@ -289,6 +290,7 @@ export function useChat({
         teamId: m.teamId ?? null,
         agentId: m.agentId ?? null,
         conflicts: m.conflicts,
+        ...(m.trajectory?.length ? { trajectory: m.trajectory } : {}),
         ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       }));
       const newTree = buildMessageMap(rawMessages);
