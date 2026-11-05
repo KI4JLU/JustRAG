@@ -13,7 +13,8 @@
 # Shadow mode (default below): DOCX is still answered by whatever parser is
 # currently active (Docling if enabled, built-in otherwise); the fileparser
 # runs the same file in the background and the differences show up as the
-# rustparser_shadow_total / rustparser_shadow_similarity metrics. With
+# rustparser_shadow_total / rustparser_shadow_similarity metrics on the
+# worker's own /metrics (port 8081, enabled below with WORKER_METRICS). With
 # RUSTPARSER_SHADOW_DIR set, every run also writes a parsedump-shaped JSON
 # dump that goldset can score offline.
 #
@@ -55,5 +56,8 @@ services:
     environment:
       RUSTPARSER_MODE: shadow
       RUSTPARSER_URL: http://rustparser:5001
+      # The shadow metrics live in the worker process: serve its /metrics on
+      # the health port (8081, unauthenticated — keep that port unpublished).
+      WORKER_METRICS: "true"
       # RUSTPARSER_TIMEOUT_SECONDS: "300"   # default
       # RUSTPARSER_SHADOW_DIR: /tmp/rustparser-shadow   # enable dumps

@@ -42,7 +42,7 @@ func ConvertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*p
 	// an absent page label is honest, a fabricated one is not.
 	pages := buildPages(res.Items)
 	if len(pages) == 0 {
-		return &parser.ParseResult{Text: primary, IsMarkdown: true}, nil
+		return &parser.ParseResult{Text: primary, IsMarkdown: true, Structure: res.Structure}, nil
 	}
 
 	var sb strings.Builder
@@ -57,6 +57,7 @@ func ConvertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*p
 		Text:       sb.String(),
 		Pages:      pages,
 		IsMarkdown: true,
+		Structure:  res.Structure,
 	}, nil
 }
 

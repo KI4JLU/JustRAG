@@ -131,7 +131,7 @@ Env (via `.env`):
 - **Redis:** `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`. Non-compose deployments need `--maxmemory <size> --maxmemory-policy volatile-lru` (not `allkeys-lru`, not `noeviction`).
 - **Auth:** `JWT_SECRET` (≥32 chars), `ALLOWED_ORIGINS` (required in production; set it on staging too), `AUTH_PROVIDER_SECRET_KEY` (encrypts OIDC/LDAP secrets). Login providers are superadmin-only.
 - **Storage:** `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` (else local disk).
-- **Worker:** `WORKER_QUEUES`, `WORKER_MAINTENANCE` (maintenance loops, metrics ticks and sweeps need it).
+- **Worker:** `WORKER_QUEUES`, `WORKER_MAINTENANCE` (maintenance loops, metrics ticks and sweeps need it), `WORKER_METRICS=true` (serves the worker's own `/metrics` on the health port 8081 — unauthenticated, keep the port internal; off by default).
 - **Tracing:** `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS`.
 
 Details: `docs/feature-reference.md` § Environment variables.
