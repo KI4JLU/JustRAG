@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -148,7 +149,7 @@ func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (
 		// A NULL behavior with a pre-roles prompt and no other role asked
 		// for: that prompt, untouched, as the legacy role without rules
 		// compiles it. Without a prompt Effective is the default role.
-		resolved := namesFrom(assistant, system).Resolve(*sp)
+		resolved := namesFrom(assistant, system).Resolve(withLegacyIdentity(*sp, Lang(language)))
 		return &resolved, nil
 	}
 	lang := Lang(language)
@@ -157,8 +158,10 @@ func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (
 		logctx.From(ctx).Info("kbbehavior: chat role no longer exists; using the active role",
 			"kb_id", kbID, "chat_id", chatID, "role_id", rid)
 	}
-	if prompt == "" {
-		return nil, nil
+	if strings.TrimSpace(prompt) == "" {
+		// An own role without prompt or rules: answer as the default role
+		// rather than with no identity at all.
+		prompt, _ = Compile(Default(), "", lang)
 	}
 	prompt = namesFrom(assistant, system).Resolve(prompt)
 	return &prompt, nil

@@ -67,7 +67,7 @@ func TestPGStore_ChatRole(t *testing.T) {
 	if p, err := s.GetChatSystemPrompt(ctx, kbID, c.ID); err != nil || p == nil || !strings.HasPrefix(*p, "Du bist JLU RAG und fasst Dokumente zusammen") {
 		t.Fatalf("uncustomized KB, summary chat prompt = %v (%v)", p, err)
 	}
-	if p, err := s.GetChatSystemPrompt(ctx, kbID, seed); err != nil || p == nil || *p != "alt" {
+	if p, err := s.GetChatSystemPrompt(ctx, kbID, seed); err != nil || p == nil || !strings.HasPrefix(*p, "alt\n\nDu bist JLU RAG") {
 		t.Fatalf("uncustomized KB, chat without a role = %v (%v)", p, err)
 	}
 

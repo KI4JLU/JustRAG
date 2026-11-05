@@ -168,32 +168,45 @@ func TestSettle_MovesThePagesOwnStartToTheActiveRole(t *testing.T) {
 	up := Default()
 	up.Version = legacyVersion
 	up.StartMode, up.UploadLabel, up.UploadInstruction = StartUpload, "Antrag hochladen", "Prüfe den Antrag."
-	got := Settle(up, "chat")
+	got := Settle(up, "chat", "de")
 	if s := got.RoleStarts["chat"]; s.Kind != EntryFile || s.Text != "Antrag hochladen" || s.Instruction != "Prüfe den Antrag." {
 		t.Errorf("upload = %+v", s)
 	}
 	if got.StartMode != StartUpload || got.UploadLabel != "" || got.UploadInstruction != "" {
 		t.Errorf("settled upload page = %+v", got)
 	}
-	if again := Settle(got, "chat"); !reflect.DeepEqual(again, got) {
+	if again := Settle(got, "chat", "de"); !reflect.DeepEqual(again, got) {
 		t.Errorf("settling again changed it:\n%+v\n%+v", again, got)
 	}
 
 	in := Default()
 	in.Version = legacyVersion
 	in.QuestionsOn, in.QuestionMode, in.FixedQuestions = true, QuestionsFixed, []string{"Wie?"}
-	got = Settle(in, "chat")
+	got = Settle(in, "chat", "de")
 	if s := got.RoleStarts["chat"]; s.Kind != EntryInput || !s.Suggestions.QuestionsOn || s.Suggestions.FixedQuestions[0] != "Wie?" {
 		t.Errorf("questions = %+v", s)
 	}
 	if got.QuestionsOn || got.StartMode != StartInput {
 		t.Errorf("settled input page = %+v", got)
 	}
-	// Questions under the input field mean nothing for a role starting otherwise.
-	if got := Settle(in, "summary"); got.StartMode != StartTask {
-		t.Errorf("questions with Zusammenfassen = %+v", got)
+	// Oracle: PR #73 review (05.11.2026) — an input page with starter
+	// questions keeps its input field and questions even when the active
+	// role's template now starts otherwise (migration 0100 gave Zusammenfassen
+	// a task start).
+	got = Settle(in, "summary", "de")
+	if s := got.RoleStarts["summary"]; s.Kind != EntryInput || !s.Suggestions.QuestionsOn || s.Suggestions.FixedQuestions[0] != "Wie?" {
+		t.Errorf("questions with Zusammenfassen = %+v", s)
 	}
-	if _, own := Settle(in, "summary").RoleStarts["summary"]; own {
+	if got.StartMode != StartInput {
+		t.Errorf("Zusammenfassen with questions = %s, want input", got.StartMode)
+	}
+	// Without questions of its own, the page takes the role's template start.
+	plain := Default()
+	plain.Version = legacyVersion
+	if got := Settle(plain, "summary", "de"); got.StartMode != StartTask {
+		t.Errorf("plain page with Zusammenfassen = %+v", got)
+	}
+	if _, own := Settle(plain, "summary", "de").RoleStarts["summary"]; own {
 		t.Error("Zusammenfassen keeps its template's start")
 	}
 	// Questions switched off stay off, whatever the role's template offers.
@@ -201,24 +214,43 @@ func TestSettle_MovesThePagesOwnStartToTheActiveRole(t *testing.T) {
 	off.Version = legacyVersion
 	withQuestions := "c-asks"
 	off.RoleStarts = map[string]EntryStart{withQuestions: {Kind: EntryInput, Send: true, Suggestions: Suggestions{QuestionsOn: true, QuestionMode: QuestionsDynamic, DynamicCount: 4}}}
-	if s := Settle(off, withQuestions).RoleStarts[withQuestions]; s.Suggestions.QuestionsOn {
+	if s := Settle(off, withQuestions, "de").RoleStarts[withQuestions]; s.Suggestions.QuestionsOn {
 		t.Errorf("switched-off questions = %+v, want off", s)
 	}
 	// Fixed questions kept while switched off move with them (Codex review).
 	off.FixedQuestions = []string{"Entwurf?"}
-	if s := Settle(off, "chat").RoleStarts["chat"]; s.Suggestions.QuestionsOn || len(s.Suggestions.FixedQuestions) != 1 {
+	if s := Settle(off, "chat", "de").RoleStarts["chat"]; s.Suggestions.QuestionsOn || len(s.Suggestions.FixedQuestions) != 1 {
 		t.Errorf("kept draft = %+v, want it on the role, still off", s)
+	}
+}
+
+// Oracle: PR #73 review — an upload page's missing text is filled from the
+// role's template in the KB's language, not always in German.
+func TestSettle_FillsUploadTextsInTheKBsLanguage(t *testing.T) {
+	up := Default()
+	up.Version = legacyVersion
+	up.StartMode, up.UploadLabel = StartUpload, "Upload your thesis"
+	tmpl := Settle(Default(), "filecheck", "en").ActiveStart("filecheck", "en")
+	if tmpl.Instruction == "" {
+		t.Skip("filecheck has no template instruction")
+	}
+	got := Settle(up, "filecheck", "en").RoleStarts["filecheck"]
+	if got.Text != "Upload your thesis" || got.Instruction != tmpl.Instruction {
+		t.Errorf("en upload = %+v, want the English template instruction %q", got, tmpl.Instruction)
+	}
+	if de := Settle(up, "filecheck", "de").RoleStarts["filecheck"]; de.Instruction == got.Instruction {
+		t.Errorf("de and en instruction are the same: %q", de.Instruction)
 	}
 }
 
 // Oracle: Codex review — a settled page's StartMode was derived for the role
 // active then; with another role active it is no choice to migrate.
 func TestSettle_LeavesASettledPageToTheNewActiveRole(t *testing.T) {
-	p := Settle(Default(), "filecheck")
+	p := Settle(Default(), "filecheck", "de")
 	if p.StartMode != StartUpload || p.Version != currentVersion {
 		t.Fatalf("Datei prüfen = %s v%d, want upload v%d", p.StartMode, p.Version, currentVersion)
 	}
-	got := Settle(p, "chat")
+	got := Settle(p, "chat", "de")
 	if _, own := got.RoleStarts["chat"]; own || got.StartMode != StartInput {
 		t.Errorf("chat after Datei prüfen = %s with its own start %v, want its template's input", got.StartMode, own)
 	}
@@ -236,13 +268,13 @@ func TestNormalize_KeepsSwitchedOffDataAndDropsEmptyQuestions(t *testing.T) {
 }
 
 func TestEffective(t *testing.T) {
-	if got := Effective(nil, "chat", roles()); got.StartMode != StartInput || got.QuestionsOn {
+	if got := Effective(nil, "chat", "de", roles()); got.StartMode != StartInput || got.QuestionsOn {
 		t.Errorf("nil = %+v, want Default", got)
 	}
 	p := valid()
 	p.RoleStarts["c-gone"] = DefaultStart()
 	p.RoleEntries = append(p.RoleEntries[:1], RoleEntry{ID: "re-9", RoleID: "c-gone"}, RoleEntry{ID: "re-8", RoleID: "unset"})
-	got := Effective(&p, "chat", roles("summary", "it", "filecheck", "unset"))
+	got := Effective(&p, "chat", "de", roles("summary", "it", "filecheck", "unset"))
 	// A card of a role without a start stays: it starts with the input field.
 	if len(got.RoleEntries) != 2 || got.RoleEntries[0].RoleID != "summary" || got.RoleEntries[1].RoleID != "unset" {
 		t.Errorf("only cards of a deleted role drop out: %+v", got.RoleEntries)
@@ -256,14 +288,14 @@ func TestEffective(t *testing.T) {
 	// Stored before roles were unique: a repeat and the active role's card drop out.
 	p = valid()
 	p.RoleEntries = append(p.RoleEntries, RoleEntry{ID: "re-3", RoleID: "summary"}, RoleEntry{ID: "re-4", RoleID: "filecheck"})
-	got = Effective(&p, "it", roles("summary", "it", "filecheck"))
+	got = Effective(&p, "it", "de", roles("summary", "it", "filecheck"))
 	if len(got.RoleEntries) != 2 || got.RoleEntries[0].ID != "re-1" || got.RoleEntries[1].ID != "re-4" {
 		t.Errorf("each role once, the active one not at all: %+v", got.RoleEntries)
 	}
 	// The last further role gone: the page starts as the active role does
 	// (developer ruling 05.11.2026) — chat, with the input field.
 	p = valid()
-	got = Effective(&p, "chat", roles())
+	got = Effective(&p, "chat", "de", roles())
 	if len(got.RoleEntries) != 0 || got.StartMode != StartInput {
 		t.Errorf("without a further role = %s with %d cards, want input", got.StartMode, len(got.RoleEntries))
 	}

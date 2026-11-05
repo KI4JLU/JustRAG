@@ -244,6 +244,9 @@ func Compile(eff Behavior, roleID, lang string) (prompt string, found bool) {
 		roleID = eff.ActiveRoleID
 	}
 	rolePrompt := rolePromptFor(eff, roleID, lang)
+	if roleID == LegacyRoleID {
+		rolePrompt = withLegacyIdentity(rolePrompt, lang)
+	}
 	set := RulesFor(eff, roleID)
 
 	var lines []string
@@ -267,6 +270,16 @@ func Compile(eff Behavior, roleID, lang string) (prompt string, found bool) {
 		return rules, found
 	}
 	return rolePrompt + "\n\n" + rules, found
+}
+
+// withLegacyIdentity is a pre-roles prompt followed by the identity the fixed
+// instructions carried before roles existed (legacyIdentity).
+func withLegacyIdentity(prompt, lang string) string {
+	id := legacyIdentity.in(lang)
+	if strings.TrimSpace(prompt) == "" {
+		return id
+	}
+	return prompt + "\n\n" + id
 }
 
 // sent is what rule r puts into the prompt under set: its text while on, its

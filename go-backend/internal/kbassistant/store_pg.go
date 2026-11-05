@@ -175,7 +175,7 @@ func settingsOf(st state, canRename bool) Settings {
 		Description:         st.snap.Description,
 		CategoryID:          st.snap.CategoryID,
 		Behavior:            kbbehavior.Settings{Behavior: eff, Customized: st.snap.Behavior != nil, Language: lang},
-		StartPage:           kbstartpage.Effective(st.snap.StartPage, eff.ActiveRoleID, eff.HasRole),
+		StartPage:           kbstartpage.Effective(st.snap.StartPage, eff.ActiveRoleID, lang, eff.HasRole),
 		StartPageConfigured: st.snap.StartPage != nil,
 		Version:             st.latest,
 		CanRename:           canRename,
@@ -195,8 +195,10 @@ func invalid(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, args...))
 }
 
-// snapshotOf validates in and turns it into the stored form.
-func snapshotOf(in Input) (Snapshot, error) {
+// snapshotOf validates in and turns it into the stored form; lang is the
+// KB's prompt language (kbbehavior.Lang), the one a settled start page copies
+// a template's texts in.
+func snapshotOf(in Input, lang string) (Snapshot, error) {
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		return Snapshot{}, invalid("title must not be empty")
@@ -223,7 +225,7 @@ func snapshotOf(in Input) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("%w: %s", ErrInvalid, strings.TrimPrefix(err.Error(), kbstartpage.ErrInvalid.Error()+": "))
 	}
 	stored, legacy := kbbehavior.ForStorage(in.Behavior)
-	page := kbstartpage.Settle(kbstartpage.Normalize(in.StartPage), in.Behavior.ActiveRoleID)
+	page := kbstartpage.Settle(kbstartpage.Normalize(in.StartPage), in.Behavior.ActiveRoleID, lang)
 	return Snapshot{
 		Title: title, Description: desc, CategoryID: in.CategoryID,
 		Behavior: &stored, SystemPrompt: legacy, StartPage: &page,
@@ -240,13 +242,13 @@ type Author struct {
 // CanRename (ErrRenameForbidden); a stale BaseVersion is ErrConflict. A save
 // that changes nothing writes no version.
 func (s *Store) Save(ctx context.Context, kbID string, in Input, author Author) (Settings, error) {
-	next, err := snapshotOf(in)
-	if err != nil {
-		return Settings{}, err
-	}
 	var out state
-	err = pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		cur, err := loadState(ctx, tx, kbID, true)
+		if err != nil {
+			return err
+		}
+		next, err := snapshotOf(in, kbbehavior.Lang(cur.language))
 		if err != nil {
 			return err
 		}

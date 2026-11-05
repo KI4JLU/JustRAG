@@ -134,19 +134,19 @@ func TestDiff_LegacyBaseline(t *testing.T) {
 
 func TestSnapshotOf_Validates(t *testing.T) {
 	ok := Input{Title: "  KB  ", Behavior: kbbehavior.Default(), StartPage: kbstartpage.Default()}
-	s, err := snapshotOf(ok)
+	s, err := snapshotOf(ok, "de")
 	if err != nil || s.Title != "KB" || s.Description != nil {
 		t.Fatalf("valid input: %+v %v", s, err)
 	}
 	empty := "   "
 	ok.Description = &empty
-	if s, _ := snapshotOf(ok); s.Description != nil {
+	if s, _ := snapshotOf(ok, "de"); s.Description != nil {
 		t.Error("blank description must store as NULL")
 	}
 
 	bad := ok
 	bad.Title = " "
-	if _, err := snapshotOf(bad); !errors.Is(err, ErrInvalid) {
+	if _, err := snapshotOf(bad, "de"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("empty title: %v", err)
 	}
 	// A card for a role the behavior saved with it does not have.
@@ -154,7 +154,33 @@ func TestSnapshotOf_Validates(t *testing.T) {
 	bad.StartPage.StartMode = kbstartpage.StartRoles
 	bad.StartPage.RoleStarts = map[string]kbstartpage.EntryStart{"nope": kbstartpage.DefaultStart()}
 	bad.StartPage.RoleEntries = []kbstartpage.RoleEntry{{ID: "c1", RoleID: "nope"}}
-	if _, err := snapshotOf(bad); !errors.Is(err, ErrInvalid) {
+	if _, err := snapshotOf(bad, "de"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("unknown role card: %v", err)
+	}
+}
+
+// Oracle: PR #73 review — a role set that does not name „formal" sends
+// neither form, one that switches it off sends „du": the history shows that
+// change instead of "off" → "off".
+func TestDiff_FormalNamedOffIsAChange(t *testing.T) {
+	legacy := "alt"
+	role := func(rules map[string]bool) func(*Snapshot) {
+		return func(s *Snapshot) {
+			s.SystemPrompt = &legacy
+			s.Behavior.ActiveRoleID = kbbehavior.LegacyRoleID
+			s.Behavior.CustomRoles = []kbbehavior.Role{{ID: kbbehavior.LegacyRoleID}}
+			s.Behavior.RoleRules = map[string]kbbehavior.RuleSet{kbbehavior.LegacyRoleID: {Rules: rules, CustomRules: []kbbehavior.CustomRule{}}}
+		}
+	}
+	a := snap(role(map[string]bool{}))
+	b := snap(role(map[string]bool{"formal": false}))
+	var found bool
+	for _, c := range diff(a, b, "de", noCategory) {
+		if c.Field == "rule" && c.From != nil && c.To != nil && *c.From == "nicht gesetzt" && *c.To == "off" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("formal unnamed → off is no change: %+v", diff(a, b, "de", noCategory))
 	}
 }

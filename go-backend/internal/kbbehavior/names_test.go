@@ -77,3 +77,32 @@ func TestReadNames(t *testing.T) {
 		t.Fatalf("ReadNames = %+v, want %+v", got, want)
 	}
 }
+
+// multiGetter counts lookups; single reads fail so a test sees which path ran.
+type multiGetter struct {
+	vals  map[string]*string
+	calls *int
+}
+
+func (m multiGetter) GetSiteConfigValue(context.Context, string) (*string, error) {
+	return nil, errors.New("single read")
+}
+
+func (m multiGetter) GetSiteConfigValues(_ context.Context, keys []string) (map[string]*string, error) {
+	*m.calls++
+	out := map[string]*string{}
+	for _, k := range keys {
+		out[k] = m.vals[k]
+	}
+	return out, nil
+}
+
+// Oracle: PR #73 review — a reader that reads several keys at once answers
+// both names in one lookup.
+func TestReadNames_OneLookup(t *testing.T) {
+	kira, calls := "Kira", 0
+	got := ReadNames(context.Background(), multiGetter{vals: map[string]*string{AssistantNameKey: &kira}, calls: &calls})
+	if want := (Names{Assistant: "Kira", System: DefaultSystemName}); got != want || calls != 1 {
+		t.Fatalf("ReadNames = %+v after %d lookups, want %+v after 1", got, calls, want)
+	}
+}

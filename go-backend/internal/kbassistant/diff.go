@@ -50,7 +50,7 @@ type view struct {
 
 func viewOf(s Snapshot, lang string) view {
 	b := kbbehavior.Effective(s.Behavior, s.SystemPrompt, lang)
-	return view{snap: s, behavior: b, start: kbstartpage.Effective(s.StartPage, b.ActiveRoleID, b.HasRole)}
+	return view{snap: s, behavior: b, start: kbstartpage.Effective(s.StartPage, b.ActiveRoleID, lang, b.HasRole)}
 }
 
 // diff lists what changed from a to b. categoryName resolves a category id.
@@ -167,7 +167,7 @@ func diff(a, b Snapshot, lang string, categoryName func(*string) string) []Chang
 		inRole := func(s string) string { return s + " (" + role + ")" }
 		sa, sb := kbbehavior.RulesFor(va.behavior, roleID), kbbehavior.RulesFor(vb.behavior, roleID)
 		for _, id := range kbbehavior.RuleIDs() {
-			value(AreaBehavior, "rule", inRole(kbbehavior.RuleLabel(id, lang)), onOff(sa.Rules[id]), onOff(sb.Rules[id]))
+			value(AreaBehavior, "rule", inRole(kbbehavior.RuleLabel(id, lang)), kbbehavior.RuleState(sa, id, lang), kbbehavior.RuleState(sb, id, lang))
 		}
 		rulesOf := func(set kbbehavior.RuleSet) map[string]kbbehavior.CustomRule {
 			m := map[string]kbbehavior.CustomRule{}

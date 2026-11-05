@@ -362,7 +362,9 @@ followed the free system prompt. Every answer surface reads this one compiled pr
   when the prompt is compiled — the global-only site_config keys `assistant_name` (default `JLU RAG`) and
   `system_name` (default `JLU RAG`), each at most 40 characters on one line; blank means the default.
   Every system template opens with „Du bist {{assistant_name}}, …"; the fixed RAG instructions carry no
-  identity of their own.
+  identity of their own. The legacy role (a pre-roles `system_prompt`) is followed by the former
+  identity line „Du bist {{assistant_name}}, ein fortschrittlicher, …"; an own role with neither prompt
+  nor rules answers as the default role.
 - `GET /kb/{id}/behavior` → `{behavior, customized, language}`. `behavior` is `{version: 1,
   activeRoleId, customRoles: [{id, name, description, prompt, icon}], roleRules: {roleId: {rules:
   {ruleId: bool}, customRules: [{id, text, on}]}}}`; `activeRoleId` names a template or one of
@@ -504,7 +506,7 @@ The settings dialog's „Startseite" and „Verhalten" in one save, with a versi
   `roleEntry` (added/removed, the role name); behavior: `roleStart` (ref = role name; how it starts:
   `input`, `task: <text>`, `task (prefill): <text>` or `file: <label> <instruction>`, `""` = not set up),
   `roleSuggestions` (ref = role name; `off`, `dynamic <n>` or `fixed: <q> | <q>`), `activeRole`, `customRole` (added/removed),
-  `customRoleEdited` (ref; name, prompt, description or icon), `rule` (ref = „rule label (role name)", `on`/`off`), `customRule` (ref = role name;
+  `customRoleEdited` (ref; name, prompt, description or icon), `rule` (ref = „rule label (role name)", `on`/`off`, or a localized „nicht gesetzt"/„not set" for a rule with an `offText` its role's set does not name — that sends neither form), `customRule` (ref = role name;
   added/removed), `customRuleText` (ref = role name), `customRuleToggled` (ref = „rule text (role name)").
 - `POST …/versions/{n}/restore` with `{baseVersion}` writes version `n`'s state as a new version
   (`kind: "restore"`, `restoredFrom: n`) and answers like `GET`; nothing is overwritten. The title

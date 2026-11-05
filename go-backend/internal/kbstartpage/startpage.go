@@ -163,21 +163,22 @@ func Default() StartPage {
 }
 
 // defaultStartOf is how roleID starts where the page sets up nothing: its
-// template's start („Vorlagen"), else the input field.
-func defaultStartOf(roleID string) EntryStart {
+// template's start („Vorlagen") in lang (kbbehavior.Lang), else the input
+// field.
+func defaultStartOf(roleID, lang string) EntryStart {
 	if t, ok := kbbehavior.TemplateStartOf(roleID); ok {
-		return templateEntry(t, "de")
+		return templateEntry(t, kbbehavior.Lang(lang))
 	}
 	return DefaultStart()
 }
 
 // ActiveStart is how the page's chat starts without a choice of roles: the
-// active role's start, set up on the page or its template's.
-func (p StartPage) ActiveStart(activeRoleID string) EntryStart {
+// active role's start, set up on the page or its template's (in lang).
+func (p StartPage) ActiveStart(activeRoleID, lang string) EntryStart {
 	if e, ok := p.RoleStarts[activeRoleID]; ok {
 		return e
 	}
-	return defaultStartOf(activeRoleID)
+	return defaultStartOf(activeRoleID, lang)
 }
 
 // ModeOf names what the page shows: "roles" with further role cards, else
@@ -186,7 +187,8 @@ func ModeOf(p StartPage, activeRoleID string) string {
 	if len(p.RoleEntries) > 0 {
 		return StartRoles
 	}
-	switch p.ActiveStart(activeRoleID).Kind {
+	// The kind of a template's start is the same in both languages.
+	switch p.ActiveStart(activeRoleID, "de").Kind {
 	case EntryTask:
 		return StartTask
 	case EntryFile:
@@ -202,16 +204,20 @@ func ModeOf(p StartPage, activeRoleID string) string {
 // input start's questions, switched off and kept drafts included. Only a legacyVersion page
 // is migrated: a settled page's StartMode is derived, and names the start of
 // the role that was active when it was derived, not a choice of the page.
+// An input page whose active role starts otherwise (a template's task or
+// file start) keeps its input field when it set up starter questions: the
+// role gets an input start with them. lang (kbbehavior.Lang) is the KB's
+// language, the one a template's texts are copied in.
 // Then the page's own fields are cleared and StartMode is derived (ModeOf).
 // Settling a settled page changes nothing.
-func Settle(p StartPage, activeRoleID string) StartPage {
+func Settle(p StartPage, activeRoleID, lang string) StartPage {
 	out := p
 	out.RoleStarts = make(map[string]EntryStart, len(p.RoleStarts)+1)
 	for id, e := range p.RoleStarts {
 		out.RoleStarts[id] = e
 	}
 	if p.Version < currentVersion {
-		start := out.ActiveStart(activeRoleID)
+		start := out.ActiveStart(activeRoleID, lang)
 		switch {
 		case p.StartMode == StartUpload && (start.Kind != EntryFile || p.UploadLabel != "" || p.UploadInstruction != ""):
 			file := EntryStart{Kind: EntryFile, Text: p.UploadLabel, Instruction: p.UploadInstruction, Suggestions: start.Suggestions}
@@ -227,6 +233,10 @@ func Settle(p StartPage, activeRoleID string) StartPage {
 		case p.StartMode == StartInput && start.Kind == EntryInput && !sameSuggestions(start.Suggestions, p.Suggestions):
 			start.Suggestions = p.Suggestions
 			out.RoleStarts[activeRoleID] = start
+		case p.StartMode == StartInput && start.Kind != EntryInput && !sameSuggestions(DefaultSuggestions(), p.Suggestions):
+			input := DefaultStart()
+			input.Suggestions = p.Suggestions
+			out.RoleStarts[activeRoleID] = input
 		}
 	}
 	out.Version = currentVersion
@@ -416,9 +426,9 @@ func Normalize(p StartPage) StartPage {
 // a role in the behavior settings removes them there too; this read-side
 // filter keeps a role deleted any other way from leaving a dead card behind,
 // and a page stored before roles were unique from showing one twice.
-func Effective(stored *StartPage, activeRoleID string, hasRole func(string) bool) StartPage {
+func Effective(stored *StartPage, activeRoleID, lang string, hasRole func(string) bool) StartPage {
 	if stored == nil {
-		return Settle(Default(), activeRoleID)
+		return Settle(Default(), activeRoleID, lang)
 	}
 	out := Normalize(*stored)
 	for id := range out.RoleStarts {
@@ -435,7 +445,7 @@ func Effective(stored *StartPage, activeRoleID string, hasRole func(string) bool
 		}
 	}
 	out.RoleEntries = entries
-	return Settle(out, activeRoleID)
+	return Settle(out, activeRoleID, lang)
 }
 
 // ValidateTemplateStart checks a role template's start (kbbehavior, set in

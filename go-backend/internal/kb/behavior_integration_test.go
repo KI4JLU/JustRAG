@@ -47,9 +47,17 @@ func insertRoleChat(t *testing.T, pool *pgxpool.Pool, kbID, userID string, roleI
 	return id
 }
 
+// legacyAnswer is what a German KB answering in its pre-roles prompt p sends:
+// p byte for byte, then the identity the fixed instructions carried before
+// roles, with the default names.
+func legacyAnswer(p string) string {
+	got, _ := kbbehavior.Compile(kbbehavior.Effective(nil, &p, "de"), "", "de")
+	return kbbehavior.DefaultNames().Resolve(got)
+}
+
 // Oracle: the pre-roles contract — a KB whose behavior is still NULL (a row
-// an older build wrote) answers with its system_prompt byte for byte, and in
-// the default template role when it has none.
+// an older build wrote) answers with its system_prompt byte for byte (plus
+// the former identity line), and in the default template role when it has none.
 func TestBehavior_UncustomizedKBKeepsItsPromptByteForByte(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -58,7 +66,7 @@ func TestBehavior_UncustomizedKBKeepsItsPromptByteForByte(t *testing.T) {
 	legacy := "Du bist X.\n\n  Antworte kurz.  \n"
 	withPrompt := insertBehaviorKB(t, pool, &legacy)
 	got, err := st.GetKBSystemPrompt(ctx, withPrompt)
-	if err != nil || got == nil || *got != legacy {
+	if err != nil || got == nil || *got != legacyAnswer(legacy) {
 		t.Fatalf("got %v (%v), want the legacy prompt unchanged", got, err)
 	}
 
@@ -168,7 +176,7 @@ func TestBehavior_PatchSystemPromptActivatesLegacyRole(t *testing.T) {
 	if _, err := ks.UpdateKnowledgeBase(ctx, kbID, kb.KBUpdate{SystemPrompt: &prompt}); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
-	if got, err := ks.GetKBSystemPrompt(ctx, kbID); err != nil || got == nil || *got != prompt {
+	if got, err := ks.GetKBSystemPrompt(ctx, kbID); err != nil || got == nil || *got != legacyAnswer(prompt) {
 		t.Fatalf("after patch = %v (%v), want %q", got, err, prompt)
 	}
 	s, err := kbbehavior.NewStore(pool).Load(ctx, kbID)
@@ -272,7 +280,7 @@ func TestBehavior_NewKBDefaults(t *testing.T) {
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), `DELETE FROM knowledge_bases WHERE id = $1::uuid`, withPrompt.ID)
 	}) //nolint:errcheck
-	if got, _ := st.GetKBSystemPrompt(ctx, withPrompt.ID); got == nil || *got != p {
+	if got, _ := st.GetKBSystemPrompt(ctx, withPrompt.ID); got == nil || *got != legacyAnswer(p) {
 		t.Errorf("KB created with a prompt: %v, want it unchanged", got)
 	}
 }

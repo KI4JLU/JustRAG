@@ -30,7 +30,10 @@ WHERE behavior IS NULL;
 -- 2. Customized, but the role „legacy" is empty: no system prompt, no name or
 -- description of its author's, no rules and no start page card. It goes, and
 -- where it was the active role the default template role takes over. A legacy
--- role its author named or gave rules to stays as their own role.
+-- role its author named or gave rules to stays as their own role. A name or
+-- description that is only a default the settings once filled in (the KB's
+-- name, „Bisheriger Prompt", „Eigene Rolle", the default descriptions; either
+-- language — kbbehavior.DropLegacyDefaults) counts as none of the author's.
 UPDATE knowledge_bases kb SET behavior = jsonb_set(
     jsonb_set(kb.behavior, '{customRoles}', COALESCE(
         (SELECT jsonb_agg(e.r ORDER BY e.o)
@@ -47,8 +50,11 @@ WHERE COALESCE(kb.system_prompt, '') = ''
   AND EXISTS (
       SELECT 1 FROM jsonb_array_elements(kb.behavior->'customRoles') r
        WHERE r->>'id' = 'legacy'
-         AND COALESCE(r->>'name', '') = ''
-         AND COALESCE(r->>'description', '') = '')
+         AND (COALESCE(r->>'name', '') IN ('', 'Eigene Rolle', 'Custom role', 'Bisheriger Prompt', 'Previous prompt')
+              OR r->>'name' = kb.name)
+         AND COALESCE(r->>'description', '') IN ('',
+              'Der bisher hinterlegte System-Prompt.', 'The system prompt set before roles existed.',
+              'Durchsucht die bereitgestellten Quellen.', 'Searches the provided sources.'))
   AND NOT (COALESCE(kb.behavior->'roleRules', '{}'::jsonb) ? 'legacy')
   AND NOT EXISTS (
       SELECT 1 FROM jsonb_array_elements(CASE

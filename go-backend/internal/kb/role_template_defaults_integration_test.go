@@ -296,7 +296,7 @@ func TestRoleTemplateDefaults_DeletedTemplatesFallBackToChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := kbstartpage.Effective(stored, settings.Behavior.ActiveRoleID, settings.Behavior.HasRole)
+	page := kbstartpage.Effective(stored, settings.Behavior.ActiveRoleID, settings.Language, settings.Behavior.HasRole)
 	// Without further cards the page starts as the active role does
 	// (developer ruling 05.11.2026): Zusammenfassen, with its start prompt.
 	if len(page.RoleEntries) != 0 || len(page.RoleStarts) != 0 || page.StartMode != kbstartpage.StartTask {

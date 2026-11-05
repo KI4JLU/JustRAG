@@ -65,6 +65,10 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 		"legacy with rules":  insert("m-rules-legacy", nil, `{"version":1,"activeRoleId":"legacy","customRoles":[{"id":"legacy"}],"roleRules":{"legacy":{"rules":{"pages":true},"customRules":[]}}}`, ""),
 		"legacy on the page": insert("m-page-legacy", nil, emptyLegacy, `{"version":1,"roleEntries":[{"id":"re-1","roleId":"legacy"}]}`),
 		"legacy with prompt": insert("m-prompt-legacy", &legacyPrompt, `{"version":1,"activeRoleId":"legacy","customRoles":[{"id":"legacy"}],"roleRules":{}}`, ""),
+		// Oracle: PR #73 review — defaults the settings once filled in (the
+		// KB's name, a former default description) are no name of the author's.
+		"legacy with defaults": insert("m-default-legacy", nil, `{"version":1,"activeRoleId":"legacy","customRoles":[{"id":"legacy","name":"m-default-legacy","description":"Durchsucht die bereitgestellten Quellen."}],"roleRules":{}}`, ""),
+		"legacy former name":   insert("m-former-legacy", nil, `{"version":1,"activeRoleId":"legacy","customRoles":[{"id":"legacy","name":"Bisheriger Prompt"}],"roleRules":{}}`, ""),
 	}
 	read := func() map[string]string {
 		out := map[string]string{}
@@ -93,11 +97,15 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 
 	defaultPrompt, _ := kbbehavior.Compile(kbbehavior.Default(), "", "de")
 	defaultPrompt = kbbehavior.DefaultNames().Resolve(defaultPrompt)
+	legacyAnswer, _ := kbbehavior.Compile(kbbehavior.Effective(nil, &legacyPrompt, "de"), "", "de")
+	legacyAnswer = kbbehavior.DefaultNames().Resolve(legacyAnswer)
 	for name, want := range map[string]string{
-		"null with prompt":   legacyPrompt,
-		"null without":       defaultPrompt,
-		"empty legacy":       defaultPrompt,
-		"legacy with prompt": legacyPrompt,
+		"null with prompt":     legacyAnswer,
+		"null without":         defaultPrompt,
+		"empty legacy":         defaultPrompt,
+		"legacy with prompt":   legacyAnswer,
+		"legacy with defaults": defaultPrompt,
+		"legacy former name":   defaultPrompt,
 	} {
 		if after[name] != want {
 			t.Errorf("%s: answers %.60q, want %.60q", name, after[name], want)
@@ -106,6 +114,15 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 	for _, name := range []string{"null with prompt", "null without", "named legacy", "legacy with rules", "legacy on the page", "legacy with prompt"} {
 		if after[name] != before[name] {
 			t.Errorf("%s: the answer prompt changed:\n%.80q\n%.80q", name, before[name], after[name])
+		}
+	}
+	for _, name := range []string{"legacy with defaults", "legacy former name"} {
+		s, err := kbbehavior.NewStore(tx).Load(ctx, kbs[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Behavior.HasRole(kbbehavior.LegacyRoleID) {
+			t.Errorf("%s: an empty legacy role with default texts must go: %+v", name, s.Behavior)
 		}
 	}
 	if before["empty legacy"] == defaultPrompt {

@@ -87,11 +87,25 @@ type SiteConfigGetter interface {
 	GetSiteConfigValue(ctx context.Context, key string) (*string, error)
 }
 
+// siteConfigMultiGetter reads several global site_config values in one call.
+type siteConfigMultiGetter interface {
+	GetSiteConfigValues(ctx context.Context, keys []string) (map[string]*string, error)
+}
+
 // ReadNames reads the names through r. A failed read is logged and reads as
 // the default, like an unset value: the answer goes on.
+// A reader that also reads several keys at once (GetSiteConfigValues) reads
+// both names in one lookup.
 func ReadNames(ctx context.Context, r SiteConfigGetter) Names {
 	if r == nil {
 		return DefaultNames()
+	}
+	if multi, ok := r.(siteConfigMultiGetter); ok {
+		vals, err := multi.GetSiteConfigValues(ctx, []string{AssistantNameKey, SystemNameKey})
+		if err == nil {
+			return namesFrom(vals[AssistantNameKey], vals[SystemNameKey])
+		}
+		logctx.From(ctx).Warn("kbbehavior: reading the names failed; reading them one by one", "error", err)
 	}
 	read := func(key string) *string {
 		v, err := r.GetSiteConfigValue(ctx, key)

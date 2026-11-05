@@ -182,8 +182,8 @@ var ruleGroups = []templateRuleGroup{
 				id:          "formal",
 				label:       localized{"Formelle Anrede", "Formal address"},
 				description: localized{"Nutzerinnen und Nutzer mit „Sie“ statt „du“ ansprechen.", "Address users formally (in German „Sie“ instead of „du“)."},
-				text:        localized{"Sprich die Nutzerin bzw. den Nutzer mit „Sie“ an.", "Address the user formally (in German with „Sie“)."},
-				offText:     localized{"Sprich die Nutzerin bzw. den Nutzer mit „du“ an.", "Address the user informally (in German with „du“)."},
+				text:        localized{"Sprich die Nutzerin bzw. den Nutzer mit „Sie“ an.", "Address the user formally; in German, use „Sie“."},
+				offText:     localized{"Sprich die Nutzerin bzw. den Nutzer mit „du“ an.", "Address the user informally; in German, use „du“."},
 			},
 		},
 	},
@@ -221,7 +221,15 @@ var rulesHeading = localized{"Regeln:", "Rules:"}
 // without a prompt was shown a role named after the KB, one with a prompt
 // „Bisheriger Prompt".
 var (
-	legacyRoleName                   = localized{"Eigene Rolle", "Custom role"}
+	legacyRoleName = localized{"Eigene Rolle", "Custom role"}
+	// legacyIdentity is the identity the fixed answer instructions opened with
+	// before roles existed (prompts.ChatSystemPrompt, „Du bist JustRAG, …"). A
+	// pre-roles prompt did not have to say who answers, so the legacy role
+	// keeps that line after its prompt, named by the assistant_name setting.
+	legacyIdentity = localized{
+		"Du bist {{assistant_name}}, ein fortschrittlicher, genauigkeitsorientierter Forschungsassistent für den akademischen Einsatz.",
+		"You are {{assistant_name}}, an advanced, accuracy-focused research assistant for academic use.",
+	}
 	legacyRoleDescription            = localized{"Der bisher hinterlegte System-Prompt.", "The system prompt set before roles existed."}
 	formerLegacyRoleName             = localized{"Bisheriger Prompt", "Previous prompt"}
 	formerLegacyRoleDescriptionEmpty = localized{"Durchsucht die bereitgestellten Quellen.", "Searches the provided sources."}

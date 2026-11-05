@@ -131,6 +131,30 @@ func RuleLabel(ruleID, lang string) string {
 	return ""
 }
 
+// RuleState is how rule ruleID stands in set, as the version history shows it:
+// "on", "off", or — for a rule that sends its offText while switched off
+// („formal") — a localized "not set" while set does not name it, since that
+// sends neither form.
+func RuleState(set RuleSet, ruleID, lang string) string {
+	on, named := set.Rules[ruleID]
+	switch {
+	case on:
+		return "on"
+	case named:
+		return "off"
+	}
+	for _, g := range ruleGroups {
+		for _, r := range g.rules {
+			if r.id == ruleID && r.offText.de != "" {
+				return ruleUnset.in(lang)
+			}
+		}
+	}
+	return "off"
+}
+
+var ruleUnset = localized{"nicht gesetzt", "not set"}
+
 // RuleIDs lists the catalog's rule ids in catalog order.
 func RuleIDs() []string {
 	var ids []string

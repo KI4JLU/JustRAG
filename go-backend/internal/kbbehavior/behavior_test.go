@@ -10,12 +10,13 @@ func strp(s string) *string { return &s }
 
 // Oracle: the pre-roles contract — a KB whose behavior is still NULL and
 // that has a system prompt answers with it byte for byte, including
-// whitespace; without one it answers in the default template role.
+// whitespace, followed by the identity the fixed instructions carried before
+// roles (PR #73 review); without one it answers in the default template role.
 func TestCompile_NullBehavior(t *testing.T) {
 	for _, sp := range []*string{strp("Du bist X.\n\n  Antworte kurz.  \n"), strp(strings.Repeat("ä", 8000))} {
 		for _, lang := range []string{"de", "en"} {
 			got, found := Compile(Effective(nil, sp, lang), "", lang)
-			if got != *sp || !found {
+			if got != *sp+"\n\n"+legacyIdentity.in(lang) || !found {
 				t.Errorf("sp=%.20q lang=%s: got %.40q found=%v", *sp, lang, got, found)
 			}
 		}
@@ -140,7 +141,7 @@ func TestCompile_RulesWithoutRolePrompt(t *testing.T) {
 	b := Effective(&Behavior{Version: 1, ActiveRoleID: LegacyRoleID, CustomRoles: []Role{{ID: LegacyRoleID}},
 		RoleRules: map[string]RuleSet{LegacyRoleID: {Rules: map[string]bool{"pages": true}}}}, nil, "de")
 	got, _ := Compile(b, "", "de")
-	if got != "Regeln:\n- Nenne zu jeder zitierten Quelle Seite oder Abschnitt." {
+	if got != legacyIdentity.in("de")+"\n\nRegeln:\n- Nenne zu jeder zitierten Quelle Seite oder Abschnitt." {
 		t.Errorf("got %q", got)
 	}
 }
@@ -392,7 +393,7 @@ func TestCompile_AddressDefaultsToDu(t *testing.T) {
 		{name: "own role, formal off", b: own(map[string]bool{"formal": false}), lang: "de", want: du},
 		{name: "own role, not named", b: own(map[string]bool{"pages": true}), lang: "de", wantNone: true},
 		{name: "legacy without rules", b: Effective(nil, &legacy, "de"), lang: "de", wantNone: true},
-		{name: "english template", b: Default(), lang: "en", want: "informally (in German with „du“)"},
+		{name: "english template", b: Default(), lang: "en", want: "informally; in German, use „du“"},
 	} {
 		got, _ := Compile(tc.b, "", tc.lang)
 		switch {
@@ -406,7 +407,7 @@ func TestCompile_AddressDefaultsToDu(t *testing.T) {
 			t.Errorf("%s: both forms:\n%s", tc.name, got)
 		}
 	}
-	if got, _ := Compile(Effective(nil, &legacy, "de"), "", "de"); got != legacy {
+	if got, _ := Compile(Effective(nil, &legacy, "de"), "", "de"); got != legacy+"\n\n"+legacyIdentity.in("de") {
 		t.Errorf("legacy prompt changed: %q", got)
 	}
 }
