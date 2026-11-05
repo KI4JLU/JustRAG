@@ -3,6 +3,7 @@ package worker
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,23 @@ func TestHealthServer_Liveness(t *testing.T) {
 	}
 	if rec.Body.String() != "ok" {
 		t.Errorf("expected body 'ok', got %q", rec.Body.String())
+	}
+}
+
+func TestHealthServer_Metrics(t *testing.T) {
+	hs := NewHealthServer(0)
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	hs.srv.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// promhttp always emits the Go runtime collectors on the default registry.
+	body := rec.Body.String()
+	if !strings.Contains(body, "go_goroutines") {
+		t.Errorf("expected prometheus text exposition (go_goroutines), got %d bytes", len(body))
 	}
 }
 

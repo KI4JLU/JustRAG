@@ -8,10 +8,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/justrag/go-backend/internal/safego"
 )
 
-// HealthServer exposes /healthz and /readyz endpoints for K8s probes.
+// HealthServer exposes /healthz and /readyz endpoints for K8s probes and
+// /metrics (the worker process's Prometheus registry — the file parser runs
+// here, so parser metrics such as rustparser_shadow_total are only
+// observable from the worker, not from the server's /metrics).
 type HealthServer struct {
 	ready atomic.Bool
 	srv   *http.Server
@@ -26,6 +31,7 @@ func NewHealthServer(port int) *HealthServer {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
+	mux.HandleFunc("GET /metrics", promhttp.Handler().ServeHTTP)
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if hs.ready.Load() {
 			w.WriteHeader(http.StatusOK)
