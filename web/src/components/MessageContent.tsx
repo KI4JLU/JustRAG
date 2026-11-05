@@ -18,9 +18,9 @@ import { CITED_BLOCK_SELECTOR, CitationChipContext, passageFor, type ChipSheet, 
 import { citingRange } from '../utils/citingRange';
 import { useSourcePanel } from '../contexts/SourcePanelContext';
 import { SourcePreview } from './sources/SourcePreview';
-import { TrajectoryPanel } from './TrajectoryPanel';
+import { AgentSteps } from './agentSteps/AgentSteps';
 import {
-    Button, CodeBlock, Drawer, DrawerClose, DrawerContent, DrawerTitle, Reasoning, ReasoningContent, ReasoningTrigger, Shimmer,
+    Button, CodeBlock, Drawer, DrawerClose, DrawerContent, DrawerTitle,
 } from '@ki4jlu/design-system';
 import { MarkdownTable } from './MarkdownTable';
 
@@ -31,6 +31,9 @@ interface MessageContentProps {
     content: string;
     reasoning?: string;
     isThinking?: boolean;
+    /** The answer is streaming: the step timeline's header names the current
+     *  step until the answer text starts. */
+    isStreaming?: boolean;
     sources?: MessageSource[];
     /**
      * Raw citation numbers the deterministic n-gram validator marked as
@@ -47,10 +50,9 @@ interface MessageContentProps {
     /** The answer's per-answer numbering (utils/sourceDisplay); built from content + sources when omitted. */
     citationModel?: CitationModel;
     /**
-     * Streaming trajectory: one entry per orchestrator decision point. When
-     * present and non-empty, a collapsible "Reasoning steps" panel is rendered
-     * above the answer body. The list is intentionally append-only — the
-     * useChatStream hook owns mutation.
+     * The answer's agent steps (live from useChatStream, or stored and
+     * reloaded): rendered with the reasoning as one step timeline above the
+     * answer body (AgentSteps). Append-only — useChatStream owns mutation.
      */
     trajectory?: TrajectoryEvent[];
     /**
@@ -70,11 +72,10 @@ interface MessageContentProps {
      */
     activeCitation?: { n: number; raw: number; occ?: number } | null;
     /**
-     * Whether the chain-of-thought panel is expanded. Controlled from the chat
-     * view (keyed by message id) rather than left to the native <details> DOM
-     * state: the message list is virtualized, so the node is destroyed when the
-     * message scrolls out of view and would come back collapsed — changing the
-     * item's measured height mid-scroll and jerking the scroll position.
+     * Whether the step timeline (steps and reasoning) is expanded. Controlled
+     * from the chat view (keyed by message id) rather than left to local
+     * state: the transcript remounts on chat switch, and a section that came
+     * back with a different open state would change the row's height.
      */
     reasoningOpen?: boolean;
     onToggleReasoning?: () => void;
@@ -275,15 +276,7 @@ function buildMarkdownComponents(language: 'de' | 'en') {
     };
 }
 
-// KI-912 preview: English labels for the DS Reasoning trigger (its defaults are German).
-const englishThinkingMessage = (isStreaming: boolean, duration?: number) => {
-    if (isStreaming) return <Shimmer as="span" duration={1}>Thinking…</Shimmer>;
-    if (duration === undefined) return <span>Thought for a few seconds</span>;
-    if (duration < 1) return <span>Thought for less than a second</span>;
-    return <span>Thought for {duration === 1 ? '1 second' : `${duration} seconds`}</span>;
-};
-
-const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectCitations, citationSpans, citationModel, trajectory, flaggedClaims, onOpenPanel, onShowAllSources, activeCitation, reasoningOpen = false, onToggleReasoning }: MessageContentProps) => {
+const MessageContent = memo(({ content, reasoning, isThinking, isStreaming, sources, suspectCitations, citationSpans, citationModel, trajectory, flaggedClaims, onOpenPanel, onShowAllSources, activeCitation, reasoningOpen = false, onToggleReasoning }: MessageContentProps) => {
     const { language, t } = useTheme();
     const markdownComponents = useMemo(() => buildMarkdownComponents(language), [language]);
     const finePointer = useFinePointer();
@@ -339,33 +332,44 @@ const MessageContent = memo(({ content, reasoning, isThinking, sources, suspectC
         return () => { highlights.delete('citation-focus'); };
     }, [activeRaw, activeOcc, content]);
 
+    // The step timeline is expanded while the answer is being prepared and
+    // collapses as soon as its text starts streaming, so the answer does not
+    // move under the reader. Collapsing it before that holds for this turn
+    // only (local state) and never flips the stored open state the answer
+    // continues from; that one is caller-owned (useMessageSections).
+    const preparing = !!isStreaming && !content;
+    const [collapsedWhilePreparing, setCollapsedWhilePreparing] = useState(false);
+    const stepsOpen = preparing ? !collapsedWhilePreparing : reasoningOpen;
+    const setStepsOpen = useCallback((open: boolean) => {
+        if (preparing) setCollapsedWhilePreparing(!open);
+        else if (open !== reasoningOpen) onToggleReasoning?.();
+    }, [preparing, reasoningOpen, onToggleReasoning]);
+
     const closeSheet = useCallback(() => setSheet(null), []);
     const sheetPassage = sheet && sheetSource ? passageFor(sheetSource, sheet.raw) : undefined;
     const sheetReason = sheet ? suspectCitations?.get(sheet.raw) : undefined;
     const citing = useMemo(() => citingTextByRaw(content), [content]);
+    // The thinking row's detail. Reasoning models often think in English
+    // whatever the UI language; mark it so it is read out in English.
+    const renderReasoning = useCallback(() => (
+        <div className="markdown-content reasoning-markdown" lang={reasoning && /[äöüß]/i.test(reasoning) ? undefined : 'en'}>
+            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={markdownComponents}>
+                {normalizeMathDelimiters(reasoning ?? '')}
+            </ReactMarkdown>
+        </div>
+    ), [reasoning, markdownComponents]);
 
     return (
         <>
-            {trajectory && trajectory.length > 0 && (
-                <TrajectoryPanel trajectory={trajectory} language={language} />
-            )}
-            {reasoning && (
-                <Reasoning
-                    className="mb-4"
-                    isStreaming={!!isThinking}
-                    defaultOpen={reasoningOpen || !!isThinking}
-                    onOpenChange={(open) => { if (open !== reasoningOpen) onToggleReasoning?.(); }}
-                >
-                    <ReasoningTrigger getThinkingMessage={language === 'en' ? englishThinkingMessage : undefined} />
-                    <ReasoningContent lang={/[äöüß]/i.test(reasoning) ? undefined : 'en'}>
-                        <div className="markdown-content">
-                            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={markdownComponents}>
-                                {normalizeMathDelimiters(reasoning)}
-                            </ReactMarkdown>
-                        </div>
-                    </ReasoningContent>
-                </Reasoning>
-            )}
+            <AgentSteps
+                trajectory={trajectory}
+                reasoning={reasoning}
+                working={preparing}
+                thinkingLive={!!isThinking}
+                open={stepsOpen}
+                onOpenChange={setStepsOpen}
+                renderReasoning={renderReasoning}
+            />
             <CitationChipContext.Provider value={chipContext}>
                 <div className="markdown-content" ref={bodyRef}>
                     <ReactMarkdown

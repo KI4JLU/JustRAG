@@ -79,6 +79,7 @@ func (m *mockStore) AddMessage(_ context.Context, p AddMessageParams) (*MessageR
 		Role:       p.Role,
 		Content:    p.Content,
 		IsEnhanced: p.IsEnhanced,
+		Trajectory: p.Trajectory,
 		CreatedAt:  time.Now(),
 	}
 	m.messages = append(m.messages, *msg)
@@ -98,6 +99,15 @@ func (m *mockStore) UpdateMessageContent(_ context.Context, _ string, _ string) 
 }
 
 func (m *mockStore) UpdateMessageTraceID(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
+func (m *mockStore) UpdateMessageTrajectory(_ context.Context, messageID string, steps []TrajectoryEvent) error {
+	for i := range m.messages {
+		if m.messages[i].ID == messageID {
+			m.messages[i].Trajectory = steps
+		}
+	}
 	return nil
 }
 

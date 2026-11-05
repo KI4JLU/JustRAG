@@ -630,3 +630,46 @@ describe('useChat.handleSelectChat — conflicts (reload path)', () => {
     expect(result.current.messageTree.get('a2')?.conflicts).toBeUndefined();
   });
 });
+
+// The agent steps are stored with the answer (messages.trajectory) and come
+// back on reload: handleSelectChat must put them on Message.trajectory, in
+// the stored order, so the step timeline shows what it showed live.
+describe('useChat.handleSelectChat — agent steps (reload path)', () => {
+  const chat: ChatEntry = {
+    id: 'c1', kbId: 'kb1', userId: 'u1', title: 'Chat', type: 'chat',
+    createdAt: '2026-01-01', updatedAt: '2026-01-01',
+  };
+
+  it('übernimmt trajectory aus der Nachricht auf Message.trajectory', async () => {
+    const trajectory = [
+      { stage: 'plan', queries: ['Frist', 'Antrag'] },
+      { stage: 'reasoning' },
+      { stage: 'answer', decision: 'answered_after_plan' },
+    ];
+    mockedAxios.get.mockResolvedValueOnce({
+      data: [
+        { id: 'u1', role: 'user', content: 'Wann ist die Frist?' },
+        { id: 'a1', role: 'ai', content: 'Am 1. März.', reasoning: 'Ich prüfe die PO.', trajectory },
+      ],
+    });
+    const { result } = renderUseChat();
+    await act(async () => {
+      await result.current.handleSelectChat(chat);
+    });
+    expect(result.current.messageTree.get('a1')?.trajectory).toEqual(trajectory);
+  });
+
+  it('lässt trajectory undefined, wenn der Schlüssel fehlt', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: [
+        { id: 'u2', role: 'user', content: 'Frage' },
+        { id: 'a2', role: 'ai', content: 'Antwort' },
+      ],
+    });
+    const { result } = renderUseChat();
+    await act(async () => {
+      await result.current.handleSelectChat(chat);
+    });
+    expect(result.current.messageTree.get('a2')?.trajectory).toBeUndefined();
+  });
+});
