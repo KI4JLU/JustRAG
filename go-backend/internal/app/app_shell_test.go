@@ -88,8 +88,8 @@ func newShellTestDir(t *testing.T) string {
 	return dir
 }
 
-// Every way to reach the shell — the root, /index.html (the service worker
-// precaches that URL) and a client-side route — gets the renamed one.
+// Every way to reach the shell — the root, /index.html and a client-side
+// route — gets the renamed one.
 func TestStaticServing_ShellCarriesTheAppName(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
