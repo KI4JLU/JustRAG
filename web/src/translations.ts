@@ -1,4 +1,5 @@
 import { assistantTranslations } from './translations.assistant';
+import { agentStepsTranslations } from './translations.agentSteps';
 
 export type Language = 'en' | 'de';
 
@@ -3196,4 +3197,7 @@ export const translations = {
 
     // Assistant settings: Startseite + Verhalten (translations.assistant.ts)
     ...assistantTranslations,
+
+    // Agent step timeline above an answer (translations.agentSteps.ts)
+    ...agentStepsTranslations,
 };

@@ -483,6 +483,7 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                             content={message.content}
                             reasoning={message.reasoning}
                             isThinking={isThinking}
+                            isStreaming={!!isStreaming}
                             sources={message.sources}
                             citationModel={citationModel}
                             suspectCitations={suspect}

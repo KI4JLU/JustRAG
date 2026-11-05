@@ -164,6 +164,9 @@ func (a chatStoreAdapter) UpdateMessageContent(_ context.Context, _ string, _ st
 func (a chatStoreAdapter) UpdateMessageTraceID(_ context.Context, _ string, _ string) error {
 	return nil
 }
+func (a chatStoreAdapter) UpdateMessageTrajectory(_ context.Context, _ string, _ []chat.TrajectoryEvent) error {
+	return nil
+}
 func (a chatStoreAdapter) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
 	return nil
 }
