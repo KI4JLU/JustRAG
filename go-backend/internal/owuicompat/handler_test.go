@@ -33,6 +33,24 @@ func TestModelsListsOneModel(t *testing.T) {
 	}
 }
 
+// The plugin shows the model's name; it is the app's name, the id stays.
+// Oracle: docs/api-contracts/owui-compat.md (GET /owui/api/models).
+func TestModelsNamedAfterTheApp(t *testing.T) {
+	for _, tc := range []struct{ appName, want string }{{"THM Docs", "THM Docs"}, {"", ModelID}} {
+		h := NewHandler(Deps{Store: newFakeStore(), Config: fakeConfig{enabled: true}, AppName: tc.appName})
+		rec := do(h.Gate(http.HandlerFunc(h.Models)), httptest.NewRequest("GET", "/owui/api/models", nil))
+		var body struct {
+			Data []struct{ ID, Name string } `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Data) != 1 {
+			t.Fatalf("body = %s", rec.Body.String())
+		}
+		if body.Data[0].Name != tc.want || body.Data[0].ID != ModelID {
+			t.Errorf("AppName %q: model = %+v, want name %q and id %q", tc.appName, body.Data[0], tc.want, ModelID)
+		}
+	}
+}
+
 func TestNoUserIs401Detail(t *testing.T) {
 	h := NewHandler(Deps{Store: newFakeStore(), Config: fakeConfig{enabled: true}})
 	rec := httptest.NewRecorder()

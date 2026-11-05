@@ -37,6 +37,40 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Redis.Port != 6379 {
 		t.Errorf("expected Redis.Port=6379, got %d", cfg.Redis.Port)
 	}
+	if cfg.AppNamePrefix != "JLU" || cfg.AppNameProduct != "RAG" {
+		t.Errorf("expected app name JLU/RAG, got %q/%q", cfg.AppNamePrefix, cfg.AppNameProduct)
+	}
+}
+
+func TestAppNameFromEnv(t *testing.T) {
+	tests := []struct {
+		name, prefix, product   string
+		wantPrefix, wantProduct string
+	}{
+		{"both set", "THM", "Docs", "THM", "Docs"},
+		{"surrounding whitespace dropped", "  THM ", "\tDocs\n", "THM", "Docs"},
+		{"blank keeps the default", "   ", "", "JLU", "RAG"},
+		{"one part only", "", "Wissen", "JLU", "Wissen"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("JWT_SECRET", "test-secret-that-is-at-least-32-characters-long")
+			t.Setenv("NODE_ENV", "")
+			t.Setenv("APP_NAME_PREFIX", tt.prefix)
+			t.Setenv("APP_NAME_PRODUCT", tt.product)
+
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.AppNamePrefix != tt.wantPrefix || cfg.AppNameProduct != tt.wantProduct {
+				t.Errorf("got %q/%q, want %q/%q", cfg.AppNamePrefix, cfg.AppNameProduct, tt.wantPrefix, tt.wantProduct)
+			}
+			if want := tt.wantPrefix + " " + tt.wantProduct; cfg.AppName() != want {
+				t.Errorf("AppName() = %q, want %q", cfg.AppName(), want)
+			}
+		})
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {

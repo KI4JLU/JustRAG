@@ -54,7 +54,7 @@ func TestValidateConflicts(t *testing.T) {
 		{
 			name:     "pre-existing incoherent state does not block unrelated saves",
 			existing: map[string]*string{"raptor_enabled": confSP("true"), "parent_child_enabled": confSP("true")},
-			updates:  []KeyValue{{Key: "logo_path", Value: confSP("/uploads/logo/x.png")}},
+			updates:  []KeyValue{{Key: "imprint", Value: confSP("Impressum")}},
 		},
 		{
 			name:     "enabling one half while the other is explicitly false is allowed",

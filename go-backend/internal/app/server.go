@@ -28,8 +28,7 @@ func isUploadExempt(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/api/site-config/logo", // logo upload (siteconfig.maxLogoSize)
-		"/api/describe-image",                       // vision input, 10 MiB (misc.maxImageBytes)
+	case "/api/describe-image", // vision input, 10 MiB (misc.maxImageBytes)
 		"/api/admin/agent/template",                 // template upload, 10 MiB (adminmaintenance)
 		"/api/admin/eval/golden-sets",               // golden-set JSONL upload, 5 MiB (admineval)
 		"/api/library/files",                        // user library upload, 500 MiB (uploadcheck.MaxUploadSize)

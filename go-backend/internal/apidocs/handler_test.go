@@ -1,6 +1,7 @@
 package apidocs_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestServeSpec(t *testing.T) {
-	h := apidocs.NewHandler()
+	h := apidocs.NewHandler("THM Docs")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/openapi.json", nil)
 	w := httptest.NewRecorder()
 
@@ -26,13 +27,21 @@ func TestServeSpec(t *testing.T) {
 	if !strings.Contains(body, `"openapi"`) {
 		t.Fatal("response does not contain openapi field")
 	}
-	if !strings.Contains(body, `"JustRAG Public API"`) {
-		t.Fatal("response does not contain expected title")
+	// The spec names the configured app, never the embedded default.
+	if !strings.Contains(body, `"THM Docs Public API"`) {
+		t.Fatal("response does not contain the title with the app name")
+	}
+	if strings.Contains(body, "JustRAG") {
+		t.Error("the spec still names JustRAG")
+	}
+	// Machine identifiers stay: the Open WebUI model id is a contract.
+	if !strings.Contains(body, `"justrag"`) {
+		t.Error("the model id justrag must not be renamed")
 	}
 }
 
 func TestServeDocs(t *testing.T) {
-	h := apidocs.NewHandler()
+	h := apidocs.NewHandler("THM Docs")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil)
 	w := httptest.NewRecorder()
 
@@ -50,5 +59,35 @@ func TestServeDocs(t *testing.T) {
 	}
 	if !strings.Contains(body, "/api/v1/openapi.json") {
 		t.Fatal("response does not contain spec URL")
+	}
+	if !strings.Contains(body, "<title>THM Docs API Docs</title>") {
+		t.Error("the docs page title does not name the app")
+	}
+}
+
+// A name with JSON and HTML metacharacters still yields a valid spec and an
+// escaped page title.
+func TestNewHandler_EscapesTheAppName(t *testing.T) {
+	name := `A "B" <C> & D\`
+	h := apidocs.NewHandler(name)
+
+	w := httptest.NewRecorder()
+	h.ServeSpec(w, httptest.NewRequest(http.MethodGet, "/api/v1/openapi.json", nil))
+	var spec struct {
+		Info struct {
+			Title string `json:"title"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("renamed spec is not valid JSON: %v", err)
+	}
+	if want := name + " Public API"; spec.Info.Title != want {
+		t.Errorf("title = %q, want %q", spec.Info.Title, want)
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeDocs(w, httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil))
+	if !strings.Contains(w.Body.String(), "<title>A &#34;B&#34; &lt;C&gt; &amp; D\\ API Docs</title>") {
+		t.Errorf("docs title not escaped:\n%s", w.Body.String())
 	}
 }

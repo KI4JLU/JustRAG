@@ -38,7 +38,6 @@ route has no table row here, or a row names a route that no longer exists.
 | GET | `/metrics` | Admin-only Prometheus endpoint |
 | GET | `/api/v1/openapi.json` | Embedded OpenAPI spec |
 | GET | `/api/v1/docs` | Scalar API reference |
-| GET | `/uploads/logo/` | Uploaded site logo file (`/uploads/logo/<file>`), public |
 
 ## Web/Session API
 
@@ -108,7 +107,6 @@ rate limits, server errors); map it by status.
 | GET | `/public/configs` |
 | GET | `/site-config` |
 | POST | `/site-config` |
-| POST | `/site-config/logo` |
 | PUT | `/admin/system-notice` |
 | GET | `/v1/system-notice` |
 | PUT | `/v1/system-notice` |
@@ -116,7 +114,7 @@ rate limits, server errors); map it by status.
 | GET | `/api-keys` |
 | DELETE | `/api-keys/{id}` |
 
-`POST /site-config` and `/site-config/logo` are superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
+`GET /site-config` answers every caller, logged in or not, with the public keys (admins get every key, secrets masked). It always carries `app_name_prefix` and `app_name_product`, the app name from `APP_NAME_PREFIX` / `APP_NAME_PRODUCT` (default `JLU` / `RAG`), which the web app renders as its logo and window title; `POST /site-config` ignores both keys. `POST /site-config` is superadmin-only. `PUT /admin/system-notice` (admin and superadmin) takes `{"configs": {…}}` with only the `system_notice_*` keys (the seven notice keys plus `system_notice_templates`) (string, boolean or `null` to clear); any other key is a 400, and the values pass the same save-time validation as on `POST /site-config`. Returns the saved keys. `GET`/`PUT /v1/system-notice` are the same notice for automation, authenticated with an API key whose owner is an admin or superadmin: typed fields `{enabled, title, text, tone, dismissible, linkUrl, linkLabel}`, `PUT` is a partial update (unknown fields refused, enabling needs a text) and answers with the stored notice. Documented in the OpenAPI spec (`/api/v1/docs`).
 
 ### Long-term memory ("Mein Gedächtnis")
 

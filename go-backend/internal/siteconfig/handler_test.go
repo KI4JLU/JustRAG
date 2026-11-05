@@ -1,10 +1,8 @@
 package siteconfig_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,7 +19,6 @@ type mockStore struct {
 	err       error
 	batchRows []siteconfig.SiteConfigRow
 	batchErr  error
-	updateErr error
 
 	lastBatch []siteconfig.KeyValue // captures what UpdateSiteConfigsBatch received
 }
@@ -35,17 +32,14 @@ func (m *mockStore) UpdateSiteConfigsBatch(ctx context.Context, configs []siteco
 	return m.batchRows, m.batchErr
 }
 
-func (m *mockStore) UpdateSiteConfig(ctx context.Context, key, value string) error {
-	return m.updateErr
-}
-
 func strPtr(s string) *string {
 	return &s
 }
 
 func makeRows() []siteconfig.SiteConfigRow {
 	return []siteconfig.SiteConfigRow{
-		{Key: "logo_path", Value: strPtr("/images/logo.png")},
+		// A deployment that uploaded a logo before the upload was removed.
+		{Key: "logo_path", Value: strPtr("/uploads/logo/logo_1.png")},
 		{Key: "imprint", Value: strPtr("Some imprint text")},
 		{Key: "kb_header", Value: strPtr("Welcome")},
 		{Key: "example_prompts", Value: strPtr("[]")},
@@ -81,7 +75,7 @@ func TestGetSiteConfig_Unauthenticated(t *testing.T) {
 	// Public keys should be present. chat_web_search_enabled is public so the
 	// UI can hide the per-turn web-search toggle when the admin gate is off.
 	publicKeys := []string{
-		"logo_path", "imprint", "kb_header", "example_prompts",
+		"imprint", "kb_header", "example_prompts",
 		"chat_footer", "confluence_enabled", "web_search_enabled",
 		"chat_web_search_enabled",
 		"academic_search_enabled", "academic_search_name",
@@ -92,8 +86,9 @@ func TestGetSiteConfig_Unauthenticated(t *testing.T) {
 		}
 	}
 
-	// Secret keys must be absent
-	secretKeys := []string{"google_search_api_key", "openai_api_key"}
+	// Secret keys must be absent, and so must a leftover logo_path: the
+	// uploaded logo is no longer public, nothing renders it.
+	secretKeys := []string{"google_search_api_key", "openai_api_key", "logo_path"}
 	for _, k := range secretKeys {
 		if _, ok := body[k]; ok {
 			t.Errorf("expected secret key %q to be filtered out for unauthenticated user", k)
@@ -131,7 +126,7 @@ func TestGetSiteConfig_Admin(t *testing.T) {
 
 	// All non-null keys should be present
 	expectedKeys := []string{
-		"logo_path", "imprint", "kb_header", "example_prompts",
+		"imprint", "kb_header", "example_prompts",
 		"chat_footer", "confluence_enabled", "web_search_enabled",
 		"academic_search_enabled", "academic_search_name",
 		"google_search_api_key", "openai_api_key",
@@ -212,8 +207,8 @@ func TestGetSiteConfig_RegularUser(t *testing.T) {
 	}
 
 	// But should see public keys
-	if _, ok := body["logo_path"]; !ok {
-		t.Error("expected regular user to see logo_path")
+	if _, ok := body["imprint"]; !ok {
+		t.Error("expected regular user to see imprint")
 	}
 }
 
@@ -335,109 +330,86 @@ func TestUpdateSiteConfig_InvalidJSON(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// UploadLogo tests
+// App name (APP_NAME_PREFIX / APP_NAME_PRODUCT)
 // ---------------------------------------------------------------------------
 
-// buildMultipart creates a multipart body with a single file field.
-func buildMultipart(t *testing.T, fieldName, filename, content string) (*bytes.Buffer, string) {
-	t.Helper()
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	fw, err := w.CreateFormFile(fieldName, filename)
-	if err != nil {
-		t.Fatalf("CreateFormFile: %v", err)
+// Oracle: the web app reads app_name_prefix / app_name_product from this
+// answer for every viewer, logged in or not (web/src/utils/appName.ts).
+func TestGetSiteConfig_AppNameForEveryViewer(t *testing.T) {
+	roles := []string{"", "user", "admin", "superadmin"}
+	for _, role := range roles {
+		t.Run("role="+role, func(t *testing.T) {
+			h := siteconfig.NewHandler(&mockStore{rows: makeRows()}, siteconfig.WithAppName("THM", "Docs"))
+			req := httptest.NewRequest(http.MethodGet, "/api/site-config", nil)
+			if role != "" {
+				req = req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "1", Role: role}))
+			}
+			rec := httptest.NewRecorder()
+			h.GetSiteConfig(rec, req)
+
+			var body map[string]string
+			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if body["app_name_prefix"] != "THM" || body["app_name_product"] != "Docs" {
+				t.Errorf("got %q/%q, want THM/Docs", body["app_name_prefix"], body["app_name_product"])
+			}
+		})
 	}
-	if _, err := fw.Write([]byte(content)); err != nil {
-		t.Fatalf("write form file: %v", err)
-	}
-	w.Close()
-	return &buf, w.FormDataContentType()
 }
 
-func TestUploadLogo_ValidPNG(t *testing.T) {
-	store := &mockStore{}
-	h := siteconfig.NewHandler(store)
-
-	buf, ct := buildMultipart(t, "logo", "mylogo.png", "fake-png-data")
-	req := httptest.NewRequest(http.MethodPost, "/api/site-config/logo", buf)
-	req.Header.Set("Content-Type", ct)
+func TestGetSiteConfig_AppNameBeatsAStoredRow(t *testing.T) {
+	rows := append(makeRows(),
+		siteconfig.SiteConfigRow{Key: "app_name_prefix", Value: strPtr("stale")},
+		siteconfig.SiteConfigRow{Key: "app_name_product", Value: strPtr("stale")},
+	)
+	h := siteconfig.NewHandler(&mockStore{rows: rows}, siteconfig.WithAppName("JLU", "RAG"))
+	req := httptest.NewRequest(http.MethodGet, "/api/site-config", nil)
+	req = req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "1", Role: "superadmin"}))
 	rec := httptest.NewRecorder()
+	h.GetSiteConfig(rec, req)
 
-	h.UploadLogo(rec, req)
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["app_name_prefix"] != "JLU" || body["app_name_product"] != "RAG" {
+		t.Errorf("got %q/%q, want the environment's JLU/RAG", body["app_name_prefix"], body["app_name_product"])
+	}
+}
+
+func TestGetSiteConfig_NoAppNameWithoutOption(t *testing.T) {
+	h := siteconfig.NewHandler(&mockStore{rows: makeRows()})
+	req := httptest.NewRequest(http.MethodGet, "/api/site-config", nil)
+	rec := httptest.NewRecorder()
+	h.GetSiteConfig(rec, req)
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, k := range []string{"app_name_prefix", "app_name_product"} {
+		if _, ok := body[k]; ok {
+			t.Errorf("expected %q to be absent without WithAppName", k)
+		}
+	}
+}
+
+// The admin dialog posts back the whole map it fetched, app name included.
+func TestUpdateSiteConfig_AppNameIsNotStored(t *testing.T) {
+	store := &mockStore{batchRows: []siteconfig.SiteConfigRow{}}
+	h := siteconfig.NewHandler(store, siteconfig.WithAppName("JLU", "RAG"))
+
+	body := strings.NewReader(`{"configs":{"app_name_prefix":"JLU","app_name_product":"RAG","kb_header":"new"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/site-config", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.UpdateSiteConfig(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if result["success"] != "true" {
-		t.Errorf("expected success=true, got %q", result["success"])
-	}
-	if !strings.HasPrefix(result["logoPath"], "/uploads/logo/logo_") {
-		t.Errorf("unexpected logoPath: %q", result["logoPath"])
-	}
-	if !strings.HasSuffix(result["logoPath"], ".png") {
-		t.Errorf("expected .png extension in logoPath: %q", result["logoPath"])
-	}
-}
-
-func TestUploadLogo_ValidSVG(t *testing.T) {
-	store := &mockStore{}
-	h := siteconfig.NewHandler(store)
-
-	buf, ct := buildMultipart(t, "logo", "icon.svg", "<svg/>")
-	req := httptest.NewRequest(http.MethodPost, "/api/site-config/logo", buf)
-	req.Header.Set("Content-Type", ct)
-	rec := httptest.NewRecorder()
-
-	h.UploadLogo(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var result map[string]string
-	json.NewDecoder(rec.Body).Decode(&result)
-	if !strings.HasSuffix(result["logoPath"], ".svg") {
-		t.Errorf("expected .svg extension in logoPath: %q", result["logoPath"])
-	}
-}
-
-func TestUploadLogo_InvalidExtension(t *testing.T) {
-	store := &mockStore{}
-	h := siteconfig.NewHandler(store)
-
-	buf, ct := buildMultipart(t, "logo", "evil.exe", "bad-data")
-	req := httptest.NewRequest(http.MethodPost, "/api/site-config/logo", buf)
-	req.Header.Set("Content-Type", ct)
-	rec := httptest.NewRecorder()
-
-	h.UploadLogo(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestUploadLogo_MissingFile(t *testing.T) {
-	store := &mockStore{}
-	h := siteconfig.NewHandler(store)
-
-	// Send a multipart form without the "logo" field.
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	w.WriteField("other_field", "value")
-	w.Close()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/site-config/logo", &buf)
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	rec := httptest.NewRecorder()
-
-	h.UploadLogo(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if len(store.lastBatch) != 1 || store.lastBatch[0].Key != "kb_header" {
+		t.Errorf("expected only kb_header to be written, got %+v", store.lastBatch)
 	}
 }

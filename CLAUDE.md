@@ -10,7 +10,7 @@ one before changing a feature**:
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0099**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0104**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
 | `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
@@ -133,6 +133,7 @@ Env (via `.env`):
 - **Storage:** `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` (else local disk).
 - **Worker:** `WORKER_QUEUES`, `WORKER_MAINTENANCE` (maintenance loops, metrics ticks and sweeps need it).
 - **Tracing:** `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS`.
+- **App name:** `APP_NAME_PREFIX`, `APP_NAME_PRODUCT` (default `JLU` / `RAG`) — the web app's logo (DS `Logo`), window title, installed-app manifest, legal pages and API docs; the server writes it into the app shell and hands it out through `GET /api/site-config`. There is no logo upload.
 
 Details: `docs/feature-reference.md` § Environment variables.
 

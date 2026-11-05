@@ -182,6 +182,7 @@ func TestEnhance_InvalidType_400(t *testing.T) {
 
 func TestResearchBibtex_OK(t *testing.T) {
 	h := misc.NewHandler(nil)
+	h.SetAppName("THM Docs & more")
 
 	body := map[string]any{
 		"findings": []map[string]any{
@@ -221,8 +222,16 @@ func TestResearchBibtex_OK(t *testing.T) {
 	if !strings.Contains(bib, "annual_report_2023") {
 		t.Errorf("expected sanitized filename in key, bib:\n%s", bib)
 	}
-	if !strings.Contains(bib, "Accessed via JustRAG") {
-		t.Errorf("expected 'Accessed via JustRAG' note, bib:\n%s", bib)
+	// The note names the configured app, LaTeX-escaped like every field.
+	if got := strings.Count(bib, `note = {Accessed via THM Docs \& more}`); got != 2 {
+		t.Errorf("want the app name note on both entries, got %d, bib:\n%s", got, bib)
+	}
+}
+
+func TestResearchBibtex_NoAppNameNoNote(t *testing.T) {
+	bib := misc.GenerateResearchBibtex([]misc.Finding{{Sources: []misc.Source{{FileID: "f1", FileName: "a.pdf"}}}}, "")
+	if strings.Contains(bib, "note =") {
+		t.Errorf("an empty app name must leave the note out, bib:\n%s", bib)
 	}
 }
 
@@ -400,7 +409,7 @@ func TestGenerateResearchBibtex_LaTeXEscaping(t *testing.T) {
 			{FileID: "f1", FileName: "Report & Analysis 50% done.pdf", URL: ""},
 		}},
 	}
-	bib := misc.GenerateResearchBibtex(findings)
+	bib := misc.GenerateResearchBibtex(findings, "JLU RAG")
 
 	if !strings.Contains(bib, `\&`) {
 		t.Errorf("expected \\& in output, got:\n%s", bib)
@@ -443,7 +452,7 @@ func TestGenerateResearchBibtex_OnlineEntry(t *testing.T) {
 			{FileID: "abc123", FileName: "My Report.pdf", URL: "https://example.com/doc"},
 		}},
 	}
-	bib := misc.GenerateResearchBibtex(findings)
+	bib := misc.GenerateResearchBibtex(findings, "JLU RAG")
 
 	if !strings.Contains(bib, "@online{") {
 		t.Errorf("expected @online entry, got:\n%s", bib)
@@ -462,7 +471,7 @@ func TestGenerateResearchBibtex_MiscEntry(t *testing.T) {
 			{FileID: "xyz", FileName: "Confidential.pdf", URL: ""},
 		}},
 	}
-	bib := misc.GenerateResearchBibtex(findings)
+	bib := misc.GenerateResearchBibtex(findings, "JLU RAG")
 
 	if !strings.Contains(bib, "@misc{") {
 		t.Errorf("expected @misc entry, got:\n%s", bib)
