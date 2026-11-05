@@ -63,7 +63,7 @@ func TestValidate(t *testing.T) {
 	}
 	long := strings.Repeat("ä", MaxQuestionRunes+1)
 	cases := map[string]func(*StartPage){
-		"version":            func(p *StartPage) { p.Version = 2 },
+		"version":            func(p *StartPage) { p.Version = 3 },
 		"colors":             func(p *StartPage) { p.Colors = &Colors{From: "#fff", To: "#000000"} },
 		"start mode":         func(p *StartPage) { p.StartMode = "voice" },
 		"unknown role":       func(p *StartPage) { p.RoleEntries[0].RoleID = "c-gone" },
@@ -166,6 +166,7 @@ func TestModeOf(t *testing.T) {
 // start, its questions the active role's; settling again changes nothing.
 func TestSettle_MovesThePagesOwnStartToTheActiveRole(t *testing.T) {
 	up := Default()
+	up.Version = legacyVersion
 	up.StartMode, up.UploadLabel, up.UploadInstruction = StartUpload, "Antrag hochladen", "Prüfe den Antrag."
 	got := Settle(up, "chat")
 	if s := got.RoleStarts["chat"]; s.Kind != EntryFile || s.Text != "Antrag hochladen" || s.Instruction != "Prüfe den Antrag." {
@@ -179,6 +180,7 @@ func TestSettle_MovesThePagesOwnStartToTheActiveRole(t *testing.T) {
 	}
 
 	in := Default()
+	in.Version = legacyVersion
 	in.QuestionsOn, in.QuestionMode, in.FixedQuestions = true, QuestionsFixed, []string{"Wie?"}
 	got = Settle(in, "chat")
 	if s := got.RoleStarts["chat"]; s.Kind != EntryInput || !s.Suggestions.QuestionsOn || s.Suggestions.FixedQuestions[0] != "Wie?" {
@@ -193,6 +195,32 @@ func TestSettle_MovesThePagesOwnStartToTheActiveRole(t *testing.T) {
 	}
 	if _, own := Settle(in, "summary").RoleStarts["summary"]; own {
 		t.Error("Zusammenfassen keeps its template's start")
+	}
+	// Questions switched off stay off, whatever the role's template offers.
+	off := Default()
+	off.Version = legacyVersion
+	withQuestions := "c-asks"
+	off.RoleStarts = map[string]EntryStart{withQuestions: {Kind: EntryInput, Send: true, Suggestions: Suggestions{QuestionsOn: true, QuestionMode: QuestionsDynamic, DynamicCount: 4}}}
+	if s := Settle(off, withQuestions).RoleStarts[withQuestions]; s.Suggestions.QuestionsOn {
+		t.Errorf("switched-off questions = %+v, want off", s)
+	}
+	// Fixed questions kept while switched off move with them (Codex review).
+	off.FixedQuestions = []string{"Entwurf?"}
+	if s := Settle(off, "chat").RoleStarts["chat"]; s.Suggestions.QuestionsOn || len(s.Suggestions.FixedQuestions) != 1 {
+		t.Errorf("kept draft = %+v, want it on the role, still off", s)
+	}
+}
+
+// Oracle: Codex review — a settled page's StartMode was derived for the role
+// active then; with another role active it is no choice to migrate.
+func TestSettle_LeavesASettledPageToTheNewActiveRole(t *testing.T) {
+	p := Settle(Default(), "filecheck")
+	if p.StartMode != StartUpload || p.Version != currentVersion {
+		t.Fatalf("Datei prüfen = %s v%d, want upload v%d", p.StartMode, p.Version, currentVersion)
+	}
+	got := Settle(p, "chat")
+	if _, own := got.RoleStarts["chat"]; own || got.StartMode != StartInput {
+		t.Errorf("chat after Datei prüfen = %s with its own start %v, want its template's input", got.StartMode, own)
 	}
 }
 

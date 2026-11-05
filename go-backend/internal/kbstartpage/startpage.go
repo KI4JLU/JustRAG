@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -30,12 +31,16 @@ const (
 	MaxQuestionRunes    = 120
 	MaxUploadLabelRunes = 80
 	MaxInstructionRunes = 300
-	currentVersion      = 1
-	QuestionsDynamic    = "dynamic"
-	QuestionsFixed      = "fixed"
-	StartInput          = "input"
-	StartUpload         = "upload"
-	StartRoles          = "roles"
+	// legacyVersion is a page saved before starts were the roles': its
+	// StartMode, starter questions and upload texts are the page's own, and
+	// Settle moves them to the active role. currentVersion pages are settled.
+	legacyVersion    = 1
+	currentVersion   = 2
+	QuestionsDynamic = "dynamic"
+	QuestionsFixed   = "fixed"
+	StartInput       = "input"
+	StartUpload      = "upload"
+	StartRoles       = "roles"
 	// StartTask („Anweisung"): the active role's card with its start prompt,
 	// alone; one click starts the chat with it.
 	StartTask  = "task"
@@ -105,6 +110,8 @@ type RoleEntry struct {
 // further role cards — the choice of roles. The page only says which roles
 // it offers; StartMode merely names what that makes (Settle).
 type StartPage struct {
+	// Version: 2, or 1 for a page saved before starts were the roles'
+	// (Settle migrates it once and answers 2).
 	Version int `json:"version"`
 	// Colors: the gradient; nil shows no colour.
 	Colors *Colors `json:"colors"`
@@ -192,30 +199,37 @@ func ModeOf(p StartPage, activeRoleID string) string {
 // (developer ruling 05.11.2026). A page saved before kept its own: the
 // "upload" mode's label and instruction become the active role's file start,
 // and starter questions under the page's input field the active role's
-// input start's questions. Then the page's own fields are cleared and
-// StartMode is derived (ModeOf). Settling a settled page changes nothing.
+// input start's questions, switched off and kept drafts included. Only a legacyVersion page
+// is migrated: a settled page's StartMode is derived, and names the start of
+// the role that was active when it was derived, not a choice of the page.
+// Then the page's own fields are cleared and StartMode is derived (ModeOf).
+// Settling a settled page changes nothing.
 func Settle(p StartPage, activeRoleID string) StartPage {
 	out := p
 	out.RoleStarts = make(map[string]EntryStart, len(p.RoleStarts)+1)
 	for id, e := range p.RoleStarts {
 		out.RoleStarts[id] = e
 	}
-	start := out.ActiveStart(activeRoleID)
-	if p.StartMode == StartUpload && (start.Kind != EntryFile || p.UploadLabel != "" || p.UploadInstruction != "") {
-		file := EntryStart{Kind: EntryFile, Text: p.UploadLabel, Instruction: p.UploadInstruction, Suggestions: start.Suggestions}
-		if start.Kind == EntryFile {
-			if file.Text == "" {
-				file.Text = start.Text
+	if p.Version < currentVersion {
+		start := out.ActiveStart(activeRoleID)
+		switch {
+		case p.StartMode == StartUpload && (start.Kind != EntryFile || p.UploadLabel != "" || p.UploadInstruction != ""):
+			file := EntryStart{Kind: EntryFile, Text: p.UploadLabel, Instruction: p.UploadInstruction, Suggestions: start.Suggestions}
+			if start.Kind == EntryFile {
+				if file.Text == "" {
+					file.Text = start.Text
+				}
+				if file.Instruction == "" {
+					file.Instruction = start.Instruction
+				}
 			}
-			if file.Instruction == "" {
-				file.Instruction = start.Instruction
-			}
+			out.RoleStarts[activeRoleID] = file
+		case p.StartMode == StartInput && start.Kind == EntryInput && !sameSuggestions(start.Suggestions, p.Suggestions):
+			start.Suggestions = p.Suggestions
+			out.RoleStarts[activeRoleID] = start
 		}
-		out.RoleStarts[activeRoleID] = file
-	} else if p.StartMode == StartInput && p.QuestionsOn && start.Kind == EntryInput {
-		start.Suggestions = p.Suggestions
-		out.RoleStarts[activeRoleID] = start
 	}
+	out.Version = currentVersion
 	out.Suggestions = DefaultSuggestions()
 	out.UploadLabel, out.UploadInstruction = "", ""
 	if out.RoleEntries == nil {
@@ -223,6 +237,15 @@ func Settle(p StartPage, activeRoleID string) StartPage {
 	}
 	out.StartMode = ModeOf(out, activeRoleID)
 	return out
+}
+
+// sameSuggestions reports whether two sets of starter questions are the
+// same, the switched-off fixed questions and count included: a page's kept
+// draft moves to the role like the questions it shows.
+func sameSuggestions(a, b Suggestions) bool {
+	a, b = normalizeSuggestions(a), normalizeSuggestions(b)
+	return a.QuestionsOn == b.QuestionsOn && a.QuestionMode == b.QuestionMode &&
+		a.DynamicCount == b.DynamicCount && slices.Equal(a.FixedQuestions, b.FixedQuestions)
 }
 
 // ErrInvalid wraps every validation failure; the message is safe to return.
@@ -279,8 +302,8 @@ func validateSuggestions(s Suggestions) error {
 // active role, which the roles start shows first on its own; hasRole reports
 // whether the KB can answer in a role id (kbbehavior). Lengths count runes.
 func Validate(p StartPage, activeRoleID string, hasRole func(string) bool) error {
-	if p.Version != currentVersion {
-		return invalid("version must be %d", currentVersion)
+	if p.Version != currentVersion && p.Version != legacyVersion {
+		return invalid("version must be %d (or %d for a page saved before starts were the roles')", currentVersion, legacyVersion)
 	}
 	if p.Colors != nil && (!hexPattern.MatchString(p.Colors.From) || !hexPattern.MatchString(p.Colors.To)) {
 		return invalid("colors must be #RRGGBB")
@@ -395,7 +418,7 @@ func Normalize(p StartPage) StartPage {
 // and a page stored before roles were unique from showing one twice.
 func Effective(stored *StartPage, activeRoleID string, hasRole func(string) bool) StartPage {
 	if stored == nil {
-		return Default()
+		return Settle(Default(), activeRoleID)
 	}
 	out := Normalize(*stored)
 	for id := range out.RoleStarts {
