@@ -43,6 +43,11 @@ type fakeStore struct {
 	categories []kbfilters.UserCategory
 	created    *kbfilters.UserCategory
 	err        error
+
+	// Topic order (order_http_test.go).
+	gotView kbfilters.OrderView
+	gotIDs  []string
+	orders  map[kbfilters.OrderView][]string
 }
 
 func (f *fakeStore) AddFavorite(_ context.Context, userID, kbID string) error {

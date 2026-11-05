@@ -559,6 +559,8 @@ pins any KB — private or global — to the "Favoriten" chip.
 | DELETE | `/kb-user-categories/{catId}` | authenticated | 204 |
 | PUT | `/kb/{id}/user-categories/{catId}` | KB role view | 204 |
 | DELETE | `/kb/{id}/user-categories/{catId}` | KB role view | 204 |
+| GET | `/kb-user-order` | authenticated | 200, `{my, shared}` |
+| PUT | `/kb-user-order/{view}` | authenticated | 204 |
 
 - PUT and DELETE on the favorite and on an assignment are idempotent: they set
   a state, so repeating them, or deleting something absent, is still 204.
@@ -581,6 +583,16 @@ pins any KB — private or global — to the "Favoriten" chip.
   no longer view it afterwards (a private or unpublished KB); on a published
   global KB, which they can still view, both stay. Their categories always
   stay.
+- `/kb-user-order` is the caller's own drag order of the two topic views,
+  `my` ("Mein Wissen") and `shared` ("Geteiltes Wissen"). `GET` returns both
+  as arrays of KB ids, front to back; a view never saved is `null`, a saved
+  empty one `[]`. `PUT` body: `{"ids": [string]}`, the whole order of that
+  view, replacing the stored one (the last save wins). `ids` is required
+  (`[]` is valid), holds at most 2000 UUIDs and no KB twice (two spellings of
+  one UUID count as the same KB); otherwise 400, and nothing is stored. An
+  unknown `{view}` is 404. The ids are not checked against access and are
+  kept when a KB is deleted or the caller loses access: the views only sort
+  the KBs they list, so a stored id shows nothing.
 
 The KB rows of `GET /kb`, `GET /kb/global`, `GET /kb/{id}`, `PATCH /kb/{id}`,
 `POST /kb` and the entries of `GET /kb/catalog` carry the caller's own state:

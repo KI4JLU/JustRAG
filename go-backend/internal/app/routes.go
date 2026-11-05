@@ -1007,6 +1007,14 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.DeleteCategory)))
 	rc.mux.Handle("PUT /api/kb/{id}/user-categories/{catId}", rc.kbViewChain(kbFiltersHandler.AssignCategory))
 	rc.mux.Handle("DELETE /api/kb/{id}/user-categories/{catId}", rc.kbViewChain(kbFiltersHandler.UnassignCategory))
+	// The caller's own drag order of the topic views ("my", "shared"). Like the
+	// category routes these name no KB in the path and touch only the caller's
+	// rows, so authentication is the whole gate. The stored ids are not checked
+	// against access: an order only sorts topics a view already lists.
+	rc.mux.Handle("GET /api/kb-user-order",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.ListOrders)))
+	rc.mux.Handle("PUT /api/kb-user-order/{view}",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.SetOrder)))
 
 	// Catalog categories — a flat, system-admin curated taxonomy (adminChain
 	// on the CRUD routes: the list is shared across the whole deployment).
