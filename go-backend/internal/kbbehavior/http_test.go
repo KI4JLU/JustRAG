@@ -15,6 +15,7 @@ import (
 type fakeStore struct {
 	saved   *Behavior
 	missing bool
+	names   *Names
 }
 
 func (f *fakeStore) Load(_ context.Context, kbID string) (Settings, error) {
@@ -23,9 +24,16 @@ func (f *fakeStore) Load(_ context.Context, kbID string) (Settings, error) {
 	}
 	if f.saved != nil {
 		stored, legacy := ForStorage(*f.saved)
-		return Settings{Behavior: Effective(&stored, legacy, "", "de"), Customized: true, Language: "de"}, nil
+		return Settings{Behavior: Effective(&stored, legacy, "de"), Customized: true, Language: "de"}, nil
 	}
-	return Settings{Behavior: Effective(nil, nil, "", "de"), Language: "de"}, nil
+	return Settings{Behavior: Effective(nil, nil, "de"), Language: "de"}, nil
+}
+
+func (f *fakeStore) Names(context.Context) Names {
+	if f.names != nil {
+		return *f.names
+	}
+	return DefaultNames()
 }
 
 func (f *fakeStore) Save(_ context.Context, _ string, b Behavior) error {
@@ -59,12 +67,12 @@ func TestPut(t *testing.T) {
 		t.Errorf("reason missing: %s", rec.Body)
 	}
 
-	rec = do(t, h.Put, http.MethodPut, `{"version":1,"activeRoleId":"tutor","customRoles":[],"roleRules":{},"extra":1}`)
+	rec = do(t, h.Put, http.MethodPut, `{"version":1,"activeRoleId":"summary","customRoles":[],"roleRules":{},"extra":1}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown field: code=%d", rec.Code)
 	}
 
-	rec = do(t, h.Put, http.MethodPut, `{"version":1,"activeRoleId":"tutor","customRoles":[],"roleRules":{}}`)
+	rec = do(t, h.Put, http.MethodPut, `{"version":1,"activeRoleId":"summary","customRoles":[],"roleRules":{}}`)
 	if rec.Code != http.StatusOK || f.saved == nil {
 		t.Fatalf("valid: code=%d body=%s", rec.Code, rec.Body)
 	}
@@ -72,7 +80,7 @@ func TestPut(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil {
 		t.Fatal(err)
 	}
-	if !s.Customized || s.Behavior.ActiveRoleID != "tutor" || !RulesFor(s.Behavior, "tutor").Rules["pages"] {
+	if !s.Customized || s.Behavior.ActiveRoleID != "summary" || !RulesFor(s.Behavior, "summary").Rules["pages"] {
 		t.Errorf("response = %+v", s)
 	}
 }
@@ -86,7 +94,7 @@ func TestGetMissingKB(t *testing.T) {
 }
 
 func TestCatalogHandlerLanguage(t *testing.T) {
-	h := &Handler{}
+	h := &Handler{store: &fakeStore{}}
 	for q, want := range map[string]string{"en": "en", "de": "de", "fr": "de", "": "de"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/kb-behavior/catalog?lang="+q, nil)
 		rec := httptest.NewRecorder()
@@ -95,5 +103,21 @@ func TestCatalogHandlerLanguage(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil || c.Language != want {
 			t.Errorf("lang=%q: got %q (%v)", q, c.Language, err)
 		}
+	}
+}
+
+// Oracle: the catalog serves the prompts as written and, next to them, the
+// names their placeholders resolve to.
+func TestCatalog_CarriesNames(t *testing.T) {
+	h := &Handler{store: &fakeStore{names: &Names{Assistant: "Kira", System: "Campus RAG"}}}
+	req := httptest.NewRequest(http.MethodGet, "/api/kb-behavior/catalog?lang=en", nil)
+	rec := httptest.NewRecorder()
+	h.Catalog(rec, req)
+	var c Catalog
+	if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Language != "en" || c.Names != (Names{Assistant: "Kira", System: "Campus RAG"}) {
+		t.Fatalf("catalog = lang %q names %+v", c.Language, c.Names)
 	}
 }

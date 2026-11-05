@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/kbmembers"
 	"github.com/justrag/go-backend/internal/pgxutil"
 	"github.com/justrag/go-backend/internal/ragassamples"
@@ -47,6 +48,7 @@ func (s *PGStore) ListKBs(ctx context.Context) ([]KBBase, error) {
 		       u.username                                                          AS owner_username,
 		       (kb.visibility = 'public')                                          AS is_global,
 		       kb.is_published                                                     AS is_published,
+		       ` + kbaccess.SharedSQL + `                                              AS shared,
 		       to_char(kb.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
 		FROM knowledge_bases kb
 		LEFT JOIN users u ON u.id = kb.user_id

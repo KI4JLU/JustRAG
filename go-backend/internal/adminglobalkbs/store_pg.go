@@ -145,7 +145,7 @@ func (s *PGStore) CreateGlobalKB(ctx context.Context, data GlobalKBCreate) (*Glo
 		VALUES ($1, $2, $3, 'public', NULL, $4)
 		RETURNING ` + globalKBSelectCols
 
-	behavior, err := kbbehavior.DefaultJSON()
+	behavior, err := kbbehavior.InitialJSON(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create global KB: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/justrag/go-backend/internal/chatpolicy"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/policyaccept"
 )
 
@@ -41,6 +42,11 @@ var globalValidators = map[string]func(string) error{
 	"system_notice_templates":   validateSystemNoticeTemplates,
 
 	policyaccept.VersionKey: policyaccept.ValidateVersion,
+
+	// The names role prompts resolve {{assistant_name}} / {{system_name}} to;
+	// the reader falls back to the default on anything this refuses.
+	kbbehavior.AssistantNameKey: kbbehavior.ValidateName,
+	kbbehavior.SystemNameKey:    kbbehavior.ValidateName,
 }
 
 // validateIntRange / validateFloatRange mirror the chat readers' clamps for

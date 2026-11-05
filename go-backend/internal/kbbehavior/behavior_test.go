@@ -8,57 +8,51 @@ import (
 
 func strp(s string) *string { return &s }
 
-// Oracle: the pre-roles contract — an uncustomized KB's prompt is its
-// system_prompt byte for byte, so Compile over Effective(nil, sp) must
-// return sp unchanged, including whitespace and an empty prompt.
-func TestCompile_UncustomizedIsTheLegacyPromptByteForByte(t *testing.T) {
-	for _, sp := range []*string{nil, strp(""), strp("Du bist X.\n\n  Antworte kurz.  \n"), strp(strings.Repeat("ä", 8000))} {
+// Oracle: the pre-roles contract — a KB whose behavior is still NULL and
+// that has a system prompt answers with it byte for byte, including
+// whitespace, followed by the identity the fixed instructions carried before
+// roles (PR #73 review); without one it answers in the default template role.
+func TestCompile_NullBehavior(t *testing.T) {
+	for _, sp := range []*string{strp("Du bist X.\n\n  Antworte kurz.  \n"), strp(strings.Repeat("ä", 8000))} {
 		for _, lang := range []string{"de", "en"} {
-			got, found := Compile(Effective(nil, sp, "", lang), "", lang)
-			want := ""
-			if sp != nil {
-				want = *sp
+			got, found := Compile(Effective(nil, sp, lang), "", lang)
+			if got != *sp+"\n\n"+legacyIdentity.in(lang) || !found {
+				t.Errorf("sp=%.20q lang=%s: got %.40q found=%v", *sp, lang, got, found)
 			}
-			if got != want || !found {
-				t.Errorf("sp=%v lang=%s: got %q found=%v, want %q", sp, lang, got, found, want)
-			}
+		}
+	}
+	for _, sp := range []*string{nil, strp("")} {
+		want, _ := Compile(Default(), "", "de")
+		if got, _ := Compile(Effective(nil, sp, "de"), "", "de"); got != want || want == "" {
+			t.Errorf("sp=%v: got %.60q, want the default role %.60q", sp, got, want)
 		}
 	}
 }
 
-func TestEffective_UncustomizedShowsTheLegacyRoleActive(t *testing.T) {
-	eff := Effective(nil, strp("alt"), "Personalrecht", "de")
+func TestEffective_NullBehaviorWithPromptIsTheOwnRole(t *testing.T) {
+	eff := Effective(nil, strp("alt"), "de")
 	if eff.ActiveRoleID != LegacyRoleID || len(eff.CustomRoles) != 1 {
 		t.Fatalf("got %+v", eff)
 	}
 	r := eff.CustomRoles[0]
-	if r.ID != LegacyRoleID || r.Name != "Bisheriger Prompt" || r.Prompt != "alt" {
+	if r.ID != LegacyRoleID || r.Name != "Eigene Rolle" || r.Prompt != "alt" {
 		t.Errorf("legacy role = %+v", r)
 	}
 	if set := RulesFor(eff, LegacyRoleID); len(eff.RoleRules) != 0 || len(set.Rules) != 0 || len(set.CustomRules) != 0 {
 		t.Errorf("no rule may be on: %+v", eff)
 	}
-	if Effective(nil, strp("alt"), "", "en").CustomRoles[0].Name != "Previous prompt" {
+	if Effective(nil, strp("alt"), "en").CustomRoles[0].Name != "Custom role" {
 		t.Error("legacy role name must follow the prompt language")
 	}
-}
-
-// Without a legacy prompt the role is the KB answering from its sources: it
-// carries the KB's name (developer ruling 27.10.2026), the generic name only
-// when the KB has none.
-func TestEffective_EmptyLegacyRoleIsNamedAfterTheKB(t *testing.T) {
-	r := Effective(nil, nil, " Personalrecht ", "de").CustomRoles[0]
-	if r.Name != "Personalrecht" || r.Description != "Durchsucht die bereitgestellten Quellen." || r.Prompt != "" {
-		t.Errorf("legacy role = %+v", r)
-	}
-	if r := Effective(nil, strp(""), "", "en").CustomRoles[0]; r.Name != "Previous prompt" || r.Description != "Searches the provided sources." {
-		t.Errorf("legacy role without a KB name = %+v", r)
+	if eff := Effective(nil, nil, "de"); eff.ActiveRoleID != DefaultRoleID() || len(eff.CustomRoles) != 0 {
+		t.Errorf("without a prompt: %+v, want Default", eff)
 	}
 }
 
 // The author may name and describe the legacy role (developer ruling
 // 28.10.2026); the defaults stay as long as they leave them alone, and a
-// default sent back unchanged is not frozen as their own.
+// default sent back unchanged — today's or a former one — is not frozen as
+// their own.
 func TestLegacyRole_OwnNameAndDescription(t *testing.T) {
 	b := validBehavior()
 	b.CustomRoles[0].Name = "  Kanzlei  "
@@ -70,22 +64,25 @@ func TestLegacyRole_OwnNameAndDescription(t *testing.T) {
 	if got := stored.CustomRoles[0]; got != (Role{ID: LegacyRoleID, Name: "Kanzlei", Description: "Prüft Verträge."}) {
 		t.Errorf("stored legacy role = %+v", got)
 	}
-	r := Effective(&stored, legacy, "KB", "de").CustomRoles[0]
+	r := Effective(&stored, legacy, "de").CustomRoles[0]
 	if r.Name != "Kanzlei" || r.Description != "Prüft Verträge." || r.Prompt != "alt" || r.Icon != legacyIcon {
 		t.Errorf("effective legacy role = %+v", r)
 	}
 
-	// The defaults as the client got them: nothing of the author's own.
-	b = validBehavior()
-	b.CustomRoles[0].Name = "Personalrecht"
-	b.CustomRoles[0].Description = "Searches the provided sources."
-	stored, _ = ForStorage(b)
-	DropLegacyDefaults(&stored, "Personalrecht")
-	if got := stored.CustomRoles[0]; got != (Role{ID: LegacyRoleID}) {
-		t.Errorf("defaults must not be stored: %+v", got)
-	}
-	if r := Effective(&stored, nil, "Arbeitsrecht", "de").CustomRoles[0]; r.Name != "Arbeitsrecht" {
-		t.Errorf("legacy role must follow a rename, got %q", r.Name)
+	for _, d := range []struct{ name, description string }{
+		{"Custom role", "The system prompt set before roles existed."},
+		{"Bisheriger Prompt", "Durchsucht die bereitgestellten Quellen."},
+	} {
+		b = validBehavior()
+		b.CustomRoles[0].Name = d.name
+		b.CustomRoles[0].Description = d.description
+		stored, _ = ForStorage(b)
+		if got := stored.CustomRoles[0]; got != (Role{ID: LegacyRoleID}) {
+			t.Errorf("defaults must not be stored: %+v", got)
+		}
+		if r := Effective(&stored, nil, "de").CustomRoles[0]; r.Name != "Eigene Rolle" || r.Description != "Der bisher hinterlegte System-Prompt." {
+			t.Errorf("legacy role shows %+v, want the defaults", r)
+		}
 	}
 
 	b = validBehavior()
@@ -124,12 +121,12 @@ func TestCompile_TemplateRoleAndChatRole(t *testing.T) {
 	b := Default()
 	rules := "\n\nRegeln:\n- Antworte in der Sprache, in der die Frage gestellt wurde."
 	got, found := Compile(b, "", "de")
-	research, _ := findTemplateRole("research")
+	research, _ := findTemplateRole("chat")
 	if !strings.HasPrefix(got, research.prompt.de+rules) || !found {
 		t.Errorf("active template: %q", got)
 	}
-	got, found = Compile(b, "tutor", "de")
-	tutor, _ := findTemplateRole("tutor")
+	got, found = Compile(b, "summary", "de")
+	tutor, _ := findTemplateRole("summary")
 	if !strings.HasPrefix(got, tutor.prompt.de+rules) || !found {
 		t.Errorf("chat role: %q", got)
 	}
@@ -142,9 +139,9 @@ func TestCompile_TemplateRoleAndChatRole(t *testing.T) {
 
 func TestCompile_RulesWithoutRolePrompt(t *testing.T) {
 	b := Effective(&Behavior{Version: 1, ActiveRoleID: LegacyRoleID, CustomRoles: []Role{{ID: LegacyRoleID}},
-		RoleRules: map[string]RuleSet{LegacyRoleID: {Rules: map[string]bool{"pages": true}}}}, nil, "", "de")
+		RoleRules: map[string]RuleSet{LegacyRoleID: {Rules: map[string]bool{"pages": true}}}}, nil, "de")
 	got, _ := Compile(b, "", "de")
-	if got != "Regeln:\n- Nenne zu jeder zitierten Quelle Seite oder Abschnitt." {
+	if got != legacyIdentity.in("de")+"\n\nRegeln:\n- Nenne zu jeder zitierten Quelle Seite oder Abschnitt." {
 		t.Errorf("got %q", got)
 	}
 }
@@ -168,12 +165,12 @@ func TestDefault_IsValidAndUsesCatalogDefaults(t *testing.T) {
 		t.Errorf("active = %s", d.ActiveRoleID)
 	}
 	rules := RulesFor(d, d.ActiveRoleID).Rules
-	for _, id := range []string{"mirror", "formal", "pages", "clarify"} {
+	for _, id := range []string{"mirror", "pages", "clarify"} {
 		if !rules[id] {
 			t.Errorf("rule %s must default on", id)
 		}
 	}
-	for _, id := range []string{"plain", "examples", "quotes"} {
+	for _, id := range []string{"plain", "examples", "quotes", "formal"} {
 		if rules[id] {
 			t.Errorf("rule %s must default off", id)
 		}
@@ -245,7 +242,7 @@ func TestValidate(t *testing.T) {
 	cases := map[string]func(*Behavior){
 		"version":             func(b *Behavior) { b.Version = 2 },
 		"unknown active role": func(b *Behavior) { b.ActiveRoleID = "nope" },
-		"template id taken":   func(b *Behavior) { b.CustomRoles[1].ID = "tutor"; b.ActiveRoleID = "tutor" },
+		"template id taken":   func(b *Behavior) { b.CustomRoles[1].ID = "summary"; b.ActiveRoleID = "summary" },
 		"duplicate role id":   func(b *Behavior) { b.CustomRoles = append(b.CustomRoles, b.CustomRoles[1]) },
 		"bad role id":         func(b *Behavior) { b.CustomRoles[1].ID = "a b"; b.ActiveRoleID = "a b" },
 		"empty name":          func(b *Behavior) { b.CustomRoles[1].Name = "  " },
@@ -263,7 +260,7 @@ func TestValidate(t *testing.T) {
 			b.RoleRules["c-1"] = set
 		},
 		"rules of a missing role": func(b *Behavior) { b.RoleRules["c-gone"] = RuleSet{Rules: map[string]bool{}} },
-		"rules of a template":     func(b *Behavior) { b.RoleRules["tutor"] = RuleSet{Rules: map[string]bool{}} },
+		"rules of a template":     func(b *Behavior) { b.RoleRules["summary"] = RuleSet{Rules: map[string]bool{}} },
 		"too many roles": func(b *Behavior) {
 			for i := 0; i <= MaxCustomRoles; i++ {
 				b.CustomRoles = append(b.CustomRoles, Role{ID: "x" + strings.Repeat("y", i+1), Name: "n", Prompt: "p"})
@@ -285,7 +282,7 @@ func TestValidate(t *testing.T) {
 	}
 	// A template may be the active role.
 	b = validBehavior()
-	b.ActiveRoleID = "tutor"
+	b.ActiveRoleID = "summary"
 	if err := Validate(b); err != nil {
 		t.Errorf("template active: %v", err)
 	}
@@ -300,7 +297,7 @@ func TestForStorage_LegacyPromptGoesToSystemPrompt(t *testing.T) {
 		t.Errorf("legacy entry must be reduced to its id: %+v", stored.CustomRoles[0])
 	}
 	// Round trip: what is read back is what was saved.
-	eff := Effective(&stored, legacy, "", "de")
+	eff := Effective(&stored, legacy, "de")
 	if eff.CustomRoles[0].Prompt != "alt" || eff.CustomRoles[1].Prompt != "P" || eff.ActiveRoleID != "c-1" {
 		t.Errorf("round trip = %+v", eff)
 	}
@@ -334,8 +331,8 @@ func TestRulesFor_OwnSetDefaultsAndLegacy(t *testing.T) {
 	if got := RulesFor(b, "c-1").Rules; !got["quotes"] || got["pages"] {
 		t.Errorf("own set = %v", got)
 	}
-	b.RoleRules["tutor"] = RuleSet{Rules: map[string]bool{"quotes": true}}
-	if got := RulesFor(b, "tutor").Rules; !got["pages"] || got["quotes"] {
+	b.RoleRules["summary"] = RuleSet{Rules: map[string]bool{"quotes": true}}
+	if got := RulesFor(b, "summary").Rules; !got["pages"] || got["quotes"] {
 		t.Errorf("template = %v, want the catalog defaults, fixed", got)
 	}
 	if got := RulesFor(b, "c-2").Rules; !got["pages"] {
@@ -346,10 +343,10 @@ func TestRulesFor_OwnSetDefaultsAndLegacy(t *testing.T) {
 	}
 	// The set of a deleted role and a rule gone from the catalog drop out.
 	stored := b
-	stored.RoleRules = map[string]RuleSet{"c-1": {Rules: map[string]bool{"quotes": true, "gone": true}}, "c-gone": {}, "tutor": {}}
-	eff := Effective(&stored, nil, "", "de")
+	stored.RoleRules = map[string]RuleSet{"c-1": {Rules: map[string]bool{"quotes": true, "gone": true}}, "c-gone": {}, "summary": {}}
+	eff := Effective(&stored, nil, "de")
 	_, gone := eff.RoleRules["c-gone"]
-	_, template := eff.RoleRules["tutor"]
+	_, template := eff.RoleRules["summary"]
 	if gone || template || eff.RoleRules["c-1"].Rules["gone"] {
 		t.Errorf("effective sets = %+v", eff.RoleRules)
 	}
@@ -369,5 +366,48 @@ func TestBrief_RoleOrActive(t *testing.T) {
 	tpl := templateRoles()[0]
 	if got := Brief(b, tpl.id, "en"); got.Name != tpl.name.in("en") || got.Prompt != tpl.prompt.in("en") {
 		t.Errorf("template %s: %+v", tpl.id, got)
+	}
+}
+
+// Oracle: developer ruling 04.11.2026 — every role says „du"; „Sie" is the
+// option an own role switches on. A set that does not name the rule (the
+// legacy role without rules of its own) says neither, so its pre-roles
+// prompt stays byte for byte.
+func TestCompile_AddressDefaultsToDu(t *testing.T) {
+	const du, sie = "mit „du“ an.", "mit „Sie“ an."
+	own := func(rules map[string]bool) Behavior {
+		return Behavior{Version: 1, ActiveRoleID: "c-1", CustomRoles: []Role{{ID: "c-1", Name: "E", Prompt: "P"}},
+			RoleRules: map[string]RuleSet{"c-1": {Rules: rules}}}
+	}
+	legacy := "Du bist X."
+	for _, tc := range []struct {
+		name     string
+		b        Behavior
+		lang     string
+		want     string
+		wantNone bool
+	}{
+		{name: "template", b: Default(), lang: "de", want: du},
+		{name: "own role, defaults", b: Behavior{Version: 1, ActiveRoleID: "c-1", CustomRoles: []Role{{ID: "c-1", Name: "E", Prompt: "P"}}}, lang: "de", want: du},
+		{name: "own role, formal on", b: own(map[string]bool{"formal": true}), lang: "de", want: sie},
+		{name: "own role, formal off", b: own(map[string]bool{"formal": false}), lang: "de", want: du},
+		{name: "own role, not named", b: own(map[string]bool{"pages": true}), lang: "de", wantNone: true},
+		{name: "legacy without rules", b: Effective(nil, &legacy, "de"), lang: "de", wantNone: true},
+		{name: "english template", b: Default(), lang: "en", want: "informally; in German, use „du“"},
+	} {
+		got, _ := Compile(tc.b, "", tc.lang)
+		switch {
+		case tc.wantNone:
+			if strings.Contains(got, "„du“") || strings.Contains(got, "„Sie“") {
+				t.Errorf("%s: names an address:\n%s", tc.name, got)
+			}
+		case !strings.Contains(got, tc.want):
+			t.Errorf("%s: want %q in\n%s", tc.name, tc.want, got)
+		case strings.Contains(got, du) && strings.Contains(got, sie):
+			t.Errorf("%s: both forms:\n%s", tc.name, got)
+		}
+	}
+	if got, _ := Compile(Effective(nil, &legacy, "de"), "", "de"); got != legacy+"\n\n"+legacyIdentity.in("de") {
+		t.Errorf("legacy prompt changed: %q", got)
 	}
 }

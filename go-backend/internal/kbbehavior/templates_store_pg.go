@@ -119,34 +119,8 @@ func NewTemplateStore(pool *pgxpool.Pool) *TemplateStore { return &TemplateStore
 const templateColumns = `id, icon, is_default, disabled, name_de, name_en, description_de, description_en,
 	prompt_de, prompt_en, cover_from, cover_to, start`
 
-// Seed fills an empty role_templates with builtinRoles, once per deployment:
-// the table lock makes a server and a worker starting together seed it once.
-func (s *TemplateStore) Seed(ctx context.Context) error {
-	return pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `LOCK TABLE role_templates IN EXCLUSIVE MODE`); err != nil {
-			return fmt.Errorf("kbbehavior seed templates: lock: %w", err)
-		}
-		var seeded bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM role_templates)`).Scan(&seeded); err != nil {
-			return fmt.Errorf("kbbehavior seed templates: %w", err)
-		}
-		if seeded {
-			return nil
-		}
-		for i, r := range builtinRoles {
-			if _, err := tx.Exec(ctx, `INSERT INTO role_templates (`+templateColumns+`, position)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-				r.id, r.icon, r.isDefault, r.disabled, r.name.de, r.name.en, r.description.de, r.description.en,
-				r.prompt.de, r.prompt.en, r.coverFrom, r.coverTo, r.start, i); err != nil {
-				return fmt.Errorf("kbbehavior seed templates %s: %w", r.id, err)
-			}
-		}
-		return nil
-	})
-}
-
-// Refresh loads role_templates into this process's catalog. An empty table
-// (not seeded yet) leaves the catalog as it is.
+// Refresh loads role_templates into this process's catalog (migration 0100
+// fills the table). An empty table leaves the catalog as it is.
 func (s *TemplateStore) Refresh(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT `+templateColumns+` FROM role_templates ORDER BY position, id`)
 	if err != nil {
@@ -167,16 +141,14 @@ func (s *TemplateStore) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// StartTemplateRefresher seeds and loads the templates, then reloads them
-// every interval, so a change made in „Vorlagen" on another instance
-// reaches this one within interval (the instance that saved reloads at
-// once). A failed load keeps the catalog it has. stop ends the loop and waits
-// for it — call it before the pool closes.
+// StartTemplateRefresher loads the templates, then reloads them every
+// interval, so a change made in „Vorlagen" on another instance reaches this
+// one within interval (the instance that saved reloads at once). A failed
+// load keeps the catalog it has. stop ends the loop and waits for it — call
+// it before the pool closes.
 func StartTemplateRefresher(ctx context.Context, s *TemplateStore, interval time.Duration) (stop func()) {
 	startCtx, cancelStart := context.WithTimeout(ctx, 10*time.Second)
-	if err := s.Seed(startCtx); err != nil {
-		slog.Error("kbbehavior: seeding role templates failed; serving the built-in ones", "error", err)
-	} else if err := s.Refresh(startCtx); err != nil {
+	if err := s.Refresh(startCtx); err != nil {
 		slog.Error("kbbehavior: loading role templates failed; serving the built-in ones", "error", err)
 	}
 	cancelStart()
