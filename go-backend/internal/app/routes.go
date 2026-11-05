@@ -1760,7 +1760,13 @@ func registerFrontendServing(rc *routeCtx) error {
 		} else {
 			slog.Warn("could not resolve client/dist to absolute path; serving relative", "error", err)
 		}
-		setupStaticServing(rc.mux, distDir, rc.cfg.AppNamePrefix, rc.cfg.AppNameProduct)
+		setupStaticServing(rc.mux, distDir, appShellNames{
+			Prefix:  rc.cfg.AppNamePrefix,
+			Product: rc.cfg.AppNameProduct,
+			SystemName: func(ctx context.Context) string {
+				return kbbehavior.ReadNames(ctx, rc.chatStore).System
+			},
+		})
 		return nil
 	}
 
@@ -1777,9 +1783,9 @@ func registerFrontendServing(rc *routeCtx) error {
 // React SPA from staticDir. API and OpenAI routes are left to their own
 // handlers (already registered before this is called); the handler returns
 // 404 for those prefixes so the mux falls through. The app shell and the PWA
-// manifest are renamed for the configured app name on the way out
+// manifest are renamed for the configured names on the way out
 // (app_shell.go).
-func setupStaticServing(mux *http.ServeMux, staticDir, appNamePrefix, appNameProduct string) {
+func setupStaticServing(mux *http.ServeMux, staticDir string, names appShellNames) {
 	fs := http.FileServer(http.Dir(staticDir))
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -1807,11 +1813,11 @@ func setupStaticServing(mux *http.ServeMux, staticDir, appNamePrefix, appNamePro
 		// either: the dist DIRECTORY exists, so it would answer with
 		// index.html unrenamed.
 		if path == "/" || path == "/index.html" {
-			serveAppShell(w, r, staticDir, appNamePrefix, appNameProduct)
+			serveAppShell(w, r, staticDir, names)
 			return
 		}
 		if path == "/manifest.webmanifest" {
-			serveManifest(w, r, staticDir, appNamePrefix+" "+appNameProduct)
+			serveManifest(w, r, staticDir, names)
 			return
 		}
 
@@ -1852,7 +1858,7 @@ func setupStaticServing(mux *http.ServeMux, staticDir, appNamePrefix, appNamePro
 		}
 
 		// SPA catch-all: serve the app shell for all non-file routes.
-		serveAppShell(w, r, staticDir, appNamePrefix, appNameProduct)
+		serveAppShell(w, r, staticDir, names)
 	})
 }
 

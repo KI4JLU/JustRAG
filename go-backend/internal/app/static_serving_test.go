@@ -96,7 +96,7 @@ func TestStaticServingCacheControl(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mux := http.NewServeMux()
-			setupStaticServing(mux, newStaticTestDir(t), "JLU", "RAG")
+			setupStaticServing(mux, newStaticTestDir(t), appShellNames{Prefix: "JLU", Product: "RAG"})
 
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
@@ -121,7 +121,7 @@ func TestStaticServingMissingBundleIs404(t *testing.T) {
 	t.Parallel()
 
 	mux := http.NewServeMux()
-	setupStaticServing(mux, newStaticTestDir(t), "JLU", "RAG")
+	setupStaticServing(mux, newStaticTestDir(t), appShellNames{Prefix: "JLU", Product: "RAG"})
 
 	cases := []struct {
 		name   string
@@ -164,7 +164,7 @@ func TestStaticServingImmutableOnlyUnderAssets(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	setupStaticServing(mux, dir, "JLU", "RAG")
+	setupStaticServing(mux, dir, appShellNames{Prefix: "JLU", Product: "RAG"})
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/brand-new-icon.svg", nil))

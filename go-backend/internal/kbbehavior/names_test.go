@@ -106,3 +106,32 @@ func TestReadNames_OneLookup(t *testing.T) {
 		t.Fatalf("ReadNames = %+v after %d lookups, want %+v after 1", got, calls, want)
 	}
 }
+
+// The system name of a deployment that set none is the app name the server
+// set at startup; a stored system_name still wins, and the assistant keeps its
+// own default. Not parallel: it changes the package default.
+func TestSetDefaultSystemName(t *testing.T) {
+	t.Cleanup(func() { SetDefaultSystemName("") })
+
+	SetDefaultSystemName("  THM Docs ")
+	if got := DefaultNames(); got != (Names{Assistant: DefaultAssistantName, System: "THM Docs"}) {
+		t.Errorf("DefaultNames = %+v, want the app name as the system", got)
+	}
+	if got := namesFrom(nil, strp("   ")); got.System != "THM Docs" {
+		t.Errorf("unset system_name = %q, want the app name", got.System)
+	}
+	if got := namesFrom(nil, strp("Campus RAG")); got.System != "Campus RAG" {
+		t.Errorf("stored system_name = %q, want it to win", got.System)
+	}
+	if got := ReadNames(context.Background(), nil); got.System != "THM Docs" {
+		t.Errorf("ReadNames without a reader = %+v, want the app name", got)
+	}
+
+	// Blank or invalid keeps the shipped default.
+	for _, bad := range []string{"", "a\nb", strings.Repeat("ä", MaxNameRunes+1)} {
+		SetDefaultSystemName(bad)
+		if got := DefaultNames().System; got != DefaultSystemName {
+			t.Errorf("SetDefaultSystemName(%q): system = %q, want %q", bad, got, DefaultSystemName)
+		}
+	}
+}

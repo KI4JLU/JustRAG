@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/justrag/go-backend/internal/config"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/safego"
@@ -62,6 +63,9 @@ func isUploadExempt(r *http.Request) bool {
 func RunServer(cfg *config.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// {{system_name}} and the window title default to the app name.
+	kbbehavior.SetDefaultSystemName(cfg.AppName())
 
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-server", version, middleware.RedactSecretPath)
 	if err != nil {

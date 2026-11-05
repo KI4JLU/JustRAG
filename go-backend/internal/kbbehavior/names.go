@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/justrag/go-backend/internal/logctx"
@@ -14,7 +15,8 @@ import (
 // answers, {{system_name}} the platform it answers on. System admins set them
 // as the global-only site_config keys below; an unset, blank or invalid value
 // reads as the default, so a damaged row never puts an empty name into a
-// prompt.
+// prompt. The system name's default is the app name from the environment
+// (SetDefaultSystemName); DefaultSystemName only stands in until it is set.
 const (
 	AssistantNameKey     = "assistant_name"
 	SystemNameKey        = "system_name"
@@ -37,9 +39,32 @@ type Names struct {
 	System    string `json:"system"`
 }
 
+// defaultSystemName holds the app name SetDefaultSystemName set; nil until then.
+var defaultSystemName atomic.Pointer[string]
+
+// SetDefaultSystemName makes name the system name of a deployment that set
+// none: the app name (config AppName, APP_NAME_PREFIX + APP_NAME_PRODUCT).
+// The server, the worker and the eval CLI call it at startup, before they
+// compile a prompt. A blank name keeps DefaultSystemName.
+func SetDefaultSystemName(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" || ValidateName(name) != nil {
+		defaultSystemName.Store(nil)
+		return
+	}
+	defaultSystemName.Store(&name)
+}
+
+func defaultSystem() string {
+	if p := defaultSystemName.Load(); p != nil {
+		return *p
+	}
+	return DefaultSystemName
+}
+
 // DefaultNames are the names of a deployment that set none.
 func DefaultNames() Names {
-	return Names{Assistant: DefaultAssistantName, System: DefaultSystemName}
+	return Names{Assistant: DefaultAssistantName, System: defaultSystem()}
 }
 
 // ValidateName reports why v cannot be a name: longer than MaxNameRunes or
@@ -69,7 +94,7 @@ func nameOr(stored *string, def string) string {
 func namesFrom(assistant, system *string) Names {
 	return Names{
 		Assistant: nameOr(assistant, DefaultAssistantName),
-		System:    nameOr(system, DefaultSystemName),
+		System:    nameOr(system, defaultSystem()),
 	}
 }
 

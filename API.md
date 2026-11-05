@@ -358,7 +358,8 @@ followed the free system prompt. Every answer surface reads this one compiled pr
   preview that matches the compiled prompt. Prompts are served as written: the placeholders
   `{{assistant_name}}` and `{{system_name}}` in any role prompt (template or own) resolve to `names`
   when the prompt is compiled — the global-only site_config keys `assistant_name` (default `JLU RAG`) and
-  `system_name` (default `JLU RAG`), each at most 40 characters on one line; blank means the default.
+  `system_name` (default: the app name, `APP_NAME_PREFIX` + space + `APP_NAME_PRODUCT`), each at most 40
+  characters on one line; blank means the default.
   Every system template opens with „Du bist {{assistant_name}}, …"; the fixed RAG instructions carry no
   identity of their own. The legacy role (a pre-roles `system_prompt`) is followed by the former
   identity line „Du bist {{assistant_name}}, ein fortschrittlicher, …"; an own role with neither prompt
