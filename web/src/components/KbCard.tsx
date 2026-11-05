@@ -1,5 +1,5 @@
 import {
-  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Settings, Star, Clock, RefreshCw,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Users, Lock, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
 import { ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
@@ -58,16 +58,19 @@ function visibilityBadge(kb: KnowledgeBase, t: T): string {
 // shipped to nobody. One component, one branch, three reachable states.
 const VISIBILITY_TONE = { public: 'success', shared: 'primary', personal: 'neutral' } as const;
 
+// The icon says who can get in: everyone (globe), several people (people),
+// only you (a lock).
+const VISIBILITY_ICON = { public: Globe, shared: Users, personal: Lock } as const;
+
 function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const state = visibilityState(kb);
+  const Icon = VISIBILITY_ICON[state];
   return (
     // `shrink-0` (KI-843): in the card footer the chip group is the elastic
     // half and wraps; the badge keeps its size at the right edge. The legacy
     // badge rule sets no `flex-shrink`, so the utility is not shadowed.
     <Badge tone={VISIBILITY_TONE[state]} className="home-view__badge ml-auto shrink-0">
-      {state === 'public'
-        ? <Globe size={10} aria-hidden="true" />
-        : <User size={10} aria-hidden="true" />}
+      <Icon size={10} aria-hidden="true" />
       {visibilityBadge(kb, t)}
     </Badge>
   );
@@ -261,13 +264,13 @@ function kbCardActions({
 /* THE HOVER SWAP. Out first, then in: what leaves fades fast (150ms) and what
    arrives follows after 100ms over 300ms, so the two texts never sit on top of
    each other half-transparent. Each side carries its own delay for both
-   directions — a transition takes its timing from the state it moves TO. The
-   description also rises 4px into place; with reduced motion it only fades. */
+   directions — a transition takes its timing from the state it moves TO. Only
+   the opacity changes: the description stays where it is, nothing slides. */
 const AT_REST_FADE =
   'transition-opacity duration-300 delay-100 ease-out group-focus-within/kb-card:opacity-0 group-focus-within/kb-card:duration-150 group-focus-within/kb-card:delay-0 group-hover/kb-card:opacity-0 group-hover/kb-card:duration-150 group-hover/kb-card:delay-0';
 
 const DESCRIPTION_FADE =
-  'translate-y-1 opacity-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:translate-y-0 group-focus-within/kb-card:translate-y-0 group-focus-within/kb-card:opacity-100 group-focus-within/kb-card:duration-300 group-focus-within/kb-card:delay-100 group-hover/kb-card:translate-y-0 group-hover/kb-card:opacity-100 group-hover/kb-card:duration-300 group-hover/kb-card:delay-100';
+  'opacity-0 transition-opacity duration-150 ease-out group-focus-within/kb-card:opacity-100 group-focus-within/kb-card:duration-300 group-focus-within/kb-card:delay-100 group-hover/kb-card:opacity-100 group-hover/kb-card:duration-300 group-hover/kb-card:delay-100';
 
 /**
  * The card's description, over the meta block and the footer (`inset-x-5`
@@ -402,10 +405,11 @@ export function PrivateKbCard({
       role="presentation"
       onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
     >
-      {/* THE HAIRLINE CARD (developer mockup „Hairline", 30.10.2026): title,
-          favorite star and ⋯ on a faint tint of the category's colour, closed
-          by a rule in that colour with the category on it. Without a category
-          the card stays neutral: a grey tint and rule. */}
+      {/* THE HAIRLINE CARD (developer mockup „Hairline", 30.10.2026; glow
+          05.11.2026): title, favorite star and ⋯ on the card's own surface,
+          lit by a soft glow of the category's colour rising from a rule in
+          that colour with the category on it. Without a category: a faint
+          glow in the primary colour over a 1px rule in the border colour. */}
       {/* The drag grip: top centre, over the band's top padding, so it takes
           no room from the title. Only inside a sortable grid; shown on hover
           and to the keyboard. */}
