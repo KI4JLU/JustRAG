@@ -81,12 +81,12 @@ export interface TopicGridPageProps {
    */
   uniformRows?: boolean;
   /**
-   * Card mode only: the cards can be dragged into a new order (`useKbSortable`
-   * builds it). `ids[i]` is `items[i]`'s id, `pinnedIds[i]` `pinned.items[i]`'s.
-   * A card dropped into the other group calls `onMoveToGroup` with
-   * `PINNED_GROUP` or `REST_GROUP`. Ignored in list view.
+   * The cards (or, in list view, the rows) can be dragged into a new order
+   * (`useKbSortable` builds it). `ids[i]` is `items[i]`'s id, `pinnedIds[i]`
+   * `pinned.items[i]`'s. A card dropped into the other group calls
+   * `onMoveToGroup` with `PINNED_GROUP` or `REST_GROUP`.
    */
-  sortable?: Omit<SortableBoardProps, 'children' | 'renderOverlay'> & {
+  sortable?: Omit<SortableBoardProps, 'children' | 'renderOverlay' | 'rows'> & {
     ids: string[];
     pinnedIds: string[];
     /** The drop zone shown for the pinned group while it is empty. */
@@ -130,7 +130,7 @@ export function TopicGridPage({
     </Grid>
   );
 
-  const dnd = sortable && viewMode === 'card' ? sortable : undefined;
+  const dnd = sortable;
   const group = (groupId: string, ids: string[], cells: ReactNode[]) => (
     dnd ? <SortableGroup id={groupId} ids={ids} items={cells}>{grid}</SortableGroup> : grid(cells)
   );
@@ -179,6 +179,7 @@ export function TopicGridPage({
         announcements={dnd.announcements}
         screenReaderInstructions={dnd.screenReaderInstructions}
         renderOverlay={cardId => byId.get(cardId)}
+        rows={viewMode === 'list'}
       >
         {groups}
       </SortableBoard>

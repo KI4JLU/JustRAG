@@ -96,7 +96,7 @@ export function MyTopicsView({
   const { ownedKbs } = useMemo(() => splitKbsByOwnership(kbs), [kbs]);
 
   const filters = useTopicFilters();
-  // The user's own order (dragged in card view), then the chip filter.
+  // The user's own order (dragged in card or list view), then the chip filter.
   const order = useKbOrder('my');
   const ordered = useMemo(() => order.apply(ownedKbs), [order, ownedKbs]);
   const displayed = useMemo(() => filters.apply(ordered), [filters, ordered]);

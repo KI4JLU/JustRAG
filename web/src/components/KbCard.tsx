@@ -170,7 +170,7 @@ const KB_ROW_COLUMNS =
 /** The column labels over the list view's rows. */
 export function KbListHeader({ t }: { t: T }) {
   return (
-    <div aria-hidden="true" className={`${KB_ROW_COLUMNS} border-l-4 border-transparent pl-4 pr-3 text-xs font-medium text-on-surface-variant`}>
+    <div aria-hidden="true" className={`${KB_ROW_COLUMNS} border-l-4 border-transparent pl-6 pr-3 text-xs font-medium text-on-surface-variant`}>
       <span>{t('kbListColTopic')}</span>
       <span className="text-right">{t('kbListColSources')}</span>
       <span className="text-right">{t('kbListColChats')}</span>
@@ -362,7 +362,7 @@ export function PrivateKbCard({
         interactive
         role="presentation"
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-        className={`${KB_ROW_COLUMNS} cursor-pointer items-center py-3 pl-4 pr-3`}
+        className={`${KB_ROW_COLUMNS} group/kb-row relative cursor-pointer items-center py-3 pl-6 pr-3`}
       >
         <div className="flex min-w-0 flex-col items-start gap-1">
           <span className="max-w-full truncate font-semibold text-on-surface">{nameButton}</span>
@@ -389,6 +389,15 @@ export function PrivateKbCard({
           {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
           {menu}
         </div>
+        {/* The drag grip, in the row's left padding beside the name. Last
+            child, so the columns' `nth-child` rules still count the same;
+            positioned, so it takes no grid cell. Shown on hover and to the
+            keyboard, as on the card. */}
+        <SortableHandle
+          vertical
+          label={`${t('kbMoveCard')}: ${kb.name}`}
+          className="absolute top-1/2 left-1 z-10 h-8 w-4 -translate-y-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-row:opacity-100"
+        />
       </Card>
     );
   }
