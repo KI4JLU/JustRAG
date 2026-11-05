@@ -188,8 +188,8 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    * an admin-only row since KI-782, and it is now no row at all.
    *
    * THIS ORPHANS NOTHING, which is the reason it can simply go: `AgentsView`
-   * keeps two routes, both in-KB and both behind `canOpenKbAdvancedSettings` —
-   * `ChatView`'s `KbAgentsSection` and `KbSettingsPanel`'s „Agent anlegen".
+   * keeps its route through `KbSettingsPanel`'s „Agent anlegen" (RAG-Settings
+   * in the admin console's KB-Übersicht).
    * What changes is that an admin reaches the screen through a KB instead of
    * from anywhere. A plain `user` had no route before this and has none now.
    * `AppNavContext.onViewAgents` went with the row (this was its only reader);

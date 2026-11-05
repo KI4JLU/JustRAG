@@ -105,6 +105,8 @@ interface AdminUIProps {
     onSectionChange: (section: AdminSection) => void;
     user: User;
     onEditGlobalKb?: (kb: { id: string; name: string }) => void;
+    /** „RAG-Settings" in the KB-Übersicht: a topic's RAG configuration page. */
+    onOpenRagSettings?: (kb: { id: string; name: string }) => void;
 }
 
 /**
@@ -117,7 +119,7 @@ interface AdminUIProps {
  *
  * Mount it only while open: it fetches the open section's data on mount.
  */
-export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb }: AdminUIProps) {
+export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb, onOpenRagSettings }: AdminUIProps) {
     // Opens filling the window (1rem inside it); the toggle restores the plain `xl` window.
     const [maximized, setMaximized] = useState(true);
     const toast = useToast();
@@ -563,7 +565,10 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                     </>
                 );
             case 'kb-overview':
-                return <KBOverviewDashboard />;
+                // The RAG configuration is its own full-page view. Unlike a
+                // public KB's editor below it keeps the console in the URL:
+                // leaving it returns to this list.
+                return <KBOverviewDashboard onOpenRagSettings={onOpenRagSettings} />;
             case 'global-kbs':
                 // Editing a public KB is its own full-page view: close the
                 // console first so it is not left open behind that page.

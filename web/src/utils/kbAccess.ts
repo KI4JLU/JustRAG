@@ -1,21 +1,6 @@
 import type { FileEntry, KbCapabilities, KnowledgeBase } from '../types';
 
 /**
- * The system roles that may operate the KB "advanced settings" surface
- * (KbSettingsPanel: RAG Settings, Agenten & Teams, Evals, Workflow — plus the
- * per-KB re-ingest its Save flow offers).
- *
- * Same triple the backend's kbAdvancedChain passes to RequireRole, and the same
- * one Profile.tsx uses to decide whether to show the API-keys section.
- */
-export const KB_ADVANCED_SYSTEM_ROLES: readonly string[] = ['api-user', 'admin', 'superadmin'];
-
-/** Whether `systemRole` is one of KB_ADVANCED_SYSTEM_ROLES. */
-export function hasAdvancedSystemRole(systemRole?: string): boolean {
-  return systemRole != null && KB_ADVANCED_SYSTEM_ROLES.includes(systemRole);
-}
-
-/**
  * Whether the caller's EFFECTIVE role on `kb` is admin or better.
  *
  * Mirrors kbaccess.EffectiveRole (go-backend/internal/kbaccess/middleware.go),
@@ -156,27 +141,6 @@ export function chatSourceSelection(
 }
 
 /**
- * canOpenKbAdvancedSettings is the single predicate behind BOTH entry points to
- * KbSettingsPanel — the sliders icon on a KB card in HomeView and the one in
- * the ChatView header. They used to carry two hand-written gates that had
- * drifted apart (HomeView checked only the KB role, ChatView only the system
- * role plus the legacy owner-mirror column), so a plain user reached the panel
- * from one and not the other.
- *
- * It is the client-side twin of kbAdvancedChain: a system role in
- * {api-user, admin, superadmin} AND an effective KB role of admin or better.
- * Both terms are required, and the server enforces the same two — this only
- * decides whether to offer the door, never whether it opens.
- */
-export function canOpenKbAdvancedSettings(
-  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'> | null | undefined,
-  systemRole?: string,
-): boolean {
-  if (kb == null) return false;
-  return hasAdvancedSystemRole(systemRole) && hasKbAdminRole(kb, systemRole);
-}
-
-/**
  * canRenameKb is the client-side twin of kbaccess.CanRename (the gate on the
  * `name` field of PATCH /api/kb/{id}). Renaming is stricter than the KB role
  * admin that governs the rest of that endpoint:
@@ -185,7 +149,7 @@ export function canOpenKbAdvancedSettings(
  *   - public KB (no owner): only a system admin / superadmin
  *
  * A kb_members admin row alone — curator, demoted ex-owner — is never enough,
- * on either kind of KB. As with canOpenKbAdvancedSettings this only decides
+ * on either kind of KB. Like the other helpers here this only decides
  * whether to offer the control; the server enforces the same rule.
  */
 export function canRenameKb(

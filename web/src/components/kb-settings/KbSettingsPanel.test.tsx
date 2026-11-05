@@ -235,10 +235,11 @@ describe('KbSettingsPanel', () => {
 
       const alert = await screen.findByRole('alert');
       expect(alert).toHaveTextContent('Keine Berechtigung');
-      // Names the roles, so the reader knows what to ask for rather than only
-      // that something went wrong.
-      expect(alert).toHaveTextContent(/api-user/);
-      expect(alert).toHaveTextContent(/superadmin/);
+      // Names the rule (developer rulings 2026-11-05: system admins, shared or
+      // public topics), so the reader knows why rather than only that
+      // something went wrong.
+      expect(alert).toHaveTextContent(/Systemadmins/);
+      expect(alert).toHaveTextContent(/eigenen, geteilten oder öffentlichen Themen/);
     });
 
     it('drops the tab bar and the loading state', async () => {

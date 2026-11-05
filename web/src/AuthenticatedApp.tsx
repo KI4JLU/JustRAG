@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Loader2, ArrowLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { BreadcrumbBack } from '@ki4jlu/design-system';
 import type { KnowledgeBase, GeneratedContent } from './types';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
@@ -28,7 +29,7 @@ import { useRssFeeds } from './hooks/useRssFeeds';
 import { useConfluenceSources } from './hooks/useConfluenceSources';
 import { useGitRepoSources } from './hooks/useGitRepoSources';
 import { useViewState, type KbViewType } from './hooks/useViewState';
-import { useLocation } from '@tanstack/react-router';
+import { useLocation, useRouter } from '@tanstack/react-router';
 import { useAppNavigate, useAppRoute } from './routing/navigation';
 import { useKbSettings } from './hooks/useKbSettings';
 import { useKbLifecycle } from './hooks/useKbLifecycle';
@@ -125,16 +126,17 @@ function AuthenticatedAppInner() {
 
   /* The advanced settings page (RAG settings, evals, workflow; KbSettingsPanel)
    * deliberately has NO URL: it is experimental and partly deprecated, so it
-   * is reachable from Verhalten in the topic's settings (system admins) but is
-   * not part of the URL schema. It opens over the current URL and closes on any navigation
-   * — browser back included — which is what remembering the path it was
-   * opened on, and dropping it once the path differs, does. */
-  const { pathname } = useLocation();
-  const [advanced, setAdvanced] = useState<{ kb: KnowledgeBase; pathname: string } | null>(null);
-  if (advanced && advanced.pathname !== pathname) setAdvanced(null);
-  const openAdvancedSettings = useCallback((kb: KnowledgeBase) => {
-    setAdvanced({ kb, pathname });
-  }, [pathname]);
+   * is reachable from „RAG-Settings" in the admin console's KB-Übersicht
+   * (system admins) but is not part of the URL schema. Opening it pushes a
+   * history entry with the same URL — the console's `?admin=kb-overview` —
+   * that names the topic in its state, and the page is that state. So leaving
+   * it, by its breadcrumb or the browser's back, returns to the KB-Übersicht,
+   * and any other navigation closes it. */
+  const router = useRouter();
+  const advanced = (useLocation().state as { ragSettingsKb?: { id: string; name: string } } | undefined)?.ragSettingsKb ?? null;
+  const openAdvancedSettings = useCallback((kb: { id: string; name: string }) => {
+    router.history.push(router.history.location.href, { ragSettingsKb: { id: kb.id, name: kb.name } });
+  }, [router]);
 
   // New extracted hooks
   const kbSettings = useKbSettings();
@@ -410,6 +412,7 @@ function AuthenticatedAppInner() {
       kbMgmt.handleSelectKB(kb);
       openTopicSettings(section);
     },
+    onOpenRagSettings: openAdvancedSettings,
   };
 
   // Until the redirect effect has replaced the URL.
@@ -433,25 +436,24 @@ function AuthenticatedAppInner() {
   }
 
   // Per-KB RAG settings / evals / workflow — the URL-less page above
-  // (`advanced`). The KB-admin tuning surface; every endpoint it calls is
-  // kbAdminChain. Entry point: Verhalten in the topic's settings, gated by
-  // canOpenKbAdvancedSettings in ChatView.
+  // (`advanced`). The operator tuning surface; every endpoint it calls is
+  // kbAdvancedChain. Entry point: „RAG-Settings" in the row menu of the admin
+  // console's KB-Übersicht (KBOverviewDashboard) — system admins, shared and
+  // public topics. Its breadcrumb goes back to that list.
   if (advanced) {
     return (
       <div className="app-container" data-theme={resolvedTheme}>
         <div style={{ display: 'flex', flexDirection: 'column', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
-          <div style={{ padding: '1rem 1.5rem 0' }}>
-            <button
-              type="button"
-              onClick={() => { kbMgmt.fetchKBs(); setAdvanced(null); }}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '0.45rem 0.75rem', borderRadius: 8, cursor: 'pointer', fontSize: '0.85rem' }}
-            >
-              <ArrowLeft size={16} aria-hidden="true" /> {advanced.kb.name}
-            </button>
+          <div className="flex flex-col gap-1" style={{ padding: '1rem 1.5rem 0' }}>
+            <BreadcrumbBack
+              trail={[t('adminSettings'), t('adminTabKbOverview')]}
+              onClick={() => { kbMgmt.fetchKBs(); router.history.back(); }}
+            />
+            <h1 className="m-0 text-2xl font-semibold text-on-surface">{advanced.name}</h1>
           </div>
           <div style={{ padding: '1.25rem 1.5rem 2rem' }}>
             <Suspense fallback={<LoadingFallback />}>
-              <KbSettingsPanel kbId={advanced.kb.id} onCreateAgent={() => navigateTo({ view: 'agents' })} />
+              <KbSettingsPanel kbId={advanced.id} onCreateAgent={() => navigateTo({ view: 'agents' })} />
             </Suspense>
           </div>
         </div>
@@ -627,7 +629,6 @@ function AuthenticatedAppInner() {
     handleGoHome: viewState.handleGoHome,
     handleViewHome: viewState.handleViewHome,
     onViewAgents: () => navigateTo({ view: 'agents' }),
-    onOpenRagSettings: () => { if (routeKb) openAdvancedSettings(routeKb); },
     handleUpdateKBSettings,
   };
 

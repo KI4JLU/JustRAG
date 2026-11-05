@@ -191,6 +191,7 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
             onOpenSource: idle(),
             onOpenChat: idle(),
             onOpenTopicSettings: args.onOpenTopicSettings,
+            onOpenRagSettings: idle(),
           }}
         >
           <StoryKbSearchProvider>

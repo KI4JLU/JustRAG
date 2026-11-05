@@ -11,8 +11,8 @@ const url = (kbId: string, suffix = ''): string =>
 /**
  * KbSettingsHttpError carries the HTTP status alongside the message so callers
  * can tell the one failure that is not a fault from the ones that are: a 403
- * means the caller may not operate this surface at all (kbAdvancedChain wants a
- * system role in {api-user, admin, superadmin} on top of KB role admin), which
+ * means the caller may not operate this surface at all (kbAdvancedChain: system
+ * admins only, on their own, shared or public topics), which
  * deserves an explanation rather than a status code. Everything else keeps the
  * old shape.
  */

@@ -1,4 +1,4 @@
-import { LEGACY_ROLE_ID, type Behavior, type BehaviorCatalog, type EntryStart, type RuleSet, type StartColors } from './api';
+import { LEGACY_ROLE_ID, type Behavior, type BehaviorCatalog, type CatalogRule, type EntryStart, type RuleSet, type StartColors } from './api';
 
 /** A role as the settings show it: a catalog template or one of the KB's own. */
 export interface RoleView {
@@ -9,8 +9,6 @@ export interface RoleView {
     icon: string;
     custom: boolean;
     isDefault?: boolean;
-    /** The pre-roles system prompt: name fixed, prompt editable. */
-    legacy?: boolean;
     /** A template's own cover band (start-page cards); none = the default by card kind. */
     cover?: StartColors;
     /** A template switched off in „Vorlagen": not offered for new picks, kept where it is used. */
@@ -27,7 +25,7 @@ export function allRoles(catalog: BehaviorCatalog | null, behavior: Behavior | u
     }));
     const own: RoleView[] = (behavior?.customRoles ?? []).map(r => ({
         id: r.id, name: r.name, description: r.description ?? '', prompt: r.prompt, icon: r.icon || 'user-round',
-        custom: true, legacy: r.id === LEGACY_ROLE_ID,
+        custom: true,
     }));
     return [...templates, ...own];
 }
@@ -72,10 +70,18 @@ export function rulesFor(catalog: BehaviorCatalog, behavior: Behavior, roleId: s
     return roleId === LEGACY_ROLE_ID ? { rules: {}, customRules: [] } : defaultRules(catalog);
 }
 
-/** The texts of a set's switched-on rules: the catalog's, then the own ones. */
+/**
+ * The rule texts a set sends (the server's Compile): a catalog rule's text
+ * while on, its offText while switched off, nothing while the set does not
+ * name it; then the switched-on own rules.
+ */
 export function activeRuleTexts(catalog: BehaviorCatalog, set: RuleSet): string[] {
+    const sent = (r: CatalogRule) => {
+        const on = set.rules[r.id];
+        return on === undefined ? '' : on ? r.text : r.offText ?? '';
+    };
     return [
-        ...catalog.ruleGroups.flatMap(g => g.rules).filter(r => set.rules[r.id]).map(r => r.text),
+        ...catalog.ruleGroups.flatMap(g => g.rules).map(sent).filter(Boolean),
         ...set.customRules.filter(r => r.on && r.text.trim()).map(r => r.text.trim()),
     ];
 }
