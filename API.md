@@ -274,7 +274,7 @@ What is withheld, per surface:
 |---|---|
 | `POST /kb/{id}/chat`, SSE | the opening frame keeps `chatId`/`userMessageId`/`enhancedQuery` but has `"sources": []`; no `conflicts` frame; `verification` without `citations`, without `cited_n` on flagged claims and with `self_rag.isrel` empty; `agentTrajectory` frames without `chunks` (file names); the answer-tool trace frames without `args` and `preview`; a corpus table without its `_file_id`/`_file_name`/`_source_idx` row keys and file-name-derived columns; comparison findings without `citedFileIds`/`citedQuote`; `[n]` markers removed from `content`, `reasoning`, `refined_text` and follow-up questions (a marker split across two `content` frames is held back until it is complete) |
 | `POST /kb/{id}/chat`, JSON | the same keys of the response body (`answer` without markers, `"sources": []`, no `conflicts`, `verification` as above) |
-| `GET /chats/{id}/messages` | per AI message: `"sources": []` (a stored `null` stays `null`), no `conflicts`, `verification` and `structured_table` as above, markers removed from `content` and `reasoning`; user messages unchanged. A library chat (no KB) is never stripped. |
+| `GET /chats/{id}/messages` | per AI message: `"sources": []` (a stored `null` stays `null`), no `conflicts`, `verification` and `structured_table` as above, `trajectory` steps without `chunks` and with markers removed from a refine `diff`, markers removed from `content` and `reasoning`; user messages unchanged. A library chat (no KB) is never stripped. |
 | `POST /kb/{id}/agui/chat` | `justrag.sources.v1` with an empty list; `justrag.tool_chunks.v1` with `chunks: []`; every `TOOL_CALL_RESULT` with content `{}`; markers removed from `TEXT_MESSAGE_CONTENT` / `REASONING_MESSAGE_CONTENT` deltas (see [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md)) |
 | `POST /api/v1/kb/{id}/chat`, `GET /api/v1/kb/{id}/chats/{chatId}/messages` | as the web chat and `GET /chats/{id}/messages` |
 | `POST /api/v1/kb/{id}/mcp` (`ask_kb`) | `structuredContent.sources` is `[]`; markers removed from the answer text |
@@ -910,6 +910,25 @@ name, mime, size}]` on user messages that have any. `DELETE /chats/{id}` also de
 that nothing else references; attachments left by a KB or account deletion and uploads never sent
 are removed by the worker's `userfiles_orphan_sweep` after 24 h. The file itself downloads through
 `GET /library/files/{id}/download`.
+
+**Agent steps on reload.** A streamed turn stores its steps with the AI message (`messages.trajectory`,
+migration 0102), and `GET /chats/{id}/messages` returns them as `trajectory` on that message: the
+`agentTrajectory` events the stream sent, in stream order, plus one `{"stage": "reasoning"}` entry
+where the model's reasoning began (its text stays in `reasoning`). `refined_text` is not stored, the
+refined answer is the message's `content`. The key is omitted when the turn had no steps: a
+non-streaming turn, a turn with reasoning only, and every answer from before the migration.
+
+The standard path (no orchestrator) streams its search as a step too: `{"stage": "retrieval",
+"step": 1, "query", "queries" (decomposed sub-questions), "findings" (hits), "chunks"}`, followed by
+`{"stage": "retrieval", "step": 1, "decision": "context_reduced", "dropped"}` when compression or
+multi-pass extraction dropped passages. `{"stage": "recency_listing", "findings", "reason"}` (files
+listed, window start as an ISO date) marks the recency listing, `{"stage": "decision", "decision":
+"insufficient_context"}` the sufficient-context gate's refusal. An answer-time tool call
+(`chat_answer_tools_enabled`) is an `agentTrajectory` event before and after its dispatch:
+`decision` `agent_tool_call` (`reason` the tool, `query`, `args` the argument preview), then
+`agent_tool_call_result` (`findings`) or `agent_tool_call_failed`. It used to be a bare
+`{"stage": …}` frame with a `preview` of the result; the result preview is no longer sent. `args`
+and a tool call's `query` are removed for a reader without `seeCitations`, like `chunks`.
 
 `POST /kb/{id}/chat` takes an optional boolean `webSearch` (per-turn web search):
 
