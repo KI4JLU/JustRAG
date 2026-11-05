@@ -342,6 +342,7 @@ func TestClient_Convert_StructureIsPopulated(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, 10*time.Second)
+	c.ExtractStructure = true
 	res, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -405,6 +406,7 @@ func TestConvertAndMap_StructureIsCarriedOnParseResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := NewClient(srv.URL, 10*time.Second)
+	c.ExtractStructure = true
 	res, err := ConvertAndMap(context.Background(), c, parser.ParseContext{
 		FilePath: path,
 		FileName: "x.docx",
@@ -414,5 +416,168 @@ func TestConvertAndMap_StructureIsCarriedOnParseResult(t *testing.T) {
 	}
 	if res.Structure == nil || len(res.Structure.Headings) != 3 {
 		t.Fatalf("want 3 headings on the ParseResult, got %+v", res.Structure)
+	}
+}
+
+// Oracle: PR #75 review — ingest never reads the structure, so a client that
+// does not ask for it (the worker's) gets none, and the page items are the
+// same either way.
+func TestClient_Convert_StructureOnlyWhenAsked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"document": map[string]any{
+				"md_content":   "# Mein Titel\n",
+				"json_content": json.RawMessage(structHeadingsDoc),
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, 10*time.Second)
+	off, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.Structure != nil {
+		t.Fatalf("structure without ExtractStructure: %+v", off.Structure)
+	}
+	c.ExtractStructure = true
+	on, err := c.Convert(context.Background(), "x.pdf", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(off.Items, on.Items) {
+		t.Fatalf("items differ with structure:\n off %+v\n on  %+v", off.Items, on.Items)
+	}
+}
+
+// Oracle: PR #75 review — the parse cache stores ParseResult as JSON; the
+// structure must not be part of it.
+func TestParseResult_StructureIsNotSerialized(t *testing.T) {
+	raw, err := json.Marshal(parser.ParseResult{Text: "x", Structure: &parser.Structure{Headings: []parser.StructHeading{{Text: "H", Level: 1}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "Structure") || strings.Contains(string(raw), "Headings") {
+		t.Fatalf("structure serialized: %s", raw)
+	}
+}
+
+// structInlineRunsDoc: an unmarked ordered list whose first item carries
+// inline formatting runs (an "inline" group) and an empty own text, and a
+// heading whose text sits only in its runs; then a table without any cell
+// text followed by a table with text.
+const structInlineRunsDoc = `{
+  "schema_name": "DoclingDocument",
+  "body": {"self_ref": "#/body", "children": [
+    {"$ref": "#/texts/5"},
+    {"$ref": "#/groups/0"},
+    {"$ref": "#/tables/0"},
+    {"$ref": "#/tables/1"}
+  ]},
+  "groups": [
+    {"self_ref": "#/groups/0", "label": "ordered_list", "content_layer": "body", "children": [
+      {"$ref": "#/texts/0"},
+      {"$ref": "#/texts/3"},
+      {"$ref": "#/texts/4"}
+    ]},
+    {"self_ref": "#/groups/1", "label": "inline", "content_layer": "body", "children": [
+      {"$ref": "#/texts/1"},
+      {"$ref": "#/texts/2"}
+    ]},
+    {"self_ref": "#/groups/2", "label": "inline", "content_layer": "body", "children": [
+      {"$ref": "#/texts/6"},
+      {"$ref": "#/texts/7"}
+    ]}
+  ],
+  "texts": [
+    {"self_ref": "#/texts/0", "label": "list_item", "content_layer": "body",
+     "text": "", "marker": "", "enumerated": false, "children": [{"$ref": "#/groups/1"}], "prov": []},
+    {"self_ref": "#/texts/1", "label": "text", "content_layer": "body", "text": "Wichtig:", "prov": []},
+    {"self_ref": "#/texts/2", "label": "text", "content_layer": "body", "text": "Termin beachten", "prov": []},
+    {"self_ref": "#/texts/3", "label": "list_item", "content_layer": "body",
+     "text": "Zweiter", "marker": "", "enumerated": false, "prov": []},
+    {"self_ref": "#/texts/4", "label": "list_item", "content_layer": "body",
+     "text": "Dritter", "marker": "", "enumerated": false, "prov": []},
+    {"self_ref": "#/texts/5", "label": "section_header", "level": 1, "content_layer": "body",
+     "text": "", "children": [{"$ref": "#/groups/2"}], "prov": []},
+    {"self_ref": "#/texts/6", "label": "text", "content_layer": "body", "text": "Teil", "prov": []},
+    {"self_ref": "#/texts/7", "label": "text", "content_layer": "body", "text": "Eins", "prov": []}
+  ],
+  "tables": [
+    {"self_ref": "#/tables/0", "label": "table", "content_layer": "body", "prov": [],
+     "data": {"num_rows": 1, "num_cols": 2, "table_cells": [
+       {"text": "", "start_row_offset_idx": 0, "start_col_offset_idx": 0},
+       {"text": "", "start_row_offset_idx": 0, "start_col_offset_idx": 1}]}},
+    {"self_ref": "#/tables/1", "label": "table", "content_layer": "body", "prov": [],
+     "data": {"num_rows": 1, "num_cols": 1, "table_cells": [
+       {"text": "Wert", "start_row_offset_idx": 0, "start_col_offset_idx": 0}]}}
+  ]
+}`
+
+// Oracle: PR #75 review — an item's inline runs neither shift the numbering
+// of an unmarked ordered list nor hide the item's text, and a table without
+// cell text keeps its place among the tables.
+func TestStructure_InlineRunsAndEmptyTables(t *testing.T) {
+	got := structureFromJSONContent(json.RawMessage(structInlineRunsDoc))
+	if got == nil {
+		t.Fatal("nil structure")
+	}
+	wantItems := []parser.StructListItem{
+		{Marker: "1.", Text: "Wichtig: Termin beachten", Level: 0},
+		{Marker: "2.", Text: "Zweiter", Level: 0},
+		{Marker: "3.", Text: "Dritter", Level: 0},
+	}
+	if len(got.Lists) != 1 || !reflect.DeepEqual(got.Lists[0].Items, wantItems) {
+		t.Errorf("lists = %+v, want one list with %+v", got.Lists, wantItems)
+	}
+	if want := []parser.StructHeading{{Text: "Teil Eins", Level: 2}}; !reflect.DeepEqual(got.Headings, want) {
+		t.Errorf("headings = %+v, want %+v", got.Headings, want)
+	}
+	if len(got.Tables) != 2 || got.Tables[0].NumCols != 2 || got.Tables[1].Cells[0].Text != "Wert" {
+		t.Errorf("tables = %+v, want the empty table first, then Wert", got.Tables)
+	}
+}
+
+// structSharedRefsDoc: a paginated document whose heading lists, as its
+// children, a text and a table that are also body children — and the
+// table's caption. Structure mode must not take them from the page items.
+const structSharedRefsDoc = `{
+  "schema_name": "DoclingDocument",
+  "body": {"self_ref": "#/body", "children": [
+    {"$ref": "#/texts/0"},
+    {"$ref": "#/texts/1"},
+    {"$ref": "#/tables/0"}
+  ]},
+  "texts": [
+    {"self_ref": "#/texts/0", "label": "section_header", "level": 1, "content_layer": "body",
+     "text": "Kapitel", "children": [{"$ref": "#/texts/1"}, {"$ref": "#/tables/0"}], "prov": [{"page_no": 1}]},
+    {"self_ref": "#/texts/1", "label": "text", "content_layer": "body", "text": "Absatz", "prov": [{"page_no": 1}]},
+    {"self_ref": "#/texts/2", "label": "caption", "content_layer": "body", "text": "Tabelle 1", "prov": [{"page_no": 1}]}
+  ],
+  "tables": [
+    {"self_ref": "#/tables/0", "label": "table", "content_layer": "body", "prov": [{"page_no": 1}],
+     "captions": [{"$ref": "#/texts/2"}],
+     "data": {"num_rows": 1, "num_cols": 1, "table_cells": [
+       {"text": "Wert", "start_row_offset_idx": 0, "start_col_offset_idx": 0}]}}
+  ]
+}`
+
+// Oracle: PR #75 re-review — the page items are the same with and without
+// structure extraction, also when the structure-only descent reaches refs
+// first that the body lists too (text, table, the table's caption).
+func TestWalk_StructureModeKeepsItems(t *testing.T) {
+	off := walkDoclingDocument(json.RawMessage(structSharedRefsDoc), false)
+	on := walkDoclingDocument(json.RawMessage(structSharedRefsDoc), true)
+	if off == nil || on == nil {
+		t.Fatal("nil walk")
+	}
+	if len(off.items) != 3 || off.items[2].Table == nil || off.items[2].Table.Caption != "Tabelle 1" {
+		t.Fatalf("oracle: items without structure = %+v", off.items)
+	}
+	if !reflect.DeepEqual(off.items, on.items) {
+		t.Fatalf("items differ with structure:\n off %+v\n on  %+v", off.items, on.items)
 	}
 }

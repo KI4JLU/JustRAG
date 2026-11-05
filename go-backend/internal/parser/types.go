@@ -34,8 +34,10 @@ type ParseResult struct {
 	// Structure is the structured content (headings, list groups, table
 	// grids) when the parser extracted it; nil for parsers that don't
 	// (the built-in ones). Not used by the ingest pipeline — it is
-	// consumed by the golden-set parsedump tool.
-	Structure *Structure
+	// consumed by the golden-set parsedump tool. Not serialized: the parse
+	// cache (processor.ParseCache) stores ParseResult as JSON and must not
+	// grow by a second copy of every table.
+	Structure *Structure `json:"-"`
 }
 
 // PageText holds the extracted text for a single page.

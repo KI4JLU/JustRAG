@@ -7,6 +7,11 @@
 //	cd go-backend && go build -o /tmp/parsedump ./cmd/parsedump
 //	/tmp/parsedump -parser builtin|docling [-docling-url URL] [-doc ID] FILE
 //
+// The "docling" chain is the worker's Docling chain (Docling first, built-in
+// parser as fallback); it does not read RUSTPARSER_MODE. To score the Rust
+// fileparser, pass fp-server's URL as -docling-url: it speaks the
+// docling-serve wire protocol.
+//
 // Parse failures are reported in the JSON "error" field with exit code 0;
 // only usage errors exit non-zero.
 package main
@@ -65,12 +70,25 @@ func mimeFor(fileName string) string {
 func doclingClient(url, ocrLangs, tableMode string) *docling.Client {
 	dc := docling.NewClient(url, 300*time.Second)
 	dc.Async = true
+	dc.ExtractStructure = true
 	dc.Options = docling.ConvertOptions{
 		TableMode:              tableMode,
-		OCRLanguages:           strings.Split(ocrLangs, ","),
+		OCRLanguages:           splitLangs(ocrLangs),
 		DocumentTimeoutSeconds: 600,
 	}
 	return dc
+}
+
+// splitLangs splits a comma-separated -ocr-lang value, trimming each entry
+// and dropping empty ones ("de, en" → [de en]; "" → none, Docling's default).
+func splitLangs(v string) []string {
+	var out []string
+	for _, l := range strings.Split(v, ",") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // buildFactory returns the parser chain for kind: "builtin" is JustRAG with

@@ -8,7 +8,7 @@ import (
 )
 
 func TestHealthServer_Liveness(t *testing.T) {
-	hs := NewHealthServer(0) // port 0 = ephemeral, won't actually listen in this test
+	hs := NewHealthServer(0, false) // port 0 = ephemeral, won't actually listen in this test
 
 	// Directly test the handler via the internal mux.
 	req := httptest.NewRequest("GET", "/healthz", nil)
@@ -23,8 +23,19 @@ func TestHealthServer_Liveness(t *testing.T) {
 	}
 }
 
+// Oracle: PR #75 review — /metrics is unauthenticated on the health port,
+// so it is served only when the deployment opts in (WORKER_METRICS).
+func TestHealthServer_MetricsOffByDefault(t *testing.T) {
+	hs := NewHealthServer(0, false)
+	rec := httptest.NewRecorder()
+	hs.srv.Handler.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("metrics without opt-in: got %d, want 404", rec.Code)
+	}
+}
+
 func TestHealthServer_Metrics(t *testing.T) {
-	hs := NewHealthServer(0)
+	hs := NewHealthServer(0, true)
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rec := httptest.NewRecorder()
@@ -41,7 +52,7 @@ func TestHealthServer_Metrics(t *testing.T) {
 }
 
 func TestHealthServer_Readiness_NotReady(t *testing.T) {
-	hs := NewHealthServer(0)
+	hs := NewHealthServer(0, false)
 	// Default is not ready.
 
 	req := httptest.NewRequest("GET", "/readyz", nil)
@@ -54,7 +65,7 @@ func TestHealthServer_Readiness_NotReady(t *testing.T) {
 }
 
 func TestHealthServer_Readiness_Ready(t *testing.T) {
-	hs := NewHealthServer(0)
+	hs := NewHealthServer(0, false)
 	hs.SetReady(true)
 
 	req := httptest.NewRequest("GET", "/readyz", nil)
@@ -67,7 +78,7 @@ func TestHealthServer_Readiness_Ready(t *testing.T) {
 }
 
 func TestHealthServer_ReadinessToggle(t *testing.T) {
-	hs := NewHealthServer(0)
+	hs := NewHealthServer(0, false)
 	hs.SetReady(true)
 	hs.SetReady(false)
 

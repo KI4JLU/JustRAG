@@ -90,6 +90,10 @@ type Client struct {
 	// PollInterval is the wait between status polls in Async mode
 	// (default 2 s).
 	PollInterval time.Duration
+	// ExtractStructure fills ConvertResult.Structure (headings, list
+	// groups, table grids) for the golden-set tooling (cmd/parsedump).
+	// Ingest does not read it, so the worker leaves it off.
+	ExtractStructure bool
 	// Options is applied to every Convert call when OptionsFunc is nil.
 	// Zero value = legacy request.
 	Options ConvertOptions
@@ -211,8 +215,8 @@ type ConvertResult struct {
 	// Structure is the structured subset of the same json_content (headings,
 	// list groups, table grids) in the golden-set schema. Unlike Items it
 	// does not depend on page provenance, so unpaginated formats (DOCX)
-	// still carry it. nil when Docling returned no json_content or it was
-	// unparseable.
+	// still carry it. nil unless Client.ExtractStructure is set, and when
+	// Docling returned no json_content or it was unparseable.
 	Structure *parser.Structure
 }
 
@@ -387,7 +391,7 @@ func (c *Client) convertSync(ctx context.Context, form []byte, contentType strin
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, statusError(resp)
 	}
-	return parseDoclingResponse(resp.Body)
+	return parseDoclingResponse(resp.Body, c.ExtractStructure)
 }
 
 // errAsyncUnavailable signals that the sidecar has no task endpoints.
@@ -504,7 +508,7 @@ func (c *Client) fetchResult(ctx context.Context, id string) (*ConvertResult, er
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, statusError(resp)
 	}
-	return parseDoclingResponse(resp.Body)
+	return parseDoclingResponse(resp.Body, c.ExtractStructure)
 }
 
 // post sends a multipart body to path.
@@ -703,7 +707,9 @@ func (t doclingTable) toDocTable() *DocTable {
 	return out
 }
 
-func parseDoclingResponse(body io.Reader) (*ConvertResult, error) {
+// parseDoclingResponse decodes a conversion response; withStructure also
+// extracts ConvertResult.Structure (Client.ExtractStructure).
+func parseDoclingResponse(body io.Reader, withStructure bool) (*ConvertResult, error) {
 	var raw struct {
 		Document struct {
 			MdContent   string          `json:"md_content"`
@@ -724,7 +730,7 @@ func parseDoclingResponse(body io.Reader) (*ConvertResult, error) {
 	if res.Markdown == "" && res.Text == "" {
 		return nil, fmt.Errorf("docling: response contained no text")
 	}
-	if w := walkDoclingDocument(raw.Document.JSONContent); w != nil {
+	if w := walkDoclingDocument(raw.Document.JSONContent, withStructure); w != nil {
 		res.Items = itemsWithProvenance(w.items)
 		res.Structure = w.structure
 	}
@@ -750,14 +756,15 @@ type doclingWalkResult struct {
 }
 
 // walkDoclingDocument walks the DoclingDocument body in reading order,
-// collecting both the page items and the structured subset (headings, list
-// groups, table grids) in a single pass. Returns nil when json_content is
-// absent or unparseable.
+// collecting the page items and — with withStructure — the structured subset
+// (headings, list groups, table grids) in the same pass. Returns nil when
+// json_content is absent or unparseable; structure is nil without
+// withStructure.
 //
 // Items keep the legacy provenance rule (nil when nothing carries a page
 // number); the structure does not depend on provenance, so unpaginated
 // formats (DOCX) still carry it.
-func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
+func walkDoclingDocument(rawJSON json.RawMessage, withStructure bool) *doclingWalkResult {
 	if len(rawJSON) == 0 {
 		return nil
 	}
@@ -766,12 +773,19 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 		return nil
 	}
 
-	res := &doclingWalkResult{structure: &parser.Structure{
-		Headings: []parser.StructHeading{},
-		Lists:    []parser.StructList{},
-		Tables:   []parser.StructTable{},
-	}}
+	res := &doclingWalkResult{}
+	if withStructure {
+		res.structure = &parser.Structure{
+			Headings: []parser.StructHeading{},
+			Lists:    []parser.StructList{},
+			Tables:   []parser.StructTable{},
+		}
+	}
 	seen := make(map[string]bool)
+	// structSeen is the seen set of the structure-only descent into text
+	// children: kept apart from seen, so what that descent visits is still
+	// walked for the page items when it is reached the regular way.
+	structSeen := make(map[string]bool)
 
 	// A list frame is one open list group during the walk. A list group
 	// nested inside another list group does not start a new StructList:
@@ -806,17 +820,22 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 	// must see. The page items deliberately do not follow those children
 	// (established behavior: unpaginated documents take their text from
 	// the markdown blob, and paginated formats have no text children).
-	var walk func(children []doclingRef, depth int, structureOnly bool)
-	walk = func(children []doclingRef, depth int, structureOnly bool) {
+	// Without withStructure the walk never descends into text children, so
+	// the page items are walked exactly as before structure extraction.
+	//
+	// listDirect is true while children are the direct children of the
+	// innermost open list group: only those occupy one of its slots.
+	var walk func(children []doclingRef, depth int, structureOnly, listDirect bool, vis map[string]bool)
+	walk = func(children []doclingRef, depth int, structureOnly, listDirect bool, vis map[string]bool) {
 		if depth > maxRefDepth {
 			return
 		}
 		for _, child := range children {
 			ref := child.Ref
-			if seen[ref] {
+			if vis[ref] {
 				continue
 			}
-			seen[ref] = true
+			vis[ref] = true
 
 			kind, idx, ok := parseSelfRef(ref)
 			if !ok {
@@ -824,25 +843,32 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 			}
 			// Each direct child of an open list group occupies a slot,
 			// nested groups included: docling-core numbers an ordered
-			// item that carries no marker by exactly this position.
-			if len(frames) > 0 {
+			// item that carries no marker by exactly this position. A
+			// list item's own children (inline runs, a nested list) do not.
+			if listDirect && len(frames) > 0 {
 				frames[len(frames)-1].slot++
 			}
 			switch kind {
 			case "texts":
 				if idx < len(doc.Texts) {
 					t := doc.Texts[idx]
-					if label, s := t.content(); s != "" {
-						if !structureOnly {
-							res.items = append(res.items, DocItem{
-								Page:      t.Prov.page(),
-								Label:     label,
-								Level:     t.Level,
-								Furniture: t.ContentLayer == contentLayerFurniture,
-								Text:      s,
-							})
+					label, s := t.content()
+					if s != "" && !structureOnly {
+						res.items = append(res.items, DocItem{
+							Page:      t.Prov.page(),
+							Label:     label,
+							Level:     t.Level,
+							Furniture: t.ContentLayer == contentLayerFurniture,
+							Text:      s,
+						})
+					}
+					if res.structure != nil && t.ContentLayer != contentLayerFurniture {
+						if s == "" && isStructText(label) {
+							// Mixed formatting (DOCX): the item's text sits in
+							// its inline runs, the item's own text is empty.
+							s = inlineText(t.Children, doc, 0)
 						}
-						if t.ContentLayer != contentLayerFurniture {
+						if s != "" {
 							switch label {
 							case "title", "section_header":
 								// The goldset level is the rendered heading
@@ -882,27 +908,28 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 							}
 						}
 					}
-					if len(t.Children) > 0 {
-						walk(t.Children, depth+1, true)
+					if res.structure != nil && len(t.Children) > 0 {
+						walk(t.Children, depth+1, true, false, structSeen)
 					}
 				}
 			case "tables":
 				if idx < len(doc.Tables) {
 					tbl := doc.Tables[idx]
-					if table := tbl.toDocTable(); table != nil {
+					if table := tbl.toDocTable(); table != nil && !structureOnly {
 						table.Caption = strings.Join(resolveTexts(tbl.Captions, doc.Texts, seen), " ")
 						table.Footnotes = resolveTexts(tbl.Footnotes, doc.Texts, seen)
-						if !structureOnly {
-							res.items = append(res.items, DocItem{
-								Page:      tbl.Prov.page(),
-								Label:     "table",
-								Furniture: tbl.ContentLayer == contentLayerFurniture,
-								Table:     table,
-							})
-						}
-						if tbl.ContentLayer != contentLayerFurniture {
-							res.structure.Tables = append(res.structure.Tables, structTableFrom(tbl))
-						}
+						res.items = append(res.items, DocItem{
+							Page:      tbl.Prov.page(),
+							Label:     "table",
+							Furniture: tbl.ContentLayer == contentLayerFurniture,
+							Table:     table,
+						})
+					}
+					// A table without any cell text is no page item, but
+					// it is still a table of the document: the structure
+					// keeps it so later tables keep their indices.
+					if res.structure != nil && tbl.ContentLayer != contentLayerFurniture {
+						res.structure.Tables = append(res.structure.Tables, structTableFrom(tbl))
 					}
 				}
 			case "pictures":
@@ -914,20 +941,21 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 			case "groups":
 				if idx < len(doc.Groups) {
 					g := doc.Groups[idx]
-					list := isListGroup(g.Label) && g.ContentLayer != contentLayerFurniture
+					list := res.structure != nil && isListGroup(g.Label) && g.ContentLayer != contentLayerFurniture
 					if list {
+						ordered := g.Label == "ordered_list" || firstListEnumerator(g)
 						if len(frames) == 0 {
 							res.structure.Lists = append(res.structure.Lists, parser.StructList{
-								Ordered: g.Label == "ordered_list" || firstListEnumerator(g),
+								Ordered: ordered,
 								Items:   []parser.StructListItem{},
 							})
 						}
 						frames = append(frames, listFrame{
-							ordered: g.Label == "ordered_list" || firstListEnumerator(g),
+							ordered: ordered,
 							top:     len(res.structure.Lists) - 1,
 						})
 					}
-					walk(g.Children, depth+1, structureOnly)
+					walk(g.Children, depth+1, structureOnly, list, vis)
 					if list {
 						frames = frames[:len(frames)-1]
 					}
@@ -935,9 +963,43 @@ func walkDoclingDocument(rawJSON json.RawMessage) *doclingWalkResult {
 			}
 		}
 	}
-	walk(doc.Body.Children, 0, false)
+	walk(doc.Body.Children, 0, false, false, seen)
 
 	return res
+}
+
+// isStructText reports whether label is a text kind the structure records.
+func isStructText(label string) bool {
+	return label == "title" || label == "section_header" || label == "list_item"
+}
+
+// inlineText is the text of a structure item whose own text is empty: its
+// inline runs (texts, possibly under an "inline" group) joined by single
+// spaces, as docling renders them. Nested lists or other non-inline groups
+// under the item are not part of its text. Refs are not marked seen, so the
+// runs are still walked afterwards.
+func inlineText(children []doclingRef, doc doclingJSONDoc, depth int) string {
+	if depth > maxRefDepth {
+		return ""
+	}
+	var parts []string
+	for _, child := range children {
+		kind, idx, ok := parseSelfRef(child.Ref)
+		if !ok {
+			continue
+		}
+		switch {
+		case kind == "texts" && idx < len(doc.Texts):
+			if s := strings.TrimSpace(doc.Texts[idx].Text); s != "" {
+				parts = append(parts, s)
+			}
+		case kind == "groups" && idx < len(doc.Groups) && doc.Groups[idx].Label == "inline":
+			if s := inlineText(doc.Groups[idx].Children, doc, depth+1); s != "" {
+				parts = append(parts, s)
+			}
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // itemsWithProvenance applies the page-items rule: a document whose items
@@ -957,7 +1019,7 @@ func itemsWithProvenance(items []DocItem) []DocItem {
 // json_content is absent, unparseable, or carries no page numbers at all
 // (e.g. unpaginated formats) — the caller then treats pages as unknown.
 func itemsFromJSONContent(rawJSON json.RawMessage) []DocItem {
-	w := walkDoclingDocument(rawJSON)
+	w := walkDoclingDocument(rawJSON, false)
 	if w == nil {
 		return nil
 	}
@@ -969,7 +1031,7 @@ func itemsFromJSONContent(rawJSON json.RawMessage) []DocItem {
 // absent or unparseable; a parsed document with no such content yields an
 // empty, non-nil Structure.
 func structureFromJSONContent(rawJSON json.RawMessage) *parser.Structure {
-	w := walkDoclingDocument(rawJSON)
+	w := walkDoclingDocument(rawJSON, true)
 	if w == nil {
 		return nil
 	}
