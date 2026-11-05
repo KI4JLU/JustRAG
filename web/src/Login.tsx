@@ -3,12 +3,13 @@ import axios from 'axios';
 import { useLocation, useRouter } from '@tanstack/react-router';
 import { KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Alert, AlertDescription, AuthLayout, Button, Logo, Spinner, Stack } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, AuthLayout, Button, Spinner, Stack } from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
 
 import { useTheme } from './contexts/ThemeContext';
 import { useFormValidation } from './hooks/useFormValidation';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
+import { AppLogo } from './components/AppLogo';
 import { Footer } from './components/Footer';
 import { LegalPage } from './components/LegalPage';
 import { FieldRow } from './components/form/FieldRow';
@@ -155,7 +156,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
     };
 
     if (legalPage) {
-        return <LegalPage page={legalPage} onBack={() => navigateTo({ view: 'my-topics' })} />;
+        return <LegalPage page={legalPage} onBack={() => navigateTo({ view: 'my-topics' })} siteConfigs={siteConfigs} />;
     }
 
     /* -----------------------------------------------------------------------
@@ -205,28 +206,13 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
             transition={{ duration: 0.5 }}
         >
             <AuthLayout
-                logo={siteConfigs.logo_path ? (
-                    <img
-                        src={`${API_BASE_URL}${siteConfigs.logo_path}`}
-                        alt="Site Logo"
-                        fetchPriority="high"
-                        loading="eager"
-                        className="h-[180px] max-w-full object-contain"
-                    />
-                ) : (
-                    /* The default is the design system's own wordmark, not a
-                     * generic lucide icon: `Logo` renders „JLU [RAG]" as real
-                     * text on the brand tokens, so it is readable content and
-                     * scales with the type system. `size="lg"` matches the
-                     * only other consumer of this slot (CampusAgents'
-                     * LoginPage) rather than being chosen here.
-                     *
-                     * The `logo_path` branch above is untouched on purpose: an
-                     * operator-uploaded logo still wins (card KI-719). A
-                     * deployment that has one set therefore shows no change
-                     * until the upload is cleared in AdminUI. */
-                    <Logo product="RAG" size="lg" />
-                )}
+                /* The design system's wordmark, built from the configured app
+                 * name (utils/appName.ts): real text on the brand tokens, so
+                 * it is readable content and scales with the type system.
+                 * There is no uploaded-logo override any more. `size="lg"`
+                 * matches the only other consumer of this slot
+                 * (CampusAgents' LoginPage) rather than being chosen here. */
+                logo={<AppLogo siteConfigs={siteConfigs} size="lg" />}
                 /* CardTitle renders a <div>, so the page's only <h1> has to
                  * come from the call site or be lost outright. `m-0` and
                  * `text-headline-md`/`font-semibold` are not a re-skin: they

@@ -19,14 +19,12 @@ const config: StorybookConfig = {
       }
     }
   },
-  // Serves web/public at the Storybook origin, which is what makes two of the
-  // required states real rather than faked:
-  //   - LegalPage fetches /legal/<page>-<lang>.html and gets the actual
-  //     compliance documents, so the 448px measure can be judged on real text;
-  //   - the uploaded-logo branch of Login resolves /logo-test.svg to a real
-  //     image instead of a broken one.
-  // The Vitest browser runner reaches the same files through Vite's own
-  // publicDir (web/public), so both runtimes serve identical bytes.
+  // Serves web/public at the Storybook origin, which is what makes a required
+  // state real rather than faked: LegalPage fetches
+  // /legal/<page>-<lang>.html and gets the actual compliance documents, so the
+  // 448px measure can be judged on real text. The Vitest browser runner
+  // reaches the same files through Vite's own publicDir (web/public), so both
+  // runtimes serve identical bytes.
   staticDirs: ['../public']
 };
 

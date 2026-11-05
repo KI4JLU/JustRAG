@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import type { User as UserType } from './types';
 import { API_BASE_URL } from './api';
 import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
+import { appNameConfigsFromDocument, appNameFrom, applyAppNameToDocument } from './utils/appName';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
@@ -57,8 +58,17 @@ export function AppRoot() {
     return saved;
   });
 
-  // Config state (needed for Login too)
-  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
+  // Config state (needed for Login too). It starts with the app name the
+  // server wrote into the page, so the wordmark never shows the default name
+  // while /api/site-config is in flight.
+  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => appNameConfigsFromDocument());
+
+  // The window title follows the configured app name (APP_NAME_PREFIX /
+  // APP_NAME_PRODUCT), on the login page too.
+  const { prefix: appNamePrefix, product: appNameProduct } = appNameFrom(siteConfigs);
+  useEffect(() => {
+    applyAppNameToDocument({ prefix: appNamePrefix, product: appNameProduct });
+  }, [appNamePrefix, appNameProduct]);
 
   // Auth handlers
   // SECURITY (tracked follow-up): the JWT lives in localStorage, which is

@@ -4,15 +4,15 @@ import axios from 'axios';
 import { Button, Logo } from '@ki4jlu/design-system';
 import Login from './Login';
 import { withRouter } from './test/withRouter';
-import { API_BASE_URL } from './api';
 
 /* ---------------------------------------------------------------------------
  * Card KI-719. Two things about the login page's presentation were wrong and
  * nothing pinned either of them:
  *
  *   1. the `logo` slot fell back to a generic lucide <BookOpen> instead of the
- *      design system's `Logo` wordmark, while the operator-uploaded image
- *      branch (`siteConfigs.logo_path`) is deliberately kept as an override;
+ *      design system's `Logo` wordmark. Since then the uploaded-logo override
+ *      (`siteConfigs.logo_path`) is gone too: the wordmark is the only logo,
+ *      built from the configured app name;
  *   2. the OIDC button was `variant="outline"`, i.e. styled as a secondary
  *      alternative, even though on an SSO-only deployment it is the page's
  *      ONLY control (`showPasswordForm` is false when local auth and LDAP are
@@ -74,7 +74,7 @@ beforeEach(() => {
 });
 
 describe('Login — the brand wordmark in AuthLayout\'s logo slot', () => {
-  it('renders the design system Logo as readable text when no logo is uploaded', async () => {
+  it('renders the design system Logo as readable text', async () => {
     // ORACLE: the installed @ki4jlu/design-system's own `Logo`, rendered
     // standalone in this test. Its documented contract is that it renders the
     // lockup as REAL TEXT — prefix plus product, "screen readers read it
@@ -85,7 +85,7 @@ describe('Login — the brand wordmark in AuthLayout\'s logo slot', () => {
     // The expected string is taken from that standalone render, so nothing
     // here restates a literal from Login.tsx and a DS wordmark change does
     // not silently break this test.
-    const reference = renderReference(<Logo product="RAG" size="lg" />);
+    const reference = renderReference(<Logo prefix="JLU" product="RAG" size="lg" />);
     const wordmark = reference.textContent ?? '';
     // Guard against a vacuous pass: the oracle must actually carry both parts.
     expect(wordmark).toContain('JLU');
@@ -99,29 +99,30 @@ describe('Login — the brand wordmark in AuthLayout\'s logo slot', () => {
     expect(badge.tagName.toLowerCase()).not.toBe('img');
     // ...and the full lockup, prefix included, is on the page.
     expect(container.textContent).toContain(wordmark);
-
-    // No uploaded image is rendered in this state.
-    expect(screen.queryByAltText('Site Logo')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
   });
 
-  it('lets an uploaded logo_path override the wordmark', async () => {
-    // ORACLE: the site-config contract on the Go side — `logo_path` is an
-    // operator-uploaded asset served under API_BASE_URL, and keeping it as an
-    // override was an explicit developer decision on KI-719 rather than an
-    // oversight. This test exists so the override cannot regress silently
-    // when the fallback changes: it asserts the <img> and its src, and that
-    // the DS wordmark is NOT additionally rendered.
+  it('builds the wordmark from the configured app name', async () => {
+    // ORACLE: the server's contract (go-backend/internal/siteconfig) — the
+    // app name arrives as app_name_prefix / app_name_product — and the DS
+    // `Logo` rendered standalone with those two parts.
+    const wordmark = renderReference(<Logo prefix="THM" product="Docs" size="lg" />).textContent ?? '';
+
+    const { container } = renderLogin({ app_name_prefix: 'THM', app_name_product: 'Docs' });
+    await screen.findByLabelText('username');
+
+    expect(container.textContent).toContain(wordmark);
+    expect(screen.queryByText('RAG')).toBeNull();
+  });
+
+  it('never renders an uploaded logo, even when logo_path is still set', async () => {
+    // A deployment that uploaded a logo before the upload was removed may
+    // still answer with the key until migration 0104 has run.
     const { container } = renderLogin({ logo_path: '/uploads/site-logo-fixture.png' });
     await screen.findByLabelText('username');
 
-    const img = screen.getByAltText('Site Logo');
-    expect(img.tagName.toLowerCase()).toBe('img');
-    expect(img).toHaveAttribute('src', `${API_BASE_URL}/uploads/site-logo-fixture.png`);
-
-    // The two branches are exclusive: the wordmark must be absent here.
-    const wordmark = renderReference(<Logo product="RAG" size="lg" />).textContent ?? '';
-    expect(container.textContent).not.toContain(wordmark);
-    expect(screen.queryByText('RAG')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
+    expect(await screen.findByText('RAG')).toBeInTheDocument();
   });
 });
 

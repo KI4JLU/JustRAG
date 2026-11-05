@@ -135,7 +135,7 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
 const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
 
 /** `imprint` makes the footer render. (The shell's logo is the design system's
- *  name-built wordmark in every case — `logo_path` no longer overrides it.) */
+ *  wordmark built from the app name, the default „JLU [RAG]" here.) */
 const SITE_CONFIGS: Record<string, string> = {
   imprint: 'Impressum · Justus-Liebig-Universitaet Giessen',
 };

@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { AppShellLayout, Button, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
+import { AppShellLayout, Button, type MobilePaneTab } from '@ki4jlu/design-system';
 import { SourcesRail } from './sidebar/SourcesRail';
 import { ArrowLeft, FolderOpen, History, MessageSquare, Settings } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
@@ -14,6 +14,7 @@ import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
+import { AppLogo } from './AppLogo';
 import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
 import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
@@ -60,7 +61,7 @@ interface KbWorkspaceLayoutProps {
  * ------------------------------------------------------------------------- */
 export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: KbWorkspaceLayoutProps) {
   const { t } = useTheme();
-  const { user } = useAuth();
+  const { user, siteConfigs } = useAuth();
   const { currentKb, setKbView, handleGoHome } = useKbCore();
   const { sidebar, systemPromptOpen, setSystemPromptOpen } = useKbLayout();
   // The admin's system notice, the same one AppChrome shows. After a dismiss,
@@ -160,7 +161,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
           title={t('goToHome')}
           aria-label={t('goToHome')}
         >
-          <Logo product="RAG" size="sm" />
+          <AppLogo siteConfigs={siteConfigs} size="sm" />
         </Button>
       }
       nav={<HistoryPanel />}

@@ -481,7 +481,7 @@ function AuthenticatedAppInner() {
   }
 
   if (view === 'terms' || view === 'privacy' || view === 'accessibility') {
-    return <LegalPage page={view} onBack={viewState.handleGoHome} />;
+    return <LegalPage page={view} onBack={viewState.handleGoHome} siteConfigs={siteConfigs} />;
   }
 
   if (route.view === 'agents') {

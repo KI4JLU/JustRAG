@@ -1587,7 +1587,7 @@ export const translations = {
     arRightMonitoring: { de: 'Monitoring', en: 'Monitoring' },
     arRightMonitoringHint: { de: 'KB-Übersicht, System Health und Metriken ansehen.', en: 'View the KB overview, system health and metrics.' },
     arRightSystemSettings: { de: 'Systemeinstellungen', en: 'System settings' },
-    arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten, Logo und Neu-Einbettung.', en: 'Settings, search providers, agents, logo and re-embedding.' },
+    arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten und Neu-Einbettung.', en: 'Settings, search providers, agents and re-embedding.' },
     arRightAuditLogs: { de: 'Audit-Logs', en: 'Audit logs' },
     arRightAuditLogsHint: { de: 'Das Protokoll der Admin-Aktionen lesen.', en: 'Read the log of admin actions.' },
     arScopeUpToApiUser: { de: 'bis API-Nutzer', en: 'up to API user' },
@@ -2483,8 +2483,8 @@ export const translations = {
     },
     langfuseBaseUrl: { de: 'Langfuse Basis-URL', en: 'Langfuse base URL' },
     langfuseBaseUrlHelp: {
-        de: 'Wenn gesetzt, blendet JustRAG für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
-        en: 'When set, JustRAG shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
+        de: 'Wenn gesetzt, blendet die Anwendung für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
+        en: 'When set, the app shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
     },
     kbStaleDays: { de: 'Schwellenwert für veraltete Inhalte (Tage)', en: 'Stale-content threshold (days)' },
     kbStaleDaysHelp: {

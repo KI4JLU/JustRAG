@@ -20,13 +20,9 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
 
     return (
         <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-6">
-            {/* The site-logo upload group was here. Logo upload is
-                deprecated (developer ruling, 17.09.2026): the logo is built
-                from the app name, and the app shell renders the design
-                system's wordmark unconditionally. Removing the operator
-                surface is what stops new uploads; the backend key and its
-                endpoint are untouched, so logos already uploaded still
-                resolve wherever they are still read. */}
+            {/* No logo upload: the logo is the design system's wordmark,
+                built from APP_NAME_PREFIX / APP_NAME_PRODUCT in the
+                server's environment. */}
             <div className="flex flex-col gap-5">
                 <TextareaFieldRow
                     width="wide"

@@ -25,6 +25,7 @@
     "noUncheckedSideEffectImports": true
   },
   "include": [
-    "vite.config.ts"
+    "vite.config.ts",
+    "src/utils/appNameShell.ts"
   ]
 }
