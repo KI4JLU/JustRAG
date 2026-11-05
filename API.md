@@ -849,7 +849,7 @@ budget (the KB's answer model); nothing about the KB is stored with the file.
 | Status | When |
 |---|---|
 | `201` | `{"id", "name", "mime", "size", "tokens"}`; `id` goes into `attachmentIds` of the send |
-| `400` / `413` | Invalid upload (`invalid_upload`, `empty_file`, `file_name_too_long`, `unsupported_file_type` for a blocked extension) / `file_too_large`, file over the upload size limit |
+| `400` / `413` | Invalid upload (`invalid_upload`, `empty_file`, `file_name_too_long`, `unsupported_file_type` for a blocked extension) / `file_too_large`: the file is over `chat_attachments_max_file_bytes` (default 50 MiB, global-only, 1 MiB–500 MiB), named in `limitBytes` |
 | `413` | `{"error": "quota_exceeded", "usedBytes", "quotaBytes", "chatAttachmentBytes"}` — the library quota is full; `chatAttachmentBytes` is the part of `usedBytes` held by chat attachments, which the library list does not show |
 | `415` | `unsupported_file_type`: no parser handles the format (audio is not transcribed here) |
 | `422` | `file_unreadable`: the format is supported but parsing failed (corrupt file, image without OCR); `no_text`: no extractable text; `parse_timeout`: took too long to read; or `{"error": "too_large_for_context", "code": "too_large_for_context", "tokens", "limit"}`: it alone exceeds the attachment budget |

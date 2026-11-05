@@ -19,6 +19,8 @@ func TestIsUploadExempt(t *testing.T) {
 		// The exempt upload routes.
 		{http.MethodPost, "/api/kb/123/files", true},
 		{http.MethodPost, "/api/kb/123/eval/golden-sets", true},
+		{http.MethodPost, "/api/kb/123/chat/attachments", true},
+		{http.MethodPost, "/api/kb/123/chat/attachment", true},
 		{http.MethodPost, "/api/site-config/logo", true},
 		{http.MethodPost, "/api/describe-image", true},
 		{http.MethodPost, "/api/admin/agent/template", true},
@@ -47,6 +49,10 @@ func TestIsUploadExempt(t *testing.T) {
 		{http.MethodPost, "/api/kb/123/eval/golden-sets/generate", false},
 		{http.MethodPost, "/api/kb/123/eval/runs", false},
 		{http.MethodPost, "/api/kb/123/files/extra", false},
+		{http.MethodPost, "/api/kb/123/chat", false},
+		{http.MethodPost, "/api/kb/123/chat/attachments/extra", false},
+		{http.MethodPost, "/api/kb//chat/attachments", false},
+		{http.MethodGet, "/api/kb/123/chat/attachments", false},
 
 		// Other near-misses.
 		{http.MethodPost, "/api/admin/eval/golden-sets/generate", false},
