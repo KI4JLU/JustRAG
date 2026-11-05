@@ -307,9 +307,7 @@ const ChatViewComp = () => {
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
     // A start page set up: the active role's questions under its input field, if on.
     if (configuredStart) return pageQuestions(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles, generatedPrompts);
-    const raw = currentKb?.isGlobal && currentKb?.examplePrompts
-      ? currentKb.examplePrompts
-      : siteConfigs.example_prompts;
+    const raw = currentKb?.isGlobal ? currentKb.examplePrompts : null;
     const prompts = raw
       ? raw.split('\n')
       : ['Fasse die wichtigsten Punkte meiner Dokumente zusammen', 'Was sind die wichtigsten Erkenntnisse in {topic}?'];
@@ -318,7 +316,7 @@ const ChatViewComp = () => {
     // Then the questions generated from the KB's documents, without repeats.
     const seen = new Set(configured.map(p => p.trim().toLowerCase()));
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
-  }, [chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, siteConfigs.example_prompts, generatedPrompts]);
+  }, [chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
 
   const [initialRender, setInitialRender] = useState(true);
   useEffect(() => {
@@ -412,7 +410,7 @@ const ChatViewComp = () => {
                   className="chat-column relative isolate"
                   empty={chat.messages.length === 0}
                   footerId="chat-disclaimer"
-                  footer={siteConfigs.chat_footer || t('chatFooter')}
+                  footer={t('chatFooter')}
                   composer={(
                   // An empty chat (the start page) is as wide as the title card —
                   // composer, role cards and dropzone alike; with messages the
@@ -733,10 +731,6 @@ const ChatViewComp = () => {
                         {currentKb?.isGlobal && currentKb?.headerText ? (
                           <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
                             {currentKb.headerText}
-                          </div>
-                        ) : siteConfigs.kb_header ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {siteConfigs.kb_header}
                           </div>
                         ) : null}
                         {noSources && sourceRights.addSources ? (

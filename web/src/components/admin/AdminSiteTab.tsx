@@ -2,9 +2,9 @@ import { useId } from 'react';
 import { Save } from 'lucide-react';
 import { Button, PanelSection } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
-import { CheckboxFieldRow, FieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
+import { CheckboxFieldRow, FieldRow } from '../form/SettingsFieldRow';
 import { DEFAULT_NAMES, NAME_MAX } from '../../utils/systemNames';
-import { appNameFrom, appNameText } from '../../utils/appName';
+import { appNameFrom } from '../../utils/appName';
 import { FooterActions } from './FooterActions';
 
 interface AdminSiteTabProps {
@@ -19,13 +19,28 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
     const { t } = useTheme();
     const formId = useId();
     const set = (key: string, value: string) => setSiteConfigs(prev => ({ ...prev, [key]: value }));
+    // The placeholders: what a blank field falls back to, the server's environment.
+    const envAppName = appNameFrom({ app_name_prefix: siteConfigs.app_name_prefix, app_name_product: siteConfigs.app_name_product });
 
     return (
         <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-6">
             {/* The deployment's names; blank = the default, shown as the
-                placeholder. The system name's default is the app name. */}
+                placeholder. Institution and system are the app name's two
+                parts (logo „JLU [RAG]"); they default to APP_NAME_PREFIX /
+                APP_NAME_PRODUCT in the server's environment. There is no logo
+                upload: the logo is the design system's wordmark. */}
             <PanelSection title={t('namesSection')}>
                 <div className="flex flex-col gap-5">
+                    <FieldRow
+                        width="wide"
+                        label={t('institutionNameLabel')}
+                        help={t('institutionNameHelp')}
+                        type="text"
+                        maxLength={NAME_MAX}
+                        value={siteConfigs.institution_name || ''}
+                        onChange={e => set('institution_name', e.target.value)}
+                        placeholder={envAppName.prefix}
+                    />
                     <FieldRow
                         width="wide"
                         label={t('systemNameLabel')}
@@ -34,7 +49,7 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
                         maxLength={NAME_MAX}
                         value={siteConfigs.system_name || ''}
                         onChange={e => set('system_name', e.target.value)}
-                        placeholder={appNameText(appNameFrom(siteConfigs))}
+                        placeholder={envAppName.product}
                     />
                     <FieldRow
                         width="wide"
@@ -48,54 +63,6 @@ export default function AdminSiteTab({ siteConfigs, setSiteConfigs, onSubmit, fo
                     />
                 </div>
             </PanelSection>
-
-            {/* No logo upload: the logo is the design system's wordmark,
-                built from APP_NAME_PREFIX / APP_NAME_PRODUCT in the
-                server's environment. */}
-            <div className="flex flex-col gap-5">
-                <TextareaFieldRow
-                    width="wide"
-                    label={t('chatFooterLabel')}
-                    value={siteConfigs.chat_footer || ''}
-                    onChange={e => set('chat_footer', e.target.value)}
-                    placeholder={t('chatFooterPlaceholder')}
-                    rows={3}
-                />
-                <TextareaFieldRow
-                    width="wide"
-                    label={t('kbHeaderLabel')}
-                    value={siteConfigs.kb_header || ''}
-                    onChange={e => set('kb_header', e.target.value)}
-                    placeholder={t('kbHeaderPlaceholder')}
-                    rows={3}
-                />
-                <TextareaFieldRow
-                    width="wide"
-                    label={t('imprintLabel')}
-                    value={siteConfigs.imprint || ''}
-                    onChange={e => set('imprint', e.target.value)}
-                    placeholder={t('imprintPlaceholder')}
-                    rows={5}
-                />
-                <TextareaFieldRow
-                    width="wide"
-                    label={t('examplePromptsLabel')}
-                    help={t('examplePromptsHelp')}
-                    value={siteConfigs.example_prompts || ''}
-                    onChange={e => set('example_prompts', e.target.value)}
-                    placeholder={t('examplePromptsPlaceholder')}
-                    rows={5}
-                />
-                <FieldRow
-                    width="wide"
-                    label={t('webProxy')}
-                    help={t('webProxyHelp')}
-                    type="text"
-                    value={siteConfigs.web_proxy || ''}
-                    onChange={e => set('web_proxy', e.target.value)}
-                    placeholder="http://user:pass@host:port"
-                />
-            </div>
 
             <PanelSection title={t('policyAcceptanceSection')}>
                 <FieldRow

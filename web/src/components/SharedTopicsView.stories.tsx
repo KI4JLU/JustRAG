@@ -64,11 +64,9 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
 
 const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
 
-/** Kept configured on purpose: the chrome must render NO footer even when an
- * imprint is set (the developer removed it 2026-09-15). */
-const SITE_CONFIGS: Record<string, string> = {
-  imprint: 'Impressum · Justus-Liebig-Universitaet Giessen',
-};
+/** No site config: the chrome renders no footer (the developer removed it
+ * 2026-09-15). */
+const SITE_CONFIGS: Record<string, string> = {};
 
 function privateKb(over: Partial<KnowledgeBase> & { id: string; name: string }): KnowledgeBase {
   return {

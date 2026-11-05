@@ -2515,8 +2515,10 @@ export const translations = {
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
     namesSection: { de: 'Namen', en: 'Names' },
+    institutionNameLabel: { de: 'Institutionsname', en: 'Institution name' },
+    institutionNameHelp: { de: 'Der erste Teil des App-Namens, vor dem Badge im Logo (JLU, TUM …): auch im Titel des Browser-Tabs und {{institution_name}} in Rollen-Prompts. Leer = Wert aus der Server-Konfiguration.', en: 'The first part of the app name, before the badge in the logo (JLU, TUM …): also in the browser tab title and {{institution_name}} in role prompts. Blank = the value from the server configuration.' },
     systemNameLabel: { de: 'Systemname', en: 'System name' },
-    systemNameHelp: { de: 'Der Name der Anwendung: Titel des Browser-Tabs, Name der installierten App und {{system_name}} in Rollen-Prompts. Leer = App-Name aus der Server-Konfiguration.', en: 'The application’s name: the browser tab title, the installed app’s name and {{system_name}} in role prompts. Blank = the app name from the server configuration.' },
+    systemNameHelp: { de: 'Der zweite Teil des App-Namens, im Badge des Logos (RAG, Wissen …): auch im Titel des Browser-Tabs und {{system_name}} in Rollen-Prompts. Leer = Wert aus der Server-Konfiguration.', en: 'The second part of the app name, in the logo’s badge (RAG, Wissen …): also in the browser tab title and {{system_name}} in role prompts. Blank = the value from the server configuration.' },
     assistantNameLabel: { de: 'Assistentenname', en: 'Assistant name' },
     assistantNameHelp: { de: 'Der Name, mit dem sich der Assistent vorstellt: {{assistant_name}} in Rollen-Prompts. Leer = Standard.', en: 'The name the assistant introduces itself with: {{assistant_name}} in role prompts. Blank = default.' },
     // System notice (site_config system_notice_*): admin section + the shell's banner.
@@ -2556,17 +2558,8 @@ export const translations = {
     systemNoticeTemplateReplaces: { de: 'Ersetzt die Vorlage mit diesem Namen.', en: 'Replaces the template with this name.' },
     systemNoticeTemplatesLimit: { de: 'Höchstens 20 Vorlagen – lösche zuerst eine.', en: 'At most 20 templates – delete one first.' },
     systemNoticeTemplatesSaved: { de: 'Vorlagen gespeichert', en: 'Templates saved' },
-    chatFooterLabel: { de: 'Text f\u00fcr Chat-Fu\u00dfzeile', en: 'Chat Footer Text' },
     // chatFooter already defined in Chat Area section
-    chatFooterPlaceholder: { de: 'Text, der unter der Chat-Oberfläche angezeigt wird', en: 'Text displayed below the chat interface' },
-    kbHeaderLabel: { de: 'Text für Knowledge Base Header', en: 'Knowledge Base Header Text' },
-    kbHeaderPlaceholder: { de: 'Text, der oben in den Knowledge Bases angezeigt wird', en: 'Text displayed at the top of knowledge bases' },
-    imprintLabel: { de: 'Impressum / Fußzeile', en: 'Imprint / Footer' },
-    imprintPlaceholder: { de: 'Impressumstext, wird auch als fixierte Fußzeile angezeigt', en: 'Imprint text, also shown as sticky footer' },
     // examplePromptsLabel already defined in Global Knowledge Bases section
-    examplePromptsHelp: { de: 'Diese Prompts werden im Chat-Fenster für neue Chats angezeigt. Jede Zeile wird als separate Karte dargestellt.', en: 'These prompts are shown in the chat window for new chats. Each line is displayed as a separate card.' },
-    webProxy: { de: 'Web Proxy (Optional)', en: 'Web Proxy (Optional)' },
-    webProxyHelp: { de: 'Wird für Web-Fetch und Crawler verwendet, falls konfiguriert.', en: 'Used for web fetch and crawling when configured.' },
 
     // Global KBs Tab
     globalKnowledgeBases: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },

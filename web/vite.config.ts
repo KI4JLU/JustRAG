@@ -56,8 +56,8 @@ function versionedIcons(): Plugin {
 /**
  * Dev server only: names the app in index.html the way the Go server does in
  * production (go-backend/internal/app/app_shell.go), so a preview shows the
- * configured names (APP_NAME_PREFIX / APP_NAME_PRODUCT, system_name) from the
- * first frame.
+ * configured name (institution_name / system_name, else APP_NAME_PREFIX /
+ * APP_NAME_PRODUCT) from the first frame.
  * The name comes from the backend the app talks to (VITE_API_URL, else the
  * default src/api.ts uses). If it does not answer within a second, the shell
  * keeps the default and the app takes the name from /api/site-config.
@@ -72,12 +72,10 @@ function appNameShell(): Plugin {
         const res = await fetch(`${apiBase}/api/site-config`, { signal: AbortSignal.timeout(1000) })
         if (!res.ok) return html
         const cfg = (await res.json()) as Record<string, string | undefined>
-        const prefix = cfg.app_name_prefix?.trim()
-        const product = cfg.app_name_product?.trim()
-        if (!prefix || !product) return html
-        // The system name, else the app name — as kbbehavior.ReadNames.
-        const system = cfg.system_name?.trim() || `${prefix} ${product}`
-        return renderAppShell(html, prefix, product, system)
+        // The admin's names, else the server's environment — as kbbehavior.ReadNames.
+        const prefix = cfg.institution_name?.trim() || cfg.app_name_prefix?.trim()
+        const product = cfg.system_name?.trim() || cfg.app_name_product?.trim()
+        return prefix && product ? renderAppShell(html, prefix, product) : html
       } catch {
         return html
       }

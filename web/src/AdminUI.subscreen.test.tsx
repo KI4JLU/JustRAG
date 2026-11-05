@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { AdminHarness } from './test/AdminHarness';
@@ -110,6 +110,21 @@ describe('AdminUI → where each section keeps its actions', () => {
         render(<AdminHarness userRole="superadmin" section="site" />);
         await userEvent.click(footer().getByRole('button', { name: 'saveSettings' }));
         expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/site-config'), expect.anything());
+    });
+
+    // Oracle: AppRoot merges SITE_CONFIG_UPDATED_EVENT into the shell's site
+    // config — a saved system name has to reach logo and tab title.
+    it('hands the saved site settings to the app shell', async () => {
+        const seen: unknown[] = [];
+        const listener = (e: Event) => seen.push((e as CustomEvent).detail);
+        window.addEventListener('site-config:updated', listener);
+        try {
+            render(<AdminHarness userRole="superadmin" section="site" />);
+            await userEvent.click(footer().getByRole('button', { name: 'saveSettings' }));
+            await waitFor(() => expect(seen).toHaveLength(1));
+        } finally {
+            window.removeEventListener('site-config:updated', listener);
+        }
     });
 
     it('keeps „hinzufügen" and the per-job Speichern side by side in KI-Modelle', () => {

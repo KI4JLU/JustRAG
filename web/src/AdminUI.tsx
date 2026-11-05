@@ -259,6 +259,9 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         const prev = { ...siteConfigs };
         try {
             await axios.post(`${API_BASE_URL}/api/site-config`, { configs: siteConfigs });
+            // AppRoot's copy feeds the shell: hand it the saved values, so the
+            // app name (logo, tab title) changes without a reload.
+            window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: siteConfigs }));
             toast.success(t('settingsSaved'));
         } catch {
             setSiteConfigs(prev);

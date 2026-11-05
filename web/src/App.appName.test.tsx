@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import axios from 'axios';
 import { stubViewport } from './test/viewport';
+import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
 import App from './App';
 
 /* The first frame names the app the server wrote into the page — not the
    default — while GET /api/site-config is still in flight.
    Oracle: the meta contract of go-backend/internal/app/app_shell.go
-   (app-name-prefix / app-name-product / system-name). Only the network is
-   stubbed. */
+   (app-name-prefix / app-name-product). Only the network is stubbed. */
 
 vi.mock('axios', () => ({
   default: {
@@ -34,8 +34,8 @@ function memoryStorage(): Storage {
 }
 
 const metas: HTMLMetaElement[] = [];
-function writeAppNameIntoPage(prefix: string, product: string, system = `${prefix} ${product}`) {
-  for (const [name, content] of [['app-name-prefix', prefix], ['app-name-product', product], ['system-name', system]]) {
+function writeAppNameIntoPage(prefix: string, product: string) {
+  for (const [name, content] of [['app-name-prefix', prefix], ['app-name-product', product]]) {
     const meta = document.createElement('meta');
     meta.setAttribute('name', name);
     meta.setAttribute('content', content);
@@ -76,14 +76,26 @@ describe('App — app name before the site config answers', () => {
     expect(document.title).toBe('THM Docs');
   });
 
-  it('titles the tab with the system name and keeps the wordmark', async () => {
-    writeAppNameIntoPage('THM', 'Docs', 'KI-Assistent');
+  it('follows the institution and system name an admin saves', async () => {
+    writeAppNameIntoPage('JLU', 'RAG');
 
     render(<App />);
+    expect(await screen.findByText('RAG')).toBeInTheDocument();
 
-    expect(await screen.findByText('Docs')).toBeInTheDocument();
-    expect(screen.getByText('THM')).toBeInTheDocument();
-    expect(document.title).toBe('KI-Assistent');
+    // AdminUI announces a saved site config; logo and title follow at once.
+    act(() => {
+      window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: { institution_name: 'TUM', system_name: 'Wissen' } }));
+    });
+    expect(await screen.findByText('Wissen')).toBeInTheDocument();
+    expect(screen.getByText('TUM')).toBeInTheDocument();
+    expect(document.title).toBe('TUM Wissen');
+
+    // Cleared: back to the environment's name.
+    act(() => {
+      window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: { institution_name: '', system_name: '' } }));
+    });
+    expect(await screen.findByText('RAG')).toBeInTheDocument();
+    expect(document.title).toBe('JLU RAG');
   });
 
   it('shows the default name for a page without one', async () => {
