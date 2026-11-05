@@ -319,7 +319,7 @@ export function useChatStream({
             // AP-A2: when the event is `refine_complete` and carries the
             // refined text, replace the streamed answer in place so the
             // painted answer reflects the corrected version. The diff
-            // remains on the trajectory entry so TrajectoryPanel can
+            // remains on the trajectory entry so the step timeline can
             // highlight changed words, but the diff itself is
             // newline-lossy (see go-backend refine_diff.go) and must NOT
             // be used to reconstruct the message body.
@@ -402,9 +402,15 @@ export function useChatStream({
           if (event.reasoning) {
             setMessageTree(prev => {
               const existing = prev.get(aiNodeId);
+              // The thinking takes its place among the steps where it began
+              // — the marker the backend stores at the same point
+              // (messages.trajectory), so a reload shows the same order.
+              const trajectory = existing?.trajectory ?? [];
+              const marked = trajectory.some(e => e.stage === 'reasoning');
               return updateMessageInTree(prev, aiNodeId, {
                 reasoning: (existing?.reasoning || '') + (event.reasoning as string),
                 sources: aiSources,
+                ...(marked ? {} : { trajectory: [...trajectory, { stage: 'reasoning' }] }),
               });
             });
           }
