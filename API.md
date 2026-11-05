@@ -427,7 +427,7 @@ What a KB's start page shows with its name, description and category (those are 
 `name`/`description` and `PUT /kb/{id}/categories`; the settings dialog saves all of them with
 `PUT /kb/{id}/assistant-settings`, below).
 
-- `GET` → `{startPage, configured}`. `startPage` is `{version: 1, colors, startMode, questionsOn,
+- `GET` → `{startPage, configured}`. `startPage` is `{version: 2, colors, startMode, questionsOn,
   questionMode, dynamicCount, fixedQuestions, uploadLabel, uploadInstruction,
   roleStarts, roleEntries}`; `configured: false` is the default (colors `#0056B3` → `#3897E8`).
   How a chat starts is the roles' (since 05.11.2026): the page only says which further roles it
@@ -441,9 +441,11 @@ What a KB's start page shows with its name, description and category (those are 
     via `POST /kb/{id}/chat/attachments`, its `instruction` — or the client's default text — sent
     with it). A value sent with `PUT` is ignored.
   - `questionsOn` … `fixedQuestions`, `uploadLabel`, `uploadInstruction`: a page saved before
-    keeps what members saw — read and save move them to the active role's start (the upload to a
-    `file` start, the questions under the input field to an `input` start's `suggestions`) and
-    answer them at their defaults (questions off, labels empty).
+    (`version: 1`) keeps what members saw — read and save move them, with its `startMode`, to the
+    active role's start (the upload to a `file` start, the questions under the input field,
+    switched off included, to an `input` start's `suggestions`) and answer them at their defaults
+    (questions off, labels empty) as `version: 2`. A `version: 2` page's `startMode` and these
+    fields are not read.
   - **Starter questions** (a start's `suggestions`): `questionMode: "dynamic"` is
     `GET /kb/{id}/starter-questions` (with the chat's `roleId`) cut to `dynamicCount` (3|4|6);
     `fixed` shows `fixedQuestions`.
@@ -461,7 +463,7 @@ What a KB's start page shows with its name, description and category (those are 
     card of a role. Starts and cards whose role the KB no longer has, and repeated cards of a page
     stored before, are left out of the response.
 - `PUT` replaces the start page and answers like `GET`. Texts are trimmed, empty fixed questions
-  dropped. `400` with the reason for: `version` ≠ 1, an unknown field, a colour that is not `#RRGGBB`, mode, count, entry
+  dropped. `400` with the reason for: `version` other than 2 (or 1, a page in the earlier form), an unknown field, a colour that is not `#RRGGBB`, mode, count, entry
   kind, more than 3 role cards or 6 fixed questions, a question or card text over 120, a label over
   80 or an instruction over 300 characters, a card id that is not `[A-Za-z0-9_-]{1,64}` or used
   twice, a role the KB does not have, a card of the active role or a second card of a role, or
