@@ -151,7 +151,8 @@ export interface RoleEntry extends RoleEntryRef, EntryStart {}
 
 /** The page's own suggestions (under the input field) are its flat fields. */
 export interface StartPage extends Suggestions {
-    version: 1;
+    /** 2; 1 is a page saved before starts were the roles' — the server answers 2 and migrates it. */
+    version: 1 | 2;
     /** The glow and the „Entdecken" band; null = no colour. */
     colors: StartColors | null;
     startMode: StartMode;
