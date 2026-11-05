@@ -220,9 +220,8 @@ describe('App — the KB overview on the authenticated home route', () => {
    * WAI-ARIA's button / menuitem / dialog role mappings.
    *
    * („shows the agents row to a system admin" sat here and is deleted: the row
-   * was removed from the nav on 18.09.2026. `AgentsView` keeps its two in-KB
-   * routes, both behind `canOpenKbAdvancedSettings`, and neither is on this
-   * route to assert.)
+   * was removed from the nav on 18.09.2026. `AgentsView` keeps its route
+   * through the RAG-Settings page, which is not on this route to assert.)
    * -------------------------------------------------------------------- */
   it('reaches the admin console from the user menu', async () => {
     seedUser('admin');

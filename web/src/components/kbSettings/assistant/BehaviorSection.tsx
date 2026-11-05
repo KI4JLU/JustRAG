@@ -79,6 +79,7 @@ export function BehaviorSection({
     const [previewId, setPreviewId] = useState<string | null>(openedOn);
     const [deleteAsk, setDeleteAsk] = useState<RoleView | null>(null);
     const panelRef = useRef<HTMLElement>(null);
+    const topRef = useRef<HTMLDivElement>(null);
 
     // The fixed RAG instructions, in the language the KB's prompt is compiled in.
     const [ragPrompt, setRagPrompt] = useState<string | null>(null);
@@ -102,7 +103,9 @@ export function BehaviorSection({
         clearPending();
         onSubViewChange(false);
         writePref(PANEL_PREF, true);
-        requestAnimationFrame(() => panelRef.current?.scrollIntoView?.({ block: 'nearest' }));
+        // To the top, the role list (developer, 05.11.2026): the role is
+        // picked there and its preview opens under the cards.
+        requestAnimationFrame(() => topRef.current?.scrollIntoView?.({ block: 'start' }));
     }, [pending, clearPending, onSubViewChange]);
 
     if (!catalog || !behavior || !active) return null;
@@ -133,7 +136,8 @@ export function BehaviorSection({
         const previous = behavior.activeRoleId;
         store.updateBehavior(b => ({ ...b, activeRoleId: id }));
         // Every role shows once on the start page: the active role first, so a
-        // card of the new one passes to the role it replaces.
+        // card of the new one passes to the role it replaces. „Eingabefeld" or
+        // „Anweisung" follows from the new role's start (shownStartPage).
         store.updateStartPage(p => ({ ...p, roleEntries: p.roleEntries.map(e => (e.roleId === id ? { ...e, roleId: previous } : e)) }));
         setPreviewId(null);
     };
@@ -143,7 +147,7 @@ export function BehaviorSection({
     const newRole = (): RoleEditor => ({ kind: 'new', name: '', description: '', prompt: '', rules: defaultRules(catalog), ai: idleAi });
     const copyOf = (r: RoleView, suffix = 'asstCopySuffixAdjusted'): RoleEditor => ({ kind: 'new', copyOf: r.name, ...fieldsOf(r), name: `${r.name} ${t(suffix)}` });
     const editOf = (r: RoleView): RoleEditor => (r.custom
-        ? { kind: 'edit', editing: { roleId: r.id, legacy: r.legacy }, name: r.name, ...fieldsOf(r) }
+        ? { kind: 'edit', editing: { roleId: r.id }, name: r.name, ...fieldsOf(r) }
         : { kind: 'template', roleId: r.id, name: r.name, ...fieldsOf(r) });
     const editedRole = editor ? roles.find(r => r.id === (editor.kind === 'template' ? editor.roleId : editTarget(editor)?.roleId)) : undefined;
     const offerAsEntry = (r: RoleView) => store.send('start', { type: 'addEntry', roleId: r.id });
@@ -179,9 +183,8 @@ export function BehaviorSection({
         if (e.kind === 'edit') {
             store.updateBehavior(b => ({
                 ...b,
-                // The legacy role may go without a name: it keeps the one it has.
                 customRoles: b.customRoles.map(r => (r.id === roleId
-                    ? { ...r, name: e.name.trim() || r.name, description: e.description.trim(), prompt: e.prompt }
+                    ? { ...r, name: e.name.trim(), description: e.description.trim(), prompt: e.prompt }
                     : r)),
             }));
         } else if (e.kind === 'new') {
@@ -244,7 +247,7 @@ export function BehaviorSection({
 
     return (
         <>
-            <div className="flex flex-col gap-6 pt-6">
+            <div ref={topRef} className="flex flex-col gap-6 pt-6">
                     <PanelSection title={t('asstTabRole')} hint={t('asstRoleHint')}>
                         <div className="mt-2 flex flex-col gap-4">
                             <FilterChips

@@ -509,7 +509,7 @@ export function KbMembersPanel({
                 {view === 'members' ? (
                     <>
                         {/* Intro and action on one row, like the „Personen zuweisen"
-                            row of Rollen & Rechte: the settings window's footer is
+                            row of Berechtigungen: the settings window's footer is
                             taken by Speichern/Abbrechen. */}
                         <div className="flex items-center justify-between gap-3">
                             <p className="m-0 text-sm text-on-surface-variant">{t('membersIntro')}</p>
