@@ -35,7 +35,7 @@ func TestValidateGlobalValues(t *testing.T) {
 		wantErr string // "" = expect no error; otherwise a required substring
 	}{
 		{"no updates", nil, ""},
-		{"unvalidated key passes any value", []siteconfig.KeyValue{{Key: "kb_header", Value: &other}}, ""},
+		{"unvalidated key passes any value", []siteconfig.KeyValue{{Key: "academic_search_name", Value: &other}}, ""},
 		{"nil value clears the policy", []siteconfig.KeyValue{{Key: "chat_orchestrator_policy", Value: nil}}, ""},
 		{"empty value clears the policy", []siteconfig.KeyValue{{Key: "chat_orchestrator_policy", Value: &empty}}, ""},
 		{"blank value clears the policy", []siteconfig.KeyValue{{Key: "chat_orchestrator_policy", Value: &blank}}, ""},
@@ -65,7 +65,7 @@ func TestValidateGlobalValues(t *testing.T) {
 		{
 			"one bad key in an otherwise valid batch",
 			[]siteconfig.KeyValue{
-				{Key: "kb_header", Value: &other},
+				{Key: "academic_search_name", Value: &other},
 				{Key: "chat_orchestrator_policy", Value: &goodPolicy},
 				{Key: "chat_answer_tools_by_route", Value: &badTools},
 			},

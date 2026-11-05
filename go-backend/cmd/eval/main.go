@@ -276,7 +276,7 @@ func main() {
 		os.Exit(1)
 	}
 	// Eval answers name the system like production does.
-	kbbehavior.SetDefaultSystemName(cfg.AppName())
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

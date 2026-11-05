@@ -12,20 +12,17 @@ import (
 )
 
 var publicConfigKeys = map[string]bool{
-	"imprint":                 true,
-	"kb_header":               true,
-	"example_prompts":         true,
-	"chat_footer":             true,
 	"confluence_enabled":      true,
 	"web_search_enabled":      true,
 	"chat_web_search_enabled": true, // per-turn web-search gate: the UI hides its toggle when off
 	"academic_search_enabled": true,
 	"academic_search_name":    true,
 	"git_repo_enabled":        true,
-	// Branding: the page title before login, and the names a prompt preview
-	// resolves its placeholders to.
-	"system_name":    true,
-	"assistant_name": true,
+	// Branding: the app name's two parts (logo, window title — before login
+	// too), and the names a prompt preview resolves its placeholders to.
+	"institution_name": true,
+	"system_name":      true,
+	"assistant_name":   true,
 	// The system notice banner is shown to every user (system_notice.go).
 	"system_notice_enabled":     true,
 	"system_notice_title":       true,
