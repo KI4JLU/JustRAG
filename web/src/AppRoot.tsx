@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import type { User as UserType } from './types';
 import { API_BASE_URL } from './api';
 import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
-import { appNameFrom, applyAppNameToDocument, siteConfigSeedFromDocument } from './utils/appName';
+import { appNameFrom, applyAppNameToDocument, rememberAppName, siteConfigSeed } from './utils/appName';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
@@ -59,14 +59,17 @@ export function AppRoot() {
   });
 
   // Config state (needed for Login too). It starts with the app name the
-  // server wrote into the page, so neither the wordmark nor the tab title
+  // server wrote into the page (or, on a page the service worker serves, the
+  // one this browser saw last), so neither the wordmark nor the tab title
   // shows the default while /api/site-config is in flight.
-  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => siteConfigSeedFromDocument());
+  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => siteConfigSeed());
   // The browser tab shows the app name (institution_name + system_name, else
   // APP_NAME_PREFIX / APP_NAME_PRODUCT), on the login page too.
   const { prefix: appNamePrefix, product: appNameProduct } = appNameFrom(siteConfigs);
   useEffect(() => {
-    applyAppNameToDocument({ prefix: appNamePrefix, product: appNameProduct });
+    const name = { prefix: appNamePrefix, product: appNameProduct };
+    applyAppNameToDocument(name);
+    rememberAppName(name);
   }, [appNamePrefix, appNameProduct]);
 
   // Auth handlers

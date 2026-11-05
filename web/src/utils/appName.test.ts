@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appNameFrom, applyAppNameToDocument, DEFAULT_APP_NAME, siteConfigSeedFromDocument } from './appName';
+import { appNameFrom, applyAppNameToDocument, DEFAULT_APP_NAME, rememberAppName, siteConfigSeed, siteConfigSeedFromDocument } from './appName';
 
 // Oracle: the server's contract in go-backend/internal/siteconfig and
 // kbbehavior.ReadNames — the admin's institution_name / system_name, else the
@@ -62,5 +62,57 @@ describe('siteConfigSeedFromDocument', () => {
     expect(siteConfigSeedFromDocument(docWith({}))).toEqual({});
     expect(siteConfigSeedFromDocument(docWith({ 'app-name-prefix': '  ', 'app-name-product': 'Docs' })))
       .toEqual({ app_name_product: 'Docs' });
+  });
+});
+
+describe('siteConfigSeed', () => {
+  const memory = (): Storage => {
+    const data = new Map<string, string>();
+    return {
+      get length() { return data.size; },
+      clear: () => data.clear(),
+      getItem: (k: string) => data.get(k) ?? null,
+      key: (i: number) => Array.from(data.keys())[i] ?? null,
+      removeItem: (k: string) => { data.delete(k); },
+      setItem: (k: string, v: string) => { data.set(k, v); },
+    } as Storage;
+  };
+  const shell = () => {
+    const doc = document.implementation.createHTMLDocument('JLU RAG');
+    for (const [name, content] of [['app-name-prefix', 'JLU'], ['app-name-product', 'RAG']]) {
+      const meta = doc.createElement('meta');
+      meta.setAttribute('name', name);
+      meta.setAttribute('content', content);
+      doc.head.appendChild(meta);
+    }
+    return doc;
+  };
+
+  it('starts a page from the network with the shell the server rendered', () => {
+    const storage = memory();
+    rememberAppName({ prefix: 'TUM', product: 'Wissen' }, storage);
+    expect(siteConfigSeed(shell(), false, storage)).toEqual({ app_name_prefix: 'JLU', app_name_product: 'RAG' });
+  });
+
+  it('starts a precached page with the name this browser saw last', () => {
+    const storage = memory();
+    rememberAppName({ prefix: 'TUM', product: 'Wissen' }, storage);
+    expect(siteConfigSeed(shell(), true, storage)).toEqual({ app_name_prefix: 'TUM', app_name_product: 'Wissen' });
+  });
+
+  it('falls back to the shell without a usable remembered name', () => {
+    const storage = memory();
+    expect(siteConfigSeed(shell(), true, storage)).toEqual({ app_name_prefix: 'JLU', app_name_product: 'RAG' });
+    storage.setItem('justrag.appName', '{"prefix":"","product":"x"}');
+    expect(siteConfigSeed(shell(), true, storage)).toEqual({ app_name_prefix: 'JLU', app_name_product: 'RAG' });
+    storage.setItem('justrag.appName', 'not json');
+    expect(siteConfigSeed(shell(), true, storage)).toEqual({ app_name_prefix: 'JLU', app_name_product: 'RAG' });
+    expect(siteConfigSeed(shell(), true, null)).toEqual({ app_name_prefix: 'JLU', app_name_product: 'RAG' });
+  });
+
+  it('ignores a storage that throws', () => {
+    const broken = { setItem: () => { throw new Error('quota'); }, getItem: () => { throw new Error('denied'); } } as unknown as Storage;
+    expect(() => rememberAppName({ prefix: 'TUM', product: 'Wissen' }, broken)).not.toThrow();
+    expect(siteConfigSeed(shell(), true, broken)).toEqual({ app_name_prefix: 'JLU', app_name_product: 'RAG' });
   });
 });

@@ -45,6 +45,64 @@ export function siteConfigSeedFromDocument(doc: Document = document): Record<str
   return configs;
 }
 
+/*
+ * A page the service worker serves comes from its precache: the shell as the
+ * server rendered it when that worker was installed, i.e. at the last deploy.
+ * The precache is deliberate (ReloadPrompt, updatePolicy.ts), so such a page
+ * starts from the app name this browser last got from the site config
+ * instead, which is at least that fresh; the site config corrects it either
+ * way. A page from the network starts from the shell the server just rendered.
+ */
+const REMEMBERED_KEY = 'justrag.appName';
+
+/** Stores the app name the site config gave, for the next precached page. Storage errors are ignored. */
+export function rememberAppName({ prefix, product }: AppName, storage: Storage | null = localStorageOrNull()): void {
+  try {
+    storage?.setItem(REMEMBERED_KEY, JSON.stringify({ prefix, product }));
+  } catch {
+    /* private mode, quota: the next page starts from its shell */
+  }
+}
+
+function rememberedAppName(storage: Storage | null): AppName | null {
+  try {
+    const v: unknown = JSON.parse(storage?.getItem(REMEMBERED_KEY) ?? 'null');
+    if (v && typeof v === 'object') {
+      const { prefix, product } = v as Record<string, unknown>;
+      if (typeof prefix === 'string' && typeof product === 'string' && prefix.trim() && product.trim()) {
+        return { prefix, product };
+      }
+    }
+  } catch {
+    /* unreadable: start from the shell */
+  }
+  return null;
+}
+
+function localStorageOrNull(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The starting site config: the remembered app name on a page the service
+ * worker serves (`fromServiceWorker`), else the one the server wrote into the
+ * page (siteConfigSeedFromDocument).
+ */
+export function siteConfigSeed(
+  doc: Document = document,
+  fromServiceWorker: boolean = typeof navigator !== 'undefined' && !!navigator.serviceWorker?.controller,
+  storage: Storage | null = localStorageOrNull(),
+): Record<string, string> {
+  const remembered = fromServiceWorker ? rememberedAppName(storage) : null;
+  return remembered
+    ? { app_name_prefix: remembered.prefix, app_name_product: remembered.product }
+    : siteConfigSeedFromDocument(doc);
+}
+
 /** The name as one string, e.g. for the window title: "JLU RAG". */
 export function appNameText({ prefix, product }: AppName): string {
   return `${prefix} ${product}`;
