@@ -560,8 +560,6 @@ func jwtSecretCharClasses(s string) int {
 	return n
 }
 
-// trimmedEnvOr is envOr for display text: surrounding whitespace is dropped,
-// and a value that is only whitespace counts as unset.
 // appNameMaxRunes mirrors kbbehavior.MaxNameRunes: an app-name part is also
 // a name role prompts resolve to.
 const appNameMaxRunes = 40
@@ -572,7 +570,8 @@ const appNameMaxRunes = 40
 // site config, the app shell and the prompts all use the same name.
 func appNamePart(key, fallback string) string {
 	v := trimmedEnvOr(key, fallback)
-	if strings.ContainsAny(v, "\r\n") || utf8.RuneCountInString(v) > appNameMaxRunes {
+	// The characters of kbbehavior.LineBreaks (config cannot import it).
+	if strings.ContainsAny(v, "\r\n\v\f\u0085\u2028\u2029") || utf8.RuneCountInString(v) > appNameMaxRunes {
 		slog.Warn("config: app name part is not a single line of at most 40 characters; using the default",
 			"key", key, "default", fallback)
 		return fallback
@@ -580,6 +579,8 @@ func appNamePart(key, fallback string) string {
 	return v
 }
 
+// trimmedEnvOr is envOr for display text: surrounding whitespace is dropped,
+// and a value that is only whitespace counts as unset.
 func trimmedEnvOr(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v

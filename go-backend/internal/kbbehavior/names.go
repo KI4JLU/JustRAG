@@ -77,11 +77,16 @@ func DefaultNames() Names {
 	return Names{Assistant: DefaultAssistantName, Institution: institution, System: system}
 }
 
+// LineBreaks are the characters that start a new line in a prompt: CR and LF,
+// and the vertical tab, form feed, NEL and the Unicode line and paragraph
+// separators, which a model reads as line breaks just the same.
+const LineBreaks = "\r\n\v\f\u0085\u2028\u2029"
+
 // ValidateName reports why v cannot be a name: longer than MaxNameRunes or
 // more than one line. Blank is valid and means the default.
 func ValidateName(v string) error {
 	v = strings.TrimSpace(v)
-	if strings.ContainsAny(v, "\r\n") {
+	if strings.ContainsAny(v, LineBreaks) {
 		return errors.New("must be a single line")
 	}
 	if utf8.RuneCountInString(v) > MaxNameRunes {
@@ -139,7 +144,8 @@ var nameKeys = []string{AssistantNameKey, InstitutionNameKey, SystemNameKey}
 // ReadNames reads the names through r. A failed read is logged and reads as
 // the default, like an unset value: the answer goes on.
 // A reader that also reads several keys at once (GetSiteConfigValues) reads
-// all names in one lookup.
+// all names in one lookup; when that fails, the names are the defaults — the
+// single reads would only hit the same failing store three more times.
 func ReadNames(ctx context.Context, r SiteConfigGetter) Names {
 	if r == nil {
 		return DefaultNames()
@@ -149,7 +155,8 @@ func ReadNames(ctx context.Context, r SiteConfigGetter) Names {
 		if err == nil {
 			return namesFrom(vals[AssistantNameKey], vals[InstitutionNameKey], vals[SystemNameKey])
 		}
-		logctx.From(ctx).Warn("kbbehavior: reading the names failed; reading them one by one", "error", err)
+		logctx.From(ctx).Warn("kbbehavior: reading the names failed; using the defaults", "error", err)
+		return DefaultNames()
 	}
 	read := func(key string) *string {
 		v, err := r.GetSiteConfigValue(ctx, key)
