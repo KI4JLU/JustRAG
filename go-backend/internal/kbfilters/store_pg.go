@@ -1,10 +1,11 @@
-// Package kbfilters owns the two per-user topic filters behind the shell's
-// chip row: favorites (a star on any topic the user can see) and the user's
-// own categories plus their assignments.
+// Package kbfilters owns the per-user display state of the topic views: the
+// two filters behind the shell's chip row — favorites (a star on any topic the
+// user can see) and the user's own categories plus their assignments — and
+// the user's own drag order of the views „Mein Wissen" and „Geteiltes Wissen".
 //
-// Both are display state, never an access grant — starring or tagging a
-// topic the caller can already open grants nothing, and neither table is
-// consulted by any access decision. Deliberately separate from
+// All of it is display state, never an access grant — starring, tagging or
+// ordering a topic grants nothing, and none of these tables is consulted by
+// any access decision. Deliberately separate from
 // internal/kbcategories: that is one system-admin-curated taxonomy over PUBLIC
 // KBs (the catalog's filter tabs); these rows are owned by one user and may
 // point at any topic that user can see.
@@ -31,6 +32,22 @@ import (
 // exists to bound one account's footprint in kb_user_categories, not to
 // shape the UI.
 const MaxCategoriesPerUser = 50
+
+// OrderView names a topic view whose order the user can set by dragging.
+type OrderView string
+
+const (
+	// OrderViewMy is „Mein Wissen", the topics the user owns.
+	OrderViewMy OrderView = "my"
+	// OrderViewShared is „Geteiltes Wissen", the topics shared with the user
+	// and the global topics they subscribed to.
+	OrderViewShared OrderView = "shared"
+)
+
+// MaxOrderLen caps how many topic ids one saved order may hold. A view lists
+// at most the topics one user can see, which stays far below this; the cap
+// bounds one row of kb_user_order (about 32 KB of UUIDs), not the UI.
+const MaxOrderLen = 2000
 
 var (
 	// ErrDuplicateName means the (user_id, LOWER(name)) unique index rejected
@@ -68,6 +85,14 @@ type Store interface {
 
 	AssignCategory(ctx context.Context, userID, catID, kbID string) error
 	UnassignCategory(ctx context.Context, userID, catID, kbID string) error
+
+	// ListOrders returns the user's saved order per view. A view the user
+	// never saved is absent from the map; a saved empty order is a non-nil
+	// empty slice.
+	ListOrders(ctx context.Context, userID string) (map[OrderView][]string, error)
+	// SetOrder replaces the user's order of view with kbIDs: canonical
+	// UUIDs, no repeats, at most MaxOrderLen, non-nil.
+	SetOrder(ctx context.Context, userID string, view OrderView, kbIDs []string) error
 }
 
 // PGStore is the Postgres-backed Store.
@@ -229,6 +254,9 @@ func (s *PGStore) UnassignCategory(ctx context.Context, userID, catID, kbID stri
 // filters disappear atomically with the access they depended on. Whether to
 // call it is the caller's decision; this function deletes unconditionally.
 // The user's categories themselves stay — they are not tied to any one KB.
+// So does the KB's id in the user's saved order (kb_user_order): the views
+// sort only the topics they list, so the id shows nothing, and the user's
+// next save of that view drops it.
 //
 // q is the caller's transaction (or a pool); this function opens none.
 func ForgetKB(ctx context.Context, q pgxutil.Querier, userID, kbID string) error {
@@ -241,6 +269,55 @@ func ForgetKB(ctx context.Context, q pgxutil.Querier, userID, kbID string) error
 		DELETE FROM kb_user_category_links WHERE user_id = $1::uuid AND kb_id = $2::uuid`,
 		userID, kbID); err != nil {
 		return fmt.Errorf("ForgetKB: delete category links: %w", err)
+	}
+	return nil
+}
+
+// ListOrders implements Store. The ids come back as text, in the stored
+// order: uuid[] keeps its element order.
+func (s *PGStore) ListOrders(ctx context.Context, userID string) (map[OrderView][]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT view_name, kb_ids::text[]
+		FROM kb_user_order
+		WHERE user_id = $1::uuid`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("ListOrders: %w", err)
+	}
+	defer rows.Close()
+
+	orders := make(map[OrderView][]string, 2)
+	for rows.Next() {
+		var view string
+		var ids []string
+		if err := rows.Scan(&view, &ids); err != nil {
+			return nil, fmt.Errorf("ListOrders: scan: %w", err)
+		}
+		// A saved empty order stays distinguishable from a view never saved.
+		if ids == nil {
+			ids = []string{}
+		}
+		orders[OrderView(view)] = ids
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ListOrders: %w", err)
+	}
+	return orders, nil
+}
+
+// SetOrder implements Store. One upsert, so two saves racing from two tabs
+// cannot interleave: the later one replaces the earlier one whole.
+//
+// The ids are not checked against the topics the user can see. An order only
+// sorts the topics a view already lists, so a stored id grants and reveals
+// nothing; checking it would mean a second copy of the visibility rules.
+func (s *PGStore) SetOrder(ctx context.Context, userID string, view OrderView, kbIDs []string) error {
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO kb_user_order (user_id, view_name, kb_ids)
+		VALUES ($1::uuid, $2, $3::uuid[])
+		ON CONFLICT (user_id, view_name) DO UPDATE
+		SET kb_ids = EXCLUDED.kb_ids, updated_at = now()`,
+		userID, string(view), kbIDs); err != nil {
+		return fmt.Errorf("SetOrder: %w", err)
 	}
 	return nil
 }

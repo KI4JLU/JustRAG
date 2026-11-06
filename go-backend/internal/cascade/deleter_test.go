@@ -553,12 +553,18 @@ func TestDeleteKBAndUser_RemoveTopicFilters(t *testing.T) {
 		t.Fatalf("insert kb2: %v", err)
 	}
 	tag(fan, kb2)
+	if _, err := mainPool.Exec(ctx, `
+		INSERT INTO kb_user_order (user_id, view_name, kb_ids) VALUES ($1::uuid, 'shared', ARRAY[$2::uuid])`,
+		fan, kb2); err != nil {
+		t.Fatalf("insert order: %v", err)
+	}
 	if err := d.DeleteUser(ctx, fan); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
 	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_favorites WHERE user_id = $1::uuid`, fan)
 	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_user_category_links WHERE user_id = $1::uuid`, fan)
 	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_user_categories WHERE user_id = $1::uuid`, fan)
+	assertCountZero(t, mainPool, `SELECT count(*) FROM kb_user_order WHERE user_id = $1::uuid`, fan)
 	assertCountOne(t, mainPool, `SELECT count(*) FROM knowledge_bases WHERE id = $1::uuid`, kb2)
 }
 

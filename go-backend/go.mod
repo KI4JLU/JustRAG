@@ -18,7 +18,7 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/PuerkitoBio/goquery v1.8.0
 	github.com/alicebob/miniredis/v2 v2.37.0
-	github.com/andybalholm/brotli v1.2.2
+	github.com/andybalholm/brotli v1.2.7
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.13
@@ -52,7 +52,7 @@ require (
 	github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/imroc/req/v3 v3.61.0
-	github.com/klauspost/compress v1.19.2
+	github.com/klauspost/compress v1.20.2
 	github.com/pgvector/pgvector-go v0.4.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/prometheus/client_golang v1.23.2

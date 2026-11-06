@@ -708,6 +708,9 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 		txStep{`DELETE FROM kb_favorites WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_user_category_links WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM kb_user_categories WHERE user_id = $1`, []any{userID}},
+		// The user's topic order (migration 0103). Its kb_ids carry no FK, so
+		// a KB delete leaves them; the views ignore ids they do not list.
+		txStep{`DELETE FROM kb_user_order WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM user_policy_acceptances WHERE user_id = $1`, []any{userID}},
 		// ADK sessions (user_id is TEXT, migration 0082): adk_events cascade
 		// from adk_sessions via FK, agent_runs cascade via their users FK.
