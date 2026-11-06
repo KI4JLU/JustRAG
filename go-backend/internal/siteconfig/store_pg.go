@@ -97,14 +97,3 @@ func (s *PGStore) UpdateSiteConfigsBatch(ctx context.Context, configs []KeyValue
 	}
 	return result, nil
 }
-
-// UpdateSiteConfig upserts a single key/value pair into site_configs.
-func (s *PGStore) UpdateSiteConfig(ctx context.Context, key, value string) error {
-	const upsertSQL = `
-		INSERT INTO site_configs (key, value, updated_at)
-		VALUES ($1, $2, NOW())
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-
-	_, err := s.pool.Exec(ctx, upsertSQL, key, value)
-	return err
-}

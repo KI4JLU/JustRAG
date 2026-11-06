@@ -86,6 +86,10 @@ func RunWorker(cfg *config.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// {{institution_name}} / {{system_name}} in the prompts the worker compiles
+	// default to the app name from the environment.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
+
 	// nil redactor: the worker serves no HTTP surface, so no URL path — and
 	// therefore no invite token — ever reaches a span here.
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-worker", "", nil)

@@ -57,7 +57,8 @@ type Catalog struct {
 	RuleGroups   []CatalogRuleGroup `json:"ruleGroups"`
 	RulesHeading string             `json:"rulesHeading"`
 	Limits       CatalogLimits      `json:"limits"`
-	// Names are what {{assistant_name}} and {{system_name}} in a prompt
+	// Names are what {{assistant_name}}, {{institution_name}} and
+	// {{system_name}} in a prompt
 	// resolve to when it is compiled; the prompts here are as written.
 	Names Names `json:"names"`
 }

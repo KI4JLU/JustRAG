@@ -60,6 +60,7 @@ type AcademicPaper struct {
 type Handler struct {
 	aiResolver *ai.ConfigResolver
 	siteConfig chat.SiteConfigReader // nil disables describe-image
+	appName    string                // names the app in exports; "" leaves it out
 }
 
 // NewHandler creates a new Handler.
@@ -70,6 +71,10 @@ func NewHandler(aiResolver *ai.ConfigResolver) *Handler {
 // SetSiteConfig attaches the site_config reader used to gate and configure the
 // describe-image endpoint. Without it, describe-image stays disabled.
 func (h *Handler) SetSiteConfig(scr chat.SiteConfigReader) { h.siteConfig = scr }
+
+// SetAppName sets the app name the exports cite as their source (config
+// AppName), e.g. the BibTeX note "Accessed via JLU RAG".
+func (h *Handler) SetAppName(name string) { h.appName = name }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -213,7 +218,7 @@ func (h *Handler) ResearchBibtex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bib := GenerateResearchBibtex(req.Findings)
+	bib := GenerateResearchBibtex(req.Findings, h.appName)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename=citations.bib")
@@ -287,7 +292,9 @@ func shortHash(s string) string {
 
 // GenerateResearchBibtex builds a BibTeX string from a list of findings.
 // Sources are deduplicated by FileID; entries with a URL use @online, others @misc.
-func GenerateResearchBibtex(findings []Finding) string {
+// Each entry notes appName (the app's name) as where it was accessed; an empty
+// appName leaves the note out.
+func GenerateResearchBibtex(findings []Finding, appName string) string {
 	today := time.Now().UTC().Format("2006-01-02")
 
 	// Deduplicate by FileID while preserving first-seen order.
@@ -314,17 +321,25 @@ func GenerateResearchBibtex(findings []Finding) string {
 			fmt.Fprintf(&sb, "  title = {%s},\n", escapeLaTeX(s.FileName))
 			fmt.Fprintf(&sb, "  url = {%s},\n", s.URL)
 			fmt.Fprintf(&sb, "  urldate = {%s},\n", today)
-			fmt.Fprintf(&sb, "  note = {Accessed via JustRAG}\n")
+			writeAccessedVia(&sb, appName)
 			sb.WriteString("}\n\n")
 		} else {
 			fmt.Fprintf(&sb, "@misc{%s,\n", key)
 			fmt.Fprintf(&sb, "  title = {%s},\n", escapeLaTeX(s.FileName))
-			fmt.Fprintf(&sb, "  note = {Accessed via JustRAG}\n")
+			writeAccessedVia(&sb, appName)
 			sb.WriteString("}\n\n")
 		}
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// writeAccessedVia writes the entry's note field naming the app, if any.
+// BibTeX tolerates the trailing comma the previous field leaves.
+func writeAccessedVia(sb *strings.Builder, appName string) {
+	if appName != "" {
+		fmt.Fprintf(sb, "  note = {Accessed via %s}\n", escapeLaTeX(appName))
+	}
 }
 
 // ---------------------------------------------------------------------------

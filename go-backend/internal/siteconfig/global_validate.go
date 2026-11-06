@@ -43,10 +43,12 @@ var globalValidators = map[string]func(string) error{
 
 	policyaccept.VersionKey: policyaccept.ValidateVersion,
 
-	// The names role prompts resolve {{assistant_name}} / {{system_name}} to;
-	// the reader falls back to the default on anything this refuses.
-	kbbehavior.AssistantNameKey: kbbehavior.ValidateName,
-	kbbehavior.SystemNameKey:    kbbehavior.ValidateName,
+	// The names role prompts resolve {{assistant_name}} / {{institution_name}}
+	// / {{system_name}} to; the reader falls back to the default on anything
+	// this refuses.
+	kbbehavior.AssistantNameKey:   kbbehavior.ValidateName,
+	kbbehavior.InstitutionNameKey: kbbehavior.ValidateName,
+	kbbehavior.SystemNameKey:      kbbehavior.ValidateName,
 }
 
 // validateIntRange / validateFloatRange mirror the chat readers' clamps for

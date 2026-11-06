@@ -218,7 +218,7 @@ func TestUpdateSiteConfig_MCPMaskWithoutStoreRead500(t *testing.T) {
 
 func TestUpdateSiteConfig_WholeMCPMaskIsUnchanged(t *testing.T) {
 	store := &mockStore{}
-	if rec := post(t, store, map[string]any{"mcp_servers": "********", "kb_header": "x"}); rec.Code != http.StatusOK {
+	if rec := post(t, store, map[string]any{"mcp_servers": "********", "academic_search_name": "x"}); rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
 	if _, ok := written(store, "mcp_servers"); ok {
