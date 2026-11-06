@@ -37,7 +37,7 @@ func TestValidateName(t *testing.T) {
 			t.Errorf("ValidateName(%q) = %v, want nil", ok, err)
 		}
 	}
-	for _, bad := range []string{"a\nb", "a\rb", strings.Repeat("ä", MaxNameRunes+1)} {
+	for _, bad := range []string{"a\nb", "a\rb", "a\vb", "a\fb", "a\u0085b", "a\u2028b", "a\u2029b", strings.Repeat("ä", MaxNameRunes+1)} {
 		if err := ValidateName(bad); err == nil {
 			t.Errorf("ValidateName(%q) = nil, want an error", bad)
 		}
@@ -130,5 +130,28 @@ func TestSetAppNameDefaults(t *testing.T) {
 	SetAppNameDefaults("", "a\nb")
 	if got := DefaultNames(); got.Institution != DefaultInstitutionName || got.System != DefaultSystemName {
 		t.Errorf("DefaultNames = %+v, want the constant defaults", got)
+	}
+}
+
+// failingMulti fails the one lookup; its single reads would answer, so a test
+// sees whether ReadNames still falls back to them.
+type failingMulti struct{ singles *int }
+
+func (f failingMulti) GetSiteConfigValue(context.Context, string) (*string, error) {
+	*f.singles++
+	v := "Kira"
+	return &v, nil
+}
+
+func (f failingMulti) GetSiteConfigValues(context.Context, []string) (map[string]*string, error) {
+	return nil, errors.New("db down")
+}
+
+// Oracle: PR #83 review — when the one lookup fails the store is down, so the
+// names are the defaults without three more reads of it.
+func TestReadNames_FailedLookupIsDefaults(t *testing.T) {
+	singles := 0
+	if got := ReadNames(context.Background(), failingMulti{singles: &singles}); got != DefaultNames() || singles != 0 {
+		t.Fatalf("ReadNames = %+v after %d single reads, want %+v after 0", got, singles, DefaultNames())
 	}
 }

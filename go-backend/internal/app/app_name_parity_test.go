@@ -18,7 +18,7 @@ func TestAppNameFromEnvMatchesPromptNameRule(t *testing.T) {
 	t.Setenv("GO_ENV", "")
 	for _, v := range []string{
 		"TUM", "Uni Gießen", strings.Repeat("ä", kbbehavior.MaxNameRunes),
-		strings.Repeat("ä", kbbehavior.MaxNameRunes+1), "a\nb", "a\rb",
+		strings.Repeat("ä", kbbehavior.MaxNameRunes+1), "a\nb", "a\rb", "a\u2028b", "a\u2029b", "a\u0085b", "a\vb", "a\fb",
 	} {
 		t.Setenv("APP_NAME_PREFIX", v)
 		cfg, err := config.Load()

@@ -136,6 +136,10 @@ func TestStaticServing_ShellETagFollowsTheName(t *testing.T) {
 	if first == "" {
 		t.Fatal("shell served without an ETag")
 	}
+	// Weak: gzip and plain bodies share the tag (the compression middleware).
+	if !strings.HasPrefix(first, `W/"`) {
+		t.Errorf("ETag %q, want a weak one", first)
+	}
 	if _, code := etag("THM", first); code != http.StatusNotModified {
 		t.Errorf("revalidating an unchanged shell: status %d, want 304", code)
 	}

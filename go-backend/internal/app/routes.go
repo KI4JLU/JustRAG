@@ -1800,7 +1800,8 @@ func setupStaticServing(mux *http.ServeMux, staticDir string, appName appNameRea
 			return
 		}
 
-		// Uploads are served by their own handler — skip.
+		// Uploads are never public files (the logo upload, their last
+		// public use, is gone) — keep them out of the file server.
 		if strings.HasPrefix(path, "/uploads/") {
 			http.NotFound(w, r)
 			return

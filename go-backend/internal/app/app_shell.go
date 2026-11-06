@@ -99,7 +99,10 @@ func serveManifest(w http.ResponseWriter, r *http.Request, staticDir string, app
 // files keep their name across deploys (and the shell names the hashed
 // bundles). The ETag covers the rendered bytes, so another name — a restart
 // with other APP_NAME_* values, a saved institution_name or system_name — is a
-// changed response even though the file on disk is unchanged.
+// changed response even though the file on disk is unchanged. The ETag is
+// weak: the compression middleware sends the same tag for the gzip and the
+// plain encoding, which a strong tag must not do (and gzhttp's SuffixETag
+// would break If-None-Match, since it does not strip the suffix it added).
 func serveRenamed(w http.ResponseWriter, r *http.Request, file, contentType string, render func([]byte) ([]byte, error)) {
 	src, err := os.ReadFile(file)
 	if err != nil {
@@ -113,6 +116,6 @@ func serveRenamed(w http.ResponseWriter, r *http.Request, file, contentType stri
 	sum := sha256.Sum256(out)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:8])+`"`)
+	w.Header().Set("ETag", `W/"`+hex.EncodeToString(sum[:8])+`"`)
 	http.ServeContent(w, r, filepath.Base(file), time.Time{}, bytes.NewReader(out))
 }
