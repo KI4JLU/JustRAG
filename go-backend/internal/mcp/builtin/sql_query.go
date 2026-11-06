@@ -144,7 +144,7 @@ func NewSQLQuery(pool *pgxpool.Pool, enabled func(ctx context.Context) bool) mcp
 func NewSQLQueryUnconfigured() mcp.Tool {
 	return mcp.Tool{
 		Name:        "sql_query",
-		Description: "Run a read-only SQL SELECT against allowlisted JustRAG tables (messages, chats, files, agent_decisions). Currently DISABLED: no read-only database role is configured.",
+		Description: "Run a read-only SQL SELECT against allowlisted application tables (messages, chats, files, agent_decisions). Currently DISABLED: no read-only database role is configured.",
 		InputSchema: json.RawMessage(sqlQueryInputSchema),
 		Handler: mcp.ToolHandlerFunc(func(_ context.Context, _ json.RawMessage) (mcp.ToolResult, error) {
 			return mcp.ToolResult{}, fmt.Errorf("sql_query: tool not configured; set JUSTRAG_DB_URL_READONLY to a SELECT-only database role to enable it")
@@ -163,7 +163,7 @@ func newSQLQueryWithExecutor(exec SQLExecutor, enabled func(ctx context.Context)
 	}
 	return mcp.Tool{
 		Name:        "sql_query",
-		Description: "Run a read-only SQL SELECT against allowlisted JustRAG tables (messages, chats, files, agent_decisions). Use for meta-questions: 'when was X uploaded', 'how many messages this week', 'most-cited file last month'. Returns up to 100 rows.",
+		Description: "Run a read-only SQL SELECT against allowlisted application tables (messages, chats, files, agent_decisions). Use for meta-questions: 'when was X uploaded', 'how many messages this week', 'most-cited file last month'. Returns up to 100 rows.",
 		InputSchema: json.RawMessage(sqlQueryInputSchema),
 		Handler:     mcp.ToolHandlerFunc(sqlQueryHandler(exec, enabled)),
 	}

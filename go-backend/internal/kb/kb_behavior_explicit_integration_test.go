@@ -90,8 +90,15 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 		t.Fatalf("0101: %v", err)
 	}
 	after := read()
+	// Only this test's KBs: integration packages run in parallel against
+	// the same database, and another package's test may commit a KB with
+	// a NULL behavior between the migration and this count.
+	ids := make([]string, 0, len(kbs))
+	for _, id := range kbs {
+		ids = append(ids, id)
+	}
 	var nulls int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_bases WHERE behavior IS NULL`).Scan(&nulls); err != nil || nulls != 0 {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_bases WHERE behavior IS NULL AND id = ANY($1::uuid[])`, ids).Scan(&nulls); err != nil || nulls != 0 {
 		t.Fatalf("KBs still without a behavior: %d (%v)", nulls, err)
 	}
 
@@ -156,14 +163,14 @@ func TestKBBehaviorExplicit_Migration(t *testing.T) {
 	}
 
 	var snapshot string
-	if err := tx.QueryRow(ctx, `SELECT string_agg(id::text || behavior::text, ',' ORDER BY id) FROM knowledge_bases`).Scan(&snapshot); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT string_agg(id::text || behavior::text, ',' ORDER BY id) FROM knowledge_bases WHERE id = ANY($1::uuid[])`, ids).Scan(&snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, up0101(t)); err != nil {
 		t.Fatalf("0101 again: %v", err)
 	}
 	var again string
-	if err := tx.QueryRow(ctx, `SELECT string_agg(id::text || behavior::text, ',' ORDER BY id) FROM knowledge_bases`).Scan(&again); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT string_agg(id::text || behavior::text, ',' ORDER BY id) FROM knowledge_bases WHERE id = ANY($1::uuid[])`, ids).Scan(&again); err != nil {
 		t.Fatal(err)
 	}
 	if again != snapshot {

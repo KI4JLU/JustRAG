@@ -55,6 +55,9 @@ type Deps struct {
 	Answerer Answerer
 	Guard    chat.SiteConfigReader
 	Usage    usage.Recorder
+	// AppName is the model's display name in the plugin (config AppName);
+	// empty falls back to ModelID. The id itself never changes.
+	AppName string
 }
 
 type Handler struct{ d Deps }
@@ -114,6 +117,13 @@ type modelObject struct {
 // Models handles GET /owui/api/models. The plugin only renders the JSON.
 func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{
-		"data": []modelObject{{ID: ModelID, Name: "JustRAG", Object: "model", Created: time.Now().Unix(), OwnedBy: "justrag"}},
+		"data": []modelObject{{ID: ModelID, Name: h.modelName(), Object: "model", Created: time.Now().Unix(), OwnedBy: "justrag"}},
 	})
+}
+
+func (h *Handler) modelName() string {
+	if h.d.AppName != "" {
+		return h.d.AppName
+	}
+	return ModelID
 }

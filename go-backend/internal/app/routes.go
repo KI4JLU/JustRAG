@@ -452,7 +452,6 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	registerPublicAPIRoutes(rc, apiRL)
 	registerOWUICompatRoutes(rc)
 	registerMiscRoutes(rc)
-	registerStaticRoutes(rc)
 
 	// Only the in-memory loginLimiter (returned from registerAuthRoutes) owns
 	// a background goroutine and needs an explicit Shutdown. The Redis-backed
@@ -486,7 +485,7 @@ func registerHealthRoutes(rc *routeCtx, buildVersion string) {
 	// Prometheus metrics — admin-only.
 	rc.mux.Handle("GET /metrics", rc.adminChain(middleware.MetricsHandler()))
 
-	docsHandler := apidocs.NewHandler()
+	docsHandler := apidocs.NewHandler(rc.cfg.AppName())
 	rc.mux.HandleFunc("GET /api/v1/openapi.json", docsHandler.ServeSpec)
 	rc.mux.HandleFunc("GET /api/v1/docs", docsHandler.ServeDocs)
 }
@@ -516,10 +515,10 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.HandleFunc("POST /api/auth/oidc/logout", authHandler.OIDCBackchannelLogout)
 
 	// Site config — optional auth (parses token if present so admin sees all keys)
-	siteConfigHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main))
+	siteConfigHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main),
+		siteconfig.WithAppName(rc.cfg.AppNamePrefix, rc.cfg.AppNameProduct))
 	rc.mux.Handle("GET /api/site-config", rc.authMw.OptionalAuth(http.HandlerFunc(siteConfigHandler.GetSiteConfig)))
 	rc.mux.Handle("POST /api/site-config", rc.superadminChain(siteConfigHandler.UpdateSiteConfig))
-	rc.mux.Handle("POST /api/site-config/logo", rc.superadminChain(siteConfigHandler.UploadLogo))
 	// The system notice (system_notice_* keys only) is editable by plain admins too.
 	rc.mux.Handle("PUT /api/admin/system-notice", rc.adminChain(siteConfigHandler.UpdateSystemNotice))
 
@@ -1660,6 +1659,7 @@ func registerResearchRoutes(rc *routeCtx, researchRL *middleware.RedisRateLimite
 
 	// Misc endpoints — enhance, export (auth required)
 	miscHandler := misc.NewHandler(rc.aiResolver)
+	miscHandler.SetAppName(rc.cfg.AppName())
 	// Both routes block on a single synchronous LLM call. The 90s ceiling
 	// cancels the upstream call and returns a 503 before the server's 120s
 	// WriteTimeout would silently drop the connection with the call still
@@ -1759,27 +1759,6 @@ func registerMiscRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/kb/{id}/data-explorer/export", rc.kbViewChain(dataExplorerDisabled))
 }
 
-func registerStaticRoutes(rc *routeCtx) {
-	// Resolve once at startup so route handlers don't depend on the
-	// process working directory. filepath.Abs returns an error only when
-	// os.Getwd does, so on success there's nothing to handle; on failure
-	// we fall back to the relative path with a warning.
-	logoDir := "uploads/logo"
-	if abs, err := filepath.Abs(logoDir); err == nil {
-		logoDir = abs
-	} else {
-		slog.Warn("could not resolve uploads/logo to absolute path; serving relative", "error", err)
-	}
-	logoFS := http.FileServer(http.Dir(logoDir))
-
-	// Serve uploaded logos (public, no auth required)
-	rc.mux.Handle("GET /uploads/logo/", http.StripPrefix("/uploads/logo/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		logoFS.ServeHTTP(w, r)
-	})))
-}
-
 func registerFrontendServing(rc *routeCtx) error {
 	if rc.cfg.IsProduction() {
 		// Resolve once so request-time os.Stat doesn't depend on CWD.
@@ -1789,7 +1768,10 @@ func registerFrontendServing(rc *routeCtx) error {
 		} else {
 			slog.Warn("could not resolve client/dist to absolute path; serving relative", "error", err)
 		}
-		setupStaticServing(rc.mux, distDir)
+		setupStaticServing(rc.mux, distDir, func(ctx context.Context) (string, string) {
+			n := kbbehavior.ReadNames(ctx, rc.chatStore)
+			return n.Institution, n.System
+		})
 		return nil
 	}
 
@@ -1805,8 +1787,10 @@ func registerFrontendServing(rc *routeCtx) error {
 // setupStaticServing registers a catch-all handler on mux that serves the
 // React SPA from staticDir. API and OpenAI routes are left to their own
 // handlers (already registered before this is called); the handler returns
-// 404 for those prefixes so the mux falls through.
-func setupStaticServing(mux *http.ServeMux, staticDir string) {
+// 404 for those prefixes so the mux falls through. The app shell and the PWA
+// manifest are renamed for the app name appName reads, on the way out
+// (app_shell.go).
+func setupStaticServing(mux *http.ServeMux, staticDir string, appName appNameReader) {
 	fs := http.FileServer(http.Dir(staticDir))
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -1824,9 +1808,22 @@ func setupStaticServing(mux *http.ServeMux, staticDir string) {
 			return
 		}
 
-		// Uploads are served by their own handler — skip.
+		// Uploads are never public files (the logo upload, their last
+		// public use, is gone) — keep them out of the file server.
 		if strings.HasPrefix(path, "/uploads/") {
 			http.NotFound(w, r)
+			return
+		}
+
+		// The two files that name the app. "/" must not reach the file server
+		// either: the dist DIRECTORY exists, so it would answer with
+		// index.html unrenamed.
+		if path == "/" || path == "/index.html" {
+			serveAppShell(w, r, staticDir, appName)
+			return
+		}
+		if path == "/manifest.webmanifest" {
+			serveManifest(w, r, staticDir, appName)
 			return
 		}
 
@@ -1839,9 +1836,8 @@ func setupStaticServing(mux *http.ServeMux, staticDir string) {
 			// content does. Everything else in dist keeps a stable name across
 			// deploys and is overwritten in place — the favicon, the
 			// apple-touch icon, the onboarding screenshots, the PWA bootstrap
-			// files, and (because os.Stat succeeds on the dist DIRECTORY) the
-			// app shell served for "/". Pinning any of those strands clients
-			// on last year's copy with no revalidation request to correct it.
+			// files. Pinning any of those strands clients on last year's copy
+			// with no revalidation request to correct it.
 			//
 			// So: allowlist the hashed path, revalidate everything else. A file
 			// added to web/public/ later then defaults to correct behaviour
@@ -1867,9 +1863,8 @@ func setupStaticServing(mux *http.ServeMux, staticDir string) {
 			return
 		}
 
-		// SPA catch-all: serve index.html for all non-file routes.
-		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		// SPA catch-all: serve the app shell for all non-file routes.
+		serveAppShell(w, r, staticDir, appName)
 	})
 }
 
@@ -2075,6 +2070,7 @@ func registerOWUICompatRoutes(rc *routeCtx) {
 		Guard:    rc.chatStore,
 		Usage:    usage.NewRecorder(rc.infra.db.Main),
 		Answerer: owuicompat.NewPipelineAnswerer(rc.aiResolver, rc.searchService, rc.kbStore, &fileDatesAdapter{store: rc.filesStore}),
+		AppName:  rc.cfg.AppName(),
 	})
 	chatRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
 		Max: 600, Window: time.Minute, Category: "owui_chat", Key: byKey,

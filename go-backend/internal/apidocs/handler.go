@@ -1,26 +1,46 @@
 package apidocs
 
 import (
+	"bytes"
 	_ "embed"
+	"encoding/json"
+	"html"
 	"net/http"
+	"strings"
 )
 
 //go:embed openapi.json
 var specJSON []byte
 
-// Handler serves API documentation.
-type Handler struct{}
+// specDefaultName is how the embedded spec and the docs page name the app.
+const specDefaultName = "JustRAG"
 
-// NewHandler returns a new docs handler.
-func NewHandler() *Handler {
-	return &Handler{}
+// Handler serves API documentation.
+type Handler struct {
+	spec []byte
+	docs []byte
+}
+
+// NewHandler returns a docs handler that names the app appName (config
+// AppName) in the spec's title and descriptions and in the docs page title.
+// An empty appName keeps the embedded name.
+func NewHandler(appName string) *Handler {
+	h := &Handler{spec: specJSON, docs: []byte(scalarHTML)}
+	if appName == "" {
+		return h
+	}
+	quoted, _ := json.Marshal(appName) // a string always marshals
+	// Strip only the delimiters: a name ending in `"` keeps its escaped quote.
+	h.spec = bytes.ReplaceAll(specJSON, []byte(specDefaultName), quoted[1:len(quoted)-1])
+	h.docs = []byte(strings.ReplaceAll(scalarHTML, specDefaultName, html.EscapeString(appName)))
+	return h
 }
 
 // ServeSpec writes the embedded OpenAPI spec as JSON.
 func (h *Handler) ServeSpec(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = w.Write(specJSON)
+	_, _ = w.Write(h.spec)
 }
 
 const scalarHTML = `<!DOCTYPE html>
@@ -42,5 +62,5 @@ func (h *Handler) ServeDocs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Del("Content-Security-Policy")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = w.Write([]byte(scalarHTML))
+	_, _ = w.Write(h.docs)
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/justrag/go-backend/internal/config"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/safego"
@@ -28,8 +29,7 @@ func isUploadExempt(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/api/site-config/logo", // logo upload (siteconfig.maxLogoSize)
-		"/api/describe-image",                       // vision input, 10 MiB (misc.maxImageBytes)
+	case "/api/describe-image", // vision input, 10 MiB (misc.maxImageBytes)
 		"/api/admin/agent/template",                 // template upload, 10 MiB (adminmaintenance)
 		"/api/admin/eval/golden-sets",               // golden-set JSONL upload, 5 MiB (admineval)
 		"/api/library/files",                        // user library upload, 500 MiB (uploadcheck.MaxUploadSize)
@@ -63,6 +63,10 @@ func isUploadExempt(r *http.Request) bool {
 func RunServer(cfg *config.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// {{institution_name}} / {{system_name}}, logo and window title default to
+	// the app name from the environment.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
 
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-server", version, middleware.RedactSecretPath)
 	if err != nil {

@@ -5,12 +5,16 @@ import { Button, Container, PageHeader, Spinner } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import type { Language } from '../translations';
+import { appNameFrom, appNameText } from '../utils/appName';
+import { renameDefaultAppName } from '../utils/appNameShell';
 
 export type LegalPageType = 'terms' | 'privacy' | 'accessibility';
 
 interface LegalPageProps {
   page: LegalPageType;
   onBack: () => void;
+  /** The documents name the service by the default app name; the configured one replaces it. */
+  siteConfigs?: Record<string, string> | null;
 }
 
 const titleKeys: Record<LegalPageType, string> = {
@@ -25,7 +29,8 @@ const htmlFiles: Record<LegalPageType, Record<Language, string>> = {
   accessibility: { de: '/legal/accessibility-de.html', en: '/legal/accessibility-en.html' },
 };
 
-export function LegalPage({ page, onBack }: LegalPageProps) {
+export function LegalPage({ page, onBack, siteConfigs }: LegalPageProps) {
+  const appName = appNameText(appNameFrom(siteConfigs));
   const { t, language } = useTheme();
   const toast = useToast();
   // Loaded content is keyed by page+language; `loading` is derived during
@@ -127,7 +132,7 @@ export function LegalPage({ page, onBack }: LegalPageProps) {
         ) : (
           <div
             className="content-fade-in text-body-base text-on-surface-variant"
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renameDefaultAppName(html, appName)) }}
           />
         )}
       </Container>

@@ -32,6 +32,7 @@ import (
 	"github.com/justrag/go-backend/internal/database"
 	"github.com/justrag/go-backend/internal/eval"
 	"github.com/justrag/go-backend/internal/files"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/recencylister"
 	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/tabular/sqlexec"
@@ -274,6 +275,8 @@ func main() {
 		slog.Error("config load", "error", err)
 		os.Exit(1)
 	}
+	// Eval answers name the system like production does.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

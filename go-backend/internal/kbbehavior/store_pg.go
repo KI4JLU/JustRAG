@@ -103,12 +103,12 @@ func (s *Store) Save(ctx context.Context, kbID string, b Behavior) error {
 // Names reads the deployment's names. A failed read is logged and reads as
 // the default, like an unset value.
 func (s *Store) Names(ctx context.Context) Names {
-	var assistant, system *string
-	if err := s.q.QueryRow(ctx, `SELECT `+namesSQL).Scan(&assistant, &system); err != nil {
+	var assistant, institution, system *string
+	if err := s.q.QueryRow(ctx, `SELECT `+namesSQL).Scan(&assistant, &institution, &system); err != nil {
 		logctx.From(ctx).Warn("kbbehavior: reading the names failed; using the defaults", "error", err)
 		return DefaultNames()
 	}
-	return namesFrom(assistant, system)
+	return namesFrom(assistant, institution, system)
 }
 
 // SystemPrompt is the KB part of the answer prompt — the one reader every
@@ -122,18 +122,18 @@ func (s *Store) Names(ctx context.Context) Names {
 // system_prompt.
 func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (*string, error) {
 	var (
-		sp                *string
-		raw               []byte
-		language          string
-		roleID            *string
-		assistant, system *string
+		sp                             *string
+		raw                            []byte
+		language                       string
+		roleID                         *string
+		assistant, institution, system *string
 	)
 	err := q.QueryRow(ctx, `
 		SELECT kb.system_prompt, kb.behavior, kb.language,
 		       (SELECT c.role_id FROM chats c WHERE c.id = NULLIF($2, '')::uuid AND c.kb_id = kb.id),
 		       `+namesSQL+`
 		FROM knowledge_bases kb WHERE kb.id = $1`, kbID, chatID,
-	).Scan(&sp, &raw, &language, &roleID, &assistant, &system)
+	).Scan(&sp, &raw, &language, &roleID, &assistant, &institution, &system)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -149,7 +149,7 @@ func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (
 		// A NULL behavior with a pre-roles prompt and no other role asked
 		// for: that prompt, untouched, as the legacy role without rules
 		// compiles it. Without a prompt Effective is the default role.
-		resolved := namesFrom(assistant, system).Resolve(withLegacyIdentity(*sp, Lang(language)))
+		resolved := namesFrom(assistant, institution, system).Resolve(withLegacyIdentity(*sp, Lang(language)))
 		return &resolved, nil
 	}
 	lang := Lang(language)
@@ -163,7 +163,7 @@ func SystemPrompt(ctx context.Context, q pgxutil.Querier, kbID, chatID string) (
 		// rather than with no identity at all.
 		prompt, _ = Compile(Default(), "", lang)
 	}
-	prompt = namesFrom(assistant, system).Resolve(prompt)
+	prompt = namesFrom(assistant, institution, system).Resolve(prompt)
 	return &prompt, nil
 }
 
@@ -222,14 +222,14 @@ func Brief(eff Behavior, roleID, lang string) RoleBrief {
 // not exist.
 func StarterRole(ctx context.Context, q pgxutil.Querier, kbID, roleID string) (RoleBrief, error) {
 	var (
-		sp                *string
-		raw               []byte
-		language          string
-		assistant, system *string
+		sp                             *string
+		raw                            []byte
+		language                       string
+		assistant, institution, system *string
 	)
 	err := q.QueryRow(ctx, `SELECT system_prompt, behavior, language, `+namesSQL+`
 		FROM knowledge_bases WHERE id = $1`, kbID).
-		Scan(&sp, &raw, &language, &assistant, &system)
+		Scan(&sp, &raw, &language, &assistant, &institution, &system)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RoleBrief{}, nil
 	}
@@ -238,7 +238,7 @@ func StarterRole(ctx context.Context, q pgxutil.Querier, kbID, roleID string) (R
 	}
 	lang := Lang(language)
 	b := Brief(Effective(decode(ctx, kbID, raw), sp, lang), roleID, lang)
-	n := namesFrom(assistant, system)
+	n := namesFrom(assistant, institution, system)
 	return RoleBrief{Name: n.Resolve(b.Name), Description: n.Resolve(b.Description), Prompt: n.Resolve(b.Prompt)}, nil
 }
 

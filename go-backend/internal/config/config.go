@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type DBConfig struct {
@@ -108,6 +109,14 @@ type Config struct {
 	JWTSecret      string
 	AllowedOrigins []string
 
+	// The app name the web app renders through the design system's Logo:
+	// AppNamePrefix as plain text, AppNameProduct in the brand badge
+	// ("JLU [RAG]"). Joined (AppName), it is how the app names itself in
+	// text: window title, installed app, API docs. APP_NAME_PREFIX and
+	// APP_NAME_PRODUCT; unset or blank keeps the default "JLU" / "RAG".
+	AppNamePrefix  string
+	AppNameProduct string
+
 	// Worker settings
 	WorkerQueues      []string // WORKER_QUEUES — if set, only process these queues
 	WorkerConcurrency int      // WORKER_CONCURRENCY — total goroutines (default: max(2×GOMAXPROCS, 8))
@@ -203,6 +212,12 @@ type Config struct {
 	// lines/sec. Set LOG_VERBOSE=true during incident investigation to see
 	// every request, then unset it. Env LOG_VERBOSE.
 	LogVerbose bool
+}
+
+// AppName is the app name as one string, e.g. "JLU RAG": what the app calls
+// itself wherever it names itself in text (installed app, API docs, exports).
+func (c *Config) AppName() string {
+	return c.AppNamePrefix + " " + c.AppNameProduct
 }
 
 func (c *Config) IsProduction() bool {
@@ -304,6 +319,9 @@ func Load() (*Config, error) {
 	cfg.EmbeddingCacheTTL = time.Duration(mustInt("EMBEDDING_CACHE_TTL_HOURS", 7*24)) * time.Hour
 
 	cfg.CSPHeader = os.Getenv("CSP_HEADER")
+
+	cfg.AppNamePrefix = appNamePart("APP_NAME_PREFIX", "JLU")
+	cfg.AppNameProduct = appNamePart("APP_NAME_PRODUCT", "RAG")
 
 	cfg.SQLToolReadOnlyURL = os.Getenv("JUSTRAG_DB_URL_READONLY")
 
@@ -540,6 +558,34 @@ func jwtSecretCharClasses(s string) int {
 		}
 	}
 	return n
+}
+
+// appNameMaxRunes mirrors kbbehavior.MaxNameRunes: an app-name part is also
+// a name role prompts resolve to.
+const appNameMaxRunes = 40
+
+// appNamePart reads one app-name part: trimmed, blank = fallback. A value no
+// name may be (kbbehavior.ValidateName: more than one line, or longer than
+// appNameMaxRunes) is refused with a warning and reads as fallback too, so the
+// site config, the app shell and the prompts all use the same name.
+func appNamePart(key, fallback string) string {
+	v := trimmedEnvOr(key, fallback)
+	// The characters of kbbehavior.LineBreaks (config cannot import it).
+	if strings.ContainsAny(v, "\r\n\v\f\u0085\u2028\u2029") || utf8.RuneCountInString(v) > appNameMaxRunes {
+		slog.Warn("config: app name part is not a single line of at most 40 characters; using the default",
+			"key", key, "default", fallback)
+		return fallback
+	}
+	return v
+}
+
+// trimmedEnvOr is envOr for display text: surrounding whitespace is dropped,
+// and a value that is only whitespace counts as unset.
+func trimmedEnvOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func envOr(key, fallback string) string {

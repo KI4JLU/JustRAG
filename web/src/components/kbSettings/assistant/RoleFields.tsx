@@ -74,7 +74,7 @@ export function RoleNameFields({ name, description, onName, onDescription, nameM
 }
 
 /** The name placeholders a role prompt may use (kbbehavior.Names fills them in). */
-const NAME_PLACEHOLDERS = ['{{assistant_name}}', '{{system_name}}'] as const;
+const NAME_PLACEHOLDERS = ['{{assistant_name}}', '{{institution_name}}', '{{system_name}}'] as const;
 
 /**
  * The role prompt: its label with the length count, the field, and its name
@@ -165,7 +165,7 @@ export function RolePromptField({ value, onChange, max, disabled, onInsertSkelet
                 ))}
                 <p id={hintId} className="m-0 text-xs text-on-surface-variant">
                     {names
-                        ? t('asstPromptNamesHint').replace('{assistant}', names.assistant).replace('{system}', names.system)
+                        ? t('asstPromptNamesHint').replace('{assistant}', names.assistant).replace('{institution}', names.institution).replace('{system}', names.system)
                         : t('asstPromptNamesHintAdmin')}
                 </p>
             </div>

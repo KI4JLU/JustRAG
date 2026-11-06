@@ -4,34 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/httputil"
 )
 
 var publicConfigKeys = map[string]bool{
-	"logo_path":               true,
-	"imprint":                 true,
-	"kb_header":               true,
-	"example_prompts":         true,
-	"chat_footer":             true,
 	"confluence_enabled":      true,
 	"web_search_enabled":      true,
 	"chat_web_search_enabled": true, // per-turn web-search gate: the UI hides its toggle when off
 	"academic_search_enabled": true,
 	"academic_search_name":    true,
 	"git_repo_enabled":        true,
-	// Branding: the page title before login, and the names a prompt preview
-	// resolves its placeholders to.
-	"system_name":    true,
-	"assistant_name": true,
+	// Branding: the app name's two parts (logo, window title — before login
+	// too), and the names a prompt preview resolves its placeholders to.
+	"institution_name": true,
+	"system_name":      true,
+	"assistant_name":   true,
 	// The system notice banner is shown to every user (system_notice.go).
 	"system_notice_enabled":     true,
 	"system_notice_title":       true,
@@ -71,15 +62,42 @@ type SiteConfigRow struct {
 type Store interface {
 	GetAllSiteConfigs(ctx context.Context) ([]SiteConfigRow, error)
 	UpdateSiteConfigsBatch(ctx context.Context, configs []KeyValue) ([]SiteConfigRow, error)
-	UpdateSiteConfig(ctx context.Context, key, value string) error
 }
+
+// The app name keys GetSiteConfig answers with. They are not site_configs
+// rows: the values come from the environment (APP_NAME_PREFIX,
+// APP_NAME_PRODUCT), and the web app builds its logo and window title from
+// them. UpdateSiteConfig ignores them, because the admin dialog posts back the
+// whole map it fetched.
+const (
+	appNamePrefixKey  = "app_name_prefix"
+	appNameProductKey = "app_name_product"
+)
 
 type Handler struct {
-	store Store
+	store          Store
+	appNamePrefix  string
+	appNameProduct string
 }
 
-func NewHandler(store Store) *Handler {
-	return &Handler{store: store}
+// Option configures a Handler.
+type Option func(*Handler)
+
+// WithAppName sets the app name every GET /api/site-config answer carries.
+// Without it the keys are left out and the web app uses its default.
+func WithAppName(prefix, product string) Option {
+	return func(h *Handler) {
+		h.appNamePrefix = prefix
+		h.appNameProduct = product
+	}
+}
+
+func NewHandler(store Store, opts ...Option) *Handler {
+	h := &Handler{store: store}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 func (h *Handler) GetSiteConfig(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +124,13 @@ func (h *Handler) GetSiteConfig(w http.ResponseWriter, r *http.Request) {
 		// renders the mask and only writes a real value back when changed.
 		result[row.Key] = maskForClient(row.Key, *row.Value)
 	}
+	// Set after the rows, so a stored row of the same name never wins.
+	if h.appNamePrefix != "" {
+		result[appNamePrefixKey] = h.appNamePrefix
+	}
+	if h.appNameProduct != "" {
+		result[appNameProductKey] = h.appNameProduct
+	}
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, result)
 }
@@ -130,6 +155,9 @@ func (h *Handler) UpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
 
 	kvs := make([]KeyValue, 0, len(body.Configs))
 	for k, v := range body.Configs {
+		if k == appNamePrefixKey || k == appNameProductKey {
+			continue // set by the environment, never stored
+		}
 		if v == nil {
 			kvs = append(kvs, KeyValue{Key: k, Value: nil})
 			continue
@@ -219,90 +247,4 @@ func (h *Handler) UpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, result)
-}
-
-// sanitizeFilename replaces path separators with underscores and then strips
-// any character that is not alphanumeric, space, dot, dash, or underscore.
-var reUnsafe = regexp.MustCompile(`[^a-zA-Z0-9 .\-_]`)
-
-func sanitizeFilename(name string) string {
-	name = strings.NewReplacer("/", "_", `\`, "_").Replace(name)
-	return reUnsafe.ReplaceAllString(name, "_")
-}
-
-// UploadLogo handles POST /api/site-config/logo.
-// Request: multipart/form-data with a "logo" file field (.svg or .png, max 2 MB).
-// Requires superadmin (enforced by middleware in main.go).
-func (h *Handler) UploadLogo(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	const maxLogoSize = 2 << 20 // 2 MB
-
-	// Reject oversized requests early via Content-Length.
-	if r.ContentLength > maxLogoSize+4096 { // small buffer for multipart overhead
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "File too large")
-		return
-	}
-
-	// Wrap the body with a hard size limit so even chunked uploads can't exceed 2 MB.
-	r.Body = http.MaxBytesReader(w, r.Body, int64(maxLogoSize)+4096)
-
-	if err := r.ParseMultipartForm(maxLogoSize); err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "File too large or invalid multipart form")
-		return
-	}
-
-	file, header, err := r.FormFile("logo")
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "logo file is required")
-		return
-	}
-	defer file.Close()
-
-	if header.Size > int64(maxLogoSize) {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "File too large")
-		return
-	}
-
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".svg" && ext != ".png" {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Only .svg and .png files are allowed")
-		return
-	}
-
-	// Build destination path.
-	dir := "uploads/logo"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to create upload directory")
-		return
-	}
-
-	ts := time.Now().UnixMilli()
-	filename := sanitizeFilename(fmt.Sprintf("logo_%d%s", ts, ext))
-	destPath := filepath.Join(dir, filename)
-
-	dst, err := os.Create(destPath)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to save file")
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to write file")
-		return
-	}
-
-	logoPath := "/uploads/logo/" + filename
-	if err := h.store.UpdateSiteConfig(ctx, "logo_path", logoPath); err != nil {
-		// Clean up the orphaned file since the DB update failed
-		os.Remove(destPath)
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to update logo_path config")
-		return
-	}
-
-	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]string{
-		"success":  "true",
-		"logoPath": logoPath,
-	})
 }

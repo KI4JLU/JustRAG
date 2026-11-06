@@ -109,7 +109,7 @@ func TestCatalogHandlerLanguage(t *testing.T) {
 // Oracle: the catalog serves the prompts as written and, next to them, the
 // names their placeholders resolve to.
 func TestCatalog_CarriesNames(t *testing.T) {
-	h := &Handler{store: &fakeStore{names: &Names{Assistant: "Kira", System: "Campus RAG"}}}
+	h := &Handler{store: &fakeStore{names: &Names{Assistant: "Kira", Institution: "TUM", System: "Wissen"}}}
 	req := httptest.NewRequest(http.MethodGet, "/api/kb-behavior/catalog?lang=en", nil)
 	rec := httptest.NewRecorder()
 	h.Catalog(rec, req)
@@ -117,7 +117,7 @@ func TestCatalog_CarriesNames(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Language != "en" || c.Names != (Names{Assistant: "Kira", System: "Campus RAG"}) {
+	if c.Language != "en" || c.Names != (Names{Assistant: "Kira", Institution: "TUM", System: "Wissen"}) {
 		t.Fatalf("catalog = lang %q names %+v", c.Language, c.Names)
 	}
 }

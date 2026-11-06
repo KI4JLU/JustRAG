@@ -21,7 +21,6 @@ func TestIsUploadExempt(t *testing.T) {
 		{http.MethodPost, "/api/kb/123/eval/golden-sets", true},
 		{http.MethodPost, "/api/kb/123/chat/attachments", true},
 		{http.MethodPost, "/api/kb/123/chat/attachment", true},
-		{http.MethodPost, "/api/site-config/logo", true},
 		{http.MethodPost, "/api/describe-image", true},
 		{http.MethodPost, "/api/admin/agent/template", true},
 		{http.MethodPost, "/api/admin/eval/golden-sets", true},
@@ -36,7 +35,7 @@ func TestIsUploadExempt(t *testing.T) {
 
 		// Non-POST never exempt.
 		{http.MethodGet, "/api/kb/123/files", false},
-		{http.MethodPut, "/api/site-config/logo", false},
+		{http.MethodPut, "/api/describe-image", false},
 
 		// Sibling /api/kb/ routes must NOT be exempt (the old prefix-based
 		// exemption wrongly skipped the cap for all of these).

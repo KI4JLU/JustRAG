@@ -260,6 +260,33 @@ describe('LegalPage — injected HTML', () => {
 const LEGAL_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'legal');
 const LEGAL_DOCUMENTS = readdirSync(LEGAL_DIR).filter(name => name.endsWith('.html')).sort();
 
+describe('LegalPage — app name', () => {
+  // ORACLE: the shipped documents under public/legal/ name the service by the
+  // default app name „JLU RAG"; the configured name (site config, set from
+  // APP_NAME_PREFIX / APP_NAME_PRODUCT) replaces every mention, escaped.
+  it('names the service by the configured app name', async () => {
+    stubFetch('<p>Der Dienst JLU RAG</p><p>„JLU RAG“ und JLU</p>');
+    renderLegalPage({ page: 'terms', onBack: vi.fn(), siteConfigs: { app_name_prefix: 'THM', app_name_product: '<b>Docs</b>' } });
+
+    expect(await screen.findByText('Der Dienst THM <b>Docs</b>')).toBeInTheDocument();
+    expect(screen.getByText('„THM <b>Docs</b>“ und JLU')).toBeInTheDocument();
+    expect(screen.queryByText(/JLU RAG/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the default name without a site config', async () => {
+    stubFetch('<p>Der Dienst JLU RAG</p>');
+    renderLegalPage({ page: 'terms', onBack: vi.fn() });
+
+    expect(await screen.findByText('Der Dienst JLU RAG')).toBeInTheDocument();
+  });
+
+  it('has something to rename: terms and privacy name the default', () => {
+    for (const doc of ['terms-de', 'terms-en', 'privacy-de', 'privacy-en']) {
+      expect(readFileSync(path.join(LEGAL_DIR, `${doc}.html`), 'utf8'), doc).toContain('JLU RAG');
+    }
+  });
+});
+
 describe('LegalPage — document outline', () => {
   it('covers every shipped legal document', () => {
     // Guards the driver itself: an empty or mis-resolved directory would make

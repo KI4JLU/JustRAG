@@ -42,7 +42,7 @@ Reads: `messages` (system messages are merged into the system prompt; the last u
 
 ### `GET /owui/api/models`
 
-`200 {"data":[{"id":"justrag","name":"JustRAG","object":"model","created":<unix>,"owned_by":"justrag"}]}`.
+`200 {"data":[{"id":"justrag","name":<app name>,"object":"model","created":<unix>,"owned_by":"justrag"}]}`. `name` is the app name (`APP_NAME_PREFIX` + space + `APP_NAME_PRODUCT`, default `JLU RAG`); `id` and `owned_by` never change.
 
 ### `POST /owui/api/v1/files/`
 
