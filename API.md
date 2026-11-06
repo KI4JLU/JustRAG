@@ -589,8 +589,8 @@ pins any KB — private or global — to the "Favoriten" chip.
   empty one `[]`. `PUT` body: `{"ids": [string]}`, the whole order of that
   view, replacing the stored one (the last save wins). `ids` is required
   (`[]` is valid), holds at most 2000 UUIDs and no KB twice (two spellings of
-  one UUID count as the same KB); otherwise 400, and nothing is stored. An
-  unknown `{view}` is 404. The ids are not checked against access and are
+  one UUID count as the same KB); otherwise 400, and nothing is stored. A
+  body over 128 KiB is 413. An unknown `{view}` is 404. The ids are not checked against access and are
   kept when a KB is deleted or the caller loses access: the views only sort
   the KBs they list, so a stored id shows nothing.
 

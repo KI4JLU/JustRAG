@@ -338,6 +338,11 @@ func decodeOrderRequest(w http.ResponseWriter, r *http.Request) ([]string, bool)
 		IDs []string `json:"ids"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxOrderBodyBytes)).Decode(&body); err != nil {
+		// Too large is 413, so the client can tell it from a malformed body.
+		if mbe := (*http.MaxBytesError)(nil); errors.As(err, &mbe) {
+			httputil.WriteErrorCtx(ctx, w, http.StatusRequestEntityTooLarge, "request body too large")
+			return nil, false
+		}
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid request body")
 		return nil, false
 	}

@@ -3,7 +3,8 @@
 // Oracle: the route contract in API.md, fixed before the handler — GET 200
 // with both views, null for one never saved and [] for a saved empty one; PUT
 // 204; an unknown view 404; a body that is not an order (no ids, a non-UUID,
-// a repeated topic, more than MaxOrderLen ids) 400, with nothing stored. The
+// a repeated topic, more than MaxOrderLen ids) 400, a body over the cap 413,
+// with nothing stored. The
 // expected canonical ids are the RFC 4122 text form, written by hand. The
 // store is the fake from http_test.go, so these tests say nothing about
 // Postgres; store_pg_integration_test.go covers that half.
@@ -136,7 +137,7 @@ func TestSetOrderRefusesWhatIsNotAnOrder(t *testing.T) {
 		{"repeated topic", "my", `{"ids":["` + orderID1 + `","` + orderID2 + `","` + orderID1 + `"]}`, http.StatusBadRequest},
 		{"repeat in another spelling", "my", `{"ids":["` + orderID1 + `","{` + orderID1 + `}"]}`, http.StatusBadRequest},
 		{"too many ids", "my", orderBody(kbfilters.MaxOrderLen + 1), http.StatusBadRequest},
-		{"body too large", "my", `{"ids":[],"pad":"` + strings.Repeat("x", 200<<10) + `"}`, http.StatusBadRequest},
+		{"body too large", "my", `{"ids":[],"pad":"` + strings.Repeat("x", 200<<10) + `"}`, http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeStore{}
