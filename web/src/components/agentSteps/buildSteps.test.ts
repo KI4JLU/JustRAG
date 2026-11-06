@@ -232,9 +232,9 @@ describe('summarizeSteps', () => {
     it('names up to three kinds in the order they happened, counting where it reads naturally', () => {
         expect(sum([{ stage: 'plan', queries: ['a'] }], undefined, de)).toBe('Plan erstellt');
         expect(sum([{ stage: 'iterate', step: 1 }, { stage: 'iterate', step: 2 }, { stage: 'answer' }], undefined, de))
-            .toBe('2 Suchen durchgeführt und Antwort formuliert');
+            .toBe('2 Suchen durchgeführt und Recherche abgeschlossen');
         expect(sum([{ stage: 'plan', queries: ['a'] }, { stage: 'reasoning' }, { stage: 'answer' }], 'x', en))
-            .toBe('Made a plan, thought it over and wrote the answer');
+            .toBe('Made a plan, thought it over and finished the research');
     });
 
     it('past three kinds names two and counts the remaining steps', () => {
