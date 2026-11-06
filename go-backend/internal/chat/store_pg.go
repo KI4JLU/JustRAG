@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/pgxutil"
 	"github.com/justrag/go-backend/internal/store"
 )
@@ -76,6 +77,8 @@ type chatDBRow struct {
 	UpdatedAt time.Time `db:"updated_at"`
 	// BranchedFromChatID: see ChatRow.
 	BranchedFromChatID *string `db:"branched_from_chat_id"`
+	// RoleID: see ChatRow.
+	RoleID *string `db:"role_id"`
 }
 
 // messageDBRow is an internal struct with db tags for scanning the messages
@@ -101,6 +104,7 @@ type messageDBRow struct {
 	TraceID           *string         `db:"trace_id"`
 	StructuredTable   json.RawMessage `db:"structured_table"`
 	Conflicts         json.RawMessage `db:"conflicts"`
+	Trajectory        json.RawMessage `db:"trajectory"`
 	TeamID            *string         `db:"team_id"`
 	AgentID           *string         `db:"agent_id"`
 	CreatedAt         time.Time       `db:"created_at"`
@@ -118,6 +122,7 @@ func toChatRow(r chatDBRow) ChatRow {
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 		BranchedFromChatID: r.BranchedFromChatID,
+		RoleID:             r.RoleID,
 	}
 }
 
@@ -178,6 +183,13 @@ func toMessageRow(r messageDBRow) (MessageRow, error) {
 		}
 		out.Conflicts = c
 	}
+	if len(r.Trajectory) > 0 && !isJSONNull(r.Trajectory) {
+		var steps []TrajectoryEvent
+		if err := json.Unmarshal(r.Trajectory, &steps); err != nil {
+			return MessageRow{}, fmt.Errorf("decode trajectory for message %s: %w", r.ID, err)
+		}
+		out.Trajectory = steps
+	}
 	return out, nil
 }
 
@@ -201,7 +213,7 @@ func isJSONNull(raw json.RawMessage) bool {
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
 		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
-		       c.created_at, c.updated_at, c.branched_from_chat_id,
+		       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id,
 		       EXISTS (
 		           SELECT 1 FROM messages m
 		           WHERE m.chat_id = c.id
@@ -227,7 +239,7 @@ func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow,
 // GetChatByID returns the chat with the given ID, or nil if not found.
 func (s *PGStore) GetChatByID(ctx context.Context, chatID string) (*ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id
 		FROM chats WHERE id = $1`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, chatID)
@@ -246,7 +258,7 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title)
 		VALUES ($1, $2, $3)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title)
 	if err != nil {
@@ -259,13 +271,32 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	return &r, nil
 }
 
+// CreateChatWithRole inserts a new chat started in roleID (chats.role_id).
+// The caller checked the role with KBHasRole.
+func (s *PGStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error) {
+	const sql = `
+		INSERT INTO chats (kb_id, user_id, title, role_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+
+	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title, roleID)
+	if err != nil {
+		return nil, fmt.Errorf("CreateChatWithRole: %w", err)
+	}
+	if row == nil {
+		return nil, fmt.Errorf("CreateChatWithRole: no row returned")
+	}
+	r := toChatRow(*row)
+	return &r, nil
+}
+
 // CreateChatWithID inserts a chat with a caller-chosen id (the agent chat's
 // thread id, handed to the client before the chat exists).
 func (s *PGStore) CreateChatWithID(ctx context.Context, id, kbID, userID, title string) (*ChatRow, error) {
 	const sql = `
 		INSERT INTO chats (id, kb_id, user_id, title)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`
+		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, id, kbID, userID, title)
 	if err != nil {
@@ -284,7 +315,7 @@ func (s *PGStore) CreateLibraryChat(ctx context.Context, userID, title string) (
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES (NULL, $1, $2, 'library')
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, userID, title)
 	if err != nil {
@@ -315,7 +346,7 @@ func (s *PGStore) LastMessageID(ctx context.Context, chatID string) (*string, er
 // GetLibraryChats returns the user's library chats, newest activity first.
 func (s *PGStore) GetLibraryChats(ctx context.Context, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id
 		FROM chats
 		WHERE type = 'library' AND kb_id IS NULL AND user_id = $1
 		ORDER BY updated_at DESC`
@@ -511,10 +542,10 @@ func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID stri
 		}
 
 		row, err := pgxutil.QueryOne[chatDBRow](ctx, tx, `
-			INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id)
-			SELECT kb_id, user_id, title, type, team_id, agent_id, id
+			INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id, role_id)
+			SELECT kb_id, user_id, title, type, team_id, agent_id, id, role_id
 			FROM chats WHERE id = $1
-			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`,
+			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`,
 			chatID)
 		if err != nil {
 			return fmt.Errorf("create chat: %w", err)
@@ -525,9 +556,9 @@ func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID stri
 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO messages (id, chat_id, parent_message_id, role, content, sources, is_enhanced, enhanced_query,
-			                      reasoning, verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at)
+			                      reasoning, verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at)
 			SELECT map.new_id, $3, parent.new_id, m.role, m.content, m.sources, m.is_enhanced, m.enhanced_query,
-			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.team_id, m.agent_id, m.created_at
+			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.trajectory, m.team_id, m.agent_id, m.created_at
 			FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
 			JOIN messages m ON m.id = map.old_id
 			LEFT JOIN unnest($1::uuid[], $2::uuid[]) AS parent(old_id, new_id) ON parent.old_id = m.parent_message_id`,
@@ -598,7 +629,7 @@ func (s *PGStore) GetChatMessages(ctx context.Context, chatID string) ([]Message
 	const sql = `
 		SELECT id, chat_id, parent_message_id, role, content, sources,
 		       is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-		       verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at
+		       verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at
 		FROM messages
 		WHERE chat_id = $1
 		ORDER BY created_at ASC`
@@ -625,13 +656,13 @@ func (s *PGStore) GetMessageAncestors(ctx context.Context, messageID, chatID str
 		WITH RECURSIVE message_tree AS (
 			SELECT id, chat_id, parent_message_id, role, content, sources,
 			       is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-			       verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at
+			       verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at
 			FROM messages
 			WHERE id = $1 AND chat_id = $2
 			UNION ALL
 			SELECT p.id, p.chat_id, p.parent_message_id, p.role, p.content, p.sources,
 			       p.is_enhanced, p.enhanced_query, p.reasoning, p.feedback, p.feedback_comment, p.feedback_updated_at,
-			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.team_id, p.agent_id, p.created_at
+			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.trajectory, p.team_id, p.agent_id, p.created_at
 			FROM messages p
 			INNER JOIN message_tree mt ON mt.parent_message_id = p.id
 			-- The walk must never leave the chat: a parent_message_id that
@@ -700,24 +731,29 @@ func (s *PGStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageR
 		}
 	}
 
+	trajectoryJSON, err := marshalTrajectory(p.Trajectory)
+	if err != nil {
+		return nil, fmt.Errorf("AddMessage: %w", err)
+	}
+
 	const insertSQL = `
-		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, team_id, agent_id)
+		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, team_id, agent_id, trajectory)
 		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7,
 		        -- A parent outside this chat (or a missing one) is stored as
 		        -- NULL: a foreign parent would let a later ancestor walk start
 		        -- in another user's conversation.
 		        (SELECT pm.id FROM messages pm WHERE pm.id = $8::uuid AND pm.chat_id = $1::uuid),
-		        $9::jsonb, $10::jsonb, $11, $12)
+		        $9::jsonb, $10::jsonb, $11, $12, $13::jsonb)
 		RETURNING id, chat_id, parent_message_id, role, content, sources,
 		          is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-		          verification, trace_id, structured_table, conflicts, team_id, agent_id, created_at`
+		          verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at`
 	const updateChatSQL = `UPDATE chats SET updated_at = NOW() WHERE id = $1`
 
 	var row *messageDBRow
-	err := pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		row, err = pgxutil.QueryOne[messageDBRow](ctx, tx, insertSQL,
-			p.ChatID, p.Role, p.Content, sourcesJSON, p.IsEnhanced, p.EnhancedQuery, p.Reasoning, p.ParentMessageID, structuredTableJSON, conflictsJSON, p.TeamID, p.AgentID)
+			p.ChatID, p.Role, p.Content, sourcesJSON, p.IsEnhanced, p.EnhancedQuery, p.Reasoning, p.ParentMessageID, structuredTableJSON, conflictsJSON, p.TeamID, p.AgentID, trajectoryJSON)
 		if err != nil {
 			return fmt.Errorf("AddMessage insert: %w", err)
 		}
@@ -864,6 +900,37 @@ func (s *PGStore) UpdateMessageContent(ctx context.Context, messageID string, co
 	return nil
 }
 
+// UpdateMessageTrajectory replaces the stored agent steps of a message
+// (migration 0102). Called once per turn at most, after the post-response
+// tasks, when they added steps (refine) to those AddMessage stored.
+func (s *PGStore) UpdateMessageTrajectory(ctx context.Context, messageID string, steps []TrajectoryEvent) error {
+	payload, err := marshalTrajectory(steps)
+	if err != nil {
+		return fmt.Errorf("UpdateMessageTrajectory: %w", err)
+	}
+	ct, err := s.pool.Exec(ctx, `UPDATE messages SET trajectory = $1::jsonb WHERE id = $2`, payload, messageID)
+	if err != nil {
+		return fmt.Errorf("UpdateMessageTrajectory exec: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("UpdateMessageTrajectory message=%s: %w", messageID, store.ErrNotFound)
+	}
+	return nil
+}
+
+// marshalTrajectory encodes stored agent steps; nil (SQL NULL) when empty,
+// so "absent means no steps" survives the round trip.
+func marshalTrajectory(steps []TrajectoryEvent) ([]byte, error) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(steps)
+	if err != nil {
+		return nil, fmt.Errorf("marshal trajectory: %w", err)
+	}
+	return b, nil
+}
+
 // UpdateMessageTraceID stores the OTel trace id on a saved message. Empty
 // traceID is a no-op (matches the case where tracing is disabled).
 func (s *PGStore) UpdateMessageTraceID(ctx context.Context, messageID string, traceID string) error {
@@ -880,19 +947,22 @@ func (s *PGStore) UpdateMessageTraceID(ctx context.Context, messageID string, tr
 	return nil
 }
 
-// GetKBSystemPrompt returns the system_prompt for a KB, or nil if not set.
-// A missing KB row maps to (nil, nil) — same as "column is NULL" — because
-// callers treat both as "no per-KB override". Mirrors kb.PGStore.GetKBSystemPrompt.
+// GetKBSystemPrompt returns the KB part of the answer prompt in the KB's
+// active role, nil when there is none or the KB does not exist — callers
+// treat both as "no per-KB prompt". The one reader is
+// kbbehavior.SystemPrompt, shared with kb.PGStore.GetKBSystemPrompt.
 func (s *PGStore) GetKBSystemPrompt(ctx context.Context, kbID string) (*string, error) {
-	var sp *string
-	err := s.pool.QueryRow(ctx, `SELECT system_prompt FROM knowledge_bases WHERE id = $1`, kbID).Scan(&sp)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return sp, nil
+	return kbbehavior.SystemPrompt(ctx, s.pool, kbID, "")
+}
+
+// GetChatSystemPrompt is GetKBSystemPrompt in the role chatID was started in.
+func (s *PGStore) GetChatSystemPrompt(ctx context.Context, kbID, chatID string) (*string, error) {
+	return kbbehavior.SystemPrompt(ctx, s.pool, kbID, chatID)
+}
+
+// KBHasRole reports whether the KB can answer in roleID.
+func (s *PGStore) KBHasRole(ctx context.Context, kbID, roleID string) (bool, error) {
+	return kbbehavior.HasRole(ctx, s.pool, kbID, roleID)
 }
 
 // ---------------------------------------------------------------------------
@@ -906,7 +976,7 @@ func (s *PGStore) CreateResearchSession(ctx context.Context, kbID, userID, goal,
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, goal, sessionType)
 	if err != nil {
@@ -1058,6 +1128,11 @@ func (s *PGStore) fetchAllSiteConfigs(ctx context.Context) (map[string]*string, 
 // (newest first, at most limit): status completed or partial, and never a
 // file the ingest-time prompt-injection screen flagged (injection_flag) —
 // their text would otherwise be fed to the starter-question model.
+// StarterRole implements StarterRoleReader through kbbehavior.StarterRole.
+func (s *PGStore) StarterRole(ctx context.Context, kbID, roleID string) (kbbehavior.RoleBrief, error) {
+	return kbbehavior.StarterRole(ctx, s.pool, kbID, roleID)
+}
+
 func (s *PGStore) StarterContext(ctx context.Context, kbID string, limit int) (StarterSource, error) {
 	var src StarterSource
 	if err := s.pool.QueryRow(ctx, `SELECT name FROM knowledge_bases WHERE id = $1`, kbID).Scan(&src.KBName); err != nil {

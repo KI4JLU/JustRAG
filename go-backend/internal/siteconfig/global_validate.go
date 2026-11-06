@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/justrag/go-backend/internal/chatpolicy"
+	"github.com/justrag/go-backend/internal/kbbehavior"
+	"github.com/justrag/go-backend/internal/policyaccept"
 )
 
 // globalValidators maps a GLOBAL-ONLY site_config key to the validator its
@@ -28,6 +30,26 @@ var globalValidators = map[string]func(string) error{
 	"chat_attachments_context_share":           validateFloatRange(0.1, 0.9),
 	"chat_attachments_fallback_context_window": validateIntRange(4096, 10_000_000),
 	"chat_attachments_max_per_message":         validateIntRange(1, 50),
+	"chat_attachments_max_file_bytes":          validateIntRange(1<<20, 500<<20),
+
+	"system_notice_enabled":     validateBool,
+	"system_notice_title":       validateMaxRunes(systemNoticeTitleMaxRunes),
+	"system_notice_text":        validateMaxRunes(systemNoticeTextMaxRunes),
+	"system_notice_tone":        validateSystemNoticeTone,
+	"system_notice_placement":   validateSystemNoticePlacement,
+	"system_notice_dismissible": validateBool,
+	"system_notice_link_url":    validateSystemNoticeURL,
+	"system_notice_link_label":  validateMaxRunes(systemNoticeLabelMaxRunes),
+	"system_notice_templates":   validateSystemNoticeTemplates,
+
+	policyaccept.VersionKey: policyaccept.ValidateVersion,
+
+	// The names role prompts resolve {{assistant_name}} / {{institution_name}}
+	// / {{system_name}} to; the reader falls back to the default on anything
+	// this refuses.
+	kbbehavior.AssistantNameKey:   kbbehavior.ValidateName,
+	kbbehavior.InstitutionNameKey: kbbehavior.ValidateName,
+	kbbehavior.SystemNameKey:      kbbehavior.ValidateName,
 }
 
 // validateIntRange / validateFloatRange mirror the chat readers' clamps for

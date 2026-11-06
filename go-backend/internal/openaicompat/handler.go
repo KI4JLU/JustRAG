@@ -609,7 +609,9 @@ func (h *Handler) streamResponse(
 	sources []chat.ChatSource,
 	markers *chat.CitationMarkerStream,
 ) {
-	httputil.EnableSSE(w)
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop() // no ping may outlive this handler
+	w = sw
 	// contentChunk writes one content delta; with markers set (citations
 	// hidden) the delta loses its citation markers first, possibly being
 	// held back until the next one shows whether a "[" starts a marker.

@@ -100,6 +100,7 @@ const NAV = {
   // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
   // Mitglieder through this jump.
   onOpenTopicSettings: vi.fn(),
+  onOpenRagSettings: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
@@ -223,7 +224,6 @@ const noopProps = {
   onOpenKbById: vi.fn(),
   onDeleteGlobalKB: vi.fn(),
   onOpenGlobalKbSettings: vi.fn(),
-  onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
@@ -570,7 +570,7 @@ describe('MyTopicsView share trigger', () => {
   it('shows the trigger for a caller whose myRole is owner', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
   });
 
   /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
@@ -580,7 +580,7 @@ describe('MyTopicsView share trigger', () => {
     const onSelectKB = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
-    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` }));
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
     expect(onSelectKB).not.toHaveBeenCalled();
@@ -597,55 +597,47 @@ describe('MyTopicsView share trigger', () => {
 //
 // On top of that the card offers it to system admins only, badged "Admin"
 // (developer, 2026-10-13): an api-user passes the server gate but gets no entry.
-describe('MyTopicsView KB-settings trigger', () => {
-  // The DS ActionMenu badge is part of the item's name.
-  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
-
-  it('hides the trigger from a plain user who OWNS the KB', async () => {
-    authState.role = 'user';
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
-  });
-
-  it('still offers the plain owner „Teilen" — only the advanced surface is gated', async () => {
-    authState.role = 'user';
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
-  });
-
-  it('hides the trigger from an api-user who owns the KB, though the server would let them in', async () => {
-    authState.role = 'api-user';
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: label })).not.toBeInTheDocument();
-  });
-
-  it('shows the trigger for a system admin who owns the KB, and hands the KB to the callback', async () => {
+describe('MyTopicsView card menu', () => {
+  /* The guideline menu (2026-10-29): Umbenennen… · Teilen… · Einstellungen ↗ ·
+     Löschen…, nothing else — the RAG configuration left for Verhalten, the
+     favorite is the star. ORACLE: translations.ts and the role ladder. */
+  it('lists exactly the topic actions, in order, for an owner', async () => {
     authState.role = 'admin';
-    const onOpenKbSettings = vi.fn();
-    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
-    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onOpenKbSettings={onOpenKbSettings} />);
-    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
-    expect(onOpenKbSettings).toHaveBeenCalledWith(kb, expect.anything());
-  });
-
-
-  it('shows the trigger for a superadmin', async () => {
-    authState.role = 'superadmin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
     renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: label })).toBeInTheDocument();
+    const names = (await kbMenu()).getAllByRole('menuitem').map(i => i.textContent);
+    expect(names).toEqual([
+      `${translations.rename.en}…`, `${translations.share.en}…`, translations.settings.en, `${translations.delete.en}…`,
+    ]);
   });
 
+  it('opens the topic settings on Startseite without also opening the card', async () => {
+    authState.role = 'user';
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.settings.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'start');
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
+
+  it('toggles the favorite with the star, without opening the card', async () => {
+    authState.role = 'user';
+    const onToggleFavorite = vi.fn();
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner', isFavorite: false };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onToggleFavorite={onToggleFavorite} onSelectKB={onSelectKB} />);
+    await userEvent.click(screen.getByRole('button', { name: translations.addFavorite.en }));
+    expect(onToggleFavorite).toHaveBeenCalledWith(kb, expect.anything());
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
 });
 
 // Renaming is owner-only on a private KB (kbaccess.CanRename on the server;
 // canRenameKb here). The pencil must not appear on a shared card whose caller
 // is a mere admin member — that role edits everything else, not the name.
 describe('MyTopicsView rename trigger', () => {
-  const label = translations.rename.en;
+  const label = `${translations.rename.en}…`;
 
   it('shows the pencil to the owner and hands the KB to onRenameKB', async () => {
     authState.role = 'user';
@@ -685,7 +677,7 @@ describe('MyTopicsView rename trigger', () => {
  * queries are scoped to the card list; the chips live in the filter row above
  * it, which is a sibling of the grid rather than part of it. */
 function inCards() {
-  const card = document.querySelector('.home-view__kb-card');
+  const card = document.querySelector('[data-testid="kb-card"]');
   if (card === null) throw new Error('no KB card rendered');
   return within(card as HTMLElement);
 }
@@ -709,95 +701,55 @@ function inCards() {
  * that highlighted correctly and filtered nothing passes that and fails this.
  * ------------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------------
- * Managing categories: add, rename, delete.
+ * The platform's categories in the chip row, and hiding them.
  *
- * WHY IT MATTERS THAT ALL THREE ARE HERE: the „+" chip was create-only for a
- * while, so a typo was permanent and an unwanted category could not be removed
- * — the `PATCH` and `DELETE` endpoints existed the whole time with nothing
- * calling them. These cases are what stop that regressing.
- *
- * ORACLE: the recorded axios calls — METHOD and URL — which is the observable
- * output of each action, plus the chip row's own contents for what the user
- * ends up seeing. Asserting the dialog's internal state instead would pass
- * against a dialog that never made a request.
+ * ORACLE: developer rulings 30.10.2026 — the system categories are filter
+ * chips (a topic matches its one `category`), the category dialog hides a
+ * chip with its „Im Filter" switch, and the user's own categories are not
+ * offered (nothing attaches one to a topic yet). Read off the chip row and the
+ * rendered cards, not off the hook's state.
  * ------------------------------------------------------------------------- */
-describe('MyTopicsView category manager', () => {
-  const CATEGORY = { id: 'cat-1', name: 'Forschung', sortOrder: 0 };
+describe('MyTopicsView platform categories', () => {
+  const CATEGORY = { id: 'cat-1', name: 'Verwaltung', sortOrder: 0, colorSlot: 4 };
+  const inCategory: KnowledgeBase = { ...baseKb, id: 'kb-v', name: 'Prüfungen', myRole: 'owner', category: CATEGORY };
+  const other: KnowledgeBase = { ...baseKb, id: 'kb-o', name: 'Sonstiges', myRole: 'owner' };
 
   beforeEach(() => {
     mockedAxios.get.mockImplementation((url: string) =>
-      Promise.resolve({ data: url.includes('/api/kb-user-categories') ? [CATEGORY] : [] }),
+      Promise.resolve({ data: url.endsWith('/api/kb-categories') ? [CATEGORY] : [] }),
     );
-    mockedAxios.post.mockResolvedValue({ data: { id: 'cat-2', name: 'Lehre', sortOrder: 0 } });
-    mockedAxios.patch.mockResolvedValue({ data: { ...CATEGORY, name: 'Projekte' } });
-    mockedAxios.delete.mockResolvedValue({ status: 204 });
   });
 
-  async function openManager() {
+  it('offers a platform category as a chip that narrows to its topics', async () => {
+    renderView(<MyTopicsView kbs={[inCategory, other]} {...noopProps} />);
+    await userEvent.click(await screen.findByRole('button', { name: CATEGORY.name }));
+    expect(screen.getByText('Prüfungen')).toBeInTheDocument();
+    expect(screen.queryByText('Sonstiges')).toBeNull();
+  });
+
+  it('asks for no personal categories', async () => {
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
-    // The existing category has to have arrived, or the list is empty for a
-    // reason that has nothing to do with the action under test.
+    await screen.findByRole('button', { name: CATEGORY.name });
+    expect(mockedAxios.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb-user-categories'));
+  });
+
+  it('hides a chip with its switch in the category dialog, and shows it again', async () => {
+    renderView(<MyTopicsView kbs={[inCategory, other]} {...noopProps} />);
     await screen.findByRole('button', { name: CATEGORY.name });
     await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
-    return within(await screen.findByRole('dialog'));
-  }
+    const dialog = within(await screen.findByRole('dialog'));
+    const toggle = dialog.getByRole('switch', { name: translations.showCategoryInFilter.en.replace('{name}', CATEGORY.name) });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
 
-  it('creates one, and it appears as a chip', async () => {
-    const dialog = await openManager();
-
-    await userEvent.type(dialog.getByLabelText(translations.newCategoryPrompt.en), 'Lehre');
-    await userEvent.click(dialog.getByRole('button', { name: translations.add.en }));
-
-    expect(mockedAxios.post).toHaveBeenCalledWith(
-      expect.stringContaining('/api/kb-user-categories'),
-      expect.objectContaining({ name: 'Lehre' }),
-    );
-    /* Closed first: Radix marks everything outside an open dialog
-       `aria-hidden`, so the chip row is genuinely unreachable to a screen
-       reader — and to `getByRole` — until it is. Asserting through the dialog
-       would have been asserting against the wrong document state. Closing is
-       also the real flow.
- 
-       And the chip row gained it, which is the point: the hook owns the list,
-       not the dialog, so the two cannot disagree about what exists. */
+    await userEvent.click(toggle);
     await userEvent.keyboard('{Escape}');
-    expect(await screen.findByRole('button', { name: 'Lehre' })).toBeInTheDocument();
-  });
+    await waitFor(() => expect(screen.queryByRole('button', { name: CATEGORY.name })).toBeNull());
 
-  it('renames one through PATCH', async () => {
-    const dialog = await openManager();
-
-    await userEvent.click(dialog.getByRole('button', { name: `${translations.renameCategory.en}: ${CATEGORY.name}` }));
-    const field = dialog.getByLabelText(translations.renameCategory.en);
-    await userEvent.clear(field);
-    await userEvent.type(field, 'Projekte');
-    await userEvent.click(dialog.getByRole('button', { name: translations.save.en }));
-
-    expect(mockedAxios.patch).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/kb-user-categories/${CATEGORY.id}`),
-      expect.objectContaining({ name: 'Projekte' }),
-    );
+    // Back on, so the shared preference does not leak into the next test.
+    await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('switch'));
     await userEvent.keyboard('{Escape}');
-    expect(await screen.findByRole('button', { name: 'Projekte' })).toBeInTheDocument();
-  });
-
-  it('asks before deleting, and only then calls DELETE', async () => {
-    const dialog = await openManager();
-
-    await userEvent.click(dialog.getByRole('button', { name: `${translations.deleteCategory.en}: ${CATEGORY.name}` }));
-    // The question is in the row itself — no second modal on top of this one.
-    expect(dialog.getByText(translations.confirmDeleteCategory.en)).toBeInTheDocument();
-    expect(mockedAxios.delete).not.toHaveBeenCalled();
-
-    await userEvent.click(dialog.getByRole('button', { name: translations.delete.en }));
-
-    expect(mockedAxios.delete).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/kb-user-categories/${CATEGORY.id}`),
-    );
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: CATEGORY.name })).toBeNull();
-    });
+    expect(await screen.findByRole('button', { name: CATEGORY.name })).toBeInTheDocument();
   });
 });
 

@@ -83,6 +83,12 @@ func parseAndValidateMessage(w http.ResponseWriter, r *http.Request, userID stri
 	// possibly be answered must not leave either behind. It names an existing
 	// answer, so an absent chatId or a client placeholder id ("temp-ai-…") is
 	// malformed, not a normal turn.
+	// A role is chosen when a chat starts; an existing chat keeps the one it
+	// was started in.
+	if body.RoleID != "" && body.ChatID != "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "roleId is only accepted when a chat starts")
+		return body, false
+	}
 	if body.RegenerateOfMessageID != "" {
 		if body.ChatID == "" {
 			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "regenerateOfMessageId requires chatId")
@@ -142,9 +148,10 @@ func (h *Handler) maybeRouteKB(ctx context.Context, r *http.Request, userID, kbI
 // resolveOrCreateChat returns the chat ID to use for this turn. When
 // chatID is non-empty, verifies the chat belongs to userID + kbID and
 // returns a 403 otherwise. When chatID is empty, creates a new chat
-// titled from the first 50 characters of message. On error, writes the
-// HTTP response and returns ok=false.
-func (h *Handler) resolveOrCreateChat(ctx context.Context, w http.ResponseWriter, chatID, kbID, userID, message string) (string, bool) {
+// titled from the first 50 characters of message, started in roleID when
+// that is set (checked by the caller). On error, writes the HTTP response
+// and returns ok=false.
+func (h *Handler) resolveOrCreateChat(ctx context.Context, w http.ResponseWriter, chatID, kbID, userID, message, roleID string) (string, bool) {
 	if chatID != "" {
 		chat, err := h.store.GetChatByID(ctx, chatID)
 		if err != nil {
@@ -158,7 +165,15 @@ func (h *Handler) resolveOrCreateChat(ctx context.Context, w http.ResponseWriter
 		}
 		return chatID, true
 	}
-	newChat, err := h.store.CreateChat(ctx, kbID, userID, chatTitle(message))
+	var (
+		newChat *ChatRow
+		err     error
+	)
+	if roleID != "" {
+		newChat, err = h.store.CreateChatWithRole(ctx, kbID, userID, chatTitle(message), roleID)
+	} else {
+		newChat, err = h.store.CreateChat(ctx, kbID, userID, chatTitle(message))
+	}
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: create chat", "error", err, "user_id", userID, "kb_id", kbID)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to create chat")
@@ -252,7 +267,8 @@ func (h *Handler) classifyQuery(ctx context.Context, searchQuery, enhance, kbID,
 	return queryClassification{UseHyDE: useHyDE, UseMultiQuery: useMultiQuery, QueryType: queryType}
 }
 
-// assembleSystemPrompt loads the KB's system prompt and prepends the
+// assembleSystemPrompt loads the KB's system prompt — in the role the chat
+// was started in, else the KB's active role — and prepends the
 // session-memory and long-term-memory blocks when their respective
 // gates are on. Returns the (possibly updated) context — the
 // per-turn memory_write WriteCounter is attached when session memory
@@ -264,7 +280,7 @@ func (h *Handler) classifyQuery(ctx context.Context, searchQuery, enhance, kbID,
 // facts before transient state.
 func (h *Handler) assembleSystemPrompt(ctx context.Context, chatID, kbID, userID, lang, searchQuery string) (context.Context, string) {
 	var kbSystemPrompt string
-	if sp, err := h.store.GetKBSystemPrompt(ctx, kbID); err == nil && sp != nil {
+	if sp, err := h.store.GetChatSystemPrompt(ctx, kbID, chatID); err == nil && sp != nil {
 		kbSystemPrompt = *sp
 	}
 
@@ -741,10 +757,14 @@ func (h *Handler) runResponsePostTasks(ctx context.Context, p chatResponseParams
 // Caller has already saved the user message; ctx already carries the
 // turn budget + tool-call recorder.
 func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWriter, p chatResponseParams) {
-	// Early-opened turn: stop the heartbeat before the first write below.
-	// EnableSSE then only re-sets header-map entries that are no longer sent
-	// and re-arms the write deadline (no WriteHeader, no bytes).
-	p.turn.handOff()
+	// StartSSE is a no-op on an early-opened stream (returns the existing
+	// wrapper, so no second heartbeat starts) and sets the SSE headers +
+	// stream heartbeat otherwise. The deferred Stop (idempotent on an
+	// early-opened stream, whose own defer runs later in the handler) is
+	// what guarantees no ping outlives this function's writes.
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop()
+	w = sw
 
 	// Freshness dates for the cited files (one batch query, fail-soft).
 	// Runs before the `sources` frame below AND before the AddMessage that
@@ -757,8 +777,6 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	sources := p.wireSources()
 	enhancedQuery := p.chatCtx.EnhancedQuery
 	systemPrompt := p.chatCtx.SystemPrompt
-
-	httputil.EnableSSE(w)
 
 	sseFinished := false
 	defer func() {
@@ -820,17 +838,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	// falls through to the plain streaming answer below instead.
 	runAnswerTools := shouldRunAnswerToolsLoop(useAnswerTools, catalog)
 	if runAnswerTools {
-		answerTrace := func(stage, decision, reason string, details map[string]any) {
-			payload := map[string]any{
-				"stage":    stage,
-				"decision": decision,
-				"reason":   reason,
-			}
-			for k, v := range details {
-				payload[k] = v
-			}
-			writeSSE(ctx, w, payload)
-		}
+		answerTrace := answerToolSteps(func(pl map[string]any) { writeSSE(ctx, w, pl) })
 		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, p.chatCtx, answerTools.systemPrompt(systemPrompt), p.history, p.userMessage)
 		err := RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
@@ -940,6 +948,8 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		fullReasoning := reasoningBuf.String()
 		reasoningPtr = &fullReasoning
 	}
+	steps := trajectoryRecorderFrom(ctx)
+	savedSteps := steps.count()
 	aiMsg, err := h.store.AddMessage(ctx, AddMessageParams{
 		ChatID:          p.chatID,
 		Role:            "ai",
@@ -948,6 +958,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 		Reasoning:       reasoningPtr,
 		ParentMessageID: &p.userMsgID,
 		Conflicts:       ConflictsForWire(p.chatCtx.Conflicts),
+		Trajectory:      steps.stored(),
 	})
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save AI message (stream)", "error", err, "chat_id", p.chatID, "kb_id", p.kbID)
@@ -976,6 +987,7 @@ func (h *Handler) writeStreamingResponse(ctx context.Context, w http.ResponseWri
 	if verification != nil {
 		writeSSE(ctx, w, map[string]any{"verification": verification})
 	}
+	h.persistLateTrajectory(ctx, aiMsg.ID, savedSteps)
 
 	if sc := trace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		if err := h.store.UpdateMessageTraceID(ctx, aiMsg.ID, sc.TraceID().String()); err != nil {

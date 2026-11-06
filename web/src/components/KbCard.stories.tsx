@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn } from 'storybook/test';
+import { expect, fn, waitFor } from 'storybook/test';
 import { Grid } from '@ki4jlu/design-system';
-import { CreateCell, PrivateKbCard } from './KbCard';
+import { PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
 import { translations } from '../translations';
 import { expectFooterInsideCard, expectUniformCardHeights } from '../test/kbCardGeometry';
@@ -38,7 +38,6 @@ import type { KnowledgeBase } from '../types';
  * ------------------------------------------------------------------------- */
 
 const t = (k: string) => (translations as Record<string, { de: string }>)[k]?.de ?? k;
-const rtf = new Intl.RelativeTimeFormat('de', { numeric: 'auto' });
 
 function kb(over: Partial<KnowledgeBase> & { id: string; name: string }): KnowledgeBase {
   return {
@@ -77,14 +76,13 @@ function Card({ item, compact = false }: { item: KnowledgeBase; compact?: boolea
       currentUserId="user-1"
       systemRole="user"
       removingKb={false}
-      rtf={rtf}
       t={t}
       language="de"
       compact={compact}
       onSelectKB={fn()}
       onOpenShare={fn()}
       onToggleFavorite={fn()}
-      onOpenKbSettings={fn()}
+      onOpenSettings={fn()}
       onRenameKB={fn()}
       onDeleteKB={fn()}
     />
@@ -118,7 +116,7 @@ export const FooterInsideCardAtNarrowestTrack: Story = {
     </Frame>
   ),
   play: async ({ canvasElement }) => {
-    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__kb-card'));
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
     await expect(cards).toHaveLength(2);
     for (const card of cards) {
       // The track really is the 280px floor, not a wider accident.
@@ -160,18 +158,18 @@ const NO_FILES_KB = kb({ id: 'kb-m3', name: 'Neues leeres Thema' });
 export const MockupCardsInUniformGrid: Story = {
   args: { item: MOCKUP_KB },
   render: () => (
-    <Frame width={900}>
+    // Two columns, so the three cards take two rows (the uniform-height check needs two).
+    <Frame width={680}>
       <TopicGridPage
         id="kb-card-mockup"
         title="Mein Wissen"
         uniformRows
-        createCell={<CreateCell onClick={fn()} label="Neues Thema" text="Neues Thema" />}
         items={[MOCKUP_KB, SHARED_KB, NO_FILES_KB].map((item) => <Card key={item.id} item={item} />)}
       />
     </Frame>
   ),
   play: async ({ canvasElement }) => {
-    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('.home-view__kb-card'));
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
     await expect(cards).toHaveLength(3);
     for (const card of cards) await expectFooterInsideCard(card);
     await expectUniformCardHeights(canvasElement);
@@ -185,5 +183,38 @@ export const MockupCardsInUniformGrid: Story = {
     await expect(shared.querySelector('[data-testid="kb-meta-owner"]')).toHaveTextContent('von Ada Lovelace');
     await expect(noFiles.querySelector('[data-testid="kb-meta-updated"]')).toBeNull();
     await expect(noFiles.querySelectorAll('.home-view__chip')).toHaveLength(0);
+  },
+};
+
+/** A description much longer than the card's description box. */
+const LONG_KB = kb({
+  id: 'kb-d', name: 'Rollen-Test', fileCount: 3, turnCount: 12,
+  description: 'Die Plone-Infrastruktur und deren Firewall-Anpassungen, einschließlich aktueller Wartungsarbeiten. Du erfährst, wann und warum Netzwerkeinstellungen geändert wurden und welche Dienste davon betroffen sind.',
+  lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
+});
+
+/**
+ * The hover description ends on a whole line: its text is no taller than the
+ * box it lies in (so no line after the ellipsis shows cut in half), and it
+ * uses the lines the box has (so it is not clamped shorter than it fits).
+ * ORACLE: Chromium's layout of the real card, measured in one frame.
+ */
+export const HoverDescriptionEndsOnWholeLine: Story = {
+  args: { item: LONG_KB },
+  render: () => (
+    <Frame width={680}>
+      <TopicGridPage id="kb-card-description" title="Mein Wissen" uniformRows items={[LONG_KB, SCREENSHOT_KB].map(i => <Card key={i.id} item={i} />)} />
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const text = canvasElement.querySelector<HTMLElement>('[data-testid="kb-card-description"]')!;
+    const box = text.parentElement!;
+    const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+    await waitFor(() => expect(text.style.webkitLineClamp).not.toBe(''));
+    const textRect = text.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    await expect(textRect.bottom).toBeLessThanOrEqual(boxRect.bottom);
+    await expect(boxRect.bottom - textRect.bottom).toBeLessThan(lineHeight);
+    await expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
   },
 };

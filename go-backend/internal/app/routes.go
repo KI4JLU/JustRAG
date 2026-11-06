@@ -55,11 +55,14 @@ import (
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kb"
 	"github.com/justrag/go-backend/internal/kbaccess"
+	"github.com/justrag/go-backend/internal/kbassistant"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/kbcategories"
 	"github.com/justrag/go-backend/internal/kbconfig"
 	"github.com/justrag/go-backend/internal/kbfilters"
 	"github.com/justrag/go-backend/internal/kbinvites"
 	"github.com/justrag/go-backend/internal/kbmembers"
+	"github.com/justrag/go-backend/internal/kbstartpage"
 	"github.com/justrag/go-backend/internal/kbsubs"
 	"github.com/justrag/go-backend/internal/kbvisibility"
 	"github.com/justrag/go-backend/internal/kg"
@@ -76,6 +79,7 @@ import (
 	"github.com/justrag/go-backend/internal/owuicompat"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/pipeline"
+	"github.com/justrag/go-backend/internal/policyaccept"
 	"github.com/justrag/go-backend/internal/prompts"
 	"github.com/justrag/go-backend/internal/proxy"
 	"github.com/justrag/go-backend/internal/publicapi"
@@ -149,8 +153,10 @@ type routeCtx struct {
 	kbEditChain     func(http.HandlerFunc) http.Handler
 	kbAdminChain    func(http.HandlerFunc) http.Handler
 	kbAdvancedChain func(http.HandlerFunc) http.Handler
-	analyticsChain  func(http.HandlerFunc) http.Handler
-	apiKeyChain     func(http.HandlerFunc) http.Handler
+	// kbAgentListChain: KB role view, or a system admin on any KB.
+	kbAgentListChain func(http.HandlerFunc) http.Handler
+	analyticsChain   func(http.HandlerFunc) http.Handler
+	apiKeyChain      func(http.HandlerFunc) http.Handler
 
 	// The four source-permission chains (migration 0089): a KB role plus
 	// a kbaccess capability (for list/add/download one the KB's flags may
@@ -176,6 +182,10 @@ type routeCtx struct {
 	// registerChatRoutes returns — can pick it up.
 	agentTeamsStore   *agentteams.Store
 	agentTeamsHandler *agentteams.Handler
+
+	// The role templates („Vorlagen" › Rollen): the store the admin routes
+	// write through, which also keeps this process's catalog current.
+	roleTemplates *kbbehavior.TemplateStore
 }
 
 // setupRoutes registers all HTTP routes on the given mux using the provided
@@ -211,6 +221,11 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	// outer ctx (which, on a startup error path, is canceled only by the
 	// final LIFO defer — after routeCleanup has already run). safego.Go
 	// adds panic recovery, matching StartWriter and the schedulers.
+	// The role templates come from role_templates (migration 0095): seeded and
+	// loaded before the first request, reloaded so another instance's admin
+	// change arrives within the interval. Stopped in cleanup, before the pool closes.
+	roleTemplates := kbbehavior.NewTemplateStore(infra.db.Main)
+	stopTemplateRefresher := kbbehavior.StartTemplateRefresher(ctx, roleTemplates, 30*time.Second)
 	sweeperCtx, sweeperCancel := context.WithCancel(ctx)
 	var sweeperWg sync.WaitGroup
 	sweeperWg.Add(1)
@@ -334,11 +349,12 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		},
 		// kbAdvancedChain gates the KB "advanced settings" surface
 		// (KbSettingsPanel: RAG settings, Agenten & Teams, Evals, Workflow)
-		// on BOTH a system role in {api-user, admin, superadmin} AND the KB
-		// role 'admin'. Order — Authenticate -> RequireRole -> RequireKBRole
-		// — matches adminChain/superadminChain (auth.RoleChain) with the KB
-		// check appended, and puts the free in-memory system-role test ahead
-		// of the KB lookup's database round-trip.
+		// on the system role admin (or superadmin), on every global or shared
+		// KB whatever the caller's KB role and on their own — see
+		// kbAdvancedInner. Order —
+		// Authenticate -> RequireRole -> RequireOperableKB — matches adminChain/superadminChain
+		// (auth.RoleChain) with the KB lookup appended, and puts the free
+		// in-memory system-role test ahead of the lookup's database round-trip.
 		//
 		// This restores the hurdle the deleted kbTuningChain used to impose
 		// and that 9a4f83a dropped when it folded that chain into
@@ -346,16 +362,17 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		// user who ever created a KB — an operator of the 52-key per-KB
 		// site_config registry (three of whose keys force a full re-ingest),
 		// of eval runs, and of the workflow presets that rewrite how the KB
-		// answers. Those are deployment-operator controls, so they need an
-		// operator system role on top of the KB role; the KB role alone is
-		// not the intended permission for them. Note this is layered ON TOP
-		// of kbaccess.EffectiveRole, which is unchanged: KB roles still mean
+		// answers. Those are deployment-operator controls, so the system role
+		// is the permission for them, not the KB role. Note this sits beside
+		// kbaccess.EffectiveRole, which is unchanged: KB roles still mean
 		// exactly what they meant.
 		//
-		// Superadmin passes RequireRole via its hoisted bypass and resolves
-		// to KB role 'owner', so it reaches everything as before.
+		// Superadmin passes RequireRole via its hoisted bypass.
 		kbAdvancedChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(kbAdvancedInner(authMiddleware, kbMw)(h))
+		},
+		kbAgentListChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(kbAgentListInner(kbMw)(h))
 		},
 		kbSourceListChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(sourceListInner(kbMw)(h))
@@ -373,6 +390,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		kbConfigHandler: kbConfigHandler,
 		workflowHandler: workflowHandler,
 		agentTeamsStore: agentTeamsStore,
+		roleTemplates:   roleTemplates,
 		analyticsChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(
 				kbMw.RequireKBRole(kbaccess.RoleView)(
@@ -424,16 +442,16 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	registerAdminRoutes(rc)
 	registerKBRoutes(rc, inviteRL)
 	registerSearchRoutes(rc, searchRL, globalsearch.NewStore(infra.db.Main))
-	registerChatRoutes(ctx, rc, chatRL, starterRL)
+	registerChatRoutes(ctx, rc, chatRL, starterRL, generateRL)
 	registerAgentTeamRoutes(rc)
 	registerFileRoutes(rc)
 	registerLibraryRoutes(rc)
 	registerContentGenRoutes(rc, generateRL)
+	registerRoleWriterRoutes(rc, generateRL)
 	registerResearchRoutes(rc, researchRL)
 	registerPublicAPIRoutes(rc, apiRL)
 	registerOWUICompatRoutes(rc)
 	registerMiscRoutes(rc)
-	registerStaticRoutes(rc)
 
 	// Only the in-memory loginLimiter (returned from registerAuthRoutes) owns
 	// a background goroutine and needs an explicit Shutdown. The Redis-backed
@@ -447,6 +465,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		// the vector pool — avoids a pool-close race / log noise on shutdown.
 		sweeperCancel()
 		sweeperWg.Wait()
+		stopTemplateRefresher()
 		loginLimiter.Shutdown()
 	}
 
@@ -466,7 +485,7 @@ func registerHealthRoutes(rc *routeCtx, buildVersion string) {
 	// Prometheus metrics — admin-only.
 	rc.mux.Handle("GET /metrics", rc.adminChain(middleware.MetricsHandler()))
 
-	docsHandler := apidocs.NewHandler()
+	docsHandler := apidocs.NewHandler(rc.cfg.AppName())
 	rc.mux.HandleFunc("GET /api/v1/openapi.json", docsHandler.ServeSpec)
 	rc.mux.HandleFunc("GET /api/v1/docs", docsHandler.ServeDocs)
 }
@@ -496,10 +515,12 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.HandleFunc("POST /api/auth/oidc/logout", authHandler.OIDCBackchannelLogout)
 
 	// Site config — optional auth (parses token if present so admin sees all keys)
-	siteConfigHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main))
+	siteConfigHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main),
+		siteconfig.WithAppName(rc.cfg.AppNamePrefix, rc.cfg.AppNameProduct))
 	rc.mux.Handle("GET /api/site-config", rc.authMw.OptionalAuth(http.HandlerFunc(siteConfigHandler.GetSiteConfig)))
 	rc.mux.Handle("POST /api/site-config", rc.superadminChain(siteConfigHandler.UpdateSiteConfig))
-	rc.mux.Handle("POST /api/site-config/logo", rc.superadminChain(siteConfigHandler.UploadLogo))
+	// The system notice (system_notice_* keys only) is editable by plain admins too.
+	rc.mux.Handle("PUT /api/admin/system-notice", rc.adminChain(siteConfigHandler.UpdateSystemNotice))
 
 	// Public configs — requires auth
 	publicConfigsHandler := publicconfigs.NewHandler(publicconfigs.NewStore(rc.infra.db.Main))
@@ -517,6 +538,14 @@ func registerAuthRoutes(ctx context.Context, rc *routeCtx, redisRL *middleware.R
 	rc.mux.Handle("GET /api/user/memory/export", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.Export)))
 	rc.mux.Handle("DELETE /api/user/memory/{id}", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.DeleteOne)))
 	rc.mux.Handle("DELETE /api/user/memory", rc.authMw.Authenticate(http.HandlerFunc(memoryHandler.DeleteAll)))
+
+	// Usage-policy acceptance (AI-use notice). The web app shows the notice
+	// until the caller accepted policy_acceptance_version; nothing else is gated.
+	// The version is read uncached (not through chatStore's snapshot), so a
+	// changed version is refused at once instead of accepted for a few seconds.
+	policyHandler := policyaccept.NewHandler(policyaccept.NewStore(rc.infra.db.Main), siteconfig.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/user/policy-acceptance", rc.authMw.Authenticate(http.HandlerFunc(policyHandler.Get)))
+	rc.mux.Handle("POST /api/user/policy-acceptance", rc.authMw.Authenticate(http.HandlerFunc(policyHandler.Accept)))
 
 	// API Keys
 	apiKeysHandler := apikeys.NewHandler(apikeys.NewStore(rc.infra.db.Main))
@@ -977,6 +1006,14 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.DeleteCategory)))
 	rc.mux.Handle("PUT /api/kb/{id}/user-categories/{catId}", rc.kbViewChain(kbFiltersHandler.AssignCategory))
 	rc.mux.Handle("DELETE /api/kb/{id}/user-categories/{catId}", rc.kbViewChain(kbFiltersHandler.UnassignCategory))
+	// The caller's own drag order of the topic views ("my", "shared"). Like the
+	// category routes these name no KB in the path and touch only the caller's
+	// rows, so authentication is the whole gate. The stored ids are not checked
+	// against access: an order only sorts topics a view already lists.
+	rc.mux.Handle("GET /api/kb-user-order",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.ListOrders)))
+	rc.mux.Handle("PUT /api/kb-user-order/{view}",
+		rc.authMw.Authenticate(http.HandlerFunc(kbFiltersHandler.SetOrder)))
 
 	// Catalog categories — a flat, system-admin curated taxonomy (adminChain
 	// on the CRUD routes: the list is shared across the whole deployment).
@@ -994,6 +1031,41 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb-categories", rc.authMw.Authenticate(http.HandlerFunc(kbCategoriesHandler.List)))
 	rc.mux.Handle("GET /api/kb/{id}/categories", rc.kbViewChain(kbCategoriesHandler.ListKBCategories))
 	rc.mux.Handle("PUT /api/kb/{id}/categories", rc.kbAdminChain(kbCategoriesHandler.SetKBCategories))
+
+	// Behavior settings: roles and rules (internal/kbbehavior, migration 0092).
+	// The catalog is the same for everyone (authentication only); a KB's
+	// settings are read on kbViewChain — a viewer's chat header names the
+	// chat's role, and GET /api/kb/{id} already showed the systemPrompt to
+	// viewers — and written on kbAdminChain, the gate of PATCH systemPrompt.
+	kbBehaviorHandler := kbbehavior.NewHandler(kbbehavior.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/kb-behavior/catalog", rc.authMw.Authenticate(http.HandlerFunc(kbBehaviorHandler.Catalog)))
+	rc.mux.Handle("GET /api/kb/{id}/behavior", rc.kbViewChain(kbBehaviorHandler.Get))
+	rc.mux.Handle("PUT /api/kb/{id}/behavior", rc.kbAdminChain(kbBehaviorHandler.Put))
+	// The role templates themselves: system admins, like the catalog categories.
+	templatesHandler := kbbehavior.NewTemplatesHandler(rc.roleTemplates, kbstartpage.ValidateTemplateStart)
+	rc.mux.Handle("GET /api/admin/role-templates", rc.adminChain(templatesHandler.List))
+	rc.mux.Handle("POST /api/admin/role-templates", rc.adminChain(templatesHandler.Create))
+	rc.mux.Handle("PUT /api/admin/role-templates/order", rc.adminChain(templatesHandler.Reorder))
+	rc.mux.Handle("PUT /api/admin/role-templates/{roleId}", rc.adminChain(templatesHandler.Update))
+	rc.mux.Handle("DELETE /api/admin/role-templates/{roleId}", rc.adminChain(templatesHandler.Delete))
+
+	// The settings dialog's „Startseite" + „Verhalten" save through one
+	// transaction with a version history (internal/kbassistant, migration
+	// 0094); the two routes above stay for single-part API use. All on
+	// kbAdminChain; the title keeps the stricter rename rule.
+	kbAssistantHandler := kbassistant.NewHandler(kbassistant.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/kb/{id}/assistant-settings", rc.kbAdminChain(kbAssistantHandler.Get))
+	rc.mux.Handle("PUT /api/kb/{id}/assistant-settings", rc.kbAdminChain(kbAssistantHandler.Put))
+	rc.mux.Handle("GET /api/kb/{id}/assistant-settings/versions", rc.kbAdminChain(kbAssistantHandler.Versions))
+	rc.mux.Handle("POST /api/kb/{id}/assistant-settings/versions/{n}/restore", rc.kbAdminChain(kbAssistantHandler.Restore))
+	// The behavior's „Löschen" writes a version too, so it can be restored.
+	rc.mux.Handle("DELETE /api/kb/{id}/behavior", rc.kbAdminChain(kbAssistantHandler.ResetBehavior))
+
+	// Start page settings (internal/kbstartpage, migration 0093): read by every
+	// member, written by a KB admin like the behavior settings.
+	kbStartPageHandler := kbstartpage.NewHandler(kbstartpage.NewStore(rc.infra.db.Main), kbbehavior.NewStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/kb/{id}/start-page", rc.kbViewChain(kbStartPageHandler.Get))
+	rc.mux.Handle("PUT /api/kb/{id}/start-page", rc.kbAdminChain(kbStartPageHandler.Put))
 
 	// Analytics
 	analyticsHandler := analytics.NewHandler(analytics.NewStore(rc.infra.db.Main))
@@ -1051,6 +1123,15 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	// tables (C1/R20, R60).
 	gitRepoHandler.SetTableDropper(tabular.NewMaterializer(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/kb/{id}/git-repos", rc.kbAddSourcesChain(gitRepoHandler.CreateSource))
+	// The lookup makes an outbound ls-remote to a user-supplied host, so it
+	// runs through the same SSRF-safe transport as the worker's clone and
+	// has its own per-user budget (the dialog looks up as the user types).
+	gitrepo.InstallSafeGitTransport(fetcher.SafeHTTPClient(0).Transport)
+	gitLookupRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
+		Max: 30, Window: time.Minute, Category: "git_repo_lookup", Key: userRateKey,
+	})
+	rc.mux.Handle("POST /api/kb/{id}/git-repos/lookup",
+		rc.kbAddSourcesChain(gitLookupRL.Middleware(http.HandlerFunc(gitRepoHandler.LookupRepo)).ServeHTTP))
 	rc.mux.Handle("GET /api/kb/{id}/git-repos", rc.kbSourceListChain(gitRepoHandler.ListSources))
 	rc.mux.Handle("PATCH /api/kb/{id}/git-repos/{sourceId}", rc.kbManageSourcesChain(gitRepoHandler.UpdateSource))
 	rc.mux.Handle("DELETE /api/kb/{id}/git-repos/{sourceId}", rc.kbManageSourcesChain(gitRepoHandler.DeleteSource))
@@ -1091,7 +1172,7 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/crawl/status/{jobId}", rc.kbSourceListChain(crawlerHandler.GetCrawlStatus))
 }
 
-func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *middleware.RedisRateLimiter) {
+func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL, generateRL *middleware.RedisRateLimiter) {
 	// Phase 2 §2.1: build the MCP registry and register the in-process
 	// built-in tools (kb_search, web_search). Per-KB remote MCP servers
 	// (if any) are added via Registry.Configure on demand from the chat
@@ -1381,6 +1462,9 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL *mi
 	// by an LLM call — behind their own "starter_questions" limiter (see
 	// starterRL), wrapped outside the auth chain like the generate routes.
 	rc.mux.Handle("GET /api/kb/{id}/starter-questions", starterRL.Middleware(rc.kbViewChain(chatHandler.StarterQuestions)))
+	// A description draft for the start page editor, from the same documents:
+	// one synchronous LLM call for KB admins, on the generate budget.
+	rc.mux.Handle("POST /api/kb/{id}/description/generate", generateRL.Middleware(middleware.Timeout(90*time.Second)(rc.kbAdminChain(chatHandler.GenerateDescription))))
 
 	// Chat — messages and deletion (auth only, ownership checked in handler)
 	rc.mux.Handle("GET /api/chat/rag-system-prompt", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RAGSystemPrompt)))
@@ -1440,13 +1524,14 @@ func registerAgentTeamRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/agent-teams/{id}", rc.authMw.Authenticate(http.HandlerFunc(h.GetTeam)))
 	rc.mux.Handle("PUT /api/agent-teams/{id}", rc.authMw.Authenticate(http.HandlerFunc(h.UpdateTeam)))
 	rc.mux.Handle("DELETE /api/agent-teams/{id}", rc.authMw.Authenticate(http.HandlerFunc(h.DeleteTeam)))
-	// KB attachment. The LIST stays on kbViewChain: the chat session's agent
-	// picker (useKbAgents) reads it for every ordinary user, and gating it
-	// would break agent selection in chat. Attach/detach are the "Agenten &
-	// Teams" tab of the advanced settings panel — and the same two PUTs carry
-	// the workflow canvas's default-binding write — so they sit on
-	// kbAdvancedChain.
-	rc.mux.Handle("GET /api/kb/{id}/agents", rc.kbViewChain(h.ListKBAgents))
+	// KB attachment. The LIST stays open to KB role view: the chat session's
+	// agent picker (useKbAgents) reads it for every ordinary user, and gating
+	// it would break agent selection in chat; kbAgentListChain adds the system
+	// admins, whose RAG-Settings page reads it on every KB. Attach/detach are
+	// the "Agenten & Teams" tab of the advanced settings panel — and the same
+	// two PUTs carry the workflow canvas's default-binding write — so they sit
+	// on kbAdvancedChain.
+	rc.mux.Handle("GET /api/kb/{id}/agents", rc.kbAgentListChain(h.ListKBAgents))
 	rc.mux.Handle("PUT /api/kb/{id}/agents/{agentId}", rc.kbAdvancedChain(h.AttachAgent))
 	rc.mux.Handle("DELETE /api/kb/{id}/agents/{agentId}", rc.kbAdvancedChain(h.DetachAgent))
 	rc.mux.Handle("PUT /api/kb/{id}/teams/{teamId}", rc.kbAdvancedChain(h.AttachTeam))
@@ -1470,6 +1555,24 @@ func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("DELETE /api/generated-content/{id}", rc.authMw.Authenticate(http.HandlerFunc(genContentHandler.DeleteGenContent)))
 	rc.mux.Handle("GET /api/generated-content/{id}/download", rc.authMw.Authenticate(http.HandlerFunc(genContentHandler.DownloadGenContent)))
 	rc.mux.Handle("GET /api/generated-content/{id}/stream", rc.authMw.Authenticate(http.HandlerFunc(genContentHandler.StreamGenContent)))
+}
+
+// registerRoleWriterRoutes mounts the role edit screen's AI help: one
+// synchronous LLM call each, for KB admins, on the generate budget, on the
+// fast tier (model_tier_fast, else the KB's chat model).
+func registerRoleWriterRoutes(rc *routeCtx, generateRL *middleware.RedisRateLimiter) {
+	h := kbbehavior.NewRoleWriterHandler(rc.aiResolver, func(ctx context.Context) string {
+		return chat.ChatModelTierFast(ctx, rc.chatStore)
+	})
+	// A role template's texts saved in one language are translated into the
+	// other in the background, on the same fast tier (no KB: the active provider).
+	rc.roleTemplates.SetTranslator(func(ctx context.Context, texts ai.RoleTexts, to string) (ai.RoleTexts, error) {
+		return ai.TranslateRole(ctx, rc.aiResolver, chat.ChatModelTierFast(ctx, rc.chatStore), texts, to)
+	}, kbstartpage.ValidateTemplateStart)
+	llmTimeout := middleware.Timeout(90 * time.Second)
+	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/generate", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Generate))))
+	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/revise", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Revise))))
+	rc.mux.Handle("POST /api/kb/{id}/behavior/role-writer/describe", generateRL.Middleware(llmTimeout(rc.kbAdminChain(h.Describe))))
 }
 
 func registerContentGenRoutes(rc *routeCtx, generateRL *middleware.RedisRateLimiter) {
@@ -1556,6 +1659,7 @@ func registerResearchRoutes(rc *routeCtx, researchRL *middleware.RedisRateLimite
 
 	// Misc endpoints — enhance, export (auth required)
 	miscHandler := misc.NewHandler(rc.aiResolver)
+	miscHandler.SetAppName(rc.cfg.AppName())
 	// Both routes block on a single synchronous LLM call. The 90s ceiling
 	// cancels the upstream call and returns a 503 before the server's 120s
 	// WriteTimeout would silently drop the connection with the call still
@@ -1633,6 +1737,16 @@ func registerPublicAPIRoutes(rc *routeCtx, apiRL *middleware.RedisRateLimiter) {
 	mcpKBHandler.SetUsageRecorder(usage.NewRecorder(rc.infra.db.Main))
 	rc.mux.Handle("POST /api/v1/kb/{id}/mcp", apiRL.Middleware(apiKeyAuth.Authenticate(
 		rc.kbMw.RequireKBRole(kbaccess.RoleView)(http.HandlerFunc(mcpKBHandler.ServeHTTP)))))
+
+	// The system notice banner, for automation (a monitoring job switching it
+	// on during an outage). The API key's owner must be an admin or a
+	// superadmin — the same people who edit it in the admin dialog.
+	noticeHandler := siteconfig.NewHandler(siteconfig.NewStore(rc.infra.db.Main))
+	adminKey := func(h http.HandlerFunc) http.Handler {
+		return apiRL.Middleware(apiKeyAuth.Authenticate(rc.authMw.RequireRole(auth.RoleAdmin)(h)))
+	}
+	rc.mux.Handle("GET /api/v1/system-notice", adminKey(noticeHandler.GetSystemNoticeAPI))
+	rc.mux.Handle("PUT /api/v1/system-notice", adminKey(noticeHandler.UpdateSystemNoticeAPI))
 }
 
 func registerMiscRoutes(rc *routeCtx) {
@@ -1645,27 +1759,6 @@ func registerMiscRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/kb/{id}/data-explorer/export", rc.kbViewChain(dataExplorerDisabled))
 }
 
-func registerStaticRoutes(rc *routeCtx) {
-	// Resolve once at startup so route handlers don't depend on the
-	// process working directory. filepath.Abs returns an error only when
-	// os.Getwd does, so on success there's nothing to handle; on failure
-	// we fall back to the relative path with a warning.
-	logoDir := "uploads/logo"
-	if abs, err := filepath.Abs(logoDir); err == nil {
-		logoDir = abs
-	} else {
-		slog.Warn("could not resolve uploads/logo to absolute path; serving relative", "error", err)
-	}
-	logoFS := http.FileServer(http.Dir(logoDir))
-
-	// Serve uploaded logos (public, no auth required)
-	rc.mux.Handle("GET /uploads/logo/", http.StripPrefix("/uploads/logo/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		logoFS.ServeHTTP(w, r)
-	})))
-}
-
 func registerFrontendServing(rc *routeCtx) error {
 	if rc.cfg.IsProduction() {
 		// Resolve once so request-time os.Stat doesn't depend on CWD.
@@ -1675,7 +1768,10 @@ func registerFrontendServing(rc *routeCtx) error {
 		} else {
 			slog.Warn("could not resolve client/dist to absolute path; serving relative", "error", err)
 		}
-		setupStaticServing(rc.mux, distDir)
+		setupStaticServing(rc.mux, distDir, func(ctx context.Context) (string, string) {
+			n := kbbehavior.ReadNames(ctx, rc.chatStore)
+			return n.Institution, n.System
+		})
 		return nil
 	}
 
@@ -1691,8 +1787,10 @@ func registerFrontendServing(rc *routeCtx) error {
 // setupStaticServing registers a catch-all handler on mux that serves the
 // React SPA from staticDir. API and OpenAI routes are left to their own
 // handlers (already registered before this is called); the handler returns
-// 404 for those prefixes so the mux falls through.
-func setupStaticServing(mux *http.ServeMux, staticDir string) {
+// 404 for those prefixes so the mux falls through. The app shell and the PWA
+// manifest are renamed for the app name appName reads, on the way out
+// (app_shell.go).
+func setupStaticServing(mux *http.ServeMux, staticDir string, appName appNameReader) {
 	fs := http.FileServer(http.Dir(staticDir))
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -1710,9 +1808,22 @@ func setupStaticServing(mux *http.ServeMux, staticDir string) {
 			return
 		}
 
-		// Uploads are served by their own handler — skip.
+		// Uploads are never public files (the logo upload, their last
+		// public use, is gone) — keep them out of the file server.
 		if strings.HasPrefix(path, "/uploads/") {
 			http.NotFound(w, r)
+			return
+		}
+
+		// The two files that name the app. "/" must not reach the file server
+		// either: the dist DIRECTORY exists, so it would answer with
+		// index.html unrenamed.
+		if path == "/" || path == "/index.html" {
+			serveAppShell(w, r, staticDir, appName)
+			return
+		}
+		if path == "/manifest.webmanifest" {
+			serveManifest(w, r, staticDir, appName)
 			return
 		}
 
@@ -1725,9 +1836,8 @@ func setupStaticServing(mux *http.ServeMux, staticDir string) {
 			// content does. Everything else in dist keeps a stable name across
 			// deploys and is overwritten in place — the favicon, the
 			// apple-touch icon, the onboarding screenshots, the PWA bootstrap
-			// files, and (because os.Stat succeeds on the dist DIRECTORY) the
-			// app shell served for "/". Pinning any of those strands clients
-			// on last year's copy with no revalidation request to correct it.
+			// files. Pinning any of those strands clients on last year's copy
+			// with no revalidation request to correct it.
 			//
 			// So: allowlist the hashed path, revalidate everything else. A file
 			// added to web/public/ later then defaults to correct behaviour
@@ -1753,9 +1863,8 @@ func setupStaticServing(mux *http.ServeMux, staticDir string) {
 			return
 		}
 
-		// SPA catch-all: serve index.html for all non-file routes.
-		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		// SPA catch-all: serve the app shell for all non-file routes.
+		serveAppShell(w, r, staticDir, appName)
 	})
 }
 
@@ -1902,7 +2011,7 @@ func manageSourcesInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.H
 }
 
 // kbAdvancedInner is the authorization core of kbAdvancedChain: the system-role
-// test and the KB-role test, without the outer Authenticate wrapper.
+// test and the KB lookup, without the outer Authenticate wrapper.
 //
 // It exists as a named function for one reason: the chain tests must exercise
 // the composition this file actually installs, not a copy of it. They used to
@@ -1912,12 +2021,27 @@ func manageSourcesInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.H
 // their own mirror. Anything that changes who passes must change this function,
 // and every caller sees it.
 //
-// The nesting order is load-bearing: RequireRole outside, RequireKBRole inside,
-// so a caller without the system role is refused before any KB lookup runs.
+// System admins (admin, superadmin) only, on every global or shared KB
+// whatever their role in it, and on their own (kbaccess.SystemAdminMayOperate):
+// the admin console's KB-Übersicht is the surface's one entry point
+// („RAG-Settings"). Somebody else's private KB nobody shares stays closed —
+// its evals would read its content. No KB role opens the surface — not to a plain user, not to an
+// api-user, however high their KB role.
+//
+// The nesting order is load-bearing: RequireRole outside, the KB lookup inside,
+// so a caller without the system role is refused before any lookup runs.
 func kbAdvancedInner(authMw *auth.Middleware, kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
 	return func(h http.HandlerFunc) http.Handler {
-		return authMw.RequireRole(auth.RoleAPIUser, auth.RoleAdmin)(
-			kbMw.RequireKBRole(kbaccess.RoleAdmin)(http.HandlerFunc(h)))
+		return authMw.RequireRole(auth.RoleAdmin)(kbMw.RequireOperableKB()(h))
+	}
+}
+
+// kbAgentListInner is kbAgentListChain without its Authenticate: KB role view,
+// or a system admin on a KB they operate (kbaccess.RequireKBRoleOrOperable) —
+// the RAG-Settings page's agent tab reads the list there (kbAdvancedInner).
+func kbAgentListInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+	return func(h http.HandlerFunc) http.Handler {
+		return kbMw.RequireKBRoleOrOperable(kbaccess.RoleView)(h)
 	}
 }
 
@@ -1946,6 +2070,7 @@ func registerOWUICompatRoutes(rc *routeCtx) {
 		Guard:    rc.chatStore,
 		Usage:    usage.NewRecorder(rc.infra.db.Main),
 		Answerer: owuicompat.NewPipelineAnswerer(rc.aiResolver, rc.searchService, rc.kbStore, &fileDatesAdapter{store: rc.filesStore}),
+		AppName:  rc.cfg.AppName(),
 	})
 	chatRL := middleware.NewRedisRateLimiter(rc.infra.rdb.Client, middleware.RedisRateLimitConfig{
 		Max: 600, Window: time.Minute, Category: "owui_chat", Key: byKey,

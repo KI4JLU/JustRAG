@@ -1,3 +1,6 @@
+import { assistantTranslations } from './translations.assistant';
+import { agentStepsTranslations } from './translations.agentSteps';
+
 export type Language = 'en' | 'de';
 
 export const translations = {
@@ -90,8 +93,8 @@ export const translations = {
 
     sharedTopics: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
     sharedTopicsDescription: {
-      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben.',
-      en: 'Topics other people have shared with you or with your groups.',
+      de: 'Themen, die andere mit dir oder deinen Gruppen geteilt haben, und öffentliche Themen, die du abonniert hast.',
+      en: 'Topics other people have shared with you or with your groups, and public topics you subscribed to.',
     },
 
     /* The empty state of „Geteiltes Wissen", as a heading and a line under it.
@@ -117,11 +120,7 @@ export const translations = {
      * from here that ends with a new topic in front of them. */
     addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
 
-    /* The filter chip row above every view's list (migration 0077).
-     *
-     * „Alle" here and `catalogAllCategories` below are NOT the same string to
-     * reuse: that one labels the catalog's admin-curated taxonomy tab, this one
-     * the caller's own filter. They read alike today and are free to diverge. */
+    /* The filter chip row above every view's list (migration 0077). */
     filterAll: { de: 'Alle', en: 'All' },
     filterFavorites: { de: 'Favoriten', en: 'Favorites' },
     /* „Mein Wissen" only. The words match the card badge's own two states
@@ -132,18 +131,12 @@ export const translations = {
     manageCategories: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesTitle: { de: 'Kategorien verwalten', en: 'Manage categories' },
     manageCategoriesBody: {
-      de: 'Deine eigenen Kategorien. Sie gelten nur für dich und lassen sich jedem Thema zuordnen, das du sehen kannst.',
-      en: 'Your own categories. They are yours alone and can be attached to any topic you can see.',
+      de: 'Die Kategorien der Plattform. Was du im Filter nicht brauchst, blendest du aus.',
+      en: 'The platform\'s categories. Hide what you don\'t need in the filter.',
     },
-    noCategoriesYet: { de: 'Noch keine Kategorien angelegt.', en: 'No categories yet.' },
-    renameCategory: { de: 'Kategorie umbenennen', en: 'Rename category' },
-    deleteCategory: { de: 'Kategorie löschen', en: 'Delete category' },
-    confirmDeleteCategory: { de: 'Kategorie wirklich löschen?', en: 'Delete this category?' },
-    categoryActionError: {
-      de: 'Aktion fehlgeschlagen. Gibt es die Kategorie schon?',
-      en: 'Action failed. Does the category already exist?',
-    },
-    newCategoryPrompt: { de: 'Name der neuen Kategorie', en: 'Name of the new category' },
+    noCategoriesYet: { de: 'Noch keine Kategorien vorhanden.', en: 'No categories yet.' },
+    categoryInFilter: { de: 'Im Filter', en: 'In filter' },
+    showCategoryInFilter: { de: '{name} im Filter anzeigen', en: 'Show {name} in the filter' },
     newCategoryError: {
       de: 'Kategorie konnte nicht angelegt werden. Gibt es sie schon?',
       en: 'Could not create the category. Does it already exist?',
@@ -161,6 +154,10 @@ export const translations = {
     favoriteError: {
       de: 'Favorit konnte nicht gespeichert werden.',
       en: 'Could not save the favorite.',
+    },
+    topicOrderSaveError: {
+      de: 'Die Reihenfolge konnte nicht gespeichert werden.',
+      en: 'Could not save the order.',
     },
 
     /* The section heading for the global half. „Global sichtbar" and not
@@ -288,6 +285,8 @@ export const translations = {
     contrastMedium: { de: 'Mittel', en: 'Medium' },
     contrastMore: { de: 'Hoch', en: 'High' },
     accentColor: { de: 'Akzentfarbe', en: 'Accent colour' },
+    colorsLabel: { de: 'Farben', en: 'Colours' },
+    colorsReduced: { de: 'Reduziert', en: 'Reduced' },
     accent_standard: { de: 'Standard', en: 'Default' },
     accent_teal: { de: 'Türkis', en: 'Teal' },
     accent_violet: { de: 'Violett', en: 'Violet' },
@@ -517,7 +516,7 @@ export const translations = {
     closeSettings: { de: 'Einstellungen schließen', en: 'Close Settings' },
     promptSuggestions: { de: 'Vorschläge', en: 'Suggestions' },
     promptSuggestionsHint: { de: 'Fragevorschläge unter dem Eingabefeld eines neuen Chats.', en: 'Suggested questions under the input of a new chat.' },
-    followUpsHint: { de: 'Anschlussfragen unter der letzten Antwort.', en: 'Follow-up questions under the latest answer.' },
+    followUpsHint: { de: 'Anschlussfragen zur letzten Antwort über dem Eingabefeld.', en: 'Follow-up questions on the latest answer, above the input.' },
     autoScrollLabel: { de: 'Antworttext automatisch scrollen', en: 'Autoscroll' },
     autoScrollHint: { de: 'Folgt einer entstehenden Antwort bis zum Ende. Aus: Die Frage bleibt oben stehen, die Antwort wächst darunter.', en: 'Follows an answer while it is being written. Off: the question stays at the top and the answer grows below it.' },
     kbHeaderDefault: { de: 'Frage mich alles, was du über deine Quellen wissen möchtest. Ich kann dir helfen, Zusammenfassungen zu erstellen, Informationen zu finden und Ideen zu synthetisieren.', en: 'Ask me anything about your sources. I can help you summarize, find information, and synthesize ideas.' },
@@ -673,14 +672,13 @@ export const translations = {
     // leaving a membership, this deletes no chats — access survives via rule
     // 4 of EffectiveRole — so the wording must not carry a chat warning.
     confirmUnsubscribeKb: { de: 'Diese Knowledge Base nicht mehr abonnieren?', en: 'Unsubscribe from this knowledge base?' },
-    // Der Stern auf einer Favoriten-Kachel ist ein reiner Favoriten-Schalter:
-    // keine Mitgliedschaft wird aufgeloest, keine Chats werden geloescht, die
-    // KB bleibt unter „KBs entdecken" auffindbar. Genau das muss der Text
-    // sagen — vorher las sich derselbe Dialog wie ein Verlassen samt
-    // Chat-Verlust (siehe useKbRemoval).
-    confirmRemoveFavorite: {
-        de: 'Diese Knowledge Base aus den Favoriten entfernen? Deine Chats bleiben erhalten, und du findest sie jederzeit unter „KBs entdecken" wieder.',
-        en: 'Remove this knowledge base from your favorites? Your chats are kept, and you can find it again any time under "Discover KBs".',
+    // Ein globales Thema abbestellen („Abbestellen…" im Kartenmenü von
+    // „Geteiltes Wissen"): keine Mitgliedschaft wird aufgeloest, keine Chats
+    // werden geloescht, das Thema bleibt unter „Entdecken" auffindbar. Genau
+    // das muss der Text sagen (siehe useKbRemoval).
+    confirmUnsubscribeTopic: {
+        de: 'Dieses Thema abbestellen? Deine Chats bleiben erhalten, und du findest es jederzeit unter „Entdecken" wieder.',
+        en: 'Unsubscribe from this topic? Your chats are kept, and you can find it again any time under "Discover".',
     },
     confirmDeleteFile: { de: 'Bist du sicher, dass du diese Datei löschen möchtest? Dies entfernt auch alle daraus extrahierten Informationen.', en: 'Are you sure you want to delete this file? This will also remove all extracted information.' },
     enterKBName: { de: 'Name für deine Knowledge Base eingeben:', en: 'Enter name for your Knowledge Base:' },
@@ -804,7 +802,7 @@ export const translations = {
     globalKbSettings: { de: 'Globale KB-Einstellungen', en: 'Global KB Settings' },
     openKb: { de: 'Knowledge Base öffnen', en: 'Open Knowledge Base' },
     // Entry point for KbSettingsPanel (RAG-Einstellungen / Evals / Workflow).
-    kbAdvancedSettings: { de: 'RAG Konfiguration', en: 'RAG configuration' },
+    kbAdvancedSettings: { de: 'RAG-Settings', en: 'RAG settings' },
     // KB rename (owner of a private KB / system admin on a public KB).
     renameKb: { de: 'Knowledge Base umbenennen', en: 'Rename Knowledge Base' },
     rename: { de: 'Umbenennen', en: 'Rename' },
@@ -857,8 +855,6 @@ export const translations = {
       de: 'Sobald neue Themen für alle Mitglieder der JLU bereitgestellt werden, findest du sie hier.',
       en: 'As soon as new topics are made available to all JLU members, you will find them here.',
     },
-    catalogAllCategories: { de: 'Alle', en: 'All' },
-    catalogCategoryTabs: { de: 'Kategorien filtern', en: 'Filter by category' },
     // Der Katalog zeigt zunaechst nur die erste Seite; {n} ist die Zahl der
     // noch verborgenen KBs (t() kann nicht interpolieren, daher .replace).
     catalogShowMore: { de: 'Alle {n} weiteren anzeigen', en: 'Show {n} more' },
@@ -880,7 +876,7 @@ export const translations = {
     kbBehaviorTitle: { de: 'Verhalten der Wissensdatenbank', en: 'Knowledge base behaviour' },
     kbSettingsTitle: { de: 'Thema-Einstellungen', en: 'Topic settings' },
     kbSettingsTabBehavior: { de: 'Verhalten', en: 'Behaviour' },
-    kbSettingsTabRoles: { de: 'Rollen & Rechte', en: 'Roles & rights' },
+    kbSettingsTabRoles: { de: 'Berechtigungen', en: 'Permissions' },
     rrSubtitle: { de: 'Legt fest, was Bearbeiter und Leser in diesem Thema dürfen.', en: 'Defines what editors and viewers may do in this topic.' },
     rrAssignPeople: { de: 'Personen zuweisen', en: 'Assign people' },
     rrColRight: { de: 'Recht', en: 'Right' },
@@ -1247,6 +1243,10 @@ export const translations = {
     contextWindowDetectFailed: { de: 'Kontextfenster konnten nicht ermittelt werden.', en: 'Could not detect the context windows.' },
     chatAttachmentsLabel: { de: 'Angehängte Dateien', en: 'Attached files' },
     chatAttachmentUploading: { de: 'Wird hochgeladen', en: 'Uploading' },
+    uploadStorageNoticeTitle: { de: 'Speicherung hochgeladener Dokumente', en: 'Storage of uploaded documents' },
+    uploadStorageNoticeAccept: { de: 'Verstanden', en: 'Understood' },
+    uploadStorageNoticeChat: { de: 'Ein Anhang bleibt gespeichert, solange ein Chat ihn enthält. Löschst du den Chat oder wird dein Account gelöscht, wird er mitgelöscht. Nicht gesendete Anhänge werden automatisch gelöscht, frühestens nach 24 Stunden.', en: 'An attachment stays stored as long as a chat contains it. It is deleted when you delete the chat or your account is deleted. Attachments you do not send are deleted automatically, after 24 hours at the earliest.' },
+    uploadStorageNoticeSource: { de: 'Als Quelle hochgeladene Dokumente bleiben gespeichert, bis dein Account gelöscht wird. Entfernst du eine Quelle aus einer Wissensbasis, verschwindet sie nur aus dieser Wissensbasis; das Dokument selbst bleibt gespeichert.', en: 'Documents you upload as sources stay stored until your account is deleted. Removing a source from a knowledge base only removes it from that knowledge base; the document itself stays stored.' },
     chatAttachmentsStillUploading: { de: 'Die Anhänge werden noch hochgeladen – bitte kurz warten.', en: 'The attachments are still uploading – please wait a moment.' },
     chatAttachmentsTooLongTogether: { de: 'Die angehängten Dateien sind zusammen zu lang, um im Chat als Kontext mitgelesen zu werden. Entferne eine Datei und sende erneut.', en: 'Together, the attached files are too long to be read as context in the chat. Remove a file and send again.' },
     chatAttachmentRemoveHint: { de: 'Entferne die Datei und sende erneut.', en: 'Remove the file and send again.' },
@@ -1461,8 +1461,21 @@ export const translations = {
     gitRepoPrivate: { de: 'Privat', en: 'Private' },
     gitRepoUrl: { de: 'Repository-URL', en: 'Repository URL' },
     gitRepoToken: { de: 'Access-Token', en: 'Access token' },
-    gitRepoBranch: { de: 'Branch (optional)', en: 'Branch (optional)' },
     gitRepoBranchPlaceholder: { de: 'Standard-Branch', en: 'default branch' },
+    gitRepoBranchLabel: { de: 'Branch', en: 'Branch' },
+    gitRepoBranchDefaultOption: { de: '{branch} (Standard)', en: '{branch} (default)' },
+    gitRepoLookupChecking: { de: 'Repository wird geprüft …', en: 'Checking repository …' },
+    gitRepoLookupFound: { de: 'Repository gefunden · {n} Branches', en: 'Repository found · {n} branches' },
+    gitRepoLookupTruncated: { de: '(die ersten 500)', en: '(first 500)' },
+    gitRepoBranchOther: { de: 'Anderer Branch (nicht in der Liste)', en: 'Other branch (not in the list)' },
+    gitRepoLookupNotFound: { de: 'Kein Repository unter dieser Adresse. Ist es privat, „Privat“ wählen und ein Access-Token angeben.', en: 'No repository at this address. If it is private, choose "Private" and enter an access token.' },
+    gitRepoLookupAuthFailed: { de: 'Das Access-Token wurde abgelehnt.', en: 'The access token was rejected.' },
+    gitRepoLookupEmpty: { de: 'Das Repository hat noch keine Commits.', en: 'The repository has no commits yet.' },
+    gitRepoLookupUnreachable: { de: 'Das Repository ist nicht erreichbar.', en: 'The repository could not be reached.' },
+    gitRepoLookupCheckFailed: { de: 'Das Repository konnte gerade nicht geprüft werden.', en: 'The repository could not be checked right now.' },
+    gitRepoUrlShortened: { de: 'Auf die Repository-Adresse gekürzt.', en: 'Shortened to the repository address.' },
+    gitRepoUrlRemoved: { de: 'Entfernt:', en: 'Removed:' },
+    gitRepoBranchFromUrl: { de: 'Branch „{branch}“ aus dem Link übernommen', en: 'Branch "{branch}" taken from the link' },
     addGitRepo: { de: 'Repository hinzufügen', en: 'Add repository' },
     gitRepoSourceAdded: { de: 'Git-Repository hinzugefügt', en: 'Git repository added' },
     gitRepoSourceDeleted: { de: 'Git-Quelle gelöscht', en: 'Git source deleted' },
@@ -1502,6 +1515,39 @@ export const translations = {
     adminTabHealth: { de: 'System Health', en: 'System Health' },
     adminTabKbOverview: { de: 'KB-Übersicht', en: 'KB Overview' },
     adminTabGlobalKbs: { de: 'Globale KBs', en: 'Global KBs' },
+    adminTabTemplates: { de: 'Vorlagen', en: 'Templates' },
+    // „Vorlagen" › Rollen: the template roles every topic can use (AdminTemplatesTab).
+    tplTabRoles: { de: 'Rollen', en: 'Roles' },
+    tplRolesIntro: { de: 'Die Rollen, die jedes Thema verwenden kann. Die Standardrolle bekommt jedes neue Thema; die Farben zeigt die Rollenkarte auf der Startseite.', en: 'The roles every topic can use. Every new topic starts with the default role; the colours show on the role card on the start page.' },
+    tplDefault: { de: 'Standardrolle', en: 'Default role' },
+    tplDefaultHelp: { de: 'Mit dieser Rolle startet jedes neue Thema. Es gibt genau eine.', en: 'Every new topic starts with this role. There is exactly one.' },
+    tplDefaultAlwaysOn: { de: 'Die Standardrolle ist immer verfügbar.', en: 'The default role is always available.' },
+    tplDisabled: { de: 'Deaktiviert', en: 'Disabled' },
+    tplEnabled: { de: 'Verfügbar', en: 'Available' },
+    tplEnabledHelp: { de: 'Aus: wird nicht mehr zur Auswahl angeboten. Themen, die sie verwenden, behalten sie.', en: 'Off: no longer offered for selection. Topics that use it keep it.' },
+    tplNoDescription: { de: 'Keine Beschreibung', en: 'No description' },
+    tplUsedBy: { de: 'Verwendet in {n} Themen', en: 'Used in {n} topics' },
+    tplUsedByOne: { de: 'Verwendet in 1 Thema', en: 'Used in 1 topic' },
+    tplActionsFor: { de: 'Aktionen für {name}', en: 'Actions for {name}' },
+    tplMakeDefault: { de: 'Als Standardrolle festlegen', en: 'Make default role' },
+    tplDisable: { de: 'Deaktivieren', en: 'Disable' },
+    tplEnable: { de: 'Aktivieren', en: 'Enable' },
+    tplDeleteInUse: { de: 'Löschen (wird verwendet)', en: 'Delete (in use)' },
+    tplDeleteConfirm: { de: 'Rolle „{name}“ löschen?', en: 'Delete role “{name}”?' },
+    tplDeleteError: { de: 'Die Rolle konnte nicht gelöscht werden.', en: 'The role could not be deleted.' },
+    tplSaveError: { de: 'Die Rolle konnte nicht gespeichert werden.', en: 'The role could not be saved.' },
+    tplLoadError: { de: 'Die Rollen konnten nicht geladen werden.', en: 'The roles could not be loaded.' },
+    tplAdd: { de: 'Rolle hinzufügen', en: 'Add role' },
+    tplNew: { de: 'Neue Rolle', en: 'New role' },
+    tplEdit: { de: 'Rolle bearbeiten', en: 'Edit role' },
+    tplColor: { de: 'Farbe', en: 'Colour' },
+    tplColorHelp: { de: 'Die Farbe der Rollenkarte.', en: 'The colour of the role card.' },
+    colorFieldCustom: { de: 'Eigene Farbe…', en: 'Custom colour…' },
+    colorFieldPresets: { de: 'Systemfarben', en: 'System colours' },
+    tplAutoTranslate: { de: 'Die englische Fassung übersetzt das System nach dem Speichern automatisch.', en: 'The system translates the German version automatically after saving.' },
+    tplStartTitle: { de: 'Wie ein Chat in der Rolle beginnt', en: 'How a chat in the role starts' },
+    tplStartSub: { de: 'Gilt in jedem Thema, das für die Rolle keinen eigenen Start einrichtet.', en: 'Applies in every topic that sets up no start of its own for the role.' },
+    tplPromptHint: { de: 'Wer der Assistent in dieser Rolle ist und wie er antwortet. Regeln und feste Anweisungen hängt jedes Thema selbst an.', en: 'Who the assistant is in this role and how it answers. Each topic adds its own rules and the fixed instructions.' },
     adminTabRoles: { de: 'Rollen & Rechte', en: 'Roles & rights' },
 
     // Admin Nav Groups
@@ -1546,7 +1592,7 @@ export const translations = {
     arRightMonitoring: { de: 'Monitoring', en: 'Monitoring' },
     arRightMonitoringHint: { de: 'KB-Übersicht, System Health und Metriken ansehen.', en: 'View the KB overview, system health and metrics.' },
     arRightSystemSettings: { de: 'Systemeinstellungen', en: 'System settings' },
-    arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten, Logo und Neu-Einbettung.', en: 'Settings, search providers, agents, logo and re-embedding.' },
+    arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten und Neu-Einbettung.', en: 'Settings, search providers, agents and re-embedding.' },
     arRightAuditLogs: { de: 'Audit-Logs', en: 'Audit logs' },
     arRightAuditLogsHint: { de: 'Das Protokoll der Admin-Aktionen lesen.', en: 'Read the log of admin actions.' },
     arScopeUpToApiUser: { de: 'bis API-Nutzer', en: 'up to API user' },
@@ -1566,10 +1612,10 @@ export const translations = {
     arTipPrivateTopics: { de: 'Legt private Themen an', en: 'Creates private topics' },
     arTipTopicRole: { de: 'Darf in Themen, was seine Themenrolle erlaubt', en: 'May do in topics what their topic role allows' },
     arPerTopic: { de: 'pro Thema', en: 'per topic' },
-    arPerTopicHint: { de: 'Pro Thema einstellbar in Thema-Einstellungen → Rollen & Rechte. Standard: {default}.', en: 'Set per topic in Topic settings → Roles & rights. Default: {default}.' },
+    arPerTopicHint: { de: 'Pro Thema einstellbar in Thema-Einstellungen → Berechtigungen. Standard: {default}.', en: 'Set per topic in Topic settings → Permissions. Default: {default}.' },
     arDefaultOn: { de: 'an', en: 'on' },
     arDefaultOff: { de: 'aus', en: 'off' },
-    arKbFlagsNotice: { de: 'Was Bearbeiter und Leser mit Quellen dürfen, ist pro Thema einstellbar in Thema-Einstellungen → Rollen & Rechte.', en: 'What editors and viewers may do with sources is set per topic in Topic settings → Roles & rights.' },
+    arKbFlagsNotice: { de: 'Was Bearbeiter und Leser mit Quellen dürfen, ist pro Thema einstellbar in Thema-Einstellungen → Berechtigungen.', en: 'What editors and viewers may do with sources is set per topic in Topic settings → Permissions.' },
     arMappingTitle: { de: 'Systemrollen in Themen', en: 'System roles in topics' },
     arMapSuperadmin: { de: 'in jedem Thema Besitzer.', en: 'owner in every topic.' },
     arMapAdmin: { de: 'in jedem globalen Thema Admin, außer eine eigene Mitgliedschaft im Thema legt etwas anderes fest.', en: 'admin in every global topic, unless an own membership in the topic says otherwise.' },
@@ -1592,6 +1638,12 @@ export const translations = {
     kbActionPublishLive: { de: 'Veröffentlichen', en: 'Publish' },
     kbStagedBadge: { de: 'Nicht live', en: 'Not live' },
     kbStagedHint: { de: 'Öffentlich, aber noch nicht freigeschaltet: sichtbar nur für KB-Admins und Systemadmins.', en: 'Public, but not live yet: visible only to KB admins and system admins.' },
+    globalKbCardIncompleteNotice: { de: '{n} von {total} globalen KBs zeigen in „Entdecken“ eine unvollständige Karte. Die fehlenden Angaben stehen an der jeweiligen KB: Kategorie im ⋮-Menü, Beschreibung in den Thema-Einstellungen unter Startseite, Dokumente und Stand nach dem ersten erfolgreich verarbeiteten Dokument.', en: '{n} of {total} global KBs show an incomplete card in Discover. The missing fields are listed at each KB: category in the ⋮ menu, description in the topic settings under Start page, documents and date after the first successfully processed document.' },
+    globalKbCardMissing: { de: 'Fehlt: {fields}', en: 'Missing: {fields}' },
+    globalKbMissingCategory: { de: 'Kategorie', en: 'Category' },
+    globalKbMissingDescription: { de: 'eigene Beschreibung (es steht der Standardtext)', en: 'own description (the default text shows)' },
+    globalKbMissingDocuments: { de: 'Dokumente', en: 'Documents' },
+    globalKbMissingAsOf: { de: 'Stand', en: 'Date' },
     colProcessing: { de: 'In Bearbeitung', en: 'Processing' },
     colChats: { de: 'Chats', en: 'Chats' },
     colCreated: { de: 'Erstellt', en: 'Created' },
@@ -1673,7 +1725,26 @@ export const translations = {
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
     // The card's meta lines (KI-848): label muted, relative value bold.
     kbCardUsed: { de: 'Genutzt', en: 'Used' },
+    kbListColTopic: { de: 'Thema', en: 'Topic' },
+    kbListColSources: { de: 'Quellen', en: 'Sources' },
+    kbListColChats: { de: 'Chats', en: 'Chats' },
+    kbListColLastActive: { de: 'Zuletzt aktiv', en: 'Last active' },
+    kbListColSharing: { de: 'Freigabe', en: 'Sharing' },
+    kbListColAsOf: { de: 'Stand', en: 'As of' },
     kbCardUpdated: { de: 'Aktualisiert', en: 'Updated' },
+    // Dragging the topic cards into the user's own order.
+    kbMoveCard: { de: 'Verschieben', en: 'Move' },
+    kbGroupFavorites: { de: 'Favoriten', en: 'Favorites' },
+    kbGroupOthers: { de: 'Weitere Themen', en: 'Other topics' },
+    kbDragInstructions: { de: 'Leertaste nimmt das Thema auf. Pfeiltasten verschieben es, Leertaste legt es ab, Escape bricht ab.', en: 'Press space to pick up the topic. Use the arrow keys to move it, space to drop it, escape to cancel.' },
+    kbDragStart: { de: '{name} aufgenommen.', en: 'Picked up {name}.' },
+    kbDragOver: { de: '{name} ist bei Position {n} von {total}.', en: '{name} is at position {n} of {total}.' },
+    kbDragEnd: { de: '{name} an Position {n} von {total} abgelegt.', en: 'Dropped {name} at position {n} of {total}.' },
+    kbDragCancel: { de: 'Verschieben von {name} abgebrochen.', en: 'Moving {name} cancelled.' },
+    kbDragOverGroup: { de: '{name} ist über „{group}".', en: '{name} is over "{group}".' },
+    kbDragEndGroup: { de: '{name} in „{group}" abgelegt.', en: 'Dropped {name} in "{group}".' },
+    kbDropToFavorite: { de: 'Hierher ziehen, um es zu den Favoriten hinzuzufügen', en: 'Drop here to add it to your favorites' },
+    kbDropToUnfavorite: { de: 'Hierher ziehen, um es aus den Favoriten zu nehmen', en: 'Drop here to remove it from your favorites' },
 
     // AI Configs Tab
     aiConfigurations: { de: 'KI-Konfigurationen', en: 'AI Configurations' },
@@ -1810,6 +1881,11 @@ export const translations = {
     chatAttachmentsMaxPerMessageHelp: {
         de: 'Wie viele Dateien eine Chatnachricht höchstens mitbringen darf (1–50).',
         en: 'The most files one chat message may carry (1–50).',
+    },
+    chatAttachmentsMaxFileMb: { de: 'Max. Dateigröße pro Anhang (MB)', en: 'Max file size per attachment (MB)' },
+    chatAttachmentsMaxFileMbHelp: {
+        de: 'Größte Datei, die im Chat angehängt werden kann (1–500 MB, Standard 50). Ob ihr Text passt, entscheidet danach der Anteil am Kontextfenster; die Größe begrenzt nur, wie lange Hochladen und Lesen dauern.',
+        en: 'Largest file that can be attached in the chat (1–500 MB, default 50). Whether its text fits is then decided by the context-window share; the size only bounds how long upload and reading take.',
     },
     chatAnswerHistoryEnabled: { de: 'Chat-Verlauf an Antwort-LLM', en: 'Conversation history to answer LLM' },
     chatAnswerHistoryEnabledHelp: {
@@ -2412,8 +2488,8 @@ export const translations = {
     },
     langfuseBaseUrl: { de: 'Langfuse Basis-URL', en: 'Langfuse base URL' },
     langfuseBaseUrlHelp: {
-        de: 'Wenn gesetzt, blendet JustRAG für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
-        en: 'When set, JustRAG shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
+        de: 'Wenn gesetzt, blendet die Anwendung für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
+        en: 'When set, the app shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
     },
     kbStaleDays: { de: 'Schwellenwert für veraltete Inhalte (Tage)', en: 'Stale-content threshold (days)' },
     kbStaleDaysHelp: {
@@ -2442,17 +2518,70 @@ export const translations = {
 
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
-    chatFooterLabel: { de: 'Text f\u00fcr Chat-Fu\u00dfzeile', en: 'Chat Footer Text' },
+    namesSection: { de: 'Namen', en: 'Names' },
+    institutionNameLabel: { de: 'Institutionsname', en: 'Institution name' },
+    institutionNameHelp: { de: 'Der erste Teil des App-Namens, vor dem Badge im Logo (JLU, TUM …): auch im Titel des Browser-Tabs und {{institution_name}} in Rollen-Prompts. Leer = Wert aus der Server-Konfiguration.', en: 'The first part of the app name, before the badge in the logo (JLU, TUM …): also in the browser tab title and {{institution_name}} in role prompts. Blank = the value from the server configuration.' },
+    systemNameLabel: { de: 'Systemname', en: 'System name' },
+    systemNameHelp: { de: 'Der zweite Teil des App-Namens, im Badge des Logos (RAG, Wissen …): auch im Titel des Browser-Tabs und {{system_name}} in Rollen-Prompts. Leer = Wert aus der Server-Konfiguration.', en: 'The second part of the app name, in the logo’s badge (RAG, Wissen …): also in the browser tab title and {{system_name}} in role prompts. Blank = the value from the server configuration.' },
+    assistantNameLabel: { de: 'Assistentenname', en: 'Assistant name' },
+    assistantNameHelp: { de: 'Der Name, mit dem sich der Assistent vorstellt: {{assistant_name}} in Rollen-Prompts. Leer = Standard.', en: 'The name the assistant introduces itself with: {{assistant_name}} in role prompts. Blank = default.' },
+    // System notice (site_config system_notice_*): admin section + the shell's banner.
+    systemNotice: { de: 'Systemmeldung', en: 'System notice' },
+    systemNoticeIntro: { de: 'Hinweis, der allen Nutzern auf jeder Seite angezeigt wird.', en: 'A notice every user sees on every page.' },
+    systemNoticeEnabled: { de: 'Systemmeldung anzeigen', en: 'Show system notice' },
+    systemNoticeEnabledOn: { de: 'Aktiv – erscheint nach dem Speichern für alle Nutzer auf jeder Seite.', en: 'On – after saving, every user sees it on every page.' },
+    systemNoticeEnabledOff: { de: 'Aus – nach dem Speichern sieht niemand die Meldung.', en: 'Off – after saving, nobody sees the notice.' },
+    systemNoticeEdit: { de: 'Meldung bearbeiten', en: 'Edit notice' },
+    systemNoticeOptional: { de: '(optional)', en: '(optional)' },
+    systemNoticeTitle: { de: 'Titel', en: 'Title' },
+    systemNoticeTitleHelp: { de: 'Der Titel steht fett vor dem Meldungstext. Eine Vorlage füllt das ganze Formular aus – veröffentlicht wird erst mit „Anzeigen" und Speichern.', en: 'The title is shown in bold before the message. A template fills in the whole form – nothing is published until the notice is switched on and saved.' },
+    systemNoticeTitlePlaceholder: { de: 'z. B. Hohe Auslastung', en: 'e.g. High load' },
+    systemNoticeText: { de: 'Meldungstext', en: 'Message' },
+    systemNoticeTextPlaceholder: { de: 'z. B. Das Feature befindet sich gerade noch im Testbetrieb.', en: 'e.g. This feature is still in test operation.' },
+    systemNoticeTone: { de: 'Art der Meldung', en: 'Type' },
+    systemNoticeToneHelp: { de: 'Bestimmt Farbe und Symbol der Meldung.', en: 'Sets the colour and icon of the notice.' },
+    systemNoticeToneNeutral: { de: 'Neutral', en: 'Neutral' },
+    systemNoticeToneInfo: { de: 'Information', en: 'Information' },
+    systemNoticeToneWarning: { de: 'Warnung', en: 'Warning' },
+    systemNoticeToneError: { de: 'Störung', en: 'Disruption' },
+    systemNoticePlacement: { de: 'Platzierung', en: 'Placement' },
+    systemNoticePlacementBanner: { de: 'Balken oben', en: 'Bar at the top' },
+    systemNoticePlacementBannerHelp: { de: 'Über der ganzen App', en: 'Above the whole app' },
+    systemNoticePlacementInline: { de: 'Im Inhalt', en: 'In the content' },
+    systemNoticePlacementInlineHelp: { de: 'Oben im Inhaltsbereich', en: 'At the top of the content area' },
+    systemNoticePlacementToast: { de: 'Toast', en: 'Toast' },
+    systemNoticePlacementToastHelp: { de: 'Unten rechts, schwebend', en: 'Floating, bottom right' },
+    systemNoticeDismissible: { de: 'Schließbar', en: 'Can be closed' },
+    systemNoticeDismissibleHelp: { de: 'Nutzer können die Meldung ausblenden. Sie bleibt im jeweiligen Browser ausgeblendet, bis die Meldung geändert wird.', en: 'Users can hide the notice. It stays hidden in that browser until the notice is changed.' },
+    systemNoticeLink: { de: 'Link', en: 'Link' },
+    systemNoticeLinkUrl: { de: 'Adresse', en: 'Address' },
+    systemNoticeLinkUrlHelp: { de: 'Eine https-Adresse, eine E-Mail-Adresse (mailto:…) oder ein Pfad in der App, z. B. /kb/…', en: 'An https address, an email address (mailto:…) or a path in the app, e.g. /kb/…' },
+    systemNoticeLinkUrlInvalid: { de: 'Nur http(s)-Adressen, mailto: mit einer E-Mail-Adresse oder Pfade, die mit / beginnen.', en: 'Only http(s) addresses, mailto: with one email address, or paths starting with /.' },
+    systemNoticeLinkLabel: { de: 'Linktext', en: 'Link text' },
+    systemNoticeLinkDefault: { de: 'Mehr erfahren', en: 'Learn more' },
+    systemNoticePreview: { de: 'Vorschau', en: 'Preview' },
+    systemNoticePreviewEmpty: { de: 'Gib einen Meldungstext ein, um die Vorschau zu sehen.', en: 'Enter a message to see the preview.' },
+    systemNoticePreviewShown: { de: 'Wird angezeigt', en: 'Shown' },
+    systemNoticePreviewOff: { de: 'Ausgeschaltet', en: 'Switched off' },
+    systemNoticePositionBanner: { de: 'Position: Balken über der ganzen App.', en: 'Position: a bar above the whole app.' },
+    systemNoticePositionInline: { de: 'Position: kleine Meldung oben im Inhaltsbereich.', en: 'Position: a small message at the top of the content area.' },
+    systemNoticePositionToast: { de: 'Position: schwebende Meldung unten rechts.', en: 'Position: a floating message at the bottom right.' },
+    systemNoticeSaveHint: { de: 'Änderungen werden erst nach dem Speichern für Nutzer sichtbar.', en: 'Users see changes only after saving.' },
+    systemNoticeDismiss: { de: 'Meldung schließen', en: 'Close notice' },
+    systemNoticeTemplate: { de: 'Vorlage', en: 'Template' },
+    systemNoticeTemplatePick: { de: 'Vorlage wählen …', en: 'Choose a template …' },
+    systemNoticeTemplatesEmpty: { de: 'Keine Vorlagen gespeichert.', en: 'No templates saved.' },
+    systemNoticeTemplateDelete: { de: 'Vorlage „{{name}}" löschen', en: 'Delete template "{{name}}"' },
+    systemNoticeTemplateDeleteConfirm: { de: 'Vorlage „{{name}}" löschen?', en: 'Delete template "{{name}}"?' },
+    systemNoticeTemplateName: { de: 'Aktuelle Meldung als Vorlage speichern', en: 'Save the current notice as a template' },
+    systemNoticeTemplateNamePlaceholder: { de: 'Name der Vorlage', en: 'Template name' },
+    systemNoticeTemplateSave: { de: 'Vorlage speichern', en: 'Save template' },
+    systemNoticeTemplateSaveShort: { de: 'Speichern', en: 'Save' },
+    systemNoticeTemplateReplaces: { de: 'Ersetzt die Vorlage mit diesem Namen.', en: 'Replaces the template with this name.' },
+    systemNoticeTemplatesLimit: { de: 'Höchstens 20 Vorlagen – lösche zuerst eine.', en: 'At most 20 templates – delete one first.' },
+    systemNoticeTemplatesSaved: { de: 'Vorlagen gespeichert', en: 'Templates saved' },
     // chatFooter already defined in Chat Area section
-    chatFooterPlaceholder: { de: 'Text, der unter der Chat-Oberfläche angezeigt wird', en: 'Text displayed below the chat interface' },
-    kbHeaderLabel: { de: 'Text für Knowledge Base Header', en: 'Knowledge Base Header Text' },
-    kbHeaderPlaceholder: { de: 'Text, der oben in den Knowledge Bases angezeigt wird', en: 'Text displayed at the top of knowledge bases' },
-    imprintLabel: { de: 'Impressum / Fußzeile', en: 'Imprint / Footer' },
-    imprintPlaceholder: { de: 'Impressumstext, wird auch als fixierte Fußzeile angezeigt', en: 'Imprint text, also shown as sticky footer' },
     // examplePromptsLabel already defined in Global Knowledge Bases section
-    examplePromptsHelp: { de: 'Diese Prompts werden im Chat-Fenster für neue Chats angezeigt. Jede Zeile wird als separate Karte dargestellt.', en: 'These prompts are shown in the chat window for new chats. Each line is displayed as a separate card.' },
-    webProxy: { de: 'Web Proxy (Optional)', en: 'Web Proxy (Optional)' },
-    webProxyHelp: { de: 'Wird für Web-Fetch und Crawler verwendet, falls konfiguriert.', en: 'Used for web fetch and crawling when configured.' },
 
     // Global KBs Tab
     globalKnowledgeBases: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },
@@ -2477,6 +2606,8 @@ export const translations = {
     categories: { de: 'Kategorien', en: 'Categories' },
     noCategories: { de: 'Noch keine Kategorien erstellt.', en: 'No categories created yet.' },
     categoryNamePrompt: { de: 'Name der Kategorie', en: 'Category name' },
+    categoryColor: { de: 'Farbe', en: 'Colour' },
+    categoryColorChange: { de: '{name}: Farbe ändern', en: '{name}: change colour' },
     categoryDeleteConfirm: { de: 'Kategorie löschen? Zuordnungen gehen verloren.', en: 'Delete this category? Assignments will be lost.' },
     categorySaveError: { de: 'Fehler beim Speichern der Kategorie', en: 'Error saving the category' },
     categoryDeleteError: { de: 'Fehler beim Löschen der Kategorie', en: 'Error deleting the category' },
@@ -3037,4 +3168,47 @@ export const translations = {
     start: { de: 'Starten', en: 'Start' },
     agentActiveChip: { de: 'Antwortet mit', en: 'Answering with' },
     membersCount: { de: 'Mitglieder', en: 'members' },
+
+    // Usage-policy acceptance (AI-use notice, PolicyAcceptanceDialog)
+    policyNoticeTitle: { de: 'Hinweis zur Nutzung von KI', en: 'Notice on the use of AI' },
+    policyNoticeAiSystem: {
+        de: 'Du arbeitest hier mit einem KI-System. Antworten, Zusammenfassungen und andere Ausgaben erzeugt ein Sprachmodell, nicht ein Mensch.',
+        en: 'You are working with an AI system here. Answers, summaries and other output are generated by a language model, not by a person.',
+    },
+    policyNoticeCheckOutput: {
+        de: 'KI-Ausgaben können ungenau, unvollständig oder diskriminierend sein und Quellen falsch wiedergeben. Prüfe jede Ausgabe kritisch, bevor du sie weiterverwendest.',
+        en: 'AI output can be inaccurate, incomplete or discriminatory and can misquote its sources. Check every output critically before you use it.',
+    },
+    policyNoticeResponsibility: {
+        de: 'Das KI-System darf nicht für private Zwecke eingesetzt werden. Du bist für deine Eingaben, hochgeladene Inhalte und die Weiterverwendung des KI-Outputs verantwortlich. Deine Rechte und Pflichten sind in den {terms} und der {privacy} beschrieben.',
+        en: 'The AI system must not be used for private purposes. You are responsible for what you enter and upload and for how you reuse the AI output. Your rights and obligations are described in the {terms} and the {privacy}.',
+    },
+    policyNoticeConfirm: {
+        de: 'Ich habe den Hinweis gelesen und akzeptiere die Nutzungsbedingungen.',
+        en: 'I have read this notice and accept the terms of use.',
+    },
+    policyNoticeAccept: { de: 'Akzeptieren', en: 'Accept' },
+    opensInNewTab: { de: 'öffnet in neuem Tab', en: 'opens in a new tab' },
+    policyNoticeUpdated: {
+        de: 'Der Hinweis wurde gerade aktualisiert. Bitte lies ihn noch einmal.',
+        en: 'The notice was just updated. Please read it again.',
+    },
+    policyNoticeLoadFailedTitle: { de: 'Hinweis konnte nicht geladen werden', en: 'The notice could not be loaded' },
+    policyNoticeLoadFailedText: {
+        de: 'Wir konnten nicht prüfen, ob du den Hinweis zur Nutzung von KI schon akzeptiert hast. Die App ist erst danach nutzbar. Bitte versuche es erneut.',
+        en: 'We could not check whether you have already accepted the notice on the use of AI. The app can only be used after that. Please try again.',
+    },
+    policyNoticeRetry: { de: 'Erneut versuchen', en: 'Try again' },
+    policyAcceptanceSection: { de: 'Hinweis zur KI-Nutzung', en: 'AI-use notice' },
+    policyAcceptanceVersion: { de: 'Version des Hinweises', en: 'Notice version' },
+    policyAcceptanceVersionHelp: {
+        de: 'Alle Nutzenden müssen den Hinweis zur KI-Nutzung einmal je Version akzeptieren, bevor sie die App verwenden. Eine neue Version (z. B. das „Stand"-Datum der Nutzungsbedingungen) fragt alle erneut. Leer = kein Hinweis. Buchstaben, Ziffern, „.", „_" und „-", höchstens 64 Zeichen. Gilt nur für die Web-App, nicht für API-Schlüssel.',
+        en: 'Every user has to accept the AI-use notice once per version before using the app. A new version (e.g. the terms\' "as of" date) asks everyone again. Empty = no notice. Letters, digits, ".", "_" and "-", at most 64 characters. Applies to the web app only, not to API keys.',
+    },
+
+    // Assistant settings: Startseite + Verhalten (translations.assistant.ts)
+    ...assistantTranslations,
+
+    // Agent step timeline above an answer (translations.agentSteps.ts)
+    ...agentStepsTranslations,
 };

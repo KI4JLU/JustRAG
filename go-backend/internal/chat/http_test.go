@@ -97,8 +97,24 @@ func (m *mockStore) UpdateMessageTraceID(_ context.Context, _ string, _ string) 
 	return m.err
 }
 
+func (m *mockStore) UpdateMessageTrajectory(_ context.Context, _ string, _ []chat.TrajectoryEvent) error {
+	return m.err
+}
+
 func (m *mockStore) GetKBSystemPrompt(_ context.Context, _ string) (*string, error) {
 	return nil, nil
+}
+
+func (m *mockStore) GetChatSystemPrompt(_ context.Context, _, _ string) (*string, error) {
+	return nil, nil
+}
+
+func (m *mockStore) KBHasRole(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStore) CreateChatWithRole(_ context.Context, _, _, _, _ string) (*chat.ChatRow, error) {
+	return m.chat, m.err
 }
 
 func (m *mockStore) UpdateChatTitle(_ context.Context, chatID, userID, title string) error {

@@ -262,9 +262,43 @@ type roundRunner interface {
 }
 
 // trajectoryEmit is the (optional) callback for agent_tool_call events.
-// Nil means "no trajectory emission" — production passes the existing
-// emit closure from http_send.go.
+// Nil means "no trajectory emission" — production passes answerToolSteps.
 type trajectoryEmit func(stage, decision, reason string, details map[string]any)
+
+// answerToolSteps turns the loop's trace callbacks into agentTrajectory
+// events, so the model's tool calls while it writes the answer are steps
+// like every other: shown in the timeline and stored with the answer
+// (trajectory_record.go). A call is one event before the dispatch and one
+// after it; a failed dispatch reports as agent_tool_call_failed. The result
+// preview stays off the event: it is source text, and a step carries none.
+func answerToolSteps(emit func(map[string]any)) trajectoryEmit {
+	return func(stage, decision, reason string, details map[string]any) {
+		evt := TrajectoryEvent{Stage: stage, Decision: decision, Reason: reason}
+		evt.Query, _ = details["query"].(string)
+		evt.Args, _ = details["args"].(string)
+		evt.Findings, _ = details["findings"].(int)
+		if failed, _ := details["failed"].(bool); failed {
+			evt.Decision = "agent_tool_call_failed"
+		}
+		emitTrajectory(emit, evt, nil)
+	}
+}
+
+// toolQueryArg is the search text of a tool call, for its step line: the
+// first non-empty "query", "q" or "question" string in the arguments. Empty
+// for a tool without one (calculator, chunk_read) or malformed arguments.
+func toolQueryArg(raw string) string {
+	var args map[string]any
+	if json.Unmarshal([]byte(raw), &args) != nil {
+		return ""
+	}
+	for _, k := range []string{"query", "q", "question"} {
+		if s, ok := args[k].(string); ok && strings.TrimSpace(s) != "" {
+			return truncatePreview(strings.TrimSpace(s), 200)
+		}
+	}
+	return ""
+}
 
 // runAnswerWithToolsWithRunner is the testable variant of
 // RunAnswerWithTools. The public entry point in a later task is a thin
@@ -335,8 +369,9 @@ func runAnswerWithToolsWithRunner(
 		for _, c := range calls {
 			if trace != nil {
 				trace("decision", "agent_tool_call", c.Function.Name, map[string]any{
-					"tool": c.Function.Name,
-					"args": previewArgs(c.Function.Arguments),
+					"tool":  c.Function.Name,
+					"args":  previewArgs(c.Function.Arguments),
+					"query": toolQueryArg(c.Function.Arguments),
 				})
 			}
 			res, derr := in.Dispatcher.Dispatch(ctx, in.KbID, c.Function.Name,
@@ -353,8 +388,10 @@ func runAnswerWithToolsWithRunner(
 			})
 			if trace != nil {
 				trace("decision", "agent_tool_call_result", c.Function.Name, map[string]any{
-					"tool":    c.Function.Name,
-					"preview": previewContent(content),
+					"tool":     c.Function.Name,
+					"preview":  previewContent(content),
+					"findings": len(res.Chunks),
+					"failed":   derr != nil,
 				})
 			}
 		}

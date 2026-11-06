@@ -1,13 +1,16 @@
 import {
-  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Plus, SlidersHorizontal, Star, Clock, RefreshCw,
+  Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Users, Lock, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
-import { ActionMenu, Badge, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
+import { ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
 import { formatRelativeCoarse } from '../utils/dates';
-import { KbListRow } from './KbListRow';
-import { canOpenKbAdvancedSettings, canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
+import { CategoryPill } from './CategoryPill';
+import { categoryDotColor } from './kbSettings/assistant/startPageModel';
+import { canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
+import { useFittingLineClamp } from '../hooks/useFittingLineClamp';
+import { SortableHandle } from './SortableGrid';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
@@ -34,27 +37,6 @@ import './HomeView.css';
 /** Translate function shape, as `useTheme()` publishes it. */
 type T = (k: string) => string;
 
-// lastActiveLabel renders the KB-card freshness line (improvement #6): the
-// newest of lastActivityAt / createdAt as a locale-aware "Zuletzt aktiv vor …".
-function lastActiveLabel(
-  kb: KnowledgeBase,
-  rtf: Intl.RelativeTimeFormat,
-  t: T,
-): string {
-  const iso = kb.lastActivityAt || kb.createdAt;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMs = then - Date.now(); // negative => past
-  const min = Math.round(diffMs / 60000);
-  const hr = Math.round(diffMs / 3600000);
-  const day = Math.round(diffMs / 86400000);
-  let rel: string;
-  if (Math.abs(min) < 60) rel = rtf.format(min, 'minute');
-  else if (Math.abs(hr) < 24) rel = rtf.format(hr, 'hour');
-  else rel = rtf.format(day, 'day');
-  return `${t('kbLastActive')} ${rel}`;
-}
-
 // Drei angezeigte Zustaende aus zwei gespeicherten. memberCount enthaelt den
 // Owner, deshalb <= 1 und nicht === 0. Single source of truth for the
 // three-way branch — text, CSS class and icon all derive from this instead
@@ -76,16 +58,19 @@ function visibilityBadge(kb: KnowledgeBase, t: T): string {
 // shipped to nobody. One component, one branch, three reachable states.
 const VISIBILITY_TONE = { public: 'success', shared: 'primary', personal: 'neutral' } as const;
 
+// The icon says who can get in: everyone (globe), several people (people),
+// only you (a lock).
+const VISIBILITY_ICON = { public: Globe, shared: Users, personal: Lock } as const;
+
 function VisibilityBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const state = visibilityState(kb);
+  const Icon = VISIBILITY_ICON[state];
   return (
     // `shrink-0` (KI-843): in the card footer the chip group is the elastic
     // half and wraps; the badge keeps its size at the right edge. The legacy
     // badge rule sets no `flex-shrink`, so the utility is not shadowed.
-    <Badge tone={VISIBILITY_TONE[state]} className="home-view__badge shrink-0">
-      {state === 'public'
-        ? <Globe size={10} aria-hidden="true" />
-        : <User size={10} aria-hidden="true" />}
+    <Badge tone={VISIBILITY_TONE[state]} className="home-view__badge ml-auto shrink-0">
+      <Icon size={10} aria-hidden="true" />
       {visibilityBadge(kb, t)}
     </Badge>
   );
@@ -117,29 +102,17 @@ function CountChip({ icon, n, label }: { icon: React.ReactNode; n: number; label
 // was last successfully ingested — the chip showed the OLDEST file's date); in
 // the list row it is dropped, see the row below for why.
 /**
- * TWO LAYOUTS, one per caller, and neither carries a legacy class.
- * `.home-view__chip-row`'s `margin-top: var(--space-2)` is stacked-card
- * spacing, and it cannot be overridden with a utility — the rule is unlayered
- * and Tailwind's utilities are in `@layer utilities`, so the unlayered one
- * wins (`scripts/check-css-cascade.mjs` gates on that). So both forms are
- * utilities only:
- *  - `row`, the compact list row: one line, `shrink-0` — the row's NAME is
- *    what truncates, the chips keep their size.
- *  - `footer`, the card footer (KI-843): `min-w-0 flex-1 flex-wrap`, so the
- *    chip group takes the footer's width left of the badge and WRAPS rather
- *    than pushing the badge out of the card.
+ * The card footer's chip group (KI-843): `min-w-0 flex-1 flex-wrap`, so it
+ * takes the footer's width left of the badge and WRAPS rather than pushing the
+ * badge out of the card. The list row shows its counts in columns instead.
  */
-function KbCardChips({ kb, t, layout }: { kb: KnowledgeBase; t: T; layout: 'row' | 'footer' }) {
+function KbCardChips({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const processing = kb.processingFileCount ?? 0;
   const files = kb.fileCount ?? 0;
   const messages = kb.turnCount ?? 0;
   if (files === 0 && messages === 0 && processing === 0) return null;
   return (
-    <div
-      className={layout === 'footer'
-        ? 'flex min-w-0 flex-1 flex-wrap items-center gap-stack-sm'
-        : 'flex shrink-0 items-center gap-stack-sm'}
-    >
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-stack-sm">
       {files > 0 && (
         <CountChip icon={<FileText size={12} aria-hidden="true" />} n={files} label={t('kbFilesChip').replace('{n}', String(files))} />
       )}
@@ -178,90 +151,6 @@ function MetaLine({ icon, label, value, testId }: { icon: React.ReactNode; label
   );
 }
 
-/**
- * The "create" tile, rendered as the FIRST cell of a section's grid.
- *
- * It used to be an `<li>` inside `HomeView`'s own `<ul className="home-view__
- * grid">`. `SectionedGridLayout` lays the cells out with the design system's
- * `Grid`, which is a `<div>` — an `<li>` in it would be a list item with no
- * list, so every cell in this file is a `<div>` now. The visual card chrome is
- * unchanged: it is still `.source-card` + `.home-view__create-card`.
- */
-/**
- * The create tile. `onClick` is optional ONLY together with `disabled`: a tile
- * with neither is a button that looks live and swallows the click, which is
- * the failure mode `ToolsView`'s placeholder tile had to avoid. `disabled`
- * is the HTML attribute, so the control is announced as unavailable rather
- * than merely styled as such. (No caller passes `disabled` since card KI-833
- * replaced that placeholder tile with the first real tool.)
- */
-export function CreateCell({
-  onClick,
-  label,
-  text,
-  disabled = false,
-  compact = false,
-}: {
-  onClick?: () => void;
-  label: string;
-  text: string;
-  disabled?: boolean;
-  /** One list row instead of a tile — matches `PrivateKbCard`'s compact form. */
-  compact?: boolean;
-}) {
-  /* THE COMPACT TILE IS THE SAME HEIGHT AS A LIST ROW, and neither states one.
- 
-     Both are `px-gutter py-stack-sm` around a single 24px line box, so the two
-     heights are equal by construction rather than by a number kept in step:
-       - a row's tallest children are its mini-icon buttons (4px padding around
-         a 16px icon = 24px) and its name (`text-body-base`, 16px x 1.5 = 24px);
-       - this tile's line is the same 16px icon and the same type token.
-     Change the type scale or the icon size and both move together.
- 
-     It uses `.home-view__create-row`, a sibling of `.home-view__create-card`
-     that repeats the tile's three appearance declarations (dashed border,
-     --bg-secondary, --accent-primary) and drops its shape — the `min-height`
-     and the centred column. A modifier ON the tile class would not work: that
-     rule and `.source-card`'s `padding: 1rem` are unlayered, so no utility
-     could override them, and the row needs different padding. */
-  if (compact) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={label}
-        className="home-view__create-row"
-      >
-        {/* The icon sits in the SAME 24px box as a row's leading star
-            (`home-view__mini-icon` = 4px around a 16px glyph), which is what
-            makes this label and a topic's title start at the same x. Matching
-            it with a padding value instead would tie the two together through a
-            number nobody would think to keep in step. */}
-        <span className="home-view__mini-icon flex shrink-0 items-center justify-center">
-          <Plus size={16} aria-hidden="true" />
-        </span>
-        <span className="truncate">{text}</span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="source-card home-view__create-card">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        aria-label={label}
-        className="home-view__create-button"
-      >
-        <Plus size={32} aria-hidden="true" />
-        <span className="home-view__create-label">{text}</span>
-      </button>
-    </div>
-  );
-}
-
 /* `PublicKbCard` and `PublicKbCardProps` stood here and are deleted
    (18.09.2026). It was the tile of the „Favoriten" section, then of „Global
    sichtbar" on „Geteiltes Wissen"; both are gone, and global topics are drawn
@@ -270,17 +159,37 @@ export function CreateCell({
    admin KB overview. */
 
 
+/**
+ * The list view's columns: name (elastic), sources, chats, last activity,
+ * sharing, star + menu. Shared by the rows and `KbListHeader`, so the labels
+ * stand over their values. Below `md` the count and date columns drop out.
+ */
+const KB_ROW_COLUMNS =
+  'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_8rem_7.5rem_auto] [&>*:nth-child(2)]:max-md:hidden [&>*:nth-child(3)]:max-md:hidden [&>*:nth-child(4)]:max-md:hidden';
+
+/** The column labels over the list view's rows. */
+export function KbListHeader({ t }: { t: T }) {
+  return (
+    <div aria-hidden="true" className={`${KB_ROW_COLUMNS} border-l-4 border-transparent pl-6 pr-3 text-xs font-medium text-on-surface-variant`}>
+      <span>{t('kbListColTopic')}</span>
+      <span className="text-right">{t('kbListColSources')}</span>
+      <span className="text-right">{t('kbListColChats')}</span>
+      <span className="text-right">{t('kbListColLastActive')}</span>
+      <span className="text-right">{t('kbListColSharing')}</span>
+      <span className="w-14" />
+    </div>
+  );
+}
+
 export interface PrivateKbCardProps {
   kb: KnowledgeBase;
   currentUserId?: string;
   /**
-   * The caller's SYSTEM role. Needed here because the advanced-settings
-   * trigger below requires one of {api-user, admin, superadmin} on top of the
-   * KB role — the card cannot decide that from `kb` alone.
+   * The caller's SYSTEM role: renaming and the topic settings resolve a
+   * superadmin to owner, which the card cannot decide from `kb` alone.
    */
   systemRole?: string;
   removingKb: boolean;
-  rtf: Intl.RelativeTimeFormat;
   t: T;
   language: Language;
   onSelectKB: (kb: KnowledgeBase) => void;
@@ -289,58 +198,60 @@ export interface PrivateKbCardProps {
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** One compact line instead of a card — the list view. */
   compact?: boolean;
-  onOpenKbSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
+  /** „Einstellungen": opens the topic with Thema-Einstellungen on Startseite. */
+  onOpenSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
 }
 
 /**
- * The per-card actions for the ⋮ menu, ONE list for the card and the compact
- * list row so the two cannot drift. Every gate below is the shared predicate
- * the rest of the app uses — none of them is re-derived here. The handlers
+ * The per-topic actions for the ⋯ menu — ONE list for the card and the list
+ * row (and the same entries in the same order wherever a topic has a menu).
+ * Only actions on the topic itself (developer guideline, 2026-10-29):
+ *   Umbenennen… / Teilen… · Einstellungen ↗ · Löschen…
+ * „…" opens a dialog and keeps the overview, ↗ lands in the topic. Teilen…
+ * and Einstellungen jump straight to their section of the topic's settings
+ * (Mitglieder, Startseite) rather than rebuilding them here. An entry the
+ * caller may not use is not shown — no badges; the RAG configuration is a
+ * row action of the admin console's KB-Übersicht. The favorite is the star on the card / row.
+ * Every gate is the shared predicate the rest of the app uses. The handlers
  * only call `stopPropagation`, which a menu's DOM `Event` shares with a
  * `React.MouseEvent`.
  */
 function kbCardActions({
-  kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB,
+  kb, currentUserId, systemRole, removingKb, t, onOpenShare, onOpenSettings, onRenameKB, onDeleteKB,
 }: Pick<PrivateKbCardProps,
-  'kb' | 'currentUserId' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onToggleFavorite' | 'onOpenKbSettings' | 'onRenameKB' | 'onDeleteKB'>,
+  'kb' | 'currentUserId' | 'systemRole' | 'removingKb' | 't' | 'onOpenShare' | 'onOpenSettings' | 'onRenameKB' | 'onDeleteKB'>,
 ): ActionMenuItem[] {
   const asMouse = (e: Event) => e as unknown as React.MouseEvent;
-  // The favorite is ungated — the caller's own flag, not a permission. Its
-  // label names what selecting it DOES, so it flips with the state.
-  const items: ActionMenuItem[] = [{
-    label: kb.isFavorite ? t('removeFavorite') : t('addFavorite'),
-    icon: <Star size={16} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />,
-    onSelect: e => onToggleFavorite(kb, asMouse(e)),
-  }];
-  // Teilen opens Thema-Einstellungen → Mitglieder, so it is offered exactly
-  // where that window is: the same predicate as the workspace's gear.
-  if (canOpenKbTopicSettings(kb, systemRole, currentUserId)) {
-    items.push({ label: t('share'), icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
-  }
+  const items: ActionMenuItem[] = [];
   // Rename: owner-only (superadmin resolves to owner), mirroring
   // kbaccess.CanRename on the server — a KB admin edits everything but the name.
   if (canRenameKb(kb, systemRole)) {
-    items.push({ label: t('rename'), icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
+    items.push({ label: `${t('rename')}…`, icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
   }
-  // RAG settings: kbAdvancedChain needs a system role in {api-user, admin,
-  // superadmin} on top of the KB admin role — not the members gate. The card
-  // offers it to system admins only (developer, 2026-10-13), badged as such;
-  // an api-user still passes the server gate but gets no entry here.
-  const isSystemAdmin = systemRole === 'admin' || systemRole === 'superadmin';
-  if (isSystemAdmin && canOpenKbAdvancedSettings(kb, systemRole)) {
+  // Teilen and Einstellungen open the topic's settings, so they are offered
+  // exactly where that window is: the same predicate as the workspace's gear.
+  const canSettings = canOpenKbTopicSettings(kb, systemRole, currentUserId);
+  if (canSettings) {
+    items.push({ label: `${t('share')}…`, icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });
     items.push({
-      label: t('kbAdvancedSettings'),
-      badge: t('roleAdmin'),
-      icon: <SlidersHorizontal size={16} aria-hidden="true" />,
-      onSelect: e => onOpenKbSettings(kb, asMouse(e)),
+      label: t('settings'),
+      icon: <Settings size={16} aria-hidden="true" />,
+      opensPage: true,
+      separatorBefore: true,
+      onSelect: e => onOpenSettings(kb, asMouse(e)),
     });
   }
   // Owners delete the KB, everyone else only leaves it (useKbRemoval decides
-  // the request). Disabled while any removal is in flight.
+  // the request and asks first). Disabled while any removal is in flight.
+  // A global topic is left by unsubscribing (useKbRemoval sends exactly that);
+  // its label says so rather than „remove from my view".
+  const removeLabel = visibilityState(kb) === 'public'
+    ? t('unsubscribe')
+    : kb.myRole === 'owner' ? t('delete') : t('removeFromMyView');
   items.push({
-    label: kb.myRole === 'owner' ? t('delete') : t('removeFromMyView'),
+    label: `${removeLabel}…`,
     icon: <Trash2 size={16} aria-hidden="true" />,
     destructive: true,
     disabled: removingKb,
@@ -348,6 +259,43 @@ function kbCardActions({
     onSelect: e => onDeleteKB(kb, asMouse(e)),
   });
   return items;
+}
+
+/* THE HOVER SWAP. Out first, then in: what leaves fades fast (150ms) and what
+   arrives follows after 100ms over 300ms, so the two texts never sit on top of
+   each other half-transparent. Each side carries its own delay for both
+   directions — a transition takes its timing from the state it moves TO. Only
+   the opacity changes: the description stays where it is, nothing slides. */
+const AT_REST_FADE =
+  'transition-opacity duration-300 delay-100 ease-out group-focus-within/kb-card:opacity-0 group-focus-within/kb-card:duration-150 group-focus-within/kb-card:delay-0 group-hover/kb-card:opacity-0 group-hover/kb-card:duration-150 group-hover/kb-card:delay-0';
+
+const DESCRIPTION_FADE =
+  'opacity-0 transition-opacity duration-150 ease-out group-focus-within/kb-card:opacity-100 group-focus-within/kb-card:duration-300 group-focus-within/kb-card:delay-100 group-hover/kb-card:opacity-100 group-hover/kb-card:duration-300 group-hover/kb-card:delay-100';
+
+/**
+ * The card's description, over the meta block and the footer (`inset-x-5`
+ * and `bottom-4` are the footer's own padding). The OUTER box is set by the
+ * card and measured; the text inside keeps its own height and clamps to the
+ * whole lines that fit the box. The clamp has to sit on a box as tall as its
+ * text: `line-clamp` only places the ellipsis, and in a taller box the lines
+ * after it still render, so the next one would show up cut.
+ */
+function CardDescription({ text }: { text: string }) {
+  const [ref, lines] = useFittingLineClamp<HTMLDivElement>();
+  return (
+    <div
+      ref={ref}
+      className={`pointer-events-none absolute inset-x-5 top-0 bottom-4 min-w-0 overflow-hidden text-sm text-on-surface-variant ${DESCRIPTION_FADE} group-focus-within/kb-card:pointer-events-auto group-hover/kb-card:pointer-events-auto`}
+    >
+      <p
+        className="m-0 line-clamp-4"
+        style={lines ? { WebkitLineClamp: lines } : undefined}
+        data-testid="kb-card-description"
+      >
+        {text}
+      </p>
+    </div>
+  );
 }
 
 /** A click on one of the card's own controls — or on its portaled menu, whose
@@ -359,21 +307,31 @@ const isControlClick = (e: React.MouseEvent) =>
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, rtf, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB, compact = false,
+  kb, currentUserId, systemRole, removingKb, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenSettings, onRenameKB, onDeleteKB, compact = false,
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
-      actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onToggleFavorite, onOpenKbSettings, onRenameKB, onDeleteKB })}
+      actions={kbCardActions({ kb, currentUserId, systemRole, removingKb, t, onOpenShare, onOpenSettings, onRenameKB, onDeleteKB })}
       label={`${t('kbActions')}: ${kb.name}`}
-      triggerClassName="size-6 rounded-[var(--ui-radius-control)]"
+      triggerClassName={compact ? 'size-6 rounded-[var(--ui-radius-control)]' : 'size-7 rounded-[var(--ui-radius-control)]'}
     />
   );
 
-  // A favorite shows a filled star ahead of its title; toggling it is a menu
-  // action. Decorative: the state is in the menu item's label.
-  const favStar = kb.isFavorite ? (
-    <Star size={16} fill="currentColor" aria-hidden="true" className="home-view__fav-star" />
-  ) : null;
+  // The favorite toggle, on the card's banner and ahead of the row's title:
+  // filled while the topic is a favorite. Its label names what a click does.
+  const favoriteLabel = kb.isFavorite ? t('removeFavorite') : t('addFavorite');
+  const favoriteButton = (className: string, size: number) => (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={className}
+      aria-label={favoriteLabel}
+      title={favoriteLabel}
+      onClick={(e) => { e.stopPropagation(); onToggleFavorite(kb, e); }}
+    >
+      <Star size={size} aria-hidden="true" fill={kb.isFavorite ? 'currentColor' : 'none'} />
+    </Button>
+  );
 
   const nameButton = (
     <button
@@ -386,49 +344,62 @@ export function PrivateKbCard({
     </button>
   );
 
-  /* THE LIST ROW. One line, everything on one vertical centre.
-   *
-     IT SHARES NO CLASS WITH THE CARD, and that is the fix rather than a style
-     preference. `.source-card` (padding 1rem, margin-bottom 1rem),
-     `.source-title` (margin-bottom .25rem), `.home-view__kb-name`
-     (margin-top 1rem) and `.home-view__kb-meta` (margin-top .5rem) are all
-     STACKED-CARD spacing: inside a flex row those top margins push their child
-     down and defeat `items-center`, which is what tilted the row off its
-     baseline.
- 
-     They cannot be overridden with a utility either. Those rules are UNLAYERED
-     while Tailwind's utilities sit in `@layer utilities`, so an unlayered rule
-     wins regardless of order — the repo gates on exactly that
-     (`scripts/check-css-cascade.mjs`). So the row is built from tokens only,
-     and carries no legacy class at all.
- 
-     No fixed height: `items-center` on a row whose children have none makes the
-     height the tallest child plus the token padding. `p-stack-md` is one value
-     on all four sides (developer ruling) — a row is small enough that an
-     asymmetric inset reads as a mistake rather than as rhythm. */
+  /* THE LIST ROW (developer mockup „Hairline", Liste, 30.10.2026): a DS Card
+     with the category's colour as its left edge and a faint tint from it
+     (grey edge, no tint without a category); the name with the category pill
+     under it, then one column each for sources, chats, last activity and
+     sharing, then the star and the ⋯ menu. The columns are `KB_ROW_COLUMNS`,
+     which `KbListHeader` labels. */
   if (compact) {
+    const files = kb.fileCount ?? 0;
+    const messages = kb.turnCount ?? 0;
+    const processing = kb.processingFileCount ?? 0;
     return (
-      <KbListRow
+      <Card
+        accent
+        tint={!!kb.category}
+        accentColor={kb.category ? categoryDotColor(kb.category) : cardNeutralAccent}
+        interactive
+        role="presentation"
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-        leading={favStar}
-        name={<span className="truncate">{nameButton}</span>}
-        trailing={(
-          <>
-            {/* No freshness chip in the row. It used to show the
-                OLDEST file's date; the card's replacement, „Aktualisiert
-                {relative}", is text, and ~150px of text on top of the row's
-                existing „Zuletzt aktiv …" line pushes the worst-case row
-                (four-digit counts, processing chip, „Geteilt (12)") past its
-                width. The row keeps one date line, the card carries both. */}
-            <KbCardChips kb={kb} t={t} layout="row" />
-            <span className="whitespace-nowrap font-label-sm text-label-sm text-on-surface-variant">
-              {lastActiveLabel(kb, rtf, t)}
-            </span>
-            <VisibilityBadge kb={kb} t={t} />
-            {menu}
-          </>
-        )}
-      />
+        className={`${KB_ROW_COLUMNS} group/kb-row relative cursor-pointer items-center py-3 pl-6 pr-3`}
+      >
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <span className="max-w-full truncate font-semibold text-on-surface">{nameButton}</span>
+          {kb.category && <CategoryPill category={kb.category} small />}
+        </div>
+        <div className="flex justify-end gap-1">
+          {processing > 0
+            ? (
+              <Badge tone="primary" className="home-view__chip">
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                {t('kbProcessingChip').replace('{n}', String(processing))}
+              </Badge>
+            )
+            : <CountChip icon={<FileText size={12} aria-hidden="true" />} n={files} label={t('kbFilesChip').replace('{n}', String(files))} />}
+        </div>
+        <div className="flex justify-end">
+          <CountChip icon={<MessageSquare size={12} aria-hidden="true" />} n={messages} label={t('kbMessagesChip').replace('{n}', String(messages))} />
+        </div>
+        <span className="truncate text-right text-sm text-on-surface-variant">
+          {formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
+        </span>
+        <div className="flex justify-end"><VisibilityBadge kb={kb} t={t} /></div>
+        <div className="flex items-center justify-end">
+          {favoriteButton('size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant', 16)}
+          {menu}
+        </div>
+        {/* The drag grip, in the row's left padding beside the name. Last
+            child, so the columns' `nth-child` rules still count the same;
+            positioned, so it takes no grid cell. Shown on hover and to the
+            keyboard, as on the card. Without hover (touch) it is invisible,
+            so it lets taps through to the row: a long press on the row drags. */}
+        <SortableHandle
+          vertical
+          label={`${t('kbMoveCard')}: ${kb.name}`}
+          className="absolute top-1/2 left-1 z-10 h-8 w-4 -translate-y-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-row:opacity-100 [@media(hover:none)]:pointer-events-none"
+        />
+      </Card>
     );
   }
 
@@ -436,63 +407,96 @@ export function PrivateKbCard({
     // Card-level click is a mouse convenience (role="presentation"); the
     // accessible control is the KB-name button below, which carries the
     // label and the keyboard path.
-    <div
-      className="source-card home-view__kb-card"
+    <Card
+      interactive
+      accentColor={kb.category ? categoryDotColor(kb.category) : undefined}
+      className="group/kb-card relative h-full cursor-pointer"
+      data-testid="kb-card"
       role="presentation"
       onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
     >
-      {/* Title first, top left (after the star of a favorite); every action,
-          the favorite toggle included, sits in the ⋮ menu top right. */}
-      <div className="home-view__card-top">
-        {favStar}
-        <div className="source-title home-view__kb-name">{nameButton}</div>
-        {menu}
-      </div>
-
-      {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
-          „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
-          omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
-          are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
-          Stunden" (the unit rule is written down in utils/dates.ts). */}
-      <div className="mt-stack-sm flex min-w-0 flex-col gap-1">
-        <MetaLine
-          testId="kb-meta-used"
-          icon={<Clock size={16} aria-hidden="true" />}
-          label={t('kbCardUsed')}
-          value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
-        />
-        {kb.lastIngestedAt && (
-          <MetaLine
-            testId="kb-meta-updated"
-            icon={<RefreshCw size={16} aria-hidden="true" />}
-            label={t('kbCardUpdated')}
-            value={formatRelativeCoarse(kb.lastIngestedAt, language)}
-          />
+      {/* THE HAIRLINE CARD (developer mockup „Hairline", 30.10.2026; glow
+          05.11.2026): title, favorite star and ⋯ on the card's own surface,
+          lit by a soft glow of the category's colour rising from a rule in
+          that colour with the category on it. Without a category: a faint
+          glow in the primary colour over a 1px rule in the border colour. */}
+      {/* The drag grip: top centre, over the band's top padding, so it takes
+          no room from the title. Only inside a sortable grid; shown on hover
+          and to the keyboard. Without hover it lets taps through to the card,
+          where a long press drags. */}
+      <SortableHandle
+        label={`${t('kbMoveCard')}: ${kb.name}`}
+        className="absolute top-0.5 left-1/2 z-10 h-5 w-9 -translate-x-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100 [@media(hover:none)]:pointer-events-none"
+      />
+      <CardBand data-testid="kb-card-band">
+        <CardTitle>{nameButton}</CardTitle>
+        {/* „Make favorite" (the empty star) shows on hover and to the keyboard
+            only; a favorite keeps its filled star. Without hover (touch) it
+            stays visible, since nothing would ever reveal it. */}
+        {favoriteButton(
+          `size-7 shrink-0 rounded-[var(--ui-radius-control)] text-on-surface-variant${kb.isFavorite ? '' : ' opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100 [@media(hover:none)]:opacity-100'}`,
+          16,
         )}
-        {kb.userId !== currentUserId && (() => {
-          const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
-          const displayName = fullName || kb.ownerUsername || t('unknownUser');
-          // „von {name}": the words around the name are the muted label, the
-          // name is the bold value — one template, so translators keep the
-          // word order.
-          const [before, after = ''] = t('sharedBy').split('{name}');
-          return (
+        {menu}
+      </CardBand>
+      <CardHairline>{kb.category && <CategoryPill category={kb.category} onHairline />}</CardHairline>
+
+      {/* At rest, the activity — the meta block and the footer; hovered (or
+          holding the focus) the card says what the topic is instead: its
+          description, as on its title card. The description lies over both and
+          they fade out, so it adds no height. It spans the meta block AND the
+          footer (the wrapper holds both), and clamps to the lines that fit
+          there, so it never ends in a half-cut line. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <CardDescription text={kb.description?.trim() || t('kbHeaderDefault')} />
+        <CardContent className={`flex flex-col pb-0 ${AT_REST_FADE}`}>
+          <div className="mb-3 flex min-h-11 min-w-0 flex-col gap-1">
+            {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
+                „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
+                omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
+                are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
+                Stunden" (the unit rule is written down in utils/dates.ts). */}
             <MetaLine
-              testId="kb-meta-owner"
-              icon={<User size={16} aria-hidden="true" />}
-              label={before.trim()}
-              value={<>{displayName}{after}</>}
+              testId="kb-meta-used"
+              icon={<Clock size={16} aria-hidden="true" />}
+              label={t('kbCardUsed')}
+              value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
             />
-          );
-        })()}
+            {kb.lastIngestedAt && (
+              <MetaLine
+                testId="kb-meta-updated"
+                icon={<RefreshCw size={16} aria-hidden="true" />}
+                label={t('kbCardUpdated')}
+                value={formatRelativeCoarse(kb.lastIngestedAt, language)}
+              />
+            )}
+            {/* A global topic has no owner — „Öffentlich" on the badge says whose it is. */}
+            {kb.userId !== currentUserId && visibilityState(kb) !== 'public' && (() => {
+              const fullName = `${kb.ownerFirstName || ''} ${kb.ownerLastName || ''}`.trim();
+              const displayName = fullName || kb.ownerUsername || t('unknownUser');
+              // „von {name}": the words around the name are the muted label, the
+              // name is the bold value — one template, so translators keep the
+              // word order.
+              const [before, after = ''] = t('sharedBy').split('{name}');
+              return (
+                <MetaLine
+                  testId="kb-meta-owner"
+                  icon={<User size={16} aria-hidden="true" />}
+                  label={before.trim()}
+                  value={<>{displayName}{after}</>}
+                />
+              );
+            })()}
+          </div>
+        </CardContent>
+        {/* Footer: scent chips left (wrapping when they do not fit), the
+            visibility badge right — both inside the card at every width the
+            grid renders (card KI-843). Hidden while the description shows. */}
+        <CardFooter className={`justify-between ${AT_REST_FADE} group-focus-within/kb-card:pointer-events-none group-hover/kb-card:pointer-events-none`}>
+          <KbCardChips kb={kb} t={t} />
+          <VisibilityBadge kb={kb} t={t} />
+        </CardFooter>
       </div>
-      {/* Footer: scent chips left (wrapping when they do not fit), the
-          visibility badge right — both inside the card at every width the
-          grid renders (card KI-843). */}
-      <div className="home-view__card-footer">
-        <KbCardChips kb={kb} t={t} layout="footer" />
-        <VisibilityBadge kb={kb} t={t} />
-      </div>
-    </div>
+    </Card>
   );
 }

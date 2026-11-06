@@ -27,6 +27,7 @@ type kbRow struct {
 	UserID                *string `db:"user_id"`
 	IsGlobal              bool    `db:"is_global"`
 	IsPublished           bool    `db:"is_published"`
+	Shared                bool    `db:"shared"`
 	ViewerSeeSources      bool    `db:"viewer_see_sources"`
 	ViewerDownloadSources bool    `db:"viewer_download_sources"`
 	ViewerSeeCitations    bool    `db:"viewer_see_citations"`
@@ -44,11 +45,12 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 	// The source-permission flags (migration 0089) ride along, so every
 	// consumer of this lookup — RequireKBRole and the handler-internal checks
 	// that share it — sees the same flags CapabilitiesFor resolves.
-	const sql = `SELECT id, user_id, (visibility = 'public') AS is_global, is_published,
-	                    viewer_see_sources, viewer_download_sources,
-	                    viewer_see_citations, editor_see_sources, editor_add_sources,
-	                    editor_download_sources, editor_see_citations
-	             FROM knowledge_bases WHERE id = $1`
+	const sql = `SELECT kb.id, kb.user_id, (kb.visibility = 'public') AS is_global, kb.is_published,
+	                    ` + SharedSQL + ` AS shared,
+	                    kb.viewer_see_sources, kb.viewer_download_sources,
+	                    kb.viewer_see_citations, kb.editor_see_sources, kb.editor_add_sources,
+	                    kb.editor_download_sources, kb.editor_see_citations
+	             FROM knowledge_bases kb WHERE kb.id = $1`
 
 	rows, err := pgxutil.QueryRows[kbRow](ctx, s.pool, sql, id)
 	if err != nil {
@@ -64,6 +66,7 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 		UserID:      r.UserID,
 		IsGlobal:    r.IsGlobal,
 		IsPublished: r.IsPublished,
+		Shared:      r.Shared,
 		Sources: SourcePermissions{
 			ViewerSeeSources:      r.ViewerSeeSources,
 			ViewerDownloadSources: r.ViewerDownloadSources,

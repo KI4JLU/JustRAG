@@ -220,9 +220,8 @@ describe('App — the KB overview on the authenticated home route', () => {
    * WAI-ARIA's button / menuitem / dialog role mappings.
    *
    * („shows the agents row to a system admin" sat here and is deleted: the row
-   * was removed from the nav on 18.09.2026. `AgentsView` keeps its two in-KB
-   * routes, both behind `canOpenKbAdvancedSettings`, and neither is on this
-   * route to assert.)
+   * was removed from the nav on 18.09.2026. `AgentsView` keeps its route
+   * through the RAG-Settings page, which is not on this route to assert.)
    * -------------------------------------------------------------------- */
   it('reaches the admin console from the user menu', async () => {
     seedUser('admin');
@@ -282,8 +281,9 @@ describe('App — the KB overview on the authenticated home route', () => {
     expect(dialog.getByRole('combobox', { name: translations.languageLabel.de })).toHaveTextContent('Deutsch');
     expect(dialog.getByRole('combobox', { name: translations.contrast.de })).toHaveTextContent(translations.themeSystemShort.de);
     expect(dialog.getByRole('combobox', { name: translations.accentColor.de })).toHaveTextContent(translations.accent_standard.de);
-    // Exactly those four choices — no Style (uiShape) row any more.
-    expect(dialog.getAllByRole('combobox')).toHaveLength(4);
+    expect(dialog.getByRole('combobox', { name: translations.colorsLabel.de })).toHaveTextContent(translations.themeSystemShort.de);
+    // Exactly those five choices — no Style (uiShape) row any more.
+    expect(dialog.getAllByRole('combobox')).toHaveLength(5);
 
     await userEvent.click(dialog.getByRole('button', { name: translations.settingsProfile.de }));
     expect(dialog.getByRole('heading', { level: 2, name: translations.settingsProfile.de })).toBeInTheDocument();

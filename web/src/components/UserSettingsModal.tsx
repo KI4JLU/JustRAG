@@ -2,8 +2,8 @@ import { MessageSquare, Plug, Settings, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
     ACCENT_COLORS, AccentSwatch,
-    SettingsDialog, SettingsRow, Switch, useAccent, useContrast,
-    type AccentColor, type ContrastChoice,
+    SettingsDialog, SettingsRow, Switch, useAccent, useColors, useContrast,
+    type AccentColor, type ColorsChoice, type ContrastChoice,
 } from '@ki4jlu/design-system';
 import type { Theme } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ApiKeyManager from './ApiKeys/ApiKeyManager';
 import { Choice } from './form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
+import { userSettingsKeywords } from './userSettingsSearchKeywords';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
@@ -26,7 +27,7 @@ interface UserSettingsModalProps {
 
 /**
  * The user's settings window (user menu → „Einstellungen"), on the DS
- * `SettingsDialog`. General: colour scheme, contrast, accent, language. Chat: starter
+ * `SettingsDialog`. General: colour scheme, contrast, accent, colours, language. Chat: starter
  * suggestions, follow-ups, autoscroll. Profile: the
  * account as the directory (LDAP) knows it — read-only. Connectors: the API-key
  * and Confluence-token managers, each disabled with its reason where it does not apply.
@@ -38,6 +39,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
     const [autoScrollEnabled, setAutoScrollEnabled] = useAutoScrollEnabled();
     const { contrast, setContrast } = useContrast();
     const { accent, setAccent } = useAccent();
+    const { colors, setColors } = useColors();
     const { user, siteConfigs } = useAuth();
 
     const readOnly = (value?: string) => <span className="text-on-surface-variant">{value || '–'}</span>;
@@ -50,6 +52,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
             onOpenChange={onOpenChange}
             value={tab}
             onValueChange={(v) => onTabChange(v as SettingsTab)}
+            size="xl"
             title={t('settings')}
             closeLabel={t('close')}
             searchPlaceholder={t('settingsSearch')}
@@ -59,7 +62,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'general',
                     label: t('settingsGeneral'),
                     icon: <Settings aria-hidden="true" />,
-                    keywords: [t('appearance'), t('contrast'), t('accentColor'), t('languageLabel')],
+                    keywords: userSettingsKeywords('general', t),
                     content: (
                         <>
                             <SettingsRow
@@ -104,6 +107,18 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                 )}
                             />
                             <SettingsRow
+                                label={t('colorsLabel')}
+                                labelId="settings-colors"
+                                control={(
+                                    <Choice<ColorsChoice>
+                                        id="settings-colors"
+                                        value={colors}
+                                        onChange={setColors}
+                                        options={[['system', t('themeSystemShort')], ['reduced', t('colorsReduced')]]}
+                                    />
+                                )}
+                            />
+                            <SettingsRow
                                 label={t('languageLabel')}
                                 labelId="settings-language"
                                 control={(
@@ -122,7 +137,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'chat',
                     label: t('settingsChat'),
                     icon: <MessageSquare aria-hidden="true" />,
-                    keywords: [t('promptSuggestions'), t('followUpsLabel'), t('autoScrollLabel')],
+                    keywords: userSettingsKeywords('chat', t),
                     content: (
                         <>
                             <SettingsRow
@@ -150,7 +165,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'profile',
                     label: t('settingsProfile'),
                     icon: <User aria-hidden="true" />,
-                    keywords: [t('firstName'), t('lastName'), t('emailAddress')],
+                    keywords: userSettingsKeywords('profile', t),
                     content: (
                         <>
                             <SettingsRow label={t('username')} control={readOnly(user ? `@${user.username}` : undefined)} />
@@ -165,7 +180,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                     value: 'connectors',
                     label: t('settingsConnectors'),
                     icon: <Plug aria-hidden="true" />,
-                    keywords: [t('apiKeys'), 'API', 'Confluence'],
+                    keywords: userSettingsKeywords('connectors', t),
                     // Always shown: a connector this user cannot use stays listed, disabled, with the reason.
                     content: (
                         <>

@@ -26,9 +26,10 @@ const maxCategoryNameLen = 100
 //
 // Two access shapes:
 //
-//   - The /api/kb-user-categories routes carry no KB in the path at all. They
-//     touch only rows the caller owns, so the authenticate middleware is the
-//     whole gate (same pattern as GET /api/kb and GET /api/kb/catalog).
+//   - The /api/kb-user-categories and /api/kb-user-order routes carry no KB
+//     in the path at all. They touch only rows the caller owns, so the
+//     authenticate middleware is the whole gate (same pattern as GET /api/kb
+//     and GET /api/kb/catalog).
 //   - The /api/kb/{id}/... routes sit on kbViewChain. Starring or tagging is
 //     not a privilege, but it should only be possible on a topic the caller
 //     can open, and kbaccess.RequireKBRole(view) is the rule that already
@@ -256,6 +257,124 @@ func (h *Handler) setAssignment(w http.ResponseWriter, r *http.Request, on bool)
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Topic order
+// ---------------------------------------------------------------------------
+
+// maxOrderBodyBytes bounds the PUT body: MaxOrderLen ids in their longest
+// accepted spelling ("urn:uuid:…", 45 characters plus quotes and a comma) are
+// about 96 KB.
+const maxOrderBodyBytes = 128 << 10
+
+// ordersResponse is the body of GET /api/kb-user-order. A view the caller
+// never saved is null, so the web app can tell "no order yet" from a saved
+// empty one.
+type ordersResponse struct {
+	My     []string `json:"my"`
+	Shared []string `json:"shared"`
+}
+
+// ListOrders handles GET /api/kb-user-order.
+func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	user := auth.UserFromContext(ctx)
+	if user == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	orders, err := h.store.ListOrders(ctx, user.ID)
+	if err != nil {
+		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to list topic orders: %w", err))
+		return
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, ordersResponse{
+		My:     orders[OrderViewMy],
+		Shared: orders[OrderViewShared],
+	})
+}
+
+// SetOrder handles PUT /api/kb-user-order/{view} with body {"ids": [...]}:
+// the whole order of that view, front to back. Everything is validated
+// before the write, so a refused request stores nothing.
+func (h *Handler) SetOrder(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	user := auth.UserFromContext(ctx)
+	if user == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	view := OrderView(r.PathValue("view"))
+	if view != OrderViewMy && view != OrderViewShared {
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "unknown topic view")
+		return
+	}
+	ids, ok := decodeOrderRequest(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.store.SetOrder(ctx, user.ID, view, ids); err != nil {
+		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to save topic order: %w", err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// decodeOrderRequest parses the PUT body and returns its ids in canonical
+// form, writing the 400 itself and reporting whether the caller may continue.
+// The ids must be present (an empty array is a valid order), at most
+// MaxOrderLen, UUIDs, and must not repeat a topic. A repeat is refused rather
+// than dropped: the client sent two positions for one topic, and keeping
+// either would be a guess.
+func decodeOrderRequest(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	ctx := r.Context()
+
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxOrderBodyBytes)).Decode(&body); err != nil {
+		// Too large is 413, so the client can tell it from a malformed body.
+		if mbe := (*http.MaxBytesError)(nil); errors.As(err, &mbe) {
+			httputil.WriteErrorCtx(ctx, w, http.StatusRequestEntityTooLarge, "request body too large")
+			return nil, false
+		}
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid request body")
+		return nil, false
+	}
+	// A missing or null "ids" decodes to nil; "[]" to an empty slice.
+	if body.IDs == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "ids is required")
+		return nil, false
+	}
+	if len(body.IDs) > MaxOrderLen {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest,
+			fmt.Sprintf("ids must not hold more than %d topics", MaxOrderLen))
+		return nil, false
+	}
+	ids := make([]string, 0, len(body.IDs))
+	seen := make(map[string]struct{}, len(body.IDs))
+	for _, raw := range body.IDs {
+		// Canonical form for the same reason as pathUUID; it also makes two
+		// spellings of one id count as a repeat.
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "ids must be topic ids (UUIDs)")
+			return nil, false
+		}
+		id := parsed.String()
+		if _, dup := seen[id]; dup {
+			httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "ids must not repeat a topic")
+			return nil, false
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, true
 }
 
 // ---------------------------------------------------------------------------

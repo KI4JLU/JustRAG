@@ -125,6 +125,12 @@ type ChatRow struct {
 	// marks a branched chat with the branch icon. The origin may have been
 	// deleted since; the id is not a reference to follow.
 	BranchedFromChatID *string `json:"branchedFromChatId,omitempty" db:"branched_from_chat_id"`
+	// RoleID is the role the chat was started in (a starter question with a
+	// role, migration 0092): a catalog template id or one of the KB's own
+	// role ids, nil for a chat in the KB's active role. Every turn of the
+	// chat answers in it; a role the KB has since deleted falls back to the
+	// active role (kbbehavior.SystemPrompt). Branches keep it.
+	RoleID *string `json:"roleId,omitempty" db:"role_id"`
 	// HasBranches is set by GetChats only (the chat list): true when the chat
 	// holds at least two sibling messages — an edited question, a regenerated
 	// answer, or a fork made inside the chat before branching opened a new
@@ -185,6 +191,12 @@ type MessageRow struct {
 	// `omitempty` keeps the key absent for the overwhelming majority of
 	// turns, which is what makes "absent means not run" hold.
 	Conflicts []MessageConflict `json:"conflicts,omitempty" db:"conflicts"`
+	// Trajectory is the answer's agent steps (migration 0102): the
+	// TrajectoryEvent list its turn streamed as agentTrajectory frames, in
+	// wire order, plus a "reasoning" marker where the model's reasoning
+	// began (trajectory_record.go). Written by AddMessage, rewritten once
+	// when the post-response tasks add steps. Omitted when the turn had none.
+	Trajectory []TrajectoryEvent `json:"trajectory,omitempty" db:"trajectory"`
 	// Attachments are the files attached to a user message (migration 0090),
 	// filled by GetMessages; omitted when there are none.
 	Attachments []MessageAttachment `json:"attachments,omitempty" db:"-"`
@@ -228,6 +240,9 @@ type AddMessageParams struct {
 	// case) inserts SQL NULL rather than an empty array, so "absent means
 	// not run" survives the round trip.
 	Conflicts []MessageConflict
+	// Trajectory is the turn's agent steps (trajectoryRecorder.stored);
+	// empty inserts SQL NULL.
+	Trajectory []TrajectoryEvent
 	// TeamID / AgentID attribute an AI message to the user-created team or
 	// agent that produced it (nil on user messages and non-team turns).
 	TeamID  *string
@@ -261,8 +276,19 @@ type Store interface {
 	UpdateMessageFeedback(ctx context.Context, messageID, chatID, userID string, feedback *string, comment *string) error
 	UpdateMessageVerification(ctx context.Context, messageID string, verification *MessageVerification) error
 	UpdateMessageContent(ctx context.Context, messageID string, content string) error
+	// UpdateMessageTrajectory replaces the stored agent steps of an AI
+	// message; an empty list stores SQL NULL.
+	UpdateMessageTrajectory(ctx context.Context, messageID string, steps []TrajectoryEvent) error
 	UpdateMessageTraceID(ctx context.Context, messageID string, traceID string) error
 	GetKBSystemPrompt(ctx context.Context, kbID string) (*string, error)
+	// GetChatSystemPrompt is GetKBSystemPrompt in the role chatID was
+	// started in (kbbehavior.SystemPrompt); "" is the KB's active role.
+	GetChatSystemPrompt(ctx context.Context, kbID, chatID string) (*string, error)
+	// KBHasRole reports whether the KB can answer in roleID: a catalog
+	// template or one of its own roles.
+	KBHasRole(ctx context.Context, kbID, roleID string) (bool, error)
+	// CreateChatWithRole is CreateChat for a chat started in roleID.
+	CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error)
 	UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error
 	// StarterContext returns what the starter questions of an empty chat
 	// are generated from: the KB's name and up to limit of its documents.

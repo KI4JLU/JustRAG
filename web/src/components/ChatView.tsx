@@ -1,7 +1,7 @@
 import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Brain, ArrowUp,
-  X, Check,
+  Brain, ArrowUp, ArrowLeft,
+  X, Check, Pencil,
   Globe, WandSparkles, Loader2, FileText, Bot, Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -19,16 +19,22 @@ import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled 
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
+import { hasAgentSteps } from './agentSteps/buildSteps';
 import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
+import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
+import { useKbStartPage } from '../hooks/useKbStartPage';
+import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
+import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
 import { toMessageAttachments } from '../utils/chatAttachments';
+import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
 import {
   InputGroupAddon,
   ChatStage, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
-  PromptInputAttachments, PromptInputAttachment,
+  PromptInputAttachments, PromptInputAttachment, usePromptInputAttachments, Badge, Notice,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
-  Spinner,
+  Spinner, Button,
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
@@ -64,6 +70,32 @@ const chatSuspenseFallback = (
     {SKELETON_VARIANTS.map(variant => <MessageSkeleton key={variant} role={variant} />)}
   </div>
 );
+
+/**
+ * Inside the composer: reports how many files are attached and hands out the
+ * composer's `add`, so the upload-only start (a dropzone shown instead of
+ * the composer) can attach the first file to it. Newly attached files go to
+ * `onAdded` with a way to take them out again (the storage notice declined).
+ */
+function ComposerAttachmentsBridge({ addRef, onCount, onAdded }: {
+  addRef: React.MutableRefObject<((files: File[]) => void) | null>;
+  onCount: (n: number) => void;
+  onAdded: (drop: () => void) => void;
+}) {
+  const { files, add, remove } = usePromptInputAttachments();
+  const seen = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => { addRef.current = (f) => add(f); }, [add, addRef]);
+  useEffect(() => { onCount(files.length); }, [files.length, onCount]);
+  useEffect(() => {
+    const added = files.filter(f => !seen.current.has(f.id)).map(f => f.id);
+    seen.current = new Set(files.map(f => f.id));
+    if (added.length > 0) onAdded(() => added.forEach(remove));
+  }, [files, onAdded, remove]);
+  return null;
+}
+
+// Stands in for the composer's upload sync while the storage notice is unanswered.
+const holdComposerUploads = () => {};
 
 const ChatViewComp = () => {
   const { language, t } = useTheme();
@@ -104,7 +136,6 @@ const ChatViewComp = () => {
     else if (defAgent) setAgentSelection({ agentId: defAgent.id });
   }, [kbAgentOptions, chat.activeChatId, setAgentSelection]);
 
-  const [systemPromptDraft, setSystemPromptDraft] = useState(currentKb?.systemPrompt || '');
   const [showKbSettings, setShowKbSettings] = useState(false);
   // Improve the UNSENT draft in place (rewrite / expand / spell) via
   // POST /api/enhance, so the user can revise before sending. The old
@@ -134,43 +165,13 @@ const ChatViewComp = () => {
     }
   }, [chat, currentKb, enhancing, language]);
 
-  // One-line mode keeps the text between the two control groups, which float
-  // over the bottom corners of the frame; the textarea reserves their measured
-  // width (+ edge offset and a gap). Measured, not hard-coded — the right
-  // group changes with the agent chip, the reasoning toggle and the source
-  // count. Once the text wraps, the textarea moves above the controls instead.
-  const [notch, setNotch] = useState({ left: 0, right: 0 });
-  const observeNotch = useCallback((side: 'left' | 'right') => (el: HTMLDivElement | null) => {
-    if (!el) return;
-    const apply = () => setNotch(n => {
-      const w = Math.ceil(el.getBoundingClientRect().width) + 12 + 8;
-      return n[side] === w ? n : { ...n, [side]: w };
-    });
-    apply();
-    // Deferred to the next frame: reacting synchronously inside the observer
-    // callback re-lays out the frame in the same tick and trips
-    // "ResizeObserver loop completed with undelivered notifications".
-    let frame = 0;
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(apply);
-    });
-    ro.observe(el);
-    return () => { cancelAnimationFrame(frame); ro.disconnect(); };
-  }, []);
+  // The composer's notch around its two control groups (useComposerNotch).
+  const { notch, observeNotch } = useComposerNotch();
 
-  // Reset the draft whenever the KB (or its stored prompt) changes — done
-  // during render with a prev-comparison instead of an effect, per
+  // The "Berechtigungen" draft: the KB's source flags, reset whenever the KB
+  // (or its stored flags) changes — during render with a prev-comparison
+  // instead of an effect, per
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
-  const promptResetKey = `${currentKb?.id ?? ''}\0${currentKb?.systemPrompt ?? ''}`;
-  const [prevPromptResetKey, setPrevPromptResetKey] = useState(promptResetKey);
-  if (prevPromptResetKey !== promptResetKey) {
-    setPrevPromptResetKey(promptResetKey);
-    setSystemPromptDraft(currentKb?.systemPrompt || '');
-  }
-
-  // The "Rollen & Rechte" draft: the KB's source flags, reset the same way
-  // whenever the KB (or its stored flags) changes.
   const savedFlags = sourceFlagsOf(currentKb);
   const flagsResetKey = `${currentKb?.id ?? ''}\0${JSON.stringify(savedFlags)}`;
   const [flagsDraft, setFlagsDraft] = useState(savedFlags);
@@ -182,10 +183,7 @@ const ChatViewComp = () => {
   const [promptWasOpen, setPromptWasOpen] = useState(showSystemPrompt);
   if (promptWasOpen !== showSystemPrompt) {
     setPromptWasOpen(showSystemPrompt);
-    if (showSystemPrompt) {
-      setSystemPromptDraft(currentKb?.systemPrompt || '');
-      setFlagsDraft(savedFlags);
-    }
+    if (showSystemPrompt) setFlagsDraft(savedFlags);
   }
   const [prevFlagsResetKey, setPrevFlagsResetKey] = useState(flagsResetKey);
   if (prevFlagsResetKey !== flagsResetKey) {
@@ -193,17 +191,6 @@ const ChatViewComp = () => {
     setFlagsDraft(savedFlags);
   }
 
-  // The advanced settings (KbSettingsPanel) trigger. Shares its predicate with
-  // HomeView's sliders icon so the two entry points cannot drift: system role
-  // in {api-user, admin, superadmin} AND effective KB role admin or better.
-  //
-  // The KB half used to be `currentKb.userId === user?.id || admin ||
-  // superadmin` — the legacy owner-mirror column, which is NULL on every
-  // public KB (publishing NULLs knowledge_bases.user_id) and says nothing about
-  // a KB admin who is not the owner. canOpenKbAdvancedSettings reads myRole
-  // through the same ladder kbaccess.EffectiveRole applies server-side, so the
-  // button now appears exactly where kbAdvancedChain would let the request
-  // through.
   // System prompt: owners and KB admins (the gear in the chrome bar,
   // KbWorkspaceLayout, uses the same predicate).
   const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
@@ -234,12 +221,93 @@ const ChatViewComp = () => {
   // User settings (Einstellungen → Chat): suggestions, follow-ups and autoscroll on/off.
   const [suggestionsEnabled] = usePromptSuggestionsEnabled();
   const [followUpsEnabled] = useFollowUpsEnabled();
+  // The latest answer's follow-up questions sit on the composer, not under
+  // the answer.
+  const lastMessage = chat.messages[chat.messages.length - 1];
+  const followUps = followUpsEnabled && !chat.loading && lastMessage?.role === 'ai' ? lastMessage.followUpQuestions ?? [] : [];
   const [autoScrollEnabled] = useAutoScrollEnabled();
-  const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && chat.messages.length === 0 && hasFiles);
+  // The line under the title: the topic's own description, else the default line.
+  const shownDescription = currentKb?.description?.trim() || t('kbHeaderDefault');
+  // The assistant settings' start page; re-read whenever the settings dialog closes.
+  const startPage = useKbStartPage(currentKb?.id, showSystemPrompt);
+  const configuredStart = startPage?.configured ? startPage : null;
+  // How the chat starts is the roles' (developer ruling 05.11.2026): with
+  // further role cards „Rollenauswahl", else the active role's own start —
+  // the input field, its role-prompt card or its upload area.
+  const startMode = startPage ? pageMode(startPage.page, startPage.activeRoleId, startPage.roles) : 'input';
+  const activeStart = startPage ? startOf(startPage.page, startPage.activeRoleId, startPage.roles) : null;
+  const activeRoleName = startPage?.roles.find(r => r.id === startPage.activeRoleId)?.name ?? t('asstAssistant');
+  // „Anweisung": the active role's card with its start prompt, alone.
+  const taskStart = startPage && !chat.roleStart ? activeTaskStart(startPage.page, startPage.activeRoleId, startPage.roles) : null;
+  // Generated questions cost a model call, so they are asked for only once the
+  // start page is known and only where they will be shown: a role card's
+  // input start, the active role's, or a page never set up — each with
+  // dynamic questions on.
+  const wantsGenerated = !!startPage && (configuredStart || chat.roleStart ? showsGeneratedQuestions(chat.roleStart, activeStart) : true);
+  // For the role the chat starts in: a role card's, else the active role.
+  const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
+  const [composerFileCount, setComposerFileCount] = useState(0);
+  const composerAddRef = useRef<((files: File[]) => void) | null>(null);
+  const emptyChat = chat.messages.length === 0 && !noSources;
+  // „Rollenauswahl": the role cards stand in for the composer until one is picked.
+  const rolesGate = startMode === 'roles' && emptyChat && !chat.roleStart;
+  // „Anweisung": its card stands in for the composer the same way.
+  const taskGate = !!taskStart && emptyChat;
+  // The upload area stands in for the composer until the first file is attached:
+  // the upload-only start's, or a file card's.
+  const fileCard = chat.roleStart?.kind === 'file' ? chat.roleStart : null;
+  const uploadStart: { title: string; message: string } | null = !emptyChat || composerFileCount > 0 ? null
+    : fileCard ? {
+      // The role start's own label, else the default naming the role.
+      title: fileCard.text.trim() || t('asstFileDropTitle').replace('{role}', startPage?.roles.find(r => r.id === (fileCard.roleId ?? startPage.activeRoleId))?.name ?? t('asstAssistant')),
+      message: fileCard.instruction.trim() || t('asstFileDefaultMessage'),
+    }
+      // The active role starting with a file: its upload area, as its card's.
+      : startMode === 'upload' && activeStart && !chat.roleStart ? {
+        title: activeStart.text.trim() || t('asstFileDropTitle').replace('{role}', activeRoleName),
+        message: activeStart.instruction.trim() || t('asstFileDefaultMessage'),
+      }
+        : null;
+  const uploadGate = !!uploadStart;
+  // A file attached through the upload area goes out at once with the
+  // instruction (or the default text) as the first message, once uploaded.
+  // `autoSendRef` holds that message until then; the submit handler takes it.
+  const autoSendRef = useRef<string | null>(null);
+  const autoSendNowRef = useRef<string | null>(null);
+  const { uploads: composerUploadStates, readiness: composerReadiness } = composerUploads;
+  // Until the user has accepted the notice on how long uploads are kept, a
+  // file attached to the composer (picked, dropped, or put in the upload area)
+  // waits on it: nothing goes to the server, and closing the notice without
+  // accepting takes the file out again.
+  const storageNotice = useUploadStorageNotice(user?.id ?? '', 'chat');
+  const { confirm: confirmStorageNotice } = storageNotice;
+  const onComposerFilesAdded = useCallback((drop: () => void) => {
+    void confirmStorageNotice().then((ok) => {
+      if (ok) return;
+      autoSendRef.current = null;
+      drop();
+    });
+  }, [confirmStorageNotice]);
+  const syncComposerUploads = storageNotice.accepted ? composerUploads.sync : holdComposerUploads;
+  useEffect(() => {
+    if (!autoSendRef.current || composerFileCount === 0) return;
+    const ready = composerReadiness();
+    // Wait until the file is on the server; a refused upload stays in the
+    // composer (it shows why) and nothing is sent.
+    if (ready.uploading || (!ready.failed && !ready.uploaded.length)) return;
+    const message = autoSendRef.current;
+    autoSendRef.current = null;
+    if (ready.failed) return;
+    autoSendNowRef.current = message;
+    (document.getElementById('chat-composer') as HTMLFormElement | null)?.requestSubmit?.();
+  }, [composerFileCount, composerUploadStates, composerReadiness]);
+  const chatRole = chat.chatRoleId ? startPage?.roles.find(r => r.id === chat.chatRoleId) : undefined;
   const examplePrompts = useMemo(() => {
-    const raw = currentKb?.isGlobal && currentKb?.examplePrompts
-      ? currentKb.examplePrompts
-      : siteConfigs.example_prompts;
+    // A chat started from a role card that opens the input field: that card's suggestions.
+    if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
+    // A start page set up: the active role's questions under its input field, if on.
+    if (configuredStart) return pageQuestions(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles, generatedPrompts);
+    const raw = currentKb?.isGlobal ? currentKb.examplePrompts : null;
     const prompts = raw
       ? raw.split('\n')
       : ['Fasse die wichtigsten Punkte meiner Dokumente zusammen', 'Was sind die wichtigsten Erkenntnisse in {topic}?'];
@@ -248,7 +316,7 @@ const ChatViewComp = () => {
     // Then the questions generated from the KB's documents, without repeats.
     const seen = new Set(configured.map(p => p.trim().toLowerCase()));
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
-  }, [currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, siteConfigs.example_prompts, generatedPrompts]);
+  }, [chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
 
   const [initialRender, setInitialRender] = useState(true);
   useEffect(() => {
@@ -290,22 +358,9 @@ const ChatViewComp = () => {
     return undefined;
   }, [kbAgentOptions]);
 
-
-  // The region the Thema-Einstellungen dialog covers (DS `fitTo`): the shell's
-  // content column — header bar plus chat — found from the chat area; the
-  // chat area itself outside an AppShell. Read when the dialog measures, so a
-  // getter, not a value captured at render.
-  const chatAreaRef = useRef<HTMLDivElement>(null);
-  const settingsAreaRef = useMemo<React.RefObject<HTMLElement | null>>(() => ({
-    get current() {
-      const area = chatAreaRef.current;
-      return area?.closest<HTMLElement>('[data-slot="app-shell-content"]') ?? area;
-    },
-  }), []);
-
   return (
     <SourcePanelContext.Provider value={sourcePanelApi}>
-    <div className="chat-area" ref={chatAreaRef}>
+    <div className="chat-area">
       {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
           Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
           „Hauptinhalt"-Sprungziel für Screenreader. Die eigene Höhenrechnung
@@ -351,12 +406,61 @@ const ChatViewComp = () => {
                     together; with messages the composer docks and the disclaimer stays
                     pinned to the bottom either way. */}
                 <ChatStage
-                  className="chat-column"
+                  // relative isolate: the start page's glow fills the stage, behind the content.
+                  className="chat-column relative isolate"
                   empty={chat.messages.length === 0}
                   footerId="chat-disclaimer"
-                  footer={siteConfigs.chat_footer || t('chatFooter')}
+                  footer={t('chatFooter')}
                   composer={(
-                  <div className="input-container">
+                  // An empty chat (the start page) is as wide as the title card —
+                  // composer, role cards and dropzone alike; with messages the
+                  // composer takes the transcript's column.
+                  <div className={chat.messages.length === 0 ? 'input-container input-container--start' : 'input-container'}>
+                    {(rolesGate || taskGate) && startPage && (
+                      <div>
+                      <RoleStartCards
+                        entries={taskStart ? [taskModeEntry(taskStart, startPage.activeRoleId)] : startEntries(startPage.page, startPage.activeRoleId, startPage.roles)}
+                        roles={startPage.roles}
+                        // The default role's card starts a normal chat (the active role).
+                        onStart={(entry) => chat.startRoleChat({ ...entry, roleId: entry.roleId === startPage.activeRoleId ? null : entry.roleId })}
+                      />
+                      </div>
+                    )}
+                    {uploadStart && (
+                      <div>
+                      <UploadStart
+                        title={uploadStart.title}
+                        // Any file the composer takes; the attachment upload refuses the rest.
+                        onFiles={(files) => {
+                          autoSendRef.current = uploadStart.message;
+                          composerAddRef.current?.(files);
+                        }}
+                        onBrowse={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.multiple = true;
+                          input.onchange = () => {
+                            if (!input.files?.length) return;
+                            autoSendRef.current = uploadStart.message;
+                            composerAddRef.current?.(Array.from(input.files));
+                          };
+                          input.click();
+                        }}
+                      />
+                      </div>
+                    )}
+                    {followUps.length > 0 && (
+                      <div data-testid="follow-ups" className="mb-3">
+                        <div className="source-label" style={{ marginBottom: '0.5rem' }}>{t('followUpsLabel')}</div>
+                        <div className="follow-up-suggestions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
+                          {followUps.map((q, idx) => (
+                            <button key={idx} type="button" className="follow-up-chip" onClick={() => chat.handleFollowUpClick(q)}>
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <PromptInput
                       id="chat-composer"
                       multiple
@@ -374,16 +478,20 @@ const ChatViewComp = () => {
                           toast.error(t(ready.uploading ? 'chatAttachmentsStillUploading' : 'chatAttachmentsRemoveFailed'));
                           throw new Error('attachments not ready');
                         }
-                        if (!(await chat.handleSendMessage(e, undefined, toMessageAttachments(ready.uploaded)))) {
+                        // The upload start's first message, when the file was attached there.
+                        const text = autoSendNowRef.current ?? undefined;
+                        autoSendNowRef.current = null;
+                        if (!(await chat.handleSendMessage(e, undefined, toMessageAttachments(ready.uploaded), text))) {
                           throw new Error('message not sent');
                         }
                       }}
-                      className={noSources ? 'pointer-events-none opacity-55' : undefined}
+                      className={noSources ? 'pointer-events-none opacity-55' : uploadGate || rolesGate || taskGate ? 'hidden' : undefined}
                       aria-disabled={noSources || undefined}
                     >
+                      <ComposerAttachmentsBridge addRef={composerAddRef} onCount={setComposerFileCount} onAdded={onComposerFilesAdded} />
                       {/* Attached files: a header row above the input line, present only while files are attached.
                           Each is uploaded as it is attached; the chip shows the upload and a refusal. */}
-                      <ComposerUploadSync onFiles={composerUploads.sync} />
+                      <ComposerUploadSync onFiles={syncComposerUploads} />
                       <PromptInputAttachments id="chat-composer-attachments" className="order-first basis-full flex-nowrap overflow-x-auto border-b border-outline-variant px-3 pt-3 pb-2">
                         {(file) => {
                           const upload = composerUploads.uploads[file.id];
@@ -563,7 +671,7 @@ const ChatViewComp = () => {
                         )}
                       </InputGroupAddon>
                     </PromptInput>
-                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && (
+                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && examplePrompts.length > 0 && (
                       <PromptSuggestions
                         // Lines up with the composer's text start on the left (the
                         // measured + group, `notch.left`) and with the send button on
@@ -590,6 +698,24 @@ const ChatViewComp = () => {
                   </div>
                   )}
                 >
+                  {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
+                    <StartGlow category={startPage.category} />
+                  )}
+                  {(chat.chatRoleId || (chat.roleStart && chat.messages.length === 0)) && (
+                    // The role this chat was started in — for the whole chat, also when reopened from the history.
+                    <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
+                      {chat.roleStart && chat.messages.length === 0 && (
+                        <Button variant="ghost" size="sm" onClick={chat.handleNewChat}>
+                          <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
+                        </Button>
+                      )}
+                      {chatRole ? (
+                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRole.name)}</Badge>
+                      ) : chat.chatRoleId && startPage ? (
+                        <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
+                      ) : null}
+                    </div>
+                  )}
                   {chat.messages.length === 0 ? (
                     <div
                       className="messages-container"
@@ -606,23 +732,59 @@ const ChatViewComp = () => {
                           <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
                             {currentKb.headerText}
                           </div>
-                        ) : siteConfigs.kb_header ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {siteConfigs.kb_header}
-                          </div>
                         ) : null}
                         {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
                           // dropzone while the KB is empty — the centre only says so. A
                           // caller who cannot add is not asked to.
-                          <>
+                          // Who may set up the topic gets a pencil on hover: the
+                          // Startseite can be prepared before the first source.
+                          <div className="group/empty relative px-12">
                             <h1>{t('emptyAddFirstSourceTitle')}</h1>
                             <p>{t('emptyAddFirstSourceSubtitle')}</p>
-                          </>
+                            {canEditSystemPrompt && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={t('asstEditStartPage')}
+                                    className="absolute right-0 top-0 opacity-0 transition-opacity group-hover/empty:opacity-100 focus-visible:opacity-100"
+                                    onClick={() => setShowSystemPrompt(true)}
+                                  >
+                                    <Pencil className="size-4" aria-hidden="true" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>{t('asstEditStartPage')}</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        ) : startPage && !chat.roleStart ? (
+                          // The title block of the assistant settings' Startseite (the
+                          // glow above is its colour; the default one until set up).
+                          <div className="w-full max-w-2xl px-4 text-left">
+                            <TitleCard
+                              title={currentKb?.name ?? ''}
+                              category={startPage.category}
+                              description={shownDescription}
+                              fileCount={currentKb?.fileCount}
+                              asOf={currentKb?.lastIngestedAt}
+                            />
+                          </div>
+                        ) : chat.roleStart ? (
+                          // A chat started from a role card: what comes next.
+                          <p>
+                            {chat.roleStart.kind === 'file'
+                              ? t('asstFileStartHint')
+                              : chat.roleStart.kind === 'task' && chat.roleStart.text.trim()
+                                ? t('asstTaskPrefilledHint')
+                                : t('asstNewChatInRole').replace('{role}', (chatRole ?? startPage?.roles.find(r => r.id === startPage.activeRoleId))?.name ?? t('asstAssistant'))}
+                          </p>
                         ) : (
                           <>
                             <h1>{currentKb?.name}</h1>
-                            <p>{t('kbHeaderDefault')}</p>
+                            {/* The KB's own description (Startseite), else the default line. */}
+                            <p>{shownDescription}</p>
                           </>
                         )}
                       </motion.div>
@@ -647,7 +809,7 @@ const ChatViewComp = () => {
                               // here added a blank gap above the spinner that collapsed
                               // once the text streamed in.
                               const awaitingFirstToken = chat.loading && index === chat.messages.length - 1
-                                && msg.role === 'ai' && !msg.content && !msg.reasoning && !msg.trajectory?.length;
+                                && msg.role === 'ai' && !msg.content && !hasAgentSteps(msg.trajectory, msg.reasoning);
                               if (awaitingFirstToken) return null;
                               // A day separator above the first message of each day.
                               const prevAt = chat.messages.slice(0, index).reverse().find((m: Message) => m.createdAt)?.createdAt;
@@ -674,8 +836,6 @@ const ChatViewComp = () => {
                                     isStreaming={chat.loading && index === chat.messages.length - 1}
                                     isLatest={index === chat.messages.length - 1}
                                     onPdfOpen={handlePdfSourceOpen}
-                                    onFollowUpClick={chat.handleFollowUpClick}
-                                    showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
                                     branchInfo={bi}
                                     onSwitchBranch={chat.handleSwitchBranch}
                                     animationDelay={initialRender ? Math.min(index * 0.05, 0.3) : 0}
@@ -787,32 +947,22 @@ const ChatViewComp = () => {
         // Modal over the chat: the chat stays where it was underneath and the
         // rest of the app is inert until the dialog closes.
         <KbSettingsDialog
-          fitTo={settingsAreaRef}
-          draft={systemPromptDraft}
-          onDraftChange={setSystemPromptDraft}
           flags={flagsDraft}
           onFlagsChange={setFlagsDraft}
           kb={currentKb}
           section={systemPromptSection}
           onSectionChange={setSystemPromptSection}
-          dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null
-            || (systemPromptDraft || null) !== (currentKb.systemPrompt || null)}
+          dirty={sourceFlagsPatch(savedFlags, flagsDraft) !== null}
           onSave={async () => {
-            // One PATCH for both tabs: only the fields that changed. On
-            // success the KB row is replaced, which resets both drafts to the
-            // stored values (the reset keys above), so the dialog reads clean.
-            const update: Record<string, unknown> = { ...sourceFlagsPatch(savedFlags, flagsDraft) };
-            const newValue = systemPromptDraft || null;
-            if (newValue !== (currentKb.systemPrompt || null)) update.systemPrompt = newValue;
-            return Object.keys(update).length ? handleUpdateKBSettings(update) : true;
+            // Only the flags that changed. On success the KB row is replaced,
+            // which resets the draft to the stored values (the reset key
+            // above), so the dialog reads clean. Startseite and Verhalten
+            // save themselves (useAssistantSettingsStore).
+            const update = sourceFlagsPatch(savedFlags, flagsDraft);
+            return update ? handleUpdateKBSettings(update) : true;
           }}
-          onDelete={async () => {
-            const ok = await handleUpdateKBSettings({ systemPrompt: null });
-            if (ok) setSystemPromptDraft('');
-            return ok;
-          }}
+          onUpdateKb={handleUpdateKBSettings}
           onClose={() => {
-            setSystemPromptDraft(currentKb.systemPrompt || '');
             setFlagsDraft(savedFlags);
             setShowSystemPrompt(false);
           }}

@@ -378,6 +378,26 @@ func TestChatSystemPrompt_SpotlightsContextAsData(t *testing.T) {
 	}
 }
 
+// Oracle: who answers is the KB's role, which comes before these
+// instructions; an identity here would override every role. The instructions
+// open with the accuracy priority instead.
+func TestChatSystemPrompt_CarriesNoIdentity(t *testing.T) {
+	for lang, opening := range map[string]string{
+		"de": "Deine oberste Priorität ist die Wahrhaftigkeit und Genauigkeit der Informationen.\n",
+		"en": "Your top priority is veracity and information accuracy.\n",
+	} {
+		p := ChatSystemPrompt(lang)
+		if !strings.HasPrefix(p, opening) {
+			t.Errorf("%s: opens with %q", lang, p[:min(len(p), 60)])
+		}
+		for _, identity := range []string{"JustRAG", "Du bist", "You are"} {
+			if strings.Contains(p, identity) {
+				t.Errorf("%s: carries an identity (%q)", lang, identity)
+			}
+		}
+	}
+}
+
 func TestSufficientContextPrompts(t *testing.T) {
 	en := SufficientContextSystem("en")
 	if !strings.Contains(en, `{"sufficient"`) {

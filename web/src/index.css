@@ -690,6 +690,56 @@ button.source-card {
   overflow-wrap: anywhere;
 }
 
+/* The thinking step of the agent step timeline (components/agentSteps): the
+ * reasoning reads as a step's detail, a size below the answer. */
+.markdown-content.reasoning-markdown {
+  font-size: 0.875rem;
+}
+
+/* Agent step timeline (components/agentSteps): the list eases open and shut
+ * (on the height Radix measures for a Collapsible), and each step fades in as
+ * it mounts, so steps arriving while the answer is generated appear one by
+ * one. The DS ChainOfThought's own animate-* classes are no-ops (the DS ships
+ * no tw-animate-css), so the motion lives here. */
+@keyframes agent-step-in {
+  from { opacity: 0; transform: translateY(-0.25rem); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes agent-steps-open {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+
+@keyframes agent-steps-close {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
+
+.agent-step {
+  animation: agent-step-in 220ms ease-out both;
+}
+
+.agent-steps-content {
+  overflow: hidden;
+}
+
+.agent-steps-content[data-state='open'] {
+  animation: agent-steps-open 220ms ease-out;
+}
+
+.agent-steps-content[data-state='closed'] {
+  animation: agent-steps-close 180ms ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-step,
+  .agent-steps-content[data-state='open'],
+  .agent-steps-content[data-state='closed'] {
+    animation: none;
+  }
+}
+
 .markdown-content p:first-child {
   margin-top: 0;
 }
@@ -1072,6 +1122,13 @@ button.source-card {
   width: 100%;
 }
 
+/* An empty chat — the start page: the composer, role cards and dropzone as
+   wide as the title card above them (max-w-2xl, px-4 in ChatView). */
+.input-container.input-container--start {
+  max-width: 42rem;
+  padding-inline: 1rem;
+}
+
 .chat-input {
   flex: 1;
   border: none;
@@ -1115,6 +1172,11 @@ button.source-card {
   border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 6%, transparent) 0%, transparent 70%);
   pointer-events: none;
+}
+
+/* Reduced colours (user setting „Farben", DS AppearanceProvider): no glow. */
+[data-colors="reduced"] .empty-state::before {
+  display: none;
 }
 
 .empty-state>* {

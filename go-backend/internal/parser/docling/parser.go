@@ -10,9 +10,11 @@ import (
 	"github.com/justrag/go-backend/internal/parser"
 )
 
-// convertAndMap performs the Docling HTTP call and maps the result onto a
-// parser.ParseResult. Used by both PDF and DOCX Docling parsers.
-func convertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*parser.ParseResult, error) {
+// ConvertAndMap performs the Docling HTTP call and maps the result onto a
+// parser.ParseResult. Used by both PDF and DOCX Docling parsers. Exported
+// so the rustparser package can drive the same docling-serve wire protocol
+// with an fp-server backend instead of a docling-serve sidecar.
+func ConvertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*parser.ParseResult, error) {
 	if c == nil {
 		return nil, fmt.Errorf("docling parser: client not configured")
 	}
@@ -40,7 +42,7 @@ func convertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*p
 	// an absent page label is honest, a fabricated one is not.
 	pages := buildPages(res.Items)
 	if len(pages) == 0 {
-		return &parser.ParseResult{Text: primary, IsMarkdown: true}, nil
+		return &parser.ParseResult{Text: primary, IsMarkdown: true, Structure: res.Structure}, nil
 	}
 
 	var sb strings.Builder
@@ -55,6 +57,7 @@ func convertAndMap(ctx context.Context, c *Client, pctx parser.ParseContext) (*p
 		Text:       sb.String(),
 		Pages:      pages,
 		IsMarkdown: true,
+		Structure:  res.Structure,
 	}, nil
 }
 
@@ -105,7 +108,7 @@ func (p *DoclingPDFParser) CanParse(mimeType, fileName string) bool {
 // Parse uploads the file to Docling Serve and converts the response into a
 // parser.ParseResult. Per-page text is preserved when Docling returns it.
 func (p *DoclingPDFParser) Parse(ctx context.Context, pctx parser.ParseContext) (*parser.ParseResult, error) {
-	return convertAndMap(ctx, p.Client, pctx)
+	return ConvertAndMap(ctx, p.Client, pctx)
 }
 
 // DoclingDocxParser routes DOCX files through a Docling Serve sidecar.
@@ -126,7 +129,7 @@ func (p *DoclingDocxParser) CanParse(mimeType, fileName string) bool {
 
 // Parse uploads the DOCX to Docling Serve and converts the response.
 func (p *DoclingDocxParser) Parse(ctx context.Context, pctx parser.ParseContext) (*parser.ParseResult, error) {
-	return convertAndMap(ctx, p.Client, pctx)
+	return ConvertAndMap(ctx, p.Client, pctx)
 }
 
 // DoclingPptxParser routes PPTX files through a Docling Serve sidecar.
@@ -146,5 +149,5 @@ func (p *DoclingPptxParser) CanParse(mimeType, fileName string) bool {
 
 // Parse uploads the PPTX to Docling Serve and converts the response.
 func (p *DoclingPptxParser) Parse(ctx context.Context, pctx parser.ParseContext) (*parser.ParseResult, error) {
-	return convertAndMap(ctx, p.Client, pctx)
+	return ConvertAndMap(ctx, p.Client, pctx)
 }

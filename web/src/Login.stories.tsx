@@ -84,28 +84,21 @@ export const LdapOnly: Story = {
 };
 
 /**
- * Operator-uploaded logo — what production currently shows, because a
- * deployment with `logo_path` set never reaches the design system's `Logo`
- * fallback (card KI-719). Every other story here has `siteConfigs: {}` and so
- * shows the DS wordmark, which is the comparison.
- *
- * /logo-test.svg is the repo's own fixture in web/public, served by Storybook's
- * staticDirs and by Vite's publicDir in the test run — a real HTTP fetch, not
- * a data URI.
+ * A deployment with its own app name (APP_NAME_PREFIX / APP_NAME_PRODUCT):
+ * the wordmark is built from it. Every other story here has `siteConfigs: {}`
+ * and so shows the default „JLU [RAG]", which is the comparison. A leftover
+ * `logo_path` is passed too, to show it no longer renders anything.
  */
-export const UploadedLogo: Story = {
-  args: { siteConfigs: { logo_path: '/logo-test.svg' } },
+export const CustomAppName: Story = {
+  args: { siteConfigs: { app_name_prefix: 'THM', app_name_product: 'Docs', logo_path: '/uploads/logo/logo_1.png' } },
   parameters: {
     api: { authProviders: { providers: [OIDC], localAuthEnabled: false } },
   },
-  play: async ({ canvas }) => {
-    const logo = await canvas.findByAltText('Site Logo');
-    // Oracle: the browser's own image decoder, not this repo's code.
-    // naturalWidth stays 0 unless the bytes were actually fetched and decoded,
-    // so this fails if API_BASE_URL resolved to the dev backend (which is not
-    // running) instead of the Storybook origin — i.e. it is the check that
-    // .storybook/env.ts is doing its job.
-    await waitFor(() => expect((logo as HTMLImageElement).naturalWidth).toBeGreaterThan(0));
+  play: async ({ canvas, canvasElement }) => {
+    // toBeInTheDocument, not toBeVisible: the page fades in from opacity 0.
+    await expect(await canvas.findByText('Docs')).toBeInTheDocument();
+    await expect(canvas.getByText('THM')).toBeInTheDocument();
+    await expect(canvasElement.querySelector('img')).toBeNull();
   },
 };
 

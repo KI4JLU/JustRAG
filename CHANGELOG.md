@@ -11,15 +11,117 @@ migrations, changed `site_config` defaults, and re-ingest requirements.
 Those are not generated — a release whose notes list a migration has **no
 one-step rollback** (`cmd/migrate` is up-only).
 
-## v26.10.1 — 2026-10-27
+## v26.11.0 — 2026-11-06
 
 ### ⚠ Upgrade notes
 
-- **No upgrade actions required.** No migration (highest stays 0091), no `site_config` default change, no re-ingest. One-step rollback to v26.10.0 is possible.
+- **Migrations 0092 – 0104; the highest is 0104.** Production is on v26.10.0, which ended at 0091. v26.10.1 was prepared but never cut, so its notes are part of this release (at the end of this list). Compose applies the migrations through the `migrate` one-shot service; on Kubernetes run `/app/migrate` out of the RC image first (`docs/runbooks/release.md`). All are catalog-only `ADD COLUMN`s, new tables or small data updates: no `CONCURRENTLY` builds, no new extensions or privileges. 0100, 0101 and 0104 rewrite data, so there is **no one-step rollback**.
+- **Roles, start page and versioned assistant settings — answers change on deploy** (migrations 0092 – 0097, 0100, 0101). A KB's answer prompt is now compiled from its role and rules (`knowledge_bases.behavior`). Migration 0101 gives every KB an explicit behavior: a KB with its own system prompt keeps it as its own role „Eigene Rolle" (no rule on; the prompt is followed by the former identity line), a KB without one starts on the default role `chat`. Answers no longer introduce themselves as JustRAG: the fixed RAG instructions carry no identity, the role does („Du bist {{assistant_name}} …", `assistant_name` default „JLU RAG"). The `formal` rule defaults to off („du"). Migration 0100 writes the four standard role templates (`chat` = default, `summary`, `filecheck`, `it`) and deletes `research`, `tutor`, `admin` and `editor`; KBs and chats that used one of them answer in `chat`. Saving a role template starts one background fast-tier call that translates its texts into the other language. The RAG settings in the KB overview are reachable by system admins only for shared, global or their own KBs. 0093 gives existing catalog categories a fixed colour slot; 0094 adds the settings version history (`kb_settings_versions`). No re-ingest.
+- **Migration 0099 — usage-policy acceptance** (`user_policy_acceptances`, new table). Nobody is asked until an admin sets `policy_acceptance_version`; only the web app gates on it (API keys, `/owui` and MCP are not gated).
+- **Migration 0102 — agent steps are stored on the message** (`messages.trajectory`, metadata-only). The web chat's answer-tool trace frame changed shape: the bare `{"stage", "args", "preview"}` frame is now an `agentTrajectory` event without the preview, and the standard path also streams `retrieval`, `recency_listing` and `insufficient_context` steps. A client outside this repository that parsed the old frame needs updating. Answers from before the release have no stored steps.
+- **Migration 0103 — each user's topic order** (`kb_user_order`, new table), synced with the account instead of the browser.
+- **System notice** (off): new public, global-only keys `system_notice_*` (enabled, title, text, tone, placement, dismissible, link, templates). Admins set them in the admin panel or via `PUT /api/admin/system-notice`; automation uses `GET`/`PUT /api/v1/system-notice` with an admin's API key. Nothing is shown until an admin switches it on.
+- **Chat attachments up to 50 MiB** (`chat_attachments_max_file_bytes`, new global-only key, unset = 50 MiB). Attachment uploads are exempt from the 1 MiB body cap and are parsed synchronously in the upload request (120 s parse timeout, 3 parse slots per process). A reverse proxy with a smaller body limit still cuts earlier.
+- **Users acknowledge a storage notice before their first upload** (per user and browser, nothing stored on the server).
+- **New optional env variables.** `WORKER_METRICS=true` serves the worker's own `/metrics` on the health port 8081, unauthenticated — keep the port internal; off by default. `OWUI_SERVICE_PASSWORD` lets `/app/migrate` seed the Open WebUI service user. `RUSTPARSER_MODE` (the Rust parser in shadow/primary mode) stays unset in production; only the opt-in overlays `docker-compose.rustparser.yml` and `k8s/rustparser.yml` set it.
+- **Git sources' branch lookup runs on the API server** (only with `git_repo_enabled`), through the same SSRF-safe transport as the worker: where egress goes through a proxy, the server pods need `HTTP(S)_PROXY` like the workers.
+- **All SSE streams now carry `: ping` keep-alive comment lines in silent phases** (web chat incl. early open, library chat, research and academic-relay streams, agent chat, `/owui`, OpenAI-compat and the public API; the agent chat endpoint additionally opts out of the server-wide `WriteTimeout`). SSE comments carry no `data:` payload and are ignored by WHATWG-conformant clients; clients that only parse `data:` lines are unaffected. Contracts: `API.md`, `docs/api-contracts/{chat-sse-early-open,agent-chat,owui-compat}.md`.
+- **Verify the ILIAS LfAssistant plugin's stream reader skips non-`data:` lines before enabling `owui_compat_enabled`** — the plugin is not in this repository and its parser has not been checked here.
+- **Migration 0098 — explicit default model per provider and kind (`ai_models.is_default`).** Run `/app/migrate` before the new server and worker start: model resolution reads the column, so every chat and ingest fails on an unmigrated database. The backfill marks the model the old code picked (the first row of an unordered query), so no KB's effective model changes on deploy. Until the admin form shows the flag, a provider save keeps the current default; before, a save could move it silently. No re-ingest, no `site_config` change.
+- **Deployments without a rerank model get retrieval context again.** `min_similarity_threshold` (default 0.3) now judges a chunk's cosine similarity instead of its RRF score, which is at most about 0.016, so the filter used to remove every chunk and every answer said no context was provided. Chunks the keyword arm or the knowledge graph found are no longer filtered by it. Deployments with a reranker (production) skip this filter and are unaffected. A local workaround of `min_similarity_threshold = 0` can be removed.
+- **Split markdown tables keep their header row in every chunk** (KI-853). A table longer than one chunk used to keep its header only in the first piece; later pieces were bare cells. Now every piece starts with the header and `|---|` rows, also when a table runs on onto the next page. Text without markdown tables chunks exactly as before. Takes effect for files ingested after the deploy; existing files need a re-ingest (per KB "re-ingest", or `POST /admin/reembed-all`). `fingerprintVersion` is now 2, so copy mode no longer reuses indexes built before.
+- **Audio uploads over the transcription limit are refused at upload** (`413 file_too_large` with `limitBytes`, default 25 MB = `STT_MAX_FILE_MB`; set that variable on the server too, not only the worker). They used to be accepted, fail in the worker three times and show "the file may be damaged". Audio that reaches the worker another way fails with the new file error stage `too_large` and is not retried; the frontend shows the generic error for it until it adds the `fileErrorTooLarge` key (`docs/user-error-messages.md` S16i).
+- **Uploaded system logos are no longer shown; the app name is two settings, institution and system** (`JLU` + `RAG`, logo „JLU [RAG]"). Admins set them as **Institutionsname** / **Systemname** in the settings (`institution_name`, `system_name`); unset, they are the new env variables `APP_NAME_PREFIX` / `APP_NAME_PRODUCT` (default `JLU` / `RAG`). ⚠ `system_name` changes meaning: it was the whole name („JLU RAG") and is now only the second part; migration 0104 deletes a stored value, so a deployment that set one enters the two parts again; `{{system_name}}` in a role prompt resolves to that part, the new `{{institution_name}}` to the first. The logo, window title, installed-app manifest and legal pages follow the settings (the server writes them into the app shell per request); the API docs (`/api/v1/docs`, `/api/v1/openapi.json`), the research BibTeX note („Accessed via …") and the Open WebUI model list use the env name: `GET /owui/api/models` now names the model after the app instead of `JustRAG` (its `id` stays `justrag`). `POST /api/site-config/logo` and `GET /uploads/logo/` are removed. The settings **Text für Chat-Fußzeile**, **Text für Knowledge Base Header**, **Impressum / Fußzeile**, **Beispiel-Prompts** and **Web Proxy** (never read) are gone from the admin settings; `chat_footer`, `kb_header`, `imprint`, `example_prompts` are no longer public, and **migration 0104** deletes those rows with `logo_path`, `web_proxy` and `system_name` (`/app/migrate` first; a re-run is a no-op). ⚠ The deleted texts are gone for good (`cmd/migrate` is up-only): to keep them, run `SELECT key, value FROM site_configs WHERE key IN ('chat_footer','kb_header','imprint','example_prompts','system_name')` before migrating. `example_prompts` was also the starter-question fallback for every KB without a start page and without its own example prompts; those KBs now show the built-in starter questions. A global KB's own header text and example prompts stay. Names (`assistant_name`, `institution_name`, `system_name`) are refused at save time if they contain a Unicode line break (NEL, U+2028/2029, vertical tab, form feed), not only CR/LF; a stored one reads as the default. The uploaded files under `uploads/logo/` are left in place and can be deleted. No re-ingest.
 - **The stuck-file sweep now uses the database clock.** It marked every processing file `timeout` ("Processing timed out") when a worker host's clock ran ahead of the database; the file then completed anyway. Files that really ended in `timeout` before this release can be retried per KB ("retry failed").
 - **Files stay `processing` while a failed attempt waits for its retry**, and only the final attempt marks them `error`. Unsupported file types fail at once and are no longer retried three times.
 
+### Features
+- System notice admin rework and free placement (576e206)
+- Free placement for the system notice (397ced0)
+- Institution and system name fields, drop unused settings (72c48a4)
+- Build the wordmark and title from the configured app name (43bcf45)
+- Institution and system name settings, drop unused settings (d48dc05)
+- Default system_name to the app name (ffbbbe9)
+- Name the app from env and drop the logo upload (49a0c88)
+- Follow-up questions above the composer (8d60ea5)
+- Drag-sort topic rows in list view (ccc2587)
+- Agent step timeline above the answer, kept on reload (6bf51d6)
+- Keep agent steps on the message, stream standard-path steps (5b02932)
+- Keep the topic order with the account (f207767)
+- Store each user's topic order per view (0b135f1)
+- Serve /metrics on the worker health server (8d51fea)
+- Emit structured headings, lists, tables (a797dfd)
+- Add CLI that dumps parser-chain output as JSON (f614ff7)
+- Role prompts, role-owned starts, rag settings in kb overview (3278e2f)
+- Card header glow via ds 0.76.0, lock and people icons (d1d6090)
+- Edit the chat attachment size cap in the agent panel (04cd4c5)
+- Ai-use notice until the policy version is accepted (3e76f6a)
+- Seed the owui service user from OWUI_SERVICE_PASSWORD (f5dec9a)
+- Store per-user usage-policy acceptance (259f76b)
+- Ask for the storage notice before a first upload (c761e95)
+- One stream-level keep-alive heartbeat for every SSE surface (3b72a6e)
+- Docling-compatible rust parser in shadow/primary mode (d12163b)
+- Admin system notice as banner or floating pill (1ca2cea)
+- Admin system notice with automation api (58d6af0)
+- Subscribe to global topics from discover (48f294e)
+- Drag-sortable topic cards with a favorites row (99b19b0)
+- Role-owned identity, names and chat starts (e9e0725)
+- Role template start, colour grid, reduced colours, ds 0.73.0 (319c06b)
+- Role template start and background translation (63acf90)
+- Shorten pasted repo links, check repo and pick branch (dfe1bf1)
+- Normalize pasted repo links, add branch lookup (b06d1e0)
+- Hairline cards, platform category filters, ds 0.72.0 (5428e25)
+- Free category colour, migration 0096 (558eed8)
+- Kb settings search finds agent roles and versions, ds 0.71.1 (6dd4f0b)
+- Settings search for admin, user and KB settings, ds v0.71.0 (60c8675)
+- Settings modal sizes, admin opens maximized, ds v0.70.0 (01c2832)
+- Topic assistant settings, home cards and card menu (a830417)
+- Roles, start page and versioned assistant settings (15375c5)
+
+
 ### Fixes
+- Start a remounted view from the loaded topic order (6637b8d)
+- Hand only the saved names to the app shell (b13c60a)
+- Start a precached page from the last-seen app name (cfdf28b)
+- Weak shell etag, names refuse unicode line breaks (d05506f)
+- Refuse an app name part no prompt name may be (6d58712)
+- Keep an escaped quote at the end of the app name (adae6fd)
+- Answer an oversized topic order with 413 (9649521)
+- Bump brotli and klauspost/compress for GO-2026-6888/6865 (9c0fe2f)
+- Name the orchestrator's answer step research complete (666cced)
+- Touch taps past the grip, header above rows, reduced motion (f41c86c)
+- Drop the browser order when a drag beats the load (ba82662)
+- Structure on demand, list slots, opt-in worker metrics (723e014)
+- Map section headers to the rendered heading level (8285c2f)
+- Accept start page version 2 (90f012e)
+- Keep start questions, kb language and legacy identity (a358715)
+- Migrate only pre-role start pages, keep drafts (22c19fc)
+- Accept a fractional MB attachment cap (d16d99f)
+- Hold the attachment cap to the file, not the multipart body (bfd4ce7)
+- Exempt attachment uploads from the 1 MiB body cap (f07447b)
+- Attachment notice without the source rule (c232bc2)
+- Storage notice per upload kind, worded as files are kept (b234ba6)
+- Keep the app blocked while the policy state is unknown (ea52912)
+- Time out the policy state request so the app fails open (5daef21)
+- Block until the policy state loads, re-check on focus (ed97c12)
+- Repeat a markdown table's header in every chunk (d71d74a)
+- Make the documented local dev setup work as written (212568f)
+- Refuse audio over the stt limit with a clear error (d6cc7e3)
+- Read the blob through storage on local disk too (6b97092)
+- Judge min_similarity_threshold on cosine, not rrf score (136fa3b)
+- Stop ingest jobs whose file was deleted (316a561)
+- Explicit default model per provider and kind (ce851f4)
+- Storage notice per upload kind, worded as files are kept (4e7d670)
+- Check the version and store the acceptance in one tx (577785d)
+- A card released outside the grids is not moved (9e441a0)
+- Keyboard drag reaches an empty group's drop zone (68ebb16)
+- Empty-rest drop zone when all shown topics are favorites (c72b646)
+- Serialize empty pages as [] not null in shadow dumps (d6eede4)
+- Save only the system notice fields edited in the dialog (d7f279c)
+- Check git targets and redirects behind the egress proxy (c889cca)
+- Never prune image manifests younger than an hour (5679644)
+- Guard role edits on close, keep drafts across a reset (ffe3d1e)
+- Version the behavior reset, honour a patched system prompt (4801a6a)
 - Judge stuck files by the database clock (28bac65)
 - Keep file processing until the final retry fails (bbfe5cc)
 

@@ -84,9 +84,18 @@ The messages every feature shares. The catalog in section 4 refers to them by ID
 | S16f | Processing failed: timeout | stage `timeout` | `fileErrorTimeout` | Die Verarbeitung hat zu lange gedauert. Versuche es erneut. | Processing took too long. Please try again. |
 | S16g | Processing failed: not queued | stage `queue` | `fileErrorQueue` | Die Datei konnte nicht zur Verarbeitung eingeplant werden. Versuche es erneut. | The file could not be scheduled for processing. Please try again. |
 | S16h | Processing failed: unknown stage | any other or no stage | `fileErrorUnknown` | Bei der Verarbeitung ist etwas schiefgelaufen. Versuche es erneut. | Something went wrong while processing. Please try again. |
+| S16i | Processing failed: audio too large to transcribe | stage `too_large` | `fileErrorTooLarge` *(frontend key still to add; until then S16h shows)* | Die Audiodatei ist zu groß für die Transkription. Kürze oder komprimiere die Aufnahme und lade sie erneut hoch. | The audio file is too large to transcribe. Shorten or compress the recording and upload it again. |
 
 The S16 messages appear under the failed file in the sources list, next to its
-retry button, which is why each one ends with "Versuche es erneut".
+retry button, which is why each one ends with "Versuche es erneut". S16i is the
+exception: the same file fails again, so it asks for a smaller file instead.
+
+**Audio size limit.** Transcription sends the whole recording in one request,
+so audio is limited to `STT_MAX_FILE_MB` (default 25 MB; set it to the same
+value on server and worker). An upload over it is refused right away with
+`413 file_too_large` and `limitBytes` ([S1](#2-shared-messages)); a file that
+reaches the worker by another route (library, connector) fails with stage
+`too_large` and is not retried.
 
 **What S7 means.** The answer model reads attached documents in full, as
 context for the question. It can only read a limited amount of text at once (its
@@ -184,7 +193,7 @@ Chat, composer, upload, sources sidebar, login, profile pages.
 | A34 | `components/ChartRenderer.tsx:94` | Chart has no data | Keine Daten zum Anzeigen verfügbar. (German only) | `noDataAvailable` | Keine Daten verfügbar | No data available | open |
 | A35 | `components/DataExplorer/DataExplorer.tsx:53–54`, `:60` | Data Explorer query refused (the routes answer 501) | `Query failed`, `not implemented` | `dataExplorerQueryFailed` *(proposed)* + S12–S15 | Die Daten konnten nicht abgefragt werden. | The data could not be queried. | open |
 | A36 | `components/DataExplorer/DataExplorer.tsx:82`; `DataExplorer/ExportButtons.tsx:28–29` | Data Explorer CSV export refused | `Export failed` | `exportFailed` + S12–S15 | Export fehlgeschlagen | Export failed | open |
-| A37 | `components/TrajectoryPanel.tsx:212` | Verifier failed after a refine step | Verifier-Fehler nach Korrektur (language ternary) | `trajectoryVerifierError` *(proposed)* | Prüfung nach der Korrektur fehlgeschlagen | Check after the correction failed | open |
+| A37 | `components/agentSteps/buildSteps.ts` (refine_complete) | Verifier failed after a refine step | Faktencheck nach Korrektur nicht prüfbar | `stepRefineVerifierError` | Faktencheck nach Korrektur nicht prüfbar | Fact check could not verify the correction | done |
 | A38 | `components/ConfluenceTokenManager.tsx:68` | Saving the Confluence token refused | Raw backend text, else „Fehler“ | `confluenceProfileSaveError` *(proposed)* + S12–S15 | Die Confluence-Verbindung konnte nicht gespeichert werden. | Could not save the Confluence connection. | open |
 | A39 | `components/ConfluenceTokenManager.tsx:84`, `:88` | Verify answers `ok: false`, or the verify request is refused | Raw backend or Confluence text | `confluenceProfileVerifyFailed` + S12–S15 | Confluence-Verbindung konnte nicht verifiziert werden. | Confluence connection verification failed. | open |
 | A40 | `components/ConfluenceTokenManager.tsx:107` | Removing the Confluence connection refused | Raw backend text, else „Fehler“ | `confluenceProfileDeleteError` *(proposed)* + S12–S15 | Die Confluence-Verbindung konnte nicht entfernt werden. | Could not remove the Confluence connection. | open |
@@ -320,20 +329,20 @@ Where the `error` texts behind the messages above come from. Paths are relative 
 `go-backend/internal`; line numbers are as of the backend change that adds the
 codes. A code in parentheses is the `code` the response now carries.
 
-- `uploadcheck/uploadcheck.go:135`, `:140`, `:144` – name checks, all **400**: `File type not allowed`, `File type not supported (.ext)` (`unsupported_file_type`), `Filename must not exceed 255 bytes` (`file_name_too_long`)
-- `uploadcheck/uploadcheck.go:193`, `:196` – 413 `File too large: the upload limit is …` (`file_too_large`, `limitBytes`), 400 `Invalid multipart form` (`invalid_upload`)
-- `uploadcheck/uploadcheck.go:202`, `:213` – 400 `File field is required` (`invalid_upload`), `File must not be empty` (`empty_file`)
-- `uploadcheck/uploadcheck.go:243` – 413 spreadsheet limit (`file_too_large`, `limitBytes`); the text still names the config key `tabular_max_file_bytes`
+- `uploadcheck/uploadcheck.go:145`, `:150`, `:154` – name checks, all **400**: `File type not allowed`, `File type not supported (.ext)` (`unsupported_file_type`), `Filename must not exceed 255 bytes` (`file_name_too_long`)
+- `uploadcheck/uploadcheck.go:204`, `:207` – 413 `File too large: the upload limit is …` (`file_too_large`, `limitBytes`), 400 `Invalid multipart form` (`invalid_upload`); `:112` `FileTooLarge` builds the same 413 for a caller's own cap
+- `uploadcheck/uploadcheck.go:213`, `:224` – 400 `File field is required` (`invalid_upload`), `File must not be empty` (`empty_file`)
+- `uploadcheck/uploadcheck.go:254` – 413 spreadsheet limit (`file_too_large`, `limitBytes`); the text still names the config key `tabular_max_file_bytes`
 - `files/http.go:575` – writes the `uploadcheck` error with its code
 - `files/http.go:609`, `:613` – 400 topic limits: `Knowledge base has reached the maximum of %d files`, `… the 500 MB storage limit` (`kb_full`)
 - `files/from_library.go:111` (body from `userfiles/http.go:84–92`) – 413 `quota_exceeded` (in `error` and `code`)
 - `files/from_library.go:126`, `:143` – 409 `already_in_kb` (in `error` and `code`)
 - `files/http_ingest.go:467`, `:487`, `:506` – URL fetch: 400 validation error, 502 `Failed to fetch URL` (no code; B08, B09)
-- `chat/attachments_http.go:76`, `:91` – 503 `chat attachments are not available` (no code); the `uploadcheck` error with its code
-- `chat/attachments_http.go:151–162` (used at `:121` and `:265`) – 415 `unsupported file type` (`unsupported_file_type`), 422 `the file %q could not be read` (`file_unreadable`), 422 `the file %q took too long to read` (`parse_timeout`), 422 `the file contained no extractable text` (`no_text`), 500 `failed to read the file` (no code)
-- `chat/attachments_http.go:164–175` – 422 `too_large_for_context` (in `error` and `code`) with `tokens`, `limit`
-- `chat/attachments_http.go:222–276` – send-time attachment refusals without a code: 503 not available, 400 `at most %d attachments per message`, 400 comparison combination, 400 regenerate, 404 `attachment not found`, 500 read failure; file refusals carry the codes above
-- `chat/library_text.go:21`, `:28`, `:32` – sentinels `ErrUnsupportedType`, `ErrUnparseable`, `ErrLibraryParseTimeout`; mapped in `chat/attachments_http.go:151–162` and `chat/library_http.go:354–360`
+- `chat/attachments_http.go:80`, `:95`, `:103`, `:111` – 503 `chat attachments are not available` (no code); the upload cap `chat_attachments_max_file_bytes` on the file (the body may exceed it by the multipart framing) and the `uploadcheck` error with its code (413 `file_too_large` with `limitBytes` = the file cap)
+- `chat/attachments_http.go:167–180` (used at `:137` and `:288`) – 415 `unsupported file type` (`unsupported_file_type`), 422 `the file %q could not be read` (`file_unreadable`), 422 `the file %q took too long to read` (`parse_timeout`), 422 `the file contained no extractable text` (`no_text`), 500 `failed to read the file` (no code)
+- `chat/attachments_http.go:184–191` – 422 `too_large_for_context` (in `error` and `code`) with `tokens`, `limit`
+- `chat/attachments_http.go:240–302` – send-time attachment refusals without a code: 503 not available, 400 `at most %d attachments per message`, 400 comparison combination, 400 regenerate, 404 `attachment not found`, 500 read failure; file refusals carry the codes above
+- `chat/library_text.go:21`, `:28`, `:32` – sentinels `ErrUnsupportedType`, `ErrUnparseable`, `ErrLibraryParseTimeout`; mapped in `chat/attachments_http.go:167–180` and `chat/library_http.go:354–360`
 - `chat/http_attachment.go:97–104`, `:126`, `:154`, `:165`, `:177`, `:185`, `:189`, `:192`, `:196` – comparison upload: 413 `file is too large` (`file_too_large`, `limitBytes`), 503 `document comparison is disabled` (no code), 400 multipart and field errors (`invalid_upload`), 415 `unsupported file type` (`unsupported_file_type`), 422 `the file could not be read` (`file_unreadable`), 422 `the file contained no extractable text` (`no_text`), 500 `failed to parse file` (no code)
 - `chat/http_send_helpers.go:69–92` – 400 validation (`message is required`, length limit, regenerate checks)
 - `chat/http_send_helpers.go:152–164`, `:625` – 403 `access denied`, 500 chat-row errors

@@ -34,6 +34,7 @@ import (
 	"github.com/justrag/go-backend/internal/gitrepo"
 	"github.com/justrag/go-backend/internal/jobs"
 	"github.com/justrag/go-backend/internal/kb"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/kbconfig"
 	"github.com/justrag/go-backend/internal/kg"
 	"github.com/justrag/go-backend/internal/kgevents"
@@ -42,6 +43,7 @@ import (
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/parser/docling"
+	"github.com/justrag/go-backend/internal/parser/rustparser"
 	"github.com/justrag/go-backend/internal/processor"
 	"github.com/justrag/go-backend/internal/ragassamples"
 	"github.com/justrag/go-backend/internal/redisclient"
@@ -84,6 +86,10 @@ func RunWorker(cfg *config.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// {{institution_name}} / {{system_name}} in the prompts the worker compiles
+	// default to the app name from the environment.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
+
 	// nil redactor: the worker serves no HTTP surface, so no URL path — and
 	// therefore no invite token — ever reaches a span here.
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-worker", "", nil)
@@ -119,11 +125,17 @@ func RunWorker(cfg *config.Config) error {
 	// came up afterwards, k8s killed pods mid-DDL and the whole fleet
 	// restart-looped (observed 2026-07-03). Liveness = process is up;
 	// readiness (SetReady) still flips only after full wiring below.
-	healthSrv := worker.NewHealthServer(cfg.WorkerHealthPort)
+	healthSrv := worker.NewHealthServer(cfg.WorkerHealthPort, cfg.WorkerMetrics)
 	healthSrv.Start()
 	// Health server cleanup on any exit path. Registered first (LIFO: runs
 	// last) so the probe endpoint outlives every other teardown.
 	defer healthSrv.Shutdown()
+
+	// Answers compiled here (research, agent jobs) read the role templates
+	// too: the same seed/load/reload as the server. Stopped before the pool
+	// closes (LIFO after db.Close above).
+	stopTemplates := kbbehavior.StartTemplateRefresher(ctx, kbbehavior.NewTemplateStore(db.Main), 30*time.Second)
+	defer stopTemplates()
 
 	// Ensure all known vector tables exist with the current schema (adds
 	// missing columns like content_hash via ALTER ... ADD COLUMN IF NOT EXISTS).
@@ -139,8 +151,10 @@ func RunWorker(cfg *config.Config) error {
 	chatStore := chat.NewStore(db.Main)
 	chunkService := vector.NewChunkService(db.Vector)
 	var doclingFront []parser.Parser
+	var doclingClient *docling.Client
 	parseIdentity := "builtin"
 	if dc := buildDoclingClient(ctx, chatStore, aiResolver); dc != nil {
+		doclingClient = dc
 		parseIdentity = "docling:" + dc.BaseURL()
 		doclingFront = append(doclingFront,
 			&docling.FallbackParser{
@@ -172,6 +186,23 @@ func RunWorker(cfg *config.Config) error {
 			probeDoclingEnrichments(dc)
 		}
 		slog.Info("docling parser enabled for pdf + docx + pptx", "base_url", dc.BaseURL())
+	}
+	// Rust fileparser (fp-server) for DOCX, applied after the Docling block.
+	// The service speaks the docling-serve wire protocol, so the existing
+	// docling client drives it. RUSTPARSER_MODE=off (default) | shadow |
+	// primary, plus RUSTPARSER_URL, RUSTPARSER_TIMEOUT_SECONDS (default 300)
+	// and RUSTPARSER_SHADOW_DIR.
+	if mode := os.Getenv("RUSTPARSER_MODE"); mode != "" && mode != "off" {
+		if url := os.Getenv("RUSTPARSER_URL"); url == "" {
+			slog.Warn("rustparser: RUSTPARSER_MODE set but RUSTPARSER_URL is empty; ignoring", "mode", mode)
+		} else if front, identity := wireRustparser(ctx, mode, url, doclingClient); front != nil {
+			// Prepend: the factory uses the first parser whose CanParse
+			// matches, so the new entry must sit ahead of the parser it
+			// replaces.
+			doclingFront = append([]parser.Parser{front}, doclingFront...)
+			parseIdentity += identity
+			slog.Info("rustparser enabled for docx", "mode", mode, "base_url", url)
+		}
 	}
 	sttHTTPClient := ai.NewSTTHTTPClient()
 	parserFactory := parser.DefaultFactoryWith(sttTranscriber{resolver: aiResolver, httpClient: sttHTTPClient}, doclingFront...)
@@ -780,6 +811,99 @@ func probeDoclingEnrichments(client *docling.Client) {
 		}
 		slog.Info("docling: enrichment probe ok")
 	})
+}
+
+// wireRustparser builds the front parser for DOCX per RUSTPARSER_MODE and
+// the parse-identity suffix to append. It returns a nil parser when nothing
+// should be registered: an unknown mode, or primary mode where the
+// capabilities fetch failed — the worker never routes DOCX to an endpoint
+// it could not verify.
+func wireRustparser(ctx context.Context, mode, url string, dc *docling.Client) (parser.Parser, string) {
+	timeout := rustparserTimeout()
+	rc := docling.NewClient(url, timeout)
+	// Async like the Docling client (task endpoints, no wall-clock cap).
+	// Probe is deliberately NOT called: the probe is a PDF, and the
+	// DOCX-only service would reject it.
+	rc.Async = true
+
+	// existingDocx is the parser that currently answers DOCX: the Docling
+	// fallback if Docling is enabled, otherwise the built-in parser.
+	existingDocx := parser.Parser(&parser.DocxParser{})
+	if dc != nil {
+		existingDocx = &docling.FallbackParser{
+			Primary:  &docling.DoclingDocxParser{Client: dc},
+			Fallback: &parser.DocxParser{},
+		}
+	}
+
+	switch mode {
+	case "shadow":
+		return &rustparser.ShadowParser{
+			Primary: existingDocx,
+			Shadow:  &rustparser.DocxParser{Client: rc},
+			Timeout: timeout,
+			Dir:     os.Getenv("RUSTPARSER_SHADOW_DIR"),
+		}, ""
+	case "primary":
+		version, err := rustparserVersion(ctx, url)
+		if err != nil {
+			slog.Error("rustparser: capabilities fetch failed; not routing DOCX to it",
+				"base_url", url, "error", err.Error())
+			return nil, ""
+		}
+		return &docling.FallbackParser{
+			Label:    "rustparser",
+			Primary:  &rustparser.DocxParser{Client: rc},
+			Fallback: existingDocx,
+		}, "|rustparser:" + version
+	default:
+		slog.Warn("rustparser: unknown RUSTPARSER_MODE; ignoring", "mode", mode)
+		return nil, ""
+	}
+}
+
+// rustparserTimeout reads RUSTPARSER_TIMEOUT_SECONDS; invalid or missing
+// values degrade to the 300 s default.
+func rustparserTimeout() time.Duration {
+	const def = 300 * time.Second
+	raw := os.Getenv("RUSTPARSER_TIMEOUT_SECONDS")
+	if raw == "" {
+		return def
+	}
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs <= 0 {
+		slog.Warn("rustparser: invalid RUSTPARSER_TIMEOUT_SECONDS; using default", "value", raw)
+		return def
+	}
+	return time.Duration(secs) * time.Second
+}
+
+// rustparserVersion fetches GET {url}/v1/capabilities and returns the
+// service version, recorded in the parse identity so a dump can be told
+// which parser produced it.
+func rustparserVersion(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(url, "/")+"/v1/capabilities", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("capabilities: status %d", resp.StatusCode)
+	}
+	var caps struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&caps); err != nil {
+		return "", err
+	}
+	if caps.Version == "" {
+		return "", fmt.Errorf("capabilities: empty version")
+	}
+	return caps.Version, nil
 }
 
 // DefaultDoclingPicturePrompt is what the vision model is asked per figure

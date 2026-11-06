@@ -138,6 +138,7 @@ function renderTab({ errors = {}, siteConfigs = {}, showForm = true }: Overrides
                 setConnectionTest={vi.fn()}
                 handleConfigSubmit={handleConfigSubmit}
                 startEditConfig={startEditConfig}
+                startAdd={vi.fn()}
                 handleDelete={handleDelete}
                 handleActivate={handleActivate}
                 resetForm={resetForm}

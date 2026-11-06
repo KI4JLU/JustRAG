@@ -20,7 +20,7 @@ vi.mock('../contexts/ThemeContext', () => ({
         confirmLeaveKb: 'Leave this KB? {count} of your chats will be deleted.',
         confirmLeaveKbNoChats: 'Leave this KB?',
         confirmUnsubscribeKb: 'Unsubscribe from this KB?',
-        confirmRemoveFavorite: 'Remove from favorites? Your chats are kept, and it stays under "Discover KBs".',
+        confirmUnsubscribeTopic: 'Unsubscribe from this topic? Your chats are kept, and it stays under "Discover".',
       };
       return strings[key] ?? key;
     },
@@ -98,9 +98,10 @@ describe('useKbRemoval', () => {
     expect(get).not.toHaveBeenCalled();
   });
 
-  // Der Dialog muss sagen, was wirklich passiert: Chats bleiben, die KB bleibt
-  // unter „KBs entdecken" auffindbar. Vorher stand dort die Leave-Warnung.
-  it('confirms with the favorites wording, not the chat-loss warning', async () => {
+  // Der Dialog muss sagen, was wirklich passiert: das Thema wird abbestellt,
+  // Chats bleiben, es bleibt unter „Entdecken" auffindbar. Vorher stand dort
+  // die Leave-Warnung, danach eine Favoriten-Formulierung.
+  it('confirms with the unsubscribe wording, not the chat-loss warning', async () => {
     vi.spyOn(axios, 'delete').mockResolvedValue({ status: 204 });
     showConfirm.mockResolvedValue(true);
 
@@ -110,7 +111,7 @@ describe('useKbRemoval', () => {
     });
 
     const message = showConfirm.mock.calls[0][0] as string;
-    expect(message.toLowerCase()).toContain('favorites');
+    expect(message.toLowerCase()).toContain('unsubscribe');
     expect(message.toLowerCase()).not.toContain('will be deleted');
   });
 

@@ -96,8 +96,8 @@ export interface TrajChunkRef {
 // TrajectoryEvent is the unified envelope for streaming agentic-chat
 // progress to the frontend. The orchestrators (agentic_chat,
 // plan_execute_chat) and the standard CRAG path each emit one event per
-// decision point; the renderer aggregates them into a "Reasoning steps"
-// panel above the answer.
+// decision point; the step timeline above the answer
+// (components/agentSteps) renders them, the reasoning among them.
 //
 // Stage values:
 //   plan             Plan-and-Execute planner emitted a sub-query list
@@ -115,6 +115,12 @@ export interface TrajChunkRef {
 //                    verifier's residual claim count. ClaimsAfter = -1 is the
 //                    sentinel for "v2 verifier errored — keep the refined
 //                    text but flag the verdict as unknown".
+//   reasoning        Not an event: the marker of where the model's thinking
+//                    began among the steps (stored by the backend, inserted
+//                    live by useChatStream). Its text is Message.reasoning.
+//   …                the full list is TrajectoryEvent's doc in
+//                    go-backend/internal/chat/trajectory.go; every stage the
+//                    UI labels is in components/agentSteps/buildSteps.ts.
 export interface DiffChunk {
     kind: 'added' | 'removed' | 'kept';
     text: string;
@@ -142,6 +148,12 @@ export interface TrajectoryEvent {
     // backend when zero, so both are optional.
     limit?: number;
     run_length?: number;
+    // longcontext_reduce: findings the token budget cut from the tail.
+    dropped?: number;
+    // orchestrator_policy: the 0-based chat_orchestrator_policy rule index.
+    policy_rule?: number;
+    /** An answer-time tool call's argument preview (agent_tool_call). */
+    args?: string;
 }
 
 export interface TableColumn {
@@ -199,10 +211,12 @@ export interface Message {
     // nothing rather than an empty label.
     teamId?: string | null;
     agentId?: string | null;
-    // Streaming trajectory: one entry per orchestrator decision point
-    // (plan/iterate/hop/decision/answer). Populated by useChatStream from
-    // the `agentTrajectory` SSE events. Undefined when no events arrived
-    // (legacy path or non-streaming).
+    // The answer's agent steps: one entry per orchestrator decision point
+    // (plan/iterate/hop/decision/answer/…), plus a `reasoning` marker where
+    // the model's thinking began. Live from the `agentTrajectory` SSE events
+    // (useChatStream), after a reload from the stored `trajectory` of the
+    // message (GET /api/chats/{id}/messages). Undefined when the turn had no
+    // steps.
     trajectory?: TrajectoryEvent[];
     // In-chat document comparison findings, populated by useChatStream from
     // the `comparisonFindings` SSE event during a comparison turn.
@@ -353,6 +367,10 @@ export interface KnowledgeBase {
     // session-facing KB row, PATCH and POST /api/kb included, does.
     isFavorite?: boolean;
     userCategoryIds?: string[];
+    /** The catalog category the topic's title card shows (GET /api/kb card field); absent when none. */
+    category?: KbCategory | null;
+    /** The start page's colours, the card's cover band (GET /api/kb card field); absent = none. */
+    colors?: { from: string; to: string } | null;
     // visibility is the stored truth since migration 0065; isGlobal above is
     // the derived mirror kept for API compatibility.
     visibility?: 'private' | 'public';
@@ -567,6 +585,10 @@ export interface ChatEntry {
     updatedAt: string;
     teamId?: string | null;
     agentId?: string | null;
+    /** The role the chat was started in (a starter question with a role,
+     *  API.md "Behavior: roles and rules"); absent for a chat in the KB's
+     *  active role. */
+    roleId?: string | null;
     /** Set on a chat made by branching (Verzweigen, a new answer, an edited
      *  question): the chat it was copied from, which may have been deleted
      *  since. Absent on an ordinary chat. */
@@ -841,6 +863,10 @@ export interface KbCatalogEntry {
     // overview", isFavorite "did I star it for the Favoriten chip".
     isFavorite: boolean;
     userCategoryIds: string[];
+    /** The start page's colours, drawn as the card's cover band; null = none. */
+    colors?: { from: string; to: string } | null;
+    fileCount?: number;
+    lastIngestedAt?: string | null;
 }
 
 // GET /api/admin/kb-categories row — system-admin only; used to render the
@@ -849,6 +875,10 @@ export interface KbCategory {
     id: string;
     name: string;
     sortOrder: number;
+    /** Palette slot 1..9 (`--color-category-N`), fixed per category (migration 0093). */
+    colorSlot?: number | null;
+    /** The colour an admin picked (`#rrggbb`, migration 0096); drawn instead of the slot. */
+    color?: string | null;
 }
 
 // GET /api/kb-user-categories row — the caller's OWN categories, the chips
@@ -1159,4 +1189,4 @@ export interface SearchResponse {
 }
 
 /** A section of the „Thema-Einstellungen" window (KbSettingsDialog). */
-export type KbSettingsSection = 'behavior' | 'roles' | 'members';
+export type KbSettingsSection = 'start' | 'behavior' | 'roles' | 'members' | 'versions';

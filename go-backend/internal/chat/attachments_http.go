@@ -16,6 +16,10 @@ import (
 	"github.com/justrag/go-backend/internal/userfiles"
 )
 
+// multipartFramingBytes is the request-body allowance above the file cap for
+// the multipart boundaries and part headers (a 255-byte file name included).
+const multipartFramingBytes = 64 << 10
+
 // AttachmentIngester stores an upload as a user file of a given scope.
 // Satisfied by *userfiles.Ingester.
 type AttachmentIngester interface {
@@ -84,10 +88,18 @@ func (h *Handler) UploadChatAttachment(w http.ResponseWriter, r *http.Request) {
 	kbID := parsed.String()
 	ctx = logctx.Attach(logctx.WithUser(logctx.WithKB(ctx, kbID), user.ID))
 
+	// The route is exempt from the global request-body cap; this is its own.
+	// The cap is on the file, so the body may exceed it by the multipart
+	// framing; a refusal names the file cap either way.
+	maxFile := ChatAttachmentsMaxFileBytes(ctx, h.siteConfigReader)
+	r.Body = http.MaxBytesReader(w, r.Body, maxFile+multipartFramingBytes)
 	up, err := uploadcheck.Parse(w, r, h.attachLimits)
 	if err != nil {
 		var ue *uploadcheck.Error
 		if errors.As(err, &ue) {
+			if ue.Code == uploadcheck.CodeFileTooLarge && ue.LimitBytes > maxFile {
+				ue = uploadcheck.FileTooLarge(maxFile)
+			}
 			ue.Write(ctx, w)
 			return
 		}
@@ -95,6 +107,10 @@ func (h *Handler) UploadChatAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer up.File.Close()
+	if up.Header.Size > maxFile {
+		uploadcheck.FileTooLarge(maxFile).Write(ctx, w)
+		return
+	}
 
 	uf, created, err := h.attachIngester.IngestScoped(ctx, user.ID, up, userfiles.ScopeChat)
 	if err != nil {

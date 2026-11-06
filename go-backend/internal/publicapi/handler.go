@@ -164,6 +164,9 @@ func (a chatStoreAdapter) UpdateMessageContent(_ context.Context, _ string, _ st
 func (a chatStoreAdapter) UpdateMessageTraceID(_ context.Context, _ string, _ string) error {
 	return nil
 }
+func (a chatStoreAdapter) UpdateMessageTrajectory(_ context.Context, _ string, _ []chat.TrajectoryEvent) error {
+	return nil
+}
 func (a chatStoreAdapter) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
 	return nil
 }
@@ -183,6 +186,20 @@ func (a chatStoreAdapter) BranchChat(_ context.Context, _, _, _ string) (*chat.B
 
 func (a chatStoreAdapter) StarterContext(_ context.Context, _ string, _ int) (chat.StarterSource, error) {
 	return chat.StarterSource{}, fmt.Errorf("StarterContext: %w", errChatStoreUnsupported)
+}
+
+// GetChatSystemPrompt answers in the KB's active role: public API chats are
+// never started in another role.
+func (a chatStoreAdapter) GetChatSystemPrompt(ctx context.Context, kbID, _ string) (*string, error) {
+	return a.GetKBSystemPrompt(ctx, kbID)
+}
+
+func (a chatStoreAdapter) KBHasRole(_ context.Context, _, _ string) (bool, error) {
+	return false, fmt.Errorf("KBHasRole: %w", errChatStoreUnsupported)
+}
+
+func (a chatStoreAdapter) CreateChatWithRole(_ context.Context, _, _, _, _ string) (*chat.ChatRow, error) {
+	return nil, fmt.Errorf("CreateChatWithRole: %w", errChatStoreUnsupported)
 }
 
 // ---------------------------------------------------------------------------
@@ -536,7 +553,9 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// Streaming path
 	// ------------------------------------------------------------------
 	if streamMode {
-		httputil.EnableSSE(w)
+		sw := httputil.StartSSE(ctx, w)
+		defer sw.Stop() // no ping may outlive this handler
+		w = sw
 		// Every frame passes the citation filter (nil = citations visible).
 		send := func(data any) {
 			for _, frame := range citations.Frames(data) {
@@ -786,7 +805,9 @@ func (h *Handler) streamResearch(
 	kbID, userID string,
 	body researchRequest,
 ) {
-	httputil.EnableSSE(w)
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop() // no ping may outlive this handler
+	w = sw
 
 	var report string
 	var findings []research.Finding

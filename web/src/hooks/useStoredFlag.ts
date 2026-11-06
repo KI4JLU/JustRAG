@@ -107,3 +107,49 @@ export function useSharedStoredFlag(
   }, [key]);
   return [value, set];
 }
+
+/* A remembered SET OF IDS, shared and live like `useSharedStoredFlag` — for a
+ * preference that is a list rather than one switch (the categories hidden
+ * from the filter row: set in the category dialog, read by every view's chip
+ * row). Stored as a JSON array; anything else under the key reads as empty,
+ * so a corrupted value costs the preference, never the view. */
+const idSetListeners = new Map<string, Set<() => void>>();
+const idSetValues = new Map<string, ReadonlySet<string>>();
+
+function readStoredIds(key: string): ReadonlySet<string> {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * A set of ids that survives a reload, shared by every component using `key`.
+ *
+ * @param key the FULL localStorage key, `justrag.`-prefixed by the caller.
+ * @returns `[ids, setIds]` — `setIds` writes through and re-renders every user.
+ */
+export function useSharedStoredIds(key: string): [ReadonlySet<string>, (next: ReadonlySet<string>) => void] {
+  const subscribe = useCallback((notify: () => void) => {
+    let set = idSetListeners.get(key);
+    if (!set) idSetListeners.set(key, (set = new Set()));
+    set.add(notify);
+    return () => { set.delete(notify); };
+  }, [key]);
+  const value = useSyncExternalStore(subscribe, () => {
+    if (!idSetValues.has(key)) idSetValues.set(key, readStoredIds(key));
+    return idSetValues.get(key)!;
+  });
+  const set = useCallback((next: ReadonlySet<string>) => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify([...next]));
+    } catch {
+      // See readStored: a preference that cannot be persisted is not an error.
+    }
+    idSetValues.set(key, next);
+    idSetListeners.get(key)?.forEach(notify => notify());
+  }, [key]);
+  return [value, set];
+}

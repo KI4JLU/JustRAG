@@ -86,7 +86,7 @@ func WriteInternalError(w http.ResponseWriter, err error) {
 }
 
 // SSEWriteTimeout is the sliding per-frame write deadline for SSE streams.
-// It replaces the server-wide WriteTimeout (which EnableSSE opts out of)
+// It replaces the server-wide WriteTimeout (which StartSSE opts out of)
 // with a bound on how long a single frame write may block: a half-open
 // client that stopped reading without sending a FIN otherwise blocks
 // w.Write forever once the kernel send buffer fills — pinning the handler
@@ -102,32 +102,12 @@ func WriteInternalError(w http.ResponseWriter, err error) {
 const SSEWriteTimeout = 5 * time.Minute
 
 // RearmSSEWriteDeadline slides the SSE write deadline forward. Call before
-// each SSE frame write. The SetWriteDeadline error is ignored for the same
-// reason as in EnableSSE.
+// each SSE frame write (SSEStream.Write does it already for writes that go
+// through a StartSSE wrapper). The SetWriteDeadline error is ignored because
+// it only occurs when the ResponseWriter does not support deadlines, which
+// never happens for the stdlib server these handlers run under.
 func RearmSSEWriteDeadline(w http.ResponseWriter) {
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(SSEWriteTimeout))
-}
-
-// EnableSSE prepares w for Server-Sent Events: it sets the standard SSE
-// response headers (including X-Accel-Buffering: no so nginx does not buffer
-// the stream) and swaps the server-wide WriteTimeout for the first sliding
-// SSEWriteTimeout window (frame writers re-arm it via RearmSSEWriteDeadline).
-// SSE streams stay open far longer than any request timeout; per-handler
-// inactivity / context cancellation governs their lifetime instead. Call once,
-// before writing any event. The returned ResponseController can be used to
-// Flush; callers that flush another way may ignore it.
-func EnableSSE(w http.ResponseWriter) *http.ResponseController {
-	h := w.Header()
-	h.Set("Content-Type", "text/event-stream")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("Connection", "keep-alive")
-	h.Set("X-Accel-Buffering", "no")
-	rc := http.NewResponseController(w)
-	// SetWriteDeadline only errors when the ResponseWriter doesn't support
-	// deadlines, which never happens for the stdlib server these handlers run
-	// under; match the prior call sites and ignore it.
-	_ = rc.SetWriteDeadline(time.Now().Add(SSEWriteTimeout))
-	return rc
 }
 
 // pathHeuristic flags strings that look like absolute filesystem paths

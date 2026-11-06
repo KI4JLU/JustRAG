@@ -35,26 +35,56 @@ describe('MessageContent', () => {
         expect(screen.getByText('Hello world')).toBeInTheDocument();
     });
 
-    // Oracle: the DS Reasoning disclosure (collapsed once the stream is over,
-    // open while thinking) with the app's English labels and the DS German ones.
-    it('renders reasoning behind a collapsed trigger when provided', async () => {
-        render(<MessageContent content="Hello" reasoning="Thinking process" />);
-        const trigger = screen.getByRole('button', { name: /Thought for a few seconds/ });
-        expect(trigger).toHaveAttribute('aria-expanded', 'false');
-        fireEvent.click(trigger);
-        expect(await screen.findByText('Thinking process')).toBeInTheDocument();
+    // Oracle: the reasoning is a step of the one step timeline (AgentSteps):
+    // the open timeline shows the thinking row with the rendered reasoning.
+    it('renders reasoning as the thinking step of the timeline', async () => {
+        render(<MessageContent content="Hello" reasoning="Thinking process" reasoningOpen onToggleReasoning={() => {}} />);
+        expect(screen.getByText('Thought')).toBeInTheDocument();
+        expect(await screen.findByText('Thinking process', { selector: 'p' })).toBeInTheDocument();
     });
 
     it('renders reasoning with the German label', () => {
-        vi.mocked(ThemeContext.useTheme).mockReturnValue({ language: 'de' } as ReturnType<typeof ThemeContext.useTheme>);
+        vi.mocked(ThemeContext.useTheme).mockReturnValue({
+            language: 'de',
+            t: (k: string) => translations[k as keyof typeof translations]?.de ?? k,
+        } as unknown as ReturnType<typeof ThemeContext.useTheme>);
         render(<MessageContent content="Hallo" reasoning="Denkprozess" />);
-        expect(screen.getByRole('button', { name: /Nachgedacht/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Nachgedacht' })).toHaveAttribute('aria-expanded', 'false');
     });
 
-    it('shows the reasoning open with a thinking label while thinking', () => {
-        render(<MessageContent content="" reasoning="Thinking..." isThinking={true} />);
-        expect(screen.getByRole('button', { name: /Thinking/ })).toHaveAttribute('aria-expanded', 'true');
-        expect(screen.getByText('Thinking...')).toBeInTheDocument();
+    it('names the live thinking in the header while the answer is prepared', () => {
+        render(<MessageContent content="" reasoning="Thinking..." isThinking isStreaming />);
+        expect(screen.getByRole('button', { name: 'Thinking …' })).toBeInTheDocument();
+    });
+
+    // Oracle: expanded while the answer is prepared, collapsed as soon as its
+    // text streams (the answer must not move under the reader); collapsing it
+    // before that is local to the turn and never flips the stored open state.
+    it('keeps the steps expanded while preparing and collapses them when the answer text starts', () => {
+        const onToggle = vi.fn();
+        const steps: TrajectoryEvent[] = [{ stage: 'plan', queries: ['a'] }];
+        const { rerender } = render(<MessageContent content="" trajectory={steps} isStreaming reasoningOpen={false} onToggleReasoning={onToggle} />);
+        const header = () => screen.getByRole('button', { name: /^Made a plan$|^Plan$/ });
+        expect(header()).toHaveAttribute('aria-expanded', 'true');
+
+        fireEvent.click(header());
+        expect(header()).toHaveAttribute('aria-expanded', 'false');
+        fireEvent.click(header());
+        expect(header()).toHaveAttribute('aria-expanded', 'true');
+        expect(onToggle).not.toHaveBeenCalled();
+
+        rerender(<MessageContent content="Answer so far" trajectory={steps} isStreaming reasoningOpen={false} onToggleReasoning={onToggle} />);
+        expect(header()).toHaveAttribute('aria-expanded', 'false');
+
+        rerender(<MessageContent content="Answer." trajectory={steps} reasoningOpen={false} onToggleReasoning={onToggle} />);
+        expect(header()).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('toggles the caller-owned open state from the header', () => {
+        const onToggle = vi.fn();
+        render(<MessageContent content="Hello" reasoning="x" reasoningOpen={false} onToggleReasoning={onToggle} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Thought it over' }));
+        expect(onToggle).toHaveBeenCalledTimes(1);
     });
 
     it('renders markdown content', () => {
@@ -162,31 +192,27 @@ describe('MessageContent', () => {
         expect(container.querySelector('[data-cited-active]')).toBeNull();
     });
 
-    it('hides the trajectory panel when no trajectory is provided', () => {
+    it('renders no step timeline without steps', () => {
         render(<MessageContent content="answer" />);
-        expect(screen.queryByTestId('trajectory-panel')).toBeNull();
+        expect(screen.queryByTestId('agent-steps')).toBeNull();
     });
 
-    it('renders the trajectory panel collapsed and expands on click for a 3-hop trajectory', () => {
+    it('renders the steps collapsed; opened, they read as labels, never as internal codes', () => {
         const trajectory: TrajectoryEvent[] = [
             { stage: 'hop', step: 1, query: 'who lead the project' },
             { stage: 'decision', decision: 'crag_proceed', reason: 'relevant_chunks_sufficient' },
             { stage: 'hop', step: 2, query: 'what is their email', findings: 1, chunks: [{ idx: 1, file_name: 'team.md', score: 0.91 }] },
             { stage: 'answer', step: 2, decision: 'early_stop_sufficient' },
         ];
-        render(<MessageContent content="answer" trajectory={trajectory} />);
+        render(<MessageContent content="answer" trajectory={trajectory} reasoningOpen onToggleReasoning={() => {}} />);
 
-        const toggle = screen.getByRole('button', { name: /Reasoning steps/i });
-        // Collapsed by default — query is not in the DOM yet.
-        expect(screen.queryByText(/who lead the project/i)).toBeNull();
-
-        fireEvent.click(toggle);
-
-        // Expanded — every stage's content is now rendered.
-        expect(screen.getByText(/who lead the project/i)).toBeInTheDocument();
-        expect(screen.getByText(/what is their email/i)).toBeInTheDocument();
-        expect(screen.getByText(/crag_proceed/i)).toBeInTheDocument();
-        expect(screen.getByText(/early_stop_sufficient/i)).toBeInTheDocument();
+        // crag_proceed is housekeeping: 3 steps, not 4.
+        expect(screen.getByRole('button', { name: 'Ran 2 searches and finished the research' })).toHaveAttribute('aria-expanded', 'true');
+        // A search shows its query in the line and in the detail below it.
+        expect(screen.getAllByText(/who lead the project/i).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/what is their email/i).length).toBeGreaterThan(0);
+        expect(screen.getByText('results were sufficient · after 2 search steps')).toBeInTheDocument();
+        expect(screen.queryByText(/crag_proceed|early_stop_sufficient/)).toBeNull();
     });
 
     it('renders a Download .xlsx button on a Markdown table', () => {

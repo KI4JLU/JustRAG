@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/justrag/go-backend/internal/httputil"
 )
@@ -24,6 +26,40 @@ func NewHandler(store Store) *Handler {
 type categoryRequest struct {
 	Name      string `json:"name"`
 	SortOrder int    `json:"sortOrder"`
+	// ColorSlot is optional: absent takes the next slot on create and keeps
+	// the colour on update.
+	ColorSlot *int `json:"colorSlot"`
+	// Color is optional: a #rrggbb hex picked freely (any case, stored
+	// lowercase). Absent keeps it on update; "" clears it back to the slot.
+	Color *string `json:"color"`
+}
+
+var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// normalizeColor validates and lowercases an optional color. It returns the
+// 400 text for an invalid one, "" when valid; nil and "" pass unchanged.
+func normalizeColor(color *string) (*string, string) {
+	if color == nil || *color == "" {
+		return color, ""
+	}
+	c := strings.TrimSpace(*color)
+	if !hexColor.MatchString(c) {
+		return nil, "color must be a hex colour like #1a2b3c"
+	}
+	c = strings.ToLower(c)
+	return &c, ""
+}
+
+// MaxKBCategories is how many categories one KB may carry: the start page
+// shows one, and the catalog filters by it.
+const MaxKBCategories = 1
+
+// colorSlotError is the 400 text for a colorSlot out of range, "" when valid.
+func colorSlotError(slot *int) string {
+	if slot != nil && (*slot < 1 || *slot > ColorSlots) {
+		return fmt.Sprintf("colorSlot must be between 1 and %d", ColorSlots)
+	}
+	return ""
 }
 
 // List handles GET /api/admin/kb-categories and its authentication-only twin
@@ -56,7 +92,17 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := h.store.Create(ctx, name, body.SortOrder)
+	if msg := colorSlotError(body.ColorSlot); msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+		return
+	}
+	color, msg := normalizeColor(body.Color)
+	if msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+		return
+	}
+
+	cat, err := h.store.Create(ctx, name, body.SortOrder, body.ColorSlot, color)
 	switch {
 	case errors.Is(err, ErrDuplicateName):
 		httputil.WriteErrorCtx(ctx, w, http.StatusConflict, "a category with that name already exists")
@@ -82,7 +128,17 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := h.store.Update(ctx, r.PathValue("catId"), name, body.SortOrder)
+	if msg := colorSlotError(body.ColorSlot); msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+		return
+	}
+	color, msg := normalizeColor(body.Color)
+	if msg != "" {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, msg)
+		return
+	}
+
+	cat, err := h.store.Update(ctx, r.PathValue("catId"), name, body.SortOrder, body.ColorSlot, color)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "category not found")
@@ -129,13 +185,18 @@ type setKBCategoriesRequest struct {
 }
 
 // SetKBCategories handles PUT /api/kb/{id}/categories — a full replacement of
-// this KB's assignments.
+// this KB's assignments, at most MaxKBCategories of them (an empty list
+// clears the category).
 func (h *Handler) SetKBCategories(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var body setKBCategoriesRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.CategoryIDs) > MaxKBCategories {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "a knowledge base has at most one category")
 		return
 	}
 

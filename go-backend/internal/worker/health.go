@@ -8,17 +8,24 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/safego"
 )
 
-// HealthServer exposes /healthz and /readyz endpoints for K8s probes.
+// HealthServer exposes /healthz and /readyz endpoints for K8s probes and,
+// when asked (WORKER_METRICS), /metrics: the worker process's Prometheus
+// registry — the file parser runs here, so parser metrics such as
+// rustparser_shadow_total are only observable from the worker, not from the
+// server's /metrics. That endpoint is unauthenticated, unlike the server's
+// admin-gated one, so it is off unless the deployment opts in.
 type HealthServer struct {
 	ready atomic.Bool
 	srv   *http.Server
 }
 
-// NewHealthServer creates a health server on the given port.
-func NewHealthServer(port int) *HealthServer {
+// NewHealthServer creates a health server on the given port; serveMetrics
+// adds GET /metrics.
+func NewHealthServer(port int, serveMetrics bool) *HealthServer {
 	hs := &HealthServer{}
 
 	mux := http.NewServeMux()
@@ -26,6 +33,9 @@ func NewHealthServer(port int) *HealthServer {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
+	if serveMetrics {
+		mux.HandleFunc("GET /metrics", middleware.MetricsHandler())
+	}
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if hs.ready.Load() {
 			w.WriteHeader(http.StatusOK)

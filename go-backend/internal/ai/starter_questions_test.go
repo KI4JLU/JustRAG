@@ -21,7 +21,7 @@ func TestGenerateStarterQuestions_PassesFastModelAndParses(t *testing.T) {
 		return &CompletionResult{Content: `Here you go: ["Was regelt der Plan?","Wer ist zuständig?"]`}, nil
 	})
 	docs := []prompts.StarterDoc{{Name: "plan.pdf", Excerpt: "Budget 2026"}}
-	got, err := GenerateStarterQuestions(context.Background(), r, "kb-1", "fast-model", "Haushalt", docs, "de", 6)
+	got, err := GenerateStarterQuestions(context.Background(), r, "kb-1", "fast-model", "Haushalt", prompts.StarterRole{}, docs, "de", 6)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,12 +42,12 @@ func TestGenerateStarterQuestions_PassesFastModelAndParses(t *testing.T) {
 // Oracle: the documented contract — garbage is an empty result, a transport
 // error bubbles so the caller can cache the failure.
 func TestGenerateStarterQuestions_GarbageAndError(t *testing.T) {
-	got, err := GenerateStarterQuestions(context.Background(), stubCompletion(t, "no json"), "kb", "", "KB", nil, "en", 6)
+	got, err := GenerateStarterQuestions(context.Background(), stubCompletion(t, "no json"), "kb", "", "KB", prompts.StarterRole{}, nil, "en", 6)
 	if err != nil || len(got) != 0 {
 		t.Fatalf("garbage: want empty and no error, got %#v, %v", got, err)
 	}
 	boom := errors.New("boom")
-	if _, err := GenerateStarterQuestions(context.Background(), stubCompletionError(t, boom), "kb", "", "KB", nil, "en", 6); !errors.Is(err, boom) {
+	if _, err := GenerateStarterQuestions(context.Background(), stubCompletionError(t, boom), "kb", "", "KB", prompts.StarterRole{}, nil, "en", 6); !errors.Is(err, boom) {
 		t.Fatalf("transport error: want %v, got %v", boom, err)
 	}
 }

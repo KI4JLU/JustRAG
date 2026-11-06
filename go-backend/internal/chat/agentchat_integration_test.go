@@ -83,7 +83,7 @@ CREATE TABLE chats (
     team_id uuid, agent_id uuid,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    branched_from_chat_id uuid);
+    branched_from_chat_id uuid, role_id text);
 CREATE TABLE messages (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     chat_id uuid NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
@@ -92,7 +92,7 @@ CREATE TABLE messages (
     is_enhanced boolean NOT NULL DEFAULT false, enhanced_query text, reasoning text,
     feedback text, feedback_comment text, feedback_updated_at timestamptz,
     verification jsonb, trace_id text, structured_table jsonb, conflicts jsonb,
-    team_id uuid, agent_id uuid,
+    team_id uuid, agent_id uuid, trajectory jsonb,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp());
 CREATE TABLE message_chunks (
     message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

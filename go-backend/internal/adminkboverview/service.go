@@ -32,6 +32,7 @@ type KBBase struct {
 	OwnerUsername *string `db:"owner_username"`
 	IsGlobal      bool    `db:"is_global"`
 	IsPublished   bool    `db:"is_published"`
+	Shared        bool    `db:"shared"`
 	CreatedAt     string  `db:"created_at"`
 }
 
@@ -174,13 +175,17 @@ type RagasStats struct {
 
 // KBRow is one row of the rendered table.
 type KBRow struct {
-	ID                  string  `json:"id"`
-	Name                string  `json:"name"`
-	OwnerName           *string `json:"ownerName,omitempty"`
-	OwnerID             *string `json:"ownerId,omitempty"`
-	OwnerUsername       *string `json:"ownerUsername,omitempty"`
-	IsGlobal            bool    `json:"isGlobal"`
-	IsPublished         bool    `json:"isPublished"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	OwnerName     *string `json:"ownerName,omitempty"`
+	OwnerID       *string `json:"ownerId,omitempty"`
+	OwnerUsername *string `json:"ownerUsername,omitempty"`
+	IsGlobal      bool    `json:"isGlobal"`
+	IsPublished   bool    `json:"isPublished"`
+	// Shared: somebody besides the owner is a member (kbaccess.SharedSQL).
+	// With IsGlobal it decides where „RAG-Settings" is offered
+	// (kbaccess.SystemAdminMayOperate).
+	Shared              bool    `json:"shared"`
 	FileCount           int     `json:"fileCount"`
 	TotalSizeBytes      int64   `json:"totalSizeBytes"`
 	FailedFileCount     int     `json:"failedFileCount"`
@@ -315,6 +320,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 			OwnerUsername: kb.OwnerUsername,
 			IsGlobal:      kb.IsGlobal,
 			IsPublished:   kb.IsPublished,
+			Shared:        kb.Shared,
 			CreatedAt:     kb.CreatedAt,
 		}
 		if fs, ok := fileStats[kb.ID]; ok {

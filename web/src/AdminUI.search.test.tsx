@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { AdminHarness } from './test/AdminHarness';
@@ -50,18 +50,19 @@ describe('AdminUI search', () => {
     it('finds a section by a field inside it', async () => {
         render(<AdminHarness userRole="superadmin" />);
         await userEvent.type(screen.getByRole('searchbox'), 'googleSearchApiKey');
-        expect(navNames()).toEqual(['adminTabSearch']);
+        // The open section stays listed until its rows have had their moment to match (DS 0.71).
+        await waitFor(() => expect(navNames()).toEqual(['adminTabSearch']));
     });
 
     it('finds the agent section by one of its many settings', async () => {
         render(<AdminHarness userRole="superadmin" />);
         await userEvent.type(screen.getByRole('searchbox'), 'defaultTopK');
-        expect(navNames()).toEqual(['adminTabAgents']);
+        await waitFor(() => expect(navNames()).toEqual(['adminTabAgents']));
     });
 
     it('finds the KB overview by one of its columns', async () => {
         render(<AdminHarness userRole="superadmin" />);
         await userEvent.type(screen.getByRole('searchbox'), 'colStaleShare');
-        expect(navNames()).toEqual(['adminTabKbOverview']);
+        await waitFor(() => expect(navNames()).toEqual(['adminTabKbOverview']));
     });
 });

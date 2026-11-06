@@ -3,6 +3,8 @@ import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import type { User as UserType } from './types';
 import { API_BASE_URL } from './api';
+import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
+import { appNameFrom, applyAppNameToDocument, rememberAppName, siteConfigSeed } from './utils/appName';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
@@ -21,6 +23,14 @@ const LoadingFallback = () => (
     <Loader2 className="animate-spin" size={32} color="var(--accent-primary)" />
   </div>
 );
+
+/** How often an open, visible tab re-reads the site config (system notice). */
+const SITE_CONFIG_REFRESH_MS = 120_000;
+
+function sameConfigs(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(k => a[k] === b[k]);
+}
 
 /** The app shell: global providers, then the login screen or the signed-in app. Rendered by the root route (routing/routes.ts). */
 export function AppRoot() {
@@ -48,8 +58,19 @@ export function AppRoot() {
     return saved;
   });
 
-  // Config state (needed for Login too)
-  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
+  // Config state (needed for Login too). It starts with the app name the
+  // server wrote into the page (or, on a page the service worker serves, the
+  // one this browser saw last), so neither the wordmark nor the tab title
+  // shows the default while /api/site-config is in flight.
+  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => siteConfigSeed());
+  // The browser tab shows the app name (institution_name + system_name, else
+  // APP_NAME_PREFIX / APP_NAME_PRODUCT), on the login page too.
+  const { prefix: appNamePrefix, product: appNameProduct } = appNameFrom(siteConfigs);
+  useEffect(() => {
+    const name = { prefix: appNamePrefix, product: appNameProduct };
+    applyAppNameToDocument(name);
+    rememberAppName(name);
+  }, [appNamePrefix, appNameProduct]);
 
   // Auth handlers
   // SECURITY (tracked follow-up): the JWT lives in localStorage, which is
@@ -93,6 +114,28 @@ export function AppRoot() {
     setUser(null);
   }, [token, user]);
 
+  // Keep the site config fresh while the app is open, so the system notice
+  // follows its setting — switched on or off in the admin dialog or through
+  // the API (a monitoring job) — without a reload. On focus, and every
+  // SITE_CONFIG_REFRESH_MS while the tab is visible; an unchanged answer keeps
+  // the old object, so nothing below re-renders.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      axios.get<Record<string, string>>(`${API_BASE_URL}/api/site-config`)
+        .then(res => setSiteConfigs(prev => (sameConfigs(prev, res.data) ? prev : res.data)))
+        .catch(() => { /* the next tick tries again */ });
+    };
+    const timer = window.setInterval(refresh, SITE_CONFIG_REFRESH_MS);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, []);
+
   // Auth/config setup + auto-logout on 401
   useEffect(() => {
     // Fetch site configs (react.dev fetch-then-set pattern: the state write
@@ -122,9 +165,19 @@ export function AppRoot() {
     const onUnauthorized = () => handleLogout();
     window.addEventListener('auth:unauthorized', onUnauthorized);
 
+    // An admin saved site-config keys (AdminUI): merge them in, so what the
+    // shell renders from them (the system notice, the app name in logo and
+    // tab title) changes at once.
+    const onSiteConfigUpdated = (e: Event) => {
+      const saved = (e as CustomEvent<Record<string, string>>).detail;
+      setSiteConfigs(prev => ({ ...prev, ...saved }));
+    };
+    window.addEventListener(SITE_CONFIG_UPDATED_EVENT, onSiteConfigUpdated);
+
     return () => {
       axios.interceptors.response.eject(interceptor);
       window.removeEventListener('auth:unauthorized', onUnauthorized);
+      window.removeEventListener(SITE_CONFIG_UPDATED_EVENT, onSiteConfigUpdated);
     };
   }, [token, handleLogout]);
 

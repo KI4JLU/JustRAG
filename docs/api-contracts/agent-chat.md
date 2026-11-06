@@ -83,6 +83,8 @@ Only `POST` is routed. Other methods do not reach this handler.
 
 `200`, `Content-Type: text/event-stream`, `Cache-Control: no-cache`. Each event is one SSE frame: `id: <TYPE>_<unix-ms>` and `data: <json>`. Every JSON object carries `type` and `timestamp` (unix ms). The examples below omit `id:` lines and `timestamp`.
 
+While the run is silent (model reasoning, tool calls), the stream carries keep-alive comment lines `: ping` — a line starting with `:` that the WHATWG SSE spec says clients ignore, with no `data:` payload and no `id:`. A stream silent for at least 15 s gets one (checked once per 15 s). Clients must not treat comment lines as events.
+
 Event types this server sends:
 
 | Event | Notes |

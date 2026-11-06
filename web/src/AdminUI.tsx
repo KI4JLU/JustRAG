@@ -1,9 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database } from 'lucide-react';
+import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks, Megaphone } from 'lucide-react';
 import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
+import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
+
+/** The public name keys an admin save hands to the app shell. */
+const APP_NAME_KEYS = ['institution_name', 'system_name', 'assistant_name'] as const;
 import { useToast } from './contexts/ToastContext';
 import { useTheme } from './contexts/ThemeContext';
 import { useModalContext } from './contexts/ModalContext';
@@ -17,10 +21,13 @@ import AdminAuthTab from './components/admin/AdminAuthTab';
 import AdminUsersTab from './components/admin/AdminUsersTab';
 import AdminRolesTab from './components/admin/AdminRolesTab';
 import AdminSiteTab from './components/admin/AdminSiteTab';
+import AdminSystemNoticeTab from './components/admin/AdminSystemNoticeTab';
+import type { SystemNoticeTemplate } from './utils/systemNoticeTemplates';
 import AdminSearchTab from './components/admin/AdminSearchTab';
 import AdminAgentTab from './components/admin/AdminAgentTab';
 import AdminEvalTab from './components/admin/AdminEvalTab';
 import AdminGlobalKbsTab from './components/admin/AdminGlobalKbsTab';
+import AdminTemplatesTab from './components/admin/AdminTemplatesTab';
 import ReembedSection from './components/admin/ReembedSection';
 
 interface AIModel {
@@ -104,6 +111,8 @@ interface AdminUIProps {
     onSectionChange: (section: AdminSection) => void;
     user: User;
     onEditGlobalKb?: (kb: { id: string; name: string }) => void;
+    /** „RAG-Settings" in the KB-Übersicht: a topic's RAG configuration page. */
+    onOpenRagSettings?: (kb: { id: string; name: string }) => void;
 }
 
 /**
@@ -116,7 +125,9 @@ interface AdminUIProps {
  *
  * Mount it only while open: it fetches the open section's data on mount.
  */
-export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb }: AdminUIProps) {
+export default function AdminUI({ open, onOpenChange, section, onSectionChange, user, onEditGlobalKb, onOpenRagSettings }: AdminUIProps) {
+    // Opens filling the window (1rem inside it); the toggle restores the plain `xl` window.
+    const [maximized, setMaximized] = useState(true);
     const toast = useToast();
     const { t } = useTheme();
     const { showConfirm } = useModalContext();
@@ -128,9 +139,10 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     const visibleTabs: AdminTab[] = [
         'configs',
         ...(isSuperadmin ? ['auth', 'search', 'agent', 'site'] as const : []),
-        ...(isAdmin ? ['kb-overview'] as const : []),
+        // The system notice is the one site setting admins edit (PUT /api/admin/system-notice).
+        ...(isAdmin ? ['notice', 'kb-overview'] as const : []),
         'global-kbs',
-        ...(isAdmin ? ['users', 'roles', 'health'] as const : []),
+        ...(isAdmin ? ['templates', 'users', 'roles', 'health'] as const : []),
         ...(isSuperadmin ? ['eval'] as const : []),
     ];
     const activeTab: AdminTab = visibleTabs.includes(section) ? section : 'configs';
@@ -141,11 +153,17 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     }, [section, activeTab, onSectionChange]);
     const [configs, setConfigs] = useState<AIConfig[]>([]);
     const [providers, setProviders] = useState<AuthProvider[]>([]);
+    // Whether each list has come back once: the settings search picks a record from it (see
+    // useSearchRevealForm), and `loading` is shared with the other requests of the section.
+    const [configsFetched, setConfigsFetched] = useState(false);
+    const [providersFetched, setProvidersFetched] = useState(false);
     const [usersList, setUsersList] = useState<User[]>([]);
     // Set when the last users fetch failed, so the Rollen tab shows no counts
     // instead of reading the empty list as "0 users" per role.
     const [usersFetchFailed, setUsersFetchFailed] = useState(false);
     const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
+    // The site config as last loaded or saved — what the notice form's edits are measured against.
+    const noticeBaselineRef = useRef<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     // The dialog's footer, where an open add/edit form puts its actions (see KbSettingsDialog).
@@ -230,6 +248,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         try {
             const res = await axios.get(`${API_BASE_URL}/api/site-config`);
             setSiteConfigs(res.data);
+            noticeBaselineRef.current = res.data;
         } catch (error: unknown) {
             console.error('Failed to fetch site configs:', error);
             toast.error(t('siteConfigFetchError'));
@@ -243,10 +262,60 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         const prev = { ...siteConfigs };
         try {
             await axios.post(`${API_BASE_URL}/api/site-config`, { configs: siteConfigs });
+            // AppRoot's copy feeds the shell: hand it the saved names, so the
+            // app name (logo, tab title) changes without a reload. Only the
+            // names: AppRoot's copy is the PUBLIC site config, and this map
+            // also holds the admin-only keys.
+            const names = Object.fromEntries(APP_NAME_KEYS.map(key => [key, siteConfigs[key] ?? '']));
+            window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: names }));
             toast.success(t('settingsSaved'));
         } catch {
             setSiteConfigs(prev);
             toast.error(t('settingsSaveError'));
+        }
+    };
+
+    // The system notice saves through its own admin route, which takes these
+    // keys and nothing else — a plain admin may not write the rest. Only the
+    // fields edited since the dialog loaded go out: an automation job or
+    // another admin may have changed the others meanwhile, and a full snapshot
+    // would silently revert them.
+    const handleSystemNoticeSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const baseline = noticeBaselineRef.current;
+        const notice = Object.fromEntries(
+            Object.entries(siteConfigs).filter(([key, value]) =>
+                key.startsWith('system_notice_') && key !== 'system_notice_templates'
+                && (value ?? '') !== (baseline[key] ?? '')),
+        );
+        if (Object.keys(notice).length === 0) {
+            toast.success(t('settingsSaved'));
+            return;
+        }
+        try {
+            await axios.put(`${API_BASE_URL}/api/admin/system-notice`, { configs: notice });
+            noticeBaselineRef.current = { ...baseline, ...notice };
+            // AppRoot's copy feeds the shell: hand it the saved values, so the
+            // banner changes without a reload.
+            window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: notice }));
+            toast.success(t('settingsSaved'));
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, t('settingsSaveError')));
+        }
+    };
+
+    // Templates are stored at once, apart from the notice itself (a template
+    // saved or deleted must not wait for, or publish, the message being edited).
+    const handleSaveSystemNoticeTemplates = async (templates: SystemNoticeTemplate[]): Promise<boolean> => {
+        const value = JSON.stringify(templates);
+        try {
+            await axios.put(`${API_BASE_URL}/api/admin/system-notice`, { configs: { system_notice_templates: value } });
+            setSiteConfigs(prev => ({ ...prev, system_notice_templates: value }));
+            toast.success(t('systemNoticeTemplatesSaved'));
+            return true;
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, t('settingsSaveError')));
+            return false;
         }
     };
 
@@ -260,6 +329,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.error(t('configsFetchError'));
         } finally {
             setLoading(false);
+            setConfigsFetched(true);
         }
     }, [toast, t]);
 
@@ -273,6 +343,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.error(t('providersFetchError'));
         } finally {
             setLoading(false);
+            setProvidersFetched(true);
         }
     }, [toast, t]);
 
@@ -297,7 +368,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             fetchSiteConfigs();
         } else if (activeTab === 'auth') fetchAuthProviders();
         else if (activeTab === 'users' || activeTab === 'roles') fetchUsers();
-        else if (activeTab === 'site' || activeTab === 'search' || activeTab === 'agent') fetchSiteConfigs();
+        else if (activeTab === 'site' || activeTab === 'search' || activeTab === 'agent' || activeTab === 'notice') fetchSiteConfigs();
     }, [activeTab, fetchConfigs, fetchSiteConfigs, fetchAuthProviders, fetchUsers]);
 
     const handleRoleChange = async (id: string, newRole: string) => {
@@ -463,6 +534,12 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         }
     };
 
+    // An empty form — also when the search moves an open edit form over to a new record.
+    const startAdd = () => {
+        resetForm();
+        setShowForm(true);
+    };
+
     const startEditConfig = (config: AIConfig) => {
         setConfigFormData(config);
         setEditingId(config.id);
@@ -489,6 +566,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         setConnectionTest={setConnectionTest}
                         handleConfigSubmit={handleConfigSubmit}
                         startEditConfig={startEditConfig}
+                        startAdd={startAdd}
+                        fetched={configsFetched}
                         handleDelete={handleDelete}
                         handleActivate={handleActivate}
                         resetForm={resetForm}
@@ -511,6 +590,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         setAuthFormData={setAuthFormData}
                         handleAuthSubmit={handleAuthSubmit}
                         startEditAuth={startEditAuth}
+                        startAdd={startAdd}
+                        fetched={providersFetched}
                         handleDelete={handleDelete}
                         resetForm={resetForm}
                         authValidation={authValidation}
@@ -532,6 +613,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                 return <AdminRolesTab users={loading || usersFetchFailed ? null : usersList} />;
             case 'site':
                 return <AdminSiteTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
+            case 'notice':
+                return <AdminSystemNoticeTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSystemNoticeSubmit} footerSlot={footerSlot} onSaveTemplates={handleSaveSystemNoticeTemplates} />;
             case 'search':
                 return <AdminSearchTab siteConfigs={siteConfigs} setSiteConfigs={setSiteConfigs} onSubmit={handleSiteConfigSubmit} footerSlot={footerSlot} />;
             case 'agent':
@@ -544,7 +627,10 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                     </>
                 );
             case 'kb-overview':
-                return <KBOverviewDashboard />;
+                // The RAG configuration is its own full-page view. Unlike a
+                // public KB's editor below it keeps the console in the URL:
+                // leaving it returns to this list.
+                return <KBOverviewDashboard onOpenRagSettings={onOpenRagSettings} />;
             case 'global-kbs':
                 // Editing a public KB is its own full-page view: close the
                 // console first so it is not left open behind that page.
@@ -553,6 +639,8 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                         onEditGlobalKb={onEditGlobalKb && ((kb) => { onOpenChange(false); onEditGlobalKb(kb); })}
                     />
                 );
+            case 'templates':
+                return <AdminTemplatesTab footerSlot={footerSlot} />;
             case 'eval':
                 return <AdminEvalTab />;
         }
@@ -565,8 +653,10 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         search: { icon: Search, label: t('adminTabSearch'), group: t('adminNavGroupConfig') },
         agent: { icon: FileText, label: t('adminTabAgents'), group: t('adminNavGroupConfig') },
         site: { icon: Settings, label: t('adminTabSettings'), group: t('adminNavGroupConfig') },
+        notice: { icon: Megaphone, label: t('systemNotice'), group: t('adminNavGroupConfig') },
         'kb-overview': { icon: Database, label: t('adminTabKbOverview'), group: t('adminNavGroupKbs') },
         'global-kbs': { icon: Globe, label: t('adminTabGlobalKbs'), group: t('adminNavGroupKbs') },
+        templates: { icon: Blocks, label: t('adminTabTemplates'), group: t('adminNavGroupKbs') },
         users: { icon: UserPlus, label: t('adminTabUsers'), group: t('adminNavGroupUsers') },
         roles: { icon: ShieldUser, label: t('adminTabRoles'), group: t('adminNavGroupUsers') },
         health: { icon: Activity, label: t('adminTabHealth'), group: t('adminNavGroupMonitoring') },
@@ -592,7 +682,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     // The tabs portal their own into `footerSlot` (Speichern, or the open form's Abbrechen and
     // Speichern); AdminUI adds „hinzufügen" to the two sections that list things.
     const addLabel = activeTab === 'configs' ? t('addConfig') : activeTab === 'auth' ? t('addProvider') : null;
-    const hasFooterActions = addLabel !== null || activeTab === 'site' || activeTab === 'search' || activeTab === 'agent';
+    const hasFooterActions = addLabel !== null || activeTab === 'templates' || activeTab === 'site' || activeTab === 'notice' || activeTab === 'search' || activeTab === 'agent';
     const footerSlotElement = (
         <div ref={setFooterSlot} className="ml-auto flex flex-col-reverse gap-2 sm:flex-row sm:justify-end" />
     );
@@ -601,7 +691,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             {/* Alone it is the section's primary action; next to the per-job Speichern it is secondary. */}
             <Button
                 variant={activeTab === 'configs' ? 'outline' : 'default'}
-                onClick={() => { setShowForm(true); setEditingId(null); }}
+                onClick={startAdd}
             >
                 <Plus size={16} aria-hidden="true" />
                 {addLabel}
@@ -623,6 +713,11 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
                 size="xl"
                 title={t('adminDashboard')}
                 closeLabel={t('close')}
+                maximizable
+                maximized={maximized}
+                onMaximizedChange={setMaximized}
+                maximizeLabel={t('dialogMaximize')}
+                restoreLabel={t('dialogRestore')}
                 searchPlaceholder={t('settingsSearch')}
                 emptyLabel={t('settingsNoMatch')}
                 sections={sections}

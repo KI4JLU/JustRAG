@@ -19,6 +19,28 @@ class NoopResizeObserver {
 }
 globalThis.ResizeObserver ??= NoopResizeObserver as unknown as typeof ResizeObserver;
 
+// Nor an IntersectionObserver: the design system's Carousel (Embla) observes
+// which slides are in view. No-op: every slide counts as in view.
+class NoopIntersectionObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() { return []; }
+}
+globalThis.IntersectionObserver ??= NoopIntersectionObserver as unknown as typeof IntersectionObserver;
+// …and reads its breakpoint options through matchMedia, which jsdom lacks too.
+// A default that matches nothing; suites that test media queries stub their own.
+window.matchMedia ??= ((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: () => {},
+  removeListener: () => {},
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  dispatchEvent: () => false,
+})) as unknown as typeof window.matchMedia;
+
 // Mock framer-motion to avoid jsdom issues with animations
 vi.mock('framer-motion', async () => {
   const { forwardRef, createElement } = await vi.importActual<typeof import('react')>('react');

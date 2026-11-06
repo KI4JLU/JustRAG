@@ -92,6 +92,7 @@ const NAV = {
   // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
   // Mitglieder through this jump.
   onOpenTopicSettings: vi.fn(),
+  onOpenRagSettings: vi.fn(),
 };
 
 // Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
@@ -202,6 +203,7 @@ const baseKb: KnowledgeBase = {
 };
 
 const noopProps = {
+  globalKbs: [] as KnowledgeBase[],
   currentKb: null,
   availableConfigs: [],
   onCreateKB: vi.fn(),
@@ -213,7 +215,6 @@ const noopProps = {
   onOpenKbById: vi.fn(),
   onDeleteGlobalKB: vi.fn(),
   onOpenGlobalKbSettings: vi.fn(),
-  onOpenKbSettings: vi.fn(),
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
@@ -298,13 +299,7 @@ describe('SharedTopicsView add-topic tile', () => {
 });
 
 describe('SharedTopicsView card actions', () => {
-  /* Two labels, because these cases came from two different describes in the
-     old file and each had its own `label`: the settings gate is the advanced
-     panel, the pencil is rename. Collapsing them to one const made the pencil
-     cases assert against the wrong control. */
-  // The settings item carries the DS ActionMenu badge, which is part of its name.
-  const label = `${translations.kbAdvancedSettings.en} (${translations.roleAdmin.en})`;
-  const renameLabel = translations.rename.en;
+  const renameLabel = `${translations.rename.en}…`;
   /* „Teilen" opens Thema-Einstellungen → Mitglieder, so it is offered to the
      callers who may open that window: KB admin and owner (kbAdminChain), and a
      superadmin, whom kbaccess.EffectiveRole resolves to owner on every KB.
@@ -314,26 +309,26 @@ describe('SharedTopicsView card actions', () => {
   it('shows the share trigger for a caller whose myRole is admin', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
   });
 
   it('hides the share trigger for a caller whose myRole is edit', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'edit' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: `${translations.share.en}…` })).not.toBeInTheDocument();
   });
 
   it('hides the share trigger for a caller whose myRole is view', async () => {
     const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).queryByRole('menuitem', { name: translations.share.en })).not.toBeInTheDocument();
+    expect((await kbMenu()).queryByRole('menuitem', { name: `${translations.share.en}…` })).not.toBeInTheDocument();
   });
 
   it('shows the share trigger for a superadmin whose own KB role is only view', async () => {
     authState.role = 'superadmin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'view' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: translations.share.en })).toBeInTheDocument();
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
   });
 
   /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
@@ -343,17 +338,20 @@ describe('SharedTopicsView card actions', () => {
     const onSelectKB = vi.fn();
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
-    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.share.en }));
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` }));
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
     expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
     expect(onSelectKB).not.toHaveBeenCalled();
   });
 
-  it('shows the trigger for a system admin who is KB admin but not owner', async () => {
+  it('offers a KB admin „Einstellungen", opening Startseite, and no RAG configuration', async () => {
     authState.role = 'admin';
     const kb: KnowledgeBase = { ...baseKb, myRole: 'admin' };
     renderView(<SharedTopicsView kbs={[kb]} {...noopProps} />);
-    expect((await kbMenu()).getByRole('menuitem', { name: label })).toBeInTheDocument();
+    const menu = await kbMenu();
+    expect(menu.queryByRole('menuitem', { name: new RegExp(translations.kbAdvancedSettings.en) })).toBeNull();
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.settings.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'start');
   });
 
   it('hides the trigger from an api-user who is only an editor — the KB role still counts', async () => {
@@ -393,4 +391,37 @@ describe('SharedTopicsView card actions', () => {
   });
 
 
+});
+
+/* ---------------------------------------------------------------------------
+ * Subscribed global topics (developer ruling, 03.11.2026): subscribing in
+ * „Entdecken" puts a global topic here, beside the private ones shared with
+ * the user. ORACLE: the `globalKbs` prop is `GET /api/kb/global`, which lists
+ * exactly the subscribed topics; translations.ts for the labels.
+ * ------------------------------------------------------------------------- */
+describe('SharedTopicsView subscribed global topics', () => {
+  const globalKb: KnowledgeBase = {
+    ...baseKb, id: 'kb-global', name: 'Hochschulrecht', userId: null as unknown as string,
+    visibility: 'public', isGlobal: true, myRole: null as unknown as undefined,
+  };
+
+  it('lists a subscribed global topic next to the shared ones', () => {
+    const shared: KnowledgeBase = { ...baseKb, id: 'kb-shared', myRole: 'edit' };
+    renderView(<SharedTopicsView {...noopProps} kbs={[shared]} globalKbs={[globalKb]} />);
+    expect(screen.getByRole('button', { name: `${translations.openKb.en}: Security Advisories` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `${translations.openKb.en}: Hochschulrecht` })).toBeInTheDocument();
+  });
+
+  it('shows it as public, without an owner line', () => {
+    renderView(<SharedTopicsView {...noopProps} kbs={[]} globalKbs={[globalKb]} />);
+    expect(screen.getByText(translations.visibilityPublic.en)).toBeInTheDocument();
+    expect(screen.queryByTestId('kb-meta-owner')).toBeNull();
+  });
+
+  it('offers „Unsubscribe…" as its remove action', async () => {
+    renderView(<SharedTopicsView {...noopProps} kbs={[]} globalKbs={[globalKb]} />);
+    const menu = await kbMenu();
+    expect(menu.getByRole('menuitem', { name: `${translations.unsubscribe.en}…` })).toBeInTheDocument();
+    expect(menu.queryByRole('menuitem', { name: `${translations.removeFromMyView.en}…` })).toBeNull();
+  });
 });

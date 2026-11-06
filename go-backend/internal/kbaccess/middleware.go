@@ -21,6 +21,8 @@ type KnowledgeBase struct {
 	UserID      *string
 	IsGlobal    bool
 	IsPublished bool
+	// Shared: somebody besides the owner is a member (SharedSQL).
+	Shared bool
 	// Sources holds the KB's source-permission flags (migration 0089).
 	// CapabilitiesFor is the only reader that turns them into a decision.
 	Sources SourcePermissions
@@ -273,10 +275,56 @@ func HasCapability(ctx context.Context, c Capability) bool {
 	return AccessFromContext(ctx).Capabilities().Has(c)
 }
 
+// SharedSQL is KnowledgeBase.Shared over a knowledge_bases row aliased kb:
+// a kb_members row other than the owner's. Every reader of the flag selects
+// this one expression (PGStore.GetKBByID, the admin KB overview).
+const SharedSQL = `EXISTS (SELECT 1 FROM kb_members sm WHERE sm.kb_id = kb.id AND sm.role <> 'owner')`
+
+// SystemAdminMayOperate reports whether a system admin whose kb_members role
+// on kb is memberRole ("" for none) may operate its advanced settings (RAG
+// settings, agents and teams, evals, workflow): on a global KB, a shared one,
+// or their own. Somebody else's private KB nobody shares stays its owner's
+// alone — evals read its content. memberRole is the raw row, not the
+// effective role, which makes a superadmin the owner of every KB.
+func SystemAdminMayOperate(kb *KnowledgeBase, memberRole string) bool {
+	return kb.IsGlobal || kb.Shared || memberRole == RoleOwner
+}
+
+func isSystemAdmin(role string) bool {
+	return role == auth.RoleAdmin || role == auth.RoleSuperAdmin
+}
+
 // RequireKBRole returns middleware that resolves the caller's effective role on
 // the KB named by {id} and rejects the request unless it meets required.
 // Stores a KBAccessResult in the request context via WithAccess.
 func (m *Middleware) RequireKBRole(required string) func(http.Handler) http.Handler {
+	return m.resolveKB(func(_ string, _ *KnowledgeBase, _, role string) bool {
+		return AtLeast(role, required)
+	})
+}
+
+// RequireOperableKB admits a system admin (admin, superadmin) to a KB they may
+// operate (SystemAdminMayOperate), whatever their KB role, and nobody else:
+// kbAdvancedChain. 404 for a missing KB, 403 otherwise; the access result is
+// stored as RequireKBRole stores it.
+func (m *Middleware) RequireOperableKB() func(http.Handler) http.Handler {
+	return m.resolveKB(func(sysRole string, kb *KnowledgeBase, memberRole, _ string) bool {
+		return isSystemAdmin(sysRole) && SystemAdminMayOperate(kb, memberRole)
+	})
+}
+
+// RequireKBRoleOrOperable is RequireKBRole(required) that also admits a system
+// admin to a KB they may operate (RequireOperableKB).
+func (m *Middleware) RequireKBRoleOrOperable(required string) func(http.Handler) http.Handler {
+	return m.resolveKB(func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool {
+		return AtLeast(role, required) || (isSystemAdmin(sysRole) && SystemAdminMayOperate(kb, memberRole))
+	})
+}
+
+// resolveKB loads the KB named by {id} (404 when missing), resolves the
+// caller's effective role and serves next when allow says so (403 otherwise).
+// allow sees the caller's raw kb_members role and the effective one.
+func (m *Middleware) resolveKB(allow func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -312,7 +360,7 @@ func (m *Middleware) RequireKBRole(required string) func(http.Handler) http.Hand
 			}
 
 			role := EffectiveRole(kb, user.Role, memberRole)
-			if !AtLeast(role, required) {
+			if !allow(user.Role, kb, memberRole, role) {
 				// 403 und nicht 404: die Existenz der KB ist ueber die
 				// bestehenden Endpunkte ohnehin erkennbar, und ein 404 hier
 				// wuerde "nicht gefunden" von "kein Zugriff" ununterscheidbar

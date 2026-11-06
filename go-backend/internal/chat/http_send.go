@@ -84,6 +84,11 @@ type sendMessageRequest struct {
 	// and attached to this question (migration 0090). Their text is context
 	// for this and every later turn of the chat. See attachments.go.
 	AttachmentIDs []string `json:"attachmentIds"`
+	// RoleID starts a NEW chat in another role than the KB's active one (a
+	// starter question with a role, migration 0092): a catalog template id or
+	// one of the KB's own role ids. Stored on the chat, so every later turn
+	// answers in it; refused on a turn that names a chatId.
+	RoleID string `json:"roleId"`
 }
 
 // SanitizeParentMessageID returns a pointer to id when it is a valid UUID, and
@@ -114,6 +119,9 @@ var sseBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 // KB), the frames that filter turns data into. Every frame of a KB chat turn
 // is written here, so the filter sees all of them.
 func writeSSE(ctx context.Context, w http.ResponseWriter, data any) {
+	// The turn's steps are recorded unredacted, before the filter: stored
+	// in full, redacted per reader on the way out (trajectory_record.go).
+	trajectoryRecorderFrom(ctx).observe(data)
 	if f := citationFilterFrom(ctx); f != nil {
 		for _, frame := range f.Frames(data) {
 			writeSSEFrame(ctx, w, frame)
@@ -249,6 +257,8 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// '[]' default. recordAgentDecision snapshots before its own
 	// detached insert goroutine.
 	ctx = WithToolCallRecorder(ctx, &ToolCallRecorder{})
+	// The turn's steps as they stream, stored with the AI message.
+	ctx = withTrajectoryRecorder(ctx)
 
 	body, ok := parseAndValidateMessage(w, r, user.ID)
 	if !ok {
@@ -268,7 +278,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// corpus than the one above it in the thread, or — since the chat is bound
 	// to its KB — 403 in resolveOrCreateChat. The router would also be reading
 	// the CLIENT's message, which a regenerate is about to discard.
-	if body.RegenerateOfMessageID == "" {
+	//
+	// Never for a chat started in a role either: roles belong to the KB the
+	// starter question was shown on, so a role chat stays there.
+	if body.RegenerateOfMessageID == "" && body.RoleID == "" {
 		ctx, kbID = h.maybeRouteKB(ctx, r, user.ID, kbID, body.Message)
 	}
 
@@ -290,7 +303,20 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message)
+	// The role is checked before the chat row and the usage record too.
+	if body.RoleID != "" {
+		has, err := h.store.KBHasRole(ctx, kbID, body.RoleID)
+		if err != nil {
+			httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("check chat role: %w", err))
+			return
+		}
+		if !has {
+			httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "unknown roleId")
+			return
+		}
+	}
+
+	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message, body.RoleID)
 	if !ok {
 		return
 	}
@@ -380,16 +406,19 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx = withTurnDocuments(ctx, h.prepareTurnDocuments(ctx, kbID, lang, attachLimits, convRows, regenQuestion, newAttachments))
 
-	// chat_sse_early_open_enabled: headers + a heartbeat go out now, so the
-	// client sees bytes during condense/classify/retrieval, and progress
-	// events stream live instead of being replayed after retrieval. Every
-	// validation error (4xx) is decided above this line; the two late errors
-	// below end the open stream with an error frame + [DONE] instead of an
-	// HTTP 500. The deferred handOff backs up the explicit ones (idempotent).
+	// chat_sse_early_open_enabled: headers + the `: open` comment go out
+	// now, so the client sees bytes during condense/classify/retrieval, and
+	// progress events stream live instead of being replayed after retrieval.
+	// The stream wrapper's heartbeat (httputil.StartSSE) keeps pinging until
+	// this handler returns. Every validation error (4xx) is decided above
+	// this line; the two late errors below end the open stream with an error
+	// frame + [DONE] instead of an HTTP 500.
 	var turn *sseTurn
 	if streamMode && ChatSSEEarlyOpenEnabled(ctx, h.siteConfigReader) {
-		turn = openSSETurn(ctx, w, sseHeartbeatInterval)
-		defer turn.handOff()
+		sw, t := openSSETurn(ctx, w)
+		// No ping may outlive this handler (httputil.SSEStream).
+		defer sw.Stop()
+		w, turn = sw, t
 	}
 
 	// Condensing needs a preceding turn. A regenerate at the start of a chat
@@ -563,7 +592,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: prepare context", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
 		if turn != nil {
-			turn.handOff()
 			writeSSE(ctx, w, map[string]string{"error": "failed to prepare context"})
 			writeSSEDone(ctx, w)
 			return
@@ -589,7 +617,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: save user message", "error", err, "chat_id", chatID, "user_id", user.ID, "kb_id", kbID)
 		if turn != nil {
-			turn.handOff()
 			writeSSE(ctx, w, map[string]string{"error": "failed to save user message"})
 			writeSSEDone(ctx, w)
 			return
@@ -1331,15 +1358,15 @@ func (h *Handler) tryDeepChat(
 		return false
 	}
 
-	// From here on this function writes the stream itself: stop the
-	// early-open heartbeat first (no-op when the flag is off). EnableSSE
-	// only sets header-map entries and the write deadline — it neither
-	// calls WriteHeader nor writes bytes — so it is harmless on a stream
-	// that is already open.
-	turn.handOff()
-
-	// Set SSE headers + opt out of the server-wide WriteTimeout.
-	httputil.EnableSSE(w)
+	// From here on this function writes the stream itself. StartSSE is a
+	// no-op on an early-opened stream (returns the existing wrapper, so no
+	// second heartbeat starts) and sets the SSE headers + stream heartbeat
+	// otherwise. The deferred Stop (idempotent on an early-opened stream,
+	// whose own defer runs later in the handler) is what guarantees no ping
+	// outlives this function's writes.
+	sw := httputil.StartSSE(ctx, w)
+	defer sw.Stop()
+	w = sw
 
 	sseFinished := false
 	defer func() {
@@ -1418,17 +1445,7 @@ func (h *Handler) tryDeepChat(
 	// falls through to the plain streaming answer below instead.
 	runAnswerTools := shouldRunAnswerToolsLoop(useAnswerTools, catalog)
 	if runAnswerTools {
-		answerTrace := func(stage, decision, reason string, details map[string]any) {
-			payload := map[string]any{
-				"stage":    stage,
-				"decision": decision,
-				"reason":   reason,
-			}
-			for k, v := range details {
-				payload[k] = v
-			}
-			writeSSE(ctx, w, payload)
-		}
+		answerTrace := answerToolSteps(func(pl map[string]any) { writeSSE(ctx, w, pl) })
 		shapedSystem, shapedHistory, shapedQuestion := shapeAnswer(ctx, chatCtx, answerTools.systemPrompt(chatCtx.SystemPrompt), answerHistory, body.Message)
 		err = RunAnswerWithTools(genCtx, AnswerToolsParams{
 			AIResolver:      h.aiResolver,
@@ -1575,6 +1592,8 @@ func (h *Handler) finishDeepChatAnswer(
 	}
 	// Derive team/agent attribution for AI message (reused for recordAgentDecision below).
 	decTeamID, decAgentID := attributionIDs(teamAuthoredTurn(orch, comparisonTeamAnswered), teamSel)
+	steps := trajectoryRecorderFrom(ctx)
+	savedSteps := steps.count()
 	aiMsg, err := h.store.AddMessage(ctx, AddMessageParams{
 		ChatID:          chatID,
 		Role:            "ai",
@@ -1584,6 +1603,7 @@ func (h *Handler) finishDeepChatAnswer(
 		ParentMessageID: &userMsgID,
 		StructuredTable: chatCtx.StructuredTable,
 		Conflicts:       ConflictsForWire(chatCtx.Conflicts),
+		Trajectory:      steps.stored(),
 		TeamID:          decTeamID,
 		AgentID:         decAgentID,
 	})
@@ -1608,6 +1628,7 @@ func (h *Handler) finishDeepChatAnswer(
 	if verification != nil {
 		writeSSE(ctx, w, map[string]any{"verification": verification})
 	}
+	h.persistLateTrajectory(ctx, aiMsg.ID, savedSteps)
 
 	if sc := trace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		if err := h.store.UpdateMessageTraceID(ctx, aiMsg.ID, sc.TraceID().String()); err != nil {

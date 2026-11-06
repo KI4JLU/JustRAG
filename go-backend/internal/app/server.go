@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/justrag/go-backend/internal/config"
+	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/middleware"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/safego"
@@ -28,8 +29,7 @@ func isUploadExempt(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/api/site-config/logo", // logo upload (siteconfig.maxLogoSize)
-		"/api/describe-image",                       // vision input, 10 MiB (misc.maxImageBytes)
+	case "/api/describe-image", // vision input, 10 MiB (misc.maxImageBytes)
 		"/api/admin/agent/template",                 // template upload, 10 MiB (adminmaintenance)
 		"/api/admin/eval/golden-sets",               // golden-set JSONL upload, 5 MiB (admineval)
 		"/api/library/files",                        // user library upload, 500 MiB (uploadcheck.MaxUploadSize)
@@ -37,9 +37,8 @@ func isUploadExempt(r *http.Request) bool {
 		"/owui/api/chat/completions": // ILIAS plugin chat, 4 MiB (owuicompat.maxChatBodyBytes)
 		return true
 	}
-	// POST /api/kb/{id}/files (500 MiB) and POST /api/kb/{id}/eval/golden-sets
-	// (5 MiB): the {id} segment sits mid-path, so match the shape explicitly.
-	// Deeper paths (e.g. .../eval/golden-sets/generate) deliberately don't match.
+	// The {id} segment sits mid-path, so match the shape explicitly. Deeper
+	// paths (e.g. .../eval/golden-sets/generate) deliberately don't match.
 	rest, ok := strings.CutPrefix(r.URL.Path, "/api/kb/")
 	if !ok {
 		return false
@@ -48,7 +47,14 @@ func isUploadExempt(r *http.Request) bool {
 	if !ok || id == "" {
 		return false
 	}
-	return tail == "files" || tail == "eval/golden-sets"
+	switch tail {
+	case "files", // KB source upload, 500 MiB (uploadcheck.MaxUploadSize)
+		"eval/golden-sets", // golden-set JSONL upload, 5 MiB (admineval)
+		"chat/attachments", // chat attachment, chat_attachments_max_file_bytes (chat.UploadChatAttachment)
+		"chat/attachment":  // comparison upload, chat_compare_max_file_bytes (chat.UploadAttachment)
+		return true
+	}
+	return false
 }
 
 // RunServer starts the HTTP server with all wiring. It blocks until the server
@@ -57,6 +63,10 @@ func isUploadExempt(r *http.Request) bool {
 func RunServer(cfg *config.Config, version string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// {{institution_name}} / {{system_name}}, logo and window title default to
+	// the app name from the environment.
+	kbbehavior.SetAppNameDefaults(cfg.AppNamePrefix, cfg.AppNameProduct)
 
 	tracingShutdown, err := observability.InitTracing(ctx, "justrag-server", version, middleware.RedactSecretPath)
 	if err != nil {

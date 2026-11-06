@@ -1,6 +1,6 @@
 import { useId, useState, useEffect, useMemo } from 'react';
 import { Save, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { Button, Card, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, NavItem } from '@ki4jlu/design-system';
+import { Button, Card, Collapsible, CollapsibleContent, CollapsibleTrigger, Input, NavItem, useSettingsSearch } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { CheckboxFieldRow, FieldRow, SelectFieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
 import { isChatWebSearchAvailable } from '../../utils/chatWebSearch';
@@ -20,6 +20,20 @@ interface AdminAgentTabProps {
 
 const STORAGE_KEY = 'admin-agent-sections-open-v1';
 
+// chat_attachments_max_file_bytes is stored in bytes; the admin edits MB (MiB, which the backend's
+// "höchstens 50 MB" also calls MB). Empty clears the key, so the backend default applies. A byte
+// value set through the API need not be whole MB, so the field takes fractions (step "any").
+const MIB = 1024 * 1024;
+const ATTACHMENT_MAX_FILE_MB_DEFAULT = '50';
+function attachmentMaxFileMb(stored: string | undefined): string {
+    const bytes = Number(stored);
+    return stored && Number.isFinite(bytes) && bytes > 0 ? String(Math.round((bytes / MIB) * 100) / 100) : ATTACHMENT_MAX_FILE_MB_DEFAULT;
+}
+function attachmentMaxFileBytes(mb: string): string {
+    const n = Number(mb);
+    return mb.trim() === '' || !Number.isFinite(n) ? '' : String(Math.round(n * MIB));
+}
+
 
 
 /**
@@ -36,7 +50,8 @@ function Section({ title, open, onToggle, hidden, children }: { title: string; o
         <Card className="overflow-hidden">
             <Collapsible open={open} onOpenChange={onToggle}>
                 <CollapsibleTrigger asChild>
-                    <NavItem type="button" className="justify-between rounded-none">
+                    {/* Kept while the dialog search shows this group's matching rows: the rows' heading. */}
+                    <NavItem type="button" className="justify-between rounded-none" data-search-keep="">
                         <span>{title}</span>
                         {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
                     </NavItem>
@@ -133,7 +148,12 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
         return r;
     }, [t]);
 
+    // The admin dialog's search finds rows only where they are rendered: while it filters, every
+    // group is open, and the dialog hides those without a hit.
+    const dialogSearch = useSettingsSearch();
+
     const sectionState = (id: SectionId) => {
+        if (dialogSearch.filtering) return { hidden: false, open: true, onToggle: () => {} };
         const isFiltering = trimmedFilter.length > 0;
         const matches = isFiltering ? sectionSearch[id]?.includes(trimmedFilter) : true;
         return {
@@ -1136,6 +1156,17 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         step={1}
                         value={siteConfigs.chat_attachments_max_per_message || '10'}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_max_per_message: e.target.value }))}
+                    />
+
+                    <FieldRow
+                        label={t('chatAttachmentsMaxFileMb')}
+                        help={t('chatAttachmentsMaxFileMbHelp')}
+                        type="number"
+                        min={1}
+                        max={500}
+                        step="any"
+                        value={attachmentMaxFileMb(siteConfigs.chat_attachments_max_file_bytes)}
+                        onChange={e => setSiteConfigs(prev => ({ ...prev, chat_attachments_max_file_bytes: attachmentMaxFileBytes(e.target.value) }))}
                     />
                 </Section>
 

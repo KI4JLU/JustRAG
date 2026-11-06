@@ -83,6 +83,23 @@ type AIModelInfo struct {
 	Dimensions int
 	// ContextWindow is ai_models.context_window in tokens; 0 = unknown.
 	ContextWindow int
+	// IsDefault marks the provider's default model of this kind
+	// (ai_models.is_default, migration 0098): the one a KB without its own
+	// override uses. At most one per provider and kind.
+	IsDefault bool
+}
+
+// defaultModel returns the model of one kind a KB without an override gets:
+// the one flagged IsDefault, else the first of the list. The store returns the
+// list ordered by name, so the fallback (a kind whose default was never set,
+// e.g. rows written outside the admin form) is still deterministic.
+func defaultModel(models []AIModelInfo) AIModelInfo {
+	for _, m := range models {
+		if m.IsDefault {
+			return m
+		}
+	}
+	return models[0]
 }
 
 // KBModelOverrides holds the optional model-name overrides stored on a KB row.
@@ -307,7 +324,7 @@ func (r *ConfigResolver) resolve(ctx context.Context, kbID string) (*ResolvedCon
 	}
 
 	if len(chatModels) > 0 {
-		cfg.ChatModel = chatModels[0].Name
+		cfg.ChatModel = defaultModel(chatModels).Name
 		names := make([]string, len(chatModels))
 		for i, m := range chatModels {
 			names[i] = m.Name
@@ -321,17 +338,18 @@ func (r *ConfigResolver) resolve(ctx context.Context, kbID string) (*ResolvedCon
 		cfg.ChatModels = names
 	}
 	if len(embeddingModels) > 0 {
-		cfg.EmbeddingModel = embeddingModels[0].Name
-		cfg.EmbeddingDimensions = embeddingModels[0].Dimensions
+		def := defaultModel(embeddingModels)
+		cfg.EmbeddingModel = def.Name
+		cfg.EmbeddingDimensions = def.Dimensions
 	}
 	if len(rerankModels) > 0 {
-		cfg.RerankModel = rerankModels[0].Name
+		cfg.RerankModel = defaultModel(rerankModels).Name
 	}
 	if len(ttsModels) > 0 {
-		cfg.TtsModel = ttsModels[0].Name
+		cfg.TtsModel = defaultModel(ttsModels).Name
 	}
 	if len(sttModels) > 0 {
-		cfg.SttModel = sttModels[0].Name
+		cfg.SttModel = defaultModel(sttModels).Name
 	}
 
 	// Step 6: apply KB overrides where set.

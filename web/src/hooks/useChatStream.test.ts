@@ -559,3 +559,60 @@ describe('useChatStream.handleSendMessage — retry after a refused send', () =>
     clock.mockRestore();
   });
 });
+
+// Oracle: API.md "Behavior: roles and rules" — roleId starts a NEW chat in a
+// role and is refused with a chatId, so the client sends it only while the
+// turn opens the chat.
+describe('useChatStream.handleSendMessage — roleId', () => {
+  it('sends roleId on the turn that opens a chat', async () => {
+    authFetchMock.mockResolvedValueOnce(okResponse([{ chatId: 'c1' }, { aiMessageId: 'ai1' }]));
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage(
+        { preventDefault: () => {} } as React.FormEvent, 'Erkläre die Elternzeit', null, null, { roleId: 'tutor', agentSelection: {} },
+      );
+    });
+    const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.roleId).toBe('tutor');
+    expect(body.chatId).toBeNull();
+  });
+
+  it('leaves roleId out once the chat exists', async () => {
+    authFetchMock.mockResolvedValue(okResponse([{ chatId: 'c1' }, { aiMessageId: 'ai1' }]));
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Erste Frage', null, null, { roleId: 'tutor' });
+    });
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Zweite Frage', 'ai1', undefined, { roleId: 'tutor' });
+    });
+    const second = JSON.parse((authFetchMock.mock.calls[1] as [string, RequestInit])[1].body as string);
+    expect(second.chatId).toBe('c1');
+    expect(second.roleId).toBeUndefined();
+  });
+});
+
+// The thinking is one of the steps, at the point it began: the first
+// reasoning frame appends one `reasoning` marker to the streaming message's
+// trajectory (the backend stores the same marker), later frames add none.
+describe('useChatStream — reasoning marker', () => {
+  it('setzt den Marker einmal, nach den Schritten davor', async () => {
+    // aiMessageId first, as in the conflicts test above: the harness reads
+    // every frame within one act(), so the tree updates are batched.
+    authFetchMock.mockResolvedValueOnce(okResponse([
+      { aiMessageId: 'ai-think' },
+      { agentTrajectory: { stage: 'plan', queries: ['a', 'b'] } },
+      { reasoning: 'Ich prüfe ' },
+      { reasoning: 'die Frist.' },
+      { agentTrajectory: { stage: 'answer' } },
+      { content: 'Antwort' },
+    ]));
+    const { result } = renderHook(() => useHarness());
+    await act(async () => {
+      await result.current.stream.handleSendMessage({ preventDefault: () => {} } as React.FormEvent, 'Frage', null, undefined);
+    });
+    const ai = result.current.messageTree.get('ai-think');
+    expect(ai?.reasoning).toBe('Ich prüfe die Frist.');
+    expect(ai?.trajectory?.map(e => e.stage)).toEqual(['plan', 'reasoning', 'answer']);
+  });
+});

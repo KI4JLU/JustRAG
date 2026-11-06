@@ -1,33 +1,42 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2, Globe, Star } from 'lucide-react';
+import { Check, FileText, Loader2, Plus } from 'lucide-react';
+import { Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardDescription, CardFooter, CardHairline, CardMeta, CardTitle } from '@ki4jlu/design-system';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { useKbSearch } from '../contexts/KbSearchContext';
-import { FILTER_ALL, FILTER_FAVORITES } from '../hooks/useTopicFilters';
+import { FILTER_ALL } from '../hooks/useTopicFilters';
 import type { KbCatalogEntry, KbCategory } from '../types';
+import { CategoryPill } from './CategoryPill';
+import { TitleCardMeta } from './kbSettings/assistant/StartPageParts';
+import { categoryDotColor } from './kbSettings/assistant/startPageModel';
 
 interface KbCatalogPanelProps {
     /** Called after every successful subscribe/unsubscribe toggle, so the
-     * caller can refetch the Favoriten list — a subscription change changes
-     * what that list shows. */
+     * caller can refetch the topic lists — a subscription moves a topic into
+     * (or out of) „Geteiltes Wissen". */
     onSubscriptionChange: () => void;
     /** Opens a KB known only by its id — the catalog rows carry nothing else. */
     onOpenKb: (id: string) => void;
     /**
-     * The active chip from the page's `TopicFilterBar` — `FILTER_ALL`,
-     * `FILTER_FAVORITES`, or one of the caller's category ids.
+     * The active chip from the page's `TopicFilterBar` — `FILTER_ALL` or a
+     * system category's id. The page shows no „Favoriten" chip: a favorite is
+     * a subscribed topic pinned in „Geteiltes Wissen", not a catalog state.
      *
      * It arrives as a prop rather than being read from a context here because
      * this panel owns its own list: the catalog is a REQUEST, not the `kbs`
      * array the other views filter, so applying the chip is its job and not the
-     * page's. Every catalog row already carries `isFavorite` and
-     * `userCategoryIds` (migration 0077), so it stays a client-side filter over
-     * the response and adds no request.
+     * page's.
      */
     topicFilter?: string;
+    /** Cards or one row per topic — the page's Karten/Liste switch. */
+    viewMode?: 'card' | 'list';
 }
+
+/** The list view's columns: name (elastic), size, „Stand", subscribe. Below `md` size and date drop out. */
+const CATALOG_ROW_COLUMNS =
+    'grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_8.5rem] [&>*:nth-child(2)]:max-md:hidden [&>*:nth-child(3)]:max-md:hidden';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -35,16 +44,26 @@ const SEARCH_DEBOUNCE_MS = 250;
 const INITIAL_VISIBLE = 8;
 
 /**
- * The discovery surface: the search RESULTS, category tabs and a favorites
- * toggle over every public KB the caller may discover. It lives inline in the Home
+ * The discovery surface: the search RESULTS over every public KB the caller
+ * may discover, filtered by the page's chip row (favorites, system and own
+ * categories). It lives inline in the Home
  * overview's "KBs entdecken" accordion, which unmounts it while collapsed —
  * so both fetches below re-run each time the section is expanded, and a KB
  * published after the page loaded appears without a reload.
  *
- * It is also the counterpart of the star on a Favoriten card: that star only
- * ever writes an opt-out (no membership change, no chat deletion), so every
- * KB removed there lands back here — including a staged one the caller
- * curates, which GET /api/kb/catalog lists to its members for that reason.
+ * SUBSCRIBING, NOT STARRING (developer ruling, 03.11.2026). A global topic is
+ * an open group: nobody is invited, anybody may join. The card's control is
+ * „Abonnieren" — the subscription puts the topic into „Geteiltes Wissen",
+ * where (and only where) it can then be starred like any other topic. The
+ * catalog used to carry a star for the subscription, which read as „make
+ * favorite" and was not.
+ *
+ * SUBSCRIBED TOPICS STAY LISTED, marked „Abonniert": the catalog is the whole
+ * directory, so a search finds a topic whether or not the user holds it, and
+ * this is the one place to leave it again and come back. Unsubscribing only
+ * writes an opt-out (no membership change, no chat deletion) — including for a
+ * staged topic the caller curates, which GET /api/kb/catalog lists to its
+ * members for that reason.
  *
  * IT NO LONGER OWNS THE SEARCH FIELD (card KI-787). The developer moved that
  * one field into the shell's top bar — a move, not a copy: there is no input
@@ -58,13 +77,12 @@ const INITIAL_VISIBLE = 8;
  * topics in Discover" row sets — see `KbSearchContext` for why the two are
  * separate, and for the TODO that marks it as a reversible assumption.
  */
-export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFilter }: KbCatalogPanelProps) {
+export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFilter, viewMode = 'card' }: KbCatalogPanelProps) {
     const { t } = useTheme();
     const toast = useToast();
     const { catalogQuery: query } = useKbSearch();
     const [entries, setEntries] = useState<KbCatalogEntry[]>([]);
     const [categories, setCategories] = useState<KbCategory[]>([]);
-    const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [pending, setPending] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     /* The fold is stored as WHICH FILTER it was opened for, not as a boolean
@@ -87,6 +105,12 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
             .then(res => setCategories(Array.isArray(res.data) ? res.data : []))
             .catch(() => setCategories([]));
     }, []);
+
+    /* A system category's chip filters on the server (`category=`), as the
+       catalog's own tab strip did before the page's chip row took the system
+       categories in (developer, 30.10.2026); every other chip filters the
+       response below. */
+    const activeCategory = topicFilter && categories.some(c => c.id === topicFilter) ? topicFilter : null;
 
     useEffect(() => {
         const handle = setTimeout(() => {
@@ -134,17 +158,12 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
         }
     }, [onSubscriptionChange, toast, t]);
 
-    /* The page's chip, applied to the response.
-     *
-     * BEFORE the fold, deliberately: folding first and filtering after would
-     * make „show N more" a count of rows the filter had already removed, and a
-     * favorite sitting at position 9 would be unreachable behind a button that
-     * claimed to reveal it. */
-    const filtered = topicFilter === undefined || topicFilter === FILTER_ALL
+    /* The page's chip, applied to the response — BEFORE the fold, so „show N
+     * more" never counts rows the filter has removed. A category not in the
+     * catalog's list (stale, or hidden meanwhile) matches nothing. */
+    const filtered = topicFilter === undefined || topicFilter === FILTER_ALL || activeCategory !== null
         ? entries
-        : topicFilter === FILTER_FAVORITES
-            ? entries.filter(e => e.isFavorite)
-            : entries.filter(e => e.userCategoryIds.includes(topicFilter));
+        : [];
 
     // The catalog can hold every public KB in the deployment; showing all of
     // them at once buries the four sections below it. The fold is client-side
@@ -155,36 +174,6 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
 
     return (
         <div className="home-view__catalog">
-            {/* Tabs, not chips: the filter is single-select and always has
-                exactly one active value, which is what a tab strip states and
-                a row of toggle chips does not. "Alle" is the leftmost tab
-                rather than a way to clear the others. */}
-            {categories.length > 0 && (
-                <div className="kb-catalog__tabs" role="tablist" aria-label={t('catalogCategoryTabs')}>
-                    <button
-                        type="button"
-                        role="tab"
-                        onClick={() => setActiveCategory(null)}
-                        aria-selected={activeCategory === null}
-                        className={`kb-catalog__tab${activeCategory === null ? ' kb-catalog__tab--active' : ''}`}
-                    >
-                        {t('catalogAllCategories')}
-                    </button>
-                    {categories.map(c => (
-                        <button
-                            key={c.id}
-                            type="button"
-                            role="tab"
-                            onClick={() => setActiveCategory(c.id)}
-                            aria-selected={activeCategory === c.id}
-                            className={`kb-catalog__tab${activeCategory === c.id ? ' kb-catalog__tab--active' : ''}`}
-                        >
-                            {c.name}
-                        </button>
-                    ))}
-                </div>
-            )}
-
             {loading ? (
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'start' }}>{t('loading')}</p>
             ) : filtered.length === 0 ? (
@@ -201,60 +190,132 @@ export default function KbCatalogPanel({ onSubscriptionChange, onOpenKb, topicFi
                 </div>
             ) : (
                 <>
-                <ul className="home-view__grid">
-                    {visible.map(entry => (
-                        <li
-                            key={entry.id}
-                            data-testid="catalog-entry"
-                            className="source-card home-view__kb-card"
-                            role="button" // eslint-disable-line jsx-a11y/no-noninteractive-element-to-interactive-role
-                            tabIndex={0}
-                            aria-label={`${t('openKb')}: ${entry.name}`}
-                            onClick={() => onOpenKb(entry.id)}
-                            onKeyDown={(e) => {
+                {viewMode === 'list' && (
+                    <div aria-hidden="true" className={`${CATALOG_ROW_COLUMNS} mb-2 border-l-4 border-transparent pl-4 pr-3 text-xs font-medium text-on-surface-variant`}>
+                        <span>{t('kbListColTopic')}</span>
+                        <span className="text-right">{t('kbListColSources')}</span>
+                        <span className="text-right">{t('kbListColAsOf')}</span>
+                        <span />
+                    </div>
+                )}
+                {/* Cards: two columns at most, the title and description want
+                    the width (developer mockup). List: one row per topic. */}
+                <ul className={viewMode === 'list' ? 'm-0 flex list-none flex-col gap-2 p-0' : 'm-0 grid list-none gap-6 p-0 lg:grid-cols-2'}>
+                    {visible.map(entry => {
+                        const category = categories.find(c => entry.categoryIds.includes(c.id));
+                        const accentColor = category ? categoryDotColor(category) : undefined;
+                        const open = {
+                            role: 'button',
+                            tabIndex: 0,
+                            'aria-label': `${t('openKb')}: ${entry.name}`,
+                            onClick: () => onOpenKb(entry.id),
+                            onKeyDown: (e: React.KeyboardEvent) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
                                     onOpenKb(entry.id);
                                 }
-                            }}
-                        >
-                            <div className="home-view__card-top">
-                                <Globe size={20} color="var(--accent-primary)" aria-hidden="true" />
-                                <div className="home-view__badge-row">
-                                    {/* Mirror image of the filled star on a Favoriten card:
-                                        outline means "not in my favorites yet, click to add",
-                                        filled means "already there, click to drop it". The
-                                        card itself opens the KB, so this must not bubble. */}
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); void toggle(entry); }}
-                                        disabled={pending.has(entry.id)}
-                                        className="home-view__mini-icon"
-                                        aria-pressed={entry.subscribed}
-                                        title={entry.subscribed ? t('unsubscribe') : t('subscribe')}
-                                        aria-label={entry.subscribed ? t('unsubscribe') : t('subscribe')}
+                            },
+                        } as const;
+                        const nameButton = (
+                            <button
+                                type="button"
+                                className="text-button home-view__kb-name-btn"
+                                onClick={(e) => { e.stopPropagation(); onOpenKb(entry.id); }}
+                            >
+                                {entry.name}
+                            </button>
+                        );
+                        /* „Abonnieren" — or, once subscribed, „Abonniert" as a
+                           pressed toggle; pressing it again unsubscribes. The
+                           card itself opens the KB, so this must not bubble. */
+                        const busy = pending.has(entry.id);
+                        const subscribeButton = (
+                            <Button
+                                size="sm"
+                                variant={entry.subscribed ? 'outline' : 'default'}
+                                className="shrink-0"
+                                onClick={(e) => { e.stopPropagation(); void toggle(entry); }}
+                                disabled={busy}
+                                aria-pressed={entry.subscribed}
+                                title={entry.subscribed ? t('unsubscribe') : undefined}
+                            >
+                                {busy
+                                    ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                                    : entry.subscribed
+                                        ? <Check className="size-4" aria-hidden="true" />
+                                        : <Plus className="size-4" aria-hidden="true" />}
+                                {entry.subscribed ? t('subscribedBadge') : t('subscribe')}
+                            </Button>
+                        );
+                        const documents = entry.fileCount !== undefined && (
+                            <Badge>
+                                <FileText size={12} aria-hidden="true" />
+                                {entry.fileCount === 1 ? t('asstOneDocument') : t('asstNDocuments').replace('{n}', String(entry.fileCount))}
+                            </Badge>
+                        );
+                        if (viewMode === 'list') {
+                            /* The row, as on „Mein Wissen": the category's colour
+                               as the left edge with a faint tint from it (grey,
+                               no tint, without one), the name with its category
+                               under it, then size, „Stand" and „Abonnieren". */
+                            return (
+                                <li key={entry.id} className="min-w-0">
+                                    <Card
+                                        interactive
+                                        accent
+                                        tint={!!category}
+                                        accentColor={accentColor ?? cardNeutralAccent}
+                                        data-testid="catalog-entry"
+                                        className={`${CATALOG_ROW_COLUMNS} cursor-pointer items-center py-3 pl-4 pr-3`}
+                                        {...open}
                                     >
-                                        {pending.has(entry.id)
-                                            ? <Loader2 className="animate-spin" size={16} aria-hidden="true" />
-                                            : <Star size={16} aria-hidden="true" fill={entry.subscribed ? 'currentColor' : 'none'} />}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="source-title home-view__kb-name">
-                                <button
-                                    type="button"
-                                    className="text-button home-view__kb-name-btn"
-                                    onClick={(e) => { e.stopPropagation(); onOpenKb(entry.id); }}
+                                        <div className="flex min-w-0 flex-col items-start gap-1">
+                                            <span className="max-w-full truncate font-semibold text-on-surface">{nameButton}</span>
+                                            {category && <CategoryPill category={category} small />}
+                                        </div>
+                                        <div className="flex justify-end">{documents}</div>
+                                        <span className="truncate text-right text-sm text-on-surface-variant">
+                                            <TitleCardMeta asOf={entry.lastIngestedAt ?? undefined} leading={false} />
+                                        </span>
+                                        {/* A fixed column, so the header's labels stand over every row's values. */}
+                                        <div className="flex justify-end">{subscribeButton}</div>
+                                    </Card>
+                                </li>
+                            );
+                        }
+                        return (
+                            <li key={entry.id} className="flex min-w-0">
+                                {/* The hairline card (developer mockup „Hairline", 30.10.2026):
+                                    name and „Abonnieren" on a faint tint of the category's colour,
+                                    the category on the rule, the description, then size and
+                                    „Stand". Grey without a category. */}
+                                <Card
+                                    interactive
+                                    accentColor={accentColor}
+                                    data-testid="catalog-entry"
+                                    className="w-full cursor-pointer"
+                                    {...open}
                                 >
-                                    {entry.name}
-                                </button>
-                            </div>
-
-                            {entry.description && (
-                                <div className="home-view__kb-header-text">{entry.description}</div>
-                            )}
-                        </li>
-                    ))}
+                                    <CardBand data-testid="catalog-band">
+                                        <CardTitle>{nameButton}</CardTitle>
+                                        {subscribeButton}
+                                    </CardBand>
+                                    <CardHairline>{category && <CategoryPill category={category} onHairline />}</CardHairline>
+                                    <CardContent>
+                                        {/* What the topic's start page shows: the own
+                                            description (or header text), else the default line. */}
+                                        <CardDescription className="line-clamp-3 leading-6 text-on-surface">{entry.description?.trim() || t('kbHeaderDefault')}</CardDescription>
+                                    </CardContent>
+                                    <CardFooter>
+                                        <CardMeta className="text-xs">
+                                            {documents}
+                                            <TitleCardMeta asOf={entry.lastIngestedAt ?? undefined} leading={false} />
+                                        </CardMeta>
+                                    </CardFooter>
+                                </Card>
+                            </li>
+                        );
+                    })}
                 </ul>
                 {hidden > 0 && (
                     <div className="kb-catalog__more">

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type DBConfig struct {
@@ -55,8 +56,9 @@ type RedisConfig struct {
 	// shared client + the Asynq client) may open. Set explicitly to override
 	// go-redis's default of 10×GOMAXPROCS, which on a 16-CPU container would
 	// be 160 — far larger than the workload needs and out of step with the
-	// pgxpool cap (~20). Set via REDIS_POOL_SIZE; default is sized to roughly
-	// match WorkerConcurrency × 2 plus a margin for HTTP-side traffic.
+	// pgxpool cap (~20). Set via REDIS_POOL_SIZE; unset, it is the larger of
+	// 32 and 2 × WorkerConcurrency, so the default never trips the coherence
+	// check in Load.
 	PoolSize int
 }
 
@@ -107,11 +109,24 @@ type Config struct {
 	JWTSecret      string
 	AllowedOrigins []string
 
+	// The app name the web app renders through the design system's Logo:
+	// AppNamePrefix as plain text, AppNameProduct in the brand badge
+	// ("JLU [RAG]"). Joined (AppName), it is how the app names itself in
+	// text: window title, installed app, API docs. APP_NAME_PREFIX and
+	// APP_NAME_PRODUCT; unset or blank keeps the default "JLU" / "RAG".
+	AppNamePrefix  string
+	AppNameProduct string
+
 	// Worker settings
 	WorkerQueues      []string // WORKER_QUEUES — if set, only process these queues
 	WorkerConcurrency int      // WORKER_CONCURRENCY — total goroutines (default: max(2×GOMAXPROCS, 8))
 	WorkerMaintenance bool     // WORKER_MAINTENANCE — run maintenance tasks (default true)
 	WorkerHealthPort  int      // WORKER_HEALTH_PORT — health endpoint port (default 8081)
+	// WorkerMetrics serves the worker's Prometheus registry at /metrics on
+	// the health port (WORKER_METRICS=true; default off). Unauthenticated,
+	// unlike the server's admin-gated /metrics, so only for a port that
+	// stays inside the cluster / compose network.
+	WorkerMetrics bool
 
 	// StuckFileTimeout is how long a file may sit in "processing" without its
 	// progress advancing before the maintenance sweep marks it error/timeout
@@ -197,6 +212,12 @@ type Config struct {
 	// lines/sec. Set LOG_VERBOSE=true during incident investigation to see
 	// every request, then unset it. Env LOG_VERBOSE.
 	LogVerbose bool
+}
+
+// AppName is the app name as one string, e.g. "JLU RAG": what the app calls
+// itself wherever it names itself in text (installed app, API docs, exports).
+func (c *Config) AppName() string {
+	return c.AppNamePrefix + " " + c.AppNameProduct
 }
 
 func (c *Config) IsProduction() bool {
@@ -299,6 +320,9 @@ func Load() (*Config, error) {
 
 	cfg.CSPHeader = os.Getenv("CSP_HEADER")
 
+	cfg.AppNamePrefix = appNamePart("APP_NAME_PREFIX", "JLU")
+	cfg.AppNameProduct = appNamePart("APP_NAME_PRODUCT", "RAG")
+
 	cfg.SQLToolReadOnlyURL = os.Getenv("JUSTRAG_DB_URL_READONLY")
 
 	cfg.TrustedProxyHopCount = mustInt("TRUSTED_PROXY_HOP_COUNT", 0)
@@ -397,6 +421,12 @@ func Load() (*Config, error) {
 	} else {
 		cfg.WorkerConcurrency = mustInt("WORKER_CONCURRENCY", 8)
 	}
+	if cfg.WorkerConcurrency >= 1 && os.Getenv("REDIS_POOL_SIZE") == "" {
+		// The default pool follows the worker count, which itself scales
+		// with the CPUs: a fixed 32 made the coherence check below warn on
+		// every host above 16 CPUs with no setting changed (KI-593).
+		cfg.Redis.PoolSize = max(cfg.Redis.PoolSize, cfg.WorkerConcurrency*2)
+	}
 	if cfg.WorkerConcurrency < 1 {
 		errs = append(errs, fmt.Sprintf("WORKER_CONCURRENCY=%d must be at least 1", cfg.WorkerConcurrency))
 	} else if cfg.Redis.PoolSize < cfg.WorkerConcurrency*2 {
@@ -409,6 +439,7 @@ func Load() (*Config, error) {
 			"worker_concurrency", cfg.WorkerConcurrency)
 	}
 	cfg.WorkerHealthPort = mustInt("WORKER_HEALTH_PORT", 8081)
+	cfg.WorkerMetrics = os.Getenv("WORKER_METRICS") == "true"
 	cfg.WorkerMaintenance = os.Getenv("WORKER_MAINTENANCE") != "false"
 	stuckFileTimeoutMin := mustInt("STUCK_FILE_TIMEOUT_MINUTES", 30)
 	if stuckFileTimeoutMin <= 0 {
@@ -527,6 +558,34 @@ func jwtSecretCharClasses(s string) int {
 		}
 	}
 	return n
+}
+
+// appNameMaxRunes mirrors kbbehavior.MaxNameRunes: an app-name part is also
+// a name role prompts resolve to.
+const appNameMaxRunes = 40
+
+// appNamePart reads one app-name part: trimmed, blank = fallback. A value no
+// name may be (kbbehavior.ValidateName: more than one line, or longer than
+// appNameMaxRunes) is refused with a warning and reads as fallback too, so the
+// site config, the app shell and the prompts all use the same name.
+func appNamePart(key, fallback string) string {
+	v := trimmedEnvOr(key, fallback)
+	// The characters of kbbehavior.LineBreaks (config cannot import it).
+	if strings.ContainsAny(v, "\r\n\v\f\u0085\u2028\u2029") || utf8.RuneCountInString(v) > appNameMaxRunes {
+		slog.Warn("config: app name part is not a single line of at most 40 characters; using the default",
+			"key", key, "default", fallback)
+		return fallback
+	}
+	return v
+}
+
+// trimmedEnvOr is envOr for display text: surrounding whitespace is dropped,
+// and a value that is only whitespace counts as unset.
+func trimmedEnvOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func envOr(key, fallback string) string {

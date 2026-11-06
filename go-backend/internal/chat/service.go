@@ -1059,8 +1059,14 @@ func PrepareChatContext(
 	// 2026-07-02, "Welche neuen Meldungen gibt es?" listed 1 of many.
 	recency := applyRecencyListing(ctx, siteConfig, params.RecencyLister,
 		params.KbID, searchQuery, &opts, time.Now())
-	if recency.fired && params.Emit != nil {
-		params.Emit(map[string]any{
+	if recency.fired {
+		// A step (files listed since the window start), plus the raw-map
+		// frame of before.
+		emitTrajectory(params.Emit, TrajectoryEvent{
+			Stage:    "recency_listing",
+			Findings: len(recency.entries),
+			Reason:   recency.sinceISO,
+		}, map[string]any{
 			"type":         "recency_listing",
 			"since":        recency.sinceISO,
 			"files_listed": len(recency.entries),
@@ -1091,6 +1097,20 @@ func PrepareChatContext(
 	if err != nil {
 		return nil, fmt.Errorf("chat: search: %w", err)
 	}
+
+	// The search as a step: the question searched (params.SearchQuery, never
+	// the tabular router's BM25 phrase hint), the decomposed sub-questions,
+	// the hit count and the top files. It comes before CRAG, whose rewrite
+	// and abstain decisions follow it. Step 1 lets the later
+	// retrievalStepReduced event merge into the same row.
+	emitTrajectory(params.Emit, TrajectoryEvent{
+		Stage:    retrievalStage,
+		Step:     1,
+		Query:    params.SearchQuery,
+		Queries:  opts.SubQueries,
+		Findings: len(result.Chunks),
+		Chunks:   chunkRefs(result.Chunks),
+	}, nil)
 
 	abstain := runCRAG(ctx, aiResolver, searchSvc, cragCfg, result, params, opts.ForceBM25SimpleArm)
 
@@ -1149,6 +1169,7 @@ func PrepareChatContext(
 	// T2-1: also skipped under long-context mode — the whole point
 	// of the wide pool is to hand the LLM many chunks; re-filtering
 	// here would undo the routing.
+	poolBeforeReduce := len(chunks)
 	if !abstain && !longContextRoute && ChatContextCompressionEnabled(ctx, siteConfig) {
 		minChunks := ChatContextCompressionMinChunks(ctx, siteConfig)
 		if len(chunks) >= minChunks {
@@ -1180,6 +1201,17 @@ func PrepareChatContext(
 		}
 	}
 
+	// Compression and multi-pass extraction drop passages that do not
+	// support an answer: the search step reports how many.
+	if dropped := poolBeforeReduce - len(chunks); dropped > 0 {
+		emitTrajectory(params.Emit, TrajectoryEvent{
+			Stage:    retrievalStage,
+			Step:     1,
+			Decision: "context_reduced",
+			Dropped:  dropped,
+		}, nil)
+	}
+
 	// Build context string with annotations.
 	sources, contextText := buildChatSourcesAndContext(chunks)
 
@@ -1200,6 +1232,7 @@ func PrepareChatContext(
 			abstain = true
 			logctx.From(ctx).Info("rag.sufficient_context.abstain",
 				"chunks_in_context", len(chunks), "kb_id", params.KbID)
+			emitTrajectory(params.Emit, TrajectoryEvent{Stage: "decision", Decision: "insufficient_context"}, nil)
 		}
 	}
 

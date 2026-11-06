@@ -21,6 +21,10 @@
     {
       "name": "Open WebUI Compatible (ILIAS)",
       "description": "Subset of Open WebUI's API for the ILIAS LfAssistant plugin's \"Open WebUI RAG\" mode; the plugin is the only intended client. Off unless the global site_config flag `owui_compat_enabled` is on (every route answers `404 {\"detail\"}` for an authenticated key while it is off). Rate limits count per API key: 600/min for chat, 300/min for every other route. Uploads are only stored; indexing starts when a file is added to a collection. Several error cases answer 2xx on purpose because the plugin throws on any status >= 400. Full contract: docs/api-contracts/owui-compat.md."
+    },
+    {
+      "name": "System Notice",
+      "description": "The banner every user sees at the top of the app (maintenance, outage, test operation). Same setting as the admin dialog's \u201eSystemmeldung\"; the API key's owner must be an admin or superadmin."
     }
   ],
   "security": [
@@ -1336,6 +1340,135 @@
           }
         }
       }
+    },
+    "/api/v1/system-notice": {
+      "get": {
+        "tags": [
+          "System Notice"
+        ],
+        "summary": "Read the system notice",
+        "operationId": "getSystemNotice",
+        "responses": {
+          "200": {
+            "description": "The notice as stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemNotice"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "System Notice"
+        ],
+        "summary": "Update the system notice",
+        "description": "Partial update: send only the fields to change. `{\"enabled\": false}` takes the banner down and keeps the text. Example for an outage: `{\"enabled\": true, \"tone\": \"error\", \"text\": \"Der Dienst ist zurzeit gest\u00f6rt.\"}`.",
+        "operationId": "updateSystemNotice",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Whether users see the banner."
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Optional short headline, shown bold before the text. Empty for none."
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "description": "Plain text (no HTML/Markdown); line breaks are kept. Required (stored or sent) to enable."
+                  },
+                  "tone": {
+                    "type": "string",
+                    "enum": [
+                      "neutral",
+                      "info",
+                      "warning",
+                      "error"
+                    ],
+                    "description": "`warning` for degraded service, `error` only for an outage."
+                  },
+                  "placement": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "banner",
+                      "inline",
+                      "toast"
+                    ],
+                    "description": "`banner` (full-width bar above the app), `inline` (small message at the top of the content area) or `toast` (card bottom right, stays until closed). Empty places it by tone: `error` as the banner, every other tone inline."
+                  },
+                  "dismissible": {
+                    "type": "boolean",
+                    "description": "Users may close it; it returns when the notice changes."
+                  },
+                  "linkUrl": {
+                    "type": "string",
+                    "description": "Optional: an http(s) URL, `mailto:` with one address, or a path starting with `/`. Empty for none."
+                  },
+                  "linkLabel": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Text of the link; empty uses a default."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The notice as stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemNotice"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or value (unknown field, wrong type, invalid tone/placement/link, enabling without text)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2048,6 +2181,68 @@
             "type": "boolean"
           }
         }
+      },
+      "SystemNotice": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether users see the banner."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Optional short headline, shown bold before the text (\u201e**Titel** \u00b7 Text\"). Empty for none."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Plain text (no HTML/Markdown); line breaks are kept. Required (stored or sent) to enable."
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "info",
+              "warning",
+              "error"
+            ],
+            "description": "Severity. With `placement` empty it also picks the placement: `error` (outage, maintenance) a full-width red banner above the app; `neutral`, `info` and `warning` (reduced operation) a small floating message at the top of the main area."
+          },
+          "placement": {
+            "type": "string",
+            "enum": [
+              "",
+              "banner",
+              "inline",
+              "toast"
+            ],
+            "description": "Where users see the notice: `banner` (full-width bar above the app), `inline` (small message at the top of the content area) or `toast` (card bottom right, stays until closed). Returned as stored: empty means by tone (see `tone`) and is not resolved to the placement the tone implies."
+          },
+          "dismissible": {
+            "type": "boolean",
+            "description": "Users may close it; it returns when the notice changes."
+          },
+          "linkUrl": {
+            "type": "string",
+            "description": "Optional: an http(s) URL, `mailto:` with one address, or a path starting with `/`. Empty for none."
+          },
+          "linkLabel": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Text of the link; empty uses a default."
+          }
+        },
+        "required": [
+          "enabled",
+          "title",
+          "text",
+          "tone",
+          "placement",
+          "dismissible",
+          "linkUrl",
+          "linkLabel"
+        ]
       }
     },
     "responses": {

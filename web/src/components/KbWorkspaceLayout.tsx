@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { AppShellLayout, Button, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
+import { AppShellLayout, Button, type MobilePaneTab } from '@ki4jlu/design-system';
 import { SourcesRail } from './sidebar/SourcesRail';
 import { ArrowLeft, FolderOpen, History, MessageSquare, Settings } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
@@ -14,8 +14,10 @@ import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
+import { AppLogo } from './AppLogo';
 import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 
 interface KbWorkspaceLayoutProps {
   mobileTab: MobileTab;
@@ -59,9 +61,12 @@ interface KbWorkspaceLayoutProps {
  * ------------------------------------------------------------------------- */
 export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: KbWorkspaceLayoutProps) {
   const { t } = useTheme();
-  const { user } = useAuth();
+  const { user, siteConfigs } = useAuth();
   const { currentKb, setKbView, handleGoHome } = useKbCore();
   const { sidebar, systemPromptOpen, setSystemPromptOpen } = useKbLayout();
+  // The admin's system notice, the same one AppChrome shows. After a dismiss,
+  // focus goes to the chat composer.
+  const systemNotice = useSystemNoticeBanner(() => document.querySelector<HTMLElement>('main textarea'));
 
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
@@ -156,7 +161,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
           title={t('goToHome')}
           aria-label={t('goToHome')}
         >
-          <Logo product="RAG" size="sm" />
+          <AppLogo siteConfigs={siteConfigs} size="sm" />
         </Button>
       }
       nav={<HistoryPanel />}
@@ -222,6 +227,10 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       activeMobileTab={activeMobileTab}
       onMobileTabChange={handleMobileTabChange}
       mobileTabBarLabel={t('switchArea')}
+      notice={systemNotice.notice}
+      status={systemNotice.status}
+      statusPosition={systemNotice.statusPosition}
+      noticeLabel={t('systemNotice')}
     >
       <ChatView />
     </AppShellLayout>

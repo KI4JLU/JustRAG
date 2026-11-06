@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
+import { legibleColor } from '@ki4jlu/design-system';
 import KbCatalogPanel from './KbCatalogPanel';
 import { KbSearchProvider } from '../contexts/KbSearchContext';
 
@@ -103,6 +104,30 @@ describe('KbCatalogPanel', () => {
         expect(screen.getByText('Rechtsfragen')).toBeInTheDocument();
     });
 
+    // Oracle: the cover-band mockup — the band is the topic's start page
+    // colours, the meta line names the category and the file count.
+    it('draws each card with its colour band, category and file count', async () => {
+        mockedAxios.get.mockImplementation((url: string) => {
+            if (url.includes('/api/kb-categories')) {
+                return Promise.resolve({ data: [{ id: 'c1', name: 'IT', sortOrder: 1, colorSlot: 3 }] });
+            }
+            return Promise.resolve({
+                data: [
+                    { id: 'kb-1', name: 'IT-Handbuch', description: null, subscribed: false, categoryIds: ['c1'], colors: { from: '#EE4589', to: '#B46EF7' }, fileCount: 3 },
+                    { id: 'kb-2', name: 'Rechtsfragen', description: null, subscribed: true, categoryIds: [] },
+                ],
+            });
+        });
+        renderPanel();
+        const cards = await screen.findAllByTestId('catalog-entry');
+        // The hairline card takes its category's colour; without one it stays neutral.
+        const accent = (i: number) => cards[i].style.getPropertyValue('--card-accent');
+        expect(accent(0)).toBe(legibleColor('var(--color-category-3)'));
+        expect(accent(1)).toBe('');
+        expect(within(cards[0]).getByText('IT')).toBeInTheDocument();
+        expect(within(cards[0]).getByText('asstNDocuments')).toBeInTheDocument();
+    });
+
     it('subscribes via PUT and reports the change', async () => {
         mockedAxios.put.mockResolvedValue({ status: 204 });
         const onChange = vi.fn();
@@ -125,7 +150,8 @@ describe('KbCatalogPanel', () => {
         renderPanel();
 
         const row = (await screen.findByText('Rechtsfragen')).closest('[data-testid="catalog-entry"]');
-        await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /abbestellen|unsubscribe/i }));
+        // The subscribed state reads „Abonniert"; pressing it unsubscribes.
+        await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /abonniert|subscribed/i }));
 
         await waitFor(() => {
             expect(mockedAxios.delete).toHaveBeenCalledWith(
@@ -136,7 +162,7 @@ describe('KbCatalogPanel', () => {
 
     // The discovery rows are cards now, matching the other overview sections.
     // Two things have to hold for that to be usable: the card opens the KB,
-    // and the add-to-favorites control on it does not.
+    // and the subscribe control on it does not.
     it('opens the KB when the card is activated', async () => {
         const onOpenKb = vi.fn();
         renderPanel(vi.fn(), onOpenKb);
@@ -154,7 +180,7 @@ describe('KbCatalogPanel', () => {
         expect(onOpenKb).toHaveBeenCalledWith('kb-1');
     });
 
-    it('does not open the KB when the favorites toggle is clicked', async () => {
+    it('does not open the KB when the subscribe button is clicked', async () => {
         mockedAxios.put.mockResolvedValue({ status: 204 });
         const onOpenKb = vi.fn();
         renderPanel(vi.fn(), onOpenKb);
@@ -168,8 +194,8 @@ describe('KbCatalogPanel', () => {
         expect(onOpenKb).not.toHaveBeenCalled();
     });
 
-    // aria-pressed is what tells a screen-reader user whether the KB is
-    // already a favorite; the filled/outline star alone would not.
+    // aria-pressed is what tells a screen-reader user that the topic is
+    // already subscribed; the label change alone reads as two buttons.
     it('reflects the subscription state on the toggle', async () => {
         renderPanel();
 
@@ -178,7 +204,7 @@ describe('KbCatalogPanel', () => {
             .toHaveAttribute('aria-pressed', 'false');
 
         const subscribed = screen.getByText('Rechtsfragen').closest('[data-testid="catalog-entry"]');
-        expect(within(subscribed as HTMLElement).getByRole('button', { name: /abbestellen|unsubscribe/i }))
+        expect(within(subscribed as HTMLElement).getByRole('button', { name: /abonniert|subscribed/i }))
             .toHaveAttribute('aria-pressed', 'true');
     });
 
@@ -193,25 +219,24 @@ describe('KbCatalogPanel', () => {
         expect(mockedAxios.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/'));
     });
 
-    // Tabs, not toggle chips: the filter is single-select and always has one
-    // active value. aria-selected (not aria-pressed) is what carries that.
-    it('renders the categories as a tab strip with "All" leftmost and selected', async () => {
+    // The system categories moved into the page's chip row (developer,
+    // 30.10.2026): the panel draws no tab strip of its own, and a system
+    // category's chip filters on the server as the tab did.
+    it('draws no category tabs of its own', async () => {
         renderPanel();
-        const tabs = await screen.findAllByRole('tab');
-        expect(tabs.map(el => el.textContent)).toEqual(['catalogAllCategories', 'IT']);
-        expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-        expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
+        await screen.findAllByTestId('catalog-entry');
+        expect(screen.queryAllByRole('tab')).toHaveLength(0);
     });
 
-    it('filters by the selected category tab and moves the selection to it', async () => {
-        renderPanel();
-        await userEvent.click(await screen.findByRole('tab', { name: 'IT' }));
-
+    it('asks the server for a system category chosen in the chip row', async () => {
+        render(
+            <KbSearchProvider value={providedSearch('')}>
+                <KbCatalogPanel onSubscriptionChange={vi.fn()} onOpenKb={vi.fn()} topicFilter="c1" />
+            </KbSearchProvider>,
+        );
         await waitFor(() => {
             expect(mockedAxios.get).toHaveBeenCalledWith(expect.stringContaining('category=c1'));
         });
-        expect(screen.getByRole('tab', { name: 'IT' })).toHaveAttribute('aria-selected', 'true');
-        expect(screen.getByRole('tab', { name: 'catalogAllCategories' })).toHaveAttribute('aria-selected', 'false');
     });
 });
 

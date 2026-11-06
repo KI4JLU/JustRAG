@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AppShellLayout,
-  Logo,
   NavItem,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
@@ -10,13 +9,16 @@ import {
   LayoutGrid, Menu, Compass, Wrench,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { AppUserMenu } from './AppUserMenu';
+import { AppLogo } from './AppLogo';
 import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
+import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
 // header for why the `home-view__` block name outlived the component.
@@ -85,6 +87,7 @@ export interface AppChromeProps {
 
 export function AppChrome({ active, contentId, children }: AppChromeProps) {
   const { t } = useTheme();
+  const { siteConfigs } = useAuth();
   const {
     onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools,
     onOpenTopic, onOpenSource, onOpenChat,
@@ -103,6 +106,9 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
      (`HomeView`, `SharedKbsView`) get the same remembered column without
      either of them knowing the toggle exists. */
   const sidebar = useSidebarCollapse();
+  // The admin's system notice, under the bar on every view (KI-936). After a
+  // dismiss, focus goes to the skip link's target, the start of the content.
+  const systemNotice = useSystemNoticeBanner(() => document.getElementById(contentId));
 
   /* Which area the narrow-screen tab bar is showing (design-system 0.30.0).
    *
@@ -151,24 +157,12 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
     consumeFocus();
   }, [focusPendingFor, active, consumeFocus]);
 
-  /* The `logo` slot: the design system's wordmark, built from the product name
-     („JLU [RAG]"), always.
- 
-     THE `siteConfigs.logo_path` OVERRIDE IS GONE (developer ruling, 17.09.2026:
-     logo upload is deprecated, the logo is built from the app name). It used to
-     win here when an operator had uploaded an image (card KI-719, the pattern
-     Login established), with the wordmark only as a fallback. Removing the
-     branch means the shell renders real TEXT on the brand tokens in every
-     deployment — which is what a screen reader reads as „JLU RAG" without any
-     `alt`, and what themes correctly in both colour schemes.
- 
-     SCOPE, so this is not mistaken for a finished deprecation: only the shell
-     is changed. `Login.tsx`, `SourcesPanel.tsx`, the admin upload UI in
-     `AdminSiteTab.tsx`/`AdminUI.tsx` and the backend's `logo_path` key
-     (`internal/siteconfig`) still exist and still work.
-     // TODO: removing the upload end to end — admin surface and the site-config
-     // key with it — is not decided here. */
-  const logo = <Logo product="RAG" size="sm" />;
+  /* The `logo` slot: the design system's wordmark, built from the configured
+     app name (APP_NAME_PREFIX / APP_NAME_PRODUCT, utils/appName.ts), always.
+     Real TEXT on the brand tokens: a screen reader reads „JLU RAG" without
+     any `alt`, and it themes correctly in both colour schemes. There is no
+     uploaded-logo override. */
+  const logo = <AppLogo siteConfigs={siteConfigs} size="sm" />;
 
   /* The nav rows.
    *
@@ -188,8 +182,8 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
    * an admin-only row since KI-782, and it is now no row at all.
    *
    * THIS ORPHANS NOTHING, which is the reason it can simply go: `AgentsView`
-   * keeps two routes, both in-KB and both behind `canOpenKbAdvancedSettings` —
-   * `ChatView`'s `KbAgentsSection` and `KbSettingsPanel`'s „Agent anlegen".
+   * keeps its route through `KbSettingsPanel`'s „Agent anlegen" (RAG-Settings
+   * in the admin console's KB-Übersicht).
    * What changes is that an admin reaches the screen through a KB instead of
    * from anywhere. A plain `user` had no route before this and has none now.
    * `AppNavContext.onViewAgents` went with the row (this was its only reader);
@@ -399,6 +393,10 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         activeMobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         mobileTabBarLabel={t('switchArea')}
+        notice={systemNotice.notice}
+        status={systemNotice.status}
+        statusPosition={systemNotice.statusPosition}
+        noticeLabel={t('systemNotice')}
       >
         {children}
       </AppShellLayout>

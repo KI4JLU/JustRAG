@@ -52,7 +52,7 @@ export type SystemRight =
     // GET /api/admin/agent-metrics, GET /api/admin/feedback/chunks,
     // /api/admin/mcp/… (adminChain).
     | 'monitoring'
-    // POST /api/site-config, POST /api/site-config/logo,
+    // POST /api/site-config,
     // POST /api/admin/reembed-all, /reembed-user-memory, /agent/template
     // (superadminChain); the Suchanbieter / Agenten / Einstellungen tabs.
     | 'systemSettings'
@@ -92,7 +92,7 @@ export const SYSTEM_RIGHT_ROUTES: Record<SystemRight, readonly string[]> = {
     aiModels: ['/api/admin/configs'],
     authProviders: ['/api/admin/auth-providers'],
     monitoring: ['/api/admin/kb-overview', '/api/system-health', '/metrics', '/api/admin/agent-metrics'],
-    systemSettings: ['POST /api/site-config', 'POST /api/site-config/logo', '/api/admin/reembed-all'],
+    systemSettings: ['POST /api/site-config', '/api/admin/reembed-all'],
     auditLogs: ['GET /api/admin/audit-logs'],
 };
 
