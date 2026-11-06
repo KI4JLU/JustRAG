@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AppShellLayout,
-  Logo,
   NavItem,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
@@ -10,9 +9,11 @@ import {
   LayoutGrid, Menu, Compass, Wrench,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { AppUserMenu } from './AppUserMenu';
+import { AppLogo } from './AppLogo';
 import { SidebarNav } from './SidebarNav';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
@@ -86,6 +87,7 @@ export interface AppChromeProps {
 
 export function AppChrome({ active, contentId, children }: AppChromeProps) {
   const { t } = useTheme();
+  const { siteConfigs } = useAuth();
   const {
     onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools,
     onOpenTopic, onOpenSource, onOpenChat,
@@ -155,24 +157,12 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
     consumeFocus();
   }, [focusPendingFor, active, consumeFocus]);
 
-  /* The `logo` slot: the design system's wordmark, built from the product name
-     („JLU [RAG]"), always.
- 
-     THE `siteConfigs.logo_path` OVERRIDE IS GONE (developer ruling, 17.09.2026:
-     logo upload is deprecated, the logo is built from the app name). It used to
-     win here when an operator had uploaded an image (card KI-719, the pattern
-     Login established), with the wordmark only as a fallback. Removing the
-     branch means the shell renders real TEXT on the brand tokens in every
-     deployment — which is what a screen reader reads as „JLU RAG" without any
-     `alt`, and what themes correctly in both colour schemes.
- 
-     SCOPE, so this is not mistaken for a finished deprecation: only the shell
-     is changed. `Login.tsx`, `SourcesPanel.tsx`, the admin upload UI in
-     `AdminSiteTab.tsx`/`AdminUI.tsx` and the backend's `logo_path` key
-     (`internal/siteconfig`) still exist and still work.
-     // TODO: removing the upload end to end — admin surface and the site-config
-     // key with it — is not decided here. */
-  const logo = <Logo product="RAG" size="sm" />;
+  /* The `logo` slot: the design system's wordmark, built from the configured
+     app name (APP_NAME_PREFIX / APP_NAME_PRODUCT, utils/appName.ts), always.
+     Real TEXT on the brand tokens: a screen reader reads „JLU RAG" without
+     any `alt`, and it themes correctly in both colour schemes. There is no
+     uploaded-logo override. */
+  const logo = <AppLogo siteConfigs={siteConfigs} size="sm" />;
 
   /* The nav rows.
    *

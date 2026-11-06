@@ -4,12 +4,12 @@ import { Loader2 } from 'lucide-react';
 import type { User as UserType } from './types';
 import { API_BASE_URL } from './api';
 import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
+import { appNameFrom, applyAppNameToDocument, rememberAppName, siteConfigSeed } from './utils/appName';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { MobileProvider } from './contexts/MobileContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { viewportHeight } from './utils/viewport';
-import { namesFromSiteConfig } from './utils/systemNames';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ToastContainer';
 import { ReloadPrompt } from './components/ReloadPrompt';
@@ -58,12 +58,19 @@ export function AppRoot() {
     return saved;
   });
 
-  // Config state (needed for Login too)
-  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>({});
-  // The browser tab shows the deployment's system name (site_config
-  // `system_name`), the default until it is set or read.
-  const systemName = namesFromSiteConfig(siteConfigs).system;
-  useEffect(() => { document.title = systemName; }, [systemName]);
+  // Config state (needed for Login too). It starts with the app name the
+  // server wrote into the page (or, on a page the service worker serves, the
+  // one this browser saw last), so neither the wordmark nor the tab title
+  // shows the default while /api/site-config is in flight.
+  const [siteConfigs, setSiteConfigs] = useState<Record<string, string>>(() => siteConfigSeed());
+  // The browser tab shows the app name (institution_name + system_name, else
+  // APP_NAME_PREFIX / APP_NAME_PRODUCT), on the login page too.
+  const { prefix: appNamePrefix, product: appNameProduct } = appNameFrom(siteConfigs);
+  useEffect(() => {
+    const name = { prefix: appNamePrefix, product: appNameProduct };
+    applyAppNameToDocument(name);
+    rememberAppName(name);
+  }, [appNamePrefix, appNameProduct]);
 
   // Auth handlers
   // SECURITY (tracked follow-up): the JWT lives in localStorage, which is
@@ -159,7 +166,8 @@ export function AppRoot() {
     window.addEventListener('auth:unauthorized', onUnauthorized);
 
     // An admin saved site-config keys (AdminUI): merge them in, so what the
-    // shell renders from them (the system notice) changes at once.
+    // shell renders from them (the system notice, the app name in logo and
+    // tab title) changes at once.
     const onSiteConfigUpdated = (e: Event) => {
       const saved = (e as CustomEvent<Record<string, string>>).detail;
       setSiteConfigs(prev => ({ ...prev, ...saved }));

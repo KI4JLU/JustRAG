@@ -6,20 +6,17 @@
  * src/api.ts derives API_BASE_URL as: `VITE_API_URL` if set, else
  * `http://localhost:3001` whenever `import.meta.env.DEV`, else `''`. Storybook
  * dev and the browser test runner are both dev-mode builds, so left alone
- * every story points at a backend that is not running. Two concrete
- * consequences, both of them states this card exists to show:
- *   - the uploaded-logo branch renders `<img src={API_BASE_URL + logo_path}>`,
- *     which would be a broken image instead of a logo;
- *   - `GET {API_BASE_URL}/api/auth/providers` would come out cross-origin,
- *     i.e. not the production URL shape the story-level mock matches on.
+ * every story points at a backend that is not running. The concrete
+ * consequence: `GET {API_BASE_URL}/api/auth/providers` would come out
+ * cross-origin, i.e. not the production URL shape the story-level mock
+ * matches on.
  *
  * ENV PREFIX — why the define alone is not enough. Vite loads `.env*` from its
  * root and replaces `import.meta.env.VITE_*` with those values BEFORE user
  * `define` is applied, so a developer's own git-ignored web/.env.local silently
  * wins. That is not hypothetical: this checkout had
  * `VITE_API_URL=http://localhost:3000` in web/.env.local, and with the define
- * in place the logo still requested http://localhost:3000/logo-test.svg
- * (measured, twice). Narrowing `envPrefix` to a prefix nothing in this repo
+ * in place a story still requested http://localhost:3000 (measured, twice). Narrowing `envPrefix` to a prefix nothing in this repo
  * uses means Vite exposes no `VITE_*` variable to the workbench at all, so
  * there is nothing to replace and the define below applies. Stories then look
  * the same on every machine. `npm run dev` and `npm run build` are unaffected:

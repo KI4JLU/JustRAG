@@ -134,11 +134,9 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
 
 const USER: User = { id: 'user-1', username: 'grace', role: 'user' };
 
-/** `imprint` makes the footer render. (The shell's logo is the design system's
- *  name-built wordmark in every case — `logo_path` no longer overrides it.) */
-const SITE_CONFIGS: Record<string, string> = {
-  imprint: 'Impressum · Justus-Liebig-Universitaet Giessen',
-};
+/** No site config: the shell's logo is the design system's wordmark built
+ *  from the default app name, „JLU [RAG]". */
+const SITE_CONFIGS: Record<string, string> = {};
 
 function privateKb(over: Partial<KnowledgeBase> & { id: string; name: string }): KnowledgeBase {
   return {
@@ -443,7 +441,7 @@ async function expectPageFrame(canvas: Canvas, canvasElement: HTMLElement) {
   /* ORACLE: the WAI-ARIA landmark mapping. The authenticated chrome renders NO
    * footer since the developer removed it (2026-09-15) — the legal pages are
    * reachable from the login screen only — so there is no `contentinfo` here at
-   * all, with or without an imprint configured. */
+   * all. */
   await expect(canvas.queryAllByRole('contentinfo')).toHaveLength(0);
 
   /* The Home nav row's label is NOT `myKBs`. The developer decided that on

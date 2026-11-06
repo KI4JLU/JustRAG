@@ -94,7 +94,7 @@ export interface BehaviorCatalog {
     ruleGroups: CatalogRuleGroup[];
     rulesHeading: string;
     limits: { promptMax: number; roleNameMax: number; ruleMax: number; customRolesMax: number; customRulesMax: number };
-    /** What `{{assistant_name}}` and `{{system_name}}` in a prompt answer as; absent = the defaults. */
+    /** What `{{assistant_name}}`, `{{institution_name}}` and `{{system_name}}` in a prompt answer as; absent = the defaults. */
     names?: SystemNames;
 }
 

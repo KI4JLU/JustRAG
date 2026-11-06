@@ -1588,7 +1588,7 @@ export const translations = {
     arRightMonitoring: { de: 'Monitoring', en: 'Monitoring' },
     arRightMonitoringHint: { de: 'KB-Übersicht, System Health und Metriken ansehen.', en: 'View the KB overview, system health and metrics.' },
     arRightSystemSettings: { de: 'Systemeinstellungen', en: 'System settings' },
-    arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten, Logo und Neu-Einbettung.', en: 'Settings, search providers, agents, logo and re-embedding.' },
+    arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten und Neu-Einbettung.', en: 'Settings, search providers, agents and re-embedding.' },
     arRightAuditLogs: { de: 'Audit-Logs', en: 'Audit logs' },
     arRightAuditLogsHint: { de: 'Das Protokoll der Admin-Aktionen lesen.', en: 'Read the log of admin actions.' },
     arScopeUpToApiUser: { de: 'bis API-Nutzer', en: 'up to API user' },
@@ -2484,8 +2484,8 @@ export const translations = {
     },
     langfuseBaseUrl: { de: 'Langfuse Basis-URL', en: 'Langfuse base URL' },
     langfuseBaseUrlHelp: {
-        de: 'Wenn gesetzt, blendet JustRAG für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
-        en: 'When set, JustRAG shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
+        de: 'Wenn gesetzt, blendet die Anwendung für Admins einen "Trace anzeigen"-Button neben jeder KI-Antwort ein, der direkt zur entsprechenden Langfuse-Trace führt. Beispiel: https://langfuse.example.local oder https://cloud.langfuse.com/project/abc123/traces',
+        en: 'When set, the app shows admins a "View trace" button next to each AI message linking to the matching Langfuse trace. Example: https://langfuse.example.local or https://cloud.langfuse.com/project/abc123/traces',
     },
     kbStaleDays: { de: 'Schwellenwert für veraltete Inhalte (Tage)', en: 'Stale-content threshold (days)' },
     kbStaleDaysHelp: {
@@ -2515,8 +2515,10 @@ export const translations = {
     // Site Settings Tab
     siteSettings: { de: 'Website-Einstellungen', en: 'Site Settings' },
     namesSection: { de: 'Namen', en: 'Names' },
+    institutionNameLabel: { de: 'Institutionsname', en: 'Institution name' },
+    institutionNameHelp: { de: 'Der erste Teil des App-Namens, vor dem Badge im Logo (JLU, TUM …): auch im Titel des Browser-Tabs und {{institution_name}} in Rollen-Prompts. Leer = Wert aus der Server-Konfiguration.', en: 'The first part of the app name, before the badge in the logo (JLU, TUM …): also in the browser tab title and {{institution_name}} in role prompts. Blank = the value from the server configuration.' },
     systemNameLabel: { de: 'Systemname', en: 'System name' },
-    systemNameHelp: { de: 'Der Name der Anwendung: Titel des Browser-Tabs und {{system_name}} in Rollen-Prompts. Leer = Standard.', en: 'The application’s name: the browser tab title and {{system_name}} in role prompts. Blank = default.' },
+    systemNameHelp: { de: 'Der zweite Teil des App-Namens, im Badge des Logos (RAG, Wissen …): auch im Titel des Browser-Tabs und {{system_name}} in Rollen-Prompts. Leer = Wert aus der Server-Konfiguration.', en: 'The second part of the app name, in the logo’s badge (RAG, Wissen …): also in the browser tab title and {{system_name}} in role prompts. Blank = the value from the server configuration.' },
     assistantNameLabel: { de: 'Assistentenname', en: 'Assistant name' },
     assistantNameHelp: { de: 'Der Name, mit dem sich der Assistent vorstellt: {{assistant_name}} in Rollen-Prompts. Leer = Standard.', en: 'The name the assistant introduces itself with: {{assistant_name}} in role prompts. Blank = default.' },
     // System notice (site_config system_notice_*): admin section + the shell's banner.
@@ -2556,17 +2558,8 @@ export const translations = {
     systemNoticeTemplateReplaces: { de: 'Ersetzt die Vorlage mit diesem Namen.', en: 'Replaces the template with this name.' },
     systemNoticeTemplatesLimit: { de: 'Höchstens 20 Vorlagen – lösche zuerst eine.', en: 'At most 20 templates – delete one first.' },
     systemNoticeTemplatesSaved: { de: 'Vorlagen gespeichert', en: 'Templates saved' },
-    chatFooterLabel: { de: 'Text f\u00fcr Chat-Fu\u00dfzeile', en: 'Chat Footer Text' },
     // chatFooter already defined in Chat Area section
-    chatFooterPlaceholder: { de: 'Text, der unter der Chat-Oberfläche angezeigt wird', en: 'Text displayed below the chat interface' },
-    kbHeaderLabel: { de: 'Text für Knowledge Base Header', en: 'Knowledge Base Header Text' },
-    kbHeaderPlaceholder: { de: 'Text, der oben in den Knowledge Bases angezeigt wird', en: 'Text displayed at the top of knowledge bases' },
-    imprintLabel: { de: 'Impressum / Fußzeile', en: 'Imprint / Footer' },
-    imprintPlaceholder: { de: 'Impressumstext, wird auch als fixierte Fußzeile angezeigt', en: 'Imprint text, also shown as sticky footer' },
     // examplePromptsLabel already defined in Global Knowledge Bases section
-    examplePromptsHelp: { de: 'Diese Prompts werden im Chat-Fenster für neue Chats angezeigt. Jede Zeile wird als separate Karte dargestellt.', en: 'These prompts are shown in the chat window for new chats. Each line is displayed as a separate card.' },
-    webProxy: { de: 'Web Proxy (Optional)', en: 'Web Proxy (Optional)' },
-    webProxyHelp: { de: 'Wird für Web-Fetch und Crawler verwendet, falls konfiguriert.', en: 'Used for web fetch and crawling when configured.' },
 
     // Global KBs Tab
     globalKnowledgeBases: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },

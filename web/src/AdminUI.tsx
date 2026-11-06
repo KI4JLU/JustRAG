@@ -5,6 +5,9 @@ import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-sys
 import { getApiErrorMessage } from './utils/apiError';
 import { API_BASE_URL } from './api';
 import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
+
+/** The public name keys an admin save hands to the app shell. */
+const APP_NAME_KEYS = ['institution_name', 'system_name', 'assistant_name'] as const;
 import { useToast } from './contexts/ToastContext';
 import { useTheme } from './contexts/ThemeContext';
 import { useModalContext } from './contexts/ModalContext';
@@ -259,6 +262,12 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
         const prev = { ...siteConfigs };
         try {
             await axios.post(`${API_BASE_URL}/api/site-config`, { configs: siteConfigs });
+            // AppRoot's copy feeds the shell: hand it the saved names, so the
+            // app name (logo, tab title) changes without a reload. Only the
+            // names: AppRoot's copy is the PUBLIC site config, and this map
+            // also holds the admin-only keys.
+            const names = Object.fromEntries(APP_NAME_KEYS.map(key => [key, siteConfigs[key] ?? '']));
+            window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: names }));
             toast.success(t('settingsSaved'));
         } catch {
             setSiteConfigs(prev);

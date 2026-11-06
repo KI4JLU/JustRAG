@@ -8,6 +8,7 @@ import tailwindcss from '@tailwindcss/vite'
 import compression from 'vite-plugin-compression'
 import { VitePWA } from 'vite-plugin-pwa'
 import { ViteImageOptimizer } from 'vite-plugin-image-optimizer'
+import { renderAppShell } from './src/utils/appNameShell'
 
 /**
  * Appends a content fingerprint to the icon URLs in index.html.
@@ -51,6 +52,36 @@ function versionedIcons(): Plugin {
   }
 }
 
+
+/**
+ * Dev server only: names the app in index.html the way the Go server does in
+ * production (go-backend/internal/app/app_shell.go), so a preview shows the
+ * configured name (institution_name / system_name, else APP_NAME_PREFIX /
+ * APP_NAME_PRODUCT) from the first frame.
+ * The name comes from the backend the app talks to (VITE_API_URL, else the
+ * default src/api.ts uses). If it does not answer within a second, the shell
+ * keeps the default and the app takes the name from /api/site-config.
+ */
+function appNameShell(): Plugin {
+  const apiBase = process.env.VITE_API_URL || 'http://localhost:3000'
+  return {
+    name: 'justrag-app-name-shell',
+    apply: 'serve',
+    async transformIndexHtml(html) {
+      try {
+        const res = await fetch(`${apiBase}/api/site-config`, { signal: AbortSignal.timeout(1000) })
+        if (!res.ok) return html
+        const cfg = (await res.json()) as Record<string, string | undefined>
+        // The admin's names, else the server's environment — as kbbehavior.ReadNames.
+        const prefix = cfg.institution_name?.trim() || cfg.app_name_prefix?.trim()
+        const product = cfg.system_name?.trim() || cfg.app_name_product?.trim()
+        return prefix && product ? renderAppShell(html, prefix, product) : html
+      } catch {
+        return html
+      }
+    },
+  }
+}
 
 /**
  * Local design-system link — development only, opt-in via `DS_LOCAL`.
@@ -177,6 +208,7 @@ export default defineConfig({
     localDesignSystem(),
     react(),
     versionedIcons(),
+    appNameShell(),
     // Compiles the @ki4jlu/design-system `@theme` block in src/index.css into
     // CSS variables. Preflight is deliberately not imported — see index.css.
     tailwindcss(),
@@ -197,6 +229,8 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['vite.svg', 'apple-touch-icon.png'],
       manifest: {
+        // The default app name. The Go server renames both for the
+        // configured one as it serves the manifest (internal/app/app_shell.go).
         name: 'JLU RAG',
         short_name: 'JLU RAG',
         description: 'Advanced Knowledge Retrieval System',
