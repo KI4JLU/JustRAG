@@ -42,8 +42,36 @@ describe('readSystemNotice', () => {
       { system_notice_tone: 'error' },
       { system_notice_dismissible: 'true' },
       { system_notice_link_url: '/kb/x' },
+      { system_notice_placement: 'toast' },
+      { system_notice_placement: 'banner' },
     ]) {
       expect(readSystemNotice({ ...ON, ...change })!.version, JSON.stringify(change)).not.toBe(base);
+    }
+  });
+
+  // Oracle: the stamp a dismissal from before the setting was saved under. A
+  // stored placement that the tone implied anyway must not bring it back.
+  it('keeps its version when the stored placement is the tone\'s own', () => {
+    const before = readSystemNotice({ ...ON, system_notice_tone: 'error' })!.version;
+    expect(readSystemNotice({ ...ON, system_notice_tone: 'error', system_notice_placement: 'banner' })!.version).toBe(before);
+    expect(readSystemNotice({ ...ON, system_notice_tone: 'error', system_notice_placement: 'inline' })!.version).not.toBe(before);
+  });
+});
+
+describe('placement', () => {
+  // Without a stored placement the tone decides, as before the setting existed.
+  it('follows the tone while none is stored, or an unknown one is', () => {
+    expect(readSystemNotice({ ...ON, system_notice_tone: 'error' })!.placement).toBe('banner');
+    expect(readSystemNotice({ ...ON, system_notice_tone: 'warning' })!.placement).toBe('inline');
+    expect(readSystemNotice({ ...ON, system_notice_tone: 'error', system_notice_placement: 'Banner' })!.placement).toBe('banner');
+    expect(readSystemNotice({ ...ON, system_notice_tone: 'info', system_notice_placement: 'corner' })!.placement).toBe('inline');
+  });
+
+  it('takes the stored placement over the tone, for every tone', () => {
+    for (const tone of ['neutral', 'info', 'warning', 'error']) {
+      for (const placement of ['banner', 'inline', 'toast']) {
+        expect(readSystemNotice({ ...ON, system_notice_tone: tone, system_notice_placement: placement })!.placement).toBe(placement);
+      }
     }
   });
 });

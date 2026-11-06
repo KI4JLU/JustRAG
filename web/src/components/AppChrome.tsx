@@ -395,6 +395,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         mobileTabBarLabel={t('switchArea')}
         notice={systemNotice.notice}
         status={systemNotice.status}
+        statusPosition={systemNotice.statusPosition}
         noticeLabel={t('systemNotice')}
       >
         {children}

@@ -29,9 +29,9 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'policyAcceptanceSection', 'policyAcceptanceVersion',
     ],
     notice: [
-        'systemNoticeEnabled', 'systemNoticeTitle', 'systemNoticeText', 'systemNoticeTone', 'systemNoticeDismissible',
-        'systemNoticeLinkUrl', 'systemNoticeLinkLabel', 'systemNoticePreview',
-        'systemNoticeTemplates', 'systemNoticeTemplateName',
+        'systemNoticeEnabled', 'systemNoticeEdit', 'systemNoticeTone', 'systemNoticePlacement', 'systemNoticeTitle',
+        'systemNoticeTemplate', 'systemNoticeText', 'systemNoticeLink', 'systemNoticeLinkUrl', 'systemNoticeLinkLabel',
+        'systemNoticeDismissible', 'systemNoticePreview', 'systemNoticeTemplateName',
     ],
     'kb-overview': [
         'colName', 'colOwner', 'tabFiles', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',

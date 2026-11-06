@@ -8,14 +8,26 @@ export const SYSTEM_NOTICE_TONES = ['neutral', 'info', 'warning', 'error'] as co
 export type SystemNoticeTone = (typeof SYSTEM_NOTICE_TONES)[number];
 
 /**
- * Where the shell shows a notice, by severity: an outage or maintenance
- * (`error`) is the full-width banner above the whole app; reduced operation
- * (every other tone) is the small pill floating over the main area.
+ * Where the shell shows a notice (site_config `system_notice_placement`):
+ * `banner` — the full-width bar above the whole app; `inline` — the small
+ * message floating at the top of the content area; `toast` — a card in the
+ * content area's bottom-right corner that stays until it is closed.
  */
-export type SystemNoticePlacement = 'banner' | 'pill';
+export const SYSTEM_NOTICE_PLACEMENTS = ['banner', 'inline', 'toast'] as const;
+export type SystemNoticePlacement = (typeof SYSTEM_NOTICE_PLACEMENTS)[number];
 
-export function systemNoticePlacement(tone: SystemNoticeTone): SystemNoticePlacement {
-  return tone === 'error' ? 'banner' : 'pill';
+export function isSystemNoticePlacement(value: unknown): value is SystemNoticePlacement {
+  return (SYSTEM_NOTICE_PLACEMENTS as readonly unknown[]).includes(value);
+}
+
+/**
+ * The placement to use: the stored one, or — none stored, as before the
+ * admin could choose — by severity: an outage (`error`) is the banner,
+ * every other tone the small message in the content area.
+ */
+export function systemNoticePlacement(tone: SystemNoticeTone, stored?: string): SystemNoticePlacement {
+  if (isSystemNoticePlacement(stored)) return stored;
+  return tone === 'error' ? 'banner' : 'inline';
 }
 
 export interface SystemNotice {
@@ -23,12 +35,15 @@ export interface SystemNotice {
   title: string;
   text: string;
   tone: SystemNoticeTone;
+  placement: SystemNoticePlacement;
   dismissible: boolean;
   /** Null without a usable URL. `label` may be empty: the caller supplies a default. */
   link: { href: string; label: string } | null;
   /**
    * Identity of this exact message. A dismissal is remembered against it, so
-   * an edited message (title, text, tone, link or dismissibility) shows again.
+   * an edited message (title, text, tone, placement, link or dismissibility)
+   * shows again — moving a closed notice up into the banner is a reason to
+   * show it once more.
    */
   version: string;
 }
@@ -85,12 +100,18 @@ export function readSystemNotice(configs: Record<string, string | undefined>): S
   const tone: SystemNoticeTone = (SYSTEM_NOTICE_TONES as readonly string[]).includes(rawTone)
     ? (rawTone as SystemNoticeTone)
     : 'info';
+  const placement = systemNoticePlacement(tone, configs.system_notice_placement);
   const dismissible = configs.system_notice_dismissible === 'true';
   const href = (configs.system_notice_link_url ?? '').trim();
   const link = isSafeNoticeHref(href)
     ? { href: normalizeNoticeHref(href), label: (configs.system_notice_link_label ?? '').trim() }
     : null;
   const title = (configs.system_notice_title ?? '').trim();
-  const version = fnv1a(JSON.stringify([title, text, tone, dismissible, link?.href ?? '', link?.label ?? '']));
-  return { title, text, tone, dismissible, link, version };
+  const parts: unknown[] = [title, text, tone, dismissible, link?.href ?? '', link?.label ?? ''];
+  // Only a placement other than the tone's own joins the stamp: storing the
+  // one the tone implied anyway changes nothing a user sees, and notices from
+  // before the setting keep the stamp their dismissals were saved under.
+  if (placement !== systemNoticePlacement(tone)) parts.push(placement);
+  const version = fnv1a(JSON.stringify(parts));
+  return { title, text, tone, placement, dismissible, link, version };
 }

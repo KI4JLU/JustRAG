@@ -1,4 +1,6 @@
-import { SYSTEM_NOTICE_TONES, type SystemNoticeTone } from './systemNotice';
+import {
+  SYSTEM_NOTICE_TONES, isSystemNoticePlacement, type SystemNoticePlacement, type SystemNoticeTone,
+} from './systemNotice';
 
 /*
  * Saved system-notice templates (site_config `system_notice_templates`, a JSON
@@ -12,6 +14,12 @@ export interface SystemNoticeTemplate {
   title: string;
   text: string;
   tone: SystemNoticeTone;
+  /**
+   * Empty: none chosen, the notice is placed by its tone (as are templates
+   * stored before the setting). Kept empty rather than resolved, so applying
+   * the template leaves the placement following the tone.
+   */
+  placement: SystemNoticePlacement | '';
   dismissible: boolean;
   linkUrl: string;
   linkLabel: string;
@@ -31,6 +39,7 @@ export const DEFAULT_SYSTEM_NOTICE_TEMPLATES: readonly SystemNoticeTemplate[] = 
     title: 'Wartung angekündigt',
     text: 'Am [Datum] zwischen [Uhrzeit] und [Uhrzeit] Uhr ist der Dienst nicht erreichbar. Bitte sichere vorher wichtige Ergebnisse.',
     tone: 'warning',
+    placement: 'banner',
     dismissible: true,
     linkUrl: '',
     linkLabel: '',
@@ -40,6 +49,7 @@ export const DEFAULT_SYSTEM_NOTICE_TEMPLATES: readonly SystemNoticeTemplate[] = 
     title: 'Dienst nicht verfügbar',
     text: 'Wir arbeiten an der Behebung.',
     tone: 'error',
+    placement: 'banner',
     dismissible: false,
     linkUrl: '',
     linkLabel: '',
@@ -49,6 +59,7 @@ export const DEFAULT_SYSTEM_NOTICE_TEMPLATES: readonly SystemNoticeTemplate[] = 
     title: 'Testbetrieb',
     text: 'Antworten können Fehler enthalten – prüfe wichtige Angaben bitte in den Quellen.',
     tone: 'info',
+    placement: 'inline',
     dismissible: true,
     linkUrl: '',
     linkLabel: '',
@@ -58,6 +69,7 @@ export const DEFAULT_SYSTEM_NOTICE_TEMPLATES: readonly SystemNoticeTemplate[] = 
     title: 'Hohe Auslastung',
     text: 'Antworten können länger dauern.',
     tone: 'warning',
+    placement: 'inline',
     dismissible: true,
     linkUrl: '',
     linkLabel: '',
@@ -67,6 +79,7 @@ export const DEFAULT_SYSTEM_NOTICE_TEMPLATES: readonly SystemNoticeTemplate[] = 
     title: 'Datenschutz',
     text: 'Bitte gib keine personenbezogenen oder vertraulichen Daten ein, die nicht für diesen Dienst freigegeben sind.',
     tone: 'neutral',
+    placement: 'inline',
     dismissible: true,
     linkUrl: '',
     linkLabel: '',
@@ -79,6 +92,7 @@ function isTemplate(value: unknown): value is SystemNoticeTemplate {
   return typeof v.name === 'string' && typeof v.text === 'string'
     && (SYSTEM_NOTICE_TONES as readonly unknown[]).includes(v.tone)
     && typeof v.dismissible === 'boolean'
+    && (v.placement === undefined || v.placement === '' || isSystemNoticePlacement(v.placement))
     && (v.title === undefined || typeof v.title === 'string')
     && (v.linkUrl === undefined || typeof v.linkUrl === 'string')
     && (v.linkLabel === undefined || typeof v.linkLabel === 'string');
@@ -94,7 +108,13 @@ export function readSystemNoticeTemplates(raw: string | undefined): SystemNotice
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [...DEFAULT_SYSTEM_NOTICE_TEMPLATES];
-    return parsed.filter(isTemplate).map(tpl => ({ ...tpl, title: tpl.title ?? '', linkUrl: tpl.linkUrl ?? '', linkLabel: tpl.linkLabel ?? '' }));
+    return parsed.filter(isTemplate).map(tpl => ({
+      ...tpl,
+      title: tpl.title ?? '',
+      placement: tpl.placement ?? '',
+      linkUrl: tpl.linkUrl ?? '',
+      linkLabel: tpl.linkLabel ?? '',
+    }));
   } catch {
     return [...DEFAULT_SYSTEM_NOTICE_TEMPLATES];
   }

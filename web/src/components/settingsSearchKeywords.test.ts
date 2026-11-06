@@ -31,7 +31,7 @@ const DIALOGS: Dialog[] = [
             search: ['admin/AdminSearchTab.tsx'],
             agent: ['admin/AdminAgentTab.tsx', 'admin/AdminMCPSection.tsx'],
             site: ['admin/AdminSiteTab.tsx'],
-            notice: ['admin/AdminSystemNoticeTab.tsx'],
+            notice: ['admin/AdminSystemNoticeTab.tsx', 'admin/SystemNoticeEditorParts.tsx'],
             templates: ['admin/AdminTemplatesTab.tsx', 'admin/AdminCategoriesSection.tsx'],
             users: ['admin/AdminUsersTab.tsx'],
             eval: ['admin/AdminEvalTab.tsx'],
