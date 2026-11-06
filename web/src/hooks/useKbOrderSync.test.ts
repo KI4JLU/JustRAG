@@ -98,6 +98,17 @@ describe('useKbOrder with the account', () => {
     expect(mockedAxios.get).toHaveBeenCalledTimes(1);
   });
 
+  it('starts a view mounting again from the loaded order, not unsorted', async () => {
+    mockedAxios.get.mockResolvedValue({ data: { my: ['b', 'a'], shared: null } });
+    const first = renderHook(() => useKbOrder('my'));
+    await waitFor(() => expect(shown(first.result.current, 'a', 'b')).toEqual(['b', 'a']));
+    first.unmount();
+
+    // The first render, before any effect or promise: already sorted.
+    const again = renderHook(() => useKbOrder('my'));
+    expect(shown(again.result.current, 'a', 'b')).toEqual(['b', 'a']);
+  });
+
   it('sends saves one at a time, and only the newest waiting one', async () => {
     mockedAxios.get.mockResolvedValue({ data: { my: null, shared: null } });
     const first = deferred();

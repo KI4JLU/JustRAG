@@ -133,6 +133,8 @@ interface Session {
   /** The Authorization header of this sign-in; every request of the session carries it. */
   auth: string;
   loaded: Promise<ServerOrders | null>;
+  /** What `loaded` resolved to, once it did: a view mounting later starts from it. */
+  orders: ServerOrders | null;
   /** The last load, or the upload of a browser order, failed; the next view that mounts loads again. */
   failed: boolean;
   /** Orders set since the load; they win over it. */
@@ -157,7 +159,10 @@ function startLoad(s: Session) {
   s.loaded = fetchOrders(s.auth).then(orders => {
     if (orders === null) {
       s.failed = true;
-    } else if (isCurrent(s)) {
+    } else {
+      s.orders = orders;
+    }
+    if (orders !== null && isCurrent(s)) {
       for (const view of VIEWS) settleBrowserOrder(s, view, orders);
     }
     return orders;
@@ -168,7 +173,7 @@ function startLoad(s: Session) {
 function sessionFor(userId: string): Session {
   const auth = currentAuth();
   if (session === null || session.userId !== userId || session.auth !== auth) {
-    session = { userId, auth, loaded: Promise.resolve(null), failed: false, latest: {}, queue: {}, notify: () => {} };
+    session = { userId, auth, loaded: Promise.resolve(null), orders: null, failed: false, latest: {}, queue: {}, notify: () => {} };
     startLoad(session);
   } else if (session.failed) {
     startLoad(session);
@@ -289,9 +294,11 @@ export function useKbOrder(view: KbOrderView): KbOrder {
   const userId = user?.id ?? '';
   const toast = useToast();
   const { t } = useTheme();
+  // A view mounting again in the same sign-in starts sorted: from the latest
+  // drag, else from the order already loaded — not unsorted for a frame.
   const [order, setOrder] = useState<string[]>(() =>
     (session !== null && session.userId === userId && session.auth === currentAuth()
-      ? session.latest[view]
+      ? session.latest[view] ?? session.orders?.[view]
       : undefined) ?? []);
 
   // Read through a ref: a save outlives the render that started it, and the
