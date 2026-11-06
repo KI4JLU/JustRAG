@@ -113,8 +113,14 @@ describe('AdminUI → where each section keeps its actions', () => {
     });
 
     // Oracle: AppRoot merges SITE_CONFIG_UPDATED_EVENT into the shell's site
-    // config — a saved system name has to reach logo and tab title.
-    it('hands the saved site settings to the app shell', async () => {
+    // config — a saved system name has to reach logo and tab title, and
+    // nothing else of the admin's map may land in that public copy.
+    it('hands the saved names, and only them, to the app shell', async () => {
+        (axios.get as unknown as Mock).mockImplementation((url: string) => Promise.resolve({
+            data: String(url).endsWith('/api/site-config')
+                ? { institution_name: 'TUM', system_name: 'Wissen', assistant_name: 'Kira', web_search_api_key: '••••' }
+                : [],
+        }));
         const seen: unknown[] = [];
         const listener = (e: Event) => seen.push((e as CustomEvent).detail);
         window.addEventListener('site-config:updated', listener);
@@ -122,6 +128,7 @@ describe('AdminUI → where each section keeps its actions', () => {
             render(<AdminHarness userRole="superadmin" section="site" />);
             await userEvent.click(footer().getByRole('button', { name: 'saveSettings' }));
             await waitFor(() => expect(seen).toHaveLength(1));
+            expect(seen[0]).toEqual({ institution_name: 'TUM', system_name: 'Wissen', assistant_name: 'Kira' });
         } finally {
             window.removeEventListener('site-config:updated', listener);
         }
