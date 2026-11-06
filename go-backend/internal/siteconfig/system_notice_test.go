@@ -38,6 +38,18 @@ func TestValidateGlobalValues_SystemNotice(t *testing.T) {
 		{"system_notice_tone", "success", true},
 		{"system_notice_tone", "danger", true},
 
+		// Placement: "" (by tone) or one of three exact values.
+		{"system_notice_placement", "", false},
+		{"system_notice_placement", "banner", false},
+		{"system_notice_placement", "inline", false},
+		{"system_notice_placement", "toast", false},
+		{"system_notice_placement", "Banner", true},
+		{"system_notice_placement", "TOAST", true},
+		{"system_notice_placement", " banner", true},
+		{"system_notice_placement", "inline ", true},
+		{"system_notice_placement", "top", true},
+		{"system_notice_placement", "error", true},
+
 		{"system_notice_text", strings.Repeat("ä", 1000), false},
 		{"system_notice_text", strings.Repeat("ä", 1001), true},
 		{"system_notice_title", strings.Repeat("ö", 80), false},
@@ -90,13 +102,14 @@ func TestValidateGlobalValues_SystemNotice(t *testing.T) {
 	}
 }
 
-// TestGetSiteConfig_SystemNoticeIsPublic — the banner is for every user, so a
-// regular user's GET must carry all seven keys. Without the allowlist entries
-// the handler drops them and the banner never renders for non-admins.
+// TestGetSiteConfig_SystemNoticeIsPublic — the notice is for every user, so a
+// regular user's GET must carry all eight keys. Without the allowlist entries
+// the handler drops them and the notice never renders for non-admins.
 func TestGetSiteConfig_SystemNoticeIsPublic(t *testing.T) {
 	keys := []string{
 		"system_notice_enabled", "system_notice_title", "system_notice_text", "system_notice_tone",
-		"system_notice_dismissible", "system_notice_link_url", "system_notice_link_label",
+		"system_notice_placement", "system_notice_dismissible", "system_notice_link_url",
+		"system_notice_link_label",
 	}
 	rows := make([]siteconfig.SiteConfigRow, 0, len(keys))
 	for _, k := range keys {
@@ -197,6 +210,9 @@ func TestUpdateSystemNotice_RejectsInvalidValues(t *testing.T) {
 	for _, body := range []string{
 		`{"configs":{"system_notice_link_url":"javascript:alert(1)"}}`,
 		`{"configs":{"system_notice_tone":"success"}}`,
+		`{"configs":{"system_notice_placement":"top"}}`,
+		`{"configs":{"system_notice_placement":"Toast"}}`,
+		`{"configs":{"system_notice_placement":true}}`,
 		`{"configs":{"system_notice_enabled":1}}`,
 		`{"configs":{}}`,
 		`not json`,
@@ -209,6 +225,41 @@ func TestUpdateSystemNotice_RejectsInvalidValues(t *testing.T) {
 		if store.lastBatch != nil {
 			t.Errorf("%s: store received %v", body, store.lastBatch)
 		}
+	}
+}
+
+// TestUpdateSystemNotice_WritesPlacement — the admin route takes the
+// placement key in its stored form; "" and null both leave the placement to
+// the tone.
+func TestUpdateSystemNotice_WritesPlacement(t *testing.T) {
+	cases := []struct {
+		name, body string
+		want       *string
+	}{
+		{"banner", `{"configs":{"system_notice_placement":"banner"}}`, strPtr("banner")},
+		{"inline", `{"configs":{"system_notice_placement":"inline"}}`, strPtr("inline")},
+		{"toast", `{"configs":{"system_notice_placement":"toast"}}`, strPtr("toast")},
+		{"empty (by tone)", `{"configs":{"system_notice_placement":""}}`, strPtr("")},
+		{"null (cleared)", `{"configs":{"system_notice_placement":null}}`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &mockStore{}
+			rec := putSystemNotice(t, store, tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if len(store.lastBatch) != 1 || store.lastBatch[0].Key != "system_notice_placement" {
+				t.Fatalf("store got %v", store.lastBatch)
+			}
+			got := store.lastBatch[0].Value
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("value = %q, want nil", *got)
+			case tc.want != nil && (got == nil || *got != *tc.want):
+				t.Fatalf("value = %v, want %q", got, *tc.want)
+			}
+		})
 	}
 }
 
@@ -228,6 +279,17 @@ func TestValidateGlobalValues_SystemNoticeTemplates(t *testing.T) {
 		{"long name", `[{"name":"` + strings.Repeat("n", 61) + `","text":"t","tone":"info"}]`, true},
 		{"no text", `[{"name":"n","text":"","tone":"info"}]`, true},
 		{"bad tone", `[{"name":"n","text":"t","tone":"success"}]`, true},
+		// Templates saved before the placement field existed have none.
+		{"without placement", `[{"name":"n","text":"t","tone":"error"}]`, false},
+		{"placement empty (by tone)", `[{"name":"n","text":"t","tone":"error","placement":""}]`, false},
+		{"placement banner", `[{"name":"n","text":"t","tone":"info","placement":"banner"}]`, false},
+		{"placement inline", `[{"name":"n","text":"t","tone":"error","placement":"inline"}]`, false},
+		{"placement toast", `[{"name":"n","text":"t","tone":"warning","placement":"toast"}]`, false},
+		{"bad placement", `[{"name":"n","text":"t","tone":"info","placement":"top"}]`, true},
+		{"placement wrong case", `[{"name":"n","text":"t","tone":"info","placement":"Toast"}]`, true},
+		{"placement with spaces", `[{"name":"n","text":"t","tone":"info","placement":" toast"}]`, true},
+		{"placement blank", `[{"name":"n","text":"t","tone":"info","placement":" "}]`, true},
+		{"placement not a string", `[{"name":"n","text":"t","tone":"info","placement":true}]`, true},
 		{"unsafe link", `[{"name":"n","text":"t","tone":"info","linkUrl":"javascript:alert(1)"}]`, true},
 		{"too many", many, true},
 		{"trailing data", `[] garbage`, true},

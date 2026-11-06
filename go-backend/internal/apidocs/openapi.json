@@ -1389,6 +1389,11 @@
                     "type": "boolean",
                     "description": "Whether users see the banner."
                   },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Optional short headline, shown bold before the text. Empty for none."
+                  },
                   "text": {
                     "type": "string",
                     "maxLength": 1000,
@@ -1403,6 +1408,16 @@
                       "error"
                     ],
                     "description": "`warning` for degraded service, `error` only for an outage."
+                  },
+                  "placement": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "banner",
+                      "inline",
+                      "toast"
+                    ],
+                    "description": "`banner` (full-width bar above the app), `inline` (small message at the top of the content area) or `toast` (card bottom right, stays until closed). Empty places it by tone: `error` as the banner, every other tone inline."
                   },
                   "dismissible": {
                     "type": "boolean",
@@ -1434,7 +1449,7 @@
             }
           },
           "400": {
-            "description": "Invalid body or value (unknown field, wrong type, invalid tone/link, enabling without text)",
+            "description": "Invalid body or value (unknown field, wrong type, invalid tone/placement/link, enabling without text)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2192,7 +2207,17 @@
               "warning",
               "error"
             ],
-            "description": "`error` (outage, maintenance) shows a full-width red banner above the app; `neutral`, `info` and `warning` (reduced operation) a small floating message at the top of the main area."
+            "description": "Severity. With `placement` empty it also picks the placement: `error` (outage, maintenance) a full-width red banner above the app; `neutral`, `info` and `warning` (reduced operation) a small floating message at the top of the main area."
+          },
+          "placement": {
+            "type": "string",
+            "enum": [
+              "",
+              "banner",
+              "inline",
+              "toast"
+            ],
+            "description": "Where users see the notice: `banner` (full-width bar above the app), `inline` (small message at the top of the content area) or `toast` (card bottom right, stays until closed). Returned as stored: empty means by tone (see `tone`) and is not resolved to the placement the tone implies."
           },
           "dismissible": {
             "type": "boolean",
@@ -2213,6 +2238,7 @@
           "title",
           "text",
           "tone",
+          "placement",
           "dismissible",
           "linkUrl",
           "linkLabel"

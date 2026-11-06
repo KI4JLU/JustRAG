@@ -86,6 +86,10 @@ func TestSystemNoticeAPI_Refusals(t *testing.T) {
 		{"unknown field", `{"enabled":true,"text":"x","colour":"red"}`},
 		{"wrong type", `{"enabled":"yes"}`},
 		{"bad tone", `{"tone":"success"}`},
+		{"bad placement", `{"placement":"top"}`},
+		{"placement wrong case", `{"placement":"Banner"}`},
+		{"placement with spaces", `{"placement":" toast"}`},
+		{"placement wrong type", `{"placement":true}`},
 		{"unsafe link", `{"linkUrl":"javascript:alert(1)"}`},
 		{"enable without any text", `{"enabled":true}`},
 		{"not json", `nope`},
@@ -139,6 +143,49 @@ func TestSystemNoticeAPI_EnableUsesStoredText(t *testing.T) {
 	store := &memStore{values: map[string]*string{"system_notice_text": &text}}
 	rec, state := noticeAPI(t, store, http.MethodPut, `{"enabled":true}`)
 	if rec.Code != http.StatusOK || !state.Enabled || state.Text != text {
+		t.Fatalf("%d %+v", rec.Code, state)
+	}
+}
+
+// Placement round-trips as stored: each value a PUT writes is what the
+// following GET reads, and "" stays "" instead of being resolved from the
+// tone — the oracle is the stored site_config value.
+func TestSystemNoticeAPI_PlacementRoundTrip(t *testing.T) {
+	store := &memStore{values: map[string]*string{}}
+
+	// Unset, even with the error tone that implies the banner: "" (by tone).
+	_, state := noticeAPI(t, store, http.MethodPut, `{"tone":"error"}`)
+	if state.Placement != "" {
+		t.Fatalf("unset placement = %q, want \"\"", state.Placement)
+	}
+
+	for _, placement := range []string{"banner", "inline", "toast", ""} {
+		t.Run("placement="+placement, func(t *testing.T) {
+			rec, put := noticeAPI(t, store, http.MethodPut, `{"placement":"`+placement+`"}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
+			}
+			if v := store.values["system_notice_placement"]; v == nil || *v != placement {
+				t.Fatalf("stored placement = %v, want %q", v, placement)
+			}
+			if put.Placement != placement || put.Tone != "error" {
+				t.Fatalf("PUT answer %+v, want placement %q and the tone kept", put, placement)
+			}
+			_, got := noticeAPI(t, store, http.MethodGet, "")
+			if got != put {
+				t.Fatalf("GET %+v differs from PUT answer %+v", got, put)
+			}
+		})
+	}
+}
+
+// A blank stored placement is the one value that skips the save-time check;
+// GET reads it as unset rather than handing out a value outside the enum.
+func TestSystemNoticeAPI_BlankStoredPlacementReadsAsUnset(t *testing.T) {
+	blank := "  "
+	store := &memStore{values: map[string]*string{"system_notice_placement": &blank}}
+	rec, state := noticeAPI(t, store, http.MethodGet, "")
+	if rec.Code != http.StatusOK || state.Placement != "" {
 		t.Fatalf("%d %+v", rec.Code, state)
 	}
 }
