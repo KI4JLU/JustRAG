@@ -122,7 +122,7 @@ export function SharedTopicsView({
   }, [kbs, globalKbs]);
 
   const filters = useTopicFilters();
-  // The user's own order (dragged in card view), then the chip filter.
+  // The user's own order (dragged in card or list view), then the chip filter.
   const order = useKbOrder('shared');
   const ordered = useMemo(() => order.apply(sharedKbs), [order, sharedKbs]);
   const displayed = useMemo(() => filters.apply(ordered), [filters, ordered]);

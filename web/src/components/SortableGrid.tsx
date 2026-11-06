@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   DndContext, DragOverlay, KeyboardSensor, MeasuringStrategy, MouseSensor, TouchSensor, closestCenter, pointerWithin,
   useDndContext, useDroppable, useSensor, useSensors,
@@ -8,8 +8,9 @@ import {
   SortableContext, rectSortingStrategy, sortableKeyboardCoordinates, useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripHorizontal } from 'lucide-react';
+import { GripHorizontal, GripVertical } from 'lucide-react';
 import { Button } from '@ki4jlu/design-system';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 /* ---------------------------------------------------------------------------
  * Drag-to-reorder for grids of cards, in one or more GROUPS (the favorites and
@@ -60,14 +61,21 @@ interface BoardState {
   droppedAt: React.RefObject<number>;
   /** The card a finger is long-pressing, before the drag starts. */
   pressingId: string | null;
+  /** Counts the drags, so a drop zone can tell this drag from the last. */
+  dragSerial: number;
+  /** `prefers-reduced-motion`: the cells move without transitions. */
+  reducedMotion: boolean;
 }
 const BoardContext = createContext<BoardState | null>(null);
 
 /** The long press that starts a touch drag. */
 const LONG_PRESS_MS = 300;
 
-/** The keyboard handle; `null` outside a sortable grid. */
-export function SortableHandle({ label, className }: { label: string; className?: string }) {
+/**
+ * The grip of a sortable card — horizontal over a card, vertical beside a list
+ * row. It is the keyboard handle; `null` outside a sortable grid.
+ */
+export function SortableHandle({ label, className, vertical = false }: { label: string; className?: string; vertical?: boolean }) {
   const handle = useContext(HandleContext);
   if (!handle) return null;
   const { setRef, attributes } = handle;
@@ -83,7 +91,7 @@ export function SortableHandle({ label, className }: { label: string; className?
       // A click on the grip must not open the card.
       onClick={e => e.stopPropagation()}
     >
-      <GripHorizontal size={16} aria-hidden="true" />
+      {vertical ? <GripVertical size={14} aria-hidden="true" /> : <GripHorizontal size={16} aria-hidden="true" />}
     </Button>
   );
 }
@@ -125,7 +133,10 @@ function SortableCell({ id, children }: { id: string; children: ReactNode }) {
       style={{
         transform: CSS.Translate.toString(transform),
         // The sort shift's own transition, plus the press (scale) and the fade.
-        transition: [transition, `scale ${pressing ? LONG_PRESS_MS : 150}ms ease-out`, 'opacity 150ms ease-out'].filter(Boolean).join(', '),
+        // None of it with reduced motion: the cards then jump to their places.
+        transition: board?.reducedMotion
+          ? undefined
+          : [transition, `scale ${pressing ? LONG_PRESS_MS : 150}ms ease-out`, 'opacity 150ms ease-out'].filter(Boolean).join(', '),
       }}
       className={[
         // No text selection, iOS callout, tap highlight or scroll delay on a
@@ -198,12 +209,38 @@ export function SortableGroup({ id, ids, items, children }: SortableGroupProps) 
 /**
  * A drop target for a group that has no cards yet, shown only while a card is
  * dragged — so an empty group can still be dropped into.
+ *
+ * ONE FRAME LATE for a pointer, on purpose. The overlay keeps the rect the
+ * dragged card had when the drag started; a zone above the card that appeared
+ * in that same frame would push the card down first, and the overlay would
+ * hang a zone's height below the pointer for the whole drag. A frame later the
+ * overlay has its rect, and only the card left behind moves.
  */
 export function SortableDropZone({ group, label }: { group: string; label: string }) {
-  const { active } = useDndContext();
+  const { active, activatorEvent, measureDroppableContainers } = useDndContext();
   const { setNodeRef } = useDroppable({ id: dropId(group) });
   const foreignOver = useForeignOver(group);
-  if (!active) return null;
+  // Keyed by the drag's serial (not by `active`, which changes identity as its
+  // rects are measured), so each drag waits its frame once.
+  const dragging = active !== null;
+  const serial = useContext(BoardContext)?.dragSerial ?? 0;
+  const [shownFor, setShownFor] = useState(-1);
+  useEffect(() => {
+    if (!dragging) return;
+    const frame = requestAnimationFrame(() => setShownFor(serial));
+    return () => cancelAnimationFrame(frame);
+  }, [dragging, serial]);
+  // The keyboard moves the overlay onto the targets' rects, so it has to see
+  // the shifted layout from the start: no wait there.
+  const byKeyboard = typeof KeyboardEvent !== 'undefined' && activatorEvent instanceof KeyboardEvent;
+  const shown = dragging && (byKeyboard || shownFor === serial);
+  // The droppable was registered all along, without a node: showing it adds no
+  // container, so nothing re-measures by itself — the zone would have no rect
+  // and every card below it the rect from before it pushed them down.
+  useLayoutEffect(() => {
+    if (shown) measureDroppableContainers([]);
+  }, [shown, measureDroppableContainers]);
+  if (!shown) return null;
   return (
     <div
       ref={setNodeRef}
@@ -221,13 +258,15 @@ export interface SortableBoardProps {
   onMoveToGroup: (activeId: string, group: string, overId: string | null) => void;
   /** The dragged card, drawn in the overlay. */
   renderOverlay: (id: string) => ReactNode;
+  /** List rows rather than cards: lifted less, since a row is as wide as the page. */
+  rows?: boolean;
   announcements?: Announcements;
   screenReaderInstructions?: ScreenReaderInstructions;
   children: ReactNode;
 }
 
 export function SortableBoard({
-  onMove, onMoveToGroup, renderOverlay, announcements, screenReaderInstructions, children,
+  onMove, onMoveToGroup, renderOverlay, rows = false, announcements, screenReaderInstructions, children,
 }: SortableBoardProps) {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -280,7 +319,12 @@ export function SortableBoard({
   // follows a drop within a moment. A time window rather than a flag, because
   // a drop released outside every card is followed by no click to reset it.
   const droppedAt = useRef(0);
-  const board = useMemo<BoardState>(() => ({ droppedAt, pressingId }), [pressingId]);
+  const [dragSerial, setDragSerial] = useState(0);
+  const reducedMotion = useReducedMotion();
+  const board = useMemo<BoardState>(
+    () => ({ droppedAt, pressingId, dragSerial, reducedMotion }),
+    [pressingId, dragSerial, reducedMotion],
+  );
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     droppedAt.current = performance.now();
     setActiveId(null);
@@ -305,6 +349,7 @@ export function SortableBoard({
         onDragAbort={() => setPressingId(null)}
         onDragStart={({ active, activatorEvent }) => {
           setActiveId(String(active.id));
+          setDragSerial(n => n + 1);
           setPressingId(null);
           if (typeof TouchEvent !== 'undefined' && activatorEvent instanceof TouchEvent) navigator.vibrate?.(10);
         }}
@@ -319,10 +364,11 @@ export function SortableBoard({
             would otherwise read as not moving at all. The scale sits one level
             down: dnd-kit measures the overlay's only child, and a scaled one
             would put the keyboard's target corners 3px off the cards'. */}
-        <DragOverlay>
+        {/* With reduced motion the overlay is dropped in place, not flown there. */}
+        <DragOverlay dropAnimation={reducedMotion ? null : undefined}>
           {activeId ? (
             <div className="h-full">
-              <div className="h-full scale-[1.03] rounded-xl shadow-xl">{renderOverlay(activeId)}</div>
+              <div className={`h-full ${rows ? 'scale-[1.01]' : 'scale-[1.03]'} rounded-xl shadow-xl`}>{renderOverlay(activeId)}</div>
             </div>
           ) : null}
         </DragOverlay>
