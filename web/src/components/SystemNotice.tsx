@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Alert, AlertAction, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
-import { isExternalNoticeHref, systemNoticePlacement, type SystemNotice } from '../utils/systemNotice';
+import { isExternalNoticeHref, type SystemNotice, type SystemNoticePlacement } from '../utils/systemNotice';
 
 interface SystemNoticeAlertProps {
   notice: SystemNotice;
@@ -14,17 +14,24 @@ interface SystemNoticeAlertProps {
   live?: 'off' | 'polite' | 'assertive';
 }
 
+/** The design system's Alert layout for each placement. */
+const LAYOUT: Record<SystemNoticePlacement, 'banner' | 'pill' | 'toast'> = {
+  banner: 'banner',
+  inline: 'pill',
+  toast: 'toast',
+};
+
 /**
  * The notice as the shell shows it, and also the admin panel's live preview,
- * so the two cannot drift. Placed by severity (`systemNoticePlacement`): an
- * outage (`error`) is the solid full-width banner above the app
- * (`Alert layout="banner"`), everything else the small pill floating over the
- * main area (`layout="pill"`). „**Titel** · Text Link" on one line. Plain
- * text with its line breaks, never HTML: the message is typed by an admin (or
- * set through the API) and shown to every user.
+ * so the two cannot drift. Shaped by its placement: the solid full-width
+ * banner above the app (`Alert layout="banner"`), the small pill floating at
+ * the top of the main area (`layout="pill"`), or the card in its bottom-right
+ * corner (`layout="toast"`). Plain text with its line breaks, never HTML: the
+ * message is typed by an admin (or set through the API) and shown to every
+ * user.
  *
- * Announced like a system state: `role="alert"` only for an outage,
- * `role="status"` for everything else.
+ * Announced like a system state, whatever its placement: `role="alert"` only
+ * for an outage, `role="status"` for everything else.
  */
 export function SystemNoticeAlert({ notice, onDismiss, live }: SystemNoticeAlertProps) {
   const { t } = useTheme();
@@ -32,7 +39,7 @@ export function SystemNoticeAlert({ notice, onDismiss, live }: SystemNoticeAlert
   return (
     <Alert
       tone={notice.tone}
-      layout={systemNoticePlacement(notice.tone)}
+      layout={LAYOUT[notice.placement]}
       live={live ?? (notice.tone === 'error' ? 'assertive' : 'polite')}
       onDismiss={onDismiss}
       dismissLabel={t('systemNoticeDismiss')}

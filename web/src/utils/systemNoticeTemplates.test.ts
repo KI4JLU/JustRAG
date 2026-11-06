@@ -4,7 +4,7 @@ import {
 } from './systemNoticeTemplates';
 import { isSafeNoticeHref } from './systemNotice';
 
-const tpl = (name: string, text = 't') => ({ name, title: '', text, tone: 'info' as const, dismissible: true, linkUrl: '', linkLabel: '' });
+const tpl = (name: string, text = 't') => ({ name, title: '', text, tone: 'info' as const, placement: 'inline' as const, dismissible: true, linkUrl: '', linkLabel: '' });
 
 describe('readSystemNoticeTemplates', () => {
   it('offers the five examples while nothing is stored', () => {
@@ -19,6 +19,18 @@ describe('readSystemNoticeTemplates', () => {
   it('falls back to the examples on an unreadable value and drops malformed entries', () => {
     expect(readSystemNoticeTemplates('not json')).toHaveLength(5);
     expect(readSystemNoticeTemplates(JSON.stringify([tpl('A'), { name: 'B', tone: 'success' }]))).toEqual([tpl('A')]);
+  });
+
+  // Templates stored before the placement setting have none. They stay
+  // without one — placed by tone — so a later save of the list does not pin
+  // a placement nobody chose.
+  it('keeps a missing placement empty and drops an unknown one', () => {
+    const old: Partial<ReturnType<typeof tpl>> = tpl('Alt');
+    delete old.placement;
+    const outage = { ...old, name: 'Störung', tone: 'error' };
+    expect(readSystemNoticeTemplates(JSON.stringify([old, outage])).map(x => x.placement)).toEqual(['', '']);
+    expect(readSystemNoticeTemplates(JSON.stringify([{ ...tpl('X'), placement: 'toast' }]))[0].placement).toBe('toast');
+    expect(readSystemNoticeTemplates(JSON.stringify([{ ...tpl('Y'), placement: 'corner' }]))).toEqual([]);
   });
 });
 

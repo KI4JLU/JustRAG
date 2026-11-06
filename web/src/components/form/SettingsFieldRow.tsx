@@ -68,7 +68,8 @@ function RowError({ id, error }: { id: string; error?: string }) {
 // The compact field the settings rows use; see the note above.
 /** The compact single-line field of the settings rows; also for the inputs a form lays out itself. */
 export const COMPACT_INPUT = 'h-9 py-0 text-sm';
-const COMPACT_TEXTAREA = 'px-3 py-2 text-sm';
+/** The compact textarea of the settings rows, likewise. */
+export const COMPACT_TEXTAREA = 'px-3 py-2 text-sm';
 
 export type FieldRowProps = FieldRowBaseProps &
     Omit<

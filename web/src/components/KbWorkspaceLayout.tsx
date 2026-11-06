@@ -229,6 +229,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       mobileTabBarLabel={t('switchArea')}
       notice={systemNotice.notice}
       status={systemNotice.status}
+      statusPosition={systemNotice.statusPosition}
       noticeLabel={t('systemNotice')}
     >
       <ChatView />

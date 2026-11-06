@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { NoticeHeight, SystemNoticeAlert } from '../components/SystemNotice';
-import { readSystemNotice, systemNoticePlacement } from '../utils/systemNotice';
+import { readSystemNotice } from '../utils/systemNotice';
 import { STORAGE_NAMESPACE } from './useStoredFlag';
 
 /** Version of the last notice this browser dismissed. One value: there is one notice. */
@@ -25,17 +25,19 @@ function writeDismissed(version: string): void {
 
 /** What the shell hangs into its slots; each null when there is nothing for it. */
 export interface SystemNoticeSlots {
-  /** `AppShell` `notice`: the full-width banner (outage, maintenance). */
+  /** `AppShell` `notice`: the full-width banner. */
   notice: ReactNode;
-  /** `AppShell` `status`: the floating pill (reduced operation). */
+  /** `AppShell` `status`: the floating message, at `statusPosition`. */
   status: ReactNode;
+  /** `AppShell` `statusPosition`: top centre (`inline`) or bottom right (`toast`). */
+  statusPosition: 'top' | 'bottom-end';
 }
 
-const NONE: SystemNoticeSlots = { notice: null, status: null };
+const NONE: SystemNoticeSlots = { notice: null, status: null, statusPosition: 'top' };
 
 /**
  * The shell's `notice` and `status` slot content — at most one of them set,
- * by the notice's severity. Null rather than an empty component, because the
+ * by the notice's placement. Null rather than an empty component, because the
  * design system renders a slot for any truthy node.
  *
  * @param returnFocusTo where focus goes after the close button, which leaves
@@ -57,8 +59,9 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
       }
     : undefined;
   const alert = <SystemNoticeAlert notice={notice} onDismiss={onDismiss} />;
-  return systemNoticePlacement(notice.tone) === 'banner'
+  if (notice.placement === 'banner') {
     // The banner pushes the chrome down; the toasts follow it (NoticeHeight).
-    ? { notice: <NoticeHeight>{alert}</NoticeHeight>, status: null }
-    : { notice: null, status: alert };
+    return { notice: <NoticeHeight>{alert}</NoticeHeight>, status: null, statusPosition: 'top' };
+  }
+  return { notice: null, status: alert, statusPosition: notice.placement === 'toast' ? 'bottom-end' : 'top' };
 }

@@ -20,11 +20,11 @@ function memoryStorage(): Storage {
 }
 
 function Banner() {
-  const { notice, status } = useSystemNoticeBanner();
+  const { notice, status, statusPosition } = useSystemNoticeBanner();
   return (
     <>
       {notice && <div data-testid="notice-slot">{notice}</div>}
-      {status && <div data-testid="status-slot">{status}</div>}
+      {status && <div data-testid="status-slot" data-position={statusPosition}>{status}</div>}
     </>
   );
 }
@@ -85,6 +85,26 @@ describe('useSystemNoticeBanner', () => {
     rerenderWith({ ...NOTICE, system_notice_tone: 'error' });
     expect(screen.getByTestId('notice-slot')).toHaveTextContent(NOTICE.system_notice_text);
     expect(screen.queryByTestId('status-slot')).toBeNull();
+  });
+
+  // The admin's placement wins over the tone: any tone can be the banner,
+  // an outage can be a toast. Oracle: the slot the alert lands in, its
+  // position, and the DS layout it is drawn with.
+  it('puts the notice where the admin placed it, whatever its tone', () => {
+    const { rerenderWith } = renderBanner({ ...NOTICE, system_notice_placement: 'banner' });
+    expect(screen.getByTestId('notice-slot')).toHaveTextContent(NOTICE.system_notice_text);
+    expect(screen.getByRole('status')).toHaveAttribute('data-layout', 'banner');
+    expect(screen.queryByTestId('status-slot')).toBeNull();
+
+    rerenderWith({ ...NOTICE, system_notice_placement: 'toast' });
+    expect(screen.getByTestId('status-slot')).toHaveAttribute('data-position', 'bottom-end');
+    expect(screen.getByRole('status')).toHaveAttribute('data-layout', 'toast');
+    expect(screen.queryByTestId('notice-slot')).toBeNull();
+
+    rerenderWith({ ...NOTICE, system_notice_tone: 'error', system_notice_placement: 'inline' });
+    expect(screen.getByTestId('status-slot')).toHaveAttribute('data-position', 'top');
+    // Still announced as an outage: the role follows the tone, not the place.
+    expect(screen.getByRole('alert')).toHaveAttribute('data-layout', 'pill');
   });
 
   it('shows the title before the text', () => {
