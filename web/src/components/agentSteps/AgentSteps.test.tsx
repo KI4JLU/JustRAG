@@ -53,7 +53,7 @@ describe('AgentSteps', () => {
 
     it('every row shows its detail right away: queries, rationale, the files as search results', () => {
         render(<Harness trajectory={planExecute} />);
-        fireEvent.click(screen.getByRole('button', { name: 'Plan erstellt, 1 Suche durchgeführt und Antwort formuliert' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Plan erstellt, 1 Suche durchgeführt und Recherche abgeschlossen' }));
         expect(screen.getByText('PO Informatik 2024.pdf')).toBeInTheDocument();
         expect(screen.getByText('Frist und Ausnahme getrennt suchen')).toBeInTheDocument();
         expect(screen.getByText('Verlängerung')).toBeInTheDocument();
