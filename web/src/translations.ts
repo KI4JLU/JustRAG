@@ -516,7 +516,7 @@ export const translations = {
     closeSettings: { de: 'Einstellungen schließen', en: 'Close Settings' },
     promptSuggestions: { de: 'Vorschläge', en: 'Suggestions' },
     promptSuggestionsHint: { de: 'Fragevorschläge unter dem Eingabefeld eines neuen Chats.', en: 'Suggested questions under the input of a new chat.' },
-    followUpsHint: { de: 'Anschlussfragen unter der letzten Antwort.', en: 'Follow-up questions under the latest answer.' },
+    followUpsHint: { de: 'Anschlussfragen zur letzten Antwort über dem Eingabefeld.', en: 'Follow-up questions on the latest answer, above the input.' },
     autoScrollLabel: { de: 'Antworttext automatisch scrollen', en: 'Autoscroll' },
     autoScrollHint: { de: 'Folgt einer entstehenden Antwort bis zum Ende. Aus: Die Frage bleibt oben stehen, die Antwort wächst darunter.', en: 'Follows an answer while it is being written. Off: the question stays at the top and the answer grows below it.' },
     kbHeaderDefault: { de: 'Frage mich alles, was du über deine Quellen wissen möchtest. Ich kann dir helfen, Zusammenfassungen zu erstellen, Informationen zu finden und Ideen zu synthetisieren.', en: 'Ask me anything about your sources. I can help you summarize, find information, and synthesize ideas.' },

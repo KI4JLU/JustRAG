@@ -35,8 +35,6 @@ interface MessageBubbleProps {
     /** The last message of the transcript: its action row stays visible at rest. */
     isLatest?: boolean;
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
-    onFollowUpClick?: (question: string) => void;
-    showFollowUps?: boolean;
     branchInfo?: BranchInfo | null;
     onSwitchBranch?: (siblingId: string) => void;
     onEdit?: (messageId: string, newContent: string) => void;
@@ -247,7 +245,7 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
     );
 }
 
-function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, onFollowUpClick, showFollowUps, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
     const { t, language } = useTheme();
     // An answer without its citations for a caller who may not see them.
     // Everything below — rendering, copy and export — reads this one object.
@@ -654,25 +652,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                     </Sources>
                 )}
 
-                {showFollowUps && message.followUpQuestions && message.followUpQuestions.length > 0 && onFollowUpClick && (
-                    <div style={{ marginTop: '1rem' }}>
-                        <div className="source-label" style={{ marginBottom: '0.5rem' }}>{t('followUpsLabel')}</div>
-                        <div className="follow-up-suggestions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
-                            {message.followUpQuestions.map((q, idx) => (
-                                <button
-                                    key={idx}
-                                    className="follow-up-chip"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onFollowUpClick(q);
-                                    }}
-                                >
-                                    {q}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </motion.div>
         </MessageContextMenu>
     );

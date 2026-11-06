@@ -221,6 +221,10 @@ const ChatViewComp = () => {
   // User settings (Einstellungen → Chat): suggestions, follow-ups and autoscroll on/off.
   const [suggestionsEnabled] = usePromptSuggestionsEnabled();
   const [followUpsEnabled] = useFollowUpsEnabled();
+  // The latest answer's follow-up questions sit on the composer, not under
+  // the answer.
+  const lastMessage = chat.messages[chat.messages.length - 1];
+  const followUps = followUpsEnabled && !chat.loading && lastMessage?.role === 'ai' ? lastMessage.followUpQuestions ?? [] : [];
   const [autoScrollEnabled] = useAutoScrollEnabled();
   // The line under the title: the topic's own description, else the default line.
   const shownDescription = currentKb?.description?.trim() || t('kbHeaderDefault');
@@ -445,6 +449,18 @@ const ChatViewComp = () => {
                           input.click();
                         }}
                       />
+                      </div>
+                    )}
+                    {followUps.length > 0 && (
+                      <div data-testid="follow-ups" className="mb-3">
+                        <div className="source-label" style={{ marginBottom: '0.5rem' }}>{t('followUpsLabel')}</div>
+                        <div className="follow-up-suggestions" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
+                          {followUps.map((q, idx) => (
+                            <button key={idx} type="button" className="follow-up-chip" onClick={() => chat.handleFollowUpClick(q)}>
+                              {q}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                     <PromptInput
@@ -826,8 +842,6 @@ const ChatViewComp = () => {
                                     isStreaming={chat.loading && index === chat.messages.length - 1}
                                     isLatest={index === chat.messages.length - 1}
                                     onPdfOpen={handlePdfSourceOpen}
-                                    onFollowUpClick={chat.handleFollowUpClick}
-                                    showFollowUps={followUpsEnabled && !chat.loading && msg.role === 'ai' && index === chat.messages.length - 1}
                                     branchInfo={bi}
                                     onSwitchBranch={chat.handleSwitchBranch}
                                     animationDelay={initialRender ? Math.min(index * 0.05, 0.3) : 0}

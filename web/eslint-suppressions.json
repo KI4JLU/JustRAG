@@ -1,9 +1,4 @@
 {
-  "src/MessageBubble.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
   "src/Profile.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
@@ -46,7 +41,7 @@
   },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 1
+      "count": 2
     }
   },
   "src/components/ComparisonView.tsx": {
