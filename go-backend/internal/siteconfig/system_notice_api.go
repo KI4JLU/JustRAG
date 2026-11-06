@@ -13,11 +13,16 @@ import (
 // it (GET/PUT /api/v1/system-notice): typed fields instead of the flat
 // site_config strings, so a monitoring job can switch the banner with one
 // small JSON body.
+//
+// Placement is the stored choice, not the resolved one: "" means the web app
+// places the notice by its tone, and reading it back as "" keeps a caller
+// that sends the state back unchanged from pinning the placement.
 type SystemNoticeState struct {
 	Enabled     bool   `json:"enabled"`
 	Title       string `json:"title"`
 	Text        string `json:"text"`
 	Tone        string `json:"tone"`
+	Placement   string `json:"placement"`
 	Dismissible bool   `json:"dismissible"`
 	LinkURL     string `json:"linkUrl"`
 	LinkLabel   string `json:"linkLabel"`
@@ -31,6 +36,7 @@ type systemNoticePatch struct {
 	Title       *string `json:"title"`
 	Text        *string `json:"text"`
 	Tone        *string `json:"tone"`
+	Placement   *string `json:"placement"`
 	Dismissible *bool   `json:"dismissible"`
 	LinkURL     *string `json:"linkUrl"`
 	LinkLabel   *string `json:"linkLabel"`
@@ -51,11 +57,18 @@ func (h *Handler) readSystemNotice(r *http.Request) (SystemNoticeState, error) {
 	if !systemNoticeTones[tone] {
 		tone = "info" // the web app's fallback for an unset tone
 	}
+	placement := values["system_notice_placement"]
+	if !systemNoticePlacements[placement] {
+		// A blank value skips the save-time check (ValidateGlobalValues);
+		// it reads as unset, so the answer stays inside the documented enum.
+		placement = ""
+	}
 	return SystemNoticeState{
 		Enabled:     values["system_notice_enabled"] == "true",
 		Title:       values["system_notice_title"],
 		Text:        values["system_notice_text"],
 		Tone:        tone,
+		Placement:   placement,
 		Dismissible: values["system_notice_dismissible"] == "true",
 		LinkURL:     values["system_notice_link_url"],
 		LinkLabel:   values["system_notice_link_label"],
@@ -102,6 +115,7 @@ func (h *Handler) UpdateSystemNoticeAPI(w http.ResponseWriter, r *http.Request) 
 	str("system_notice_title", patch.Title)
 	str("system_notice_text", patch.Text)
 	str("system_notice_tone", patch.Tone)
+	str("system_notice_placement", patch.Placement)
 	boolean("system_notice_dismissible", patch.Dismissible)
 	str("system_notice_link_url", patch.LinkURL)
 	str("system_notice_link_label", patch.LinkLabel)

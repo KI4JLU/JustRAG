@@ -65,7 +65,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - **User-created agents & teams** (no gate) — `agents_allow_privileged_tools` (off) gates `code_exec`/`sql_query`/`web_search`. `internal/agentteams`.
 - `ragas_*`, `factcheck_*`, `citation_validation_*`, `langfuse_*` — validation + observability (RAGAS samples persisted, mig 0072).
 - `kb_stale_days` (global-only, 180) — freshness surface on the admin KB overview.
-- `system_notice_*` (global-only, off) — admin-set system message for every user (`error` = full-width banner above the app, other tones = floating pill over the main area); public keys, validated at save time, admins edit them via `PUT /api/admin/system-notice`, automation via `GET`/`PUT /api/v1/system-notice` with an admin's API key (`internal/siteconfig/system_notice*.go`).
+- `system_notice_*` (global-only, off) — admin-set system message for every user; `system_notice_placement` (`banner` above the app | `inline` pill over the main area | `toast` bottom right) or empty = by tone (`error` = banner, other tones = inline); public keys, validated at save time, admins edit them via `PUT /api/admin/system-notice`, automation via `GET`/`PUT /api/v1/system-notice` with an admin's API key (`internal/siteconfig/system_notice*.go`).
 - `model_tier_fast` — see Model tier resolution.
 
 **Runtime-only knobs:** `hnsw.iterative_scan = relaxed_order` (set per pool connection), env `AI_MAX_CONCURRENT_REQUESTS` (caps unary model-provider requests per endpoint).

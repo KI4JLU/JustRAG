@@ -23,11 +23,12 @@ var publicConfigKeys = map[string]bool{
 	"institution_name": true,
 	"system_name":      true,
 	"assistant_name":   true,
-	// The system notice banner is shown to every user (system_notice.go).
+	// The system notice is shown to every user (system_notice.go).
 	"system_notice_enabled":     true,
 	"system_notice_title":       true,
 	"system_notice_text":        true,
 	"system_notice_tone":        true,
+	"system_notice_placement":   true,
 	"system_notice_dismissible": true,
 	"system_notice_link_url":    true,
 	"system_notice_link_label":  true,

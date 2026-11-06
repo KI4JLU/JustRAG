@@ -36,6 +36,7 @@ var globalValidators = map[string]func(string) error{
 	"system_notice_title":       validateMaxRunes(systemNoticeTitleMaxRunes),
 	"system_notice_text":        validateMaxRunes(systemNoticeTextMaxRunes),
 	"system_notice_tone":        validateSystemNoticeTone,
+	"system_notice_placement":   validateSystemNoticePlacement,
 	"system_notice_dismissible": validateBool,
 	"system_notice_link_url":    validateSystemNoticeURL,
 	"system_notice_link_label":  validateMaxRunes(systemNoticeLabelMaxRunes),

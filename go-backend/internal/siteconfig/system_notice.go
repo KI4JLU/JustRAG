@@ -16,10 +16,10 @@ import (
 	"github.com/justrag/go-backend/internal/httputil"
 )
 
-// The system notice is one admin-set message that every user sees under the
-// app bar (maintenance, a feature in test operation). Its keys are global-only
+// The system notice is one admin-set message that every user sees on every
+// view (maintenance, a feature in test operation). Its keys are global-only
 // and public: the web app reads them from GET /api/site-config for every
-// user and renders the banner itself, so nothing on the server reads them
+// user and renders the notice itself, so nothing on the server reads them
 // beyond these save-time checks.
 //
 // The title, the text and the link label are rendered as plain text, never as HTML or
@@ -41,9 +41,21 @@ var systemNoticeTones = map[string]bool{
 	"error":   true,
 }
 
-// validateBool and validateSystemNoticeTone want the exact stored form: the
-// readers (here and in the web app) compare the raw value, so " true " would
-// be accepted and then read as false.
+// systemNoticePlacements mirrors where the web app can put the notice: a
+// full-width banner above the app, a small message at the top of the content
+// area, or a toast bottom right that stays until closed. Empty is the default
+// and lets the tone decide (error → banner, every other tone → inline), so a
+// deployment that never sets the key keeps the placement it had.
+var systemNoticePlacements = map[string]bool{
+	"":       true,
+	"banner": true,
+	"inline": true,
+	"toast":  true,
+}
+
+// validateBool, validateSystemNoticeTone and validateSystemNoticePlacement
+// want the exact stored form: the readers (here and in the web app) compare
+// the raw value, so " true " would be accepted and then read as false.
 func validateBool(v string) error {
 	switch v {
 	case "true", "false":
@@ -64,6 +76,13 @@ func validateMaxRunes(max int) func(string) error {
 func validateSystemNoticeTone(v string) error {
 	if !systemNoticeTones[v] {
 		return fmt.Errorf("must be one of neutral, info, warning, error")
+	}
+	return nil
+}
+
+func validateSystemNoticePlacement(v string) error {
+	if !systemNoticePlacements[v] {
+		return fmt.Errorf("must be empty (placement by tone) or one of banner, inline, toast")
 	}
 	return nil
 }
@@ -115,11 +134,15 @@ const (
 	systemNoticeTemplateNameMaxLen = 60
 )
 
+// systemNoticeTemplate is one saved template. Placement is optional:
+// templates saved before it existed carry no such field and must still
+// decode, and empty means "by tone", as for the notice itself.
 type systemNoticeTemplate struct {
 	Name        string `json:"name"`
 	Title       string `json:"title,omitempty"`
 	Text        string `json:"text"`
 	Tone        string `json:"tone"`
+	Placement   string `json:"placement,omitempty"`
 	Dismissible bool   `json:"dismissible"`
 	LinkURL     string `json:"linkUrl"`
 	LinkLabel   string `json:"linkLabel"`
@@ -162,6 +185,9 @@ func validateSystemNoticeTemplates(v string) error {
 		if err := validateSystemNoticeTone(tpl.Tone); err != nil {
 			return fmt.Errorf("template %d: tone %w", i+1, err)
 		}
+		if err := validateSystemNoticePlacement(tpl.Placement); err != nil {
+			return fmt.Errorf("template %d: placement %w", i+1, err)
+		}
 		if tpl.LinkURL != "" {
 			if err := validateSystemNoticeURL(tpl.LinkURL); err != nil {
 				return fmt.Errorf("template %d: link %w", i+1, err)
@@ -181,6 +207,7 @@ var systemNoticeKeys = map[string]bool{
 	"system_notice_title":       true,
 	"system_notice_text":        true,
 	"system_notice_tone":        true,
+	"system_notice_placement":   true,
 	"system_notice_dismissible": true,
 	"system_notice_link_url":    true,
 	"system_notice_link_label":  true,
