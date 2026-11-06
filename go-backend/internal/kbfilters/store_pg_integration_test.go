@@ -268,6 +268,9 @@ func TestDeletingAUserCascadesTheirFilters(t *testing.T) {
 	if err := store.AssignCategory(ctx, user, cat.ID, kbID); err != nil {
 		t.Fatalf("AssignCategory: %v", err)
 	}
+	if err := store.SetOrder(ctx, user, kbfilters.OrderViewMy, []string{kbID}); err != nil {
+		t.Fatalf("SetOrder: %v", err)
+	}
 
 	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, user); err != nil {
 		t.Fatalf("delete user: %v", err)
@@ -279,6 +282,7 @@ func TestDeletingAUserCascadesTheirFilters(t *testing.T) {
 		{"kb_favorites", `SELECT COUNT(*)::int FROM kb_favorites WHERE user_id = $1::uuid`},
 		{"kb_user_categories", `SELECT COUNT(*)::int FROM kb_user_categories WHERE user_id = $1::uuid`},
 		{"kb_user_category_links", `SELECT COUNT(*)::int FROM kb_user_category_links WHERE user_id = $1::uuid`},
+		{"kb_user_order", `SELECT COUNT(*)::int FROM kb_user_order WHERE user_id = $1::uuid`},
 	} {
 		if n := countRows(t, pool, q.sql, user); n != 0 {
 			t.Errorf("%s rows after user delete = %d, want 0", q.what, n)
@@ -515,5 +519,108 @@ func TestPostgresRefusesWhatTheHandlerGuards(t *testing.T) {
 				t.Fatalf("SQLSTATE = %q (%v), want %s", got, err, tc.state)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Topic order (migration 0103)
+// ---------------------------------------------------------------------------
+
+// TestOrderViewIsCheckedBySchema: the view names are a CHECK constraint, so a
+// writer other than the handler cannot store a view the web app never reads.
+// Raw insert, no kbfilters code in the path; Postgres refuses with 23514.
+func TestOrderViewIsCheckedBySchema(t *testing.T) {
+	pool := testPool(t)
+	user := insertTestUser(t, pool, "kbfilters-order-check-user")
+
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO kb_user_order (user_id, view_name, kb_ids) VALUES ($1::uuid, 'global', '{}')`, user)
+	if got := sqlState(err); got != "23514" {
+		t.Fatalf("insert of view 'global': SQLSTATE %q (err %v), want 23514", got, err)
+	}
+}
+
+// TestOrderRoundTripsPerUserAndView: a saved order comes back in the order it
+// was saved, a second save replaces it whole, an empty order is stored as
+// empty (not as "never saved"), and neither another view nor another user
+// sees it. The oracle is the input itself: what was written must be read back.
+func TestOrderRoundTripsPerUserAndView(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kbfilters.NewStore(pool)
+
+	user := insertTestUser(t, pool, "kbfilters-order-user")
+	other := insertTestUser(t, pool, "kbfilters-order-other")
+	a := insertTestKB(t, pool, "kbfilters-order-a")
+	b := insertTestKB(t, pool, "kbfilters-order-b")
+	c := insertTestKB(t, pool, "kbfilters-order-c")
+
+	orders, err := store.ListOrders(ctx, user)
+	if err != nil {
+		t.Fatalf("ListOrders before any save: %v", err)
+	}
+	if len(orders) != 0 {
+		t.Fatalf("orders before any save = %v, want none", orders)
+	}
+
+	steps := []struct {
+		view kbfilters.OrderView
+		ids  []string
+	}{
+		{kbfilters.OrderViewMy, []string{c, a, b}},
+		{kbfilters.OrderViewMy, []string{b, c}},
+		{kbfilters.OrderViewShared, []string{}},
+	}
+	for _, st := range steps {
+		if err := store.SetOrder(ctx, user, st.view, st.ids); err != nil {
+			t.Fatalf("SetOrder(%s, %v): %v", st.view, st.ids, err)
+		}
+	}
+
+	orders, err = store.ListOrders(ctx, user)
+	if err != nil {
+		t.Fatalf("ListOrders: %v", err)
+	}
+	if got, want := fmt.Sprint(orders[kbfilters.OrderViewMy]), fmt.Sprint([]string{b, c}); got != want {
+		t.Errorf("my = %s, want %s (the second save, whole)", got, want)
+	}
+	shared, ok := orders[kbfilters.OrderViewShared]
+	if !ok || shared == nil || len(shared) != 0 {
+		t.Errorf("shared = %#v (present %v), want a saved empty order", shared, ok)
+	}
+
+	otherOrders, err := store.ListOrders(ctx, other)
+	if err != nil {
+		t.Fatalf("ListOrders(other): %v", err)
+	}
+	if len(otherOrders) != 0 {
+		t.Errorf("another user's orders = %v, want none", otherOrders)
+	}
+}
+
+// TestOrderKeepsTheIDOfADeletedKB pins the documented trade-off of an id array
+// without a foreign key: deleting a KB leaves its id in the order until the
+// user's next save, and reading the order does not fail on it.
+func TestOrderKeepsTheIDOfADeletedKB(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := kbfilters.NewStore(pool)
+
+	user := insertTestUser(t, pool, "kbfilters-order-kbdel-user")
+	kept := insertTestKB(t, pool, "kbfilters-order-kbdel-kept")
+	gone := insertTestKB(t, pool, "kbfilters-order-kbdel-gone")
+
+	if err := store.SetOrder(ctx, user, kbfilters.OrderViewMy, []string{gone, kept}); err != nil {
+		t.Fatalf("SetOrder: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM knowledge_bases WHERE id = $1::uuid`, gone); err != nil {
+		t.Fatalf("delete kb: %v", err)
+	}
+	orders, err := store.ListOrders(ctx, user)
+	if err != nil {
+		t.Fatalf("ListOrders: %v", err)
+	}
+	if got, want := fmt.Sprint(orders[kbfilters.OrderViewMy]), fmt.Sprint([]string{gone, kept}); got != want {
+		t.Fatalf("my = %s, want %s", got, want)
 	}
 }

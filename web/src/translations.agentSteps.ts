@@ -14,7 +14,7 @@ export const agentStepsTranslations = {
     stepsSumThinking: { de: 'nachgedacht', en: 'thought it over' },
     stepsSumDecision: { de: '{n} Entscheidungen getroffen', en: 'made {n} decisions' },
     stepsSumDecisionOne: { de: '1 Entscheidung getroffen', en: 'made 1 decision' },
-    stepsSumAnswer: { de: 'Antwort formuliert', en: 'wrote the answer' },
+    stepsSumAnswer: { de: 'Recherche abgeschlossen', en: 'finished the research' },
     stepsSumRefine: { de: 'Faktencheck durchgeführt', en: 'ran a fact check' },
     stepsSumTeam: { de: 'Fachagenten befragt', en: 'asked specialists' },
     stepsSumTool: { de: '{n} Werkzeuge genutzt', en: 'used {n} tools' },
@@ -116,10 +116,11 @@ export const agentStepsTranslations = {
     stepWebSearchSkipped: { de: 'Websuche für diese Frage nicht verfügbar', en: 'Web search not available for this question' },
     stepPolicyFallthrough: { de: 'Vorgesehener Ablauf nicht verfügbar, Standardantwort', en: 'Intended flow unavailable, standard answer' },
 
-    // Answer
-    stepAnswer: { de: 'Antwort formuliert', en: 'Wrote the answer' },
+    // The end of the research (the orchestrator's answer stage): it comes
+    // before the answer is written, so it does not claim the answer.
+    stepAnswer: { de: 'Recherche abgeschlossen', en: 'Research complete' },
     stepAnswerAbstained: { de: 'Keine belastbare Antwort möglich', en: 'No reliable answer possible' },
-    stepAnswerRounds: { de: 'nach {n} Recherche-Runden', en: 'after {n} research rounds' },
+    stepAnswerRounds: { de: 'nach {n} Runden', en: 'after {n} rounds' },
     stepAnswerHops: { de: 'nach {n} Suchschritten', en: 'after {n} search steps' },
     stepAnswerSufficient: { de: 'Treffer reichten aus', en: 'results were sufficient' },
     stepAnswerPlateau: { de: 'keine besseren Treffer mehr', en: 'no better results' },

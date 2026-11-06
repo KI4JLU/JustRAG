@@ -81,12 +81,12 @@ export interface TopicGridPageProps {
    */
   uniformRows?: boolean;
   /**
-   * Card mode only: the cards can be dragged into a new order (`useKbSortable`
-   * builds it). `ids[i]` is `items[i]`'s id, `pinnedIds[i]` `pinned.items[i]`'s.
-   * A card dropped into the other group calls `onMoveToGroup` with
-   * `PINNED_GROUP` or `REST_GROUP`. Ignored in list view.
+   * The cards (or, in list view, the rows) can be dragged into a new order
+   * (`useKbSortable` builds it). `ids[i]` is `items[i]`'s id, `pinnedIds[i]`
+   * `pinned.items[i]`'s. A card dropped into the other group calls
+   * `onMoveToGroup` with `PINNED_GROUP` or `REST_GROUP`.
    */
-  sortable?: Omit<SortableBoardProps, 'children' | 'renderOverlay'> & {
+  sortable?: Omit<SortableBoardProps, 'children' | 'renderOverlay' | 'rows'> & {
     ids: string[];
     pinnedIds: string[];
     /** The drop zone shown for the pinned group while it is empty. */
@@ -130,11 +130,16 @@ export function TopicGridPage({
     </Grid>
   );
 
-  const dnd = sortable && viewMode === 'card' ? sortable : undefined;
+  const dnd = sortable;
   const group = (groupId: string, ids: string[], cells: ReactNode[]) => (
     dnd ? <SortableGroup id={groupId} ids={ids} items={cells}>{grid}</SortableGroup> : grid(cells)
   );
   const pinnedItems = pinned?.items ?? [];
+
+  const listHeaderEl = viewMode === 'list' && (items.length > 0 || pinnedItems.length > 0) && listHeader
+    ? <div className="-mb-stack-md">{listHeader}</div>
+    : null;
+  const headerInGroups = pinnedItems.length === 0;
 
   let groups: ReactNode;
   if (pinnedItems.length > 0 && items.length > 0) {
@@ -160,9 +165,13 @@ export function TopicGridPage({
       </>
     );
   } else {
+    // In list view the column header goes between the favorites' drop zone and
+    // the rows, so the zone appearing during a drag does not part the header
+    // from its columns.
     groups = (
       <>
         {dnd && pinned && <SortableDropZone group={PINNED_GROUP} label={dnd.dropZoneLabel} />}
+        {headerInGroups && listHeaderEl}
         {group(REST_GROUP, dnd?.ids ?? [], items)}
       </>
     );
@@ -179,6 +188,7 @@ export function TopicGridPage({
         announcements={dnd.announcements}
         screenReaderInstructions={dnd.screenReaderInstructions}
         renderOverlay={cardId => byId.get(cardId)}
+        rows={viewMode === 'list'}
       >
         {groups}
       </SortableBoard>
@@ -200,7 +210,7 @@ export function TopicGridPage({
             objects, stacked rows do not — at 24px apart they read as unrelated
             bands rather than one list. The value is the design system's own
             gap scale, not a literal. */}
-        {viewMode === 'list' && (items.length > 0 || !!pinned?.items.length) && listHeader && <div className="-mb-stack-md">{listHeader}</div>}
+        {!headerInGroups && listHeaderEl}
         {groups}
       </Container>
     </section>

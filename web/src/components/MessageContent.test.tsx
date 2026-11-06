@@ -207,7 +207,7 @@ describe('MessageContent', () => {
         render(<MessageContent content="answer" trajectory={trajectory} reasoningOpen onToggleReasoning={() => {}} />);
 
         // crag_proceed is housekeeping: 3 steps, not 4.
-        expect(screen.getByRole('button', { name: 'Ran 2 searches and wrote the answer' })).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByRole('button', { name: 'Ran 2 searches and finished the research' })).toHaveAttribute('aria-expanded', 'true');
         // A search shows its query in the line and in the detail below it.
         expect(screen.getAllByText(/who lead the project/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/what is their email/i).length).toBeGreaterThan(0);
