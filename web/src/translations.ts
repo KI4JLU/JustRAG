@@ -155,6 +155,10 @@ export const translations = {
       de: 'Favorit konnte nicht gespeichert werden.',
       en: 'Could not save the favorite.',
     },
+    topicOrderSaveError: {
+      de: 'Die Reihenfolge konnte nicht gespeichert werden.',
+      en: 'Could not save the order.',
+    },
 
     /* The section heading for the global half. „Global sichtbar" and not
      * „Öffentlich": a public topic is visible to everyone signed in, not to the
