@@ -392,11 +392,12 @@ export function PrivateKbCard({
         {/* The drag grip, in the row's left padding beside the name. Last
             child, so the columns' `nth-child` rules still count the same;
             positioned, so it takes no grid cell. Shown on hover and to the
-            keyboard, as on the card. */}
+            keyboard, as on the card. Without hover (touch) it is invisible,
+            so it lets taps through to the row: a long press on the row drags. */}
         <SortableHandle
           vertical
           label={`${t('kbMoveCard')}: ${kb.name}`}
-          className="absolute top-1/2 left-1 z-10 h-8 w-4 -translate-y-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-row:opacity-100"
+          className="absolute top-1/2 left-1 z-10 h-8 w-4 -translate-y-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-row:opacity-100 [@media(hover:none)]:pointer-events-none"
         />
       </Card>
     );
@@ -421,10 +422,11 @@ export function PrivateKbCard({
           glow in the primary colour over a 1px rule in the border colour. */}
       {/* The drag grip: top centre, over the band's top padding, so it takes
           no room from the title. Only inside a sortable grid; shown on hover
-          and to the keyboard. */}
+          and to the keyboard. Without hover it lets taps through to the card,
+          where a long press drags. */}
       <SortableHandle
         label={`${t('kbMoveCard')}: ${kb.name}`}
-        className="absolute top-0.5 left-1/2 z-10 h-5 w-9 -translate-x-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100"
+        className="absolute top-0.5 left-1/2 z-10 h-5 w-9 -translate-x-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100 [@media(hover:none)]:pointer-events-none"
       />
       <CardBand data-testid="kb-card-band">
         <CardTitle>{nameButton}</CardTitle>

@@ -10,6 +10,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { GripHorizontal, GripVertical } from 'lucide-react';
 import { Button } from '@ki4jlu/design-system';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 /* ---------------------------------------------------------------------------
  * Drag-to-reorder for grids of cards, in one or more GROUPS (the favorites and
@@ -62,14 +63,18 @@ interface BoardState {
   pressingId: string | null;
   /** Counts the drags, so a drop zone can tell this drag from the last. */
   dragSerial: number;
+  /** `prefers-reduced-motion`: the cells move without transitions. */
+  reducedMotion: boolean;
 }
 const BoardContext = createContext<BoardState | null>(null);
 
 /** The long press that starts a touch drag. */
 const LONG_PRESS_MS = 300;
 
-/** The keyboard handle; `null` outside a sortable grid. */
-/** The grip of a sortable card — horizontal over a card, vertical beside a list row. */
+/**
+ * The grip of a sortable card — horizontal over a card, vertical beside a list
+ * row. It is the keyboard handle; `null` outside a sortable grid.
+ */
 export function SortableHandle({ label, className, vertical = false }: { label: string; className?: string; vertical?: boolean }) {
   const handle = useContext(HandleContext);
   if (!handle) return null;
@@ -128,7 +133,10 @@ function SortableCell({ id, children }: { id: string; children: ReactNode }) {
       style={{
         transform: CSS.Translate.toString(transform),
         // The sort shift's own transition, plus the press (scale) and the fade.
-        transition: [transition, `scale ${pressing ? LONG_PRESS_MS : 150}ms ease-out`, 'opacity 150ms ease-out'].filter(Boolean).join(', '),
+        // None of it with reduced motion: the cards then jump to their places.
+        transition: board?.reducedMotion
+          ? undefined
+          : [transition, `scale ${pressing ? LONG_PRESS_MS : 150}ms ease-out`, 'opacity 150ms ease-out'].filter(Boolean).join(', '),
       }}
       className={[
         // No text selection, iOS callout, tap highlight or scroll delay on a
@@ -312,7 +320,11 @@ export function SortableBoard({
   // a drop released outside every card is followed by no click to reset it.
   const droppedAt = useRef(0);
   const [dragSerial, setDragSerial] = useState(0);
-  const board = useMemo<BoardState>(() => ({ droppedAt, pressingId, dragSerial }), [pressingId, dragSerial]);
+  const reducedMotion = useReducedMotion();
+  const board = useMemo<BoardState>(
+    () => ({ droppedAt, pressingId, dragSerial, reducedMotion }),
+    [pressingId, dragSerial, reducedMotion],
+  );
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     droppedAt.current = performance.now();
     setActiveId(null);
@@ -352,7 +364,8 @@ export function SortableBoard({
             would otherwise read as not moving at all. The scale sits one level
             down: dnd-kit measures the overlay's only child, and a scaled one
             would put the keyboard's target corners 3px off the cards'. */}
-        <DragOverlay>
+        {/* With reduced motion the overlay is dropped in place, not flown there. */}
+        <DragOverlay dropAnimation={reducedMotion ? null : undefined}>
           {activeId ? (
             <div className="h-full">
               <div className={`h-full ${rows ? 'scale-[1.01]' : 'scale-[1.03]'} rounded-xl shadow-xl`}>{renderOverlay(activeId)}</div>

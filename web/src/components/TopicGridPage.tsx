@@ -136,6 +136,11 @@ export function TopicGridPage({
   );
   const pinnedItems = pinned?.items ?? [];
 
+  const listHeaderEl = viewMode === 'list' && (items.length > 0 || pinnedItems.length > 0) && listHeader
+    ? <div className="-mb-stack-md">{listHeader}</div>
+    : null;
+  const headerInGroups = pinnedItems.length === 0;
+
   let groups: ReactNode;
   if (pinnedItems.length > 0 && items.length > 0) {
     groups = (
@@ -160,9 +165,13 @@ export function TopicGridPage({
       </>
     );
   } else {
+    // In list view the column header goes between the favorites' drop zone and
+    // the rows, so the zone appearing during a drag does not part the header
+    // from its columns.
     groups = (
       <>
         {dnd && pinned && <SortableDropZone group={PINNED_GROUP} label={dnd.dropZoneLabel} />}
+        {headerInGroups && listHeaderEl}
         {group(REST_GROUP, dnd?.ids ?? [], items)}
       </>
     );
@@ -201,7 +210,7 @@ export function TopicGridPage({
             objects, stacked rows do not — at 24px apart they read as unrelated
             bands rather than one list. The value is the design system's own
             gap scale, not a literal. */}
-        {viewMode === 'list' && (items.length > 0 || !!pinned?.items.length) && listHeader && <div className="-mb-stack-md">{listHeader}</div>}
+        {!headerInGroups && listHeaderEl}
         {groups}
       </Container>
     </section>
