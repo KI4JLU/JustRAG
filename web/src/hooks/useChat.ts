@@ -205,6 +205,18 @@ export function useChat({
   // writing an explicit height here fought that and made the one-line /
   // multi-line switch flicker.
 
+  /* Opening a chat — an old one or a new one — puts the caret in the prompt
+     field, as chat apps do: the next thing a user does there is type, and a
+     keyboard user would otherwise have to travel from the history to it. Only
+     with a fine pointer (mouse, trackpad): on a touch screen focusing the
+     field raises the on-screen keyboard over the chat just opened. After a
+     frame, because the field of a chat that was not on screen is not mounted
+     yet when the handler runs. */
+  const focusPrompt = useCallback(() => {
+    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(pointer: fine)').matches) return;
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
   const handleSelectChat = useCallback(async (chat: ChatEntry) => {
     if (chat.type === 'research') {
       try {
@@ -272,6 +284,7 @@ export function useChat({
     setActiveChatId(chat.id);
     setAgentSelection({ teamId: chat.teamId ?? undefined, agentId: chat.agentId ?? undefined });
     chatSwitchingRef.current = true;
+    focusPrompt();
     try {
       const res = await axios.get(`${API_BASE_URL}/api/chats/${chat.id}/messages`);
       const rawMessages: Message[] = (res.data as RawChatMessage[]).map((m) => ({
@@ -305,7 +318,7 @@ export function useChat({
     } finally {
       chatSwitchingRef.current = false;
     }
-  }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setAgentSelection, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, toast, t]);
+  }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setAgentSelection, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, toast, t, focusPrompt]);
 
   // Drops the comparison attachment so it cannot leak from one chat into the
   // next. Called by handleNewChat; startComparison re-adopts the upload right
@@ -330,7 +343,8 @@ export function useChat({
     setLoadedResearchSession(null);
     setLoadedAcademicSession(null);
     clearComparison();
-  }, [setActiveChatId, setAgentSelection, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, clearComparison]);
+    focusPrompt();
+  }, [setActiveChatId, setAgentSelection, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, clearComparison, focusPrompt]);
 
   const handleDeleteChat = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();

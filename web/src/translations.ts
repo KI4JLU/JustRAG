@@ -247,6 +247,9 @@ export const translations = {
      * exactly what the component would have rendered on its own. */
     collapseNavigation: { de: 'Navigation einklappen', en: 'Collapse navigation' },
     expandNavigation: { de: 'Navigation ausklappen', en: 'Expand navigation' },
+    /* Desktop app title bar: history buttons (a browser has its own). */
+    historyBack: { de: 'Zurück', en: 'Back' },
+    historyForward: { de: 'Vor', en: 'Forward' },
 
     /* The DS `ThemeToggle`'s four labels (card KI-788).
      *
@@ -820,6 +823,9 @@ export const translations = {
      * trimmed search text. */
     globalSearchPlaceholder: { de: 'Themen, Quellen und Chats durchsuchen…', en: 'Search topics, sources and chats…' },
     kbdCtrl: { de: 'Strg', en: 'Ctrl' },
+    /* The sidebar row that opens the search palette, and the palette's name. */
+    searchOpen: { de: 'Suchen', en: 'Search' },
+    searchPaletteTitle: { de: 'Suche', en: 'Search' },
     searchFooterAllTopics: { de: 'Alle Themen', en: 'All topics' },
     searchFooterOpen: { de: 'Öffnen', en: 'Open' },
     searchFooterNavigate: { de: 'Navigieren', en: 'Navigate' },
@@ -875,6 +881,13 @@ export const translations = {
     systemPromptLabel: { de: 'System-Prompt', en: 'System Prompt' },
     kbBehaviorTitle: { de: 'Verhalten der Wissensdatenbank', en: 'Knowledge base behaviour' },
     kbSettingsTitle: { de: 'Thema-Einstellungen', en: 'Topic settings' },
+    /* The gear in the topic view's bar, and its marker for settings that
+     * differ from the template. */
+    topicSettingsButton: { de: 'Einstellungen des Themas', en: 'Topic settings' },
+    topicSettingsCustomized: { de: 'angepasst', en: 'customised' },
+    topicDiffOwnRole: { de: 'Eigene Rolle', en: 'Own role' },
+    topicDiffOwnRules: { de: 'Eigene Regeln', en: 'Own rules' },
+    topicDiffOwnStartPage: { de: 'Eigene Startseite', en: 'Own start page' },
     kbSettingsTabBehavior: { de: 'Verhalten', en: 'Behaviour' },
     kbSettingsTabRoles: { de: 'Berechtigungen', en: 'Permissions' },
     rrSubtitle: { de: 'Legt fest, was Bearbeiter und Leser in diesem Thema dürfen.', en: 'Defines what editors and viewers may do in this topic.' },

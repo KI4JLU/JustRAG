@@ -581,6 +581,14 @@ button.source-card {
   padding-bottom: 1rem;
 }
 
+/* Under a transcript the composer sits close to it: the transcript fades out
+   over its lower edge, and a 2rem gap below that fade read as dead space
+   above the field. The start page (`--start`) keeps its 2rem — there the gap
+   separates the composer from the title card. */
+[data-slot="chat-stage-composer"] > .input-container:not(.input-container--start) {
+  padding-top: 0.5rem;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;

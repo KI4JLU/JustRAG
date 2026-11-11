@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import axios from 'axios';
@@ -671,5 +671,56 @@ describe('useChat.handleSelectChat — agent steps (reload path)', () => {
       await result.current.handleSelectChat(chat);
     });
     expect(result.current.messageTree.get('a2')?.trajectory).toBeUndefined();
+  });
+});
+
+/*
+ * Opening a chat puts the caret in the prompt field. ORACLE: the convention
+ * of chat apps the owner named (2026-11-11) — a new or an old chat opens with
+ * the field focused — limited to a fine pointer, because on a touch screen
+ * focus raises the on-screen keyboard. `document.activeElement` is the DOM's
+ * own answer to where the caret is.
+ */
+describe('useChat — focus on the prompt field', () => {
+  const stubPointer = (fine: boolean) => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: fine && query === '(pointer: fine)', media: query }));
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+  };
+  const mountField = (result: { current: ReturnType<typeof useChat> }) => {
+    const field = document.createElement('textarea');
+    document.body.append(field);
+    (result.current.textareaRef as { current: HTMLTextAreaElement | null }).current = field;
+    return field;
+  };
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.replaceChildren();
+  });
+
+  it('focuses the field when a new chat starts', () => {
+    stubPointer(true);
+    const { result } = renderUseChat();
+    const field = mountField(result);
+    act(() => result.current.handleNewChat());
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('focuses the field when an existing chat is opened', async () => {
+    stubPointer(true);
+    mockedAxios.get.mockResolvedValueOnce({ data: [] });
+    const { result } = renderUseChat();
+    const field = mountField(result);
+    await act(async () => {
+      await result.current.handleSelectChat({ id: 'c1', title: 'Alt', type: 'chat' } as ChatEntry);
+    });
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('leaves focus alone on a touch screen', () => {
+    stubPointer(false);
+    const { result } = renderUseChat();
+    const field = mountField(result);
+    act(() => result.current.handleNewChat());
+    expect(document.activeElement).not.toBe(field);
   });
 });

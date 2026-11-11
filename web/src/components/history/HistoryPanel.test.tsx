@@ -203,7 +203,8 @@ describe('HistoryPanel', () => {
     // ORACLE: dieselben vier Titel, die der ausgeklappte Test oben in
     // derselben Reihenfolge erwartet.
     const names = screen.getAllByRole('button').map(b => b.getAttribute('aria-label'));
-    expect(names).toEqual(['newChat', 'Budget?']);
+    // „Suchen" follows „Neuer Chat": it opens the search palette.
+    expect(names).toEqual(['newChat', 'searchOpen', 'Budget?']);
     await userEvent.click(screen.getByRole('button', { name: 'newChat' }));
     expect(handleNewChat).toHaveBeenCalled();
 

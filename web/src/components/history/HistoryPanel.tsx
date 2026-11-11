@@ -1,3 +1,5 @@
+import { SearchActionRow, SearchRailButton } from '../SearchPalette';
+import { ShortcutHint } from '../ShortcutHint';
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
     MessageSquare, Search, GraduationCap, FileText, GitBranch, Loader2, SquarePen, Trash2, ArrowLeft, Pencil,
@@ -120,6 +122,7 @@ const HistoryPanelComp: React.FC = () => {
                 <SidebarRailItem variant="action" onClick={handleNewChat} title={t('newChat')} aria-label={t('newChat')}>
                     <SquarePen aria-hidden="true" />
                 </SidebarRailItem>
+                <SearchRailButton />
                 <SidebarRail>
                 {items.map(item => {
                     const Icon = item.branched ? GitBranch : KIND_ICON[item.kind];
@@ -167,9 +170,17 @@ const HistoryPanelComp: React.FC = () => {
                     <>
                             {/* Full-width labelled action under the heading, its icon on the
                                 cards' icon axis; the collapsed rail keeps the icon-only form. */}
-                            <SidebarAction type="button" onClick={handleNewChat} icon={<SquarePen />}>
+                            {/* ⌘N is the desktop app's (its menu owns it, see
+                                DesktopMenuCommands); the hint shows there only. */}
+                            <SidebarAction
+                                type="button"
+                                onClick={handleNewChat}
+                                icon={<SquarePen />}
+                                trailing={<ShortcutHint letter="N" desktopOnly />}
+                            >
                                 {t('newChat')}
                             </SidebarAction>
+                            <SearchActionRow />
                             {selecting && (
                                 <SidebarSelectionBar
                                     aria-label={t('deleteChats')}
@@ -204,7 +215,10 @@ const HistoryPanelComp: React.FC = () => {
                     </>
                 )}
 
-                <ul className="history-panel__groups">
+                {/* One Tab stop for the whole history: ↑/↓ run through the chats
+                    of every day, →/← reach a chat's ⋯ menu (the design
+                    system's `data-sidebar-card-groups`). */}
+                <ul className="history-panel__groups" data-sidebar-card-groups="">
                     {groups.map(group => (
                         <li key={group.day} className="history-panel__group">
                             <h3 className="history-panel__group-label">{group.label}</h3>

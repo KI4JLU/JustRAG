@@ -1,7 +1,21 @@
+import { HistoryControls } from './HistoryControls';
 import { useCallback, useMemo } from 'react';
-import { AppShellLayout, Button, type MobilePaneTab } from '@ki4jlu/design-system';
+import {
+  AppShellLayout,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+  Button,
+  type MobilePaneTab,
+} from '@ki4jlu/design-system';
+import { useAppNavigate } from '../routing/navigation';
 import { SourcesRail } from './sidebar/SourcesRail';
-import { ArrowLeft, FolderOpen, History, MessageSquare, Settings } from 'lucide-react';
+import { FolderOpen, History, MessageSquare } from 'lucide-react';
+import { TopicSettingsButton } from './TopicSettingsButton';
+import { useTopicSettingsDiff } from '../hooks/useTopicSettingsDiff';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useKbCore } from '../contexts/KbCoreContext';
@@ -17,6 +31,8 @@ import { AppUserMenu } from './AppUserMenu';
 import { AppLogo } from './AppLogo';
 import { useKbSourceRights } from '../hooks/useKbSourceRights';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { SearchPalette } from './SearchPalette';
+import { DesktopMenuCommands } from './DesktopMenuCommands';
 import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 
 interface KbWorkspaceLayoutProps {
@@ -71,19 +87,11 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   // The system-prompt gear: owners and KB admins only (same predicate as the
   // editor it opens, in ChatView). Lives in the chrome bar, not the composer.
   const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
+  // Re-read whenever the settings window opens or closes, so a save or a
+  // reset there shows on the gear without a reload.
+  const settingsDiff = useTopicSettingsDiff(canEditSystemPrompt ? currentKb?.id : undefined, systemPromptOpen);
   const headerActions = canEditSystemPrompt ? (
-    <Button
-      id="kb-header-system-prompt-toggle"
-      type="button"
-      variant="ghost"
-      size="icon"
-      onClick={() => setSystemPromptOpen(true)}
-      title={t('kbSettingsTitle')}
-      aria-label={t('kbSettingsTitle')}
-      aria-pressed={systemPromptOpen || Boolean(currentKb.systemPrompt)}
-    >
-      <Settings size={20} aria-hidden="true" />
-    </Button>
+    <TopicSettingsButton diff={settingsDiff} onClick={() => setSystemPromptOpen(true)} />
   ) : undefined;
 
   // Der Reiter „chat" setzt kbView explizit; andere kbView-Werte gibt es
@@ -114,31 +122,57 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
     ...(seeSources ? [{ id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' as const }] : []),
   ], [t, seeSources]);
 
-  /* Was vom `chat-header` übrig ist: der Zurück-Knopf. Der KB-Name steht
-   * nicht mehr in der Leiste (Redesign, Entwickler 23.10.2026): er steht
-   * bereits als Überschrift des leeren Chats, und Umbenennen bleibt über den
-   * Stift auf der Karte der Übersicht.
+  /* The bar's page label: a breadcrumb, „section / topic". The section is
+   * the overview the topic is listed in — „Mein Wissen" for an owned topic,
+   * „Entdecken" for a public one, „Geteiltes Wissen" otherwise — and leads
+   * back there; the topic is the current page. It replaces the back arrow:
+   * the trail says where „back" goes, and the desktop app has history
+   * buttons in its title bar.
    *
-   * `handleGoHome` und nicht `handleViewHome`: Verlassen setzt kbView auf
-   * 'chat' zurück (heute der einzige Wert; die Regel bleibt für die
-   * spätere Tool-Anbindung).
+   * Leaving resets kbView to 'chat' (`handleGoHome` does it for the first
+   * section), so the topic opens in the chat next time.
    *
-   * Kein Heading — die Leiste ist Chrome, die Überschrift der Seite gehört dem
-   * Inhalt. */
+   * Not a heading — the bar is chrome, the page's heading belongs to the
+   * content. */
+  const navigateTo = useAppNavigate();
+  const section: 'my-topics' | 'shared-topics' | 'discover' =
+    currentKb?.visibility === 'public' || currentKb?.isGlobal
+      ? 'discover'
+      : currentKb?.myRole === 'owner' ? 'my-topics' : 'shared-topics';
+  const sectionLabel =
+    section === 'discover' ? t('discoverTopics') : section === 'my-topics' ? t('myTopics') : t('sharedTopics');
+  const sectionPath = section === 'discover' ? '/discover' : section === 'my-topics' ? '/' : '/shared';
+  const leaveToSection = () => {
+    if (section === 'my-topics') {
+      handleGoHome();
+      return;
+    }
+    setKbView('chat');
+    navigateTo({ view: section });
+  };
   const pageLabel = (
-    <span className="flex min-w-0 items-center gap-2">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        onClick={handleGoHome}
-        title={t('backToOverview')}
-        aria-label={t('backToOverview')}
-        className="shrink-0"
-      >
-        <ArrowLeft size={20} aria-hidden="true" />
-      </Button>
-    </span>
+    <Breadcrumb aria-label={t('breadcrumbNav')} className="min-w-0">
+      <BreadcrumbList className="flex-nowrap">
+        <BreadcrumbItem className="shrink-0">
+          {/* A real link to the overview's own URL, so it can be opened in a
+              new tab; a plain click stays in the app. */}
+          <BreadcrumbLink
+            href={sectionPath}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              leaveToSection();
+            }}
+          >
+            {sectionLabel}
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator>/</BreadcrumbSeparator>
+        <BreadcrumbItem className="min-w-0">
+          <BreadcrumbPage className="truncate">{currentKb?.name}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
   );
 
   return (
@@ -167,15 +201,6 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       nav={<HistoryPanel />}
       navLabel={t('history')}
       pageLabel={pageLabel}
-      /* The topic-scoped search (cards KI-838, KI-844), in the shell's own
-         centred `search` slot. Since design-system 0.44.1 that slot gives way
-         first (28rem → 8rem, still exactly centred) while both side regions
-         keep an 11rem floor, so the back button, the title and the gear keep
-         their room — on 0.44.0 the same placement squeezed the title to 0px
-         at 1280px with both columns open, which is why KI-838 had parked the
-         field in `headerActions`. Not rendered below `lg`: phones have no
-         search (out of scope). */
-      search={<WorkspaceSearch />}
       headerActions={headerActions}
       // The same user menu as every other sidebar (account, settings, help);
       // it stays reachable in the collapsed rail as the avatar.
@@ -189,6 +214,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
         onWidthChange: sidebar.setLeftSidebarWidth,
         label: t('resizeLeftSidebar'),
       }}
+      titlebarControls={<HistoryControls />}
       collapseLabel={t('collapseHistorySidebar')}
       expandLabel={t('expandHistorySidebar')}
       /* The sources column only for a caller who may see the source list
@@ -233,6 +259,10 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       noticeLabel={t('systemNotice')}
     >
       <ChatView />
+      {/* The topic-scoped search (cards KI-838, KI-844) as a palette: opened
+          by „Suchen" in the history column (HistoryPanel) or ⌘K. */}
+      <SearchPalette><WorkspaceSearch /></SearchPalette>
+      <DesktopMenuCommands />
     </AppShellLayout>
   );
 }
