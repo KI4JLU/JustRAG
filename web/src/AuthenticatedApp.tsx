@@ -574,6 +574,7 @@ function AuthenticatedAppInner() {
         <SharedTopicsView
           kbs={kbMgmt.kbs}
           globalKbs={kbMgmt.globalKbs}
+          loading={!kbMgmt.kbsLoaded}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}
@@ -600,6 +601,7 @@ function AuthenticatedAppInner() {
       >
         <MyTopicsView
           kbs={kbMgmt.kbs}
+          loading={!kbMgmt.kbsLoaded}
           currentKb={currentKb}
           availableConfigs={kbSettings.availableConfigs}
           onCreateKB={kbMgmt.handleCreateKB}

@@ -7,9 +7,10 @@ import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
 import { KbListHeader, PrivateKbCard } from './KbCard';
 import { Button } from '@ki4jlu/design-system';
-import { Plus } from 'lucide-react';
+import { FolderPlus, Plus } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
+import { TopicListEmptyState, TopicsEmptyState } from './TopicsEmptyState';
 import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';
 import { useKbOrder } from '../hooks/useKbOrder';
 import { useKbSortable } from '../hooks/useKbSortable';
@@ -48,6 +49,8 @@ const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ def
 export interface MyTopicsViewProps {
   /** `GET /api/kb` — every private topic the caller holds a membership row for. */
   kbs: KnowledgeBase[];
+  /** The list has not arrived yet; no empty state until it has. */
+  loading?: boolean;
   currentKb: KnowledgeBase | null;
   availableConfigs: SafeAIConfig[];
   onCreateKB: () => void;
@@ -63,6 +66,7 @@ export interface MyTopicsViewProps {
 
 export function MyTopicsView({
   kbs,
+  loading = false,
   currentKb,
   availableConfigs,
   onCreateKB,
@@ -141,6 +145,26 @@ export function MyTopicsView({
               <Button className="shrink-0" onClick={onCreateKB}>
                 <Plus className="size-4" aria-hidden="true" /> {t('newTopic')}
               </Button>
+            )}
+          />
+        )}
+        emptyState={(
+          <TopicListEmptyState
+            total={ownedKbs.length}
+            shown={displayed.length}
+            loading={loading}
+            filters={filters}
+            none={(
+              <TopicsEmptyState
+                icon={<FolderPlus />}
+                title={t('myTopicsEmptyTitle')}
+                description={t('myTopicsEmptyBody')}
+                action={(
+                  <Button variant="outline" onClick={onCreateKB}>
+                    <Plus className="size-4" aria-hidden="true" /> {t('newTopic')}
+                  </Button>
+                )}
+              />
             )}
           />
         )}

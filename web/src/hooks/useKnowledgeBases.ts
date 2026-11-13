@@ -68,6 +68,8 @@ export function useKnowledgeBases({
   const { removeKb, removing: removingKb } = useKbRemoval();
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [globalKbs, setGlobalKbs] = useState<KnowledgeBase[]>([]);
+  // False until the first list arrived: until then an empty list means nothing.
+  const [kbsLoaded, setKbsLoaded] = useState(false);
 
   const fetchKBs = useCallback(async (opts?: { silent?: boolean }) => {
     try {
@@ -78,6 +80,7 @@ export function useKnowledgeBases({
       ]);
       setKbs(privateKbs);
       setGlobalKbs(Array.isArray(globalRes.data) ? globalRes.data : []);
+      setKbsLoaded(true);
     } catch (err: unknown) {
       console.error('Failed to fetch KBs:', err);
       // Suppress the error toast for background polling so a transient network
@@ -160,7 +163,7 @@ export function useKnowledgeBases({
   }, [kbs, globalKbs, toast, t]);
 
   const handleCreateKB = async () => {
-    const name = await showPrompt(t('enterKBName'));
+    const name = await showPrompt(t('enterKBName'), '', t('newTopic'));
     if (!name) return;
     try {
       const res = await axios.post(`${API_BASE_URL}/api/kb`, { name });
@@ -324,7 +327,7 @@ export function useKnowledgeBases({
   }, [navigateTo]);
 
   return {
-    kbs, setKbs, globalKbs, setGlobalKbs,
+    kbs, setKbs, globalKbs, setGlobalKbs, kbsLoaded,
     fetchKBs, handleCreateKB, applyKbSelection, handleSelectKB, handleOpenKbById, resolveKbForRoute, handleRenameKB, saveKbSettings, handleDeleteKB, removingKb,
     handleToggleFavorite, handleDeleteGlobalKB, handleOpenGlobalKbSettings,
   };

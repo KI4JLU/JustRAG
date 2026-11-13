@@ -120,6 +120,25 @@ export const translations = {
      * from here that ends with a new topic in front of them. */
     addTopic: { de: 'Thema hinzufügen', en: 'Add topic' },
 
+    /* What a topic page shows while it has no cards: a heading and a line,
+     * two keys each because the heading is an element of its own. */
+    myTopicsEmptyTitle: { de: 'Noch keine eigenen Themen', en: 'No topics of your own yet' },
+    myTopicsEmptyBody: {
+      de: 'Lege ein Thema an, füge Quellen hinzu und stelle Fragen dazu.',
+      en: 'Create a topic, add sources and ask questions about them.',
+    },
+    sharedTopicsEmptyTitle: { de: 'Noch nichts geteilt', en: 'Nothing shared yet' },
+    sharedTopicsEmptyBody: {
+      de: 'Hier erscheinen Themen, die andere mit dir teilen, und öffentliche Themen, die du hinzufügst.',
+      en: 'Topics other people share with you and public topics you add appear here.',
+    },
+    topicsFilterEmptyTitle: { de: 'Keine Themen in diesem Filter', en: 'No topics in this filter' },
+    topicsFilterEmptyBody: {
+      de: 'Wähle einen anderen Filter oder zeige alle Themen an.',
+      en: 'Choose another filter or show all topics.',
+    },
+    topicsFilterShowAll: { de: 'Alle Themen anzeigen', en: 'Show all topics' },
+
     /* The filter chip row above every view's list (migration 0077). */
     filterAll: { de: 'Alle', en: 'All' },
     filterFavorites: { de: 'Favoriten', en: 'Favorites' },
@@ -681,7 +700,7 @@ export const translations = {
         en: 'Unsubscribe from this topic? Your chats are kept, and you can find it again any time under "Discover".',
     },
     confirmDeleteFile: { de: 'Bist du sicher, dass du diese Datei löschen möchtest? Dies entfernt auch alle daraus extrahierten Informationen.', en: 'Are you sure you want to delete this file? This will also remove all extracted information.' },
-    enterKBName: { de: 'Name für deine Knowledge Base eingeben:', en: 'Enter name for your Knowledge Base:' },
+    enterKBName: { de: 'Name für dein Thema eingeben:', en: 'Enter a name for your topic:' },
     shareSuccess: { de: 'Knowledge Base geteilt mit', en: 'Knowledge Base shared with' },
     shareError: { de: 'Teilen der Knowledge Base fehlgeschlagen', en: 'Failed to share Knowledge Base' },
     bulkInvite: { de: 'Sammeleinladung', en: 'Bulk invite' },
@@ -804,10 +823,10 @@ export const translations = {
     // Entry point for KbSettingsPanel (RAG-Einstellungen / Evals / Workflow).
     kbAdvancedSettings: { de: 'RAG-Settings', en: 'RAG settings' },
     // KB rename (owner of a private KB / system admin on a public KB).
-    renameKb: { de: 'Knowledge Base umbenennen', en: 'Rename Knowledge Base' },
+    renameKb: { de: 'Thema umbenennen', en: 'Rename topic' },
     rename: { de: 'Umbenennen', en: 'Rename' },
-    renameKbPrompt: { de: 'Neuer Name für die Knowledge Base:', en: 'New name for the Knowledge Base:' },
-    kbRenameError: { de: 'Fehler beim Umbenennen der Knowledge Base', en: 'Error renaming knowledge base' },
+    renameKbPrompt: { de: 'Neuer Name für das Thema:', en: 'New name for the topic:' },
+    kbRenameError: { de: 'Fehler beim Umbenennen des Themas', en: 'Error renaming topic' },
     kbNameTooLong: { de: 'Der Name darf höchstens 255 Zeichen lang sein', en: 'The name must not exceed 255 characters' },
 
     // KB Catalog Modal
@@ -1301,7 +1320,7 @@ export const translations = {
     feedbackTitleNegative: { de: 'Was könnte an dieser Antwort besser sein?', en: 'What could be better about this answer?' },
     filesFetchError: { de: 'Fehler beim Laden der Dateien', en: 'Error loading files' },
     kbFetchError: { de: 'Fehler beim Laden der Knowledge Bases', en: 'Error loading knowledge bases' },
-    kbCreateError: { de: 'Fehler beim Erstellen der Knowledge Base', en: 'Error creating knowledge base' },
+    kbCreateError: { de: 'Fehler beim Erstellen des Themas', en: 'Error creating topic' },
     contentFetchError: { de: 'Fehler beim Laden der generierten Inhalte', en: 'Error loading generated content' },
     rssFetchError: { de: 'Fehler beim Laden der RSS-Feeds', en: 'Error loading RSS feeds' },
     editorsFetchError: { de: 'Fehler beim Laden der Bearbeiter', en: 'Error loading editors' },

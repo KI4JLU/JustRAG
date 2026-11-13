@@ -287,14 +287,29 @@ describe('SharedTopicsView add-topic tile', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('is the whole of the page when nothing is shared yet', () => {
+  it('shows a placeholder with the same jump when nothing is shared yet', async () => {
     renderView(<SharedTopicsView kbs={[]} {...noopProps} />);
 
-    /* The tile IS the empty state (a placeholder above it was removed as a
-       restatement of it), so this is the assertion that an empty page is not a
-       blank one. */
-    expect(screen.getByRole('button', { name: translations.addTopic.en })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: translations.sharedTopicsEmptyTitle.en })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Knowledge Base öffnen/ })).toBeNull();
+    // The toolbar button and the placeholder's own.
+    const add = screen.getAllByRole('button', { name: translations.addTopic.en });
+    expect(add).toHaveLength(2);
+    await userEvent.click(add[1]);
+    expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no placeholder while the lists are still loading', () => {
+    renderView(<SharedTopicsView kbs={[]} {...noopProps} loading />);
+
+    expect(screen.queryByRole('heading', { name: translations.sharedTopicsEmptyTitle.en })).toBeNull();
+  });
+
+  it('shows no placeholder beside a shared topic', () => {
+    const shared: KnowledgeBase = { ...baseKb, id: 'kb-shared', myRole: 'edit' };
+    renderView(<SharedTopicsView kbs={[shared]} {...noopProps} />);
+
+    expect(screen.queryByRole('heading', { name: translations.sharedTopicsEmptyTitle.en })).toBeNull();
   });
 });
 

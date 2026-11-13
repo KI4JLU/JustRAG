@@ -785,6 +785,58 @@ describe('MyTopicsView filter chips', () => {
   });
 });
 
+describe('MyTopicsView empty state', () => {
+  const personal: KnowledgeBase = { ...baseKb, id: 'kb-p', name: 'Nur ich', myRole: 'owner', memberCount: 1 };
+  const emptyTitle = () => screen.queryByRole('heading', { name: translations.myTopicsEmptyTitle.en });
+  const filterTitle = () => screen.queryByRole('heading', { name: translations.topicsFilterEmptyTitle.en });
+
+  it('shows a placeholder that creates a topic when the user owns none', async () => {
+    const onCreateKB = vi.fn();
+    renderView(<MyTopicsView kbs={[]} {...noopProps} onCreateKB={onCreateKB} />);
+
+    expect(emptyTitle()).toBeInTheDocument();
+    // The toolbar button and the placeholder's own.
+    const create = screen.getAllByRole('button', { name: translations.newTopic.en });
+    expect(create).toHaveLength(2);
+    await userEvent.click(create[1]);
+    expect(onCreateKB).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts only owned topics: one shared with the user leaves the page empty', () => {
+    renderView(<MyTopicsView kbs={[{ ...personal, myRole: 'edit' }]} {...noopProps} />);
+
+    expect(emptyTitle()).toBeInTheDocument();
+  });
+
+  it('shows no placeholder while the list is still loading', () => {
+    renderView(<MyTopicsView kbs={[]} {...noopProps} loading />);
+
+    expect(emptyTitle()).toBeNull();
+  });
+
+  it('shows no placeholder beside a topic', async () => {
+    renderView(<MyTopicsView kbs={[personal]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+
+    expect(emptyTitle()).toBeNull();
+    expect(filterTitle()).toBeNull();
+  });
+
+  it('says the filter matches nothing, and returns to all topics', async () => {
+    renderView(<MyTopicsView kbs={[personal]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+
+    await userEvent.click(screen.getByRole('button', { name: translations.filterShared.en }));
+    expect(filterTitle()).toBeInTheDocument();
+    expect(emptyTitle()).toBeNull();
+    expect(screen.queryByText('Nur ich')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: translations.topicsFilterShowAll.en }));
+    expect(filterTitle()).toBeNull();
+    expect(screen.getByText('Nur ich')).toBeInTheDocument();
+  });
+});
+
 describe('MyTopicsView ordering', () => {
   const plain: KnowledgeBase = { ...baseKb, id: 'kb-plain', name: 'Zuletzt', myRole: 'owner', isFavorite: false };
   const starred: KnowledgeBase = { ...baseKb, id: 'kb-star', name: 'Zuerst', myRole: 'owner', isFavorite: true };
