@@ -149,8 +149,9 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
     expect(shellProps.leftResize).toMatchObject({ minWidth: 150, maxWidth: 600 });
     expect(shellProps.leftResize?.onWidthChange).toBe(setLeftSidebarWidth);
     expect(shellProps.rightPanel?.width).toBe(500);
-    expect(shellProps.rightPanel?.resize).toMatchObject({ minWidth: 360, maxWidth: 800 });
-    expect(shellProps.rightPanel?.resize?.onWidthChange).toBe(setRightSidebarWidth);
+    // The sources float as a card: a width, no drag handle and no rail.
+    expect(shellProps.rightPanel?.resize).toBeUndefined();
+    expect(shellProps.rightPanel?.collapsedPreview).toBeUndefined();
   });
 
   it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung — kein Workspace mehr', () => {
@@ -344,8 +345,8 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
 
 // Oracle: backend contract 2026-10-16 — seeSources is the base of every
 // source right (add, download and manage all require it), so without it the
-// sources column has nothing usable to show. The UI rule: what cannot be used
-// is not rendered — no column, no rail, no mobile tab.
+// sources card has nothing usable to show. The UI rule: no card and no mobile
+// tab; the card's toggle stays in its place, locked, and says why.
 describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
   const caps = (seeSources: boolean) => ({
     seeSources, addSources: false, downloadSources: false, seeCitations: true, manageSources: false,
@@ -358,10 +359,15 @@ describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
     expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat', 'files']);
   });
 
-  it('hands the shell no sources column and no files tab without seeSources', () => {
+  it('hands the shell a locked sources toggle, no sources content and no files tab without seeSources', () => {
     kbExtra = { capabilities: caps(false) };
     renderLayout();
-    expect(shellProps.rightPanel).toBeUndefined();
+    const panel = shellProps.rightPanel;
+    expect(panel?.locked?.description).toBe('sourcesLockedReason');
+    expect(panel?.content).toBeNull();
+    expect(panel?.isOpen).toBe(false);
+    render(<div>{panel?.toggleTooltip}</div>);
+    expect(screen.getByText('sourcesLockedReason')).toBeInTheDocument();
     expect(screen.queryByTestId('sources-panel')).not.toBeInTheDocument();
     expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat']);
   });

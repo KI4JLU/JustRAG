@@ -555,7 +555,17 @@ button.source-card {
      answer spans exactly the composer's box. cqw keeps both relative to this
      column, whatever the scroller's scrollbar takes. */
   container-type: inline-size;
-  --chat-column-width: 80cqw;
+  /* The user's chat width (settings → Chat): a share of this column, capped
+     so a line stays readable on a large screen. `comfortable` is the default;
+     the other two are below. */
+  --chat-width-share: 80cqw;
+  --chat-width-cap: 60rem;
+  /* What the open floating sources card covers at the end edge (published
+     by the design system's shell); 0 while it is closed. */
+  --chat-clear: var(--app-shell-bubble-inset, 0px);
+  --chat-column-width: min(var(--chat-width-share), var(--chat-width-cap), 100cqw - var(--chat-clear));
+  /* The centred box the shift below is worked out for. */
+  --chat-box: var(--chat-column-width);
   --chat-column-inset: 2rem;
   --chat-message-max: 700px;
   flex: 1;
@@ -563,6 +573,16 @@ button.source-card {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+}
+
+.chat-column[data-chat-width="wide"] {
+  --chat-width-share: 90cqw;
+  --chat-width-cap: 80rem;
+}
+
+.chat-column[data-chat-width="full"] {
+  --chat-width-share: 100cqw;
+  --chat-width-cap: 100cqw;
 }
 
 /* Inside the DS ChatStage (centring and the pinned disclaimer live there):
@@ -616,6 +636,31 @@ button.source-card {
   margin-right: auto;
   padding-left: var(--chat-column-inset, 2rem);
   padding-right: var(--chat-column-inset, 2rem);
+  /* The column stays centred while it fits beside the sources card, moves
+     towards the start by what is missing once it does not, and only then
+     narrows (`--chat-column-width`). The composer (`.input-container`)
+     carries the same offset, so the two stay aligned. */
+  position: relative;
+  left: calc(-1 * max(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2));
+}
+
+/* The disclaimer under the composer keeps clear of the card the same way:
+   centred while its line fits beside it, then moved, then wrapped. */
+.chat-column > [data-slot="chat-stage-footer"] {
+  --chat-box: min(60rem, 100cqw - var(--chat-clear, 0px));
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-box);
+  margin-inline: auto;
+  position: relative;
+  left: calc(-1 * max(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box)) / 2));
+}
+
+/* The start page's content is the title card's width (max-w-2xl), whatever
+   the column's: that box is what has to clear the card. */
+[data-slot="chat-stage"][data-empty] .messages-container > .empty-state,
+.input-container.input-container--start {
+  --chat-box: min(42rem, 100cqw);
 }
 
 /* One row = one flex column so the bubble's `align-self` applies: user on
@@ -1128,6 +1173,8 @@ button.source-card {
   max-width: var(--chat-column-width, 80%);
   margin: 0 auto;
   width: 100%;
+  position: relative;
+  left: calc(-1 * max(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2));
 }
 
 /* An empty chat — the start page: the composer, role cards and dropzone as

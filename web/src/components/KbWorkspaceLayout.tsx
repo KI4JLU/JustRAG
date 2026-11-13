@@ -12,8 +12,7 @@ import {
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
 import { useAppNavigate } from '../routing/navigation';
-import { SourcesRail } from './sidebar/SourcesRail';
-import { FolderOpen, History, MessageSquare } from 'lucide-react';
+import { FolderOpen, History, Lock, MessageSquare } from 'lucide-react';
 import { TopicSettingsButton } from './TopicSettingsButton';
 import { useTopicSettingsDiff } from '../hooks/useTopicSettingsDiff';
 import { useTheme } from '../contexts/ThemeContext';
@@ -25,7 +24,7 @@ import { HistoryPanel } from './history/HistoryPanel';
 import { ChatView } from './ChatView';
 import { type MobileTab } from './MobileTabBar';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
-import { LEFT_SIDEBAR_BOUNDS, RIGHT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
+import { LEFT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
 import { AppLogo } from './AppLogo';
@@ -217,11 +216,11 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       titlebarControls={<HistoryControls />}
       collapseLabel={t('collapseHistorySidebar')}
       expandLabel={t('expandHistorySidebar')}
-      /* The sources column only for a caller who may see the source list
-         (capabilities.seeSources). Without it nothing in the column could be
-         used — no list, and every other source right (add, download, manage)
-         sits on top of seeSources — so there is no column, no rail, no
-         toggle and no mobile tab rather than an empty one. */
+      /* The sources card. A caller who may not see the source list
+         (capabilities.seeSources) keeps the toggle in its place, locked, with
+         the reason in its tooltip — but gets no card and no mobile tab: every
+         other source right (add, download, manage) sits on top of seeSources,
+         so nothing in the card could be used. */
       rightPanel={seeSources ? {
         content: <SourcesPanel />,
         // The column's title sits in its header row, beside the collapse
@@ -231,24 +230,33 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
             {addSources ? t('addSources') : t('sources')}
           </h2>
         ),
-        // Collapsed: one icon per source with the hover preview, like the history rail.
-        collapsedPreview: <SourcesRail />,
         label: t('sources'),
         isOpen: sidebar.isRightSidebarOpen,
         onOpenChange: sidebar.setIsRightSidebarOpen,
-        // Beide Breiten kommen aus `useSidebarResize`, wo sie pro Gerät
-        // gespeichert werden; die Grenzen sind die `aria-valuemin/max` der
-        // Griffe. Ziehen und Tasten erledigt die Shell (`ResizeHandle`).
+        // The card's width, stored per device in `useSidebarResize`. The
+        // floating card has no rail and no drag handle.
         width: sidebar.rightSidebarWidth,
-        resize: {
-          minWidth: RIGHT_SIDEBAR_BOUNDS.min,
-          maxWidth: RIGHT_SIDEBAR_BOUNDS.max,
-          onWidthChange: sidebar.setRightSidebarWidth,
-          label: t('resizeRightSidebar'),
-        },
         expandLabel: t('expandSourcesSidebar'),
         collapseLabel: t('collapseSourcesSidebar'),
-      } : undefined}
+        toggleTooltip: <span className="block font-semibold">{t('sources')}</span>,
+      } : {
+        content: null,
+        label: t('sources'),
+        isOpen: false,
+        onOpenChange: () => {},
+        expandLabel: `${t('sources')} – ${t('sourcesLocked')}`,
+        collapseLabel: `${t('sources')} – ${t('sourcesLocked')}`,
+        locked: { description: t('sourcesLockedReason') },
+        toggleTooltip: (
+          <>
+            <span className="block font-semibold">{t('sources')}</span>
+            <span className="mt-1 flex items-start gap-1.5 font-normal">
+              <Lock size={14} aria-hidden="true" className="mt-[0.2em] shrink-0" />
+              {t('sourcesLockedReason')}
+            </span>
+          </>
+        ),
+      }}
       mobileTabs={mobileTabs}
       activeMobileTab={activeMobileTab}
       onMobileTabChange={handleMobileTabChange}

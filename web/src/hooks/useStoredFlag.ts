@@ -108,6 +108,55 @@ export function useSharedStoredFlag(
   return [value, set];
 }
 
+/* A remembered CHOICE among fixed values, shared and live like
+ * `useSharedStoredFlag` — set in the settings dialog, read by the view it
+ * shapes. A stored value outside `values` reads as the fallback, so a renamed
+ * option costs the preference, never the view. */
+const choiceListeners = new Map<string, Set<() => void>>();
+const choiceValues = new Map<string, string>();
+
+function readStoredChoice(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One of `values` that survives a reload, shared by every component using `key`.
+ *
+ * @param key      the FULL localStorage key, `justrag.`-prefixed by the caller.
+ * @param values   the allowed values.
+ * @param fallback the value before the user has ever set one.
+ */
+export function useSharedStoredChoice<T extends string>(
+  key: string,
+  values: readonly T[],
+  fallback: T,
+): [T, (next: T) => void] {
+  const subscribe = useCallback((notify: () => void) => {
+    let set = choiceListeners.get(key);
+    if (!set) choiceListeners.set(key, (set = new Set()));
+    set.add(notify);
+    return () => { set.delete(notify); };
+  }, [key]);
+  const raw = useSyncExternalStore(subscribe, () => {
+    if (!choiceValues.has(key)) choiceValues.set(key, readStoredChoice(key) ?? fallback);
+    return choiceValues.get(key)!;
+  });
+  const set = useCallback((next: T) => {
+    try {
+      window.localStorage.setItem(key, next);
+    } catch {
+      // See readStored: a preference that cannot be persisted is not an error.
+    }
+    choiceValues.set(key, next);
+    choiceListeners.get(key)?.forEach(notify => notify());
+  }, [key]);
+  return [(values as readonly string[]).includes(raw) ? (raw as T) : fallback, set];
+}
+
 /* A remembered SET OF IDS, shared and live like `useSharedStoredFlag` — for a
  * preference that is a list rather than one switch (the categories hidden
  * from the filter row: set in the category dialog, read by every view's chip
