@@ -7,9 +7,10 @@ import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from './AppChrome';
 import { KbListHeader, PrivateKbCard } from './KbCard';
 import { Button } from '@ki4jlu/design-system';
-import { Plus } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 import { TopicGridPage } from './TopicGridPage';
 import { TopicFilterBar } from './TopicFilterBar';
+import { TopicListEmptyState, TopicsEmptyState } from './TopicsEmptyState';
 import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';
 import { useKbOrder } from '../hooks/useKbOrder';
 import { useKbSortable } from '../hooks/useKbSortable';
@@ -46,11 +47,9 @@ import { useKbSortable } from '../hooks/useKbSortable';
  * the one place a user can end up with a topic they did not have. Sharing stays
  * on the card in „Mein Wissen", where the topic is.
  *
- * AND THE TILE IS THE EMPTY STATE (developer ruling, 18.09.2026). A placeholder
- * („Wissen gemeinsam nutzen" plus a line) sat above it for one round and was
- * dropped: on a page whose only control is one tile, a sentence beside it
- * describes what the tile already offers. An empty page is the heading, the
- * subtitle and the tile.
+ * THE EMPTY STATE. While the „Thema hinzufügen" tile was the grid's first cell
+ * it stood in for one. The action is a toolbar button now, so a page with no
+ * topics shows `TopicsEmptyState` below the filter row, with the same jump.
  *
  * Neither tile ever created a global topic. A topic is not created global
  * (developer ruling): it is created private and PROMOTED, by a system admin,
@@ -80,6 +79,11 @@ export interface SharedTopicsViewProps {
   kbs: KnowledgeBase[];
   /** `GET /api/kb/global` — the global topics the user subscribed to. */
   globalKbs: KnowledgeBase[];
+  /** The lists have not arrived yet; no empty state until they have. */
+  loading?: boolean;
+  /** The first fetch failed: the page says so and offers `onRetryLoad`. */
+  loadFailed?: boolean;
+  onRetryLoad?: () => void;
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
@@ -90,6 +94,9 @@ export interface SharedTopicsViewProps {
 export function SharedTopicsView({
   kbs,
   globalKbs,
+  loading = false,
+  loadFailed = false,
+  onRetryLoad,
   onSelectKB,
   onDeleteKB,
   removingKb,
@@ -166,6 +173,28 @@ export function SharedTopicsView({
               <Button className="shrink-0" onClick={onViewDiscover}>
                 <Plus className="size-4" aria-hidden="true" /> {t('addTopic')}
               </Button>
+            )}
+          />
+        )}
+        emptyState={(
+          <TopicListEmptyState
+            total={sharedKbs.length}
+            shown={displayed.length}
+            loading={loading}
+            loadFailed={loadFailed}
+            onRetryLoad={onRetryLoad}
+            filters={filters}
+            none={(
+              <TopicsEmptyState
+                icon={<Users />}
+                title={t('sharedTopicsEmptyTitle')}
+                description={t('sharedTopicsEmptyBody')}
+                action={(
+                  <Button variant="outline" onClick={onViewDiscover}>
+                    <Plus className="size-4" aria-hidden="true" /> {t('addTopic')}
+                  </Button>
+                )}
+              />
             )}
           />
         )}

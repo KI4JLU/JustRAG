@@ -68,8 +68,12 @@ export function useKnowledgeBases({
   const { removeKb, removing: removingKb } = useKbRemoval();
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [globalKbs, setGlobalKbs] = useState<KnowledgeBase[]>([]);
+  // Until the first list arrived an empty list means nothing; `failed` is a
+  // first fetch that did not arrive, and a retry returns it to `loading`.
+  const [kbsStatus, setKbsStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
 
   const fetchKBs = useCallback(async (opts?: { silent?: boolean }) => {
+    setKbsStatus(prev => (prev === 'failed' ? 'loading' : prev));
     try {
       // GET /api/kb/global is not paged (API.md); only the private list is.
       const [privateKbs, globalRes] = await Promise.all([
@@ -78,8 +82,11 @@ export function useKnowledgeBases({
       ]);
       setKbs(privateKbs);
       setGlobalKbs(Array.isArray(globalRes.data) ? globalRes.data : []);
+      setKbsStatus('loaded');
     } catch (err: unknown) {
       console.error('Failed to fetch KBs:', err);
+      // A list already on screen stays; only a first fetch can fail the page.
+      setKbsStatus(prev => (prev === 'loaded' ? prev : 'failed'));
       // Suppress the error toast for background polling so a transient network
       // blip while files are processing doesn't spam the user.
       if (!opts?.silent) toast.error(userErrorMessage(err, t, { fallbackKey: 'kbFetchError' }));
@@ -160,7 +167,7 @@ export function useKnowledgeBases({
   }, [kbs, globalKbs, toast, t]);
 
   const handleCreateKB = async () => {
-    const name = await showPrompt(t('enterKBName'));
+    const name = await showPrompt(t('enterKBName'), '', t('newTopic'));
     if (!name) return;
     try {
       const res = await axios.post(`${API_BASE_URL}/api/kb`, { name });
@@ -324,7 +331,7 @@ export function useKnowledgeBases({
   }, [navigateTo]);
 
   return {
-    kbs, setKbs, globalKbs, setGlobalKbs,
+    kbs, setKbs, globalKbs, setGlobalKbs, kbsStatus,
     fetchKBs, handleCreateKB, applyKbSelection, handleSelectKB, handleOpenKbById, resolveKbForRoute, handleRenameKB, saveKbSettings, handleDeleteKB, removingKb,
     handleToggleFavorite, handleDeleteGlobalKB, handleOpenGlobalKbSettings,
   };
