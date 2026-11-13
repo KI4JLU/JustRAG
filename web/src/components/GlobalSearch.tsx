@@ -17,6 +17,7 @@ import { BookOpen, Compass, FileText, Globe, MessageSquare, Search, TextQuote } 
 import { useTheme } from '../contexts/ThemeContext';
 import { isSearchableQuery, useGlobalSearch } from '../hooks/useGlobalSearch';
 import { splitSnippet } from '../utils/searchSnippet';
+import { IS_APPLE, SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
 import type { SearchChatHit, SearchMessageHit, SearchSourceHit, SearchTopicHit } from '../types';
 
 /* ---------------------------------------------------------------------------
@@ -97,18 +98,12 @@ export interface GlobalSearchProps {
    * search results. Omitted or all-empty → the empty field opens nothing.
    */
   defaultGroups?: SearchDefaultGroup[];
-}
-
-/* ⌘K on Apple platforms, Ctrl+K elsewhere — the convention of every
-   command-palette search (GitHub, Slack, Linear, the shadcn docs). Read once:
-   the platform does not change while the page is open. */
-const IS_APPLE = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
-
-function isSearchShortcut(e: KeyboardEvent): boolean {
-  return e.key.toLowerCase() === 'k'
-    && (IS_APPLE ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
-    && !e.altKey && !e.shiftKey;
+  /**
+   * The list was dismissed — Escape, a click outside, or a row was opened.
+   * The palette the field sits in closes on it (`SearchPalette`). Not called
+   * for the widen row, which keeps the list open.
+   */
+  onClose?: () => void;
 }
 
 /** Writes the field element to both the internal and the caller's ref. */
@@ -147,7 +142,7 @@ function HitText({ primary, secondary }: { primary: ReactNode; secondary?: React
 export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(function GlobalSearch(
   {
     query, onQueryChange, scopeKbId, scopeLabel,
-    onOpenTopic, onOpenSource, canOpenSource, onOpenChat, onOpenMessage, onShowAllTopics, defaultGroups,
+    onOpenTopic, onOpenSource, canOpenSource, onOpenChat, onOpenMessage, onShowAllTopics, defaultGroups, onClose,
   },
   ref,
 ) {
@@ -204,7 +199,10 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
     }
     const reopening = next && !open;
     setOpen(next);
-    if (!next) return;
+    if (!next) {
+      onClose?.();
+      return;
+    }
     // A fresh instance can hold remembered text it never searched for (the
     // chrome was rebuilt after the Discover row). ↓ then opens the list, so
     // ask for results rather than opening onto nothing. Typing never reaches
@@ -266,7 +264,7 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
       <ComboboxInput
         ref={setFieldRef}
         aria-label={fieldLabel}
-        aria-keyshortcuts={IS_APPLE ? 'Meta+K' : 'Control+K'}
+        aria-keyshortcuts={SEARCH_KEYSHORTCUT}
         placeholder={fieldLabel}
         leadingIcon={<Search aria-hidden="true" />}
         shortcutHint={(

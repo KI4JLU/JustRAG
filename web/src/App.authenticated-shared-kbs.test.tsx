@@ -403,7 +403,7 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
    * half a heading assertion alone would miss: navigating with the query
    * DROPPED would look identical.
    * ---------------------------------------------------------------------- */
-  it('opens the search dropdown in place, and its Discover row lands on Entdecken with the query and the caret', async () => {
+  it('opens the search palette in place, and its Discover row lands on Entdecken with the query', async () => {
     /* The documented `GET /api/search` shape (API.md `### Search`), with one
        topic hit so the Topics group — and with it the Discover row — renders. */
     mockedGet.mockImplementation((url: string) => Promise.resolve({
@@ -421,15 +421,16 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.de }));
     await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
 
-    const field = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
+    await userEvent.click(screen.getByRole('button', { name: translations.searchOpen.de }));
+    const field = await screen.findByRole('combobox', { name: translations.globalSearchPlaceholder.de });
     await userEvent.type(field, 'Recht');
 
-    // The dropdown, on THIS view: the heading has not changed.
+    // The palette, on THIS view: the heading has not changed.
     const showAll = await screen.findByRole(
       'option', { name: translations.globalSearchShowAllInDiscover.de }, { timeout: 2000 },
     );
-    expect(screen.getByRole('heading', { level: 1, name: translations.sharedTopics.de })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 1, name: translations.discoverTopics.de })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: translations.sharedTopics.de, hidden: true })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: translations.discoverTopics.de, hidden: true })).toBeNull();
 
     await userEvent.click(showAll);
 
@@ -437,16 +438,8 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     expect(
       await screen.findByRole('heading', { level: 1, name: translations.discoverTopics.de }),
     ).toBeInTheDocument();
-
-    /* ...with the caret in the REBUILT field. ORACLE: `document.activeElement`,
-       then `userEvent.keyboard`, which types into whatever the DOCUMENT says
-       is focused — it is handed no element. The second character reaches the
-       new field only if the caret was really moved there. */
-    const rebuilt = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
-    expect(rebuilt).not.toBe(field);
-    await waitFor(() => expect(document.activeElement).toBe(rebuilt));
-    await userEvent.keyboard('s');
-    expect(rebuilt).toHaveValue('Rechts');
+    // ...and the palette is closed: the row handed the text over to the catalog.
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: translations.globalSearchPlaceholder.de })).toBeNull());
 
     // ...and the query drove the catalog: only the panel fires this, and it
     // mounts with the page the row navigated to.

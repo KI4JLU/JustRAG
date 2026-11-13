@@ -27,7 +27,7 @@ import { STORAGE_NAMESPACE } from './useStoredFlag';
  * (`useSidebarCollapse`) is the one open-state that IS remembered, and that
  * stays its own decision.
  *
- * DEFAULTS. Left 320px, wider than the shell's 256 (2026-09-21). Right 360px
+ * DEFAULTS. Left 296px (2026-11-11; 320px before), wider than the shell's 256. Right 360px
  * since 2026-10-12, see RIGHT_SIDEBAR_BOUNDS. BOUNDS are the ones the old drag
  * code enforced (left 150–600; right 360–800); they are the `ResizeHandle`'s
  * `aria-valuemin/max` and what a stored value is clamped into on read.
@@ -43,7 +43,7 @@ export const LEFT_SIDEBAR_BOUNDS = { min: 150, max: 600 } as const;
 // headroom for other fonts. A stored narrower width is clamped up on read.
 export const RIGHT_SIDEBAR_BOUNDS = { min: 360, max: 800 } as const;
 
-const DEFAULT_SIDEBAR_WIDTH = 320;
+const DEFAULT_SIDEBAR_WIDTH = 296;
 const DEFAULT_RIGHT_SIDEBAR_WIDTH = RIGHT_SIDEBAR_BOUNDS.min;
 
 export function useSidebarResize() {

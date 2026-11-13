@@ -247,6 +247,9 @@ export const translations = {
      * exactly what the component would have rendered on its own. */
     collapseNavigation: { de: 'Navigation einklappen', en: 'Collapse navigation' },
     expandNavigation: { de: 'Navigation ausklappen', en: 'Expand navigation' },
+    /* Desktop app title bar: history buttons (a browser has its own). */
+    historyBack: { de: 'Zurück', en: 'Back' },
+    historyForward: { de: 'Vor', en: 'Forward' },
 
     /* The DS `ThemeToggle`'s four labels (card KI-788).
      *
@@ -519,6 +522,11 @@ export const translations = {
     followUpsHint: { de: 'Anschlussfragen zur letzten Antwort über dem Eingabefeld.', en: 'Follow-up questions on the latest answer, above the input.' },
     autoScrollLabel: { de: 'Antworttext automatisch scrollen', en: 'Autoscroll' },
     autoScrollHint: { de: 'Folgt einer entstehenden Antwort bis zum Ende. Aus: Die Frage bleibt oben stehen, die Antwort wächst darunter.', en: 'Follows an answer while it is being written. Off: the question stays at the top and the answer grows below it.' },
+    chatWidthLabel: { de: 'Chatbreite', en: 'Chat width' },
+    chatWidthHint: { de: 'Legt fest, wie breit Nachrichten und Eingabefeld auf großen Bildschirmen werden.', en: 'Sets how wide messages and the composer can grow on large screens.' },
+    chatWidthComfortable: { de: 'Komfortabel (Standard)', en: 'Comfortable (default)' },
+    chatWidthWide: { de: 'Breit', en: 'Wide' },
+    chatWidthFull: { de: 'Voll', en: 'Full' },
     kbHeaderDefault: { de: 'Frage mich alles, was du über deine Quellen wissen möchtest. Ich kann dir helfen, Zusammenfassungen zu erstellen, Informationen zu finden und Ideen zu synthetisieren.', en: 'Ask me anything about your sources. I can help you summarize, find information, and synthesize ideas.' },
     chatPlaceholder: { de: 'Stelle eine Frage zu den Quellen...', en: 'Ask a question about the sources...' },
     chatPlaceholderContextual: { de: 'Stelle eine Frage zu {{name}}...', en: 'Ask about {{name}}...' },
@@ -820,6 +828,9 @@ export const translations = {
      * trimmed search text. */
     globalSearchPlaceholder: { de: 'Themen, Quellen und Chats durchsuchen…', en: 'Search topics, sources and chats…' },
     kbdCtrl: { de: 'Strg', en: 'Ctrl' },
+    /* The sidebar row that opens the search palette, and the palette's name. */
+    searchOpen: { de: 'Suchen', en: 'Search' },
+    searchPaletteTitle: { de: 'Suche', en: 'Search' },
     searchFooterAllTopics: { de: 'Alle Themen', en: 'All topics' },
     searchFooterOpen: { de: 'Öffnen', en: 'Open' },
     searchFooterNavigate: { de: 'Navigieren', en: 'Navigate' },
@@ -875,6 +886,13 @@ export const translations = {
     systemPromptLabel: { de: 'System-Prompt', en: 'System Prompt' },
     kbBehaviorTitle: { de: 'Verhalten der Wissensdatenbank', en: 'Knowledge base behaviour' },
     kbSettingsTitle: { de: 'Thema-Einstellungen', en: 'Topic settings' },
+    /* The gear in the topic view's bar, and its marker for settings that
+     * differ from the template. */
+    topicSettingsButton: { de: 'Einstellungen des Themas', en: 'Topic settings' },
+    topicSettingsCustomized: { de: 'angepasst', en: 'customised' },
+    topicDiffOwnRole: { de: 'Eigene Rolle', en: 'Own role' },
+    topicDiffOwnRules: { de: 'Eigene Regeln', en: 'Own rules' },
+    topicDiffOwnStartPage: { de: 'Eigene Startseite', en: 'Own start page' },
     kbSettingsTabBehavior: { de: 'Verhalten', en: 'Behaviour' },
     kbSettingsTabRoles: { de: 'Berechtigungen', en: 'Permissions' },
     rrSubtitle: { de: 'Legt fest, was Bearbeiter und Leser in diesem Thema dürfen.', en: 'Defines what editors and viewers may do in this topic.' },
@@ -1157,6 +1175,8 @@ export const translations = {
     collapseSourcesSidebar: { de: 'Quellenleiste einklappen', en: 'Collapse sources sidebar' },
     goToHome: { de: 'Zur Startseite', en: 'Go to home' },
     sources: { de: 'Quellen', en: 'Sources' },
+    sourcesLocked: { de: 'gesperrt', en: 'locked' },
+    sourcesLockedReason: { de: 'Mit deiner Rolle in diesem Thema kannst du die Quellen nicht einsehen.', en: 'Your role in this topic does not include viewing the sources.' },
     selectSource: { de: 'Quelle auswählen', en: 'Select source' },
     selectSources: { de: 'Auswählen', en: 'Select' },
     confirmSourceSelection: { de: 'Auswahl für den Chat übernehmen', en: 'Use selection in chat' },

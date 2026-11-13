@@ -4,6 +4,7 @@ import {
   NavItem,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
+import { HistoryControls } from './HistoryControls';
 import {
   Home, Users,
   LayoutGrid, Menu, Compass, Wrench,
@@ -15,6 +16,8 @@ import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { AppUserMenu } from './AppUserMenu';
 import { AppLogo } from './AppLogo';
 import { SidebarNav } from './SidebarNav';
+import { SearchNavRow, SearchPalette } from './SearchPalette';
+import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
@@ -214,6 +217,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
      the navigation itself stays exactly what each row already did. */
   const nav = (
     <>
+      <SearchNavRow />
       <NavItem
         type="button"
         label={t('myTopics')}
@@ -326,6 +330,7 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         onOpenMessage={(hit) => onOpenChat({
           chatId: hit.chatId, kbId: hit.kbId, title: hit.chatTitle, type: hit.chatType, timestamp: hit.createdAt,
         })}
+        onClose={() => setSearchPaletteOpen(false)}
         onShowAllTopics={(q) => {
           applyCatalogQuery(q);
           if (active !== 'discover') {
@@ -384,9 +389,12 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         nav={<SidebarNav>{nav}</SidebarNav>}
         sidebarFooter={sidebarFooter}
         navLabel={t('mainNavigation')}
-        search={headerSearch}
         leftOpen={!sidebar.collapsed}
         onLeftOpenChange={(isOpen) => sidebar.onCollapsedChange(!isOpen)}
+        titlebarControls={<HistoryControls />}
+        // This view has no chrome bar: navigation and search („Suchen") are
+        // in the sidebar, and the page brings its own heading.
+        bar={false}
         collapseLabel={t('collapseNavigation')}
         expandLabel={t('expandNavigation')}
         mobileTabs={mobileTabs}
@@ -399,6 +407,8 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         noticeLabel={t('systemNotice')}
       >
         {children}
+        {/* The search is a palette, opened by „Suchen" in the nav or ⌘K. */}
+        <SearchPalette>{headerSearch}</SearchPalette>
       </AppShellLayout>
     </>
   );

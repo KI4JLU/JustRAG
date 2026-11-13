@@ -70,6 +70,8 @@ export function AppRoot() {
     const name = { prefix: appNamePrefix, product: appNameProduct };
     applyAppNameToDocument(name);
     rememberAppName(name);
+    // The desktop app draws its icon from the system's name (its first letter).
+    window.nativeShell?.setAppName?.(appNameProduct);
   }, [appNamePrefix, appNameProduct]);
 
   // Auth handlers

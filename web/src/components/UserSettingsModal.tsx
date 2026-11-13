@@ -14,7 +14,7 @@ import ConfluenceTokenManager from './ConfluenceTokenManager';
 import { userSettingsKeywords } from './userSettingsSearchKeywords';
 import type { Language } from '../translations';
 import { roleLabel } from '../utils/roleLabel';
-import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
+import { useAutoScrollEnabled, useChatWidth, useFollowUpsEnabled, usePromptSuggestionsEnabled, type ChatWidth } from '../hooks/useChatSuggestionPrefs';
 
 export type SettingsTab = 'general' | 'chat' | 'profile' | 'connectors';
 
@@ -28,7 +28,7 @@ interface UserSettingsModalProps {
 /**
  * The user's settings window (user menu → „Einstellungen"), on the DS
  * `SettingsDialog`. General: colour scheme, contrast, accent, colours, language. Chat: starter
- * suggestions, follow-ups, autoscroll. Profile: the
+ * suggestions, follow-ups, autoscroll, chat width. Profile: the
  * account as the directory (LDAP) knows it — read-only. Connectors: the API-key
  * and Confluence-token managers, each disabled with its reason where it does not apply.
  */
@@ -37,6 +37,7 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
     const [suggestionsEnabled, setSuggestionsEnabled] = usePromptSuggestionsEnabled();
     const [followUpsEnabled, setFollowUpsEnabled] = useFollowUpsEnabled();
     const [autoScrollEnabled, setAutoScrollEnabled] = useAutoScrollEnabled();
+    const [chatWidth, setChatWidth] = useChatWidth();
     const { contrast, setContrast } = useContrast();
     const { accent, setAccent } = useAccent();
     const { colors, setColors } = useColors();
@@ -157,6 +158,19 @@ export function UserSettingsModal({ open, onOpenChange, tab, onTabChange }: User
                                 labelId="settings-auto-scroll"
                                 description={t('autoScrollHint')}
                                 control={<Switch aria-labelledby="settings-auto-scroll" checked={autoScrollEnabled} onCheckedChange={setAutoScrollEnabled} />}
+                            />
+                            <SettingsRow
+                                label={t('chatWidthLabel')}
+                                labelId="settings-chat-width"
+                                description={t('chatWidthHint')}
+                                control={(
+                                    <Choice<ChatWidth>
+                                        id="settings-chat-width"
+                                        value={chatWidth}
+                                        onChange={setChatWidth}
+                                        options={[['comfortable', t('chatWidthComfortable')], ['wide', t('chatWidthWide')], ['full', t('chatWidthFull')]]}
+                                    />
+                                )}
                             />
                         </>
                     ),

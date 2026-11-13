@@ -53,6 +53,19 @@ vi.mock('./ChatView', () => ({ ChatView: () => <div data-testid="chat-view" /> }
 // App.authenticated-workspace-search.test.tsx's subject, not this file's.
 vi.mock('./WorkspaceSearch', () => ({ WorkspaceSearch: () => <div data-testid="workspace-search" /> }));
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+// The history buttons read the router; their subject is the desktop title bar.
+vi.mock('./HistoryControls', () => ({ HistoryControls: () => null }));
+// Reads the chat context; its own test covers it.
+vi.mock('./DesktopMenuCommands', () => ({ DesktopMenuCommands: () => null }));
+const navigateTo = vi.fn();
+vi.mock('../routing/navigation', () => ({ useAppNavigate: () => navigateTo }));
+// What the gear is told about the topic's settings; the diff itself is
+// topicSettingsDiff.test.ts's subject.
+let settingsDiff = { isCustomized: false, changedKeys: [] as string[], labels: [] as string[], count: 0 };
+const useTopicSettingsDiff = vi.fn<(...args: unknown[]) => typeof settingsDiff>(() => settingsDiff);
+vi.mock('../hooks/useTopicSettingsDiff', () => ({
+  useTopicSettingsDiff: (...args: unknown[]) => useTopicSettingsDiff(...args),
+}));
 // Wer schaut: Standard ist ein fremder Nutzer ohne KB-Rolle. Tests, die den
 // Eigentümer oder einen KB-Admin brauchen, setzen `authUser` / `kbExtra` um.
 let authUser: { id?: string; role: string } = { role: 'user' };
@@ -103,6 +116,7 @@ beforeEach(() => {
   authUser = { role: 'user' };
   siteConfigs = {};
   kbExtra = {};
+  settingsDiff = { isCustomized: false, changedKeys: [], labels: [], count: 0 };
   vi.clearAllMocks();
 });
 
@@ -135,8 +149,9 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
     expect(shellProps.leftResize).toMatchObject({ minWidth: 150, maxWidth: 600 });
     expect(shellProps.leftResize?.onWidthChange).toBe(setLeftSidebarWidth);
     expect(shellProps.rightPanel?.width).toBe(500);
-    expect(shellProps.rightPanel?.resize).toMatchObject({ minWidth: 360, maxWidth: 800 });
-    expect(shellProps.rightPanel?.resize?.onWidthChange).toBe(setRightSidebarWidth);
+    // The sources float as a card: a width, no drag handle and no rail.
+    expect(shellProps.rightPanel?.resize).toBeUndefined();
+    expect(shellProps.rightPanel?.collapsedPreview).toBeUndefined();
   });
 
   it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung — kein Workspace mehr', () => {
@@ -211,14 +226,19 @@ describe('KbWorkspaceLayout Reiter-Ableitung', () => {
 });
 
 describe('KbWorkspaceLayout Chrome-Leiste', () => {
-  it('trägt nur den Zurück-Knopf — keinen KB-Namen, keinen der abgelösten Kopfleisten-Knöpfe', () => {
+  it('trägt den Pfad „Bereich / Thema" — der Bereich als Weg zurück, das Thema als aktuelle Seite', () => {
     renderLayout();
     render(<div data-testid="page-label">{shellProps.pageLabel}</div>);
-    // Der KB-Name steht seit dem Redesign nicht mehr in der Leiste.
-    expect(screen.getByTestId('page-label')).not.toHaveTextContent('TEST');
-    expect(within(screen.getByTestId('page-label')).getAllByRole('button')).toHaveLength(1);
-    const back = screen.getByRole('button', { name: 'backToOverview' });
-    expect(back).toBeInTheDocument();
+    const label = within(screen.getByTestId('page-label'));
+    // ORACLE: the WAI-ARIA breadcrumb pattern — a named navigation whose last
+    // entry is the current page and not a control.
+    expect(label.getByRole('navigation', { name: 'breadcrumbNav' })).toBeInTheDocument();
+    // The section is a link to its overview's own URL; nothing else is a control.
+    expect(label.getByRole('link', { name: 'sharedTopics' })).toHaveAttribute('href', '/shared');
+    expect(label.queryAllByRole('button')).toEqual([]);
+    expect(label.getByText('TEST')).toHaveAttribute('aria-current', 'page');
+    // The back arrow it replaces is gone.
+    expect(screen.queryByRole('button', { name: 'backToOverview' })).toBeNull();
     // Der alte Reiter-Block (Chat / Bericht / Mindmap / Workspace) und die
     // rechte Knopfgruppe (Sprache, Teilen, KB-Einstellungen) sind mit der
     // `chat-header` gegangen und haben hier keinen Ersatz — das ist Absicht
@@ -232,20 +252,22 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     expect(shellProps.headerActions).toBeUndefined();
   });
 
-  it('legt die Themensuche in den zentrierten `search`-Slot; `headerActions` hält nur das Zahnrad (KI-844)', () => {
+  it('gibt die Leiste ohne Suchfeld weiter — die Themensuche ist eine Palette; `headerActions` hält nur das Zahnrad', () => {
     authUser = { id: 'u1', role: 'user' };
     kbExtra = { userId: 'u1' };
     renderLayout();
-    render(<div data-testid="slot-search">{shellProps.search}</div>);
-    expect(screen.getByTestId('slot-search')).toContainElement(screen.getByTestId('workspace-search'));
+    // The bar has no search field any more: „Suchen" in the history column
+    // (HistoryPanel) or ⌘K opens the palette, which is closed at rest.
+    expect(shellProps.search).toBeUndefined();
+    expect(screen.queryByTestId('workspace-search')).toBeNull();
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
     const actions = screen.getByTestId('actions');
     // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
-    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'kbSettingsTitle' })]);
+    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'topicSettingsButton' })]);
     expect(within(actions).queryByTestId('workspace-search')).toBeNull();
-    // Back stayed in `pageLabel`.
+    // The way back stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
-    expect(screen.getByRole('button', { name: 'backToOverview' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'sharedTopics' })).toBeInTheDocument();
   });
 
   it('zeigt dem Eigentümer das System-Prompt-Zahnrad und schaltet damit den Editor', async () => {
@@ -253,10 +275,25 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     kbExtra = { userId: 'u1' };
     renderLayout();
     render(<div>{shellProps.headerActions}</div>);
-    const gear = screen.getByRole('button', { name: 'kbSettingsTitle' });
-    expect(gear).toHaveAttribute('aria-pressed', 'false');
+    const gear = screen.getByRole('button', { name: 'topicSettingsButton' });
+    // It opens a dialog; it is not a toggle, so it is never „pressed".
+    expect(gear).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(gear).not.toHaveAttribute('aria-pressed');
     await userEvent.click(gear);
     expect(setSystemPromptOpen).toHaveBeenCalledWith(true);
+  });
+
+  it('markiert das Zahnrad nicht als gedrückt, wenn das Thema einen eigenen Prompt hat — dafür steht der Punkt', () => {
+    authUser = { id: 'u1', role: 'user' };
+    kbExtra = { userId: 'u1', systemPrompt: 'Antworte kurz.' };
+    settingsDiff = { isCustomized: true, changedKeys: ['role'], labels: ['asstTabRole'], count: 1 };
+    renderLayout();
+    render(<div data-testid="actions">{shellProps.headerActions}</div>);
+    const gear = within(screen.getByTestId('actions')).getByRole('button');
+    expect(gear).not.toHaveAttribute('aria-pressed');
+    expect(gear.querySelector('[data-slot="topic-settings-dot"]')).not.toBeNull();
+    // The diff is read for this topic, and again when the settings window closes.
+    expect(useTopicSettingsDiff).toHaveBeenLastCalledWith('kb1', false);
   });
 
   it('zeigt einem KB-Admin ohne Eigentum das Zahnrad ebenfalls', () => {
@@ -264,7 +301,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     kbExtra = { userId: 'u1', myRole: 'admin' };
     renderLayout();
     render(<div>{shellProps.headerActions}</div>);
-    expect(screen.getByRole('button', { name: 'kbSettingsTitle' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'topicSettingsButton' })).toBeInTheDocument();
   });
 
   it('verbirgt das Zahnrad vor einem Nutzer, dessen id nur zufällig fehlt (kein Eigentum aus undefined === undefined)', () => {
@@ -281,18 +318,35 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     expect(handleGoHome).toHaveBeenCalledTimes(1);
   });
 
-  it('löst mit dem Zurück-Knopf handleGoHome aus, nicht handleViewHome', async () => {
+  it('führt vom eigenen Thema über handleGoHome zurück zu „Mein Wissen", nicht über handleViewHome', async () => {
+    kbExtra = { myRole: 'owner' };
     renderLayout();
     render(<div>{shellProps.pageLabel}</div>);
-    await userEvent.click(screen.getByRole('button', { name: 'backToOverview' }));
+    await userEvent.click(screen.getByRole('link', { name: 'myTopics' }));
     expect(handleGoHome).toHaveBeenCalledTimes(1);
+    expect(navigateTo).not.toHaveBeenCalled();
+  });
+
+  // ORACLE: the three overviews a topic is listed in — own, shared with me,
+  // public — are the app's own split (splitKbsByOwnership, visibility).
+  it.each([
+    ['ein geteiltes Thema', { myRole: 'edit' }, 'sharedTopics', 'shared-topics'],
+    ['ein öffentliches Thema', { myRole: 'view', visibility: 'public' }, 'discoverTopics', 'discover'],
+  ] as const)('führt für %s in dessen Bereich zurück und setzt die Ansicht auf den Chat', async (_name, extra, label, view) => {
+    kbExtra = extra;
+    renderLayout();
+    render(<div>{shellProps.pageLabel}</div>);
+    await userEvent.click(screen.getByRole('link', { name: label }));
+    expect(navigateTo).toHaveBeenCalledExactlyOnceWith({ view });
+    expect(setKbView).toHaveBeenCalledWith('chat');
+    expect(handleGoHome).not.toHaveBeenCalled();
   });
 });
 
 // Oracle: backend contract 2026-10-16 — seeSources is the base of every
 // source right (add, download and manage all require it), so without it the
-// sources column has nothing usable to show. The UI rule: what cannot be used
-// is not rendered — no column, no rail, no mobile tab.
+// sources card has nothing usable to show. The UI rule: no card and no mobile
+// tab; the card's toggle stays in its place, locked, and says why.
 describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
   const caps = (seeSources: boolean) => ({
     seeSources, addSources: false, downloadSources: false, seeCitations: true, manageSources: false,
@@ -305,10 +359,15 @@ describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
     expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat', 'files']);
   });
 
-  it('hands the shell no sources column and no files tab without seeSources', () => {
+  it('hands the shell a locked sources toggle, no sources content and no files tab without seeSources', () => {
     kbExtra = { capabilities: caps(false) };
     renderLayout();
-    expect(shellProps.rightPanel).toBeUndefined();
+    const panel = shellProps.rightPanel;
+    expect(panel?.locked?.description).toBe('sourcesLockedReason');
+    expect(panel?.content).toBeNull();
+    expect(panel?.isOpen).toBe(false);
+    render(<div>{panel?.toggleTooltip}</div>);
+    expect(screen.getByText('sourcesLockedReason')).toBeInTheDocument();
     expect(screen.queryByTestId('sources-panel')).not.toBeInTheDocument();
     expect(shellProps.mobileTabs?.map(tab => tab.id)).toEqual(['history', 'chat']);
   });

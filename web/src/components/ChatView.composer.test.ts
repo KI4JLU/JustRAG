@@ -48,13 +48,15 @@ const workspaceLayout = readFileSync(
 );
 
 describe('Zurück-Knopf in der KB-Kopfleiste', () => {
-  it('steht in der Chrome-Leiste der Shell und ist nicht mehr an isMobile gebunden', () => {
-    // Der Knopf trägt backToOverview und ruft handleGoHome (nicht
+  it('ist in der Chrome-Leiste der Shell der Pfad „Bereich / Thema" und nicht an isMobile gebunden', () => {
+    // Der Weg zurück ist seit dem Pfad kein Pfeil mehr: der Bereich im Pfad
+    // führt zurück. Für „Mein Wissen" über handleGoHome (nicht
     // handleViewHome — sonst bleibt kbView auf dem zuletzt gewählten Reiter
     // stehen und die KB öffnet sich beim nächsten Mal nicht im Chat).
-    expect(workspaceLayout).toContain('ArrowLeft');
-    expect(workspaceLayout).toContain("aria-label={t('backToOverview')}");
-    expect(workspaceLayout).toContain('onClick={handleGoHome}');
+    expect(workspaceLayout).toContain('<BreadcrumbPage');
+    expect(workspaceLayout).toContain('handleGoHome()');
+    expect(workspaceLayout).not.toContain('ArrowLeft');
+    expect(workspaceLayout).not.toContain("t('backToOverview')");
     // Eine Sicht, ein Knopf: die alte Form war ein Ternär — Mobil Zurück ODER
     // Desktop Symbol —, und genau die darf nicht zurückkommen, sie ist der
     // Zustand, in dem der Desktop keinen Zurückknopf hat. In dieser Datei ist
