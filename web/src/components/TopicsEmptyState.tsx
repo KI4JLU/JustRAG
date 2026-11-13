@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Button } from '@ki4jlu/design-system';
-import { SearchX } from 'lucide-react';
+import { CloudOff, RotateCw, SearchX } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { FILTER_ALL, type TopicFilterState } from '../hooks/useTopicFilters';
 
@@ -33,20 +33,39 @@ export function TopicsEmptyState({ icon, title, description, action }: TopicsEmp
 /**
  * The empty state for a topic page: `none` while the page has no topics at
  * all, the filter variant while it has some and the active chip matches none
- * of them, nothing otherwise.
+ * of them, the error variant while the list could not be loaded, nothing
+ * otherwise.
  */
-export function TopicListEmptyState({ total, shown, loading, filters, none }: {
+export function TopicListEmptyState({ total, shown, loading, loadFailed = false, onRetryLoad, filters, none }: {
   /** Topics on the page before the chip filter. */
   total: number;
   /** Topics left after it. */
   shown: number;
   /** The list has not arrived yet: an empty page would be a claim. */
   loading: boolean;
+  /** The first fetch failed: neither „no topics" nor a blank page is true. */
+  loadFailed?: boolean;
+  onRetryLoad?: () => void;
   filters: Pick<TopicFilterState, 'active' | 'setActive'>;
   none: ReactNode;
 }) {
   const { t } = useTheme();
-  if (loading || shown > 0) return null;
+  if (shown > 0) return null;
+  if (loadFailed) {
+    return (
+      <TopicsEmptyState
+        icon={<CloudOff />}
+        title={t('topicsLoadFailedTitle')}
+        description={t('topicsLoadFailedBody')}
+        action={onRetryLoad && (
+          <Button variant="outline" onClick={onRetryLoad}>
+            <RotateCw className="size-4" aria-hidden="true" /> {t('topicsLoadRetry')}
+          </Button>
+        )}
+      />
+    );
+  }
+  if (loading) return null;
   if (total === 0 || filters.active === FILTER_ALL) return none;
   return (
     <TopicsEmptyState

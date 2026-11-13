@@ -574,7 +574,9 @@ function AuthenticatedAppInner() {
         <SharedTopicsView
           kbs={kbMgmt.kbs}
           globalKbs={kbMgmt.globalKbs}
-          loading={!kbMgmt.kbsLoaded}
+          loading={kbMgmt.kbsStatus === 'loading'}
+          loadFailed={kbMgmt.kbsStatus === 'failed'}
+          onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
           onSelectKB={kbMgmt.handleSelectKB}
           onDeleteKB={kbMgmt.handleDeleteKB}
           removingKb={kbMgmt.removingKb}
@@ -601,7 +603,9 @@ function AuthenticatedAppInner() {
       >
         <MyTopicsView
           kbs={kbMgmt.kbs}
-          loading={!kbMgmt.kbsLoaded}
+          loading={kbMgmt.kbsStatus === 'loading'}
+          loadFailed={kbMgmt.kbsStatus === 'failed'}
+          onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
           currentKb={currentKb}
           availableConfigs={kbSettings.availableConfigs}
           onCreateKB={kbMgmt.handleCreateKB}

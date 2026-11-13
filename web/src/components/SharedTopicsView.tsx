@@ -81,6 +81,9 @@ export interface SharedTopicsViewProps {
   globalKbs: KnowledgeBase[];
   /** The lists have not arrived yet; no empty state until they have. */
   loading?: boolean;
+  /** The first fetch failed: the page says so and offers `onRetryLoad`. */
+  loadFailed?: boolean;
+  onRetryLoad?: () => void;
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
@@ -92,6 +95,8 @@ export function SharedTopicsView({
   kbs,
   globalKbs,
   loading = false,
+  loadFailed = false,
+  onRetryLoad,
   onSelectKB,
   onDeleteKB,
   removingKb,
@@ -176,6 +181,8 @@ export function SharedTopicsView({
             total={sharedKbs.length}
             shown={displayed.length}
             loading={loading}
+            loadFailed={loadFailed}
+            onRetryLoad={onRetryLoad}
             filters={filters}
             none={(
               <TopicsEmptyState

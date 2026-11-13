@@ -305,6 +305,16 @@ describe('SharedTopicsView add-topic tile', () => {
     expect(screen.queryByRole('heading', { name: translations.sharedTopicsEmptyTitle.en })).toBeNull();
   });
 
+  it('says the lists could not be loaded, and retries', async () => {
+    const onRetryLoad = vi.fn();
+    renderView(<SharedTopicsView kbs={[]} {...noopProps} loadFailed onRetryLoad={onRetryLoad} />);
+
+    expect(screen.getByRole('heading', { name: translations.topicsLoadFailedTitle.en })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: translations.sharedTopicsEmptyTitle.en })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: translations.topicsLoadRetry.en }));
+    expect(onRetryLoad).toHaveBeenCalledTimes(1);
+  });
+
   it('shows no placeholder beside a shared topic', () => {
     const shared: KnowledgeBase = { ...baseKb, id: 'kb-shared', myRole: 'edit' };
     renderView(<SharedTopicsView kbs={[shared]} {...noopProps} />);

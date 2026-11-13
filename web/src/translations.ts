@@ -138,6 +138,12 @@ export const translations = {
       en: 'Choose another filter or show all topics.',
     },
     topicsFilterShowAll: { de: 'Alle Themen anzeigen', en: 'Show all topics' },
+    topicsLoadFailedTitle: { de: 'Themen konnten nicht geladen werden', en: 'Topics could not be loaded' },
+    topicsLoadFailedBody: {
+      de: 'Prüfe deine Verbindung und versuche es erneut.',
+      en: 'Check your connection and try again.',
+    },
+    topicsLoadRetry: { de: 'Erneut versuchen', en: 'Try again' },
 
     /* The filter chip row above every view's list (migration 0077). */
     filterAll: { de: 'Alle', en: 'All' },

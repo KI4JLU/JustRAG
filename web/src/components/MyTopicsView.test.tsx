@@ -814,6 +814,17 @@ describe('MyTopicsView empty state', () => {
     expect(emptyTitle()).toBeNull();
   });
 
+  it('says the list could not be loaded, and retries', async () => {
+    const onRetryLoad = vi.fn();
+    renderView(<MyTopicsView kbs={[]} {...noopProps} loadFailed onRetryLoad={onRetryLoad} />);
+
+    expect(screen.getByRole('heading', { name: translations.topicsLoadFailedTitle.en })).toBeInTheDocument();
+    // Not „no topics": nothing is known about the list.
+    expect(emptyTitle()).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: translations.topicsLoadRetry.en }));
+    expect(onRetryLoad).toHaveBeenCalledTimes(1);
+  });
+
   it('shows no placeholder beside a topic', async () => {
     renderView(<MyTopicsView kbs={[personal]} {...noopProps} />);
     await screen.findByText('Nur ich');

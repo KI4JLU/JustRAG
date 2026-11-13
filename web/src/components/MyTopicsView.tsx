@@ -51,6 +51,9 @@ export interface MyTopicsViewProps {
   kbs: KnowledgeBase[];
   /** The list has not arrived yet; no empty state until it has. */
   loading?: boolean;
+  /** The first fetch failed: the page says so and offers `onRetryLoad`. */
+  loadFailed?: boolean;
+  onRetryLoad?: () => void;
   currentKb: KnowledgeBase | null;
   availableConfigs: SafeAIConfig[];
   onCreateKB: () => void;
@@ -67,6 +70,8 @@ export interface MyTopicsViewProps {
 export function MyTopicsView({
   kbs,
   loading = false,
+  loadFailed = false,
+  onRetryLoad,
   currentKb,
   availableConfigs,
   onCreateKB,
@@ -153,6 +158,8 @@ export function MyTopicsView({
             total={ownedKbs.length}
             shown={displayed.length}
             loading={loading}
+            loadFailed={loadFailed}
+            onRetryLoad={onRetryLoad}
             filters={filters}
             none={(
               <TopicsEmptyState
