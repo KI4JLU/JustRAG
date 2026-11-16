@@ -1,5 +1,7 @@
 node_modules
 web/node_modules
+# The desktop app is not part of the image.
+desktop
 dist
 web/dist
 # .git is intentionally NOT excluded — a lightweight stage extracts

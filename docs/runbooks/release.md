@@ -190,8 +190,8 @@ Set in GitHub → Settings → Rules → Rulesets. The workflows assume them.
    If none apply, write "No upgrade actions required." — do not omit the block.
 
 4. **Bump `package.json`** to the release version (nothing reads it at
-   runtime, but Cut Release Candidate reads the version from it and Promote
-   checks it): `npm version YY.M.N --no-git-tag-version --workspaces-update=false`
+   runtime, but Cut Release Candidate reads the version from it, Promote
+   checks it, and a desktop package built from the tag carries it): `npm version YY.M.N --no-git-tag-version --workspaces-update=false`
    (without the `v`).
 
 5. **Commit on `development`, push, open the release PR.**

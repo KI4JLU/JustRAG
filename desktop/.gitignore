@@ -1,0 +1,7 @@
+node_modules/
+# electron-vite's build of main and preload.
+out/
+# Installers and unpacked apps (electron-builder).
+dist/
+# The icon, rendered from the deployment's app name while packaging.
+build/
