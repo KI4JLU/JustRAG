@@ -109,6 +109,7 @@ All eval flags: `docs/eval-cli.md`. PGO-ready: drop a prod CPU profile at `go-ba
 ### Root workspace / Docker
 
 - `npm install`, `npm run build`, `npm test`
+- `npm run desktop` — the desktop host from source on the local dev server (`APP_URL=http://localhost:<port>` for another one); first `npm ci --prefix desktop`. Packaging: `desktop/README.md`.
 - `docker compose up -d` (applies migrations via the one-shot `migrate` service; runs the prebuilt image)
 - `docker compose -f docker-compose.local.yml up --build` — build the Go image from source
 - `-f docker-compose.production.yml`, `docker-compose.k8s.yml` (no worker), `-f docker-compose.docling.yml` (Docling sidecar)
@@ -140,6 +141,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 ## Architecture
 
 - `go-backend/` (Go-only runtime; entrypoints `cmd/server`, `cmd/worker`, `cmd/migrate`; wiring `internal/app/`; config `internal/config/`; migrations `migrations/main/` + `migrations/vector/`), `web/` (React 19 + Vite 7, built into `web/dist`; TanStack Router — every view and chat is a URL (`/kb/<id>`, `/c/<chat>`, ids as 22-char base64url via `routing/shortId.ts`), table in `web/src/routing/routes.ts`; dialogs live in URL parameters `?admin=`, `?settings=`, `?topic=` via `web/src/routing/urlDialog.ts`).
+- `desktop/` — the desktop app: an Electron host (electron-vite, electron-builder) that loads the deployment's web app by URL; no UI of its own. Not in the root npm workspace (own lockfile), versioned with the web app. The host/page contract is the design system's Storybook page "Native shell". See `desktop/README.md`.
 - Storage: main Postgres, vector Postgres (dim-keyed tables `document_chunks_<dim>`; switching the embedder needs a re-ingest), Redis, filesystem or S3.
 
 ### Internal package map (`go-backend/internal/`)
