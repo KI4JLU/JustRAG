@@ -61,10 +61,8 @@ export interface TopicGridPageProps {
   /**
    * Shown ABOVE the grid when there are no items.
    *
-   * „Werkzeuge" was the caller while its only tile was a disabled placeholder;
-   * since card KI-833 it lists a real tool and passes none. „Mein Wissen" and
-   * „Geteiltes Wissen" pass none either — their toolbar's „Neues Thema" /
-   * „Thema hinzufügen" button is the way out of an empty page.
+   * „Mein Wissen" and „Geteiltes Wissen" pass `TopicsEmptyState`: with no
+   * topics at all, or with none matching the active chip.
    */
   emptyState?: ReactNode;
   /**

@@ -374,14 +374,13 @@ export const NothingSharedWithMe: Story = {
   play: async ({ canvas, canvasElement }) => {
     await expectPageFrame(canvas, canvasElement);
 
-    /* ORACLE: src/translations.ts. The tile IS the empty state — a placeholder
-       above it was removed as a restatement of it — so an empty page is the
-       heading, the subtitle and this one control. „Thema hinzufügen" leaves for
-       the catalog; the „Wissen teilen" tile that briefly stood in this slot is
-       asserted absent, because sharing adds a topic to somebody else's list and
-       never to this one. */
-    await expect(canvas.getByRole('button', { name: 'Thema hinzufügen' })).toBeInTheDocument();
-    await expect(canvas.queryByText('Wissen gemeinsam nutzen')).toBeNull();
+    /* ORACLE: src/translations.ts. An empty page shows the placeholder below
+       the filter row; „Thema hinzufügen" is on the page twice, in the toolbar
+       and in the placeholder, and both leave for the catalog. The „Wissen
+       teilen" tile that briefly stood here is asserted absent, because sharing
+       adds a topic to somebody else's list and never to this one. */
+    await expect(canvas.getByRole('heading', { name: 'Noch nichts geteilt' })).toBeInTheDocument();
+    await expect(canvas.getAllByRole('button', { name: 'Thema hinzufügen' })).toHaveLength(2);
     await expect(canvas.queryByRole('button', { name: 'Wissen teilen' })).toBeNull();
 
     // No KB card at all — including neither of the two owned ones.

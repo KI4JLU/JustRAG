@@ -484,3 +484,41 @@ describe('useKnowledgeBases handleToggleFavorite', () => {
     expect(toastError).toHaveBeenCalledWith('favoriteError');
   });
 });
+
+describe('useKnowledgeBases kbsStatus', () => {
+  beforeEach(() => {
+    mockedAxios.get.mockReset();
+    toastError.mockReset();
+  });
+
+  it('is loading until the first list arrives, then loaded', async () => {
+    mockedAxios.get.mockResolvedValue({ data: [] });
+    const { result } = setup();
+    expect(result.current.kbsStatus).toBe('loading');
+
+    await act(async () => { await result.current.fetchKBs(); });
+    expect(result.current.kbsStatus).toBe('loaded');
+  });
+
+  it('fails when the first fetch fails, and a retry that succeeds loads', async () => {
+    mockedAxios.get.mockRejectedValue(new Error('offline'));
+    const { result } = setup();
+
+    await act(async () => { await result.current.fetchKBs(); });
+    expect(result.current.kbsStatus).toBe('failed');
+
+    mockedAxios.get.mockResolvedValue({ data: [] });
+    await act(async () => { await result.current.fetchKBs(); });
+    expect(result.current.kbsStatus).toBe('loaded');
+  });
+
+  it('stays loaded when a later refetch fails: the list on screen is still true', async () => {
+    mockedAxios.get.mockResolvedValue({ data: [] });
+    const { result } = setup();
+    await act(async () => { await result.current.fetchKBs(); });
+
+    mockedAxios.get.mockRejectedValue(new Error('offline'));
+    await act(async () => { await result.current.fetchKBs({ silent: true }); });
+    expect(result.current.kbsStatus).toBe('loaded');
+  });
+});

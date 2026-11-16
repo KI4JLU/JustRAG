@@ -535,15 +535,16 @@ export const Empty: Story = {
        more: the page is a `PageHeader` plus a `Grid`, and „remove all tabs" is
        exactly the removal of the thing those assertions described.
  
-       What survives as a claim is the one the empty page can still make: the
-       „Neues Thema" button is on it (in the toolbar since the hairline rework,
-       30.10.2026), and nothing else is. A user with no topics must not land on
-       a bare page — the button is the way out. */
+       What survives as a claim is the one the empty page can still make: a
+       user with no topics must not land on a bare page. The placeholder below
+       the filter row says so, and „Neues Thema" is on the page twice — in the
+       toolbar and in the placeholder. */
     /* „Favoriten" is no longer in this list: it is a FILTER CHIP now, and a
        legitimate one — the assertion is about the removed SECTION headers, so
        matching the chip's label would fail for the wrong reason. */
     await expect(canvas.queryByRole('button', { name: /entdecken|Mit mir geteilt/ })).toBeNull();
-    await expect(canvas.getByRole('button', { name: 'Neues Thema' })).toBeInTheDocument();
+    await expect(canvas.getByRole('heading', { name: 'Noch keine eigenen Themen' })).toBeInTheDocument();
+    await expect(canvas.getAllByRole('button', { name: 'Neues Thema' })).toHaveLength(2);
     await expect(
       canvas.queryByRole('button', { name: /^Knowledge Base öffnen:/ }),
     ).toBeNull();

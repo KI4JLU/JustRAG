@@ -373,14 +373,13 @@ describe('App — the „Geteilte Knowledge Bases" view on the authenticated rou
     await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
 
     /* ORACLE: translations.ts. `GET /api/kb` answers `[]` here, so the split
-     * yields no shared rows — and what an empty page shows is the
-     * „Thema hinzufügen" tile, which is both its content in this state and the
-     * only move available from it. A placeholder sentence sat above the tile
-     * for one round and was removed as a restatement of it.
+     * yields no shared rows — and an empty page shows the placeholder, once the
+     * list has arrived.
      *
      * The heading is asserted above, which is what keeps this a statement about
      * THIS view rather than about any page with an add button. */
-    expect(screen.getByRole('button', { name: translations.addTopic.de })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: translations.sharedTopicsEmptyTitle.de })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: translations.addTopic.de })).toHaveLength(2);
   });
 
   /* -------------------------------------------------------------------------
