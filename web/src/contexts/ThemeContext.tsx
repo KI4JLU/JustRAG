@@ -63,9 +63,17 @@ function ThemeAndLanguageBridge({ children }: { children: ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
+/**
+ * In the desktop app the window's material follows the OS scheme while the
+ * app follows the user's choice; the host mirrors the choice to the window so
+ * a light UI never sits on dark material. In a browser the bridge does not
+ * exist and this does nothing.
+ */
+const mirrorThemeToDesktopWindow = (theme: Theme) => window.nativeShell?.setTheme(theme);
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   return (
-    <DesignSystemThemeProvider>
+    <DesignSystemThemeProvider onThemeApplied={mirrorThemeToDesktopWindow}>
       <ThemeAndLanguageBridge>
         <AppearanceProvider>{children}</AppearanceProvider>
       </ThemeAndLanguageBridge>

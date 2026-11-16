@@ -15,7 +15,7 @@ import { useKbData } from '../contexts/KbDataContext';
 import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
-import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled } from '../hooks/useChatSuggestionPrefs';
+import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../hooks/useChatSuggestionPrefs';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
@@ -226,6 +226,7 @@ const ChatViewComp = () => {
   const lastMessage = chat.messages[chat.messages.length - 1];
   const followUps = followUpsEnabled && !chat.loading && lastMessage?.role === 'ai' ? lastMessage.followUpQuestions ?? [] : [];
   const [autoScrollEnabled] = useAutoScrollEnabled();
+  const [chatWidth] = useChatWidth();
   // The line under the title: the topic's own description, else the default line.
   const shownDescription = currentKb?.description?.trim() || t('kbHeaderDefault');
   // The assistant settings' start page; re-read whenever the settings dialog closes.
@@ -408,6 +409,7 @@ const ChatViewComp = () => {
                 <ChatStage
                   // relative isolate: the start page's glow fills the stage, behind the content.
                   className="chat-column relative isolate"
+                  data-chat-width={chatWidth}
                   empty={chat.messages.length === 0}
                   footerId="chat-disclaimer"
                   footer={t('chatFooter')}

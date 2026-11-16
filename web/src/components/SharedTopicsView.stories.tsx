@@ -544,8 +544,8 @@ export const SettingsMenuIsOnThisViewToo: Story = {
 };
 
 /**
- * The chrome's search is on this view too — and since KI-837 typing opens the
- * global-search dropdown IN PLACE instead of jumping to „Entdecken".
+ * The search palette is on this view too — and since KI-837 typing opens the
+ * global-search list IN PLACE instead of jumping to „Entdecken".
  *
  * WHAT THIS STORY USED TO PIN (KI-787, `ChromeSearchNavigatesToDiscover`):
  * one keystroke called `onViewDiscover`, because the field had no other
@@ -572,7 +572,9 @@ export const ChromeSearchOpensDropdownInPlace: Story = {
   },
   play: async ({ args, canvas, canvasElement, userEvent }) => {
     const body = within(canvasElement.ownerDocument.body);
-    const field = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
+    // The search is the sidebar's „Suchen" row since the palette; the field is in it.
+    await userEvent.click(canvas.getByRole('button', { name: 'Suchen' }));
+    const field = await body.findByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
 
     await userEvent.type(field, 'Rec');
     await body.findByRole('option', { name: /Rechtsgrundlagen/ });

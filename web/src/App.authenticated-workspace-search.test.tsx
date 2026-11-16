@@ -174,14 +174,23 @@ const count = (re: RegExp) => urls().filter((u) => re.test(u)).length;
 const searchUrls = () => urls().filter((u) => u.includes('/api/search?'));
 const scopedName = translations.workspaceSearchPlaceholder.de.replace('{topic}', 'Prüfungsordnungen');
 
+/** The search is a palette: „Suchen" in the sidebar opens it. */
+async function openPalette() {
+  await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull());
+  await userEvent.click(await screen.findByRole('button', { name: translations.searchOpen.de }));
+}
+
 /** Boots the app and enters topic kb-1 with chat-7 on screen, via the header search. */
 async function enterWorkspace() {
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
-  await userEvent.type(screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de }), 'Prüf');
+  await openPalette();
+  await userEvent.type(await screen.findByRole('combobox', { name: translations.globalSearchPlaceholder.de }), 'Prüf');
   await userEvent.click(await screen.findByRole('option', { name: /Prüfungsfragen/ }, { timeout: 2000 }));
   await screen.findByText(MESSAGES['77777777-7777-4777-8777-777777777777'][1], {}, { timeout: 5000 });
-  return screen.getByRole('combobox', { name: scopedName });
+  // Opening the hit closed the palette; the topic view's own „Suchen" opens it scoped.
+  await openPalette();
+  return screen.findByRole('combobox', { name: scopedName });
 }
 
 const activeOption = (field: HTMLElement) => document.getElementById(field.getAttribute('aria-activedescendant') ?? '');
@@ -268,28 +277,32 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     await userEvent.click(widened);
     expect(await screen.findByText(MESSAGES['99999999-9999-4999-8999-999999999999'][1], {}, { timeout: 5000 })).toBeInTheDocument();
     expect(count(/\/api\/kb\/22222222-2222-4222-8222-222222222222$/)).toBe(1);
-    // …and the field now names the new topic.
-    expect(screen.getByRole('combobox', {
+    // …and the palette, opened again, now names the new topic.
+    await openPalette();
+    expect(await screen.findByRole('combobox', {
       name: translations.workspaceSearchPlaceholder.de.replace('{topic}', 'Statistik'),
     })).toBeInTheDocument();
   }, 30000);
 
-  it('starts scoped again when the list is reopened after widening', async () => {
+  it('closes the palette on Escape and starts scoped again when it is opened after widening', async () => {
     const field = await enterWorkspace();
     await userEvent.type(field, 'Stat');
     await userEvent.click(await screen.findByRole('option', { name: translations.workspaceSearchAllTopics.de }));
     await screen.findByRole('option', { name: /Statistik-Grundlagen/ });
 
+    // One Escape closes the list and the palette with it.
     await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull());
     const before = searchUrls().length;
-    await userEvent.keyboard('{ArrowDown}');
+
+    await openPalette();
+    const reopened = await screen.findByRole('combobox', { name: scopedName });
+    await userEvent.type(reopened, 'Stat');
 
     // ORACLE: the next request is scoped again, for the same text.
-    await waitFor(() => expect(searchUrls().length).toBe(before + 1));
+    await waitFor(() => expect(searchUrls().length).toBeGreaterThan(before));
     expect(searchUrls().at(-1)).toMatch(/\/api\/search\?q=Stat&kb_id=11111111-1111-4111-8111-111111111111$/);
-    expect(field).toHaveAccessibleName(scopedName);
-    expect(document.activeElement).toBe(field);
+    expect(document.activeElement).toBe(reopened);
   }, 30000);
 
   it('says the topic is unavailable on a 404, offers all topics, and raises no toast', async () => {

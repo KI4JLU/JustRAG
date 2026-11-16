@@ -139,7 +139,9 @@ afterEach(() => {
 async function openDropdown() {
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
-  const field = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
+  // The search is a palette: „Suchen" in the sidebar opens it.
+  await userEvent.click(screen.getByRole('button', { name: translations.searchOpen.de }));
+  const field = await screen.findByRole('combobox', { name: translations.globalSearchPlaceholder.de });
   await userEvent.type(field, 'Prüf');
   const listbox = await screen.findByRole('listbox', { name: translations.globalSearchResults.de }, { timeout: 2000 });
   return { field, listbox };
@@ -211,7 +213,8 @@ describe('App — the header global search on the authenticated route', () => {
       render(<App />);
       await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      await user.type(screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de }), 'Prüf');
+      await user.click(screen.getByRole('button', { name: translations.searchOpen.de }));
+      await user.type(await screen.findByRole('combobox', { name: translations.globalSearchPlaceholder.de }), 'Prüf');
 
       // ORACLE: translations.ts — the inline line, as a status, in the
       // dropdown; and no toast (the app's toasts are `role="alert"`/`status`

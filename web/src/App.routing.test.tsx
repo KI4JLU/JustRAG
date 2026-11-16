@@ -134,11 +134,8 @@ const SLOW = { timeout: 15000 };
 const heading = (key: keyof typeof translations) =>
   screen.findByRole('heading', { level: 1, name: translations[key].de }, SLOW);
 
-const workspaceSearch = () => screen.findByRole(
-  'combobox',
-  { name: translations.workspaceSearchPlaceholder.de.replace('{topic}', KB1.name) },
-  SLOW,
-);
+/** The topic view is on screen: its bar names the topic as the current page. */
+const workspaceSearch = () => screen.findByText(KB1.name, { selector: '[aria-current="page"]' }, SLOW);
 
 const path = () => window.location.pathname;
 

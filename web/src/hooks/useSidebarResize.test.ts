@@ -50,7 +50,7 @@ describe('useSidebarResize — hands the design system two keys and two ranges',
   it('passes the bounds and defaults (right 360 for the source tiles)', () => {
     renderHook(() => useSidebarResize());
     const [left, right] = firstRender();
-    expect(left.opts).toEqual({ defaultWidth: 320, minWidth: 150, maxWidth: 600 });
+    expect(left.opts).toEqual({ defaultWidth: 296, minWidth: 150, maxWidth: 600 });
     expect(right.opts).toEqual({ defaultWidth: 360, minWidth: 360, maxWidth: 800 });
     expect(LEFT_SIDEBAR_BOUNDS).toEqual({ min: 150, max: 600 });
     expect(RIGHT_SIDEBAR_BOUNDS).toEqual({ min: 360, max: 800 });

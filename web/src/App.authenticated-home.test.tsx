@@ -355,7 +355,8 @@ describe('App — the KB overview on the authenticated home route', () => {
     // `useKbSearch()` resolved during the real render — had the provider been
     // missing, AppChrome would have thrown and the heading above would not
     // exist either.
-    const field = screen.getByRole('combobox', { name: translations.globalSearchPlaceholder.de });
+    await userEvent.click(screen.getByRole('button', { name: translations.searchOpen.de }));
+    const field = await screen.findByRole('combobox', { name: translations.globalSearchPlaceholder.de });
 
     // ORACLE: ErrorBoundary's own fallback copy, as the negative check.
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
@@ -386,8 +387,9 @@ describe('App — the KB overview on the authenticated home route', () => {
     const searchCalls = mockedGet.mock.calls.filter(([url]) => String(url).includes('/api/search'));
     expect(searchCalls).toHaveLength(1);
 
-    // ...and typing no longer navigates: the overview is still the page.
-    expect(screen.getByRole('heading', { level: 1, name: translations.myTopics.de })).toBeInTheDocument();
+    // ...and typing no longer navigates: the overview is still the page
+    // (behind the open palette, hence `hidden`).
+    expect(screen.getByRole('heading', { level: 1, name: translations.myTopics.de, hidden: true })).toBeInTheDocument();
   }, 20000);
 
   /* KI-787 also DELETED the chrome's page label, which had rendered „Meine

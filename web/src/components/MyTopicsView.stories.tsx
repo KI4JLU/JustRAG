@@ -872,102 +872,37 @@ export const SettingsOpenFromTheUserMenu: Story = {
 };
 
 /**
- * The chrome bar is 56px tall, and the search field is centred in it.
+ * The overview has no chrome bar, and the search is a row of the sidebar.
  *
- * WHY THE HEIGHT IS RE-MEASURED HERE (cards KI-788, then KI-787, then the
- * sidebar redesign). `.toast-container { top: 68px }` is 56px of chrome plus a
- * 12px gap. The bar was 64px (`h-16`, `top: 76px`) until the redesign made it
- * and the side-panel header rows `h-14`; 64px had been measured against
- * design-system 0.25.0; 0.26.0 replaced the bar's hardcoded
- * `ThemeToggle` with the optional `headerActions` slot, and 0.29.0 made
- * `pageLabel` optional and renders NO element for it when omitted — which is
- * how this app draws the bar since KI-787. That is the bar rebuilt twice under
- * a constant this repo depends on. Had either release changed the height,
- * every toast on every shell view would overlap the chrome, and nothing would
- * have caught it: jsdom performs no layout, so the unit suite cannot see a
- * pixel of this.
+ * Until the search palette, this story measured a 56px bar with the search
+ * field centred in it. The overview now passes `bar={false}` to
+ * `AppShellLayout`, so there is no bar and no field in the page: the search
+ * is reached through the sidebar's „Suchen" row (or ⌘K / Ctrl+K), which opens
+ * the palette.
  *
- * WHY THE CENTRING IS STILL MEASURED HERE, now that the template does it.
- * Design-system 0.30.0 added the bar's `search` region, which supplies the
- * `max-w-md` cap and centres the field on the BAR — so the old local recipe
- * (`w-full max-w-md mx-auto` on a wrapper, because `Input` forwards `className`
- * to an inline-block inner input whose `margin: auto` computes to `0px`) is
- * gone from this repo along with the trap it worked around. What is left for
- * this story to catch is the half that is still this app's: passing the field
- * to the wrong slot. `headerActions` renders at the bar's RIGHT end, takes no
- * cap, and looks entirely correct in every unit test and type check — the
- * offset below is the only thing that sees it.
- *
- * ORACLE: Chromium's own layout, read back through `getBoundingClientRect()`.
- * Independent of this repo by construction — the bar, the field and their box
- * model are the design system's; the expected height is the constant sitting
- * in `Toast.css`, and the expected centre is the BAR's own centre, computed
- * from the bar's rect rather than from anything the app reports about itself.
- * A class-name assertion would pass against a utility that compiled to
- * nothing, which is exactly the failure being guarded.
- *
- * TOLERANCE: 1px on the centre offset, for sub-pixel rounding at viewport
- * widths that do not divide evenly. The defect this catches is ~207px.
- *
- * NOT asserted: where the bar sits in the viewport. The story runner's
- * dev-mode Tailwind emits `.lg:hidden` before `.flex`, so `AppShell`'s mobile
- * top bar stays visible here and pushes the bar down (MyTopicsView.test.tsx:241
- * records the same quirk). The HEIGHT is unaffected, and it is the only half
- * `top: 68px` depends on.
+ * ORACLE: the DOM the design system renders — no combobox anywhere in the
+ * page while the palette is closed, and one button that announces a dialog.
  */
 export const AppShellGeometry: Story = {
-  play: async ({ canvas }) => {
-    /* The bar is chrome with no role of its own, and carries no page label, so
-     * it is reached by walking up from the search field's wrapper — the node
-     * that IS the flex item of the bar's centre region. */
-    const field = canvas.getByTestId('app-chrome-search');
-
-    // wrapper -> headerActions region -> Container -> the bar itself.
-    const bar = field.parentElement?.parentElement?.parentElement;
-    await expect(bar).toBeDefined();
-
-    // ORACLE: Chromium's layout engine. 56px = `h-14`, the number Toast.css
-    // adds its 12px gap to (`top: 68px`). Re-measured against the redesign's
-    // design system (0.60.0), with no `pageLabel` and the field in the
-    // `search` region.
-    const barRect = (bar as HTMLElement).getBoundingClientRect();
-    await expect(barRect.height).toBe(56);
-
-    // ORACLE: the bar's own centre. This is what fails if the field is handed
-    // to `headerActions` instead of `search` — that region is `justify-end`.
-    const fieldRect = field.getBoundingClientRect();
-    const offset = (fieldRect.left + fieldRect.right) / 2 - (barRect.left + barRect.right) / 2;
-    await expect(Math.abs(offset)).toBeLessThanOrEqual(1);
-
-    // And it is a real box, not a zero-width one that would be "centred" by
-    // accident. 448px = `max-w-md` (28rem), the cap the template applies.
-    await expect(fieldRect.width).toBeGreaterThan(0);
-    await expect(fieldRect.width).toBeLessThanOrEqual(448);
+  play: async ({ canvas, canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    await expect(body.queryByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' })).toBeNull();
+    await expect(body.queryByTestId('search-palette')).toBeNull();
+    const row = canvas.getByRole('button', { name: 'Suchen' });
+    await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
   },
 };
 
 /**
- * The same bar with the global-search dropdown OPEN (card KI-837), plus the
- * dropdown's keyboard contract and one navigation.
+ * The search palette OPEN (card KI-837, moved into the palette), with the
+ * list's keyboard contract and one navigation.
  *
- * WHY IT IS RE-MEASURED OPEN. `Toast.css`'s `top: 68px` needs the bar at 56px
- * in every state, and a dropdown that rendered INSIDE the bar (instead of the
- * DS portalling it) would either grow the bar or be clipped by it. Both are
- * layout facts jsdom cannot see.
- *
- * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`) —
- * the bar, the popover and their boxes are the design system's, the 56 is the
- * constant in `Toast.css`; WAI-ARIA's combobox states read off the DOM
- * (`aria-expanded`, `aria-activedescendant`, `document.activeElement`); the
- * mocked `/api/search` body (API.md's shape) for option text; and the
+ * ORACLES: Chromium's layout (`getBoundingClientRect`, `elementFromPoint`) for
+ * „the last option is not covered or cut"; WAI-ARIA's combobox states read off
+ * the DOM (`aria-expanded`, `aria-activedescendant`, `document.activeElement`);
+ * the mocked `/api/search` body (API.md's shape) for option text; and the
  * `onOpenChat` spy handed to `AppNavProvider` for the navigation — the chrome
  * cannot reach it except through the context.
- *
- * NARROW WIDTH, stated rather than implied: the story runner's viewport is
- * fixed at 1280px (vitest.config.ts), and below `lg` `AppShellLayout` does
- * not render the `search` slot at all. So „not clipped" is measured here at
- * the runner's width; the 1024px edge is not measured.
- * // TODO: re-measure at exactly `lg` (1024px) — not yet confirmed.
  */
 export const AppShellGeometryWithSearchOpen: Story = {
   parameters: {
@@ -983,27 +918,24 @@ export const AppShellGeometryWithSearchOpen: Story = {
   },
   play: async ({ args, canvas, canvasElement, userEvent }) => {
     const body = within(canvasElement.ownerDocument.body);
-    const wrapper = canvas.getByTestId('app-chrome-search');
-    const bar = wrapper.parentElement?.parentElement?.parentElement as HTMLElement;
-    await expect(bar.getBoundingClientRect().height).toBe(56);
+    await userEvent.click(canvas.getByRole('button', { name: 'Suchen' }));
+    const palette = await body.findByTestId('search-palette');
 
-    const input = canvas.getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
+    const input = within(palette).getByRole('combobox', { name: 'Themen, Quellen und Chats durchsuchen…' });
+    // Opening the palette puts the caret in its field.
+    await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(input));
     await userEvent.type(input, 'Prü');
     const listbox = await body.findByRole('listbox', { name: 'Suchergebnisse' });
     const options = await within(listbox).findAllByRole('option');
     await expect(input).toHaveAttribute('aria-expanded', 'true');
 
-    // Open, the bar is still 56px, and the list is outside it and below it.
-    await expect(bar.getBoundingClientRect().height).toBe(56);
-    await expect(bar.contains(listbox)).toBe(false);
-    const barBottom = bar.getBoundingClientRect().bottom;
     const last = options[options.length - 1];
     // Five two-line rows and four headings overflow the list's own 20rem
     // scroll area (DS `ComboboxList`: `max-h-80`), so bring the last one into
-    // view INSIDE the list first — the question here is the bar, not that.
+    // view INSIDE the list first.
     last.scrollIntoView({ block: 'nearest' });
     const lastBox = last.getBoundingClientRect();
-    await expect(lastBox.top).toBeGreaterThan(barBottom);
+    await expect(lastBox.top).toBeGreaterThan(input.getBoundingClientRect().bottom - 1);
     // Not covered or cut: the browser hit-tests the last option at its centre.
     const hit = canvasElement.ownerDocument.elementFromPoint(
       lastBox.left + lastBox.width / 2, lastBox.top + lastBox.height / 2,
@@ -1023,11 +955,11 @@ export const AppShellGeometryWithSearchOpen: Story = {
     await expect(canvasElement.ownerDocument.activeElement).toBe(input);
 
     await userEvent.keyboard('{Enter}');
-    await waitFor(() => expect(body.queryByRole('listbox')).toBeNull());
     await expect(args.onOpenChat).toHaveBeenCalledWith({
       chatId: 'c-1', kbId: 'kb-1', title: 'Prüfungsfragen', type: 'chat', timestamp: '2026-09-20T10:00:00Z',
     });
-    await expect(bar.getBoundingClientRect().height).toBe(56);
+    // Opening a hit closes the palette.
+    await waitFor(() => expect(body.queryByTestId('search-palette')).toBeNull());
   },
 };
 

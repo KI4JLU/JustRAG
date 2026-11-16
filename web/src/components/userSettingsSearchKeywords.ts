@@ -7,7 +7,7 @@ import type { SettingsTab } from './UserSettingsModal';
  */
 export const USER_SETTINGS_SEARCH_KEYS: Record<SettingsTab, readonly string[]> = {
     general: ['appearance', 'contrast', 'accentColor', 'colorsLabel', 'languageLabel'],
-    chat: ['promptSuggestions', 'followUpsLabel', 'autoScrollLabel'],
+    chat: ['promptSuggestions', 'followUpsLabel', 'autoScrollLabel', 'chatWidthLabel'],
     profile: ['username', 'firstName', 'lastName', 'emailAddress', 'role'],
     connectors: ['apiKeys', 'confluenceProfileTitle'],
 };

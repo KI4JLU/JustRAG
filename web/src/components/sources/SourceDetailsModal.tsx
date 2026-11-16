@@ -153,7 +153,7 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
                                     return (
                                         <tr
                                             key={file.id}
-                                            className={cn('border-b border-outline-variant', onOpenFile && 'cursor-pointer hover:bg-surface-container-low')}
+                                            className={cn('border-b border-outline-variant', onOpenFile && 'cursor-pointer hover:bg-hover')}
                                             onClick={onOpenFile ? () => onOpenFile(file) : undefined}
                                         >
                                             <td className="py-3 pr-3 pl-6 align-middle text-on-surface-variant">

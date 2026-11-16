@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useMemo, useState } from 'react';
 import { MessageSquare, MessageSquarePlus } from 'lucide-react';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
+import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { useKbCore } from '../contexts/KbCoreContext';
@@ -79,6 +80,7 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
           onOpenMessage={(hit) => onOpenChat({
             chatId: hit.chatId, kbId: hit.kbId, title: hit.chatTitle, type: hit.chatType, timestamp: hit.createdAt,
           })}
+          onClose={() => setSearchPaletteOpen(false)}
         />
       </div>
     );

@@ -216,7 +216,7 @@ function SuggestionsEditor({ value, onChange, dynamicSample, sampleLoading, onNe
                                     type="button"
                                     aria-label={t('asstRemoveQuestion').replace('{n}', String(i + 1))}
                                     onClick={() => setFixed(list => list.filter((_, j) => j !== i))}
-                                    className="flex size-6 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                                    className="flex size-6 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-hover hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                                 >
                                     <X className="size-3.5" aria-hidden="true" />
                                 </button>

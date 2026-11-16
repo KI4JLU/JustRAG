@@ -47,7 +47,7 @@ export function SourceList({ sources, onOpen, activeN = null }: SourceListProps)
                             // eslint-disable-next-line design-system/no-raw-ui-elements -- the whole row is the control (brief §6); the DS has no list-row button
                             <button
                                 type="button"
-                                className={cn(rowClass, 'cursor-pointer transition-colors hover:bg-surface-container-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring')}
+                                className={cn(rowClass, 'cursor-pointer transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring')}
                                 onClick={() => onOpen(s)}
                             >
                                 {body}
