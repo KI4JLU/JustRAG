@@ -7,6 +7,8 @@
     ],
     "scripts": {
         "web": "cd web && npm run dev",
+        "desktop": "npm --prefix desktop run dev",
+        "desktop:app": "npm --prefix desktop run package:dir",
         "build": "cd web && npm run build",
         "test": "npm test --prefix web",
         "lint": "npm run lint --prefix web"

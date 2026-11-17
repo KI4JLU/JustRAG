@@ -217,6 +217,12 @@ They remain useful for legacy flows and schema generation, but they are not the 
 - `web/src/routes/`
 - `web/src/utils/`
 
+### Desktop app
+
+- `desktop/`: the Electron host that shows the web app in a native window. Its own npm project
+  (`npm ci --prefix desktop`, then `npm run desktop` from the root), not part of the root
+  workspace; see `desktop/README.md`
+
 ### Legacy code
 
 - `src/`: legacy Node.js backend and tooling
