@@ -82,8 +82,10 @@ func stripCitationMarkersExcept(text string, keep map[int]bool) string {
 		return text
 	}
 	return citationStripRe.ReplaceAllStringFunc(text, func(m string) string {
-		// m is one candidate: its leading blanks, then the marker.
-		nums := parseMarkerBody(citationStripRe.FindStringSubmatch(m)[1])
+		// m is one candidate: its leading blanks, then the marker, whose
+		// body sits between "[" and the closing "]" or "\]".
+		body := strings.TrimSuffix(m[strings.IndexByte(m, '[')+1:len(m)-1], `\`)
+		nums := parseMarkerBody(body)
 		if len(nums) == 0 {
 			return m
 		}
