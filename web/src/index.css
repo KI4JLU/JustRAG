@@ -563,7 +563,11 @@ button.source-card {
   /* What the open floating sources card covers at the end edge (published
      by the design system's shell); 0 while it is closed. */
   --chat-clear: var(--app-shell-bubble-inset, 0px);
-  --chat-column-width: min(var(--chat-width-share), var(--chat-width-cap), 100cqw - var(--chat-clear));
+  /* The room beside that card. It stops at 20rem (or the column, if that is
+     narrower): a card that leaves less than that lies over the content's end
+     instead of squeezing it further. */
+  --chat-room: max(min(20rem, 100cqw), 100cqw - var(--chat-clear));
+  --chat-column-width: min(var(--chat-width-share), var(--chat-width-cap), var(--chat-room));
   /* The centred box the shift below is worked out for. */
   --chat-box: var(--chat-column-width);
   --chat-column-inset: 2rem;
@@ -638,29 +642,35 @@ button.source-card {
   padding-right: var(--chat-column-inset, 2rem);
   /* The column stays centred while it fits beside the sources card, moves
      towards the start by what is missing once it does not, and only then
-     narrows (`--chat-column-width`). The composer (`.input-container`)
+     narrows (`--chat-column-width`). It never moves further than its own
+     margin, so it stays inside the column. The composer (`.input-container`)
      carries the same offset, so the two stay aligned. */
   position: relative;
-  left: calc(-1 * max(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2));
+  left: calc(-1 * clamp(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2, (100cqw - var(--chat-box, 100cqw)) / 2));
 }
 
 /* The disclaimer under the composer keeps clear of the card the same way:
    centred while its line fits beside it, then moved, then wrapped. */
 .chat-column > [data-slot="chat-stage-footer"] {
-  --chat-box: min(60rem, 100cqw - var(--chat-clear, 0px));
+  --chat-box: min(60rem, var(--chat-room, 100cqw));
   box-sizing: border-box;
   width: 100%;
   max-width: var(--chat-box);
   margin-inline: auto;
   position: relative;
-  left: calc(-1 * max(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box)) / 2));
+  left: calc(-1 * clamp(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box)) / 2, (100cqw - var(--chat-box)) / 2));
 }
 
 /* The start page's content is the title card's width (max-w-2xl), whatever
-   the column's: that box is what has to clear the card. */
-[data-slot="chat-stage"][data-empty] .messages-container > .empty-state,
+   the column's: that box is what has to clear the card. It narrows with the
+   column like every other box here — a box wider than the room beside the
+   card would be moved past the column's start edge, under the navigation. */
+[data-slot="chat-stage"][data-empty] .messages-container > .empty-state {
+  --chat-box: min(42rem, var(--chat-column-width, 100cqw));
+}
+
 .input-container.input-container--start {
-  --chat-box: min(42rem, 100cqw);
+  --chat-box: min(42rem, var(--chat-room, 100cqw));
 }
 
 /* One row = one flex column so the bubble's `align-self` applies: user on
@@ -1174,13 +1184,13 @@ button.source-card {
   margin: 0 auto;
   width: 100%;
   position: relative;
-  left: calc(-1 * max(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2));
+  left: calc(-1 * clamp(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2, (100cqw - var(--chat-box, 100cqw)) / 2));
 }
 
 /* An empty chat — the start page: the composer, role cards and dropzone as
    wide as the title card above them (max-w-2xl, px-4 in ChatView). */
 .input-container.input-container--start {
-  max-width: 42rem;
+  max-width: var(--chat-box, 42rem);
   padding-inline: 1rem;
 }
 
@@ -2151,6 +2161,8 @@ button.source-card {
    ======================================== */
 @media (max-width: 1023px) {
   .chat-column {
+    /* One area at a time here: no card floats over the chat. */
+    --chat-clear: 0px;
     --chat-column-width: 100cqw;
     --chat-column-inset: 0.75rem;
   }
