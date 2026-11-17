@@ -95,7 +95,7 @@ rate limits, server errors); map it by status.
 
 - `GET /auth/providers` is public and lists the enabled login providers for the login page, without their secrets.
 - `GET /auth/oidc/login` → IdP → `GET /auth/oidc/callback` is the browser redirect flow for OIDC login.
-- `GET /auth/oidc/logout` is the browser's RP-initiated logout: it revokes the JWT if one is sent and redirects to the IdP's end-session endpoint.
+- `GET /auth/oidc/logout` is the browser's RP-initiated logout: it revokes the JWT if one is sent and redirects to the IdP's end-session endpoint. The callback leaves the ID token in an HttpOnly, `SameSite=Strict` cookie scoped to this path, and the logout sends it as `id_token_hint` in the redirect URL, so the IdP ends the session without a confirmation page. The hint goes only to a logout the app started (`Sec-Fetch-Site: same-origin`, or a `Referer` on the origin of the provider's post-logout or success redirect). Otherwise the logout runs without it and the IdP may ask: a link on another page, a typed URL, a login from before this cookie existed, or an ID token over 3800 bytes. It ends the single sign-on session — call it for a logout the user asked for, not for an expired token.
 - `POST /auth/oidc/logout` is the IdP's back-channel logout (called server-to-server with a `logout_token`, never by the frontend).
 
 ### Users, site config, API keys

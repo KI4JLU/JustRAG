@@ -50,6 +50,28 @@ const (
 	oidcVerifierCookie = "oidc_verifier"
 	oidcProviderCookie = "oidc_provider"
 	oidcCookieMaxAge   = 5 * 60 // 5 minutes — covers user navigating to IdP and back.
+
+	// oidcIDTokenCookie keeps the raw ID token of the last OIDC login for the
+	// logout redirect, which sends it as id_token_hint. Without the hint the
+	// IdP cannot tell that the request comes from the session's own browser
+	// and asks the user to confirm the logout (Keycloak: "Do you want to log
+	// out?"). The browser's navigation to the logout endpoint carries no
+	// Authorization header, so a cookie is the only thing that reaches it.
+	// It is scoped to that one path and never readable by scripts.
+	//
+	// The IdP's confirmation page is also what stops another page from
+	// logging a user out with a link to this endpoint, so the hint goes only
+	// to a logout the app itself started: the cookie is SameSite=Strict
+	// (unlike the login cookies), which keeps it from other sites, and
+	// oidcLogoutFromApp keeps it from other hosts of the same site.
+	oidcIDTokenCookie = "oidc_id_token"
+	// oidcLogoutPath is the logout route as this server sees it; the cookie's
+	// path is the one the browser sees (oidcLogoutCookiePath).
+	oidcLogoutPath = "/api/auth/oidc/logout"
+	// Browsers drop a cookie over 4096 bytes including its name and
+	// attributes. A larger ID token (many group or role claims) is not
+	// stored; that logout then runs without the hint, as before.
+	oidcIDTokenCookieMaxBytes = 3800
 )
 
 // oidcProviderCache memoises oidc.Provider + parsed OIDCConfig per
@@ -197,6 +219,74 @@ func clearOIDCCookie(w http.ResponseWriter, r *http.Request, name string) {
 		HttpOnly: true,
 		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
+
+// oidcLogoutCookiePath is the logout route's path in the browser. Behind a
+// proxy that serves the API under a prefix it differs from oidcLogoutPath, and
+// a cookie on the wrong path is never sent. The configured redirect URI is the
+// callback's public URL, and the logout route is its sibling.
+func oidcLogoutCookiePath(cfg OIDCConfig) string {
+	if u, err := url.Parse(cfg.RedirectURI); err == nil {
+		if base, ok := strings.CutSuffix(u.Path, "/callback"); ok && base != "" {
+			return base + "/logout"
+		}
+	}
+	return oidcLogoutPath
+}
+
+// oidcLogoutFromApp reports whether the browser started this navigation in
+// the app: on this origin, or — where the web app is served from another
+// origin than the API — on the origin the provider's redirects point back to.
+// Anything else (another host, a typed URL, a browser that sends neither
+// header) is not known to be the app and gets no hint.
+func oidcLogoutFromApp(r *http.Request, cfg OIDCConfig) bool {
+	if r.Header.Get("Sec-Fetch-Site") == "same-origin" {
+		return true
+	}
+	ref, err := url.Parse(r.Header.Get("Referer"))
+	if err != nil || ref.Scheme == "" || ref.Host == "" {
+		return false
+	}
+	for _, raw := range []string{cfg.PostLogoutRedirectURI, cfg.SuccessRedirect} {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" &&
+			strings.EqualFold(u.Scheme, ref.Scheme) && strings.EqualFold(u.Host, ref.Host) {
+			return true
+		}
+	}
+	return false
+}
+
+// setOIDCIDTokenCookie stores the ID token for the logout redirect. It lives
+// as long as the JustRAG token minted beside it; the IdP accepts an expired ID
+// token as a hint, so its own shorter lifetime does not matter.
+func setOIDCIDTokenCookie(w http.ResponseWriter, r *http.Request, path, rawIDToken string) {
+	if len(rawIDToken) > oidcIDTokenCookieMaxBytes {
+		logctx.From(r.Context()).Warn("oidc callback: id_token too large for the logout hint cookie",
+			"bytes", len(rawIDToken))
+		clearOIDCIDTokenCookie(w, r, path)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcIDTokenCookie,
+		Value:    rawIDToken,
+		Path:     path,
+		HttpOnly: true,
+		Secure:   cookieSecure(r),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(tokenLifetime / time.Second),
+	})
+}
+
+func clearOIDCIDTokenCookie(w http.ResponseWriter, r *http.Request, path string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcIDTokenCookie,
+		Value:    "",
+		Path:     path,
+		HttpOnly: true,
+		Secure:   cookieSecure(r),
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
 }
@@ -369,6 +459,7 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		oidcErrRedirect(w, r, "token_sign_failed")
 		return
 	}
+	setOIDCIDTokenCookie(w, r, oidcLogoutCookiePath(cached.config), rawIDToken)
 
 	target := cached.config.SuccessRedirect
 	if target == "" {
@@ -383,10 +474,21 @@ func (h *Handler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 // Best-effort blacklists a JustRAG JWT supplied via Authorization: Bearer (so
 // SPA flows that POST /api/auth/logout first still work; this endpoint is
 // idempotent for clients that only navigate the browser), then redirects to
-// the IdP's discovered end_session_endpoint with client_id and the
-// admin-configured post_logout_redirect_uri. If the IdP doesn't advertise an
-// end_session_endpoint, falls back to a local redirect.
+// the IdP's discovered end_session_endpoint with client_id, the
+// admin-configured post_logout_redirect_uri and — when the login left one and
+// the navigation started in the app (oidcLogoutFromApp) — the ID token as
+// id_token_hint, so the IdP logs out without asking. If the IdP doesn't
+// advertise an end_session_endpoint, falls back to a local redirect.
+//
+// The hint travels in the redirect URL, as the specification defines it, so
+// it reaches the IdP's access log. It is the IdP's own token.
+//
+// This endpoint ends the user's single sign-on session. It is for a logout
+// the user asked for, never for an expired JustRAG token.
 func (h *Handler) OIDCLogout(w http.ResponseWriter, r *http.Request) {
+	// The redirect may carry the ID token: keep it out of caches.
+	w.Header().Set("Cache-Control", "no-store")
+
 	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		if claims, err := auth.DecodeTokenUnverified(tokenStr); err == nil && h.blacklist != nil {
@@ -435,7 +537,12 @@ func (h *Handler) OIDCLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An absolute URL only: a relative one would resolve against this server
+	// and take the hint somewhere that is not the IdP.
 	u, err := url.Parse(meta.EndSessionEndpoint)
+	if err == nil && (!u.IsAbs() || u.Host == "") {
+		err = errors.New("not an absolute URL")
+	}
 	if err != nil {
 		logctx.From(r.Context()).Error("oidc logout: invalid end_session_endpoint", "err", err, "url", meta.EndSessionEndpoint)
 		http.Redirect(w, r, postLogout, http.StatusFound)
@@ -444,6 +551,13 @@ func (h *Handler) OIDCLogout(w http.ResponseWriter, r *http.Request) {
 	q := u.Query()
 	q.Set("client_id", cached.config.ClientID)
 	q.Set("post_logout_redirect_uri", postLogout)
+	// The hint is spent with the logout it goes to, and only then: a failure
+	// above, an IdP without an end-session endpoint, or a request that did
+	// not come from the app leaves the cookie.
+	if c, err := r.Cookie(oidcIDTokenCookie); err == nil && c.Value != "" && oidcLogoutFromApp(r, cached.config) {
+		q.Set("id_token_hint", c.Value)
+		clearOIDCIDTokenCookie(w, r, oidcLogoutCookiePath(cached.config))
+	}
 	u.RawQuery = q.Encode()
 
 	http.Redirect(w, r, u.String(), http.StatusFound)
