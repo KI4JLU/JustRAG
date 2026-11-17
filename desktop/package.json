@@ -1,0 +1,34 @@
+{
+  "name": "justrag-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Desktop app for JustRAG: the web app in a native Electron window.",
+  "author": "KI4JLU",
+  "license": "MIT",
+  "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev --watch",
+    "build": "electron-vite build",
+    "icon": "electron out/main/generate-icon.js",
+    "package": "npm run build && npm run icon && electron-builder --config electron-builder.config.mjs",
+    "package:dir": "npm run build && npm run icon && electron-builder --config electron-builder.config.mjs --dir",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "electron": "45.3.3",
+    "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "vitest": "4.1.12"
+  },
+  "overrides": {
+    "minimatch@^9": "11.0.8",
+    "minimatch@^10": "11.0.8"
+  }
+}
