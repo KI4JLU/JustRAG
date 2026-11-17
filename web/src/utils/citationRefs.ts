@@ -1,5 +1,6 @@
 import { MATH_SPAN_RE } from './markdownMath';
 import type { CitationModel } from './sourceDisplay';
+import { normalizeCitationMarkers } from './citations';
 
 /* The answer's inline citation markers, turned into chip placeholders
    (`addCitationRefs`, rendered by MessageContent) and listed in reading order
@@ -57,7 +58,7 @@ function citationUnits(text: string): string[] {
 export function addCitationRefs(content: string, model: CitationModel): string {
     const preserved: string[] = [];
     const placeholder = (i: number) => `\x00CITE_PRESERVE_${i}\x00`;
-    const safe = content.replace(PRESERVE_RE, (match) => {
+    const safe = normalizeCitationMarkers(content).replace(PRESERVE_RE, (match) => {
         preserved.push(match);
         return placeholder(preserved.length - 1);
     });

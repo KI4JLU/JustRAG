@@ -1,5 +1,6 @@
 import type { Message, MessageSource } from '../types';
 import { MATH_SPAN_RE } from './markdownMath';
+import { MAX_ANNOTATED_MARKER_BODY, isAnnotatedMarkerBody, parseMarkerBody } from './citationMarkerBody';
 
 // Extracts 1-based source indices that appear as [N] or [N, M, ...] markers
 // in the answer text. The regex is intentionally slightly more lenient than
@@ -72,7 +73,7 @@ export function extractCitedSourceIndices(
   // which some LLMs emit intermittently when generating prose. Without this
   // the filter would fall back to "show all sources" on those answers.
   const re = /\\?\[\s*(\d+(?:\s*,\s*\d+)*)\s*\\?\]/g;
-  for (const match of content.matchAll(re)) {
+  for (const match of normalizeCitationMarkers(content).matchAll(re)) {
     for (const part of match[1].split(',')) {
       const n = parseInt(part.trim(), 10);
       if (!isNaN(n) && n >= 1 && n <= sourceCount) {
@@ -94,13 +95,53 @@ const CODE_OR_MATH_RE = new RegExp(
 // regex), plus the blank in front of one, so "Text [1]." becomes "Text.".
 const CITATION_MARKER_RE = /[ \t]*(?<![`[])\\?\[\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*\\?\](?!\()/g;
 
+// A marker candidate that may carry page text: "[5, S. 584]", escaped
+// "\\[5, S. 584\\]". Group 1 is the body — the same candidate the backend's
+// citationMarkerRe reads, so the two agree on its bounds.
+const ANNOTATED_CANDIDATE_RE = new RegExp(
+  '(?<![`[])' + String.raw`\\?\[(\d[^[\]\n\\]{0,${MAX_ANNOTATED_MARKER_BODY - 1}})\\?\](?!\()`, 'gu');
+// Code and dollar math, the spans the chip renderer cuts out. Not the LaTeX
+// delimiters of CODE_OR_MATH_RE: an escaped marker reads as one, and that
+// pattern is slow on many unclosed "\\[".
+const CODE_OR_DOLLAR_MATH_RE = new RegExp('```[\\s\\S]*?```|`[^`\\n]+`|' + MATH_SPAN_RE.source, 'g');
+// Cheap pre-check: a bracket that opens with a digit and holds something
+// other than digits, commas and plain blanks.
+const MAYBE_ANNOTATED_RE = /\[\d[\d, ]*[^\d, [\]\n]/;
+
+/**
+ * normalizeCitationMarkers rewrites markers that carry page text to the plain
+ * form every marker reader here understands: "[5, S. 584; 8, S. 583]" becomes
+ * "[5, 8]". The page text goes — it is the model's own claim; a chip shows
+ * the pages of its source. Code and math are left alone, and so is any
+ * bracket that is no citation.
+ *
+ * Every reader of markers runs its text through this first (addCitationRefs,
+ * citationOrder, citingTextByRaw, extractCitedSourceIndices,
+ * stripCitationMarkers), so they agree on what an answer cites.
+ */
+export function normalizeCitationMarkers(content: string): string {
+  if (!MAYBE_ANNOTATED_RE.test(content)) return content;
+  const fix = (text: string) => text.replace(ANNOTATED_CANDIDATE_RE, (marker, body: string) => {
+    if (!isAnnotatedMarkerBody(body)) return marker;
+    return `[${(parseMarkerBody(body) ?? []).join(', ')}]`;
+  });
+  let out = '';
+  let last = 0;
+  for (const m of content.matchAll(CODE_OR_DOLLAR_MATH_RE)) {
+    out += fix(content.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + fix(content.slice(last));
+}
+
 /**
  * stripCitationMarkers removes every inline citation marker ([1], [1, 2],
  * escaped \[1\]) from an answer's markdown, outside code and math spans.
  * Numbers in `keep` survive: a marker citing only kept numbers stays, a
  * mixed one keeps just those ("[1, 5]" with 5 kept becomes "[5]").
  */
-export function stripCitationMarkers(content: string, keep?: ReadonlySet<number>): string {
+export function stripCitationMarkers(rawContent: string, keep?: ReadonlySet<number>): string {
+  const content = normalizeCitationMarkers(rawContent);
   const strip = (text: string) => text.replace(CITATION_MARKER_RE, (marker) => {
     if (!keep || keep.size === 0) return '';
     const nums = (marker.match(/\d{1,3}/g) ?? []).map(Number);

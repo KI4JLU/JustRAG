@@ -1,3 +1,5 @@
+import { isAnnotatedMarkerBody } from './citationMarkerBody';
+
 // Math in chat answers is rendered by remark-math + rehype-katex, which only
 // know the dollar delimiters. LLMs just as often emit the LaTeX forms
 // \( … \) and \[ … \]; markdown reads those backslashes as escapes and prints
@@ -13,7 +15,8 @@ const CODE_RE = /```[\s\S]*?```|`[^`\n]+`/g;
 export const MATH_SPAN_RE = /\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g;
 
 // \[1\] and \[1, 2\] are escaped citation markers (MessageContent's citation
-// regex accepts them), not display math.
+// regex accepts them), not display math — and so is one with page text,
+// \[5, S. 584\].
 const CITATION_BODY_RE = /^\s*\d{1,3}(?:\s*,\s*\d{1,3})*\s*$/;
 
 export function normalizeMathDelimiters(content: string): string {
@@ -27,7 +30,7 @@ export function normalizeMathDelimiters(content: string): string {
     });
 
     safe = safe.replace(/\\\[([\s\S]+?)\\\]/g, (match, body: string) =>
-        CITATION_BODY_RE.test(body) ? match : `\n\n$$\n${body.trim()}\n$$\n\n`);
+        CITATION_BODY_RE.test(body) || isAnnotatedMarkerBody(body) ? match : `\n\n$$\n${body.trim()}\n$$\n\n`);
     safe = safe.replace(/\\\(([^\n]+?)\\\)/g, (_match, body: string) => `$${body.trim()}$`);
     // A display block that already sat on its own lines picks up extra blank
     // lines from the padding above; markdown would ignore them, but keep the

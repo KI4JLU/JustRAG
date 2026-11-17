@@ -1,6 +1,6 @@
 import type { MessageSource } from '../types';
 import { previewKindOf } from './previewKind';
-import { formatPageRanges, sourceForCitation } from './citations';
+import { formatPageRanges, normalizeCitationMarkers, sourceForCitation } from './citations';
 import { MATH_SPAN_RE } from './markdownMath';
 
 /**
@@ -92,7 +92,7 @@ const MARKER_RE = /(?<![`[])\\?\[\s*(\d{1,3}(?:\s*,\s*\d{1,3})*)\s*\\?\](?!\()/g
 
 /** The raw citation numbers in the order they appear (code and math left out). */
 export function citationOrder(content: string): number[] {
-    const prose = content.replace(PRESERVE_RE, ' ');
+    const prose = normalizeCitationMarkers(content).replace(PRESERVE_RE, ' ');
     const out: number[] = [];
     for (const m of prose.matchAll(MARKER_RE)) {
         for (const part of m[1].split(',')) {
@@ -110,7 +110,7 @@ export function citationOrder(content: string): number[] {
  */
 export function citingTextByRaw(content: string): Map<number, string> {
     const out = new Map<number, string>();
-    for (const block of content.replace(PRESERVE_RE, ' ').split(/\n\s*\n|\n(?=\s*(?:[-*+]|\d+\.)\s)/)) {
+    for (const block of normalizeCitationMarkers(content).replace(PRESERVE_RE, ' ').split(/\n\s*\n|\n(?=\s*(?:[-*+]|\d+\.)\s)/)) {
         const text = block.replace(MARKER_RE, ' ').replace(/[*_#>`]/g, '').trim();
         for (const m of block.matchAll(MARKER_RE)) {
             for (const part of m[1].split(',')) {
