@@ -125,15 +125,12 @@ func RunCitationValidation(
 // the semantic fallback to recover the per-marker window without changing
 // the existing pure validator's API.
 func windowsByN(answer string) map[int]string {
-	matches := citationMarkerRe.FindAllStringSubmatchIndex(answer, -1)
-	out := make(map[int]string, len(matches))
-	for _, m := range matches {
-		nums := parseCitationNumbers(answer[m[2]:m[3]])
-		if len(nums) == 0 {
-			continue
-		}
-		win := sentenceWithMarker(answer, m[0])
-		for _, n := range nums {
+	spans := ExtractCitationSpans(answer)
+	out := make(map[int]string, len(spans))
+	masked, text := maskCitationMarkers(answer, spans), withPlainMarkers(answer, spans)
+	for _, sp := range spans {
+		win := sentenceWithMarker(text, masked, sp.Start)
+		for _, n := range sp.Numbers {
 			if _, exists := out[n]; !exists {
 				out[n] = win
 			}
@@ -146,11 +143,12 @@ func windowsByN(answer string) map[int]string {
 // (one per marker, in order of appearance). Exposed for tests that need
 // to align fake-embedding inputs with the windows the validator computes.
 func citationWindows(answer string) []string {
-	matches := citationMarkerRe.FindAllStringSubmatchIndex(answer, -1)
-	out := make([]string, 0, len(matches))
-	seen := make(map[string]struct{}, len(matches))
-	for _, m := range matches {
-		win := sentenceWithMarker(answer, m[0])
+	spans := ExtractCitationSpans(answer)
+	out := make([]string, 0, len(spans))
+	seen := make(map[string]struct{}, len(spans))
+	masked, text := maskCitationMarkers(answer, spans), withPlainMarkers(answer, spans)
+	for _, sp := range spans {
+		win := sentenceWithMarker(text, masked, sp.Start)
 		if _, dup := seen[win]; dup {
 			continue
 		}

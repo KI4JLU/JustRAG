@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/kbaccess"
@@ -41,25 +42,32 @@ import (
 // only the KB attribution goes. The kept numbers come from the response's
 // own sources (the opening frame, the JSON body, the stored message).
 
-// citationStripRe matches one citation marker in the single format
-// citationMarkerRe defines, plus the horizontal whitespace before it, so
+// citationStripRe matches one citation marker candidate in the single format
+// citationMarkerRe defines (parseMarkerBody decides whether it is one), plus the horizontal whitespace before it, so
 // "Satz [2]." becomes "Satz." rather than "Satz ."
 var citationStripRe = regexp.MustCompile(`[ \t]*` + citationMarkerRe.String())
 
 // citationHoldRe matches the tail of a streamed text that may still become
 // (the leading whitespace of) a citation marker once the next chunk
-// arrives: trailing blanks, optionally followed by "[" or "[<digits, commas,
-// spaces>". Leftmost match, so it starts at the first blank of the run.
-var citationHoldRe = regexp.MustCompile(`[ \t]*(?:\[(?:\d[\d,\s]*)?)?$`)
+// arrives: trailing blanks, optionally followed by a lone "\" or by an
+// unfinished marker — "[", "[<digits, commas, spaces>", or the start of a
+// marker with page text ("[5, S. 58"), which is held only as long as
+// citationMarkerRe could still match it. Leftmost match, so it starts at
+// the first blank of the run.
+var citationHoldRe = regexp.MustCompile(
+	`[ \t]*(?:\\|\\?\[(?:\d[\d,\s]*|\d[^\[\]\n\\]{0,` + strconv.Itoa(maxAnnotatedMarkerBody-1) + `})?\\?)?$`)
 
-// maxCitationHold bounds how much text a CitationMarkerStream holds back. A
-// real marker is far shorter ("[1, 2, 5]"; even one listing sources 1–100 is
-// under 400 bytes). A longer run of blanks is released as is; a longer
-// unfinished "[<digits, commas, spaces>" is dropped instead (see Feed).
-const maxCitationHold = 512
+// maxCitationHold bounds, in bytes, how much text a CitationMarkerStream
+// holds back. It must cover the longest marker with page text
+// (maxAnnotatedMarkerBody characters of up to 4 bytes, plus brackets); a
+// plain marker is far shorter ("[1, 2, 5]"; even one listing sources 1–100
+// is under 400 bytes). The bound applies to the blanks and to the possible
+// marker after them separately: a longer run of blanks is released as is, a
+// longer unfinished "[<digits, commas, spaces>" is dropped (see Feed).
+const maxCitationHold = 1024
 
-// StripCitationMarkers removes every citation marker ([3], [1, 2, 5]) from
-// text. Markers whose numbers are all non-positive are not citations
+// StripCitationMarkers removes every citation marker ([3], [1, 2, 5],
+// [5, S. 584]) from text. Markers whose numbers are all non-positive are not citations
 // (ExtractCitationSpans skips them too) and stay.
 func StripCitationMarkers(text string) string {
 	return stripCitationMarkersExcept(text, nil)
@@ -74,8 +82,8 @@ func stripCitationMarkersExcept(text string, keep map[int]bool) string {
 		return text
 	}
 	return citationStripRe.ReplaceAllStringFunc(text, func(m string) string {
-		open := strings.IndexByte(m, '[')
-		nums := parseCitationNumbers(m[open+1 : len(m)-1])
+		// m is one candidate: its leading blanks, then the marker.
+		nums := parseMarkerBody(citationStripRe.FindStringSubmatch(m)[1])
 		if len(nums) == 0 {
 			return m
 		}
@@ -91,7 +99,8 @@ func stripCitationMarkersExcept(text string, keep map[int]bool) string {
 		case len(nums):
 			return m
 		default:
-			return m[:open] + "[" + strings.Join(kept, ", ") + "]"
+			blanks := m[:len(m)-len(strings.TrimLeft(m, " \t"))]
+			return blanks + "[" + strings.Join(kept, ", ") + "]"
 		}
 	})
 }
@@ -147,30 +156,76 @@ type CitationMarkerStream struct {
 // removed. The result may be empty while a possible marker is held back.
 func (s *CitationMarkerStream) Feed(chunk string) string {
 	if s.dropping {
-		i := strings.IndexFunc(chunk, func(r rune) bool {
+		// While dropping, pending holds only what could not be judged yet:
+		// unfinished UTF-8 bytes, or a "\" that may open an escaped "\]".
+		buf := s.pending + chunk
+		s.pending = ""
+		split := len(buf) - incompleteUTF8Tail(buf)
+		i := strings.IndexFunc(buf[:split], func(r rune) bool {
 			return !(r == ',' || (r >= '0' && r <= '9') || unicode.IsSpace(r))
 		})
 		if i < 0 {
+			s.pending = buf[split:]
 			return ""
 		}
+		rest := buf[i:]
+		if rest == `\` {
+			s.pending = rest
+			return ""
+		}
+		// The character that ends the run: the marker's closing bracket is
+		// dropped with it, anything else is text again.
 		s.dropping = false
-		chunk = strings.TrimPrefix(chunk[i:], "]")
+		if strings.HasPrefix(rest, `\]`) {
+			rest = rest[2:]
+		} else {
+			rest = strings.TrimPrefix(rest, "]")
+		}
+		chunk = rest
 	}
 	buf := s.pending + chunk
-	cut := len(buf)
-	if loc := citationHoldRe.FindStringIndex(buf); loc != nil {
+	// A chunk may end inside a UTF-8 sequence. Those bytes wait for the
+	// rest: read as text they would count as characters of their own and
+	// push a marker with page text past its length bound.
+	split := len(buf) - incompleteUTF8Tail(buf)
+	text, tail := buf[:split], buf[split:]
+	cut := len(text)
+	if loc := citationHoldRe.FindStringIndex(text); loc != nil {
+		// marker is where the possible marker starts, after the blanks.
+		marker := loc[0] + len(text[loc[0]:]) - len(strings.TrimLeft(text[loc[0]:], " \t"))
 		switch {
-		case len(buf)-loc[0] <= maxCitationHold:
+		case len(text)-marker > maxCitationHold:
+			// An oversized possible marker — only a number list grows this
+			// long, one with page text is bounded well below. Drop it, with
+			// the blanks before it (as the marker strip would), and keep
+			// dropping.
+			s.pending, s.dropping = tail, true
+			return stripCitationMarkersExcept(text[:loc[0]], s.keep)
+		case marker-loc[0] > maxCitationHold:
+			// A run of blanks too long to hold is released as it is; the
+			// possible marker after it stays held.
+			cut = marker
+		default:
 			cut = loc[0]
-		case strings.Contains(buf[loc[0]:], "["):
-			// An oversized possible marker: drop it, with the blanks before
-			// it (as the marker strip would), and keep dropping.
-			s.pending, s.dropping = "", true
-			return stripCitationMarkersExcept(buf[:loc[0]], s.keep)
 		}
 	}
-	s.pending = buf[cut:]
-	return stripCitationMarkersExcept(buf[:cut], s.keep)
+	s.pending = text[cut:] + tail
+	return stripCitationMarkersExcept(text[:cut], s.keep)
+}
+
+// incompleteUTF8Tail returns how many bytes at the end of s start a UTF-8
+// sequence that is not finished yet (0–3).
+func incompleteUTF8Tail(s string) int {
+	for n := 1; n <= 3 && n <= len(s); n++ {
+		b := s[len(s)-n]
+		if utf8.RuneStart(b) {
+			if b >= 0xC0 && !utf8.FullRuneInString(s[len(s)-n:]) {
+				return n
+			}
+			return 0
+		}
+	}
+	return 0
 }
 
 // Flush returns the held-back tail, markers removed, and resets the stream.

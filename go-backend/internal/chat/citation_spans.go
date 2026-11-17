@@ -4,7 +4,7 @@ package chat
 // marker occupies and the 1-based source numbers it references.
 //
 // Start/End are byte offsets, so answer[Start:End] is exactly the marker text
-// ("[3]", "[1, 2, 5]"). Callers that need character offsets — the
+// ("[3]", "[1, 2, 5]", or one with page text, "[5, S. 584]"). Callers that need character offsets — the
 // OpenAI-compatible surface, whose `annotations[].index` is defined in
 // characters — must convert; byte and rune offsets diverge on the first
 // umlaut.
@@ -29,8 +29,8 @@ func ExtractCitationSpans(answer string) []CitationSpan {
 
 	spans := make([]CitationSpan, 0, len(matches))
 	for _, m := range matches {
-		// m[0]/m[1] = full marker bounds; m[2]/m[3] = inner number group.
-		nums := parseCitationNumbers(answer[m[2]:m[3]])
+		// m[0]/m[1] = full marker bounds; m[2]/m[3] = the marker body.
+		nums := parseMarkerBody(answer[m[2]:m[3]])
 		if len(nums) == 0 {
 			continue
 		}

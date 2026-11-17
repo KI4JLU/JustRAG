@@ -62,11 +62,6 @@ type CitationSpanRef struct {
 	End   int `json:"end"`
 }
 
-// citationMarkerRe captures both single ([3]) and multi-cite ([1, 2, 5])
-// markers. Numbers are captured as one comma-separated group; downstream
-// splits on the comma.
-var citationMarkerRe = regexp.MustCompile(`\[(\d+(?:\s*,\s*\d+)*)\]`)
-
 // stopwords deliberately covers both DE and EN — the validator must work on
 // any KB language without per-call language detection. Function words have
 // near-zero discriminative power in n-grams; keeping them in the set would
@@ -157,7 +152,7 @@ func hasOverlap(a, b map[string]struct{}) bool {
 }
 
 // sentenceWithMarker returns answer trimmed to the sentence containing the
-// rune offset markerStart, plus one neighbour sentence on each side. The
+// marker at byte offset markerStart, plus one neighbour sentence on each side. The
 // goal is "the local context the user reads next to [N]" — broader than
 // one sentence (a citation often closes a sentence about a fact stated in
 // the previous one), narrower than the whole paragraph (which would let
@@ -166,26 +161,88 @@ func hasOverlap(a, b map[string]struct{}) bool {
 // Sentence boundaries are heuristic: a period, exclamation, or question
 // mark followed by whitespace. Good enough for chat answers; we don't
 // need linguistic correctness — only locality.
-func sentenceWithMarker(answer string, markerStart int) string {
-	if markerStart < 0 || markerStart >= len(answer) {
+//
+// Boundaries are looked for in masked, the answer with its markers blanked
+// out (maskCitationMarkers): a marker with page text holds punctuation of
+// its own ("[1, S. 12]") that ends no sentence — in this marker or in a
+// neighbour.
+//
+// answer is the text the window is cut from; callers pass the answer with
+// its markers in plain form (withPlainMarkers).
+func sentenceWithMarker(answer, masked string, markerStart int) string {
+	if markerStart < 0 || markerStart >= len(answer) || len(masked) != len(answer) {
 		return answer
 	}
 
 	// Walk left for sentence starts, collecting up to 2 boundaries.
-	leftBoundaries := findSentenceBoundariesBefore(answer, markerStart, 2)
+	leftBoundaries := findSentenceBoundariesBefore(masked, markerStart, 2)
 	start := 0
 	if len(leftBoundaries) > 0 {
 		start = leftBoundaries[len(leftBoundaries)-1]
 	}
 
 	// Walk right for sentence ends, up to 2 boundaries.
-	rightBoundaries := findSentenceBoundariesAfter(answer, markerStart, 2)
+	rightBoundaries := findSentenceBoundariesAfter(masked, markerStart, 2)
 	end := len(answer)
 	if len(rightBoundaries) > 0 {
 		end = rightBoundaries[len(rightBoundaries)-1]
 	}
 
 	return answer[start:end]
+}
+
+// maskCitationMarkers returns answer with the bytes of every marker replaced
+// by "_", offsets unchanged.
+func maskCitationMarkers(answer string, spans []CitationSpan) string {
+	if len(spans) == 0 {
+		return answer
+	}
+	b := []byte(answer)
+	for _, sp := range spans {
+		for i := sp.Start; i < sp.End; i++ {
+			b[i] = '_'
+		}
+	}
+	return string(b)
+}
+
+// withPlainMarkers returns answer with every marker that carries page text
+// rewritten to its plain form, padded with blanks to the same length
+// ("[1, S. 12]" becomes "[1]" and seven blanks), offsets unchanged. The
+// validation windows are cut from it: the page text is the model's own
+// claim and must not count as evidence for the sentence it stands in.
+// Plain markers stay byte for byte.
+func withPlainMarkers(answer string, spans []CitationSpan) string {
+	var b []byte
+	for _, sp := range spans {
+		m := citationMarkerRe.FindStringSubmatch(answer[sp.Start:sp.End])
+		if m == nil || plainMarkerBodyRe.MatchString(m[1]) {
+			continue
+		}
+		nums := make([]string, len(sp.Numbers))
+		for i, n := range sp.Numbers {
+			nums[i] = strconv.Itoa(n)
+		}
+		// The plain form fits: a marker with page text is longer than its
+		// numbers. Should one not fit all the same ("1;2;3 S. 4" has no
+		// room for ", "), shorter forms follow — the page text goes in any
+		// case.
+		plain := "[" + strings.Join(nums, ", ") + "]"
+		if len(plain) > sp.End-sp.Start {
+			plain = "[" + strings.Join(nums, ",") + "]"
+		}
+		if len(plain) > sp.End-sp.Start {
+			plain = ""
+		}
+		if b == nil {
+			b = []byte(answer)
+		}
+		copy(b[sp.Start:sp.End], plain+strings.Repeat(" ", sp.End-sp.Start-len(plain)))
+	}
+	if b == nil {
+		return answer
+	}
+	return string(b)
 }
 
 // findSentenceBoundariesBefore returns up to maxN positions where a sentence
@@ -252,9 +309,10 @@ func ValidateCitations(answer string, sources []ChatSource) []CitationStatus {
 		windowTokens []string
 	}
 
+	masked, text := maskCitationMarkers(answer, spans), withPlainMarkers(answer, spans)
 	pending := make([]pendingMarker, 0, len(spans))
 	for _, s := range spans {
-		window := sentenceWithMarker(answer, s.Start)
+		window := sentenceWithMarker(text, masked, s.Start)
 		pending = append(pending, pendingMarker{
 			ns:           s.Numbers,
 			windowTokens: tokenize(window),
@@ -395,10 +453,15 @@ func parseCitationNumbers(s string) []int {
 	out := make([]int, 0, len(parts))
 	for _, p := range parts {
 		n, err := strconv.Atoi(strings.TrimSpace(p))
-		if err != nil || n <= 0 {
+		if err != nil || n <= 0 || n > maxCitationNumber {
 			continue
 		}
 		out = append(out, n)
 	}
 	return out
 }
+
+// maxCitationNumber is the highest source number a marker can cite. No
+// answer has that many sources; the bound keeps this parser and the web
+// app's (which reads numbers as floats) in agreement on absurd input.
+const maxCitationNumber = 999_999_999
