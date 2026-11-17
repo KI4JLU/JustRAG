@@ -32,7 +32,11 @@ export const authFetch: typeof fetch = async (input, init) => {
     }
     const response = await fetch(input, { ...init, headers });
     if (response.status === 401) {
-        window.dispatchEvent(new Event('auth:unauthorized'));
+        // The token this request went out with: a 401 for an older one must
+        // not end a session that has been renewed since (AppRoot).
+        const sent = headers.get('Authorization');
+        const sentToken = sent?.startsWith('Bearer ') ? sent.slice('Bearer '.length) : null;
+        window.dispatchEvent(new CustomEvent('auth:unauthorized', { detail: { token: sentToken } }));
     }
     return response;
 };

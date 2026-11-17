@@ -20,6 +20,9 @@ import { parkPostLoginPath, takePostLoginPath } from './routing/postLoginPath';
 interface LoginProps {
     onLogin: (token: string, user: { id: string; username: string; role: string }) => void;
     siteConfigs: Record<string, string>;
+    /** The login page is up because the session ended, not because the user
+     * logged out: say so. */
+    sessionExpired?: boolean;
 }
 
 interface PublicAuthProvider {
@@ -33,7 +36,7 @@ interface PublicAuthConfig {
     localAuthEnabled: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = false }) => {
     const { language, setLanguage, t } = useTheme();
     const { errors: fieldErrors, validate, clearError } = useFormValidation({
         username: (v) => !v.trim() && t('fieldRequired'),
@@ -263,6 +266,12 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs }) => {
                          * fields invalid for a failure that names neither. */
                         <Alert tone="error" live="assertive">
                             <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
+
+                    {sessionExpired && !error && (
+                        <Alert tone="info" live="polite">
+                            <AlertDescription>{t('sessionExpired')}</AlertDescription>
                         </Alert>
                     )}
 

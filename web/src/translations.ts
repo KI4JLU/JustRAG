@@ -27,6 +27,7 @@ export const translations = {
     enterUsername: { de: 'Gib deinen Benutzernamen ein', en: 'Enter your username' },
     password: { de: 'Passwort', en: 'Password' },
     login: { de: 'Anmelden', en: 'Login' },
+    sessionExpired: { de: 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.', en: 'Your session has expired. Please sign in again.' },
     invalidCredentials: { de: 'Ungültiger Benutzername oder Passwort', en: 'Invalid username or password' },
     joinLinkLoginHint: { de: 'Melden Sie sich an, um der geteilten Wissensdatenbank beizutreten.', en: 'Sign in to join the shared knowledge base.' },
     joinLinkJoined: { de: '"{kb}" wurde zu Ihren Wissensdatenbanken hinzugefügt', en: 'You joined "{kb}"' },

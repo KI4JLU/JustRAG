@@ -58,7 +58,17 @@ let toastCounter = 0;
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-export function ToastProvider({ children }: { children: ReactNode }) {
+interface ToastProviderProps {
+  children: ReactNode;
+  /** While it answers true, error toasts are dropped. For the moment the
+   * session ends: every request in flight fails with it, and each caller
+   * reports its own failure although the login page already says why. Asked
+   * per toast, not passed as state — the callers' handlers run before the
+   * next render. */
+  muteErrors?: () => boolean;
+}
+
+export function ToastProvider({ children, muteErrors }: ToastProviderProps) {
   const [toasts, dispatch] = useReducer(toastReducer, []);
 
   const removeToast = useCallback((id: string) => {
@@ -66,10 +76,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addToast = useCallback((type: Toast['type'], message: string, options?: ToastOptions) => {
+    if (type === 'error' && muteErrors?.()) return;
     const id = `toast-${++toastCounter}`;
     const duration = options?.duration ?? DEFAULT_DURATIONS[type];
     dispatch({ type: 'ADD', toast: { id, type, message, duration } });
-  }, []);
+  }, [muteErrors]);
 
   const toast: ToastApi = useMemo(() => ({
     success: (msg: string, opts?: ToastOptions) => addToast('success', msg, opts),
