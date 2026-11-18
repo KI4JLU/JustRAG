@@ -3,7 +3,7 @@ import {
     Download, Trash2, ListChecks,
     RefreshCw, Pause, Play, Info, ShieldAlert, CalendarClock,
 } from 'lucide-react';
-import { Button, SidebarCard, SidebarCardList, type ActionMenuItem } from '@ki4jlu/design-system';
+import { Button, HoverPreviewGroup, SidebarCard, SidebarCardList, type ActionMenuItem } from '@ki4jlu/design-system';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource, SyncSchedule } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
@@ -177,6 +177,8 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     ];
 
     return (
+        // One preview card for the list: it moves from row to row.
+        <HoverPreviewGroup>
         <SidebarCardList iconSlot="badge" className="sidebar-left__files-section">
                 {uploads.map(upload => (
                     <SidebarCard
@@ -361,6 +363,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                 <li className="sidebar-left__empty sidebar-ui__empty">{t('noSources')}</li>
             )}
         </SidebarCardList>
+        </HoverPreviewGroup>
     );
 };
 

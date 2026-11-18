@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { Plus } from 'lucide-react';
-import { SidebarRail, SidebarRailItem } from '@ki4jlu/design-system';
+import { HoverPreviewGroup, SidebarRail, SidebarRailItem } from '@ki4jlu/design-system';
 import type { FileEntry } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKbData } from '../../contexts/KbDataContext';
@@ -55,6 +55,8 @@ export function SourcesRail() {
                     <Plus aria-hidden="true" />
                 </SidebarRailItem>
             )}
+            {/* One preview card for the rail: it moves from icon to icon. */}
+            <HoverPreviewGroup>
             <SidebarRail aria-label={t('sources')}>
                 {files.map(file => {
                     const excluded = file.selected === false;
@@ -108,6 +110,7 @@ export function SourcesRail() {
                     );
                 })}
             </SidebarRail>
+            </HoverPreviewGroup>
         </>
     );
 }

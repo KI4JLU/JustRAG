@@ -568,6 +568,12 @@ const ChatViewComp = () => {
                               className="shrink-0"
                               status={upload?.status === 'uploading' || upload?.status === 'error' ? upload.status : undefined}
                               statusMessage={upload?.status === 'error' ? upload.message : upload?.status === 'uploading' ? t('chatAttachmentUploading') : undefined}
+                              // A click opens the uploaded file in the preview window, like a sent message's chip.
+                              onClick={upload?.status === 'done' ? () => webTools.handlePreviewUserFile({
+                                userFileId: upload.uploaded.id,
+                                name: upload.uploaded.name,
+                                mime: upload.uploaded.mime,
+                              }) : undefined}
                             />
                           );
                         }}

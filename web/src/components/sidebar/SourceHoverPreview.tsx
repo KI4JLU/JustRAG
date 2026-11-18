@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { HoverCard, HoverCardTrigger, HoverCardContent, FilePreview } from '@ki4jlu/design-system';
+import React, { useCallback } from 'react';
+import { HoverPreview, FilePreview } from '@ki4jlu/design-system';
 import type { FileEntry } from '../../types';
 import { preloadSourcePreview, useSourcePreview } from '../../hooks/sourcePreviews';
 import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
@@ -10,20 +10,13 @@ import { sourceTypeLabel } from './sourceIconFor';
 type Trigger = React.ReactElement<React.HTMLAttributes<HTMLElement>>;
 
 /**
- * The hover card every source-list row shares: opens over the whole row after
- * a short delay, sits left of it, and closes on any scroll (it is anchored to
- * its row, and scrolling the list carried it out of the viewport). `onWarmUp`
- * runs on pointer-enter and focus, before the card opens.
+ * The preview card every source-list row shares (DS `HoverPreview`): it opens
+ * once the pointer rests on the row, not while it passes over, and sits left
+ * of it. The list and the rail each wrap their rows in a `HoverPreviewGroup`,
+ * so one card moves from row to row. `onWarmUp` runs on pointer-enter and
+ * focus, before the card opens.
  */
 function SourceHoverCard({ children, onWarmUp, content }: { children: Trigger; onWarmUp?: () => void; content: React.ReactNode }) {
-    const [open, setOpen] = useState(false);
-    useEffect(() => {
-        if (!open) return;
-        const close = () => setOpen(false);
-        // Capture: scroll events do not bubble, and the scroller is an ancestor.
-        window.addEventListener('scroll', close, { capture: true, passive: true });
-        return () => window.removeEventListener('scroll', close, { capture: true });
-    }, [open]);
 
     const trigger = onWarmUp ? React.cloneElement(children, {
         onPointerEnter: (e: React.PointerEvent<HTMLElement>) => {
@@ -37,10 +30,7 @@ function SourceHoverCard({ children, onWarmUp, content }: { children: Trigger; o
     }) : children;
 
     return (
-        <HoverCard open={open} onOpenChange={setOpen} openDelay={250} closeDelay={100}>
-            <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
-            <HoverCardContent side="left" align="start" className="w-auto p-2">{content}</HoverCardContent>
-        </HoverCard>
+        <HoverPreview side="left" align="start" content={content}>{trigger}</HoverPreview>
     );
 }
 

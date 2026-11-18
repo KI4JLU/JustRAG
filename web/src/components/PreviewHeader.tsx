@@ -24,14 +24,15 @@ const KIND_ICON: Record<PreviewKind, LucideIcon> = {
 /**
  * The app's side of the DS preview header (`PreviewHeader` in
  * @ki4jlu/design-system): a preview names its kind, not a glyph, and its
- * title is a file name — shown cleaned, the raw name as the tooltip.
+ * title is a file name, shown cleaned. No tooltip on it: the title is already
+ * in full view, and the raw name adds only the extension the subtitle names.
  */
 export interface PreviewHeaderProps {
     kind: PreviewKind;
     /** Overrides the kind's glyph (a synced source's entry list: feed, Confluence, repository). */
     icon?: LucideIcon;
     title: string;
-    /** Whether the title is a file name (cleaned for display, the raw name as tooltip). Default true. */
+    /** Whether the title is a file name (cleaned for display). Default true. */
     fileTitle?: boolean;
     /** An input in the title's place (a new source being named, „Text einfügen"). */
     titleField?: React.ReactNode;
@@ -48,7 +49,6 @@ export function useDsHeaderProps({ kind, icon, title, fileTitle = true, ...rest 
         ...rest,
         icon: icon ?? KIND_ICON[kind],
         title: fileTitle ? cleanSourceTitle(title) : title,
-        titleTooltip: fileTitle ? title : undefined,
         labels: { close: t('close'), nav: t('breadcrumbNav'), back: t('backTo') },
     };
 }
