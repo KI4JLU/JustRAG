@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import type { Message } from '../types';
-import { formatPageRanges } from './citations';
+import { formatPageRanges, normalizeCitationMarkers } from './citations';
 import { copyToClipboard } from './clipboard';
 import { API_BASE_URL, authFetch } from '../api';
 
@@ -10,8 +10,11 @@ export interface BuildAnswerMarkdownOpts {
 
 // buildAnswerMarkdown is the single source of truth for "answer + citations"
 // export content, shared by clipboard copy, .md download, and DOCX export.
+// Markers with page text become the plain form the screen shows
+// ("[5, S. 584]" → "[5]"), matching the numbered list below, which names each
+// source's pages.
 export function buildAnswerMarkdown(message: Message, opts: BuildAnswerMarkdownOpts = {}): string {
-  const body = (message.content ?? '').trim();
+  const body = normalizeCitationMarkers(message.content ?? '').trim();
   const sources = message.sources ?? [];
   if (sources.length === 0) {
     return body;
