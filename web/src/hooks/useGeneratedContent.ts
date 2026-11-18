@@ -213,7 +213,7 @@ export function useGeneratedContent({
 
   const handleDeleteGeneratedContent = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!await showConfirm(t('confirmDeleteContent'))) return;
+    if (!await showConfirm(t('confirmDeleteContent'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
     let snapshot: GeneratedContent[] = [];
     setGeneratedContent(prev => { snapshot = prev; return prev.filter(c => c.id !== id); });
     try {

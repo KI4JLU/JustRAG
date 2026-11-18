@@ -26,6 +26,7 @@ const toastMock = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi
 
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 vi.mock('../../contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../../contexts/ModalContext', () => ({ useModalContext: () => ({ showConfirm: vi.fn().mockResolvedValue(true) }) }));
 vi.mock('../../hooks/useReducedMotion', () => ({ useReducedMotion: () => true, getMotionProps: () => ({}) }));
 
 const defaultProps = {};

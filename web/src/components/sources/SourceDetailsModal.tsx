@@ -191,9 +191,8 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
                                             <td className="py-2 pr-[calc(var(--dialog-close-inset)_-_var(--scrollbar-w,0px))] text-right align-middle">
                                                 {onDeleteFile && (
                                                     <Button
-                                                        variant="ghost"
+                                                        variant="ghost-destructive"
                                                         size="icon"
-                                                        className="text-on-surface-variant hover:text-error"
                                                         onClick={(e) => { e.stopPropagation(); onDeleteFile(file.id, e); }}
                                                         title={t('delete')}
                                                         aria-label={`${t('delete')} ${file.name}`}

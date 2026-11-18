@@ -152,7 +152,7 @@ function RoleTemplatesPanel({ footerSlot }: { footerSlot: HTMLElement | null }) 
                             label: r.usedBy > 0 ? t('tplDeleteInUse') : t('delete'), icon: <Trash2 className="size-4" />, destructive: true, separatorBefore: true,
                             disabled: r.isDefault || r.usedBy > 0,
                             onSelect: async () => {
-                                if (!await showConfirm(t('tplDeleteConfirm').replace('{name}', name(r)))) return;
+                                if (!await showConfirm(t('tplDeleteConfirm').replace('{name}', name(r)), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
                                 void run(() => deleteTemplate(r.id), t('tplDeleteError'));
                             },
                         },

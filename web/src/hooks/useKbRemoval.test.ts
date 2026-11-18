@@ -71,7 +71,11 @@ describe('useKbRemoval', () => {
     });
 
     // Der Dialog muss die Zahl nennen — sonst loescht der Nutzer blind Chats.
-    expect(showConfirm).toHaveBeenCalledWith(expect.stringContaining('3'));
+    expect(showConfirm).toHaveBeenCalledWith(
+      expect.stringContaining('3'),
+      undefined,
+      expect.objectContaining({ tone: 'destructive' }),
+    );
     expect(del).toHaveBeenCalledWith(expect.stringContaining('/api/kb/kb-1/membership'));
   });
 
