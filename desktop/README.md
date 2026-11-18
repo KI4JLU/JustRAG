@@ -98,16 +98,16 @@ Only a packaged app carries its name: run from source, the Dock and Finder say
   origin. Every bridge call is checked in the main process: it must come from
   that origin in the window's main frame, and its payload must be one of the
   allowed values.
-- The window is for the web app. A link to another site, and anything the
-  page opens in a new window, goes to the user's browser. Single sign-on stays
-  in the window: it opens only through a redirect from one of the app's auth
-  routes (`/api/auth/…`) and ends when the window is back on the app
-  (`src/main/navigation.ts`). While it is open, the provider's own links stay
-  in the window too. Addresses that are not http(s) are refused.
-- On macOS a page that is not the web app's gets an empty 56px strip at the
-  top, with the page moved below it: the title bar is hidden, and without the
-  app's frame there would be nothing to drag the window by and the page would
-  sit under the window controls.
+- The window shows the web app and nothing else. A link to another site, and
+  anything the page opens in a new window, goes to the user's browser.
+  Addresses that are not http(s) are refused.
+- Single sign-on runs in a window of its own with the system's title bar. It
+  opens only when one of the app's auth routes (`/api/auth/…`) redirects to
+  another site, takes over that redirect and shares the app's session. The first
+  other page of the app it is sent back to is loaded in the app window, and
+  the sign-in window closes. A provider that still knows the user answers
+  with redirects alone; then no window appears. The sign-in window has no
+  preload: no attributes, no bridge (`src/main/navigation.ts`).
 - Browser permissions are refused except copying to the clipboard and full
   screen, and those only for the web app's own pages.
 - One instance: a second start brings the running window forward.

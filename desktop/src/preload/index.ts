@@ -1,7 +1,6 @@
 // Runs before the page's own scripts. It marks <html> so the design system
 // arranges the frame for this window, and exposes the bridge — both only on
-// the web app's own pages: a sign-in provider's page the window passes
-// through gets neither.
+// the web app's own pages; the window shows no others.
 import { contextBridge, ipcRenderer } from "electron";
 
 type Theme = "light" | "dark" | "system";
@@ -21,21 +20,6 @@ function mark(): void {
   }
 }
 
-/**
- * macOS hides the title bar, and only the web app's frame offers a row to
- * drag the window by and keeps clear of the window controls. A page that is
- * not the app's (the sign-in provider) gets that row from the host: an empty
- * strip as high as the frame's top row, with the page moved below it.
- */
-function addTitleStrip(): void {
-  const root = document.documentElement;
-  root.style.setProperty("padding-top", "56px", "important");
-  const strip = document.createElement("div");
-  strip.style.cssText =
-    "position:fixed;top:0;left:0;right:0;height:56px;z-index:2147483647;app-region:drag;-webkit-app-region:drag";
-  root.append(strip);
-}
-
 /** The preload can run before <html> exists. */
 function whenRootExists(run: () => void): void {
   if (document.documentElement) return run();
@@ -47,7 +31,6 @@ function whenRootExists(run: () => void): void {
 }
 
 const isAppPage = Boolean(appOrigin) && location.origin === appOrigin;
-if (!isAppPage && isMac && /^https?:$/.test(location.protocol)) whenRootExists(addTitleStrip);
 
 if (isAppPage) {
   whenRootExists(mark);
