@@ -242,7 +242,7 @@ const ChatViewComp = () => {
   // The line under the title: the topic's own description, else the default line.
   const shownDescription = currentKb?.description?.trim() || t('kbHeaderDefault');
   // The assistant settings' start page; re-read whenever the settings dialog closes.
-  const startPage = useKbStartPage(currentKb?.id, showSystemPrompt);
+  const { startPage, loading: startPageLoading } = useKbStartPage(currentKb?.id, showSystemPrompt);
   const configuredStart = startPage?.configured ? startPage : null;
   // How the chat starts is the roles' (developer ruling 05.11.2026): with
   // further role cards „Rollenauswahl", else the active role's own start —
@@ -318,6 +318,10 @@ const ChatViewComp = () => {
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
+    // While the start page loads, none: the fallback list below would show
+    // (hidden while it reveals, but taking its space) and vanish again once a
+    // set-up page answers with its own. A failed read falls through to it.
+    if (startPageLoading) return [];
     // A start page set up: the active role's questions under its input field, if on.
     if (configuredStart) return pageQuestions(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles, generatedPrompts);
     const raw = currentKb?.isGlobal ? currentKb.examplePrompts : null;
@@ -329,7 +333,7 @@ const ChatViewComp = () => {
     // Then the questions generated from the KB's documents, without repeats.
     const seen = new Set(configured.map(p => p.trim().toLowerCase()));
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
-  }, [chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
+  }, [startPageLoading, chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
 
   const [initialRender, setInitialRender] = useState(true);
   useEffect(() => {
@@ -801,11 +805,6 @@ const ChatViewComp = () => {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, ease: 'easeOut' }}
                       >
-                        {currentKb?.isGlobal && currentKb?.headerText ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {currentKb.headerText}
-                          </div>
-                        ) : null}
                         {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
                           // dropzone while the KB is empty — the centre only says so. A
@@ -832,18 +831,6 @@ const ChatViewComp = () => {
                               </Tooltip>
                             )}
                           </div>
-                        ) : startPage && !chat.roleStart ? (
-                          // The title block of the assistant settings' Startseite (the
-                          // glow above is its colour; the default one until set up).
-                          <div className="w-full max-w-2xl px-4 text-left">
-                            <TitleCard
-                              title={currentKb?.name ?? ''}
-                              category={startPage.category}
-                              description={shownDescription}
-                              fileCount={currentKb?.fileCount}
-                              asOf={currentKb?.lastIngestedAt}
-                            />
-                          </div>
                         ) : chat.roleStart ? (
                           // A chat started from a role card: what comes next.
                           <p>
@@ -854,11 +841,19 @@ const ChatViewComp = () => {
                                 : t('asstNewChatInRole').replace('{role}', (chatRole ?? startPage?.roles.find(r => r.id === startPage.activeRoleId))?.name ?? t('asstAssistant'))}
                           </p>
                         ) : (
-                          <>
-                            <h1>{currentKb?.name}</h1>
-                            {/* The KB's own description (Startseite), else the default line. */}
-                            <p>{shownDescription}</p>
-                          </>
+                          // The title block of the assistant settings' Startseite (the
+                          // glow above is its colour; the default one until set up),
+                          // from the first render: the category joins once the start
+                          // page is loaded, so no other title block is swapped out.
+                          <div className="w-full max-w-2xl px-4 text-left">
+                            <TitleCard
+                              title={currentKb?.name ?? ''}
+                              category={startPage?.category ?? null}
+                              description={shownDescription}
+                              fileCount={currentKb?.fileCount}
+                              asOf={currentKb?.lastIngestedAt}
+                            />
+                          </div>
                         )}
                       </motion.div>
                     </div>
