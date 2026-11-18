@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubViewport } from '../test/viewport';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppShell } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase, KbCapabilities } from '../types';
@@ -354,24 +354,30 @@ describe('ChatView — the start page shows one title block', () => {
     act(() => setStartPageState(loaded()));
     expect(screen.getByRole('heading', { level: 2, name: 'Handbuch' })).toBe(title);
     // The answer did reach the view: its suggestions are there now.
-    expect(screen.getByText('promptSuggestions')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Fasse die wichtigsten Punkte/, hidden: true })).toHaveLength(1);
   });
 
-  it('shows no suggestions while the start page loads', () => {
-    render(<ChatView />);
-    expect(screen.queryByText('promptSuggestions')).not.toBeInTheDocument();
-  });
-
-  it('shows the suggestions once the start page is known', () => {
-    startPageState = loaded();
-    render(<ChatView />);
-    expect(screen.getByText('promptSuggestions')).toBeInTheDocument();
+  // Oracle: the suggestions' place under the composer is taken from the first
+  // render, so the centred page stands still: placeholders (a busy list with
+  // nothing to pick) while the start page loads, the suggestions in that same
+  // element once it is known.
+  it('holds the suggestions\' place while the start page loads and fills it in place', () => {
+    const { container } = render(<ChatView />);
+    const slot = container.querySelector('[data-slot="prompt-suggestions"]');
+    expect(slot).not.toBeNull();
+    const list = within(slot as HTMLElement).getByRole('list', { hidden: true });
+    expect(list).toHaveAttribute('aria-busy', 'true');
+    expect(within(list).queryAllByRole('button', { hidden: true })).toHaveLength(0);
+    act(() => setStartPageState(loaded()));
+    expect(container.querySelector('[data-slot="prompt-suggestions"]')).toBe(slot);
+    expect(list).not.toHaveAttribute('aria-busy');
+    expect(within(list).queryAllByRole('button', { hidden: true }).length).toBeGreaterThan(0);
   });
 
   it('shows the default suggestions when the start page could not be read', () => {
     startPageState = { startPage: null, loading: false };
     render(<ChatView />);
-    expect(screen.getByText('promptSuggestions')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Fasse die wichtigsten Punkte/, hidden: true })).toHaveLength(1);
   });
 
   it('shows the description and not the legacy header text of a public topic', () => {

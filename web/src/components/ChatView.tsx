@@ -4,7 +4,6 @@ import {
   X, Check, Pencil,
   Globe, WandSparkles, Loader2, FileText, Quote, Bot, Users,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import type { Message } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { IS_APPLE } from '../utils/searchShortcut';
@@ -16,7 +15,6 @@ import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../hooks/useChatSuggestionPrefs';
-import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 import { hasAgentSteps } from './agentSteps/buildSteps';
@@ -113,7 +111,6 @@ const holdComposerUploads = () => {};
 const ChatViewComp = () => {
   const { language, t } = useTheme();
   const { user, siteConfigs } = useAuth();
-  const reducedMotion = useReducedMotion();
 
   const {
     currentKb, availableConfigs, handleUpdateKBSettings,
@@ -258,7 +255,7 @@ const ChatViewComp = () => {
   // dynamic questions on.
   const wantsGenerated = !!startPage && (configuredStart || chat.roleStart ? showsGeneratedQuestions(chat.roleStart, activeStart) : true);
   // For the role the chat starts in: a role card's, else the active role.
-  const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
+  const { questions: generatedPrompts, loading: generatedLoading } = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
   const [composerFileCount, setComposerFileCount] = useState(0);
   const composerAddRef = useRef<((files: File[]) => void) | null>(null);
   const emptyChat = chat.messages.length === 0 && !noSources;
@@ -748,7 +745,7 @@ const ChatViewComp = () => {
                         )}
                       </InputGroupAddon>
                     </PromptInput>
-                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && examplePrompts.length > 0 && (
+                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && (
                       <PromptSuggestions
                         // Lines up with the composer's text start on the left (the
                         // measured + group, `notch.left`) and with the send button on
@@ -764,6 +761,13 @@ const ChatViewComp = () => {
                         // Closing keeps the component's space: the composer must not move.
                         dismissible
                         suggestions={examplePrompts}
+                        // Its space is kept with nothing to suggest too: the start
+                        // page and the generated questions arrive later, or bring
+                        // none, and the centred page must stand the same either way.
+                        reserveSpace
+                        // Still loading once the reveal pause is over: placeholder chips.
+                        loading={startPageLoading || generatedLoading}
+                        loadingLabel={t('promptSuggestionsLoading')}
                         disabled={!hasFiles}
                         onSelect={(prompt) => {
                           chat.setUserMessageInput(prompt);
@@ -798,13 +802,8 @@ const ChatViewComp = () => {
                       className="messages-container"
                       style={{ position: 'relative' }}
                     >
-                      <motion.div
-                        className="empty-state"
-                        {...getMotionProps(reducedMotion)}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5, ease: 'easeOut' }}
-                      >
+                      {/* No entrance animation: the start page stands from the first paint. */}
+                      <div className="empty-state">
                         {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
                           // dropzone while the KB is empty — the centre only says so. A
@@ -855,7 +854,7 @@ const ChatViewComp = () => {
                             />
                           </div>
                         )}
-                      </motion.div>
+                      </div>
                     </div>
                   ) : (
                     // Remounts when another chat's messages are loaded (transcriptKey),

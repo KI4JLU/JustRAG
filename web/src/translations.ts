@@ -543,6 +543,7 @@ export const translations = {
     settingsTitle: { de: 'Pro-Einstellungen', en: 'Pro Settings' },
     closeSettings: { de: 'Einstellungen schließen', en: 'Close Settings' },
     promptSuggestions: { de: 'Vorschläge', en: 'Suggestions' },
+    promptSuggestionsLoading: { de: 'Vorschläge werden geladen', en: 'Loading suggestions' },
     promptSuggestionsHint: { de: 'Fragevorschläge unter dem Eingabefeld eines neuen Chats.', en: 'Suggested questions under the input of a new chat.' },
     followUpsHint: { de: 'Anschlussfragen zur letzten Antwort über dem Eingabefeld.', en: 'Follow-up questions on the latest answer, above the input.' },
     autoScrollLabel: { de: 'Antworttext automatisch scrollen', en: 'Autoscroll' },
