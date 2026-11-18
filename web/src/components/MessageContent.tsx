@@ -287,6 +287,11 @@ const MessageContent = memo(({ content, reasoning, isThinking, isStreaming, sour
     // Touch: one bottom sheet per answer, for whichever chip was tapped.
     const [sheet, setSheet] = useState<ChipSheet | null>(null);
     const sheetSource = sheet ? model.cited[sheet.n - 1] : undefined;
+    // The chip that opened the sheet, kept past its close: focus returns there.
+    const lastSheetOcc = useRef<number | undefined>(undefined);
+    useEffect(() => {
+        if (sheet) lastSheetOcc.current = sheet.occ;
+    }, [sheet]);
 
     const chipContext = useMemo<CitationChipContextValue>(() => ({
         model,
@@ -386,12 +391,11 @@ const MessageContent = memo(({ content, reasoning, isThinking, isStreaming, sour
                     <DrawerContent
                         aria-describedby={undefined}
                         className="px-5 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
-                        onCloseAutoFocus={(e) => {
-                            // No DrawerTrigger: hand focus back to the chip by hand.
-                            const occ = sheet?.occ;
-                            if (occ == null) return;
-                            e.preventDefault();
-                            bodyRef.current?.querySelector<HTMLElement>(`.citation-chip[data-occ="${occ}"]`)?.focus();
+                        // No DrawerTrigger: hand focus back to the chip by hand.
+                        finalFocus={() => {
+                            const occ = lastSheetOcc.current;
+                            if (occ == null) return true;
+                            return bodyRef.current?.querySelector<HTMLElement>(`.citation-chip[data-occ="${occ}"]`) ?? true;
                         }}
                     >
                         {sheetSource && sheet && sheetPassage && (

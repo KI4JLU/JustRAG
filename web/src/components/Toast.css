@@ -68,7 +68,7 @@
  * MobileTabBar and the tour trigger, whose top edge sits at 68px. The corner
  * this card set out to free is therefore free here without moving anything.
  */
-@media (max-width: 1023px) {
+@media (max-width: 767px) {
   .toast-container {
     /* Cancel the desktop top anchor. With `top` AND `bottom` both set and no
      * height, the container would stretch the full viewport height. */

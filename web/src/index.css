@@ -2157,9 +2157,9 @@ button.source-card {
 }
 
 /* ========================================
-   Mobile Layout (< 1024px)
+   Mobile Layout (< 768px)
    ======================================== */
-@media (max-width: 1023px) {
+@media (max-width: 767px) {
   .chat-column {
     /* One area at a time here: no card floats over the chat. */
     --chat-clear: 0px;

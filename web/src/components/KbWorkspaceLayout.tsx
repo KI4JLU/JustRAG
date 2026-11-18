@@ -1,5 +1,5 @@
 import { HistoryControls } from './HistoryControls';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   AppShellLayout,
   Breadcrumb,
@@ -10,6 +10,7 @@ import {
   BreadcrumbSeparator,
   Button,
   type MobilePaneTab,
+  useWindowFileDrag,
 } from '@ki4jlu/design-system';
 import { useAppNavigate } from '../routing/navigation';
 import { FolderOpen, History, Lock, MessageSquare } from 'lucide-react';
@@ -20,7 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { SourcesPanel } from './sources/SourcesPanel';
-import { HistoryPanel } from './history/HistoryPanel';
+import { HistoryPanel, NewChatButton } from './history/HistoryPanel';
 import { ChatView } from './ChatView';
 import { type MobileTab } from './MobileTabBar';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
@@ -109,6 +110,17 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   // lands on 'files' shows the chat.
   const { seeSources, addSources } = useKbSourceRights();
   const derivedMobileTab: MobileTab = deriveActiveMobileTab(mobileTab);
+
+  // Files dragged into the window bring the sources card up, so its dropzone
+  // is there to drop on — also after the card closed by itself on a narrow
+  // frame. In the narrow shell the card is the „files" area.
+  const fileDragActive = useWindowFileDrag(addSources);
+  const openSources = sidebar.setIsRightSidebarOpen;
+  useEffect(() => {
+    if (!fileDragActive) return;
+    if (window.matchMedia('(min-width: 768px)').matches) openSources(true);
+    else handleMobileTabChange('files');
+  }, [fileDragActive, openSources, handleMobileTabChange]);
   const activeMobileTab: MobileTab = !seeSources && derivedMobileTab === 'files' ? 'chat' : derivedMobileTab;
 
 
@@ -204,6 +216,8 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       // The same user menu as every other sidebar (account, settings, help);
       // it stays reachable in the collapsed rail as the avatar.
       sidebarFooter={<AppUserMenu />}
+      // Below lg: the drawer's bottom button; starting a chat closes the drawer.
+      sidebarNarrowAction={<NewChatButton onStarted={() => handleMobileTabChange('chat')} />}
       leftOpen={sidebar.isLeftSidebarOpen}
       onLeftOpenChange={sidebar.setIsLeftSidebarOpen}
       leftWidth={sidebar.leftSidebarWidth}
@@ -238,6 +252,7 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
         width: sidebar.rightSidebarWidth,
         expandLabel: t('expandSourcesSidebar'),
         collapseLabel: t('collapseSourcesSidebar'),
+        closeLabel: t('closeSourcesCard'),
         toggleTooltip: <span className="block font-semibold">{t('sources')}</span>,
       } : {
         content: null,

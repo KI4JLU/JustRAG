@@ -1,4 +1,4 @@
-import type { MessageSource } from '../types';
+import type { MessageSource, MessageVerification } from '../types';
 import { previewKindOf } from './previewKind';
 import { formatPageRanges, normalizeCitationMarkers, sourceForCitation } from './citations';
 import { MATH_SPAN_RE } from './markdownMath';
@@ -229,4 +229,18 @@ export function sourceMeta(t: (key: string) => string, source: CitedSource, pass
     const pages = passage?.pages?.length ? passage.pages : undefined;
     if (pages) parts.push(`${t('pageAbbrev')} ${formatPageRanges(pages)}`);
     return parts.join(' · ');
+}
+
+// citationSpanMap collects every citation N with a verified span (method =
+// "span") into the Map MessageContent expects, keyed by N. Returns undefined
+// when the span verifier didn't run or found nothing, so MessageContent
+// skips the highlighted-excerpt path entirely and popovers render the old
+// flat snippet.
+export function citationSpanMap(v: MessageVerification | null | undefined): Map<number, { start: number; end: number }> | undefined {
+    if (!v?.citations?.length) return undefined;
+    const out = new Map<number, { start: number; end: number }>();
+    for (const c of v.citations) {
+        if (c.verified && c.span) out.set(c.n, c.span);
+    }
+    return out.size > 0 ? out : undefined;
 }

@@ -19,7 +19,7 @@ import { useIsMobileContext } from './contexts/MobileContext';
 import { useTheme } from './contexts/ThemeContext';
 import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
 import { withoutCitations } from './utils/citations';
-import { buildCitationModel, citingTextByRaw, type CitedSource } from './utils/sourceDisplay';
+import { buildCitationModel, citationSpanMap, citingTextByRaw, type CitedSource } from './utils/sourceDisplay';
 import { citationMarkers } from './utils/citationRefs';
 import { isTempMessageId } from './utils/messageTree';
 import { normalizeMathDelimiters } from './utils/markdownMath';
@@ -112,20 +112,6 @@ function suspectCitations(v: MessageVerification | null | undefined): Map<number
     const out = new Map<number, SuspectReason>();
     for (const c of v.citations) {
         if (!c.verified) out.set(c.n, c.reason);
-    }
-    return out.size > 0 ? out : undefined;
-}
-
-// citationSpanMap collects every citation N with a verified span (method =
-// "span") into the Map MessageContent expects, keyed by N. Returns undefined
-// when the span verifier didn't run or found nothing, so MessageContent
-// skips the highlighted-excerpt path entirely and popovers render the old
-// flat snippet.
-function citationSpanMap(v: MessageVerification | null | undefined): Map<number, { start: number; end: number }> | undefined {
-    if (!v?.citations?.length) return undefined;
-    const out = new Map<number, { start: number; end: number }>();
-    for (const c of v.citations) {
-        if (c.verified && c.span) out.set(c.n, c.span);
     }
     return out.size > 0 ? out : undefined;
 }

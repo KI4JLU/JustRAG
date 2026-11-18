@@ -172,14 +172,18 @@ const HistoryPanelComp: React.FC = () => {
                                 cards' icon axis; the collapsed rail keeps the icon-only form. */}
                             {/* ⌘N is the desktop app's (its menu owns it, see
                                 DesktopMenuCommands); the hint shows there only. */}
-                            <SidebarAction
-                                type="button"
-                                onClick={handleNewChat}
-                                icon={<SquarePen />}
-                                trailing={<ShortcutHint letter="N" desktopOnly />}
-                            >
-                                {t('newChat')}
-                            </SidebarAction>
+                            {/* Below lg the action is the drawer's bottom button
+                                (NewChatButton, placed by the shell), not a row here. */}
+                            {!isMobile && (
+                                <SidebarAction
+                                    type="button"
+                                    onClick={handleNewChat}
+                                    icon={<SquarePen />}
+                                    trailing={<ShortcutHint letter="N" desktopOnly />}
+                                >
+                                    {t('newChat')}
+                                </SidebarAction>
+                            )}
                             <SearchActionRow />
                             {selecting && (
                                 <SidebarSelectionBar
@@ -263,3 +267,19 @@ const HistoryPanelComp: React.FC = () => {
 };
 
 export const HistoryPanel = memo(HistoryPanelComp);
+
+/**
+ * „Neuer Chat" as the navigation drawer's bottom button below lg (the shell's
+ * `sidebarNarrowAction`). Its own component, so the layout that places it
+ * does not subscribe to the chat state.
+ */
+export function NewChatButton({ onStarted }: { onStarted: () => void }) {
+    const { t } = useTheme();
+    const { chat } = useKbChat();
+    return (
+        <Button type="button" onClick={() => { chat.handleNewChat(); onStarted(); }}>
+            <SquarePen aria-hidden="true" />
+            {t('newChat')}
+        </Button>
+    );
+}

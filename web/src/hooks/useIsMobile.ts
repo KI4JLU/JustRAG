@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
-const MOBILE_BREAKPOINT = 1024;
+// The design system's shell boundary (`md`, DESKTOP_QUERY in pane-layout).
+const MOBILE_BREAKPOINT = 768;
 const QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`;
 
 function subscribe(callback: () => void): () => void {

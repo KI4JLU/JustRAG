@@ -47,7 +47,10 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => {
 });
 
 vi.mock('./sources/SourcesPanel', () => ({ SourcesPanel: () => <div data-testid="sources-panel" /> }));
-vi.mock('./history/HistoryPanel', () => ({ HistoryPanel: () => <div data-testid="history-panel" /> }));
+vi.mock('./history/HistoryPanel', () => ({
+  HistoryPanel: () => <div data-testid="history-panel" />,
+  NewChatButton: () => <div data-testid="new-chat-button" />,
+}));
 vi.mock('./ChatView', () => ({ ChatView: () => <div data-testid="chat-view" /> }));
 // The search reads four contexts of its own; its behaviour is
 // App.authenticated-workspace-search.test.tsx's subject, not this file's.

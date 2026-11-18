@@ -11,6 +11,8 @@ interface SourceListProps {
     onOpen?: (source: CitedSource) => void;
     /** The display number the source panel shows, if this answer's. */
     activeN?: number | null;
+    /** `1` keeps one column however many sources (the side panel's narrow list). */
+    columns?: 1 | 'auto';
 }
 
 /**
@@ -18,10 +20,10 @@ interface SourceListProps {
  * the chips in the text, the whole row the control that opens it in the
  * source panel. Two columns from four sources on.
  */
-export function SourceList({ sources, onOpen, activeN = null }: SourceListProps) {
+export function SourceList({ sources, onOpen, activeN = null, columns = 'auto' }: SourceListProps) {
     const { t, language } = useTheme();
     return (
-        <ul className={cn('m-0 grid list-none gap-2 p-0', sources.length >= 4 && 'sm:grid-cols-2')}>
+        <ul className={cn('m-0 grid list-none gap-2 p-0', columns === 'auto' && sources.length >= 4 && 'sm:grid-cols-2')}>
             {sources.map((s) => {
                 const meta = [t(SOURCE_KIND_LABEL_KEY[s.kind])];
                 if (s.dateIso) meta.push(formatDate(s.dateIso, language));
@@ -32,7 +34,7 @@ export function SourceList({ sources, onOpen, activeN = null }: SourceListProps)
                         <SourceNumber n={s.n} active={active} className="mt-0.5" />
                         <span className="min-w-0 flex-1">
                             <span className="sr-only">{fillTemplate(t('sourceNumberLabel'), { n: s.n })}: </span>
-                            <span className="block truncate text-sm font-medium text-on-surface" title={s.title}>{s.title}</span>
+                            <span className="block truncate text-sm font-medium text-on-surface">{s.title}</span>
                             <span className="block truncate text-xs text-on-surface-variant">{meta.join(' · ')}</span>
                         </span>
                     </>

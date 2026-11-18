@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import axios from 'axios';
-import { ChevronDown, ChevronUp, ExternalLink, Maximize2, X } from 'lucide-react';
-import {
-    Button, Dialog, DialogContent, DialogDescription, DialogTitle, buttonVariants, cn,
-} from '@ki4jlu/design-system';
+import { ChevronDown, ChevronUp, ExternalLink, SquareArrowOutUpRight } from 'lucide-react';
+import { Button, buttonVariants, cn } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { SourcePanelTarget } from '../../contexts/SourcePanelContext';
@@ -12,8 +10,6 @@ import { SOURCE_KIND_LABEL_KEY, fillTemplate, originUrlOf } from '../../utils/so
 import { SourceExcerpt } from './SourceExcerpt';
 import { SourceNumber } from './SourcePreview';
 import { previewKindOf } from '../../utils/previewKind';
-
-const PANEL_WIDTH = 480;
 
 interface SourcePanelProps {
     target: SourcePanelTarget;
@@ -31,8 +27,6 @@ interface SourcePanelProps {
     onPreviewSource?: (fileId: string, fileName: string) => void;
     /** Whether the original may be downloaded (downloadSources). */
     canDownload: boolean;
-    /** Full screen instead of a pane beside the answer (narrow or touch layout). */
-    fullScreen?: boolean;
 }
 
 async function downloadFile(fileId: string, fileName: string) {
@@ -75,7 +69,7 @@ function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined,
  * light, with "1 von N" to step through them. ⤢ opens the full document
  * preview.
  */
-export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, fileType, onPdfOpen, onPreviewSource, canDownload, fullScreen = false }: SourcePanelProps) {
+export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, fileType, onPdfOpen, onPreviewSource, canDownload }: SourcePanelProps) {
     const { t } = useTheme();
     const { source, passage, spans, citing, focus } = target;
     const originUrl = useOriginUrl(target, fileOrigin, canDownload);
@@ -135,7 +129,7 @@ export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin
         <>
             {canFullView && (
                 <Button type="button" variant="ghost" size="icon" aria-label={t('sourcePanelFullView')} title={t('sourcePanelFullView')} onClick={openFullView}>
-                    <Maximize2 className="size-4" aria-hidden="true" />
+                    <SquareArrowOutUpRight className="size-4" aria-hidden="true" />
                 </Button>
             )}
         </>
@@ -221,43 +215,17 @@ export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin
         </>
     );
 
-    if (fullScreen) {
-        return (
-            <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-                <DialogContent
-                    closeLabel={t('sourcePanelClose')}
-                    className="flex h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0"
-                >
-                    <div className="flex h-16 shrink-0 items-center gap-3 border-b border-outline-variant pr-14 pl-4">
-                        {title(
-                            <DialogTitle className="truncate text-base font-semibold">{source.title}</DialogTitle>,
-                            <DialogDescription className="truncate text-xs">{meta}</DialogDescription>,
-                        )}
-                    </div>
-                    {body}
-                </DialogContent>
-            </Dialog>
-        );
-    }
-
-    // A dismissible panel, not a collapsible column: no SidePanel rail or
-    // collapse toggle, just ✕ at the right end of the header.
+    // The content of a tab in the chat's side panel (ChatView): the panel
+    // brings the column, the tab and its ✕; this is what the tab shows.
     return (
-        <aside
-            aria-label={t('sourcePanelLabel')}
-            style={{ width: PANEL_WIDTH }}
-            className="flex h-full max-w-full shrink-0 flex-col border-l border-outline-variant bg-surface"
-        >
-            <div className="flex h-16 shrink-0 items-center gap-2 border-b border-outline-variant px-4">
+        <section aria-label={t('sourcePanelLabel')} className="flex min-h-0 flex-1 flex-col bg-surface">
+            <div className="flex h-14 shrink-0 items-center gap-2 border-b border-outline-variant px-4">
                 {title(
-                    <div className="truncate text-base font-semibold text-on-surface" title={source.title}>{source.title}</div>,
+                    <div className="truncate text-base font-semibold text-on-surface">{source.title}</div>,
                     <div className="truncate text-xs text-on-surface-variant">{meta}</div>,
                 )}
-                <Button type="button" variant="ghost" size="icon" aria-label={t('sourcePanelClose')} title={t('sourcePanelClose')} onClick={onClose}>
-                    <X className="size-4" aria-hidden="true" />
-                </Button>
             </div>
             <div className="flex min-h-0 flex-1 flex-col">{body}</div>
-        </aside>
+        </section>
     );
 }

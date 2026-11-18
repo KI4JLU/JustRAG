@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { AppShell } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase, KbCapabilities } from '../types';
 
@@ -176,13 +177,19 @@ describe('ChatView — citations follow seeCitations', () => {
 });
 
 describe('ChatView — the source panel follows downloadSources', () => {
+  // The cited source is a tab of the shell's side panel, so the chat needs its frame.
+  const renderInShell = () => render(
+    <AppShell topBar={<span />} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
+      <ChatView />
+    </AppShell>,
+  );
+
   it('opens the cited source beside the answer, with the full view and download', () => {
     capabilities = caps({ downloadSources: true });
-    const { container } = render(<ChatView />);
+    const { container } = renderInShell();
     fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
-    // The harness is the mobile layout: the panel opens full screen.
-    const panel = screen.getByRole('dialog', { name: 'satzung' });
+    const panel = screen.getByRole('tabpanel', { name: 'satzung' });
     expect(panel).toHaveTextContent('sourcePanelPassagesOne');
     expect(screen.getByRole('button', { name: 'sourcePanelDownload' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'sourcePanelFullView' }));
@@ -191,10 +198,10 @@ describe('ChatView — the source panel follows downloadSources', () => {
 
   it('opens the panel without it, but offers neither the full view nor the download', () => {
     capabilities = caps({ downloadSources: false });
-    const { container } = render(<ChatView />);
+    const { container } = renderInShell();
     fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
-    expect(screen.getByRole('dialog', { name: 'satzung' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'satzung' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'sourcePanelFullView' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'sourcePanelDownload' })).not.toBeInTheDocument();
   });
