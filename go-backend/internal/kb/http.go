@@ -418,7 +418,13 @@ func (h *Handler) CreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The creator holds the owner row the store wrote in the same
-	// transaction; the RETURNING row carries no MyRole to resolve from.
+	// transaction, and is the only member. The RETURNING row carries neither
+	// myRole nor memberCount, so both are set here: the response has to read
+	// like the GET routes the UI merges it with, where a null myRole means
+	// "somebody else's KB".
+	owner := kbaccess.RoleOwner
+	kb.MyRole = &owner
+	kb.MemberCount = 1
 	caps := kbaccess.CapabilitiesFor(kb.accessKB(), kbaccess.RoleOwner)
 	kb.Capabilities = &caps
 
