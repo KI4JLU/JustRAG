@@ -311,7 +311,7 @@ export function useKnowledgeBases({
 
   const handleDeleteGlobalKB = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!await showConfirm(t('confirmDeleteGlobalKb'))) return;
+    if (!await showConfirm(t('confirmDeleteGlobalKb'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
     let snapshot: KnowledgeBase[] = [];
     setGlobalKbs(prev => { snapshot = prev; return prev.filter(kb => kb.id !== id); });
     handleGoHome();

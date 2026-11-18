@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Alert, AlertDescription } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, Button } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export interface ConfirmDialogProps {
@@ -70,19 +70,19 @@ export function ConfirmDialog({
         )}
 
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn--tertiary" onClick={onCancel} disabled={busy}>
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
             {t('cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
             ref={confirmRef}
             type="button"
-            className={`btn ${tone === 'destructive' ? 'btn--destructive' : 'btn--primary'}`}
+            variant={tone === 'destructive' ? 'destructive' : 'default'}
             onClick={onConfirm}
             disabled={busy}
           >
             {busy && <Loader2 className="animate-spin" size={15} aria-hidden="true" />}
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

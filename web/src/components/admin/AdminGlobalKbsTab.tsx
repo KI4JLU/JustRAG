@@ -110,7 +110,7 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
        superadmin). The backend endpoint is untouched. */
 
     const handleDelete = async (id: string) => {
-        if (!await showConfirm(t('confirmDeleteGlobalKb'))) return;
+        if (!await showConfirm(t('confirmDeleteGlobalKb'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         try {
             await axios.delete(`${API_BASE_URL}/api/admin/global-kbs/${id}`);
             setGlobalKbs(prev => prev.filter(k => k.id !== id));

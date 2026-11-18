@@ -26,7 +26,7 @@
   },
   "src/components/ApiKeys/ApiKeyManager.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 5
+      "count": 4
     }
   },
   "src/components/Button.tsx": {
@@ -51,7 +51,7 @@
   },
   "src/components/ConfluenceTokenManager.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 7
+      "count": 6
     }
   },
   "src/components/DataExplorer/DataExplorerToolbar.tsx": {
@@ -71,7 +71,7 @@
   },
   "src/components/GlobalKbSettings.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 23
+      "count": 19
     }
   },
   "src/components/InlineMessageEditor.tsx": {
@@ -91,7 +91,7 @@
   },
   "src/components/Memory/MemoryManager.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 3
+      "count": 1
     }
   },
   "src/components/MindMap/EntityCard.tsx": {
@@ -184,11 +184,6 @@
       "count": 3
     }
   },
-  "src/components/TrajectoryPanel.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
   "src/components/WebWorkspace.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 8
@@ -206,12 +201,7 @@
   },
   "src/components/agents/AgentsView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 9
-    }
-  },
-  "src/components/agents/ConfirmDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
+      "count": 7
     }
   },
   "src/components/agents/KbAgentsSection.tsx": {

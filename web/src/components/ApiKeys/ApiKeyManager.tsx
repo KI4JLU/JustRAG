@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -78,7 +78,7 @@ export default function ApiKeyManager() {
     };
 
     const handleDelete = async (id: string) => {
-        const confirmed = await showConfirm(t('apiKeyDeleteConfirm'));
+        const confirmed = await showConfirm(t('apiKeyDeleteConfirm'), undefined, { tone: 'destructive', confirmLabel: t('delete') });
         if (!confirmed) return;
         setDeletingId(id);
         setError('');
@@ -297,22 +297,17 @@ export default function ApiKeyManager() {
                                         {formatDate(k.lastUsedAt)}
                                     </td>
                                     <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
-                                        <button
+                                        <Button
+                                            type="button"
+                                            variant="ghost-destructive"
+                                            size="icon"
                                             onClick={() => handleDelete(k.id)}
                                             disabled={deletingId === k.id}
+                                            aria-label={t('delete')}
                                             title={t('delete')}
-                                            style={{
-                                                background: 'none',
-                                                border: 'none',
-                                                cursor: deletingId === k.id ? 'not-allowed' : 'pointer',
-                                                color: deletingId === k.id ? 'var(--text-secondary)' : '#ef4444',
-                                                padding: '4px',
-                                                display: 'inline-flex',
-                                                opacity: deletingId === k.id ? 0.5 : 1,
-                                            }}
                                         >
-                                            <Trash2 size={16} />
-                                        </button>
+                                            <Trash2 className="size-4" aria-hidden="true" />
+                                        </Button>
                                     </td>
                                 </tr>
                             ))}

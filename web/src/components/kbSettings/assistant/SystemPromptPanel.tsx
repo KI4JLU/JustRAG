@@ -183,7 +183,7 @@ export function SystemPromptPanel({
                 {ruleDraft?.id && (
                     <Button
                         type="button"
-                        variant="outline"
+                        variant="destructive-outline"
                         size="icon"
                         aria-label={t('delete')}
                         onClick={() => {

@@ -39,7 +39,7 @@ export function useKbRemoval(): { removeKb: (kb: KnowledgeBase) => Promise<KbRem
       // curator's membership belongs in the members dialog. Putting this
       // branch first is what guarantees neither can be reached from here.
       if (kb.visibility === 'public' || kb.isGlobal) {
-        const confirmed = await showConfirm(t('confirmUnsubscribeTopic'));
+        const confirmed = await showConfirm(t('confirmUnsubscribeTopic'), undefined, { tone: 'destructive', confirmLabel: t('unsubscribe') });
         if (!confirmed) return 'cancelled';
         await axios.delete(`${API_BASE_URL}/api/kb/${kb.id}/subscription`);
         return 'unsubscribed';
@@ -50,7 +50,7 @@ export function useKbRemoval(): { removeKb: (kb: KnowledgeBase) => Promise<KbRem
       const isOwner = kb.myRole === 'owner';
 
       if (isOwner) {
-        const confirmed = await showConfirm(t('confirmDeleteKB'));
+        const confirmed = await showConfirm(t('confirmDeleteKB'), undefined, { tone: 'destructive', confirmLabel: t('delete') });
         if (!confirmed) return 'cancelled';
         await axios.delete(`${API_BASE_URL}/api/kb/${kb.id}`);
         return 'deleted';
@@ -81,7 +81,7 @@ export function useKbRemoval(): { removeKb: (kb: KnowledgeBase) => Promise<KbRem
         // Mitgliedschaft) — er faellt trotzdem auf Abbestellen zurueck statt
         // auf Verlassen, weil ohne Mitgliedschaft nichts zu verlassen ist und
         // Abbestellen bewusst KEINE Chats loescht.
-        const confirmed = await showConfirm(t('confirmUnsubscribeKb'));
+        const confirmed = await showConfirm(t('confirmUnsubscribeKb'), undefined, { tone: 'destructive', confirmLabel: t('unsubscribe') });
         if (!confirmed) return 'cancelled';
         await axios.delete(`${API_BASE_URL}/api/kb/${kb.id}/subscription`);
         return 'unsubscribed';
@@ -93,7 +93,7 @@ export function useKbRemoval(): { removeKb: (kb: KnowledgeBase) => Promise<KbRem
       const message = chatCount > 0
         ? t('confirmLeaveKb').replace('{count}', String(chatCount))
         : t('confirmLeaveKbNoChats');
-      const confirmed = await showConfirm(message);
+      const confirmed = await showConfirm(message, undefined, { tone: 'destructive', confirmLabel: t('removeFromMyView') });
       if (!confirmed) return 'cancelled';
       await axios.delete(`${API_BASE_URL}/api/kb/${kb.id}/membership`);
       return 'left';

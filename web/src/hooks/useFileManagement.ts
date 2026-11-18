@@ -230,7 +230,7 @@ export function useFileManagement({ currentKb, confirmUpload }: UseFileManagemen
 
   const handleDeleteFile = useCallback(async (fileId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!await showConfirm(t('confirmDeleteFile'))) return;
+    if (!await showConfirm(t('confirmDeleteFile'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
     await deleteFiles([fileId]);
   }, [deleteFiles, showConfirm, t]);
 
