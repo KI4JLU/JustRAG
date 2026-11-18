@@ -8,6 +8,10 @@ describe("iconLetter", () => {
     expect(iconLetter("»österreich«")).toBe("Ö");
     expect(iconLetter("4You")).toBe("4");
   });
+  it("stays one letter, and the same one when applied again", () => {
+    expect(iconLetter("ßeta")).toBe("S");
+    expect(iconLetter(iconLetter("ßeta"))).toBe(iconLetter("ßeta"));
+  });
   it("falls back to the default name's letter", () => {
     expect(iconLetter("")).toBe("R");
     expect(iconLetter("<&>")).toBe("R");

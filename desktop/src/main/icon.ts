@@ -11,7 +11,9 @@ export const DEFAULT_NAME = "RAG";
 /** "Atlas" → "A", " rag " → "R"; anything without a letter or digit → the default's. */
 export function iconLetter(name: unknown): string {
   const first = Array.from(String(name ?? "").trim()).find((ch) => /[\p{L}\p{N}]/u.test(ch));
-  return (first ?? DEFAULT_NAME[0]).toLocaleUpperCase("de-DE");
+  // Upper-casing can turn one letter into two ("ß" → "SS"): keep the first,
+  // so the letter of a letter is the letter itself.
+  return Array.from((first ?? DEFAULT_NAME[0]).toLocaleUpperCase("de-DE"))[0];
 }
 
 /**

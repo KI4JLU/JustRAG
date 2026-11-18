@@ -100,9 +100,10 @@ Only a packaged app carries its name: run from source, the Dock and Finder say
   allowed values.
 - The window is for the web app. A link to another site, and anything the
   page opens in a new window, goes to the user's browser. Single sign-on stays
-  in the window: it starts as a redirect from the app's server and returns by
-  itself (`src/main/navigation.ts`). Addresses that are not http(s) are
-  refused.
+  in the window: it opens only through a redirect from one of the app's auth
+  routes (`/api/auth/…`) and ends when the window is back on the app
+  (`src/main/navigation.ts`). While it is open, the provider's own links stay
+  in the window too. Addresses that are not http(s) are refused.
 - On macOS a page that is not the web app's gets an empty 56px strip at the
   top, with the page moved below it: the title bar is hidden, and without the
   app's frame there would be nothing to drag the window by and the page would
