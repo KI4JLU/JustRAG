@@ -383,7 +383,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     };
 
     const handleDeleteUser = async (id: string, username: string) => {
-        if (!await showConfirm(t('confirmDeleteUser').replace('{username}', username))) return;
+        if (!await showConfirm(t('confirmDeleteUser').replace('{username}', username), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         try {
             await axios.delete(`${API_BASE_URL}/api/admin/users/${id}`);
             fetchUsers();
@@ -512,7 +512,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
     };
 
     const handleDelete = async (id: string, type: 'config' | 'auth') => {
-        if (!await showConfirm(type === 'config' ? t('confirmDeleteConfig') : t('confirmDeleteProvider'))) return;
+        if (!await showConfirm(type === 'config' ? t('confirmDeleteConfig') : t('confirmDeleteProvider'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         try {
             const endpoint = type === 'config' ? 'configs' : 'auth-providers';
             await axios.delete(`${API_BASE_URL}/api/admin/${endpoint}/${id}`);

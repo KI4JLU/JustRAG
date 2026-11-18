@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { stubViewport } from '../test/viewport';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { AppShell } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
@@ -204,6 +205,66 @@ describe('ChatView — the source panel follows downloadSources', () => {
     expect(screen.getByRole('tabpanel', { name: 'satzung' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'sourcePanelFullView' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'sourcePanelDownload' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatView — the side panel', () => {
+  const renderInShell = () => render(
+    <AppShell topBar={<span />} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
+      <ChatView />
+    </AppShell>,
+  );
+  // The wide shell: the panel is a column there and can be maximised.
+  beforeEach(() => { stubViewport(true); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+  // jsdom is no Apple platform: the chord is Ctrl+Alt.
+  const chord = (code: string) => fireEvent.keyDown(document, { code, ctrlKey: true, altKey: true });
+
+  it('is hidden at rest, with its toggle in the bar', () => {
+    renderInShell();
+    expect(screen.queryByRole('complementary', { name: 'sidePanelLabel' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'sidePanelShow' })).toHaveAttribute('aria-keyshortcuts', 'Control+Alt+B');
+  });
+
+  it('shows and hides on Ctrl+Alt+B', () => {
+    renderInShell();
+    chord('KeyB');
+    expect(screen.getByRole('complementary', { name: 'sidePanelLabel' })).toBeInTheDocument();
+    chord('KeyB');
+    expect(screen.queryByRole('complementary', { name: 'sidePanelLabel' })).not.toBeInTheDocument();
+  });
+
+  it('opens maximised on Ctrl+Alt+F and restores on the next', () => {
+    renderInShell();
+    chord('KeyF');
+    const panel = screen.getByRole('complementary', { name: 'sidePanelLabel' });
+    expect(panel).toHaveAttribute('data-maximized');
+    chord('KeyF');
+    expect(screen.getByRole('complementary', { name: 'sidePanelLabel' })).not.toHaveAttribute('data-maximized');
+  });
+
+  it('ignores the letters without the chord', () => {
+    renderInShell();
+    fireEvent.keyDown(document, { code: 'KeyB' });
+    fireEvent.keyDown(document, { code: 'KeyB', ctrlKey: true });
+    expect(screen.queryByRole('complementary', { name: 'sidePanelLabel' })).not.toBeInTheDocument();
+  });
+
+  it('offers the citations from the empty panel and lists the answer\'s sources there', () => {
+    capabilities = caps({ seeCitations: true });
+    renderInShell();
+    chord('KeyB');
+    fireEvent.click(screen.getByRole('button', { name: /sidePanelCitations/ }));
+    expect(screen.getByRole('tab', { name: 'sidePanelCitations' })).toHaveAttribute('aria-selected', 'true');
+    const list = screen.getByRole('tabpanel', { name: 'sidePanelCitations' });
+    expect(list).toHaveTextContent('satzung');
+  });
+
+  it('offers nothing to open without seeCitations', () => {
+    capabilities = caps({ seeCitations: false });
+    renderInShell();
+    chord('KeyB');
+    expect(screen.queryByRole('button', { name: /sidePanelCitations/ })).not.toBeInTheDocument();
   });
 });
 

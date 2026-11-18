@@ -136,7 +136,7 @@ export function TemplatePicker({ id, templates, draft, onApply, onSaveTemplates 
     };
 
     const remove = async (tpl: SystemNoticeTemplate) => {
-        if (!await showConfirm(t('systemNoticeTemplateDeleteConfirm').replace('{{name}}', tpl.name))) return;
+        if (!await showConfirm(t('systemNoticeTemplateDeleteConfirm').replace('{{name}}', tpl.name), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         await onSaveTemplates(templates.filter(other => other !== tpl));
     };
 
@@ -183,7 +183,7 @@ export function TemplatePicker({ id, templates, draft, onApply, onSaveTemplates 
                                 </Button>
                                 <Button
                                     type="button"
-                                    variant="ghost"
+                                    variant="ghost-destructive"
                                     size="icon"
                                     aria-label={t('systemNoticeTemplateDelete').replace('{{name}}', tpl.name)}
                                     title={t('systemNoticeTemplateDelete').replace('{{name}}', tpl.name)}

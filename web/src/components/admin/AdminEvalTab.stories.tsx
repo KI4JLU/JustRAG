@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within } from 'storybook/test';
 import AdminEvalTab from './AdminEvalTab';
+import { ModalProvider } from '../../contexts/ModalContext';
 
 /* ---------------------------------------------------------------------------
  * The evaluation-runner tab: golden sets, corpus generation, the kick-off
@@ -167,6 +168,8 @@ const KB_AGENTS = {
 const meta = {
     title: 'Admin/Eval-Tab',
     component: AdminEvalTab,
+    // The delete confirmations open the app's confirm dialog.
+    decorators: [(Story) => <ModalProvider><Story /></ModalProvider>],
     parameters: {
         layout: 'fullscreen',
         // Defaults for all three GETs, so no story leaves an endpoint to

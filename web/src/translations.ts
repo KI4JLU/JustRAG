@@ -255,7 +255,6 @@ export const translations = {
      * because this app has two areas: the nav column and the page. */
     navigationTab: { de: 'Navigation', en: 'Navigation' },
     contentTab: { de: 'Inhalt', en: 'Content' },
-    switchArea: { de: 'Bereich wechseln', en: 'Switch area' },
 
     /* The two labels of the sidebar's minimise toggle (card KI-789).
      *

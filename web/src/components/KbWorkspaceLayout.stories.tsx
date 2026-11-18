@@ -83,7 +83,6 @@ const Harness = () => {
       mobileTabs={mobileTabs}
       activeMobileTab="chat"
       onMobileTabChange={() => {}}
-      mobileTabBarLabel="Bereich wechseln"
     />
   );
 };
@@ -255,7 +254,6 @@ const WorkspaceBarHarness = () => {
       mobileTabs={mobileTabs}
       activeMobileTab="chat"
       onMobileTabChange={() => {}}
-      mobileTabBarLabel="Bereich wechseln"
     />
   );
 };

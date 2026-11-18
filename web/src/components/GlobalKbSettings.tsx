@@ -4,6 +4,7 @@ import {
     ArrowLeft, Save, Globe, FileText, Sparkles, Users, Trash2, Plus, Loader2,
     Upload, BookOpen, ToggleLeft, ToggleRight, X, Search, Rss, Link
 } from 'lucide-react';
+import { Button } from '@ki4jlu/design-system';
 import type { KnowledgeBase, FileEntry, GlobalKbEditor, SafeAIConfig, RssFeed, ConfluenceSource, ConfluenceConnectionInfo, ConfluenceSpace, ConfluencePage, ConfluencePageWithPath, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
 import { MAX_FILES_PER_GLOBAL_KB } from '../constants';
@@ -747,12 +748,16 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                                             <div style={{ fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.title || feed.url}</div>
                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{feed.status} · {feed.itemCount} {t('rssEntries')}</div>
                                         </div>
-                                        <button
+                                        <Button
+                                            type="button"
+                                            variant="ghost-destructive"
+                                            size="icon"
                                             onClick={() => handleDeleteRssFeed(feed.id)}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
+                                            aria-label={t('delete')}
+                                            title={t('delete')}
                                         >
-                                            <Trash2 size={14} />
-                                        </button>
+                                            <Trash2 className="size-4" aria-hidden="true" />
+                                        </Button>
                                     </div>
                                 ))}
                             </div>
@@ -799,12 +804,16 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                                                 >
                                                     Sync
                                                 </button>
-                                                <button
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost-destructive"
+                                                    size="icon"
                                                     onClick={() => handleDeleteConfluenceSource(source.id)}
-                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
+                                                    aria-label={t('delete')}
+                                                    title={t('delete')}
                                                 >
-                                                    <Trash2 size={14} />
-                                                </button>
+                                                    <Trash2 className="size-4" aria-hidden="true" />
+                                                </Button>
                                             </div>
                                         </div>
                                     ))}
@@ -835,12 +844,16 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                                         {getStatusLabel(file)}
                                     </div>
                                 </div>
-                                <button
+                                <Button
+                                    type="button"
+                                    variant="ghost-destructive"
+                                    size="icon"
                                     onClick={() => handleDeleteFile(file.id)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
+                                    aria-label={t('delete')}
+                                    title={t('delete')}
                                 >
-                                    <Trash2 size={14} />
-                                </button>
+                                    <Trash2 className="size-4" aria-hidden="true" />
+                                </Button>
                             </div>
                         ))}
                         {files.length === 0 && (
@@ -916,13 +929,16 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                                         </span>
                                     )}
                                 </div>
-                                <button
+                                <Button
+                                    type="button"
+                                    variant="ghost-destructive"
+                                    size="icon"
                                     onClick={() => handleRemoveEditor(editor.id)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
+                                    aria-label={t('removeEditor')}
                                     title={t('removeEditor')}
                                 >
-                                    <X size={16} />
-                                </button>
+                                    <X className="size-4" aria-hidden="true" />
+                                </Button>
                             </div>
                         ))}
                         {editors.length === 0 && (
