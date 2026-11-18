@@ -9,7 +9,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from "
 import { release } from "node:os";
 import { join } from "node:path";
 import { iconLetter } from "./icon";
-import { isAppUrl, judgeNavigation, originOf } from "./navigation";
+import { NavigationGuard, isAppUrl, originOf } from "./navigation";
 import { renderAppIcon } from "./render-icon";
 
 // Where the web app is served. Built in (electron.vite.config.ts), so a
@@ -142,18 +142,15 @@ function createWindow(): void {
     openInBrowser(url);
     return { action: "deny" };
   });
+  // The window leaves the app only for sign-in (navigation.ts).
+  const navigation = new NavigationGuard(APP_ORIGIN, APP_URL);
   const guard = (isRedirect: boolean) => (event: Electron.Event<{ url: string; isMainFrame: boolean }>) => {
     if (!event.isMainFrame) return;
-    const verdict = judgeNavigation({
-      target: event.url,
-      current: win.webContents.getURL(),
-      isRedirect,
-      appOrigin: APP_ORIGIN,
-    });
+    const { verdict, signIn, from } = navigation.judge(event.url, isRedirect);
     // One line per decision that is not the app's own page, without the
     // query (sign-in addresses carry codes): shows why a link stayed or left.
     if (originOf(event.url) !== APP_ORIGIN) {
-      console.log(`[navigation] ${verdict}: ${place(event.url)} from ${place(win.webContents.getURL())}${isRedirect ? " (redirect)" : ""}`);
+      console.log(`[navigation] ${verdict}: ${place(event.url)}${from ? ` (redirect from ${place(from)})` : ""}${signIn ? " (sign-in)" : ""}`);
     }
     if (verdict === "allow") return;
     event.preventDefault();
@@ -161,6 +158,13 @@ function createWindow(): void {
   };
   win.webContents.on("will-navigate", guard(false));
   win.webContents.on("will-redirect", guard(true));
+  win.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) navigation.started(details.url);
+  });
+  // Back on the app's own page the sign-in is over; so is one that was
+  // stopped or failed before the provider's page appeared.
+  win.webContents.on("did-navigate", (_event, url) => navigation.settled(url));
+  win.webContents.on("did-stop-loading", () => navigation.settled(win.webContents.getURL()));
 
   void win.loadURL(APP_URL);
 }
