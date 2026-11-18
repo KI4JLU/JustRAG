@@ -5,15 +5,13 @@ import userEvent from '@testing-library/user-event';
 import { SourcesSection } from './SourcesSection';
 import type { FileEntry, RssFeed, ConfluenceSource, GitRepoSource } from '../../types';
 
-// The hover preview (HoverCard + FilePreview) is DS 0.42.0; the pinned package
-// under vitest may be older, and the preview is not what this file tests.
+// The hover preview (HoverPreview + FilePreview) is not what this file tests.
 // Everything else stays the shipped design-system export (`importOriginal`).
 vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  HoverCard: ({ children }: { children: React.ReactNode }) => children,
-  HoverCardTrigger: ({ children }: { children: React.ReactNode }) => children,
+  HoverPreviewGroup: ({ children }: { children: React.ReactNode }) => children,
   // A marker per hover preview, so a test can tell whether a card has one.
-  HoverCardContent: () => <span data-testid="hover-preview" />,
+  HoverPreview: ({ children }: { children: React.ReactNode }) => <>{children}<span data-testid="hover-preview" /></>,
   FilePreview: () => null,
   preloadPdfjs: () => undefined,
   renderPdfFirstPage: () => Promise.resolve(''),

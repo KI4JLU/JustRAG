@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { FileText, ChevronDown, Check, Users, Bot, AlertTriangle, Info } from 'lucide-react';
 import {
     Badge, Button, MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
-    MessageToolbar, Sources, SourcesContent, SourcesTrigger,
+    HoverPreviewGroup, MessageToolbar, Sources, SourcesContent, SourcesTrigger,
 } from '@ki4jlu/design-system';
 import type { Message, BranchInfo, MessageAttachment, MessageVerification, MessageConflict } from './types';
 import { flaggedClaimsFor } from './utils/verification';
@@ -383,11 +383,14 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
             aria-label={t('chatAttachmentsLabel')}
             className="m-0 mb-1.5 flex max-w-full list-none flex-wrap justify-end gap-2 p-0"
         >
-            {message.attachments.map(a => (
-                <li key={a.userFileId} className="min-w-0 max-w-full">
-                    <AttachmentChipItem attachment={a} onOpen={onPreviewAttachment} />
-                </li>
-            ))}
+            {/* One preview card for the message's chips: it moves from chip to chip. */}
+            <HoverPreviewGroup>
+                {message.attachments.map(a => (
+                    <li key={a.userFileId} className="min-w-0 max-w-full">
+                        <AttachmentChipItem attachment={a} onOpen={onPreviewAttachment} />
+                    </li>
+                ))}
+            </HoverPreviewGroup>
         </ul>
     );
 

@@ -17,10 +17,9 @@ let capabilities: Record<string, boolean> | undefined;
 // The preview card itself is not under test here.
 vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  HoverCard: ({ children }: { children: React.ReactNode }) => children,
-  HoverCardTrigger: ({ children }: { children: React.ReactNode }) => children,
+  HoverPreviewGroup: ({ children }: { children: React.ReactNode }) => children,
   // A marker per hover preview, so a test can tell whether an icon has one.
-  HoverCardContent: () => <span data-testid="hover-preview" />,
+  HoverPreview: ({ children }: { children: React.ReactNode }) => <>{children}<span data-testid="hover-preview" /></>,
   FilePreview: () => null,
 }));
 vi.mock('../../hooks/sourcePreviews', () => ({
