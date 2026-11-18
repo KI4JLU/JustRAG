@@ -114,7 +114,7 @@ export default function AdminCategoriesSection() {
     };
 
     const handleDelete = async (cat: KbCategory) => {
-        if (!await showConfirm(t('categoryDeleteConfirm'))) return;
+        if (!await showConfirm(t('categoryDeleteConfirm'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         try {
             await axios.delete(`${API_BASE_URL}/api/admin/kb-categories/${cat.id}`);
             setCategories(prev => prev.filter(c => c.id !== cat.id));

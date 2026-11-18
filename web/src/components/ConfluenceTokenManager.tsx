@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { BookOpen, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
 import { getApiErrorMessage } from '../utils/apiError';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
@@ -94,7 +94,7 @@ export default function ConfluenceTokenManager() {
 
     const handleDelete = async () => {
         if (!connInfo?.connection) return;
-        const confirmed = await showConfirm(t('confluenceProfileDeleteConfirm'));
+        const confirmed = await showConfirm(t('confluenceProfileDeleteConfirm'), undefined, { tone: 'destructive', confirmLabel: t('delete') });
         if (!confirmed) return;
 
         setDeleting(true);
@@ -208,27 +208,15 @@ export default function ConfluenceTokenManager() {
                                 </button>
                             </>
                         )}
-                        <button
+                        <Button
+                            type="button"
+                            variant="destructive-outline"
                             onClick={handleDelete}
                             disabled={deleting}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.4rem',
-                                padding: '0.5rem 1rem',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                                background: 'rgba(239, 68, 68, 0.08)',
-                                color: '#ef4444',
-                                cursor: deleting ? 'not-allowed' : 'pointer',
-                                opacity: deleting ? 0.6 : 1,
-                                fontSize: '0.85rem',
-                                fontWeight: 500,
-                            }}
                         >
-                            <Trash2 size={14} />
+                            <Trash2 className="size-4" aria-hidden="true" />
                             {t('delete')}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             ) : (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Bot, Plus, Trash2, Users } from 'lucide-react';
+import { Button } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   listAgents, listTeams, fetchAgentRegistry,
@@ -142,14 +143,16 @@ export default function AgentsView({ onBack, availableModels = [], tab: ownedTab
                       <button type="button" className="btn btn--secondary" onClick={() => setEditingAgent(a)}>
                         {t('editAgent')}
                       </button>
-                      <button
+                      <Button
                         type="button"
-                        className="btn btn--icon btn--destructive"
+                        variant="ghost-destructive"
+                        size="icon"
                         onClick={() => askDelete('agent', a.id, a.name)}
                         aria-label={t('delete')}
+                        title={t('delete')}
                       >
-                        <Trash2 size={16} aria-hidden="true" />
-                      </button>
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </Button>
                     </>
                   }
                 />
@@ -190,14 +193,16 @@ export default function AgentsView({ onBack, availableModels = [], tab: ownedTab
                       <button type="button" className="btn btn--secondary" onClick={() => setEditingTeam(tm)}>
                         {t('editTeam')}
                       </button>
-                      <button
+                      <Button
                         type="button"
-                        className="btn btn--icon btn--destructive"
+                        variant="ghost-destructive"
+                        size="icon"
                         onClick={() => askDelete('team', tm.id, tm.name)}
                         aria-label={t('delete')}
+                        title={t('delete')}
                       >
-                        <Trash2 size={16} aria-hidden="true" />
-                      </button>
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </Button>
                     </>
                   }
                 />

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Brain, Trash2, Download } from 'lucide-react';
-import { Alert, AlertDescription } from '@ki4jlu/design-system';
+import { Alert, AlertDescription, Button } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalContext } from '../../contexts/ModalContext';
@@ -40,7 +40,7 @@ export default function MemoryManager() {
     useEffect(() => { fetchEntries(); }, [fetchEntries]);
 
     const handleDelete = async (id: number) => {
-        if (!(await showConfirm(t('memoryDeleteConfirm')))) return;
+        if (!(await showConfirm(t('memoryDeleteConfirm'), undefined, { tone: 'destructive', confirmLabel: t('delete') }))) return;
         setBusyId(id);
         try {
             await axios.delete(`${MEMORY_URL}/${id}`);
@@ -53,7 +53,7 @@ export default function MemoryManager() {
     };
 
     const handleClearAll = async () => {
-        if (!(await showConfirm(t('memoryClearAllConfirm')))) return;
+        if (!(await showConfirm(t('memoryClearAllConfirm'), undefined, { tone: 'destructive', confirmLabel: t('memoryClearAll') }))) return;
         try {
             await axios.delete(MEMORY_URL);
             await fetchEntries();
@@ -101,10 +101,9 @@ export default function MemoryManager() {
                     style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: entries.length === 0 ? 'not-allowed' : 'pointer', opacity: entries.length === 0 ? 0.6 : 1, fontSize: '0.85rem' }}>
                     <Download size={15} />{t('memoryExport')}
                 </button>
-                <button onClick={handleClearAll} disabled={entries.length === 0}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.9rem', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.08)', color: '#ef4444', cursor: entries.length === 0 ? 'not-allowed' : 'pointer', opacity: entries.length === 0 ? 0.6 : 1, fontSize: '0.85rem' }}>
-                    <Trash2 size={15} />{t('memoryClearAll')}
-                </button>
+                <Button type="button" variant="destructive-outline" onClick={handleClearAll} disabled={entries.length === 0}>
+                    <Trash2 className="size-4" aria-hidden="true" />{t('memoryClearAll')}
+                </Button>
             </div>
 
             {error && (
@@ -137,10 +136,9 @@ export default function MemoryManager() {
                                     <td style={{ padding: '0.6rem 0.75rem', color: 'var(--text-secondary)' }}>{m.kbId ? m.kbId : t('memoryScopeGlobal')}</td>
                                     <td style={{ padding: '0.6rem 0.75rem', color: 'var(--text-secondary)' }}>{formatDate(m.createdAt)}</td>
                                     <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>
-                                        <button onClick={() => handleDelete(m.id)} disabled={busyId === m.id} title={t('delete')}
-                                            style={{ background: 'none', border: 'none', cursor: busyId === m.id ? 'not-allowed' : 'pointer', color: '#ef4444', padding: '4px', display: 'inline-flex', opacity: busyId === m.id ? 0.5 : 1 }}>
-                                            <Trash2 size={16} />
-                                        </button>
+                                        <Button type="button" variant="ghost-destructive" size="icon" onClick={() => handleDelete(m.id)} disabled={busyId === m.id} aria-label={t('delete')} title={t('delete')}>
+                                            <Trash2 className="size-4" aria-hidden="true" />
+                                        </Button>
                                     </td>
                                 </tr>
                             ))}
