@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import type { User as UserType } from './types';
@@ -14,6 +14,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ToastContainer';
 import { ReloadPrompt } from './components/ReloadPrompt';
 import { useVersionCheck } from './hooks/useVersionCheck';
+import { goToSsoLogin, reloadPage, startSsoReauth } from './routing/sessionExpiry';
 // Lazy load
 const Login = lazy(() => import('./Login'));
 const AuthenticatedApp = lazy(() => import('./AuthenticatedApp'));
@@ -27,6 +28,26 @@ const LoadingFallback = () => (
 /** How often an open, visible tab re-reads the site config (system notice). */
 const SITE_CONFIG_REFRESH_MS = 120_000;
 
+/** How long error toasts stay muted after the session ended. */
+const ERROR_TOAST_MUTE_MS = 5_000;
+
+/** How long the app waits for the navigation to the SSO login before it shows its own login page. */
+const SSO_LEAVE_TIMEOUT_MS = 10_000;
+
+/** The URL carries the result of an SSO login (Login.tsx reads it). That login
+ * is the one the user just made, so it starts the app — not a session another
+ * tab stored in the meantime, which would leave the fragment unread. */
+function returningFromSso(): boolean {
+  return window.location.hash.startsWith('#oidc=');
+}
+
+/** The token of an `Authorization: Bearer …` header value, or null. */
+function bearerToken(header: unknown): string | null {
+  const value = typeof header === 'string' ? header : '';
+  return value.startsWith('Bearer ') ? value.slice('Bearer '.length) : null;
+}
+
+
 function sameConfigs(a: Record<string, string>, b: Record<string, string>): boolean {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every(k => a[k] === b[k]);
@@ -39,6 +60,7 @@ export function AppRoot() {
 
   // Auth state
   const [user, setUser] = useState<UserType | null>(() => {
+    if (returningFromSso()) return null;
     const saved = localStorage.getItem('user');
     if (!saved) return null;
     try {
@@ -49,14 +71,29 @@ export function AppRoot() {
       return null;
     }
   });
+  // The login page is showing because the session ended (see handleSessionExpired).
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [token, setToken] = useState<string | null>(() => {
-    const saved = localStorage.getItem('token');
+    const saved = returningFromSso() ? null : localStorage.getItem('token');
     // Set axios auth header immediately so it's available before any child effects fire
     if (saved) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${saved}`;
     }
     return saved;
   });
+  // This tab's token and user for code that must not wait for a render: the
+  // 401 handlers are registered in an effect, and a request a child sends
+  // right after a login is answered through the ones registered before it.
+  const tokenRef = useRef(token);
+  const applyToken = useCallback((next: string | null) => {
+    tokenRef.current = next;
+    setToken(next);
+  }, []);
+  const userRef = useRef(user);
+  const applyUser = useCallback((next: UserType | null) => {
+    userRef.current = next;
+    setUser(next);
+  }, []);
 
   // Config state (needed for Login too). It starts with the app name the
   // server wrote into the page (or, on a page the service worker serves, the
@@ -112,9 +149,91 @@ export function AppRoot() {
       return;
     }
 
-    setToken(null);
-    setUser(null);
-  }, [token, user]);
+    applyToken(null);
+    applyUser(null);
+  }, [token, user, applyToken, applyUser]);
+
+  // The token stopped being accepted (a 401): expired after its lifetime, or
+  // revoked. That is not the user logging out, so the single-sign-on session
+  // is left alone — an SSO user is sent through the SSO login again and comes
+  // back to this page, without a prompt while the provider's session lives.
+  // Everyone else, and an SSO re-login that just failed, gets the login page
+  // on the current URL. Several requests fail together; only the first acts.
+  // Requests in flight fail with the session; their error toasts would only
+  // repeat what the login page says (ToastProvider's muteErrors).
+  const errorToastsMuted = useRef(false);
+  const areErrorToastsMuted = useCallback(() => errorToastsMuted.current, []);
+  const unmuteTimer = useRef<number | undefined>(undefined);
+  const leaveTimer = useRef<number | undefined>(undefined);
+  const expiring = useRef(false);
+
+  // The login page, on the current URL, saying why it is there.
+  const showSessionExpiredLogin = useCallback(() => {
+    delete axios.defaults.headers.common['Authorization'];
+    setSessionExpired(true);
+    applyToken(null);
+    applyUser(null);
+    expiring.current = false;
+    // The failed requests have all reported by then; later errors on the
+    // login page (a legal document that does not load) show again.
+    window.clearTimeout(unmuteTimer.current);
+    unmuteTimer.current = window.setTimeout(() => { errorToastsMuted.current = false; }, ERROR_TOAST_MUTE_MS);
+  }, [applyToken, applyUser]);
+
+  // A timer that outlives the app would act on whatever runs after it.
+  useEffect(() => () => {
+    window.clearTimeout(unmuteTimer.current);
+    window.clearTimeout(leaveTimer.current);
+  }, []);
+
+  // `rejected` is the token the failed request was sent with, null when it
+  // went out without one. This tab's session is its own token; the stored
+  // one is shared with every other tab.
+  const handleSessionExpired = useCallback((rejected: string | null) => {
+    const current = tokenRef.current;
+    if (expiring.current || !current) return;
+
+    // Another tab has signed in since — possibly as someone else. This tab
+    // starts over with that session instead of carrying its state across,
+    // and leaves the stored credentials alone: they are not its own.
+    const stored = localStorage.getItem('token');
+    if (stored && stored !== current) {
+      expiring.current = true;
+      reloadPage();
+      return;
+    }
+
+    if (rejected) {
+      // A late answer for the token of an earlier session.
+      if (rejected !== current) return;
+    } else if (stored) {
+      // A request sent without a token says nothing about the session —
+      // unless it had none to send because another tab ended the shared one
+      // (api.ts reads the stored token).
+      return;
+    }
+
+    expiring.current = true;
+    errorToastsMuted.current = true;
+    window.clearTimeout(unmuteTimer.current);
+
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+
+    if (userRef.current?.authMethod === 'oidc'
+      && startSsoReauth(window.location.pathname + window.location.search)) {
+      // The page is going away. Should it still be here after
+      // SSO_LEAVE_TIMEOUT_MS — the navigation did not happen, or the browser
+      // brought this page back from its history — it shows the login page.
+      delete axios.defaults.headers.common['Authorization'];
+      goToSsoLogin();
+      window.clearTimeout(leaveTimer.current);
+      leaveTimer.current = window.setTimeout(showSessionExpiredLogin, SSO_LEAVE_TIMEOUT_MS);
+      return;
+    }
+
+    showSessionExpiredLogin();
+  }, [showSessionExpiredLogin]);
 
   // Keep the site config fresh while the app is open, so the system notice
   // follows its setting — switched on or off in the admin dialog or through
@@ -152,19 +271,22 @@ export function AppRoot() {
       delete axios.defaults.headers.common['Authorization'];
     }
 
-    // Intercept 401 responses to auto-logout when token is expired/invalidated
+    // A 401 means the token is expired or invalidated: the session is over
     const interceptor = axios.interceptors.response.use(
       response => response,
       error => {
-        if (error.response?.status === 401 && token) {
-          handleLogout();
+        if (error.response?.status === 401) {
+          handleSessionExpired(bearerToken(error.config?.headers?.Authorization));
         }
         return Promise.reject(error);
       }
     );
 
     // Also handle 401 from direct fetch() calls via authFetch
-    const onUnauthorized = () => handleLogout();
+    // (api.ts names the token it sent).
+    const onUnauthorized = (e: Event) => {
+      handleSessionExpired((e as CustomEvent<{ token?: string | null } | null>).detail?.token ?? null);
+    };
     window.addEventListener('auth:unauthorized', onUnauthorized);
 
     // An admin saved site-config keys (AdminUI): merge them in, so what the
@@ -181,21 +303,26 @@ export function AppRoot() {
       window.removeEventListener('auth:unauthorized', onUnauthorized);
       window.removeEventListener(SITE_CONFIG_UPDATED_EVENT, onSiteConfigUpdated);
     };
-  }, [token, handleLogout]);
+  }, [token, handleSessionExpired]);
 
   const handleLogin = (newToken: string, newUser: UserType) => {
     // Set axios auth header synchronously BEFORE state updates trigger re-render.
     // React runs child effects before parent effects, so AuthenticatedApp's
     // fetchKBs() would fire before App's useEffect sets the header.
     axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-    setToken(newToken);
-    setUser(newUser);
+    window.clearTimeout(unmuteTimer.current);
+    window.clearTimeout(leaveTimer.current);
+    errorToastsMuted.current = false;
+    expiring.current = false;
+    setSessionExpired(false);
+    applyToken(newToken);
+    applyUser(newUser);
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
   };
 
   const handleUpdateUser = (updatedUser: UserType) => {
-    setUser(updatedUser);
+    applyUser(updatedUser);
     localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
@@ -244,12 +371,13 @@ export function AppRoot() {
             * nothing to show (Toast.css), so mounting it on the login screen
             * costs nothing.
             * --------------------------------------------------------------- */}
-          <ToastProvider>
+          <ToastProvider muteErrors={areErrorToastsMuted}>
             <Suspense fallback={<LoadingFallback />}>
               {(!token || !user) ? (
                 <Login
                   onLogin={handleLogin}
                   siteConfigs={siteConfigs}
+                  sessionExpired={sessionExpired}
                 />
               ) : (
                 <AuthProvider
