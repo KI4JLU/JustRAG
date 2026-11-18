@@ -125,7 +125,7 @@ func TestCitationMarkerStream_AnySplit(t *testing.T) {
 }
 
 // Long markers: one listing sources 1–25 (within the hold bound) and one
-// listing 1–150 (beyond it, so the stream drops it while it grows) must
+// listing 1–300 (beyond it, so the stream drops it while it grows) must
 // leave no number behind at any split, byte by byte included. Oracle: the
 // text without the marker, written by hand.
 func TestCitationMarkerStream_LongMarkers(t *testing.T) {
@@ -145,10 +145,10 @@ func TestCitationMarkerStream_LongMarkers(t *testing.T) {
 		}
 		return "[" + strings.Join(nums, ", ") + "]"
 	}
-	for _, n := range []int{25, 150} {
+	for _, n := range []int{25, 300} {
 		full := "Alles belegt " + list(n) + ". Danach Text."
 		const want = "Alles belegt. Danach Text."
-		if len(list(n)) <= maxCitationHold == (n == 150) {
+		if len(list(n)) <= maxCitationHold == (n == 300) {
 			t.Fatalf("list(%d) is %d bytes; the case no longer tests its side of maxCitationHold", n, len(list(n)))
 		}
 		for i := 0; i <= len(full); i++ {
@@ -168,7 +168,7 @@ func TestCitationMarkerStream_LongMarkers(t *testing.T) {
 	// of a chunk is dropped even if it turns out not to be a marker, up to
 	// the character that ends it; the text after it survives. (Arriving in
 	// one chunk, it is released whole: the stream can see it is no marker.)
-	notMarker := "Zahlen [" + strings.Repeat("1 ", 300) + "x und weiter"
+	notMarker := "Zahlen [" + strings.Repeat("1 ", 600) + "x und weiter"
 	var bytes []string
 	for i := 0; i < len(notMarker); i++ {
 		bytes = append(bytes, notMarker[i:i+1])
