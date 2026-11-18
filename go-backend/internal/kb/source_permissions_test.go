@@ -141,6 +141,21 @@ func TestGetAndCreateKnowledgeBase_CarryCapabilities(t *testing.T) {
 	if got := decodeCaps(t, rr.Body.Bytes()); got != capsAll {
 		t.Errorf("creator: %+v, want every capability", got)
 	}
+	// The creator is the owner and the only member; without myRole the UI
+	// files a KB the user just created under the ones shared with them.
+	var body struct {
+		MyRole      *string `json:"myRole"`
+		MemberCount int     `json:"memberCount"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("create: decode: %v", err)
+	}
+	if body.MyRole == nil || *body.MyRole != kbaccess.RoleOwner {
+		t.Errorf("creator: myRole = %v, want %q", body.MyRole, kbaccess.RoleOwner)
+	}
+	if body.MemberCount != 1 {
+		t.Errorf("creator: memberCount = %d, want 1", body.MemberCount)
+	}
 }
 
 // TestUpdateKB_SourcePermissionFields pins the PATCH surface: the seven flag
