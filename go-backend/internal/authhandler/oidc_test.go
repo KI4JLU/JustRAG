@@ -29,6 +29,8 @@ type fakeOIDCStore struct {
 	createErr      error
 
 	appliedInvitesFor string
+
+	provider *adminproviders.AuthProviderRow // the active OIDC provider, nil = none
 }
 
 func (f *fakeOIDCStore) GetUserByUsername(ctx context.Context, username string) (*users.UserRow, error) {
@@ -58,7 +60,7 @@ func (f *fakeOIDCStore) GetActiveAuthProviders(ctx context.Context) ([]adminprov
 }
 
 func (f *fakeOIDCStore) GetActiveOIDCProvider(ctx context.Context) (*adminproviders.AuthProviderRow, error) {
-	return nil, nil
+	return f.provider, nil
 }
 
 func (f *fakeOIDCStore) GetUserByExternalID(ctx context.Context, externalID string) (*users.UserRow, error) {

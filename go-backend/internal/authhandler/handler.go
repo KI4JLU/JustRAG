@@ -346,10 +346,13 @@ func (h *Handler) respondWithToken(ctx context.Context, w http.ResponseWriter, u
 	})
 }
 
+// tokenLifetime is how long a JustRAG token is valid.
+const tokenLifetime = 24 * time.Hour
+
 func (h *Handler) signToken(userID, username, role string) (string, error) {
 	jti := uuid.NewString()
 	now := time.Now()
-	exp := now.Add(24 * time.Hour)
+	exp := now.Add(tokenLifetime)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"id":       userID,
