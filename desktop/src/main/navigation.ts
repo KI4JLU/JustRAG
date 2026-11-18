@@ -16,9 +16,9 @@ export function isAppUrl(url: string, appOrigin: string): boolean {
   return originOf(url) === appOrigin;
 }
 
-export type NavigationVerdict = "allow" | "external" | "deny";
+export type NavigationVerdict = "allow" | "sign-in" | "external" | "deny";
 
-/** The app's routes that hand the window to a sign-in provider and take it back. */
+/** The app's routes that hand over to a sign-in provider and take the answer back. */
 const AUTH_PATH = "/api/auth/";
 
 /** True for the app's own sign-in and sign-out routes. */
@@ -32,41 +32,46 @@ export function isAuthRoute(url: string, appOrigin: string): boolean {
 }
 
 /**
- * What happens to a navigation of the window's main frame.
+ * What happens to a navigation of the app window's main frame.
  *
- * The window is for the web app, so a link to another site opens in the
- * user's browser. Single sign-on is the one exception: one of the app's auth
- * routes redirects the window to the identity provider, which may pass it on,
- * and it comes back by itself. The providers are an admin setting of the
- * deployment, so the flow is recognised by where it starts, not by a list:
- * only a redirect from an auth route opens it (`startsSignIn`), and only
- * while it is open may the window move between pages outside the app.
+ * The window shows the web app and nothing else, so a link to another site
+ * opens in the user's browser. Single sign-on is the one case the host keeps:
+ * one of the app's auth routes redirects to the identity provider, and that
+ * runs in a window of its own (`sign-in`). The providers are an admin setting
+ * of the deployment, so the flow is recognised by where it starts, not by a
+ * list.
  */
 export function judgeNavigation(input: {
   target: string;
   /** For a server redirect: the address that answered with it. */
   redirectedFrom?: string;
-  /** A sign-in flow is open: the window left the app through an auth route. */
-  inSignIn: boolean;
   appOrigin: string;
-}): { verdict: NavigationVerdict; startsSignIn: boolean } {
+}): NavigationVerdict {
   const targetOrigin = originOf(input.target);
-  if (!targetOrigin) return { verdict: "deny", startsSignIn: false }; // file:, javascript:, custom schemes, malformed
-  if (targetOrigin === input.appOrigin) return { verdict: "allow", startsSignIn: false };
-  if (input.redirectedFrom !== undefined && isAuthRoute(input.redirectedFrom, input.appOrigin)) {
-    return { verdict: "allow", startsSignIn: true };
-  }
-  if (input.inSignIn) return { verdict: "allow", startsSignIn: false };
-  return { verdict: "external", startsSignIn: false };
+  if (!targetOrigin) return "deny"; // file:, javascript:, custom schemes, malformed
+  if (targetOrigin === input.appOrigin) return "allow";
+  if (input.redirectedFrom !== undefined && isAuthRoute(input.redirectedFrom, input.appOrigin)) return "sign-in";
+  return "external";
 }
 
 /**
- * The window's navigation state, fed by its events. It holds what
- * `judgeNavigation` needs: the address the main frame is asking for right
- * now — so a redirect knows who sent it — and whether a sign-in is open.
+ * What happens to a navigation of the sign-in window's main frame. It may go
+ * wherever the provider sends it, and through the app's auth routes. The
+ * first other page of the app is the flow's answer (`done`): that one belongs
+ * to the app window.
+ */
+export function judgeSignInNavigation(input: { target: string; appOrigin: string }): "allow" | "done" | "deny" {
+  const targetOrigin = originOf(input.target);
+  if (!targetOrigin) return "deny";
+  if (targetOrigin === input.appOrigin && !isAuthRoute(input.target, input.appOrigin)) return "done";
+  return "allow";
+}
+
+/**
+ * The address the app window's main frame is asking for right now, fed by its
+ * events, so a redirect is judged by who sent it.
  */
 export class NavigationGuard {
-  private inSignIn = false;
   private request: string;
 
   constructor(
@@ -85,29 +90,14 @@ export class NavigationGuard {
     this.request = url;
   }
 
-  /** `will-navigate` (`isRedirect` false) or `will-redirect` (true) of the main frame. */
-  judge(target: string, isRedirect: boolean): { verdict: NavigationVerdict; signIn: boolean; from?: string } {
-    const from = isRedirect ? this.request : undefined;
-    const { verdict, startsSignIn } = judgeNavigation({
-      target,
-      redirectedFrom: from,
-      inSignIn: this.inSignIn,
-      appOrigin: this.appOrigin,
-    });
-    if (verdict === "allow") {
-      if (startsSignIn) this.inSignIn = true;
-      this.request = target;
-    }
-    return { verdict, signIn: this.inSignIn, from };
-  }
-
   /**
-   * The window shows `shownUrl` and is not on its way elsewhere: a page was
-   * committed, or loading stopped (finished, failed, cancelled). On a page of
-   * the app the sign-in is over — completed, or given up before the
-   * provider's page appeared.
+   * `will-navigate` (`isRedirect` false) or `will-redirect` (true) of the main
+   * frame. `from` is the redirect's sender.
    */
-  settled(shownUrl: string): void {
-    if (isAppUrl(shownUrl, this.appOrigin)) this.inSignIn = false;
+  judge(target: string, isRedirect: boolean): { verdict: NavigationVerdict; from?: string } {
+    const from = isRedirect ? this.request : undefined;
+    const verdict = judgeNavigation({ target, redirectedFrom: from, appOrigin: this.appOrigin });
+    if (verdict === "allow") this.request = target;
+    return { verdict, from };
   }
 }

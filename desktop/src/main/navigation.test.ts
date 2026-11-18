@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NavigationGuard, isAppUrl, isAuthRoute, judgeNavigation, originOf } from "./navigation";
+import { NavigationGuard, isAppUrl, isAuthRoute, judgeNavigation, judgeSignInNavigation, originOf } from "./navigation";
 
 const appOrigin = "https://atlas.example.org";
 const app = `${appOrigin}/kb/abc`;
@@ -36,74 +36,71 @@ describe("isAuthRoute", () => {
 
 describe("judgeNavigation", () => {
   const login = `${appOrigin}/api/auth/oidc/login`;
-  const judge = (target: string, opts: { redirectedFrom?: string; inSignIn?: boolean } = {}) =>
-    judgeNavigation({ target, appOrigin, inSignIn: false, ...opts });
-  const verdict = (...args: Parameters<typeof judge>) => judge(...args).verdict;
+  const judge = (target: string, redirectedFrom?: string) => judgeNavigation({ target, redirectedFrom, appOrigin });
 
   it("keeps the app's own pages in the window", () => {
-    expect(verdict(`${appOrigin}/c/1`)).toBe("allow");
-    expect(verdict(`${appOrigin}/c/1`, { inSignIn: true })).toBe("allow");
+    expect(judge(`${appOrigin}/c/1`)).toBe("allow");
+    expect(judge(`${appOrigin}/`, login)).toBe("allow");
   });
   it("opens a link to another site in the browser", () => {
-    expect(verdict("https://example.com/paper.pdf")).toBe("external");
+    expect(judge("https://example.com/paper.pdf")).toBe("external");
   });
-  it("opens sign-in only through a redirect from an auth route", () => {
-    expect(judge(idp, { redirectedFrom: login })).toEqual({ verdict: "allow", startsSignIn: true });
+  it("hands a redirect from an auth route to the sign-in window", () => {
+    expect(judge(idp, login)).toBe("sign-in");
+    expect(judge("https://login.example.org/logout", `${appOrigin}/api/auth/oidc/logout`)).toBe("sign-in");
   });
-  it("follows an open sign-in: the provider's own steps, a second provider, the way back", () => {
-    expect(verdict("https://login.example.org/auth/step2", { inSignIn: true })).toBe("allow");
-    expect(verdict("https://idp.other.example/sso", { inSignIn: true, redirectedFrom: idp })).toBe("allow");
-    expect(verdict(`${appOrigin}/api/auth/oidc/callback?code=x`, { inSignIn: true })).toBe("allow");
-  });
-  it("does not let any other redirect take the window off the app", () => {
+  it("takes no other redirect for a sign-in", () => {
     // An app route that answers with a redirect to another site (a link
     // resolver, a file's original address) is a link like any other.
-    expect(verdict("https://example.com/", { redirectedFrom: `${appOrigin}/api/files/1/origin` })).toBe("external");
+    expect(judge("https://example.com/", `${appOrigin}/api/files/1/origin`)).toBe("external");
     // Nor a redirect chain that started on another site.
-    expect(verdict("https://b.example/", { redirectedFrom: "https://a.example/" })).toBe("external");
+    expect(judge("https://b.example/", "https://a.example/")).toBe("external");
+    // Nor a plain navigation to the provider, without the auth route.
+    expect(judge(idp)).toBe("external");
   });
   it("refuses anything that is not http(s)", () => {
-    expect(verdict("file:///etc/passwd")).toBe("deny");
-    expect(verdict("javascript:alert(1)", { inSignIn: true })).toBe("deny");
-    expect(verdict("jlurag://kb/1", { redirectedFrom: login })).toBe("deny");
+    expect(judge("file:///etc/passwd")).toBe("deny");
+    expect(judge("javascript:alert(1)")).toBe("deny");
+    expect(judge("jlurag://kb/1", login)).toBe("deny");
+  });
+});
+
+describe("judgeSignInNavigation", () => {
+  const judge = (target: string) => judgeSignInNavigation({ target, appOrigin });
+
+  it("lets the flow go where the provider sends it, and through the app's auth routes", () => {
+    expect(judge(`${appOrigin}/api/auth/oidc/login`)).toBe("allow");
+    expect(judge(idp)).toBe("allow");
+    expect(judge("https://idp.other.example/sso")).toBe("allow");
+    expect(judge(`${appOrigin}/api/auth/oidc/callback?code=x`)).toBe("allow");
+  });
+  it("ends at the first other page of the app", () => {
+    expect(judge(`${appOrigin}/#oidc=abc`)).toBe("done");
+    expect(judge(`${appOrigin}/kb/abc`)).toBe("done");
+  });
+  it("refuses anything that is not http(s)", () => {
+    expect(judge("file:///etc/passwd")).toBe("deny");
+    expect(judge("jlurag://kb/1")).toBe("deny");
   });
 });
 
 describe("NavigationGuard", () => {
   const login = `${appOrigin}/api/auth/oidc/login`;
-  const callback = `${appOrigin}/api/auth/oidc/callback?code=x`;
   const link = "https://example.com/paper.pdf";
   const guard = () => new NavigationGuard(appOrigin, app);
 
-  it("carries a sign-in from the auth route to the provider and back, then closes it", () => {
+  it("names the auth route a sign-in redirect came from", () => {
     const g = guard();
-    expect(g.judge(login, false).verdict).toBe("allow");
+    expect(g.judge(login, false)).toEqual({ verdict: "allow", from: undefined });
     g.started(login);
-    expect(g.judge(idp, true)).toMatchObject({ verdict: "allow", signIn: true, from: login });
-    g.settled(idp);
-    // The provider's form post, then its redirect back to the app.
-    expect(g.judge("https://login.example.org/auth/submit", false).verdict).toBe("allow");
-    g.started("https://login.example.org/auth/submit");
-    expect(g.judge(callback, true).verdict).toBe("allow");
-    g.settled(app);
-    expect(g.judge(link, false)).toMatchObject({ verdict: "external", signIn: false });
+    expect(g.judge(idp, true)).toEqual({ verdict: "sign-in", from: login });
   });
 
-  it("closes a sign-in that was stopped before the provider's page appeared", () => {
+  it("follows the app's own redirects before judging the next one", () => {
     const g = guard();
-    g.started(login);
-    expect(g.judge(idp, true).verdict).toBe("allow");
-    // Loading stops; the window still shows the app's page.
-    g.settled(app);
-    expect(g.judge(link, false).verdict).toBe("external");
-  });
-
-  it("keeps a sign-in open while the window is on the provider's page", () => {
-    const g = guard();
-    g.started(login);
-    g.judge(idp, true);
-    g.settled(idp);
-    expect(g.judge("https://login.example.org/auth/step2", false).verdict).toBe("allow");
+    g.started(`${appOrigin}/go`);
+    expect(g.judge(login, true).verdict).toBe("allow");
+    expect(g.judge(idp, true)).toEqual({ verdict: "sign-in", from: login });
   });
 
   it("names the redirect's sender by the load that started, not by an earlier one", () => {
@@ -113,13 +110,13 @@ describe("NavigationGuard", () => {
     // The address changed without a navigation (history API) and the page is
     // reloaded: only did-start-navigation reports that load.
     g.started(`${appOrigin}/ordinary`);
-    expect(g.judge("https://example.com/", true)).toMatchObject({ verdict: "external", from: `${appOrigin}/ordinary` });
+    expect(g.judge("https://example.com/", true)).toEqual({ verdict: "external", from: `${appOrigin}/ordinary` });
   });
 
   it("does not take a refused navigation as the sender of the next redirect", () => {
     const g = guard();
     expect(g.judge(link, false).verdict).toBe("external");
     g.started(login);
-    expect(g.judge(idp, true).verdict).toBe("allow");
+    expect(g.judge(idp, true).verdict).toBe("sign-in");
   });
 });

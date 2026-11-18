@@ -9,7 +9,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from "
 import { release } from "node:os";
 import { join } from "node:path";
 import { iconLetter } from "./icon";
-import { NavigationGuard, isAppUrl, originOf } from "./navigation";
+import { NavigationGuard, isAppUrl, judgeSignInNavigation, originOf } from "./navigation";
 import { renderAppIcon } from "./render-icon";
 
 // Where the web app is served. Built in (electron.vite.config.ts), so a
@@ -142,31 +142,85 @@ function createWindow(): void {
     openInBrowser(url);
     return { action: "deny" };
   });
-  // The window leaves the app only for sign-in (navigation.ts).
+  // The window stays on the app; sign-in gets its own window (navigation.ts).
   const navigation = new NavigationGuard(APP_ORIGIN, APP_URL);
   const guard = (isRedirect: boolean) => (event: Electron.Event<{ url: string; isMainFrame: boolean }>) => {
     if (!event.isMainFrame) return;
-    const { verdict, signIn, from } = navigation.judge(event.url, isRedirect);
-    // One line per decision that is not the app's own page, without the
-    // query (sign-in addresses carry codes): shows why a link stayed or left.
-    if (originOf(event.url) !== APP_ORIGIN) {
-      console.log(`[navigation] ${verdict}: ${place(event.url)}${from ? ` (redirect from ${place(from)})` : ""}${signIn ? " (sign-in)" : ""}`);
-    }
+    const { verdict, from } = navigation.judge(event.url, isRedirect);
     if (verdict === "allow") return;
+    // One line per navigation that does not stay, without query and fragment
+    // (sign-in addresses carry codes): shows where a link went and why.
+    console.log(`[navigation] ${verdict}: ${place(event.url)}${from ? ` (redirect from ${place(from)})` : ""}`);
     event.preventDefault();
     if (verdict === "external") openInBrowser(event.url);
+    if (verdict === "sign-in") openSignIn(win, event.url);
   };
   win.webContents.on("will-navigate", guard(false));
   win.webContents.on("will-redirect", guard(true));
   win.webContents.on("did-start-navigation", (details) => {
     if (details.isMainFrame && !details.isSameDocument) navigation.started(details.url);
   });
-  // Back on the app's own page the sign-in is over; so is one that was
-  // stopped or failed before the provider's page appeared.
-  win.webContents.on("did-navigate", (_event, url) => navigation.settled(url));
-  win.webContents.on("did-stop-loading", () => navigation.settled(win.webContents.getURL()));
 
   void win.loadURL(APP_URL);
+}
+
+// Single sign-on runs in a window of its own with the system's title bar: the
+// provider's page is not the app's, so it gets no part of the app's frame and
+// nothing of the host's is laid over it. It takes over the redirect the app's
+// auth route answered with — not the route again, which may have used up what
+// it needs (the logout's token hint) — and shares the app window's session.
+// The first page of the app
+// it is sent back to is the answer: the app window loads it, and this window
+// closes. Closing it by hand gives the sign-in up.
+let signInWindow: BrowserWindow | null = null;
+function openSignIn(parent: BrowserWindow, providerUrl: string): void {
+  signInWindow?.destroy();
+  const win = new BrowserWindow({
+    parent,
+    width: 560,
+    height: 760,
+    minWidth: 360,
+    minHeight: 480,
+    // Shown with its first page: a provider that still knows the user answers
+    // with redirects alone, and then no window appears at all.
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  signInWindow = win;
+  win.on("closed", () => {
+    if (signInWindow === win) signInWindow = null;
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openInBrowser(url);
+    return { action: "deny" };
+  });
+  const guard = (event: Electron.Event<{ url: string; isMainFrame: boolean }>) => {
+    if (!event.isMainFrame) return;
+    const verdict = judgeSignInNavigation({ target: event.url, appOrigin: APP_ORIGIN });
+    if (verdict === "allow") return;
+    event.preventDefault();
+    if (verdict === "deny") return;
+    console.log(`[navigation] sign-in done: ${place(event.url)}`);
+    win.destroy();
+    if (!parent.isDestroyed()) void parent.loadURL(event.url);
+  };
+  win.webContents.on("will-navigate", guard);
+  win.webContents.on("will-redirect", guard);
+  let hasPage = false;
+  win.webContents.on("did-navigate", () => {
+    if (hasPage) return;
+    hasPage = true;
+    win.show();
+  });
+  // Loading ended without a page — it failed, or the provider answered with
+  // nothing to show: the window would stay invisible, so it goes.
+  win.webContents.on("did-stop-loading", () => {
+    if (win.isDestroyed() || hasPage) return;
+    console.log("[navigation] sign-in ended without a page");
+    win.destroy();
+  });
+  void win.loadURL(providerUrl).catch(() => {});
 }
 
 // The app icon: the first letter of the app's name on the accent colour
