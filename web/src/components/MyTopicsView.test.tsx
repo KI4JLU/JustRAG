@@ -271,20 +271,19 @@ function renderMyTopicsView(overrides: Partial<MyTopicsViewProps> & { kbs?: Know
  * the DOM's own id semantics, and src/translations.ts for every accessible name.
  * ------------------------------------------------------------------------- */
 describe('AppChrome, through the view that mounts it', () => {
-  it('reaches the nav column and the user menu through the narrow-screen tab bar', async () => {
+  it('reaches the nav column and the user menu through the narrow-screen drawer', async () => {
     authState.role = 'admin';
     stubViewport(false);
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
-    /* Below `lg` the page is the area on screen, so the nav column is NOT in
-       the tree at all — that is the arrangement, not a bug, and it is what
-       makes the tab bar load-bearing rather than decorative. */
+    /* In the narrow arrangement the page is on screen and the nav column is a
+       drawer over it, closed at rest — so it is NOT in the tree until the
+       toggle at the start of the bar opens it. */
     expect(screen.queryByRole('navigation', { name: translations.mainNavigation.en })).toBeNull();
 
-    const tabBar = within(screen.getByRole('navigation', { name: translations.switchArea.en }));
-    await userEvent.click(tabBar.getByRole('button', { name: translations.navigationTab.en }));
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
 
-    const column = within(screen.getByRole('complementary', { name: translations.mainNavigation.en }));
+    const column = within(await screen.findByRole('dialog', { name: translations.mainNavigation.en }));
     /* ORACLE: translations.ts. All three nav rows, including the admin one the
        mocked system role above unlocks, plus the user-menu trigger — i.e. the
        `nav` and `sidebarFooter` slots both reach the narrow arrangement. This
@@ -301,18 +300,16 @@ describe('AppChrome, through the view that mounts it', () => {
     stubViewport(false);
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
-    const tabBar = within(screen.getByRole('navigation', { name: translations.switchArea.en }));
-    await userEvent.click(tabBar.getByRole('button', { name: translations.navigationTab.en }));
-    await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.en }));
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
+    await userEvent.click(await screen.findByRole('button', { name: translations.sharedTopics.en }));
 
     /* The jump itself still happens — that is the row's own handler, untouched.
-       What this pins is the tab handoff `AppChrome` adds on top of it: staying
-       on the nav column after a choice reads as a dead tap, so the shell is put
-       back on the page. `main` is the landmark the design system renders only
-       for the main area, so its presence IS the statement. */
+       What this pins is the handoff `AppChrome` adds on top of it: a drawer
+       that stays open after a choice reads as a dead tap, so the shell is put
+       back on the page and the drawer closes. */
     expect(NAV.onViewSharedTopics).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('main')).toBeInTheDocument();
-    expect(screen.queryByRole('complementary', { name: translations.mainNavigation.en })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: translations.mainNavigation.en })).toBeNull());
   });
 
   /* The user menu — and with it language, colour scheme and Style — is
@@ -336,8 +333,8 @@ describe('AppChrome, through the view that mounts it', () => {
     stubViewport(false);
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
-    const tabBar = within(screen.getByRole('navigation', { name: translations.switchArea.en }));
-    await userEvent.click(tabBar.getByRole('button', { name: translations.navigationTab.en }));
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
+    await screen.findByRole('dialog', { name: translations.mainNavigation.en });
 
     expect(screen.getAllByRole('button', { name: /^@grace/ })).toHaveLength(1);
   });
@@ -408,7 +405,7 @@ describe('AppChrome, through the view that mounts it', () => {
     expect(menu.getByRole('menuitem', { name: translations.logout.en })).toBeInTheDocument();
   });
 
-  it('ignores the minimised state on a narrow screen and renders no collapse toggle there', async () => {
+  it('ignores the minimised state on a narrow screen: the drawer shows the expanded rows', async () => {
     authState.role = 'admin';
     const desktop = renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
@@ -425,15 +422,13 @@ describe('AppChrome, through the view that mounts it', () => {
 
     stubViewport(false);
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
-    const tabBar = within(screen.getByRole('navigation', { name: translations.switchArea.en }));
-    await userEvent.click(tabBar.getByRole('button', { name: translations.navigationTab.en }));
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
 
-    const column = within(screen.getByRole('complementary', { name: translations.mainNavigation.en }));
-    /* NO toggle in either direction. Below `lg` the column IS the screen, so a
-       control that collapsed it would leave nothing — and pressing it would
-       also destroy the desktop preference on the way out. */
+    const column = within(await screen.findByRole('dialog', { name: translations.mainNavigation.en }));
+    /* The drawer has no rail: nothing in it expands a minimised column. Its
+       one toggle closes the drawer, and that must not write the desktop
+       preference stored above. */
     expect(column.queryByRole('button', { name: translations.expandNavigation.en })).toBeNull();
-    expect(column.queryByRole('button', { name: translations.collapseNavigation.en })).toBeNull();
 
     /* And the rows are the EXPANDED form even though the stored preference says
        minimised: no `aria-label`, i.e. the visible text is still their name.

@@ -2,13 +2,13 @@ import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState
 import {
   Brain, ArrowUp, ArrowLeft,
   X, Check, Pencil,
-  Globe, WandSparkles, Loader2, FileText, Bot, Users,
+  Globe, WandSparkles, Loader2, FileText, Quote, Bot, Users,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Message } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
+import { IS_APPLE } from '../utils/searchShortcut';
 import { useAuth } from '../contexts/AuthContext';
-import { useIsMobileContext } from '../contexts/MobileContext';
 import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
@@ -28,13 +28,14 @@ import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, star
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
+import { STORAGE_NAMESPACE } from '../hooks/useStoredFlag';
 import {
   InputGroupAddon,
   ChatStage, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment, usePromptInputAttachments, Badge, Notice,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
-  Spinner, Button,
+  Spinner, Button, AppShellSidePanel, usePersistedWidth,
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from '../MessageBubble';
@@ -45,6 +46,7 @@ import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
 import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
 import { API_BASE_URL, authFetch } from '../api';
 import { SourcePanel } from './sources/SourcePanel';
+import { CitationsPanel } from './sources/CitationsPanel';
 import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
 import { MessageSkeleton } from './Skeleton';
 import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
@@ -64,6 +66,17 @@ function attachHookRef<T>(target: unknown, el: T | null) {
 // Shared Suspense fallback. `role` on MessageSkeleton is a visual variant
 // ('user' | 'ai'), not an ARIA role; mapping over the variants keeps
 // jsx-a11y from misreading the prop as an (invalid) ARIA role literal.
+// The chat's side panel. Its tab kinds: the source list and a cited source
+// (a browser is to follow). Its width is
+// remembered per device, like the navigation's (useSidebarResize).
+const CITATION_TAB = 'citation';
+const CITATIONS_TAB = 'citations';
+const SIDE_PANEL_CHORD = IS_APPLE ? 'Meta+Alt' : 'Control+Alt';
+const isSidePanelChord = (e: KeyboardEvent) =>
+  e.altKey && !e.shiftKey && (IS_APPLE ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+const SIDE_PANEL_WIDTH_KEY = `${STORAGE_NAMESPACE}kb.sidepanel.width`;
+const SIDE_PANEL_BOUNDS = { min: 360, max: 900, default: 480 } as const;
+
 const SKELETON_VARIANTS: ReadonlyArray<'user' | 'ai'> = ['user', 'ai'];
 const chatSuspenseFallback = (
   <div className="messages-container" style={{ justifyContent: 'flex-end' }}>
@@ -100,7 +113,6 @@ const holdComposerUploads = () => {};
 const ChatViewComp = () => {
   const { language, t } = useTheme();
   const { user, siteConfigs } = useAuth();
-  const isMobile = useIsMobileContext();
   const reducedMotion = useReducedMotion();
 
   const {
@@ -332,16 +344,69 @@ const ChatViewComp = () => {
   // „In Quelle öffnen": one cited source beside the answers, closed again
   // whenever another chat's transcript is loaded.
   const [sourcePanelTarget, setSourcePanelTarget] = useState<SourcePanelTarget | null>(null);
+  // The chat's side panel (set up below): whether it is shown, its open
+  // tabs in strip order, and the shown one.
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [sidePanelMaximized, setSidePanelMaximized] = useState(false);
+  const [sideTabs, setSideTabs] = useState<string[]>([]);
+  const [activeSideTab, setActiveSideTab] = useState<string | null>(null);
   const [panelTranscriptKey, setPanelTranscriptKey] = useState(chat.transcriptKey);
   if (panelTranscriptKey !== chat.transcriptKey) {
     setPanelTranscriptKey(chat.transcriptKey);
+    // The cited source belongs to that transcript; the citation list
+    // follows the chat and stays.
     setSourcePanelTarget(null);
+    const rest = sideTabs.filter(tab => tab !== CITATION_TAB);
+    if (rest.length !== sideTabs.length) {
+      setSideTabs(rest);
+      if (activeSideTab === CITATION_TAB) setActiveSideTab(rest[rest.length - 1] ?? null);
+      if (rest.length === 0) setSidePanelOpen(false);
+    }
   }
+  // The side panel beside the chat (the shell's AppShellSidePanel): a cited
+  // source is a tab in it. Its toggle hides the panel and keeps the tab;
+  // closing the tab hides the panel, as closing the last tab does.
+  const [sidePanelWidth, setSidePanelWidth] = usePersistedWidth(SIDE_PANEL_WIDTH_KEY, {
+    defaultWidth: SIDE_PANEL_BOUNDS.default, minWidth: SIDE_PANEL_BOUNDS.min, maxWidth: SIDE_PANEL_BOUNDS.max,
+  });
+  const showSideTab = useCallback((id: string) => {
+    setSideTabs(prev => (prev.includes(id) ? prev : [...prev, id]));
+    setActiveSideTab(id);
+    setSidePanelOpen(true);
+  }, []);
+  // The tab that takes a closed one's place becomes active; closing the
+  // last one hides the panel.
+  const closeSideTab = useCallback((id: string) => {
+    const index = sideTabs.indexOf(id);
+    if (index < 0) return;
+    const rest = sideTabs.filter(tab => tab !== id);
+    setSideTabs(rest);
+    if (id === CITATION_TAB) setSourcePanelTarget(null);
+    if (id === activeSideTab) setActiveSideTab(rest[Math.min(index, rest.length - 1)] ?? null);
+    if (rest.length === 0) setSidePanelOpen(false);
+  }, [sideTabs, activeSideTab]);
+  // ⌥⌘B (Ctrl+Alt+B) shows and hides the side panel, ⌥⌘F maximises it.
+  // By `code`: with ⌥ held, macOS reports another character as `key`.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isSidePanelChord(e)) return;
+      if (e.code === 'KeyB') {
+        e.preventDefault();
+        setSidePanelOpen(open => !open);
+      } else if (e.code === 'KeyF') {
+        e.preventDefault();
+        setSidePanelOpen(true);
+        setSidePanelMaximized(max => !max);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
   const sourcePanelApi = useMemo<SourcePanelApi>(() => ({
     target: sourcePanelTarget,
-    open: setSourcePanelTarget,
-    close: () => setSourcePanelTarget(null),
-  }), [sourcePanelTarget]);
+    open: (target) => { setSourcePanelTarget(target); showSideTab(CITATION_TAB); },
+    close: () => closeSideTab(CITATION_TAB),
+  }), [sourcePanelTarget, showSideTab, closeSideTab]);
   const sourcePanelFile = sourcePanelTarget?.source.fileId
     ? fileMgmt.files.find(f => f.id === sourcePanelTarget.source.fileId)
     : undefined;
@@ -893,20 +958,75 @@ const ChatViewComp = () => {
                   )}
 
                 </ChatStage>
-                {sourcePanelTarget && (
-                  <SourcePanel
-                    target={sourcePanelTarget}
-                    onClose={sourcePanelApi.close}
-                    onPassage={(passage) => setSourcePanelTarget(prev => (prev ? { ...prev, passage } : prev))}
-                    onNavigate={setSourcePanelTarget}
-                    fileOrigin={sourcePanelFile?.origin}
-                    fileType={sourcePanelFile?.type}
-                    onPdfOpen={handlePdfSourceOpen}
-                    onPreviewSource={handlePreviewSource}
-                    canDownload={sourceRights.downloadSources}
-                    fullScreen={isMobile}
-                  />
-                )}
+                {(() => {
+                  const sourcePanel = sourcePanelTarget && (
+                    <SourcePanel
+                      target={sourcePanelTarget}
+                      onClose={sourcePanelApi.close}
+                      onPassage={(passage) => setSourcePanelTarget(prev => (prev ? { ...prev, passage } : prev))}
+                      onNavigate={setSourcePanelTarget}
+                      fileOrigin={sourcePanelFile?.origin}
+                      fileType={sourcePanelFile?.type}
+                      onPdfOpen={handlePdfSourceOpen}
+                      onPreviewSource={handlePreviewSource}
+                      canDownload={sourceRights.downloadSources}
+                    />
+                  );
+                  return (
+                    <AppShellSidePanel
+                      label={t('sidePanelLabel')}
+                      isOpen={sidePanelOpen}
+                      onOpenChange={setSidePanelOpen}
+                      expandLabel={t('sidePanelShow')}
+                      collapseLabel={t('sidePanelHide')}
+                      tabs={sideTabs.flatMap((id) => (
+                        id === CITATIONS_TAB ? [{
+                          id,
+                          title: t('sidePanelCitations'),
+                          icon: <Quote aria-hidden="true" />,
+                          closeLabel: t('sidePanelCloseCitations'),
+                        }] : sourcePanelTarget ? [{
+                          id,
+                          title: sourcePanelTarget.source.title,
+                          icon: <FileText aria-hidden="true" />,
+                          closeLabel: t('sourcePanelClose'),
+                        }] : []
+                      ))}
+                      activeTabId={activeSideTab}
+                      onTabChange={setActiveSideTab}
+                      onTabClose={closeSideTab}
+                      tabListLabel={t('sidePanelTabs')}
+                      // What the panel can open: the chat's citations. One cited
+                      // source opens from that list or from its chip in an answer.
+                      launchers={sourceRights.seeCitations ? [
+                        { id: CITATIONS_TAB, label: t('sidePanelCitations'), icon: <Quote aria-hidden="true" />, shortcut: t('sidePanelCitationsKey') },
+                      ] : undefined}
+                      onLaunch={showSideTab}
+                      addLabel={t('sidePanelAdd')}
+                      maximizeLabel={t('sidePanelMaximize')}
+                      restoreLabel={t('sidePanelRestore')}
+                      isMaximized={sidePanelMaximized}
+                      onMaximizedChange={setSidePanelMaximized}
+                      toggleKeyShortcuts={`${SIDE_PANEL_CHORD}+B`}
+                      maximizeKeyShortcuts={`${SIDE_PANEL_CHORD}+F`}
+                      width={sidePanelWidth}
+                      resize={{
+                        minWidth: SIDE_PANEL_BOUNDS.min,
+                        maxWidth: SIDE_PANEL_BOUNDS.max,
+                        onWidthChange: setSidePanelWidth,
+                        label: t('sidePanelResize'),
+                      }}
+                    >
+                      {activeSideTab === CITATIONS_TAB ? (
+                        <CitationsPanel
+                          messages={chat.messages}
+                          target={sourcePanelTarget}
+                          onOpen={sourcePanelApi.open}
+                        />
+                      ) : sourcePanel}
+                    </AppShellSidePanel>
+                  );
+                })()}
               </div>
             )
       }

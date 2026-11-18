@@ -10,8 +10,8 @@ import { vi } from 'vitest';
  * (Modal/Radix), where `false` is the right answer.
  *
  * Design-system 0.30.0 made it harmful. `AppShell` now chooses its arrangement
- * in JavaScript — `useIsDesktop()` reads `matchMedia("(min-width: 64rem)")` and
- * renders either three columns or ONE area plus a `BottomTabBar`. Against a
+ * in JavaScript — `useIsDesktop()` reads one `matchMedia("(min-width: …)")` query and
+ * renders either its columns or the page with drawers over it. Against a
  * blanket `false` every suite silently moved to the narrow arrangement, where
  * the nav column is behind a tab and most assertions have nothing to find. The
  * failures pointed at the queries, not at the stub, which is exactly why this
@@ -21,7 +21,7 @@ import { vi } from 'vitest';
  * `false`, which is what the pre-0.30.0 copies were for. It keys on the query's
  * KIND rather than on the exact breakpoint: the design system knows the
  * boundary as `DESKTOP_QUERY` in `lib/pane-layout.ts` but does not export it,
- * and restating `64rem` here would be a second copy that goes stale silently —
+ * and restating its value here would be a second copy that goes stale silently —
  * the shell would simply render the other arrangement. The one `min-width`
  * query the shell asks is the one this decides.
  * // TODO: exporting `DESKTOP_QUERY` from the design-system barrel would let a

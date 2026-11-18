@@ -21,11 +21,11 @@ const sources = [
 const model = buildCitationModel('A [1]. B [2].', sources);
 const source = model.cited[0];
 
-describe('SourcePanel (desktop pane)', () => {
+describe('SourcePanel (side panel tab)', () => {
   it('shows the passages in document order, the cited one active, and opens another on click', () => {
     const onPassage = vi.fn();
     render(<SourcePanel target={{ messageKey: 'm', source, passage: 0 }} onClose={vi.fn()} onPassage={onPassage} onNavigate={vi.fn()} canDownload={false} />);
-    const pane = screen.getByRole('complementary', { name: 'sourcePanelLabel' });
+    const pane = screen.getByRole('region', { name: 'sourcePanelLabel' });
     const sections = pane.querySelectorAll('section');
     expect([...sections].map(s => s.textContent)).toEqual(['pageAbbrev 2Seite zwei.', 'pageAbbrev 9Seite neun.']);
     expect(sections[1]).toHaveAttribute('aria-current', 'location');
@@ -54,7 +54,7 @@ describe('SourcePanel (desktop pane)', () => {
 
     it('counts the chip the panel shows among all of the answer\'s markers', () => {
       render(<SourcePanel target={at(1)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
-      expect(screen.getByRole('complementary')).toHaveTextContent('2/3');
+      expect(screen.getByRole('region')).toHaveTextContent('2/3');
     });
 
     it('steps to the previous and next marker, across sources', () => {
@@ -79,22 +79,23 @@ describe('SourcePanel (desktop pane)', () => {
     it('starts at the source\'s first marker when opened from the source list', () => {
       const fromList = { ...at(1), occ: undefined };
       render(<SourcePanel target={fromList} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
-      expect(screen.getByRole('complementary')).toHaveTextContent('2/3');
+      expect(screen.getByRole('region')).toHaveTextContent('2/3');
     });
   });
 
-  it('closes from its toggle and from "Zur Antwort"', () => {
+  // The ✕ is the side panel tab's (ChatView); the content keeps "Zur Antwort".
+  it('closes from "Zur Antwort" and brings no close button of its own', () => {
     const onClose = vi.fn();
     render(<SourcePanel target={{ messageKey: 'm', source, passage: 0 }} onClose={onClose} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
-    fireEvent.click(screen.getByRole('button', { name: 'sourcePanelClose' }));
+    expect(screen.queryByRole('button', { name: 'sourcePanelClose' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'sourcePanelBack' }));
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('offers the origin link a passage carries', () => {
     const withOrigin = buildCitationModel('A [1].', [{ ...sources[0], fileName: 'Seite.md', content: '# T\n\nSource: https://wiki.example/p\n\nText' }]).cited[0];
     render(<SourcePanel target={{ messageKey: 'm', source: withOrigin, passage: 0 }} fileOrigin="confluence" onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
     expect(screen.getByRole('link', { name: 'openInConfluence' })).toHaveAttribute('href', 'https://wiki.example/p');
-    expect(screen.getByRole('complementary')).not.toHaveTextContent('Source: https');
+    expect(screen.getByRole('region')).not.toHaveTextContent('Source: https');
   });
 });
