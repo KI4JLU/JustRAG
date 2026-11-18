@@ -1,4 +1,5 @@
-import type { MobileTab } from '../components/MobileTabBar';
+/** The KB screen's areas in the narrow shell: history drawer, chat, sources sheet. */
+export type MobileTab = 'history' | 'chat' | 'files';
 
 /**
  * Which mobile tab is displayed. 'history' and 'files' render their own

@@ -23,8 +23,7 @@ import { useKbLayout } from '../contexts/KbLayoutContext';
 import { SourcesPanel } from './sources/SourcesPanel';
 import { HistoryPanel, NewChatButton } from './history/HistoryPanel';
 import { ChatView } from './ChatView';
-import { type MobileTab } from './MobileTabBar';
-import { deriveActiveMobileTab } from '../utils/activeMobileTab';
+import { deriveActiveMobileTab, type MobileTab } from '../utils/activeMobileTab';
 import { LEFT_SIDEBAR_BOUNDS } from '../hooks/useSidebarResize';
 import { canOpenKbTopicSettings } from '../utils/kbAccess';
 import { AppUserMenu } from './AppUserMenu';
@@ -124,9 +123,10 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
   const activeMobileTab: MobileTab = !seeSources && derivedMobileTab === 'files' ? 'chat' : derivedMobileTab;
 
 
-  /* Welcher Reiter welchen Bereich zeigt, ist Daten — die Shell leitet nichts
-   * ab. Reihenfolge und Symbole sind die der abgelösten `MobileTabBar`, damit
-   * die Swipe-Richtung in `useViewState` weiter zur Anordnung passt. */
+  /* Welche Kennung welchen Bereich zeigt, ist Daten — die Shell leitet nichts
+   * ab. Eine Reiterleiste gibt es nicht mehr: Verlauf ist eine Schublade,
+   * Quellen ein Blatt von unten. Die Reihenfolge bleibt die der
+   * Swipe-Richtung in `useViewState`. */
   const mobileTabs: MobilePaneTab[] = useMemo(() => [
     { id: 'history', icon: <History aria-hidden="true" />, label: t('tabHistory'), pane: 'left' },
     { id: 'chat', icon: <MessageSquare aria-hidden="true" />, label: t('tabChat'), pane: 'main' },
@@ -275,7 +275,6 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
       mobileTabs={mobileTabs}
       activeMobileTab={activeMobileTab}
       onMobileTabChange={handleMobileTabChange}
-      mobileTabBarLabel={t('switchArea')}
       notice={systemNotice.notice}
       status={systemNotice.status}
       statusPosition={systemNotice.statusPosition}

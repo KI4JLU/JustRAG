@@ -361,11 +361,11 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
           inverted; each line below is the reason, because none of them is a
           rename.
 
-          `menuLabel` / `drawerLabel` went with the drawer they named. Below
-          `lg` the shell shows one area at a time behind a `BottomTabBar`, so
-          there is nothing to open and nothing to label — `mobileTabs` +
-          `mobileTabBarLabel` replace them, and they are REQUIRED: without tabs
-          the nav column has no route at all on a narrow screen.
+          `menuLabel` / `drawerLabel` went in 0.30.0. Since 0.83.0 the narrow
+          shell has a drawer again, named by `navLabel` and opened by the
+          shell's own toggle; `mobileTabs` names its areas and is REQUIRED:
+          without a `pane: 'left'` entry the nav column has no route at all
+          on a narrow screen.
 
           `collapsed` → `leftOpen`, AND THE MEANING INVERTS. The inversion is
           done HERE, at the call site, and deliberately not inside
@@ -400,7 +400,6 @@ export function AppChrome({ active, contentId, children }: AppChromeProps) {
         mobileTabs={mobileTabs}
         activeMobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
-        mobileTabBarLabel={t('switchArea')}
         notice={systemNotice.notice}
         status={systemNotice.status}
         statusPosition={systemNotice.statusPosition}

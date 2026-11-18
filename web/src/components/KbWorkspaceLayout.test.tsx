@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AppShellLayoutProps } from '@ki4jlu/design-system';
 import { KbWorkspaceLayout } from './KbWorkspaceLayout';
 
@@ -397,5 +397,47 @@ describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
     renderLayout();
     render(<div>{shellProps.rightPanel?.header}</div>);
     expect(screen.getByRole('heading', { level: 2, name: title })).toBeInTheDocument();
+  });
+});
+
+describe('KbWorkspaceLayout — files dragged into the window bring the sources up', () => {
+  const dragFilesIn = () => {
+    const event = new Event('dragenter', { bubbles: true });
+    Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'] } });
+    act(() => { window.dispatchEvent(event); });
+  };
+  const caps = (addSources: boolean) => ({
+    seeSources: true, addSources, downloadSources: false, seeCitations: true, manageSources: false,
+  });
+  const stubWide = (wide: boolean) => vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: wide && query.includes('min-width'), media: query,
+    addEventListener: () => {}, removeEventListener: () => {},
+  }));
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('opens the sources card on a wide screen', () => {
+    stubWide(true);
+    kbExtra = { capabilities: caps(true) };
+    renderLayout();
+    dragFilesIn();
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+  });
+
+  it('switches to the sources area in the narrow shell', () => {
+    stubWide(false);
+    kbExtra = { capabilities: caps(true) };
+    const { setMobileTab } = renderLayout();
+    dragFilesIn();
+    expect(setMobileTab).toHaveBeenCalledWith('files');
+    expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for a caller who may not add sources', () => {
+    stubWide(true);
+    kbExtra = { capabilities: caps(false) };
+    const { setMobileTab } = renderLayout();
+    dragFilesIn();
+    expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
+    expect(setMobileTab).not.toHaveBeenCalled();
   });
 });
