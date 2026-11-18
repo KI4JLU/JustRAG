@@ -13,6 +13,7 @@ import {
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
+import { useModalContext } from '../../contexts/ModalContext';
 import { getApiErrorMessage } from '../../utils/apiError';
 import { fetchKbAgents, type KbAgentOption } from '../agents/api';
 import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/SettingsFieldRow';
@@ -87,6 +88,7 @@ interface AdminEvalTabProps {
 export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: AdminEvalTabProps) {
     const { t } = useTheme();
     const toast = useToast();
+    const { showConfirm } = useModalContext();
 
     // State: kick-off form
     const [label, setLabel] = useState('');
@@ -338,7 +340,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     };
 
     const handleDeleteGoldenSet = async (id: string, name: string) => {
-        if (!window.confirm(`${t('evalGoldenSetConfirmDelete')} "${name}"?`)) return;
+        if (!await showConfirm(`${t('evalGoldenSetConfirmDelete')} "${name}"?`, undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         try {
             await axios.delete(`${API_BASE_URL}${basePath}/golden-sets/${id}`);
             toast.success(t('evalGoldenSetDeleted'));
@@ -382,7 +384,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             toast.error(t('evalCannotDeleteRunning'));
             return;
         }
-        if (!window.confirm(t('evalConfirmDelete'))) return;
+        if (!await showConfirm(t('evalConfirmDelete'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
         try {
             await axios.delete(`${API_BASE_URL}${basePath}/runs/${id}`);
             toast.success(t('evalDeleted'));

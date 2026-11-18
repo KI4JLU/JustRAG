@@ -567,7 +567,7 @@ export function KbMembersPanel({
                                             <span className="shrink-0 text-sm text-on-surface-variant">
                                                 {t(ROLE_LABEL_KEY[p.role as KbAssignableRole] ?? 'viewPermission')}
                                             </span>
-                                            <Button variant="ghost" size="icon" onClick={() => handleRevokePending(p.username)} aria-label={t('revokeInvite')} title={t('revokeInvite')}>
+                                            <Button variant="ghost-destructive" size="icon" onClick={() => handleRevokePending(p.username)} aria-label={t('revokeInvite')} title={t('revokeInvite')}>
                                                 <Trash2 className="size-4" aria-hidden="true" />
                                             </Button>
                                         </li>

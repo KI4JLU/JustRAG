@@ -348,7 +348,7 @@ export function useChat({
 
   const handleDeleteChat = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!await showConfirm(t('confirmDeleteChat'))) return;
+    if (!await showConfirm(t('confirmDeleteChat'), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return;
     let snapshot: ChatEntry[] = [];
     setChats(prev => { snapshot = prev; return prev.filter(c => c.id !== id); });
     if (activeChatIdRef.current === id) {
@@ -366,7 +366,7 @@ export function useChat({
   // removal, and only the chats whose DELETE failed come back.
   const handleDeleteChats = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return false;
-    if (!await showConfirm(t('confirmDeleteChats').replace('{count}', String(ids.length)))) return false;
+    if (!await showConfirm(t('confirmDeleteChats').replace('{count}', String(ids.length)), undefined, { tone: 'destructive', confirmLabel: t('delete') })) return false;
     let snapshot: ChatEntry[] = [];
     setChats(prev => { snapshot = prev; return prev.filter(c => !ids.includes(c.id)); });
     if (activeChatIdRef.current && ids.includes(activeChatIdRef.current)) handleNewChat();
