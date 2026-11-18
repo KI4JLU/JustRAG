@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { type MobileTab } from '../components/MobileTabBar';
+import { type MobileTab } from '../utils/activeMobileTab';
 import { useSwipeGesture } from './useSwipeGesture';
 import { deriveActiveMobileTab } from '../utils/activeMobileTab';
 import type { AppNavigate } from '../routing/navigation';
