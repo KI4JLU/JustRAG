@@ -73,6 +73,8 @@ vi.mock('../hooks/useTopicSettingsDiff', () => ({
 // Eigentümer oder einen KB-Admin brauchen, setzen `authUser` / `kbExtra` um.
 let authUser: { id?: string; role: string } = { role: 'user' };
 let kbExtra: Record<string, unknown> = {};
+// The public topics the user subscribed to (`kbMgmt.globalKbs`).
+let subscribedKbs: { id: string }[] = [];
 let siteConfigs: Record<string, string> = {};
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser, siteConfigs }) }));
 
@@ -86,7 +88,7 @@ vi.mock('../contexts/KbCoreContext', () => ({
     kbView,
     setKbView,
     handleGoHome,
-    kbMgmt: { handleRenameKB: vi.fn() },
+    kbMgmt: { handleRenameKB: vi.fn(), globalKbs: subscribedKbs },
   }),
 }));
 
@@ -119,6 +121,7 @@ beforeEach(() => {
   authUser = { role: 'user' };
   siteConfigs = {};
   kbExtra = {};
+  subscribedKbs = [];
   settingsDiff = { isCustomized: false, changedKeys: [], labels: [], count: 0 };
   vi.clearAllMocks();
 });
@@ -331,12 +334,17 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
   });
 
   // ORACLE: the three overviews a topic is listed in — own, shared with me,
-  // public — are the app's own split (splitKbsByOwnership, visibility).
+  // public — are the app's own split (splitKbsByOwnership, visibility). A
+  // public topic the user subscribed to is listed in „Geteiltes Wissen"
+  // (SharedTopicsView appends `globalKbs`), so that is where it leads back.
   it.each([
-    ['ein geteiltes Thema', { myRole: 'edit' }, 'sharedTopics', 'shared-topics'],
-    ['ein öffentliches Thema', { myRole: 'view', visibility: 'public' }, 'discoverTopics', 'discover'],
-  ] as const)('führt für %s in dessen Bereich zurück und setzt die Ansicht auf den Chat', async (_name, extra, label, view) => {
+    ['ein geteiltes Thema', { myRole: 'edit' }, [], 'sharedTopics', 'shared-topics'],
+    ['ein öffentliches Thema', { myRole: 'view', visibility: 'public' }, [], 'discoverTopics', 'discover'],
+    ['ein öffentliches Thema, ein anderes ist abonniert', { visibility: 'public' }, [{ id: 'kb2' }], 'discoverTopics', 'discover'],
+    ['ein abonniertes öffentliches Thema', { visibility: 'public' }, [{ id: 'kb1' }], 'sharedTopics', 'shared-topics'],
+  ] as const)('führt für %s in dessen Bereich zurück und setzt die Ansicht auf den Chat', async (_name, extra, subscribed, label, view) => {
     kbExtra = extra;
+    subscribedKbs = [...subscribed];
     renderLayout();
     render(<div>{shellProps.pageLabel}</div>);
     await userEvent.click(screen.getByRole('link', { name: label }));

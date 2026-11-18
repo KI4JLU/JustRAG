@@ -78,7 +78,7 @@ interface KbWorkspaceLayoutProps {
 export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: KbWorkspaceLayoutProps) {
   const { t } = useTheme();
   const { user, siteConfigs } = useAuth();
-  const { currentKb, setKbView, handleGoHome } = useKbCore();
+  const { currentKb, setKbView, handleGoHome, kbMgmt } = useKbCore();
   const { sidebar, systemPromptOpen, setSystemPromptOpen } = useKbLayout();
   // The admin's system notice, the same one AppChrome shows. After a dismiss,
   // focus goes to the chat composer.
@@ -135,9 +135,11 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
 
   /* The bar's page label: a breadcrumb, „section / topic". The section is
    * the overview the topic is listed in — „Mein Wissen" for an owned topic,
-   * „Entdecken" for a public one, „Geteiltes Wissen" otherwise — and leads
-   * back there; the topic is the current page. It replaces the back arrow:
-   * the trail says where „back" goes, and the desktop app has history
+   * „Entdecken" for a public one the user has not subscribed to, „Geteiltes
+   * Wissen" otherwise — and leads back there; the topic is the current page.
+   * A subscribed public topic is listed in „Geteiltes Wissen"
+   * (`SharedTopicsView`), and `kbMgmt.globalKbs` is exactly that list.
+   * The breadcrumb replaces the back arrow: the trail says where „back" goes, and the desktop app has history
    * buttons in its title bar.
    *
    * Leaving resets kbView to 'chat' (`handleGoHome` does it for the first
@@ -146,9 +148,11 @@ export function KbWorkspaceLayout({ mobileTab, setMobileTab, swipeHandlers }: Kb
    * Not a heading — the bar is chrome, the page's heading belongs to the
    * content. */
   const navigateTo = useAppNavigate();
+  const isPublic = currentKb?.visibility === 'public' || currentKb?.isGlobal === true;
+  const isSubscribed = isPublic && kbMgmt.globalKbs.some(kb => kb.id === currentKb?.id);
   const section: 'my-topics' | 'shared-topics' | 'discover' =
-    currentKb?.visibility === 'public' || currentKb?.isGlobal
-      ? 'discover'
+    isPublic
+      ? (isSubscribed ? 'shared-topics' : 'discover')
       : currentKb?.myRole === 'owner' ? 'my-topics' : 'shared-topics';
   const sectionLabel =
     section === 'discover' ? t('discoverTopics') : section === 'my-topics' ? t('myTopics') : t('sharedTopics');
