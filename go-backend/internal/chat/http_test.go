@@ -675,3 +675,11 @@ func TestBranchChat_NotFound(t *testing.T) {
 		t.Fatalf("got %d, want 404", rr.Code)
 	}
 }
+
+func (m *mockStore) GetAllChats(context.Context, string, string, int) ([]chat.ChatListRow, error) {
+	return nil, nil
+}
+
+func (m *mockStore) SetChatPinned(context.Context, string, string, bool, *string) error { return nil }
+
+func (m *mockStore) SetPinnedOrder(context.Context, string, *string, []string) error { return nil }
