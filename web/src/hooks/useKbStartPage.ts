@@ -19,15 +19,18 @@ export interface KbStartPageData {
 /**
  * What the chat start page shows from the assistant settings (Startseite +
  * the roles of Verhalten): read when the KB opens and again whenever the
- * settings dialog closes (`revision`). Null while loading or on failure — the
- * start page then looks as it did before these settings existed.
+ * settings dialog closes (`revision`). `startPage` is null while loading and on
+ * failure; `loading` tells the two apart, so the chat can hold back what a
+ * set-up page would replace, and fall back to the default start page once the
+ * read has failed. A re-read keeps the page shown until its answer is in.
  *
  * The template roles (system texts, translated in „Vorlagen") show in the
  * member's own language; the KB's own roles as their admin wrote them.
  */
-export function useKbStartPage(kbId: string | undefined, revision: unknown): KbStartPageData | null {
+export function useKbStartPage(kbId: string | undefined, revision: unknown): { startPage: KbStartPageData | null; loading: boolean } {
     const { language } = useTheme();
-    const [data, setData] = useState<KbStartPageData | null>(null);
+    // The last answer and the KB it is for: null data = that KB's read failed.
+    const [result, setResult] = useState<{ kbId: string; data: KbStartPageData | null } | null>(null);
     useEffect(() => {
         if (!kbId) return;
         let cancelled = false;
@@ -41,19 +44,23 @@ export function useKbStartPage(kbId: string | undefined, revision: unknown): KbS
                 ]);
                 const catalog = await fetchBehaviorCatalog(language);
                 if (cancelled) return;
-                setData({
+                setResult({
                     kbId,
-                    page: start.startPage,
-                    configured: start.configured,
-                    roles: allRoles(catalog, behavior.behavior),
-                    activeRoleId: behavior.behavior.activeRoleId,
-                    category: categories.find(c => c.id === categoryId) ?? null,
+                    data: {
+                        kbId,
+                        page: start.startPage,
+                        configured: start.configured,
+                        roles: allRoles(catalog, behavior.behavior),
+                        activeRoleId: behavior.behavior.activeRoleId,
+                        category: categories.find(c => c.id === categoryId) ?? null,
+                    },
                 });
             } catch {
-                if (!cancelled) setData(null);
+                if (!cancelled) setResult({ kbId, data: null });
             }
         })();
         return () => { cancelled = true; };
     }, [kbId, revision, language]);
-    return data && data.kbId === kbId ? data : null;
+    const settled = !!kbId && result?.kbId === kbId;
+    return { startPage: settled ? result.data : null, loading: !!kbId && !settled };
 }
