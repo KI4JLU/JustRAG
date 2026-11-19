@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { Stack } from '@ki4jlu/design-system';
 import { useAuth } from '../contexts/AuthContext';
-import { NoticeHeight, SystemNoticeAlert } from '../components/SystemNotice';
+import { useAppUpdate } from '../contexts/AppUpdateContext';
+import { AppUpdateAlert, NoticeHeight, SystemNoticeAlert } from '../components/SystemNotice';
 import { readSystemNotice } from '../utils/systemNotice';
 import { STORAGE_NAMESPACE } from './useStoredFlag';
 
@@ -29,16 +31,23 @@ export interface SystemNoticeSlots {
   notice: ReactNode;
   /** `AppShell` `status`: the floating message, at `statusPosition`. */
   status: ReactNode;
-  /** `AppShell` `statusPosition`: top centre (`inline`) or bottom right (`toast`). */
-  statusPosition: 'top' | 'bottom-end';
+  /**
+   * `AppShell` `statusPosition`: top centre (`inline`), bottom right (`toast`)
+   * or, while the update card is shown, top right.
+   */
+  statusPosition: 'top' | 'top-end' | 'bottom-end';
 }
 
 const NONE: SystemNoticeSlots = { notice: null, status: null, statusPosition: 'top' };
 
 /**
- * The shell's `notice` and `status` slot content — at most one of them set,
- * by the notice's placement. Null rather than an empty component, because the
- * design system renders a slot for any truthy node.
+ * The shell's `notice` and `status` slot content: the admin's system notice
+ * in the slot its placement names, and, while a newer build is waiting, the
+ * update card in the top corner of the `status` slot. The shell has one
+ * floating position, so a floating system notice joins the card there, under
+ * it, for as long as the card is shown. Null
+ * rather than an empty component, because the design system renders a slot
+ * for any truthy node.
  *
  * @param returnFocusTo where focus goes after the close button, which leaves
  * the page with the alert, has been pressed.
@@ -48,8 +57,12 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
   const notice = useMemo(() => readSystemNotice(siteConfigs), [siteConfigs]);
   const [dismissed, setDismissed] = useState(readDismissed);
 
-  if (!notice) return NONE;
-  if (notice.dismissible && dismissed === notice.version) return NONE;
+  const update = useAppUpdate();
+  const updateCard = update.available ? <AppUpdateAlert onApply={update.apply} /> : null;
+
+  if (!notice || (notice.dismissible && dismissed === notice.version)) {
+    return updateCard ? { notice: null, status: updateCard, statusPosition: 'top-end' } : NONE;
+  }
 
   const onDismiss = notice.dismissible
     ? () => {
@@ -58,10 +71,29 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
         requestAnimationFrame(() => returnFocusTo?.()?.focus({ preventScroll: true }));
       }
     : undefined;
-  const alert = <SystemNoticeAlert notice={notice} onDismiss={onDismiss} />;
   if (notice.placement === 'banner') {
-    // The banner pushes the chrome down; the toasts follow it (NoticeHeight).
-    return { notice: <NoticeHeight>{alert}</NoticeHeight>, status: null, statusPosition: 'top' };
+    return {
+      // The banner pushes the chrome down; the toasts follow it (NoticeHeight).
+      notice: <NoticeHeight><SystemNoticeAlert notice={notice} onDismiss={onDismiss} /></NoticeHeight>,
+      status: updateCard,
+      statusPosition: updateCard ? 'top-end' : 'top',
+    };
   }
-  return { notice: null, status: alert, statusPosition: notice.placement === 'toast' ? 'bottom-end' : 'top' };
+  if (updateCard) {
+    return {
+      notice: null,
+      status: (
+        <Stack direction="column" gap="sm">
+          {updateCard}
+          <SystemNoticeAlert notice={{ ...notice, placement: 'toast' }} onDismiss={onDismiss} />
+        </Stack>
+      ),
+      statusPosition: 'top-end',
+    };
+  }
+  return {
+    notice: null,
+    status: <SystemNoticeAlert notice={notice} onDismiss={onDismiss} />,
+    statusPosition: notice.placement === 'toast' ? 'bottom-end' : 'top',
+  };
 }

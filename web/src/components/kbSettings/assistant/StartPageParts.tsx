@@ -83,7 +83,10 @@ export function TitleCard({
             <h2 className="m-0 text-center text-2xl font-semibold leading-tight text-balance break-words hyphens-auto text-on-surface sm:text-3xl">
                 {title.trim() || t('asstUntitled')}
             </h2>
-            <p className="m-0 mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-on-surface-variant">
+            {/* As high as the category pill from the start (its text line, padding
+              * and border): the pill joins once the start page has loaded, and the
+              * centred page must not move then. */}
+            <p className="m-0 mt-2 flex min-h-[22px] flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-on-surface-variant">
                 {category && <CategoryPill category={category} />}
                 <TitleCardMeta fileCount={fileCount} asOf={asOf} leading={!!category} />
             </p>

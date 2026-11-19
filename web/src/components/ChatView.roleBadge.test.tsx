@@ -37,10 +37,10 @@ vi.mock('../hooks/useReducedMotion', () => ({
 }));
 let startPage: KbStartPageData | null = null;
 vi.mock('../hooks/useKbStartPage', () => ({
-  useKbStartPage: () => startPage,
+  useKbStartPage: () => ({ startPage, loading: false }),
 }));
 vi.mock('../hooks/useStarterQuestions', () => ({
-  useStarterQuestions: () => [],
+  useStarterQuestions: () => ({ questions: [], loading: false }),
 }));
 vi.mock('../hooks/useKbAgents', () => ({
   useKbAgents: () => kbAgents,

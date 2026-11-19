@@ -3,11 +3,11 @@
 // That module is generated at build time by vite-plugin-pwa, which is
 // registered in vite.config.ts but NOT in vitest.config.ts — there is no
 // service worker under test. Without a stand-in, the import is unresolvable
-// under vitest, and because App.tsx transitively imports ReloadPrompt, that
+// under vitest, and because App.tsx transitively imports AppUpdateContext, that
 // made App.tsx (the application's root component) impossible to import in a
 // test at all. vitest.config.ts aliases the virtual module here.
 //
-// The shape mirrors what ReloadPrompt destructures: a `needRefresh` tuple and
+// The shape mirrors what AppUpdateProvider destructures: a `needRefresh` tuple and
 // an `updateServiceWorker` callback. It reports "no update waiting", which is
 // the correct state for a test environment with no service worker.
 

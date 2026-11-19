@@ -4,7 +4,6 @@ import {
   X, Check, Pencil,
   Globe, WandSparkles, Loader2, FileText, Quote,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import type { Message } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { IS_APPLE } from '../utils/searchShortcut';
@@ -16,7 +15,6 @@ import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../hooks/useChatSuggestionPrefs';
-import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 import { hasAgentSteps } from './agentSteps/buildSteps';
@@ -113,7 +111,6 @@ const holdComposerUploads = () => {};
 const ChatViewComp = () => {
   const { language, t } = useTheme();
   const { user, siteConfigs } = useAuth();
-  const reducedMotion = useReducedMotion();
 
   const {
     currentKb, availableConfigs, handleUpdateKBSettings,
@@ -242,7 +239,7 @@ const ChatViewComp = () => {
   // The line under the title: the topic's own description, else the default line.
   const shownDescription = currentKb?.description?.trim() || t('kbHeaderDefault');
   // The assistant settings' start page; re-read whenever the settings dialog closes.
-  const startPage = useKbStartPage(currentKb?.id, showSystemPrompt);
+  const { startPage, loading: startPageLoading } = useKbStartPage(currentKb?.id, showSystemPrompt);
   const configuredStart = startPage?.configured ? startPage : null;
   // How the chat starts is the roles' (developer ruling 05.11.2026): with
   // further role cards „Rollenauswahl", else the active role's own start —
@@ -258,7 +255,7 @@ const ChatViewComp = () => {
   // dynamic questions on.
   const wantsGenerated = !!startPage && (configuredStart || chat.roleStart ? showsGeneratedQuestions(chat.roleStart, activeStart) : true);
   // For the role the chat starts in: a role card's, else the active role.
-  const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
+  const { questions: generatedPrompts, loading: generatedLoading } = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
   const [composerFileCount, setComposerFileCount] = useState(0);
   const composerAddRef = useRef<((files: File[]) => void) | null>(null);
   const emptyChat = chat.messages.length === 0 && !noSources;
@@ -329,6 +326,10 @@ const ChatViewComp = () => {
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
+    // While the start page loads, none: the fallback list below would show
+    // (hidden while it reveals, but taking its space) and vanish again once a
+    // set-up page answers with its own. A failed read falls through to it.
+    if (startPageLoading) return [];
     // A start page set up: the active role's questions under its input field, if on.
     if (configuredStart) return pageQuestions(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles, generatedPrompts);
     const raw = currentKb?.isGlobal ? currentKb.examplePrompts : null;
@@ -340,7 +341,7 @@ const ChatViewComp = () => {
     // Then the questions generated from the KB's documents, without repeats.
     const seen = new Set(configured.map(p => p.trim().toLowerCase()));
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
-  }, [chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
+  }, [startPageLoading, chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
 
   const [initialRender, setInitialRender] = useState(true);
   useEffect(() => {
@@ -735,7 +736,7 @@ const ChatViewComp = () => {
                         )}
                       </InputGroupAddon>
                     </PromptInput>
-                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && examplePrompts.length > 0 && (
+                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && (
                       <PromptSuggestions
                         // Lines up with the composer's text start on the left (the
                         // measured + group, `notch.left`) and with the send button on
@@ -751,6 +752,13 @@ const ChatViewComp = () => {
                         // Closing keeps the component's space: the composer must not move.
                         dismissible
                         suggestions={examplePrompts}
+                        // Its space is kept with nothing to suggest too: the start
+                        // page and the generated questions arrive later, or bring
+                        // none, and the centred page must stand the same either way.
+                        reserveSpace
+                        // Still loading once the reveal pause is over: placeholder chips.
+                        loading={startPageLoading || generatedLoading}
+                        loadingLabel={t('promptSuggestionsLoading')}
                         disabled={!hasFiles}
                         onSelect={(prompt) => {
                           chat.setUserMessageInput(prompt);
@@ -765,7 +773,7 @@ const ChatViewComp = () => {
                   {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
                     <StartGlow category={startPage.category} />
                   )}
-                  {((startPage && (chat.chatRoleId || (chat.roleStart && chat.messages.length === 0))) || ((chat.messages.length > 0 || !startPage) && chatRoleName)) && (
+                  {((startPage && (chat.chatRoleId || (chat.roleStart && chat.messages.length === 0))) || (chat.messages.length > 0 && chatRoleName)) && (
                     // The chat's role — for the whole chat, also when reopened from the history.
                     // The start page itself names it in its title block (a single role) or on its cards.
                     <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
@@ -786,18 +794,8 @@ const ChatViewComp = () => {
                       className="messages-container"
                       style={{ position: 'relative' }}
                     >
-                      <motion.div
-                        className="empty-state"
-                        {...getMotionProps(reducedMotion)}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5, ease: 'easeOut' }}
-                      >
-                        {currentKb?.isGlobal && currentKb?.headerText ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {currentKb.headerText}
-                          </div>
-                        ) : null}
+                      {/* No entrance animation: the start page stands from the first paint. */}
+                      <div className="empty-state">
                         {noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
                           // dropzone while the KB is empty — the centre only says so. A
@@ -824,20 +822,6 @@ const ChatViewComp = () => {
                               </Tooltip>
                             )}
                           </div>
-                        ) : startPage && !chat.roleStart ? (
-                          // The title block of the assistant settings' Startseite (the
-                          // glow above is its colour; the default one until set up).
-                          <div className="w-full max-w-2xl px-4 text-left">
-                            <TitleCard
-                              title={currentKb?.name ?? ''}
-                              category={startPage.category}
-                              role={chat.chatRoleId ? undefined : answersAsAgent ? agentName : soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles)}
-                              roleKind={chatRoleKind}
-                              description={shownDescription}
-                              fileCount={currentKb?.fileCount}
-                              asOf={currentKb?.lastIngestedAt}
-                            />
-                          </div>
                         ) : chat.roleStart ? (
                           // A chat started from a role card: what comes next.
                           <p>
@@ -848,13 +832,23 @@ const ChatViewComp = () => {
                                 : t('asstNewChatInRole').replace('{role}', chatRoleName ?? t('asstAssistant'))}
                           </p>
                         ) : (
-                          <>
-                            <h1>{currentKb?.name}</h1>
-                            {/* The KB's own description (Startseite), else the default line. */}
-                            <p>{shownDescription}</p>
-                          </>
+                          // The title block of the assistant settings' Startseite (the
+                          // glow above is its colour; the default one until set up),
+                          // from the first render: the category joins once the start
+                          // page is loaded, so no other title block is swapped out.
+                          <div className="w-full max-w-2xl px-4 text-left">
+                            <TitleCard
+                              title={currentKb?.name ?? ''}
+                              category={startPage?.category ?? null}
+                              role={chat.chatRoleId ? undefined : answersAsAgent ? agentName : startPage ? soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles) : undefined}
+                              roleKind={chatRoleKind}
+                              description={shownDescription}
+                              fileCount={currentKb?.fileCount}
+                              asOf={currentKb?.lastIngestedAt}
+                            />
+                          </div>
                         )}
-                      </motion.div>
+                      </div>
                     </div>
                   ) : (
                     // Remounts when another chat's messages are loaded (transcriptKey),
