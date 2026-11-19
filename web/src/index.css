@@ -2184,7 +2184,10 @@ button.source-card {
     font-size: 1.5rem;
   }
 
-  .empty-state p {
+  /* The centre's own lines only (the first-source prompt, the role hint), not
+     the Startseite title block further in: its lines keep their own sizes. */
+  .empty-state > p,
+  .empty-state > div > p {
     font-size: 0.9rem;
     padding: 0 0.5rem;
   }
