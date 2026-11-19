@@ -41,7 +41,6 @@ export function RoleChatMock({
                         page={page}
                         activeRoleId={activeRoleId}
                         roles={roles}
-                        kbTitle={kbTitle}
                         fileCount={fileCount}
                         questions={questions}
                         onStart={() => undefined}

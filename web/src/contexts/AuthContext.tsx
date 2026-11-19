@@ -34,3 +34,8 @@ export function useAuth(): AuthContextValue {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+
+/** The site config where there is a session, else none — for parts that also render outside one (previews, stories). */
+export function useOptionalSiteConfigs(): Record<string, string> | undefined {
+  return useContext(AuthContext)?.siteConfigs;
+}

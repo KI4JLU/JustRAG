@@ -92,7 +92,6 @@ export function StartPageSection() {
             page={page}
             activeRoleId={activeRoleId}
             roles={roles}
-            kbTitle={draft.title.trim()}
             fileCount={kb.fileCount}
             questions={questions}
             onStart={setPreviewChat}
@@ -124,7 +123,7 @@ export function StartPageSection() {
                     ))}
                     {!previewChat && <StartGlow category={category} />}
                     {previewChat ? (
-                        <RoleChatPreview entry={previewChat} role={roles.find(r => r.id === previewChat.roleId)} kbName={draft.title.trim()} fileCount={kb.fileCount} dynamicSample={dynamicSample} onBack={() => setPreviewChat(null)} />
+                        <RoleChatPreview entry={previewChat} role={roles.find(r => r.id === previewChat.roleId)} fileCount={kb.fileCount} dynamicSample={dynamicSample} onBack={() => setPreviewChat(null)} />
                     ) : (
                         // The chat's empty stage (ChatStage's slots and the chat's
                         // layout classes), anchored at the top instead of centred:

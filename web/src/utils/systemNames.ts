@@ -46,3 +46,8 @@ export function resolveNames(text: string, names: SystemNames): string {
     return text.replace(PLACEHOLDER, (_, key: string) =>
         key === 'assistant_name' ? names.assistant : key === 'institution_name' ? names.institution : names.system);
 }
+
+/** The composer's placeholder: `template` („{assistant} fragen") with the deployment's assistant name. */
+export function chatPlaceholderFor(template: string, c: Record<string, string> | undefined): string {
+    return template.replace('{assistant}', namesFromSiteConfig(c).assistant);
+}

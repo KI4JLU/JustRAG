@@ -15,11 +15,10 @@ import { activeTaskStart, pageMode, startEntries, startOf, taskModeEntry } from 
  * The chat's own layout class (`input-container--start`): as wide as the
  * title card, as in ChatView's empty chat.
  */
-export function StartView({ page, activeRoleId, roles, kbTitle, fileCount, questions, onStart }: {
+export function StartView({ page, activeRoleId, roles, fileCount, questions, onStart }: {
     page: StartPage;
     activeRoleId: string;
     roles: RoleView[];
-    kbTitle: string;
     fileCount?: number;
     questions: string[];
     onStart: (entry: RoleEntry) => void;
@@ -48,7 +47,7 @@ export function StartView({ page, activeRoleId, roles, kbTitle, fileCount, quest
                     />
                 </div>
             ) : (
-                <ComposerPreview kbName={kbTitle} fileCount={fileCount} />
+                <ComposerPreview fileCount={fileCount} />
             )}
             {questions.length > 0 && (
                 <PromptSuggestions

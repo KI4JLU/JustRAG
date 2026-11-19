@@ -320,7 +320,7 @@ export function RoleStartEditor({ start, onChange, roleName, dynamicSample = [],
             {start.kind === 'input' && (
                 // The input field as members get it: a still image.
                 <div inert>
-                    <ComposerPreview kbName={store?.draft?.title.trim() ?? ''} fileCount={store?.kb.fileCount} />
+                    <ComposerPreview fileCount={store?.kb.fileCount} />
                 </div>
             )}
             {start.kind === 'task' && (

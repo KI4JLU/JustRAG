@@ -4,6 +4,8 @@ import {
     InputGroupAddon, PromptInput, PromptInputActionAddAttachments, PromptInputActionMenu, PromptInputActionMenuContent,
     PromptInputActionMenuTrigger, PromptInputAdaptiveTextarea, PromptInputSubmit,
 } from '@ki4jlu/design-system';
+import { useOptionalSiteConfigs } from '../../../contexts/AuthContext';
+import { chatPlaceholderFor } from '../../../utils/systemNames';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useComposerNotch } from '../../../hooks/useComposerNotch';
 
@@ -13,8 +15,9 @@ import { useComposerNotch } from '../../../hooks/useComposerNotch';
  * ChatView's composer — + menu, adaptive textarea, improve-draft trigger,
  * source count and send. Nothing is sent: a submit only clears the draft.
  */
-export function ComposerPreview({ kbName, fileCount, defaultValue = '' }: { kbName: string; fileCount?: number; /** A prefilled instruction. */ defaultValue?: string }) {
+export function ComposerPreview({ fileCount, defaultValue = '' }: { fileCount?: number; /** A prefilled instruction. */ defaultValue?: string }) {
     const { t } = useTheme();
+    const chatPlaceholder = chatPlaceholderFor(t('chatPlaceholder'), useOptionalSiteConfigs());
     const { notch, observeNotch } = useComposerNotch();
     const [text, setText] = useState(defaultValue);
     return (
@@ -28,9 +31,9 @@ export function ComposerPreview({ kbName, fileCount, defaultValue = '' }: { kbNa
                 </PromptInputActionMenu>
             </InputGroupAddon>
             <PromptInputAdaptiveTextarea
-                aria-label={t('chatPlaceholder')}
+                aria-label={chatPlaceholder}
                 className="px-4 text-base leading-normal"
-                placeholder={kbName ? t('chatPlaceholderContextual').replace('{{name}}', kbName) : t('chatPlaceholder')}
+                placeholder={chatPlaceholder}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 rows={1}

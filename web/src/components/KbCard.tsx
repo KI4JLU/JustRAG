@@ -1,7 +1,7 @@
 import {
   Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Users, Lock, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
-import { ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
+import { ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, ScrollingText, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
@@ -334,14 +334,19 @@ export function PrivateKbCard({
   );
 
   const nameButton = (
-    <button
-      type="button"
-      className="text-button home-view__kb-name-btn"
-      aria-label={`${t('openKb')}: ${kb.name}`}
-      onClick={(e) => { e.stopPropagation(); onSelectKB(kb); }}
-    >
-      {kb.name}
-    </button>
+    // One line in the card's band and in the list row. A name that does not
+    // fit is cut with an ellipsis and scrolls to its end while the pointer
+    // rests on the card (or the button holds the focus).
+    <ScrollingText asChild>
+      <button
+        type="button"
+        className="text-button home-view__kb-name-btn"
+        aria-label={`${t('openKb')}: ${kb.name}`}
+        onClick={(e) => { e.stopPropagation(); onSelectKB(kb); }}
+      >
+        {kb.name}
+      </button>
+    </ScrollingText>
   );
 
   /* THE LIST ROW (developer mockup „Hairline", Liste, 30.10.2026): a DS Card

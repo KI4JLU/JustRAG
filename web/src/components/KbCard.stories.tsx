@@ -218,3 +218,59 @@ export const HoverDescriptionEndsOnWholeLine: Story = {
     await expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
   },
 };
+
+/* ---------------------------------------------------------------------------
+ * A long topic name. The card's header is one line: the name is cut with an
+ * ellipsis (and scrolls to its end under a resting pointer), so the band — and the rule with the category under it — is at the
+ * same height on every card, and the star and the menu stay inside it.
+ * ORACLE: the short-named card's band and title, measured in the same frame.
+ * ------------------------------------------------------------------------- */
+const SHORT_NAME_KB = kb({ id: 'kb-t1', name: 'FAQ Test 3', fileCount: 36, turnCount: 57 });
+const LONG_NAME_KB = kb({ id: 'kb-t2', name: 'Briefing-Tool Selbstbericht Systemakkreditierung', fileCount: 1, turnCount: 5 });
+const UNBROKEN_NAME_KB = kb({ id: 'kb-t3', name: 'Einführungsveranstaltungsverzeichnisübersichtsseite_2026_final', fileCount: 2 });
+
+export const LongTitleStaysOnOneLine: Story = {
+  args: { item: LONG_NAME_KB },
+  render: () => (
+    // One 280px track: the grid's narrowest card, three rows.
+    <Frame width={280}>
+      <Grid cols="auto" gap="gutter">
+        {[SHORT_NAME_KB, LONG_NAME_KB, UNBROKEN_NAME_KB].map((item) => <Card key={item.id} item={item} />)}
+      </Grid>
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
+    await expect(cards).toHaveLength(3);
+    const band = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-testid="kb-card-band"]')!;
+    const name = (card: HTMLElement) => card.querySelector<HTMLElement>('.home-view__kb-name-btn')!;
+    const [short, ...long] = cards;
+    const bandHeight = band(short).getBoundingClientRect().height;
+    const nameHeight = name(short).getBoundingClientRect().height;
+    for (const card of long) {
+      await expect(Math.abs(band(card).getBoundingClientRect().height - bandHeight), name(card).textContent ?? '').toBeLessThanOrEqual(0.5);
+      await expect(Math.abs(name(card).getBoundingClientRect().height - nameHeight)).toBeLessThanOrEqual(0.5);
+      // The name really is cut.
+      await expect(name(card).scrollWidth).toBeGreaterThan(name(card).clientWidth);
+      // The star and the menu stay inside the band, right of the name.
+      const bandBox = band(card).getBoundingClientRect();
+      for (const control of Array.from(band(card).querySelectorAll<HTMLElement>('button')).filter((b) => b !== name(card))) {
+        const r = control.getBoundingClientRect();
+        await expect(r.right).toBeLessThanOrEqual(bandBox.right + 0.5);
+        await expect(r.left).toBeGreaterThanOrEqual(name(card).getBoundingClientRect().right - 0.5);
+      }
+      await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    }
+    // Holding the focus (as under a resting pointer) the name scrolls until
+    // its last letter is in view, and is back at once on blur.
+    const button = name(long[0]);
+    const overflow = button.scrollWidth - button.clientWidth;
+    button.focus();
+    await waitFor(() => expect(parseFloat(getComputedStyle(button).textIndent)).toBeCloseTo(-overflow, 0), { timeout: 5000 });
+    const text = document.createRange();
+    text.selectNodeContents(button);
+    await expect(text.getBoundingClientRect().right).toBeLessThanOrEqual(button.getBoundingClientRect().right + 1);
+    button.blur();
+    await waitFor(() => expect(parseFloat(getComputedStyle(button).textIndent)).toBe(0));
+  },
+};
