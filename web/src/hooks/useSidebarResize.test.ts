@@ -37,39 +37,31 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => ({
 }));
 
 beforeEach(() => { calls.length = 0; });
-/** The first render's two calls — left, then right — which is what `result.current` is bound to. */
-const firstRender = () => calls.slice(0, 2);
-
-describe('useSidebarResize — hands the design system two keys and two ranges', () => {
-  it('persists each column under its own justrag.-prefixed key', () => {
+describe('useSidebarResize — hands the design system the sources card\'s key and range', () => {
+  it('persists the width under its own justrag.-prefixed key', () => {
     renderHook(() => useSidebarResize());
-    expect(firstRender().map(c => c.key)).toEqual(['justrag.kb.sidebar.left.width', 'justrag.kb.sidebar.right.width']);
+    expect(calls[0].key).toBe('justrag.kb.sidebar.right.width');
     expect(LEFT_SIDEBAR_WIDTH_KEY).not.toBe(RIGHT_SIDEBAR_WIDTH_KEY);
   });
 
-  it('passes the bounds and defaults (right 360 for the source tiles)', () => {
+  it('passes the bounds and default (360 for the source tiles)', () => {
     renderHook(() => useSidebarResize());
-    const [left, right] = firstRender();
-    expect(left.opts).toEqual({ defaultWidth: 296, minWidth: 150, maxWidth: 600 });
-    expect(right.opts).toEqual({ defaultWidth: 360, minWidth: 360, maxWidth: 800 });
+    expect(calls[0].opts).toEqual({ defaultWidth: 360, minWidth: 360, maxWidth: 800 });
     expect(LEFT_SIDEBAR_BOUNDS).toEqual({ min: 150, max: 600 });
     expect(RIGHT_SIDEBAR_BOUNDS).toEqual({ min: 360, max: 800 });
   });
 
-  it('returns each column its OWN setter', () => {
+  it('returns the width setter', () => {
     const { result } = renderHook(() => useSidebarResize());
-    act(() => result.current.setLeftSidebarWidth(412));
-    const [left, right] = firstRender();
-    expect(left.setter).toHaveBeenCalledWith(412);
-    expect(right.setter).not.toHaveBeenCalled();
+    act(() => result.current.setRightSidebarWidth(412));
+    expect(calls[0].setter).toHaveBeenCalledWith(412);
   });
 
   it('keeps the open state in plain component state', () => {
     const { result } = renderHook(() => useSidebarResize());
-    act(() => result.current.setIsLeftSidebarOpen(false));
-    expect(result.current.isLeftSidebarOpen).toBe(false);
-    expect(result.current.isRightSidebarOpen).toBe(true);
-    // Only the two width keys ever reach storage — across every render.
-    expect(new Set(calls.map(c => c.key))).toEqual(new Set([LEFT_SIDEBAR_WIDTH_KEY, RIGHT_SIDEBAR_WIDTH_KEY]));
+    act(() => result.current.setIsRightSidebarOpen(false));
+    expect(result.current.isRightSidebarOpen).toBe(false);
+    // Only the width key ever reaches storage — across every render.
+    expect(new Set(calls.map(c => c.key))).toEqual(new Set([RIGHT_SIDEBAR_WIDTH_KEY]));
   });
 });

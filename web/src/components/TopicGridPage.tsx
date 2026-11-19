@@ -1,6 +1,7 @@
-import { Container, Grid, PageHeader } from '@ki4jlu/design-system';
+import { Container, Grid, PageHeader, Sortable, SortableDropZone, SortableGroup, SortableItem, SortableOverlay,
+  type SortableProps,
+} from '@ki4jlu/design-system';
 import type { ReactNode } from 'react';
-import { SortableBoard, SortableDropZone, SortableGroup, type SortableBoardProps } from './SortableGrid';
 
 /** The two groups of a sortable page: the favorites on top, then the rest. */
 export const PINNED_GROUP = 'pinned';
@@ -84,7 +85,11 @@ export interface TopicGridPageProps {
    * `pinned.items[i]`'s. A card dropped into the other group calls
    * `onMoveToGroup` with `PINNED_GROUP` or `REST_GROUP`.
    */
-  sortable?: Omit<SortableBoardProps, 'children' | 'renderOverlay' | 'rows'> & {
+  sortable?: Pick<SortableProps<string>, 'announcements' | 'screenReaderInstructions'> & {
+    /** A drop inside the card's own group, onto another card. */
+    onMove: (activeId: string, overId: string) => void;
+    /** A drop into another group: onto a card of it (`overId`) or its free area. */
+    onMoveToGroup: (activeId: string, group: string, overId: string | null) => void;
     ids: string[];
     pinnedIds: string[];
     /** The drop zone shown for the pinned group while it is empty. */
@@ -117,12 +122,11 @@ export function TopicGridPage({
   sortable,
   pinned,
 }: TopicGridPageProps) {
-  const grid = (cells: ReactNode[], ref?: (node: HTMLElement | null) => void, extraClass?: string) => (
+  const grid = (cells: ReactNode[]) => (
     <Grid
-      ref={ref}
       cols={viewMode === 'list' ? 1 : 'auto'}
       gap={viewMode === 'list' ? 'sm' : 'gutter'}
-      className={[uniformRows && viewMode === 'card' ? 'auto-rows-fr' : '', extraClass ?? ''].join(' ').trim() || undefined}
+      className={uniformRows && viewMode === 'card' ? 'auto-rows-fr' : undefined}
     >
       {cells}
     </Grid>
@@ -130,7 +134,14 @@ export function TopicGridPage({
 
   const dnd = sortable;
   const group = (groupId: string, ids: string[], cells: ReactNode[]) => (
-    dnd ? <SortableGroup id={groupId} ids={ids} items={cells}>{grid}</SortableGroup> : grid(cells)
+    // The grid itself is the group's drop area: no wrapper box comes between the page and its grid.
+    dnd
+      ? (
+        <SortableGroup value={groupId} items={ids} asChild>
+          {grid(cells.map((cell, i) => <SortableItem key={ids[i]} value={ids[i]}>{cell}</SortableItem>))}
+        </SortableGroup>
+      )
+      : grid(cells)
   );
   const pinnedItems = pinned?.items ?? [];
 
@@ -159,7 +170,7 @@ export function TopicGridPage({
     groups = (
       <>
         {group(PINNED_GROUP, dnd?.pinnedIds ?? [], pinnedItems)}
-        {dnd && <SortableDropZone group={REST_GROUP} label={dnd.restDropZoneLabel} />}
+        {dnd && <SortableDropZone group={REST_GROUP}>{dnd.restDropZoneLabel}</SortableDropZone>}
       </>
     );
   } else {
@@ -168,7 +179,7 @@ export function TopicGridPage({
     // from its columns.
     groups = (
       <>
-        {dnd && pinned && <SortableDropZone group={PINNED_GROUP} label={dnd.dropZoneLabel} />}
+        {dnd && pinned && <SortableDropZone group={PINNED_GROUP}>{dnd.dropZoneLabel}</SortableDropZone>}
         {headerInGroups && listHeaderEl}
         {group(REST_GROUP, dnd?.ids ?? [], items)}
       </>
@@ -180,16 +191,21 @@ export function TopicGridPage({
     dnd.pinnedIds.forEach((cardId, i) => byId.set(cardId, pinnedItems[i]));
     dnd.ids.forEach((cardId, i) => byId.set(cardId, items[i]));
     groups = (
-      <SortableBoard
-        onMove={dnd.onMove}
-        onMoveToGroup={dnd.onMoveToGroup}
+      <Sortable
+        value={{ [PINNED_GROUP]: dnd.pinnedIds, [REST_GROUP]: dnd.ids }}
+        // The order is the caller's own (it also holds topics a filter hides):
+        // it is told what moved where, and the new `value` is not used.
+        onValueCommit={(_, meta) => {
+          if (meta.fromGroup !== meta.toGroup) dnd.onMoveToGroup(meta.id, meta.toGroup, meta.overId);
+          else if (meta.overId) dnd.onMove(meta.id, meta.overId);
+        }}
         announcements={dnd.announcements}
         screenReaderInstructions={dnd.screenReaderInstructions}
-        renderOverlay={cardId => byId.get(cardId)}
-        rows={viewMode === 'list'}
       >
         {groups}
-      </SortableBoard>
+        {/* A row is as wide as the page: lifted less than a card. */}
+        <SortableOverlay lift={viewMode === 'list' ? 'row' : 'card'}>{({ value }) => byId.get(value)}</SortableOverlay>
+      </Sortable>
     );
   }
 

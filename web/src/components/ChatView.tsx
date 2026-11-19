@@ -203,7 +203,7 @@ const ChatViewComp = () => {
   }
 
   // System prompt: owners and KB admins (the gear in the chrome bar,
-  // KbWorkspaceLayout, uses the same predicate).
+  // AppFrame, uses the same predicate).
   const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
 
   const {

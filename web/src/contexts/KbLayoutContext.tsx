@@ -5,7 +5,7 @@ import type { KbSettingsSection } from '../types';
 export interface KbLayoutContextValue {
   sidebar: ReturnType<typeof useSidebarResize>;
   /** The Thema-Einstellungen dialog: opened from the chrome bar
-   *  (KbWorkspaceLayout), rendered by ChatView — hence shared here. Open while
+   *  (AppFrame), rendered by ChatView — hence shared here. Open while
    *  the topic's URL carries `?topic=` (useTopicSettings). */
   systemPromptOpen: boolean;
   setSystemPromptOpen: (open: boolean) => void;

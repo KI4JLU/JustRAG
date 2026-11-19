@@ -21,12 +21,14 @@ export function groupHistoryByDay(
     t: (key: string) => string,
     language?: string,
     now: Date = new Date(),
+    /** The date an item is grouped by; the list must be sorted by the same one. */
+    dateOf: (item: HistoryItem) => string = item => item.createdAt,
 ): HistoryGroup[] {
     const today = localDay(now);
     const yesterday = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
     const groups: HistoryGroup[] = [];
     for (const item of items) {
-        const date = new Date(item.createdAt);
+        const date = new Date(dateOf(item));
         const day = localDay(date);
         const last = groups[groups.length - 1];
         if (last && last.day === day) {

@@ -20,7 +20,7 @@ interface UseViewStateParams {
   setShowSettings: (val: boolean) => void;
   /**
    * Whether the 'files' tab exists (capabilities.seeSources). Without it the
-   * swipe order is history ↔ chat, the same tabs KbWorkspaceLayout renders,
+   * swipe order is history ↔ chat, the same tabs AppFrame renders,
    * so a swipe never lands on a tab that is not there. Default true.
    */
   showFilesTab?: boolean;
@@ -43,7 +43,7 @@ export function useViewState({ navigateTo, setKbView, setShowSettings, showFiles
     setMobileTab(tab);
   }, [setKbView]);
 
-  // Derselbe Ableitungsweg wie in KbWorkspaceLayout, damit Swipe-Start und
+  // Derselbe Ableitungsweg wie in AppFrame, damit Swipe-Start und
   // gerenderter Reiter nicht auseinanderlaufen ('files' ohne Reiter ist der
   // Chat, wie dort).
   const derivedTab = deriveActiveMobileTab(mobileTab);

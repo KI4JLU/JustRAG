@@ -119,16 +119,6 @@
       "count": 3
     }
   },
-  "src/components/MobileTabBar.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/ReloadPrompt.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
   "src/components/ResearchMode.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 10
@@ -212,11 +202,6 @@
   "src/components/agents/TeamForm.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 5
-    }
-  },
-  "src/components/history/HistoryPanel.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/kb-settings/KbSettingsPanel.tsx": {

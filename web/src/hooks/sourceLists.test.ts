@@ -26,7 +26,7 @@ const failWith = (status: number) => new AxiosError('x', String(status), undefin
 beforeEach(() => { vi.mocked(axios.get).mockReset(); toastError.mockReset(); });
 
 // ORACLE: API.md "Source permissions" — without seeSources the file list is a
-// 403. The UI shows no list then (KbWorkspaceLayout), so that 403 is an empty
+// 403. The UI shows no list then (AppFrame), so that 403 is an empty
 // list, not an error to report; any other failure still is one.
 describe('useFileManagement.fetchFiles', () => {
   it('treats a 403 as an empty list, silently, and drops the previous KB\'s files', async () => {
