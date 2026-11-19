@@ -12,7 +12,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import { viewportHeight } from './utils/viewport';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ToastContainer';
-import { ReloadPrompt } from './components/ReloadPrompt';
+import { AppUpdateProvider } from './contexts/AppUpdateContext';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { goToSsoLogin, reloadPage, startSsoReauth } from './routing/sessionExpiry';
 // Lazy load
@@ -329,7 +329,7 @@ export function AppRoot() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <ReloadPrompt />
+        <AppUpdateProvider>
         <MobileProvider>
           {/* -----------------------------------------------------------------
             * The app's ONE toast provider and ONE toast container (card
@@ -396,6 +396,7 @@ export function AppRoot() {
             <ToastContainer />
           </ToastProvider>
         </MobileProvider>
+        </AppUpdateProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

@@ -16,7 +16,7 @@ import { JOIN_TOKEN_KEY, peekJoinToken } from './hooks/useJoinLink';
 // Module evaluation does not execute component bodies or effects.
 //
 // This test was impossible before `virtual:pwa-register/react` was aliased in
-// vitest.config.ts — App.tsx transitively imports it via ReloadPrompt, so the
+// vitest.config.ts — App.tsx transitively imports it via AppUpdateContext, so the
 // module graph could not load under vitest at all.
 
 class MemoryStorage implements Storage {

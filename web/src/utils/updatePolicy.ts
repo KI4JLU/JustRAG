@@ -1,49 +1,29 @@
 /**
- * Policy for how long a client may keep running a superseded build.
+ * Policy for how long an open tab may keep running a superseded build.
  *
  * Background: the service worker registers with `registerType: 'prompt'`, so a
- * newly deployed worker installs and then WAITS. Until something calls
- * updateServiceWorker(true), the tab keeps serving the previously precached
- * app shell — a plain location.reload() does not help, it just re-serves the
- * precache. That makes the prompt the only exit, and an unconditional dismiss
- * button turns "not now" into "never" for the lifetime of the tab.
+ * newly deployed worker installs and then WAITS. That is deliberate — an open
+ * tab keeps every file of its own build, so it stays whole after a deploy and
+ * through a network drop, and the version never changes under a click. Until
+ * the waiting worker is applied the tab keeps the previous app shell; a plain
+ * location.reload() does not help, it just re-serves the precache.
  *
- * The rules below bound staleness without ever yanking the page out from under
- * someone who is mid-sentence:
+ * So the version changes at two moments only:
  *
- *   - Dismissing snoozes the banner, it does not cancel the update. The banner
- *     comes back, so "Später" means what it says.
- *   - Past a grace period, the update applies on its own — but only while the
- *     tab is hidden, so the reload lands on a tab nobody is looking at. Any
- *     tab switch is a safe moment; in practice that bounds real-world
- *     staleness to roughly the grace period.
+ *   - At a page load (utils/applyWaitingUpdate.ts): nothing is lost there.
+ *   - In an open tab, when the user accepts the update card — which cannot
+ *     be closed — or, past the grace period below, on its own while the tab
+ *     is hidden, so the reload lands on a tab nobody is looking at. Any tab
+ *     switch is a safe moment; in practice that bounds staleness to roughly
+ *     the grace period, also for tabs left open for weeks.
  */
 
-/** How long the banner stays hidden after the user dismisses it. */
-export const SNOOZE_MS = 30 * 60_000; // 30 minutes
-
 /**
- * How long a client may stay on a superseded build before the update is
- * applied without asking. Deliberately long: the prompt is the primary path
+ * How long an open tab may stay on a superseded build before the update is
+ * applied without asking. Deliberately long: the card is the primary path
  * and this is only the backstop for tabs that are never acted on.
  */
 export const MAX_DEFERRAL_MS = 2 * 60 * 60_000; // 2 hours
-
-/**
- * Whether the update banner should currently be on screen.
- *
- * `snoozedUntil` is a timestamp, not a boolean, precisely so that dismissing
- * cannot latch permanently.
- */
-export function isBannerVisible(
-    needRefresh: boolean,
-    snoozedUntil: number | null,
-    now: number,
-): boolean {
-    if (!needRefresh) return false;
-    if (snoozedUntil !== null && now < snoozedUntil) return false;
-    return true;
-}
 
 /**
  * Whether to apply the waiting service worker without asking.

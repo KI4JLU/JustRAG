@@ -33,7 +33,7 @@ export function useVersionCheck() {
           knownVersion.current = version;
         } else if (knownVersion.current !== version) {
           // New deployment detected. When a service worker controls this page
-          // the PWA update prompt (ReloadPrompt) owns the refresh — a plain
+          // the PWA update card (AppUpdateContext) owns the refresh — a plain
           // reload would just re-serve the stale precache and never pick up
           // the new bundle. Only hard-reload when no SW is in control (e.g.
           // SW unsupported, unregistered, or first load before activation).

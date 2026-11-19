@@ -48,7 +48,7 @@ export function siteConfigSeedFromDocument(doc: Document = document): Record<str
 /*
  * A page the service worker serves comes from its precache: the shell as the
  * server rendered it when that worker was installed, i.e. at the last deploy.
- * The precache is deliberate (ReloadPrompt, updatePolicy.ts), so such a page
+ * The precache is deliberate (updatePolicy.ts), so such a page
  * starts from the app name this browser last got from the site config
  * instead, which is at least that fresh; the site config corrects it either
  * way. A page from the network starts from the shell the server just rendered.

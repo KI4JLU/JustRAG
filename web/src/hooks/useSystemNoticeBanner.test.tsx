@@ -6,6 +6,10 @@ import { AuthProvider } from '../contexts/AuthContext';
 import type { User } from '../types';
 import { SYSTEM_NOTICE_DISMISSED_KEY, useSystemNoticeBanner } from './useSystemNoticeBanner';
 
+// The waiting-update state, set per test; the real one needs a service worker.
+const appUpdate = vi.hoisted(() => ({ available: false, apply: vi.fn() }));
+vi.mock('../contexts/AppUpdateContext', () => ({ useAppUpdate: () => appUpdate }));
+
 // jsdom's localStorage is unusable on Node 25: an in-memory Storage per test.
 function memoryStorage(): Storage {
   const data = new Map<string, string>();
@@ -55,6 +59,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  appUpdate.available = false;
+  appUpdate.apply.mockClear();
 });
 
 describe('useSystemNoticeBanner', () => {
@@ -154,5 +160,54 @@ describe('useSystemNoticeBanner', () => {
     expect(internal).toHaveAttribute('href', '/kb/abc');
     expect(internal).not.toHaveAttribute('target');
     expect(internal.textContent).not.toBe('');
+  });
+});
+
+describe('useSystemNoticeBanner: a waiting app update', () => {
+  it('shows the update card in the top corner, with no notice set', async () => {
+    appUpdate.available = true;
+    renderBanner({});
+    const slot = screen.getByTestId('status-slot');
+    expect(slot).toHaveAttribute('data-position', 'top-end');
+    expect(slot).toHaveTextContent(/neue Version|new version/i);
+    expect(screen.queryByTestId('notice-slot')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /neu laden|reload/i }));
+    expect(appUpdate.apply).toHaveBeenCalledTimes(1);
+  });
+
+  // Obligatory: the only control is the one that switches.
+  it('has no close button', () => {
+    appUpdate.available = true;
+    renderBanner({});
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+  });
+
+  it('leaves a system notice shown as a banner in the notice slot', () => {
+    appUpdate.available = true;
+    renderBanner({ ...NOTICE, system_notice_placement: 'banner' });
+    expect(screen.getByTestId('notice-slot')).toHaveTextContent(NOTICE.system_notice_text);
+    const slot = screen.getByTestId('status-slot');
+    expect(slot).toHaveAttribute('data-position', 'top-end');
+    expect(slot).toHaveTextContent(/neue Version|new version/i);
+    expect(slot).not.toHaveTextContent(NOTICE.system_notice_text);
+  });
+
+  it.each(['inline', 'toast'])('takes a floating system notice (%s) into the corner, under the card', (placement) => {
+    appUpdate.available = true;
+    renderBanner({ ...NOTICE, system_notice_placement: placement });
+    const slot = screen.getByTestId('status-slot');
+    expect(slot).toHaveAttribute('data-position', 'top-end');
+    const [first, second] = screen.getAllByRole('status');
+    expect(first).toHaveTextContent(/neue Version|new version/i);
+    expect(second).toHaveTextContent(NOTICE.system_notice_text);
+    expect(slot).toContainElement(second);
+  });
+
+  it('stays after the system notice was closed', async () => {
+    appUpdate.available = true;
+    renderBanner(NOTICE);
+    await userEvent.click(screen.getByRole('button', { name: /schließen|close/i }));
+    expect(screen.getByTestId('status-slot')).toHaveTextContent(/neue Version|new version/i);
+    expect(screen.queryByText(NOTICE.system_notice_text)).toBeNull();
   });
 });
