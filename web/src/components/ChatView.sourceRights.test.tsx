@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubViewport } from '../test/viewport';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { AppShell } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase, KbCapabilities } from '../types';
 
 // The real ChatView with the real MessageBubble, mocked to the minimum —
 // the same harness as ChatView.conflicts.test.tsx. What is under test is the
-// wiring: which source rights ChatView hands to the answers and the composer.
+// wiring: which source rights ChatView hands to the answers and the composer,
+// and which description the empty start page shows.
 
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
@@ -37,15 +38,34 @@ vi.mock('../hooks/useReducedMotion', () => ({
 vi.mock('../hooks/useKbAgents', () => ({
   useKbAgents: () => ({ agents: [], teams: [] }),
 }));
+// The start page as the hook reports it: still loading unless a test says otherwise.
+// A small store, so a test can let the answer arrive on a mounted ChatView.
+let startPageState: { startPage: unknown; loading: boolean } = { startPage: null, loading: true };
+const startPageListeners = new Set<() => void>();
+const setStartPageState = (next: typeof startPageState) => {
+  startPageState = next;
+  startPageListeners.forEach(notify => notify());
+};
+vi.mock('../hooks/useKbStartPage', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useKbStartPage: () => useSyncExternalStore(
+      (notify: () => void) => { startPageListeners.add(notify); return () => { startPageListeners.delete(notify); }; },
+      () => startPageState,
+    ),
+  };
+});
 
 let capabilities: KbCapabilities | undefined;
 let files: Array<{ id: string; selected?: boolean }> = [{ id: 'f1', selected: true }];
 let hasFiles = true;
+let kbOverrides: Partial<KnowledgeBase> = {};
 const currentKb = (): KnowledgeBase => ({
   id: 'kb1', name: 'Handbuch', description: null, userId: 'someone-else',
   createdAt: '2026-01-01', isPro: false, isGlobal: false,
   aiConfigId: null, chatModel: null, embeddingModel: null, rerankModel: null, ttsModel: null,
   capabilities,
+  ...kbOverrides,
 });
 const handlePdfSourceOpen = vi.fn();
 
@@ -155,6 +175,8 @@ beforeEach(() => {
   capabilities = undefined;
   files = [{ id: 'f1', selected: true }];
   hasFiles = true;
+  kbOverrides = {};
+  startPageState = { startPage: null, loading: true };
   messages = [answer];
   handlePdfSourceOpen.mockClear();
 });
@@ -297,5 +319,65 @@ describe('ChatView — the empty-KB prompt follows addSources', () => {
     render(<ChatView />);
     expect(screen.queryByText('emptyAddFirstSourceTitle')).not.toBeInTheDocument();
     expect(screen.getByText('Handbuch')).toBeInTheDocument();
+  });
+});
+
+// Oracle: the start page has one title block, the Startseite's, from the
+// first render, with one description, the topic's own (else the default line).
+// The legacy header text of a public topic is not shown there, and nothing is
+// shown while the start page loads that the loaded page would take away again.
+describe('ChatView — the start page shows one title block', () => {
+  beforeEach(() => { messages = []; });
+
+  // A start page never set up, as GET /api/kb/{id}/start-page answers for it.
+  const loaded = () => ({
+    startPage: {
+      kbId: 'kb1', configured: false, roles: [], activeRoleId: 'chat', category: null,
+      page: {
+        version: 2, colors: null, startMode: 'input', uploadLabel: '', uploadInstruction: '', roleStarts: {}, roleEntries: [],
+        questionsOn: false, questionMode: 'dynamic', dynamicCount: 4, fixedQuestions: [],
+      },
+    },
+    loading: false,
+  });
+
+  it('shows the Startseite title block while the start page loads, and no other', () => {
+    render(<ChatView />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Handbuch' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByText('kbHeaderDefault')).toBeInTheDocument();
+  });
+
+  it('keeps that title block when the start page arrives', () => {
+    render(<ChatView />);
+    const title = screen.getByRole('heading', { level: 2, name: 'Handbuch' });
+    act(() => setStartPageState(loaded()));
+    expect(screen.getByRole('heading', { level: 2, name: 'Handbuch' })).toBe(title);
+    // The answer did reach the view: its suggestions are there now.
+    expect(screen.getByText('promptSuggestions')).toBeInTheDocument();
+  });
+
+  it('shows no suggestions while the start page loads', () => {
+    render(<ChatView />);
+    expect(screen.queryByText('promptSuggestions')).not.toBeInTheDocument();
+  });
+
+  it('shows the suggestions once the start page is known', () => {
+    startPageState = loaded();
+    render(<ChatView />);
+    expect(screen.getByText('promptSuggestions')).toBeInTheDocument();
+  });
+
+  it('shows the default suggestions when the start page could not be read', () => {
+    startPageState = { startPage: null, loading: false };
+    render(<ChatView />);
+    expect(screen.getByText('promptSuggestions')).toBeInTheDocument();
+  });
+
+  it('shows the description and not the legacy header text of a public topic', () => {
+    kbOverrides = { isGlobal: true, description: 'Angebote der Personalentwicklung', headerText: 'Alter Hinweistext' };
+    render(<ChatView />);
+    expect(screen.getByText('Angebote der Personalentwicklung')).toBeInTheDocument();
+    expect(screen.queryByText('Alter Hinweistext')).not.toBeInTheDocument();
   });
 });

@@ -1226,24 +1226,6 @@ button.source-card {
   position: relative;
 }
 
-.empty-state::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -60%);
-  width: 300px;
-  height: 300px;
-  border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 6%, transparent) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-/* Reduced colours (user setting „Farben", DS AppearanceProvider): no glow. */
-[data-colors="reduced"] .empty-state::before {
-  display: none;
-}
-
 .empty-state>* {
   position: relative;
   z-index: 1;
