@@ -14,10 +14,9 @@ import { suggestionQuestions } from './startPageModel';
  * or prefilled, or the role's upload area; an `input` card's suggestions
  * under the field (`dynamicSample`: an example of the generated ones).
  */
-export function RoleChatPreview({ entry, role, kbName, fileCount, dynamicSample, onBack }: {
+export function RoleChatPreview({ entry, role, fileCount, dynamicSample, onBack }: {
     entry: RoleEntry;
     role?: RoleView;
-    kbName: string;
     fileCount?: number;
     dynamicSample: string[];
     onBack: () => void;
@@ -51,7 +50,7 @@ export function RoleChatPreview({ entry, role, kbName, fileCount, dynamicSample,
                                 />
                             </div>
                         ) : (
-                            <ComposerPreview kbName={kbName} fileCount={fileCount} defaultValue={isTask && !entry.send ? entry.text : ''} />
+                            <ComposerPreview fileCount={fileCount} defaultValue={isTask && !entry.send ? entry.text : ''} />
                         )}
                         {questions.length > 0 && (
                             <PromptSuggestions title={t('promptSuggestions')} suggestions={questions} onSelect={() => undefined} className="mt-4" />

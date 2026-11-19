@@ -5,6 +5,7 @@ import {
   Globe, WandSparkles, Loader2, FileText, Quote,
 } from 'lucide-react';
 import type { Message } from '../types';
+import { chatPlaceholderFor } from '../utils/systemNames';
 import { useTheme } from '../contexts/ThemeContext';
 import { IS_APPLE } from '../utils/searchShortcut';
 import { useAuth } from '../contexts/AuthContext';
@@ -111,6 +112,7 @@ const holdComposerUploads = () => {};
 const ChatViewComp = () => {
   const { language, t } = useTheme();
   const { user, siteConfigs } = useAuth();
+  const chatPlaceholder = chatPlaceholderFor(t('chatPlaceholder'), siteConfigs);
 
   const {
     currentKb, availableConfigs, handleUpdateKBSettings,
@@ -634,10 +636,10 @@ const ChatViewComp = () => {
                       <PromptInputAdaptiveTextarea
                         id="chat-message-input"
                         ref={(el: HTMLTextAreaElement | null) => { attachHookRef(chat.textareaRef, el); }}
-                        aria-label={t('chatPlaceholder')}
+                        aria-label={chatPlaceholder}
                         className="px-4 text-base leading-normal"
                         enterKeyHint="send"
-                        placeholder={currentKb?.name ? t('chatPlaceholderContextual').replace('{{name}}', currentKb.name) : t('chatPlaceholder')}
+                        placeholder={chatPlaceholder}
                         value={chat.userMessageInput}
                         onChange={(e) => chat.setUserMessageInput(e.target.value)}
                         rows={1}
