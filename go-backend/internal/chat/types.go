@@ -137,6 +137,43 @@ type ChatRow struct {
 	// chat — so the history marks those older branched chats too. Every other
 	// read leaves it false, and it is omitted from the JSON then.
 	HasBranches bool `json:"hasBranches,omitempty" db:"-"`
+	// PinnedAt is set by the chat lists only (GetChats, GetAllChats): when
+	// the owner pinned the chat in the history (migration 0105), nil and
+	// omitted for a chat that is not pinned.
+	PinnedAt *time.Time `json:"pinnedAt,omitempty" db:"-"`
+	// PinPosition is set by the chat lists only: the pinned chat's place in
+	// the owner's own order (1 = first), nil and omitted for a chat pinned
+	// since the order was last saved — those come first, newest pin first —
+	// and for a chat that is not pinned.
+	PinPosition *int `json:"pinPosition,omitempty" db:"-"`
+	// SectionID is set by the chat lists only: the user's section a kept
+	// chat is filed in (chat_sections, migration 0105), nil and omitted for
+	// one in the built-in "Angepinnt" and for a chat that is not kept.
+	SectionID *string `json:"sectionId,omitempty" db:"-"`
+}
+
+// MaxPinnedOrder caps the ids of one PUT /api/chats/pin-order, and the kept
+// chats GET /api/chats returns: one section's whole order must fit in a
+// request, and the list must carry every chat that order can name.
+const MaxPinnedOrder = 500
+
+// AllChatsLimit caps the plain history of GET /api/chats: the caller's most
+// recently active chats that are not kept. Kept chats (pinned or filed) come
+// on top of it. Older ones stay reachable through their topic's list and the
+// search.
+const AllChatsLimit = 200
+
+// ChatListRow is a row of GET /api/chats: one of the caller's chats, with the
+// topic it belongs to as the caller sees it now.
+type ChatListRow struct {
+	ChatRow
+	// KBName is the topic's name.
+	KBName string `json:"kbName"`
+	// KBVisibility is "private" or "public".
+	KBVisibility string `json:"kbVisibility"`
+	// KBRole is the caller's effective role on the topic
+	// (kbaccess.EffectiveRole): view, edit, admin or owner.
+	KBRole string `json:"kbRole"`
 }
 
 // BranchResult is a new branch chat and the id of the copy of the message
@@ -257,9 +294,25 @@ type AddMessageParams struct {
 // Store is the interface for chat-related database operations.
 type Store interface {
 	GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error)
+	// GetAllChats returns the user's chats across every topic they can still
+	// open, newest activity first: every kept chat, and at most limit of the
+	// others. sysRole is the
+	// caller's system role, as RequireKBRole reads it.
+	GetAllChats(ctx context.Context, userID, sysRole string, limit int) ([]ChatListRow, error)
 	GetChatByID(ctx context.Context, chatID string) (*ChatRow, error)
 	CreateChat(ctx context.Context, kbID, userID, title string) (*ChatRow, error)
 	DeleteChat(ctx context.Context, chatID string) error
+	// SetChatPinned keeps chatID at hand in its owner's history, or lets it
+	// go: pinned with a nil sectionID files it in the built-in "Angepinnt",
+	// with a sectionID in that section of the user's. store.ErrNotFound when
+	// the chat or the section does not exist or is not userID's.
+	SetChatPinned(ctx context.Context, chatID, userID string, pinned bool, sectionID *string) error
+	// SetPinnedOrder saves userID's own order of the chats of one section
+	// (nil: the built-in "Angepinnt"): chatIDs front to back. It rewrites
+	// that section's whole order: a chat of it that is not listed loses its
+	// place, and ids that are not chats of userID in that section are
+	// ignored.
+	SetPinnedOrder(ctx context.Context, userID string, sectionID *string, chatIDs []string) error
 	// UpdateChatTitle renames chatID if userID owns it; store.ErrNotFound
 	// when no such chat belongs to the user. Leaves updated_at untouched.
 	UpdateChatTitle(ctx context.Context, chatID, userID, title string) error

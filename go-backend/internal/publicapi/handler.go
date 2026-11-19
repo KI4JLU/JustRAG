@@ -152,6 +152,15 @@ type chatStoreAdapter struct {
 }
 
 func (a chatStoreAdapter) DeleteChat(_ context.Context, _ string) error { return nil }
+func (a chatStoreAdapter) SetChatPinned(_ context.Context, _, _ string, _ bool, _ *string) error {
+	return nil
+}
+func (a chatStoreAdapter) SetPinnedOrder(_ context.Context, _ string, _ *string, _ []string) error {
+	return nil
+}
+func (a chatStoreAdapter) GetAllChats(_ context.Context, _, _ string, _ int) ([]chat.ChatListRow, error) {
+	return nil, nil
+}
 func (a chatStoreAdapter) UpdateMessageFeedback(_ context.Context, _, _, _ string, _ *string, _ *string) error {
 	return nil
 }

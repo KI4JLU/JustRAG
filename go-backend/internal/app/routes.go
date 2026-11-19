@@ -1468,10 +1468,22 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL, ge
 
 	// Chat — messages and deletion (auth only, ownership checked in handler)
 	rc.mux.Handle("GET /api/chat/rag-system-prompt", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RAGSystemPrompt)))
+	rc.mux.Handle("GET /api/chats", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.ListAllChats)))
 	rc.mux.Handle("GET /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetChat)))
 	rc.mux.Handle("GET /api/chats/{id}/messages", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetMessages)))
 	rc.mux.Handle("DELETE /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.DeleteChat)))
 	rc.mux.Handle("PATCH /api/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.RenameChat)))
+	// The user's own sections of the chat history; a chat is filed in one
+	// with PUT /api/chats/{id}/pin.
+	chatSections := chat.NewSectionsHandler(chat.NewSectionStore(rc.infra.db.Main))
+	rc.mux.Handle("GET /api/chat-sections", rc.authMw.Authenticate(http.HandlerFunc(chatSections.List)))
+	rc.mux.Handle("POST /api/chat-sections", rc.authMw.Authenticate(http.HandlerFunc(chatSections.Create)))
+	rc.mux.Handle("PUT /api/chat-sections/order", rc.authMw.Authenticate(http.HandlerFunc(chatSections.SetOrder)))
+	rc.mux.Handle("PATCH /api/chat-sections/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatSections.Rename)))
+	rc.mux.Handle("DELETE /api/chat-sections/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatSections.Delete)))
+	rc.mux.Handle("PUT /api/chats/pin-order", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.SetPinnedOrder)))
+	rc.mux.Handle("PUT /api/chats/{id}/pin", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.PinChat)))
+	rc.mux.Handle("DELETE /api/chats/{id}/pin", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.UnpinChat)))
 	rc.mux.Handle("POST /api/chats/{id}/branch", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.BranchChat)))
 
 	// Chat — send message (KB view permission). The rate limiter wraps the
