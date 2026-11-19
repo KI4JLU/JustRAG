@@ -223,9 +223,10 @@ export default defineConfig({
     }),
     VitePWA({
       // 'prompt' (not 'autoUpdate'): a freshly deployed service worker stays
-      // in the waiting state and surfaces a user-driven reload prompt
-      // (see components/ReloadPrompt.tsx) instead of silently swapping the
+      // in the waiting state and surfaces a user-driven update card
+      // (see contexts/AppUpdateContext.tsx) instead of silently swapping the
       // app shell mid-session. updateServiceWorker(true) posts SKIP_WAITING.
+      // A page load applies a waiting worker itself (applyWaitingUpdate.ts).
       registerType: 'prompt',
       includeAssets: ['vite.svg', 'apple-touch-icon.png'],
       manifest: {

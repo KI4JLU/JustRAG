@@ -9,6 +9,7 @@ import {
   readLastAttempt,
   RELOAD_GUARD_KEY,
 } from './utils/chunkReload'
+import { applyWaitingUpdate } from './utils/applyWaitingUpdate'
 
 // Handle stale chunk errors after new deployments.
 // When a lazy-loaded module fails to load (its hash no longer exists on the
@@ -28,10 +29,15 @@ window.addEventListener('vite:preloadError', (event) => {
 // into /assets; only the URL string lands in this chunk.
 setPdfWorkerSrc(pdfWorkerUrl);
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-    {/* Every native `title` renders as a DS tooltip (design-system catch-all). */}
-    <TitleTooltips />
-  </StrictMode>,
-)
+// A newer build already waiting is applied before the app is shown: the page
+// reloads into it, and nothing renders here in between.
+void applyWaitingUpdate().then((reloading) => {
+  if (reloading) return;
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+      {/* Every native `title` renders as a DS tooltip (design-system catch-all). */}
+      <TitleTooltips />
+    </StrictMode>,
+  )
+})
