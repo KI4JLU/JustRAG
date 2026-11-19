@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, ChevronDown, Check, Users, Bot, AlertTriangle, Info } from 'lucide-react';
+import { FileText, ChevronDown, Check, AlertTriangle, Info } from 'lucide-react';
 import {
     Badge, Button, MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
     HoverPreviewGroup, MessageToolbar, Sources, SourcesContent, SourcesTrigger,
@@ -60,11 +60,6 @@ interface MessageBubbleProps {
     confidenceOpen?: boolean;
     conflictsOpen?: boolean;
     onToggleSection?: (messageId: string, section: MessageSection) => void;
-    // Resolves an AI message's teamId/agentId to a display name for the
-    // attribution chip. Returns undefined on a lookup miss (e.g. the team or
-    // agent was later deleted) — the chip then renders nothing rather than
-    // an empty label.
-    resolveAttribution?: (message: Message) => string | undefined;
     /**
      * Whether the caller may see an answer's citations
      * (capabilities.seeCitations; default true, as from a backend without
@@ -231,7 +226,7 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
     );
 }
 
-function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, resolveAttribution, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
     const { t, language } = useTheme();
     // An answer without its citations for a caller who may not see them.
     // Everything below — rendering, copy and export — reads this one object.
@@ -353,12 +348,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
         if (!sourcesExpanded) toggleSection('sources');
         requestAnimationFrame(() => sourceListRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }));
     }, [sourcesExpanded, toggleSection]);
-
-    // Attribution chip name — undefined on a lookup miss (team/agent deleted
-    // after answering), in which case the chip renders nothing.
-    const attributionName = message.role === 'ai' && (message.teamId || message.agentId)
-        ? resolveAttribution?.(message)
-        : undefined;
 
     // If editing this message inline, show editor instead
     if (isEditing && message.role === 'user' && onEdit && onEditCancel && message.id) {
@@ -542,12 +531,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                             data-revealed={footerShown}
                             className={`mt-2 min-h-8 flex-wrap justify-start gap-1 ${revealClass}`}
                         >
-                            {attributionName && (
-                                <Badge appearance="text" tone="neutral">
-                                    {message.teamId ? <Users className="size-3.5" aria-hidden="true" /> : <Bot className="size-3.5" aria-hidden="true" />}
-                                    {attributionName}
-                                </Badge>
-                            )}
                             {/* The source list joins the footer with the saved answer, not
                                 while the text still streams. */}
                             {!actionsReady ? null : citationModel.cited.length > 0 ? (

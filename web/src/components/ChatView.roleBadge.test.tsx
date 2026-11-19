@@ -12,7 +12,7 @@ import type { RoleView } from './kbSettings/assistant/roleModel';
 
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
-    t: (key: string) => (key === 'asstRoleBadge' ? 'Rolle: {role}' : key),
+    t: (key: string) => ({ asstRoleBadge: 'Rolle: {role}', asstAgentBadge: 'Agent: {role}', asstTeamBadge: 'Team: {role}' } as Record<string, string>)[key] ?? key,
     language: 'en' as const,
     theme: 'light' as const,
     toggleTheme: vi.fn(),
@@ -43,7 +43,7 @@ vi.mock('../hooks/useStarterQuestions', () => ({
   useStarterQuestions: () => [],
 }));
 vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
+  useKbAgents: () => kbAgents,
 }));
 
 let userId = 'u1';
@@ -59,6 +59,8 @@ const currentKb = (): KnowledgeBase => ({
 });
 const handlePdfSourceOpen = vi.fn();
 let chatRoleId: string | null = null;
+// vi.mock is hoisted: the options are read at render time, not here.
+const kbAgents = { agents: [{ id: 'a1', name: 'Altagent' }], teams: [{ id: 't1', name: 'Altteam' }] };
 let agentSelection: { teamId?: string; agentId?: string } = {};
 
 vi.mock('../contexts/KbCoreContext', () => ({
@@ -247,12 +249,21 @@ describe('the chat names its role', () => {
     expect(screen.getByText('Rolle: Tutor')).toBeTruthy();
   });
 
-  it('names no KB role where a team or an agent answers', () => {
+  // Oracle: developer, 19.11.2026 — an agent or team left from before the
+  // roles displays the same as any role, named as what it is.
+  it('names the team a chat answers with in the badge', () => {
     agentSelection = { teamId: 't1' };
     render(<ChatView />);
+    expect(screen.getByText('Team: Altteam')).toBeTruthy();
     expect(screen.queryByText(/^Rolle: /)).toBeNull();
+    expect(document.getElementById('chat-composer-agent-chip')).toBeNull();
+  });
+
+  it('names the agent in the start page\'s title block too', () => {
     messages = [];
+    agentSelection = { agentId: 'a1' };
     render(<ChatView />);
+    expect(screen.getAllByText('Agent: Altagent')).toHaveLength(1);
     expect(screen.queryByText(/^Rolle: /)).toBeNull();
   });
 
@@ -260,5 +271,20 @@ describe('the chat names its role', () => {
     startPage = null;
     render(<ChatView />);
     expect(screen.queryByText(/^Rolle: /)).toBeNull();
+  });
+
+  it('names the team also where the start page did not load', () => {
+    startPage = null;
+    agentSelection = { teamId: 't1' };
+    render(<ChatView />);
+    expect(screen.getAllByText('Team: Altteam')).toHaveLength(1);
+  });
+
+  it('names the agent on an empty chat where the start page did not load', () => {
+    messages = [];
+    startPage = null;
+    agentSelection = { agentId: 'a1' };
+    render(<ChatView />);
+    expect(screen.getAllByText('Agent: Altagent')).toHaveLength(1);
   });
 });
