@@ -97,6 +97,20 @@ export function pageMode(page: StartPage, activeRoleId: string, roles?: RoleStar
     return kind === 'task' ? 'task' : kind === 'file' ? 'upload' : 'input';
 }
 
+/** What a chat's role badge names: a role, or an agent or a team from before the roles. */
+export type RoleBadgeKind = 'role' | 'agent' | 'team';
+export const ROLE_BADGE_KEY = { role: 'asstRoleBadge', agent: 'asstAgentBadge', team: 'asstTeamBadge' } as const;
+
+/**
+ * The role the start page names under its description: the active role's name
+ * while it is the only one offered. With further role cards („Rollenauswahl")
+ * the cards name the roles, and the chat names the one picked.
+ */
+export function soleRoleName(page: StartPage, activeRoleId: string, roles: readonly { id: string; name: string; start?: EntryStart }[]): string | undefined {
+    if (pageMode(page, activeRoleId, roles) === 'roles') return undefined;
+    return roles.find(r => r.id === activeRoleId)?.name;
+}
+
 /** The start prompt the page shows as the active role's card: without further cards, an instruction with text. */
 export function activeTaskStart(page: StartPage, activeRoleId: string, roles?: RoleStarts): EntryStart | null {
     if (pageMode(page, activeRoleId, roles) !== 'task') return null;

@@ -2412,17 +2412,6 @@ button.source-card {
   outline-offset: 2px;
 }
 
-.agent-active-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-}
-
 /* .btn--icon (line 1243) and .btn--destructive (line 1229) are both single-class
    selectors (specificity 0-1-0), so source order alone decided and .btn--icon's
    `background: none; color: var(--text-secondary)` silently won over destructive's

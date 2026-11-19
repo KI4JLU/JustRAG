@@ -2,7 +2,7 @@ import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState
 import {
   Brain, ArrowUp, ArrowLeft,
   X, Check, Pencil,
-  Globe, WandSparkles, Loader2, FileText, Quote, Bot, Users,
+  Globe, WandSparkles, Loader2, FileText, Quote,
 } from 'lucide-react';
 import type { Message } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
@@ -22,7 +22,7 @@ import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUplo
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
 import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
-import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
+import { ROLE_BADGE_KEY, type RoleBadgeKind, activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
@@ -311,7 +311,18 @@ const ChatViewComp = () => {
     autoSendNowRef.current = message;
     (document.getElementById('chat-composer') as HTMLFormElement | null)?.requestSubmit?.();
   }, [composerFileCount, composerUploadStates, composerReadiness]);
+  // What answers in the chat, named in its badge: the role it was started in,
+  // else the agent or team it answers with (chats from before the roles),
+  // else the KB's active role.
   const chatRole = chat.chatRoleId ? startPage?.roles.find(r => r.id === chat.chatRoleId) : undefined;
+  const answersAsAgent = !!(agentSelection.teamId || agentSelection.agentId);
+  const agentName = agentSelection.teamId
+    ? kbAgentOptions.teams.find(x => x.id === agentSelection.teamId)?.name
+    : kbAgentOptions.agents.find(x => x.id === agentSelection.agentId)?.name;
+  const chatRoleKind: RoleBadgeKind = chat.chatRoleId || !answersAsAgent ? 'role' : agentSelection.teamId ? 'team' : 'agent';
+  const chatRoleName = chat.chatRoleId
+    ? chatRole?.name
+    : answersAsAgent ? agentName : startPage?.roles.find(r => r.id === startPage.activeRoleId)?.name;
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
@@ -413,17 +424,6 @@ const ChatViewComp = () => {
     : undefined;
 
   const handleEditCancel = useCallback(() => chat.setEditingMessageId(null), [chat]);
-
-  // Resolves a message's teamId/agentId (Task 5 backend fields, stamped by
-  // useChatStream while streaming) to a display name for the attribution
-  // chip. A lookup miss — the team/agent was deleted or detached since the
-  // message was answered — returns undefined, so MessageBubble renders no
-  // chip rather than an empty label.
-  const resolveAttribution = useCallback((m: Message) => {
-    if (m.teamId) return kbAgentOptions.teams.find(x => x.id === m.teamId)?.name;
-    if (m.agentId) return kbAgentOptions.agents.find(x => x.id === m.agentId)?.name;
-    return undefined;
-  }, [kbAgentOptions]);
 
   return (
     <SourcePanelContext.Provider value={sourcePanelApi}>
@@ -667,15 +667,6 @@ const ChatViewComp = () => {
                             </PromptInputButton>
                           );
                         })()}
-                        {(agentSelection.teamId || agentSelection.agentId) && (
-                          <span id="chat-composer-agent-chip" className="agent-active-chip">
-                            {agentSelection.teamId ? <Users size={13} aria-hidden="true" /> : <Bot size={13} aria-hidden="true" />}
-                            {t('agentActiveChip')}{' '}
-                            {agentSelection.teamId
-                              ? kbAgentOptions.teams.find(x => x.id === agentSelection.teamId)?.name
-                              : kbAgentOptions.agents.find(x => x.id === agentSelection.agentId)?.name}
-                          </span>
-                        )}
                         {/* ✦ Improve the draft in place — rewrite / expand / spell; needs a draft */}
                         <PromptInputActionMenu>
                           <PromptInputActionMenuTrigger
@@ -782,17 +773,18 @@ const ChatViewComp = () => {
                   {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
                     <StartGlow category={startPage.category} />
                   )}
-                  {(chat.chatRoleId || (chat.roleStart && chat.messages.length === 0)) && (
-                    // The role this chat was started in — for the whole chat, also when reopened from the history.
+                  {((startPage && (chat.chatRoleId || (chat.roleStart && chat.messages.length === 0))) || (chat.messages.length > 0 && chatRoleName)) && (
+                    // The chat's role — for the whole chat, also when reopened from the history.
+                    // The start page itself names it in its title block (a single role) or on its cards.
                     <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
                       {chat.roleStart && chat.messages.length === 0 && (
                         <Button variant="ghost" size="sm" onClick={chat.handleNewChat}>
                           <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
                         </Button>
                       )}
-                      {chatRole ? (
-                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRole.name)}</Badge>
-                      ) : chat.chatRoleId && startPage ? (
+                      {chatRoleName ? (
+                        <Badge tone="primary">{t(ROLE_BADGE_KEY[chatRoleKind]).replace('{role}', chatRoleName)}</Badge>
+                      ) : chat.chatRoleId ? (
                         <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
                       ) : null}
                     </div>
@@ -837,7 +829,7 @@ const ChatViewComp = () => {
                               ? t('asstFileStartHint')
                               : chat.roleStart.kind === 'task' && chat.roleStart.text.trim()
                                 ? t('asstTaskPrefilledHint')
-                                : t('asstNewChatInRole').replace('{role}', (chatRole ?? startPage?.roles.find(r => r.id === startPage.activeRoleId))?.name ?? t('asstAssistant'))}
+                                : t('asstNewChatInRole').replace('{role}', chatRoleName ?? t('asstAssistant'))}
                           </p>
                         ) : (
                           // The title block of the assistant settings' Startseite (the
@@ -848,6 +840,8 @@ const ChatViewComp = () => {
                             <TitleCard
                               title={currentKb?.name ?? ''}
                               category={startPage?.category ?? null}
+                              role={chat.chatRoleId ? undefined : answersAsAgent ? agentName : startPage ? soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles) : undefined}
+                              roleKind={chatRoleKind}
                               description={shownDescription}
                               fileCount={currentKb?.fileCount}
                               asOf={currentKb?.lastIngestedAt}
@@ -918,7 +912,6 @@ const ChatViewComp = () => {
                                     showCitations={sourceRights.seeCitations}
                                     kbId={currentKb?.id}
                                     questionText={questionText}
-                                    resolveAttribution={resolveAttribution}
                                     reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
                                     sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
                                     confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}

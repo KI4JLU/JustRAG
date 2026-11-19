@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { ArrowUp, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import {
-    Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
+    Badge, Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
     FileDropzone, cn, useCarousel, useCarouselSlides,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -11,7 +11,7 @@ import { KindIcon } from './entryKinds';
 import { IconTile } from './roles';
 import type { RoleView } from './roleModel';
 import { CategoryPill } from '../../CategoryPill';
-import { categoryGlowStyle, roleAccent, roleCardCover } from './startPageModel';
+import { ROLE_BADGE_KEY, categoryGlowStyle, roleAccent, roleCardCover, type RoleBadgeKind } from './startPageModel';
 
 /*
  * The pieces of a KB's start page that the settings' Startseite and the real
@@ -60,12 +60,16 @@ export function TitleCardMeta({ fileCount, asOf, leading = true }: { fileCount?:
     );
 }
 
-/** The title block as members see it, centred: title, category and meta line, description. */
+/** The title block as members see it, centred: title, category and meta line, description, then the role. */
 export function TitleCard({
-    title, category, description, fileCount, asOf, action,
+    title, category, role, roleKind = 'role', description, fileCount, asOf, action,
 }: {
     title: string;
     category: KbCategory | null;
+    /** The one role the KB offers (`soleRoleName`), as the chat's role badge under the description. */
+    role?: string;
+    /** What `role` is: an agent or a team (from before the roles) says so in the badge. */
+    roleKind?: RoleBadgeKind;
     description: string;
     fileCount?: number;
     asOf?: string;
@@ -87,6 +91,11 @@ export function TitleCard({
                 <TitleCardMeta fileCount={fileCount} asOf={asOf} leading={!!category} />
             </p>
             {description && <p className="m-0 mt-3 text-center text-sm leading-6 text-on-surface-variant">{description}</p>}
+            {role && (
+                <p className="m-0 mt-4 flex justify-center">
+                    <Badge tone="primary">{t(ROLE_BADGE_KEY[roleKind]).replace('{role}', role)}</Badge>
+                </p>
+            )}
         </TitleCardFrame>
     );
 }

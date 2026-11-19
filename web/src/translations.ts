@@ -3230,7 +3230,6 @@ export const translations = {
     promptPresetFromAgents: { de: 'Aus meinen Agenten', en: 'From my agents' },
     prompt: { de: 'Prompt', en: 'Prompt' },
     start: { de: 'Starten', en: 'Start' },
-    agentActiveChip: { de: 'Antwortet mit', en: 'Answering with' },
     membersCount: { de: 'Mitglieder', en: 'members' },
 
     // Usage-policy acceptance (AI-use notice, PolicyAcceptanceDialog)
