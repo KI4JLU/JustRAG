@@ -712,6 +712,10 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 		// a KB delete leaves them; the views ignore ids they do not list.
 		txStep{`DELETE FROM kb_user_order WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM user_policy_acceptances WHERE user_id = $1`, []any{userID}},
+		// The user's sections of the chat history (migration 0105). Their
+		// chats go with the user elsewhere in this transaction; a chat's
+		// section_id is ON DELETE SET NULL either way.
+		txStep{`DELETE FROM chat_sections WHERE user_id = $1`, []any{userID}},
 		// ADK sessions (user_id is TEXT, migration 0082): adk_events cascade
 		// from adk_sessions via FK, agent_runs cascade via their users FK.
 		// adk_app_states is app-wide and untouched.

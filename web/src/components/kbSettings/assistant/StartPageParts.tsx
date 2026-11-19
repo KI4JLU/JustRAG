@@ -1,8 +1,8 @@
 import { useId } from 'react';
 import { ArrowUp, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import {
-    Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
-    FileDropzone, cn, useCarousel, useCarouselSlides,
+    Badge, Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
+    FileDropzone, Skeleton, SkeletonText, cn, useCarousel, useCarouselSlides,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { KbCategory } from '../../../types';
@@ -11,7 +11,7 @@ import { KindIcon } from './entryKinds';
 import { IconTile } from './roles';
 import type { RoleView } from './roleModel';
 import { CategoryPill } from '../../CategoryPill';
-import { categoryGlowStyle, roleAccent, roleCardCover } from './startPageModel';
+import { MAX_SKELETON_CARDS, ROLE_BADGE_KEY, categoryGlowStyle, roleAccent, roleCardCover, type RoleBadgeKind } from './startPageModel';
 
 /*
  * The pieces of a KB's start page that the settings' Startseite and the real
@@ -60,31 +60,82 @@ export function TitleCardMeta({ fileCount, asOf, leading = true }: { fileCount?:
     );
 }
 
-/** The title block as members see it, centred: title, category and meta line, description. */
+/** The title block as members see it, centred: title, category and meta line, description, then the role. */
 export function TitleCard({
-    title, category, description, fileCount, asOf, action,
+    title, category, role, roleKind = 'role', description, fileCount, asOf, action, pending,
 }: {
     title: string;
     category: KbCategory | null;
+    /** The one role the KB offers (`soleRoleName`), as the chat's role badge under the description. */
+    role?: string;
+    /** What `role` is: an agent or a team (from before the roles) says so in the badge. */
+    roleKind?: RoleBadgeKind;
     description: string;
     fileCount?: number;
     asOf?: string;
     /** Top right (the settings' „Bearbeiten"). */
     action?: React.ReactNode;
+    /**
+     * As a skeleton: every line a bar as long as its text, so the block has
+     * the very measures it will have. For the time the page around it loads.
+     */
+    pending?: boolean;
 }) {
     const { t } = useTheme();
-    return (
-        <TitleCardFrame className={cn(action && 'pr-12 @sm:pr-32')}>
-            {action}
+    const lines = (
+        <>
             <h2 className="m-0 text-center text-2xl font-semibold leading-tight text-balance break-words hyphens-auto text-on-surface sm:text-3xl">
                 {title.trim() || t('asstUntitled')}
             </h2>
-            <p className="m-0 mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-on-surface-variant">
+            {/* As high as the category pill from the start (its text line, padding
+              * and border): the pill joins once the start page has loaded, and the
+              * centred page must not move then. */}
+            <p className="m-0 mt-2 flex min-h-[22px] flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-on-surface-variant">
                 {category && <CategoryPill category={category} />}
                 <TitleCardMeta fileCount={fileCount} asOf={asOf} leading={!!category} />
             </p>
             {description && <p className="m-0 mt-3 text-center text-sm leading-6 text-on-surface-variant">{description}</p>}
+            {role && (
+                <p className="m-0 mt-4 flex justify-center">
+                    <Badge tone="primary">{t(ROLE_BADGE_KEY[roleKind]).replace('{role}', role)}</Badge>
+                </p>
+            )}
+        </>
+    );
+    return (
+        <TitleCardFrame className={cn(action && 'pr-12 @sm:pr-32')}>
+            {action}
+            {pending
+                ? <SkeletonText shimmer delay={START_SKELETON_DELAY} align="center" className="flex flex-col">{lines}</SkeletonText>
+                : lines}
         </TitleCardFrame>
+    );
+}
+
+/** How long the start page may load before its skeleton shows (ms): a quick load paints none. */
+export const START_SKELETON_DELAY = 300;
+
+/**
+ * What stands in for the composer while the start page loads, in the shape
+ * the page had on the last visit: the role cards (with their heading once
+ * there is a choice), the wide role-prompt card or the upload area.
+ */
+export function StartBlockSkeleton({ kind, cards }: { kind: 'cards' | 'prompt' | 'upload'; cards: number }) {
+    const bar = { shimmer: true, delay: START_SKELETON_DELAY } as const;
+    if (kind === 'upload') return <Skeleton {...bar} className="min-h-40 w-full rounded-xl" />;
+    if (kind === 'prompt') return <Skeleton {...bar} className="mx-auto h-44 w-full max-w-sm rounded-xl" />;
+    const row = (
+        <div className="flex justify-center gap-4 overflow-hidden">
+            {Array.from({ length: Math.min(Math.max(1, cards), MAX_SKELETON_CARDS) }, (_, i) => <Skeleton key={i} {...bar} className={cn(ROLE_CARD_SIZE, 'rounded-xl')} />)}
+        </div>
+    );
+    if (cards <= 1) return row;
+    // Heading and cards, as the carousel; its dots come only when cards overflow.
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex min-h-9 items-center justify-center"><Skeleton {...bar} className="h-3.5 w-36" /></div>
+            {row}
+        </div>
     );
 }
 

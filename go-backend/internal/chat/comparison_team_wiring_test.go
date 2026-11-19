@@ -436,3 +436,11 @@ func TestTryDeepChat_ComparisonPlainPath_IgnoresKbSystemPrompt(t *testing.T) {
 		}
 	}
 }
+
+func (s *wiringStore) GetAllChats(context.Context, string, string, int) ([]ChatListRow, error) {
+	return nil, nil
+}
+
+func (s *wiringStore) SetChatPinned(context.Context, string, string, bool, *string) error { return nil }
+
+func (s *wiringStore) SetPinnedOrder(context.Context, string, *string, []string) error { return nil }

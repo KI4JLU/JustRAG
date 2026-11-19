@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubViewport } from '../test/viewport';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppShell } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase, KbCapabilities } from '../types';
 
 // The real ChatView with the real MessageBubble, mocked to the minimum —
 // the same harness as ChatView.conflicts.test.tsx. What is under test is the
-// wiring: which source rights ChatView hands to the answers and the composer.
+// wiring: which source rights ChatView hands to the answers and the composer,
+// and which description the empty start page shows.
 
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
@@ -37,15 +38,37 @@ vi.mock('../hooks/useReducedMotion', () => ({
 vi.mock('../hooks/useKbAgents', () => ({
   useKbAgents: () => ({ agents: [], teams: [] }),
 }));
+// The start page as the hook reports it: still loading unless a test says otherwise.
+// A small store, so a test can let the answer arrive on a mounted ChatView.
+let startPageState: { startPage: unknown; loading: boolean; shape?: unknown } = { startPage: null, loading: true };
+const startPageListeners = new Set<() => void>();
+const setStartPageState = (next: typeof startPageState) => {
+  startPageState = next;
+  startPageListeners.forEach(notify => notify());
+};
+vi.mock('../hooks/useKbStartPage', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useKbStartPage: () => useSyncExternalStore(
+      (notify: () => void) => { startPageListeners.add(notify); return () => { startPageListeners.delete(notify); }; },
+      () => startPageState,
+    ),
+  };
+});
 
 let capabilities: KbCapabilities | undefined;
 let files: Array<{ id: string; selected?: boolean }> = [{ id: 'f1', selected: true }];
 let hasFiles = true;
+let filesLoaded = true;
+// The open chat's id; null = a new chat (the start page).
+let activeChatId: string | null = 'c1';
+let kbOverrides: Partial<KnowledgeBase> = {};
 const currentKb = (): KnowledgeBase => ({
   id: 'kb1', name: 'Handbuch', description: null, userId: 'someone-else',
   createdAt: '2026-01-01', isPro: false, isGlobal: false,
   aiConfigId: null, chatModel: null, embeddingModel: null, rerankModel: null, ttsModel: null,
   capabilities,
+  ...kbOverrides,
 });
 const handlePdfSourceOpen = vi.fn();
 
@@ -77,7 +100,7 @@ let messages: Message[] = [answer];
 vi.mock('../contexts/KbChatContext', () => ({
   useKbChat: () => ({
     chat: {
-      activeChatId: 'c1',
+      activeChatId,
       messageTree: new Map(),
       messages,
       activeLeafId: null,
@@ -125,7 +148,7 @@ vi.mock('../contexts/KbChatContext', () => ({
 vi.mock('../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: {
-      hasFiles, filesLoaded: true, selectedFileCount: 1, fileInputRef: { current: null },
+      hasFiles, filesLoaded, selectedFileCount: 1, fileInputRef: { current: null },
       isDragging: false, handleDragOver: vi.fn(), handleDragEnter: vi.fn(),
       handleDragLeave: vi.fn(), handleDrop: vi.fn(), files,
     },
@@ -155,6 +178,10 @@ beforeEach(() => {
   capabilities = undefined;
   files = [{ id: 'f1', selected: true }];
   hasFiles = true;
+  filesLoaded = true;
+  activeChatId = 'c1';
+  kbOverrides = {};
+  startPageState = { startPage: null, loading: true };
   messages = [answer];
   handlePdfSourceOpen.mockClear();
 });
@@ -284,7 +311,10 @@ describe('ChatView — the composer source count follows seeSources', () => {
 
 // An empty KB asks the caller to add a first source — only a caller who can.
 describe('ChatView — the empty-KB prompt follows addSources', () => {
-  beforeEach(() => { messages = []; files = []; hasFiles = false; });
+  beforeEach(() => {
+    messages = []; files = []; hasFiles = false; activeChatId = null;
+    startPageState = { startPage: null, loading: false };
+  });
 
   it('asks a caller with addSources to add a first source', () => {
     capabilities = caps({ addSources: true });
@@ -297,5 +327,153 @@ describe('ChatView — the empty-KB prompt follows addSources', () => {
     render(<ChatView />);
     expect(screen.queryByText('emptyAddFirstSourceTitle')).not.toBeInTheDocument();
     expect(screen.getByText('Handbuch')).toBeInTheDocument();
+  });
+
+  // Oracle: whether the topic is empty is known only with its file list;
+  // before that neither the prompt nor the title block is shown, so neither
+  // is swapped for the other.
+  it('shows neither the prompt nor the title block before the file list is read', () => {
+    capabilities = caps({ addSources: true });
+    filesLoaded = false;
+    const { container } = render(<ChatView />);
+    expect(screen.queryByRole('heading', { name: /emptyAddFirstSourceTitle|Handbuch/ })).not.toBeInTheDocument();
+    expect(container.querySelector('.empty-state')).toHaveAttribute('aria-busy', 'true');
+  });
+});
+
+// Oracle: the start page has one title block, the Startseite's, with one
+// description, the topic's own (else the default line). The legacy header text
+// of a public topic is not shown there. How the page starts (input field, role
+// cards, upload area) is known only with the start page: until it is read the
+// page shows a skeleton and nothing the loaded page would take away again.
+describe('ChatView — the start page shows one title block', () => {
+  beforeEach(() => { messages = []; activeChatId = null; });
+
+  // Oracle: a chat being opened has its id before its messages; that is not
+  // a start page, so nothing is held back and the composer is in reach.
+  it('does not hold a chat that is being opened', () => {
+    activeChatId = 'c1';
+    const { container } = render(<ChatView />);
+    expect(container.querySelector('[data-slot="skeleton"], [data-slot="skeleton-text"]')).toBeNull();
+    expect(document.getElementById('chat-composer')?.closest('[inert]')).toBeNull();
+  });
+
+  // A start page never set up, as GET /api/kb/{id}/start-page answers for it.
+  const page = {
+    version: 2, colors: null, startMode: 'input', uploadLabel: '', uploadInstruction: '', roleStarts: {}, roleEntries: [],
+    questionsOn: false, questionMode: 'dynamic', dynamicCount: 4, fixedQuestions: [],
+  };
+  const loaded = (over: Record<string, unknown> = {}) => ({
+    startPage: { kbId: 'kb1', configured: false, roles: [], activeRoleId: 'chat', category: null, page, ...over },
+    loading: false,
+  });
+
+  it('shows no title block while the start page loads, only the skeleton', () => {
+    const { container } = render(<ChatView />);
+    // The title block is there as bars of its own text, hidden from readers.
+    expect(screen.queryByRole('heading', { name: 'Handbuch' })).not.toBeInTheDocument();
+    expect(screen.getByText('Handbuch').closest('[data-slot="skeleton-text"]')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('.empty-state')).toHaveAttribute('aria-busy', 'true');
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
+
+  it('shows the one title block once the start page is read', () => {
+    const { container } = render(<ChatView />);
+    act(() => setStartPageState(loaded()));
+    expect(screen.getByRole('heading', { level: 2, name: 'Handbuch' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByText('kbHeaderDefault')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"], [data-slot="skeleton-text"]')).toBeNull();
+    expect(container.querySelector('.empty-state')).not.toHaveAttribute('aria-busy');
+    // The answer did reach the view: its suggestions are there now.
+    expect(screen.getAllByRole('button', { name: /Fasse die wichtigsten Punkte/, hidden: true })).toHaveLength(1);
+  });
+
+  // Oracle: while the page loads the composer is in place but unseen and out
+  // of reach (inert), so nothing is typed or sent past a start that is not
+  // known yet; a start with an upload area then takes it away without the
+  // input start having been shown.
+  it('keeps the composer unseen and inert while loading and hides it for an upload start', () => {
+    render(<ChatView />);
+    const composer = document.getElementById('chat-composer') as HTMLElement;
+    expect(composer).toHaveClass('opacity-0');
+    expect(composer.closest('[inert]')).not.toBeNull();
+    act(() => setStartPageState(loaded({ configured: true, page: { ...page, roleStarts: { chat: { kind: 'file', text: 'Datei hochladen', send: false, instruction: '', suggestions: null } } } })));
+    expect(composer).toHaveClass('hidden');
+    expect(composer.closest('[inert]')).toBeNull();
+    expect(screen.getByText('Datei hochladen')).toBeInTheDocument();
+  });
+
+  // Oracle: a start page already known (kept from the last visit) does not
+  // put its upload area up while the file list is still unread — the skeleton
+  // stands alone until both are known.
+  it('holds a known upload start back until the file list is read', () => {
+    filesLoaded = false;
+    startPageState = {
+      ...loaded({ configured: true, page: { ...page, roleStarts: { chat: { kind: 'file', text: 'Datei hochladen', send: false, instruction: '', suggestions: null } } } }),
+      shape: { kind: 'upload', cards: 0 },
+    };
+    const { container } = render(<ChatView />);
+    expect(screen.queryByText('Datei hochladen')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.input-container [data-slot="skeleton"]')).toHaveLength(1);
+    expect(container.querySelector('.input-container')).toHaveAttribute('aria-busy', 'true');
+  });
+
+  // Oracle: listed documents that are not finished do not count as sources:
+  // the file list decides, so the page waits for it.
+  it('waits for the file list of a topic listed only with unfinished documents', () => {
+    filesLoaded = false;
+    kbOverrides = { fileCount: 2, processingFileCount: 1, failedFileCount: 1 };
+    startPageState = loaded();
+    const { container } = render(<ChatView />);
+    expect(container.querySelector('.empty-state')).toHaveAttribute('aria-busy', 'true');
+  });
+
+  // Oracle: the skeleton has the shape the topic started with last time.
+  it('holds role-card skeletons, not the composer, for a topic last seen with role cards', () => {
+    startPageState = { startPage: null, loading: true, shape: { kind: 'cards', cards: 3 } };
+    const { container } = render(<ChatView />);
+    expect(document.getElementById('chat-composer')).toHaveClass('hidden');
+    expect(container.querySelector('[data-slot="prompt-suggestions"]')).toBeNull();
+    expect(container.querySelectorAll('.input-container [data-slot="skeleton"][class*="aspect-"]')).toHaveLength(3);
+  });
+
+  it('shows a topic listed with documents before its file list is read', () => {
+    filesLoaded = false;
+    kbOverrides = { fileCount: 3 };
+    startPageState = loaded();
+    render(<ChatView />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Handbuch' })).toBeInTheDocument();
+  });
+
+  // Oracle: the suggestions' place under the composer is taken from the first
+  // render, so the centred page stands still: placeholders (a busy list with
+  // nothing to pick) while the start page loads, the suggestions in that same
+  // element once it is known.
+  it('holds the suggestions\' place while the start page loads and fills it in place', () => {
+    const { container } = render(<ChatView />);
+    const slot = container.querySelector('[data-slot="prompt-suggestions"]');
+    expect(slot).not.toBeNull();
+    const list = within(slot as HTMLElement).getByRole('list', { hidden: true });
+    expect(list).toHaveAttribute('aria-busy', 'true');
+    expect(within(list).queryAllByRole('button', { hidden: true })).toHaveLength(0);
+    act(() => setStartPageState(loaded()));
+    expect(container.querySelector('[data-slot="prompt-suggestions"]')).toBe(slot);
+    expect(list).not.toHaveAttribute('aria-busy');
+    expect(within(list).queryAllByRole('button', { hidden: true }).length).toBeGreaterThan(0);
+  });
+
+  it('shows the default suggestions when the start page could not be read', () => {
+    startPageState = { startPage: null, loading: false };
+    render(<ChatView />);
+    expect(screen.getAllByRole('button', { name: /Fasse die wichtigsten Punkte/, hidden: true })).toHaveLength(1);
+  });
+
+  it('shows the description and not the legacy header text of a public topic', () => {
+    kbOverrides = { isGlobal: true, description: 'Angebote der Personalentwicklung', headerText: 'Alter Hinweistext' };
+    startPageState = loaded();
+    render(<ChatView />);
+    expect(screen.getByText('Angebote der Personalentwicklung')).toBeInTheDocument();
+    expect(screen.queryByText('Alter Hinweistext')).not.toBeInTheDocument();
   });
 });

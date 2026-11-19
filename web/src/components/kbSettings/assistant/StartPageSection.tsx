@@ -8,7 +8,7 @@ import { ChatStartEditor } from './ChatStartEditor';
 import { RoleChatPreview } from './RoleChatPreview';
 import { allRoles } from './roleModel';
 import { StartGlow, TitleCard } from './StartPageParts';
-import { chatStartIncomplete, pageQuestions } from './startPageModel';
+import { chatStartIncomplete, pageQuestions, soleRoleName } from './startPageModel';
 import { StartView } from './StartView';
 import { TitleCardEditor } from './TitleCardEditor';
 import { useAssistantSettings } from './useAssistantSettings';
@@ -92,7 +92,6 @@ export function StartPageSection() {
             page={page}
             activeRoleId={activeRoleId}
             roles={roles}
-            kbTitle={draft.title.trim()}
             fileCount={kb.fileCount}
             questions={questions}
             onStart={setPreviewChat}
@@ -124,7 +123,7 @@ export function StartPageSection() {
                     ))}
                     {!previewChat && <StartGlow category={category} />}
                     {previewChat ? (
-                        <RoleChatPreview entry={previewChat} role={roles.find(r => r.id === previewChat.roleId)} kbName={draft.title.trim()} fileCount={kb.fileCount} dynamicSample={dynamicSample} onBack={() => setPreviewChat(null)} />
+                        <RoleChatPreview entry={previewChat} role={roles.find(r => r.id === previewChat.roleId)} fileCount={kb.fileCount} dynamicSample={dynamicSample} onBack={() => setPreviewChat(null)} />
                     ) : (
                         // The chat's empty stage (ChatStage's slots and the chat's
                         // layout classes), anchored at the top instead of centred:
@@ -143,6 +142,7 @@ export function StartPageSection() {
                                         <TitleCard
                                             title={draft.title}
                                             category={category}
+                                            role={soleRoleName(page, activeRoleId, roles)}
                                             description={draft.description ?? t('kbHeaderDefault')}
                                             fileCount={kb.fileCount}
                                             asOf={kb.lastIngestedAt}

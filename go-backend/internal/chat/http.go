@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -458,6 +459,31 @@ func (h *Handler) ListChats(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, chats)
 }
 
+// ListAllChats handles GET /api/chats: the caller's chats across every topic
+// they can still open, newest activity first, capped at AllChatsLimit. Each
+// row is a row of GET /api/kb/{id}/chats plus the topic's name, visibility
+// and the caller's role on it, so one list can say where each chat lives.
+func (h *Handler) ListAllChats(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	chats, err := h.store.GetAllChats(r.Context(), user.ID, user.Role, AllChatsLimit)
+	if err != nil {
+		logctx.From(r.Context()).Error("chat.list_all: get chats", "error", err, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to fetch chats")
+		return
+	}
+	if chats == nil {
+		chats = []ChatListRow{}
+	}
+
+	w.Header().Set("Cache-Control", "no-cache")
+	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, chats)
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/chats/{id}/messages
 // ---------------------------------------------------------------------------
@@ -663,6 +689,138 @@ func (h *Handler) RenameChat(w http.ResponseWriter, r *http.Request) {
 		}
 		logctx.From(r.Context()).Error("chat.rename: update title", "error", err, "chat_id", chatID, "user_id", user.ID)
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to rename chat")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type pinChatRequest struct {
+	// SectionID files the chat in one of the caller's sections; absent or
+	// null pins it in the built-in "Angepinnt".
+	SectionID *string `json:"sectionId"`
+}
+
+// optionalSectionID parses a section id from a request body: nil stays nil.
+// A malformed id is reported with ok false.
+func optionalSectionID(raw *string) (id *string, ok bool) {
+	if raw == nil {
+		return nil, true
+	}
+	parsed, err := uuid.Parse(*raw)
+	if err != nil {
+		return nil, false
+	}
+	s := parsed.String()
+	return &s, true
+}
+
+// PinChat handles PUT /api/chats/{id}/pin: the caller keeps one of their
+// chats at hand in the history — in the built-in "Angepinnt", or with
+// {"sectionId"} in one of their own sections; a chat kept already moves
+// there. The body is optional. 204, idempotent. 400 for a body that is not
+// JSON or a malformed sectionId; 404 for a chat or a section that is not the
+// caller's, an unknown id or a malformed chat id, as for PATCH
+// /api/chats/{id}.
+func (h *Handler) PinChat(w http.ResponseWriter, r *http.Request) {
+	var body pinChatRequest
+	// One optional id; 1 KiB leaves ample room. An empty body is no section.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	sectionID, ok := optionalSectionID(body.SectionID)
+	if !ok {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "sectionId must be a section id")
+		return
+	}
+	h.setChatPinned(w, r, true, sectionID)
+}
+
+// UnpinChat handles DELETE /api/chats/{id}/pin: the chat goes back to the
+// plain history, out of "Angepinnt" or its section. 204, idempotent; 404 as
+// for PinChat.
+func (h *Handler) UnpinChat(w http.ResponseWriter, r *http.Request) {
+	h.setChatPinned(w, r, false, nil)
+}
+
+func (h *Handler) setChatPinned(w http.ResponseWriter, r *http.Request, pinned bool, sectionID *string) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	parsed, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+		return
+	}
+	chatID := parsed.String()
+
+	if err := h.store.SetChatPinned(r.Context(), chatID, user.ID, pinned, sectionID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "chat not found")
+			return
+		}
+		logctx.From(r.Context()).Error("chat.pin: set pinned", "error", err, "chat_id", chatID, "user_id", user.ID, "pinned", pinned)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to pin chat")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type pinnedOrderRequest struct {
+	ChatIDs []string `json:"chatIds"`
+	// SectionID names the section the order is for; absent or null is the
+	// built-in "Angepinnt".
+	SectionID *string `json:"sectionId"`
+}
+
+// SetPinnedOrder handles PUT /api/chats/pin-order: the caller's own order of
+// the chats of one section ("Angepinnt" without sectionId), front to back,
+// as the web app's history saves it after a drag. The body is that section's
+// whole order; a chat of it that is left out loses its place, and ids that
+// are not the caller's chats in that section are ignored. 204. 400 for a
+// body that is not JSON, more than MaxPinnedOrder ids or a malformed id —
+// refused before anything is written.
+func (h *Handler) SetPinnedOrder(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var body pinnedOrderRequest
+	// MaxPinnedOrder ids of 36 characters with quotes and commas fit in 32 KiB.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&body); err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(body.ChatIDs) > MaxPinnedOrder {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest,
+			fmt.Sprintf("too many chats (max %d)", MaxPinnedOrder))
+		return
+	}
+	sectionID, ok := optionalSectionID(body.SectionID)
+	if !ok {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "sectionId must be a section id")
+		return
+	}
+	ids := make([]string, len(body.ChatIDs))
+	for i, raw := range body.ChatIDs {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "chatIds must be chat ids")
+			return
+		}
+		ids[i] = parsed.String()
+	}
+
+	if err := h.store.SetPinnedOrder(r.Context(), user.ID, sectionID, ids); err != nil {
+		logctx.From(r.Context()).Error("chat.pin_order: set order", "error", err, "user_id", user.ID)
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to save the order")
 		return
 	}
 

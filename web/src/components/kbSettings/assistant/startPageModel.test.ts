@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultStart, type SettingsVersion, type StartPage } from './api';
-import { ROLE_COVER_DEFAULTS, activeTaskStart, categoryGlowStyle, chatStartIncomplete, pageMode, pageQuestions, roleCardCover, showsGeneratedQuestions, startEntries, suggestionQuestions, withRoleStart } from './startPageModel';
+import { ROLE_COVER_DEFAULTS, activeTaskStart, categoryGlowStyle, chatStartIncomplete, pageMode, pageQuestions, roleCardCover, showsGeneratedQuestions, soleRoleName, startEntries, suggestionQuestions, withRoleStart } from './startPageModel';
 import { changeValue, versionNote } from './versionModel';
 import { draftAfterReset, type AssistantDraft } from './useAssistantSettings';
 
@@ -183,5 +183,21 @@ describe('the page follows the roles', () => {
     it('keeps a start equal to the template\'s as the template\'s', () => {
         expect(withRoleStart(page(), 'summary', { ...task }, roles).roleStarts.summary).toBeUndefined();
         expect(withRoleStart(page(), 'summary', { ...task, text: 'Anders' }, roles).roleStarts.summary).toMatchObject({ text: 'Anders' });
+    });
+});
+
+// Oracle: developer, 18.11.2026 — a start page with a single role names it
+// under its description; with further role cards the cards name the roles.
+describe('the role the start page names', () => {
+    const roles = [{ id: 'chat', name: 'Assistent' }, { id: 'tutor', name: 'Tutor' }];
+
+    it('is the active role while it is the only one offered', () => {
+        expect(soleRoleName(page(), 'chat', roles)).toBe('Assistent');
+        expect(soleRoleName(page({ roleStarts: { chat: { ...defaultStart(), kind: 'file' } } }), 'chat', roles)).toBe('Assistent');
+    });
+
+    it('is none with further role cards, or for a role the KB does not have', () => {
+        expect(soleRoleName(page({ roleEntries: [{ id: 're-1', roleId: 'tutor' }] }), 'chat', roles)).toBeUndefined();
+        expect(soleRoleName(page(), 'gone', roles)).toBeUndefined();
     });
 });

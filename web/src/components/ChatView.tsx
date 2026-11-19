@@ -2,10 +2,10 @@ import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState
 import {
   Brain, ArrowUp, ArrowLeft,
   X, Check, Pencil,
-  Globe, WandSparkles, Loader2, FileText, Quote, Bot, Users,
+  Globe, WandSparkles, Loader2, FileText, Quote,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import type { Message } from '../types';
+import { chatPlaceholderFor } from '../utils/systemNames';
 import { useTheme } from '../contexts/ThemeContext';
 import { IS_APPLE } from '../utils/searchShortcut';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,22 +16,21 @@ import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../hooks/useChatSuggestionPrefs';
-import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 import { hasAgentSteps } from './agentSteps/buildSteps';
 import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
-import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
-import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
+import { RoleStartCards, START_SKELETON_DELAY, StartBlockSkeleton, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
+import { ROLE_BADGE_KEY, type RoleBadgeKind, activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
 import { STORAGE_NAMESPACE } from '../hooks/useStoredFlag';
 import {
   InputGroupAddon,
-  ChatStage, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
+  ChatStage, Skeleton, SkeletonText, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment, usePromptInputAttachments, Badge, Notice,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
@@ -113,7 +112,7 @@ const holdComposerUploads = () => {};
 const ChatViewComp = () => {
   const { language, t } = useTheme();
   const { user, siteConfigs } = useAuth();
-  const reducedMotion = useReducedMotion();
+  const chatPlaceholder = chatPlaceholderFor(t('chatPlaceholder'), siteConfigs);
 
   const {
     currentKb, availableConfigs, handleUpdateKBSettings,
@@ -242,8 +241,39 @@ const ChatViewComp = () => {
   // The line under the title: the topic's own description, else the default line.
   const shownDescription = currentKb?.description?.trim() || t('kbHeaderDefault');
   // The assistant settings' start page; re-read whenever the settings dialog closes.
-  const startPage = useKbStartPage(currentKb?.id, showSystemPrompt);
+  const { startPage, loading: startPageLoading, shape: startShape } = useKbStartPage(currentKb?.id, showSystemPrompt);
   const configuredStart = startPage?.configured ? startPage : null;
+  // How an empty chat starts — the input field, role cards, an upload area or
+  // the first-source prompt — is known only once the start page and the file
+  // list are read. Until then the page holds a skeleton instead of showing
+  // one start and swapping it for another: the title block as bars of its own
+  // text, and below it the shape this topic started with on the last visit
+  // (the input field's if never seen).
+  // Whether the first-source prompt will show is known with the file list —
+  // or without it, where the prompt cannot show (no source list, a global
+  // topic) or the topic is listed with finished documents.
+  const listedReady = (currentKb?.fileCount ?? 0) - (currentKb?.failedFileCount ?? 0) - (currentKb?.processingFileCount ?? 0);
+  const sourcesKnown = filesLoaded || !sourceRights.seeSources || !!currentKb?.isGlobal || listedReady > 0;
+  // Not a chat being opened (it has its id before its messages): that is no start page.
+  const startPending = !!currentKb && chat.messages.length === 0 && !chat.roleStart && !chat.activeChatId && (startPageLoading || !sourcesKnown);
+  // The pending composer takes no input, so the caret an opened chat puts
+  // there is set once the start is known and the input field is what it shows.
+  const wasPendingRef = useRef(false);
+  const { textareaRef: promptRef } = chat;
+  useEffect(() => {
+    if (startPending) {
+      wasPendingRef.current = true;
+      return;
+    }
+    if (!wasPendingRef.current) return;
+    wasPendingRef.current = false;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(pointer: fine)').matches) return;
+    promptRef.current?.focus();
+  }, [startPending, promptRef]);
+  // Without documents (as read, else as listed): the first-source prompt is what will load.
+  const pendingEmpty = startPending && sourceRights.seeSources && !currentKb?.isGlobal && (filesLoaded ? !hasFiles : currentKb?.fileCount === 0);
+  const pendingBlock = startPending && !pendingEmpty && startShape && startShape.kind !== 'input' ? startShape : null;
   // How the chat starts is the roles' (developer ruling 05.11.2026): with
   // further role cards „Rollenauswahl", else the active role's own start —
   // the input field, its role-prompt card or its upload area.
@@ -258,10 +288,11 @@ const ChatViewComp = () => {
   // dynamic questions on.
   const wantsGenerated = !!startPage && (configuredStart || chat.roleStart ? showsGeneratedQuestions(chat.roleStart, activeStart) : true);
   // For the role the chat starts in: a role card's, else the active role.
-  const generatedPrompts = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
+  const { questions: generatedPrompts, loading: generatedLoading } = useStarterQuestions(currentKb?.id, language, suggestionsEnabled && wantsGenerated && chat.messages.length === 0 && hasFiles, chat.roleStart?.roleId ?? undefined);
   const [composerFileCount, setComposerFileCount] = useState(0);
   const composerAddRef = useRef<((files: File[]) => void) | null>(null);
-  const emptyChat = chat.messages.length === 0 && !noSources;
+  // While the start is pending none of its gates is up: the skeleton stands alone.
+  const emptyChat = chat.messages.length === 0 && !noSources && !startPending;
   // „Rollenauswahl": the role cards stand in for the composer until one is picked.
   const rolesGate = startMode === 'roles' && emptyChat && !chat.roleStart;
   // „Anweisung": its card stands in for the composer the same way.
@@ -314,10 +345,25 @@ const ChatViewComp = () => {
     autoSendNowRef.current = message;
     (document.getElementById('chat-composer') as HTMLFormElement | null)?.requestSubmit?.();
   }, [composerFileCount, composerUploadStates, composerReadiness]);
+  // What answers in the chat, named in its badge: the role it was started in,
+  // else the agent or team it answers with (chats from before the roles),
+  // else the KB's active role.
   const chatRole = chat.chatRoleId ? startPage?.roles.find(r => r.id === chat.chatRoleId) : undefined;
+  const answersAsAgent = !!(agentSelection.teamId || agentSelection.agentId);
+  const agentName = agentSelection.teamId
+    ? kbAgentOptions.teams.find(x => x.id === agentSelection.teamId)?.name
+    : kbAgentOptions.agents.find(x => x.id === agentSelection.agentId)?.name;
+  const chatRoleKind: RoleBadgeKind = chat.chatRoleId || !answersAsAgent ? 'role' : agentSelection.teamId ? 'team' : 'agent';
+  const chatRoleName = chat.chatRoleId
+    ? chatRole?.name
+    : answersAsAgent ? agentName : startPage?.roles.find(r => r.id === startPage.activeRoleId)?.name;
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
+    // While the start page loads, none: the fallback list below would show
+    // (hidden while it reveals, but taking its space) and vanish again once a
+    // set-up page answers with its own. A failed read falls through to it.
+    if (startPending) return [];
     // A start page set up: the active role's questions under its input field, if on.
     if (configuredStart) return pageQuestions(configuredStart.page, configuredStart.activeRoleId, configuredStart.roles, generatedPrompts);
     const raw = currentKb?.isGlobal ? currentKb.examplePrompts : null;
@@ -329,7 +375,7 @@ const ChatViewComp = () => {
     // Then the questions generated from the KB's documents, without repeats.
     const seen = new Set(configured.map(p => p.trim().toLowerCase()));
     return [...configured, ...generatedPrompts.filter(q => !seen.has(q.trim().toLowerCase()))];
-  }, [chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
+  }, [startPending, chat.roleStart, configuredStart, currentKb?.isGlobal, currentKb?.examplePrompts, currentKb?.name, generatedPrompts]);
 
   const [initialRender, setInitialRender] = useState(true);
   useEffect(() => {
@@ -413,17 +459,6 @@ const ChatViewComp = () => {
 
   const handleEditCancel = useCallback(() => chat.setEditingMessageId(null), [chat]);
 
-  // Resolves a message's teamId/agentId (Task 5 backend fields, stamped by
-  // useChatStream while streaming) to a display name for the attribution
-  // chip. A lookup miss — the team/agent was deleted or detached since the
-  // message was answered — returns undefined, so MessageBubble renders no
-  // chip rather than an empty label.
-  const resolveAttribution = useCallback((m: Message) => {
-    if (m.teamId) return kbAgentOptions.teams.find(x => x.id === m.teamId)?.name;
-    if (m.agentId) return kbAgentOptions.agents.find(x => x.id === m.agentId)?.name;
-    return undefined;
-  }, [kbAgentOptions]);
-
   return (
     <SourcePanelContext.Provider value={sourcePanelApi}>
     <div className="chat-area">
@@ -482,7 +517,7 @@ const ChatViewComp = () => {
                   // An empty chat (the start page) is as wide as the title card —
                   // composer, role cards and dropzone alike; with messages the
                   // composer takes the transcript's column.
-                  <div className={chat.messages.length === 0 ? 'input-container input-container--start' : 'input-container'}>
+                  <div className={chat.messages.length === 0 ? 'input-container input-container--start' : 'input-container'} aria-busy={startPending || undefined}>
                     {(rolesGate || taskGate) && startPage && (
                       <div>
                       <RoleStartCards
@@ -528,6 +563,10 @@ const ChatViewComp = () => {
                         </div>
                       </div>
                     )}
+                    {/* The composer's box: while the start is pending, a skeleton lies over it. */}
+                    <div className="relative" inert={startPending}>
+                    {pendingBlock && <StartBlockSkeleton kind={pendingBlock.kind as 'cards' | 'prompt' | 'upload'} cards={pendingBlock.cards} />}
+                    {startPending && !pendingBlock && <Skeleton shimmer delay={START_SKELETON_DELAY} className="absolute inset-0 rounded-full" />}
                     <PromptInput
                       id="chat-composer"
                       multiple
@@ -540,6 +579,8 @@ const ChatViewComp = () => {
                       // files (it clears them only after a submit that
                       // resolved): one still uploading or refused holds it.
                       onSubmit={async (_message, e) => {
+                        // How this topic starts is not known yet: nothing is sent past it.
+                        if (startPending) throw new Error('start page pending');
                         const ready = composerUploads.readiness();
                         if (ready.uploading || ready.failed) {
                           toast.error(t(ready.uploading ? 'chatAttachmentsStillUploading' : 'chatAttachmentsRemoveFailed'));
@@ -552,8 +593,9 @@ const ChatViewComp = () => {
                           throw new Error('message not sent');
                         }
                       }}
-                      className={noSources ? 'pointer-events-none opacity-55' : uploadGate || rolesGate || taskGate ? 'hidden' : undefined}
-                      aria-disabled={noSources || undefined}
+                      // Pending: unseen and out of reach (the wrapper is inert), but in place.
+                      className={pendingBlock ? 'hidden' : startPending ? 'opacity-0' : noSources ? 'pointer-events-none opacity-55' : uploadGate || rolesGate || taskGate ? 'hidden' : undefined}
+                      aria-disabled={(noSources && !startPending) || undefined}
                     >
                       <ComposerAttachmentsBridge addRef={composerAddRef} onCount={setComposerFileCount} onAdded={onComposerFilesAdded} />
                       {/* Attached files: a header row above the input line, present only while files are attached.
@@ -633,10 +675,10 @@ const ChatViewComp = () => {
                       <PromptInputAdaptiveTextarea
                         id="chat-message-input"
                         ref={(el: HTMLTextAreaElement | null) => { attachHookRef(chat.textareaRef, el); }}
-                        aria-label={t('chatPlaceholder')}
+                        aria-label={chatPlaceholder}
                         className="px-4 text-base leading-normal"
                         enterKeyHint="send"
-                        placeholder={currentKb?.name ? t('chatPlaceholderContextual').replace('{{name}}', currentKb.name) : t('chatPlaceholder')}
+                        placeholder={chatPlaceholder}
                         value={chat.userMessageInput}
                         onChange={(e) => chat.setUserMessageInput(e.target.value)}
                         rows={1}
@@ -666,15 +708,6 @@ const ChatViewComp = () => {
                             </PromptInputButton>
                           );
                         })()}
-                        {(agentSelection.teamId || agentSelection.agentId) && (
-                          <span id="chat-composer-agent-chip" className="agent-active-chip">
-                            {agentSelection.teamId ? <Users size={13} aria-hidden="true" /> : <Bot size={13} aria-hidden="true" />}
-                            {t('agentActiveChip')}{' '}
-                            {agentSelection.teamId
-                              ? kbAgentOptions.teams.find(x => x.id === agentSelection.teamId)?.name
-                              : kbAgentOptions.agents.find(x => x.id === agentSelection.agentId)?.name}
-                          </span>
-                        )}
                         {/* ✦ Improve the draft in place — rewrite / expand / spell; needs a draft */}
                         <PromptInputActionMenu>
                           <PromptInputActionMenuTrigger
@@ -744,7 +777,8 @@ const ChatViewComp = () => {
                         )}
                       </InputGroupAddon>
                     </PromptInput>
-                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && examplePrompts.length > 0 && (
+                    </div>
+                    {suggestionsEnabled && chat.messages.length === 0 && !noSources && !uploadGate && !rolesGate && !taskGate && !pendingBlock && !pendingEmpty && (
                       <PromptSuggestions
                         // Lines up with the composer's text start on the left (the
                         // measured + group, `notch.left`) and with the send button on
@@ -760,6 +794,13 @@ const ChatViewComp = () => {
                         // Closing keeps the component's space: the composer must not move.
                         dismissible
                         suggestions={examplePrompts}
+                        // Its space is kept with nothing to suggest too: the start
+                        // page and the generated questions arrive later, or bring
+                        // none, and the centred page must stand the same either way.
+                        reserveSpace
+                        // Still loading once the reveal pause is over: placeholder chips.
+                        loading={startPending || generatedLoading}
+                        loadingLabel={t('promptSuggestionsLoading')}
                         disabled={!hasFiles}
                         onSelect={(prompt) => {
                           chat.setUserMessageInput(prompt);
@@ -774,17 +815,18 @@ const ChatViewComp = () => {
                   {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
                     <StartGlow category={startPage.category} />
                   )}
-                  {(chat.chatRoleId || (chat.roleStart && chat.messages.length === 0)) && (
-                    // The role this chat was started in — for the whole chat, also when reopened from the history.
+                  {((startPage && (chat.chatRoleId || (chat.roleStart && chat.messages.length === 0))) || (chat.messages.length > 0 && chatRoleName)) && (
+                    // The chat's role — for the whole chat, also when reopened from the history.
+                    // The start page itself names it in its title block (a single role) or on its cards.
                     <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
                       {chat.roleStart && chat.messages.length === 0 && (
                         <Button variant="ghost" size="sm" onClick={chat.handleNewChat}>
                           <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
                         </Button>
                       )}
-                      {chatRole ? (
-                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRole.name)}</Badge>
-                      ) : chat.chatRoleId && startPage ? (
+                      {chatRoleName ? (
+                        <Badge tone="primary">{t(ROLE_BADGE_KEY[chatRoleKind]).replace('{role}', chatRoleName)}</Badge>
+                      ) : chat.chatRoleId ? (
                         <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
                       ) : null}
                     </div>
@@ -794,19 +836,15 @@ const ChatViewComp = () => {
                       className="messages-container"
                       style={{ position: 'relative' }}
                     >
-                      <motion.div
-                        className="empty-state"
-                        {...getMotionProps(reducedMotion)}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5, ease: 'easeOut' }}
-                      >
-                        {currentKb?.isGlobal && currentKb?.headerText ? (
-                          <div style={{ marginBottom: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '1.1rem', whiteSpace: 'pre-wrap', maxWidth: '600px', margin: '0 auto 2rem' }}>
-                            {currentKb.headerText}
-                          </div>
-                        ) : null}
-                        {noSources && sourceRights.addSources ? (
+                      {/* No entrance animation: the start page stands from the first paint. */}
+                      <div className="empty-state" aria-busy={startPending || undefined}>
+                        {startPending && pendingEmpty && sourceRights.addSources ? (
+                          // The first-source prompt that will load, as bars of its text.
+                          <SkeletonText shimmer delay={START_SKELETON_DELAY} align="center" className="px-12">
+                            <h1>{t('emptyAddFirstSourceTitle')}</h1>
+                            <p>{t('emptyAddFirstSourceSubtitle')}</p>
+                          </SkeletonText>
+                        ) : !startPending && noSources && sourceRights.addSources ? (
                           // Adding sources happens in the sources column, which shows its
                           // dropzone while the KB is empty — the centre only says so. A
                           // caller who cannot add is not asked to.
@@ -832,18 +870,6 @@ const ChatViewComp = () => {
                               </Tooltip>
                             )}
                           </div>
-                        ) : startPage && !chat.roleStart ? (
-                          // The title block of the assistant settings' Startseite (the
-                          // glow above is its colour; the default one until set up).
-                          <div className="w-full max-w-2xl px-4 text-left">
-                            <TitleCard
-                              title={currentKb?.name ?? ''}
-                              category={startPage.category}
-                              description={shownDescription}
-                              fileCount={currentKb?.fileCount}
-                              asOf={currentKb?.lastIngestedAt}
-                            />
-                          </div>
                         ) : chat.roleStart ? (
                           // A chat started from a role card: what comes next.
                           <p>
@@ -851,16 +877,28 @@ const ChatViewComp = () => {
                               ? t('asstFileStartHint')
                               : chat.roleStart.kind === 'task' && chat.roleStart.text.trim()
                                 ? t('asstTaskPrefilledHint')
-                                : t('asstNewChatInRole').replace('{role}', (chatRole ?? startPage?.roles.find(r => r.id === startPage.activeRoleId))?.name ?? t('asstAssistant'))}
+                                : t('asstNewChatInRole').replace('{role}', chatRoleName ?? t('asstAssistant'))}
                           </p>
                         ) : (
-                          <>
-                            <h1>{currentKb?.name}</h1>
-                            {/* The KB's own description (Startseite), else the default line. */}
-                            <p>{shownDescription}</p>
-                          </>
+                          // The title block of the assistant settings' Startseite (the
+                          // glow above is its colour; the default one until set up),
+                          // from the first render: the category joins once the start
+                          // page is loaded, so no other title block is swapped out.
+                          <div className="w-full max-w-2xl px-4 text-left">
+                            <TitleCard
+                              // While the start is pending: bars of its own text.
+                              pending={startPending}
+                              title={currentKb?.name ?? ''}
+                              category={startPage?.category ?? null}
+                              role={chat.chatRoleId ? undefined : answersAsAgent ? agentName : startPage ? soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles) : undefined}
+                              roleKind={chatRoleKind}
+                              description={shownDescription}
+                              fileCount={currentKb?.fileCount}
+                              asOf={currentKb?.lastIngestedAt}
+                            />
+                          </div>
                         )}
-                      </motion.div>
+                      </div>
                     </div>
                   ) : (
                     // Remounts when another chat's messages are loaded (transcriptKey),
@@ -924,7 +962,6 @@ const ChatViewComp = () => {
                                     showCitations={sourceRights.seeCitations}
                                     kbId={currentKb?.id}
                                     questionText={questionText}
-                                    resolveAttribution={resolveAttribution}
                                     reasoningOpen={messageSections.isOpen(messageSectionKey(msg), 'reasoning')}
                                     sourcesOpen={messageSections.isOpen(messageSectionKey(msg), 'sources')}
                                     confidenceOpen={messageSections.isOpen(messageSectionKey(msg), 'confidence')}

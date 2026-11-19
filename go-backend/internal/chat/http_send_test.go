@@ -642,3 +642,11 @@ func TestSendMessage_RoleStartsChatInRole(t *testing.T) {
 		t.Errorf("prompt read for %v, want the new chat", store.promptChatIDs)
 	}
 }
+
+func (m *mockStore) GetAllChats(context.Context, string, string, int) ([]ChatListRow, error) {
+	return nil, nil
+}
+
+func (m *mockStore) SetChatPinned(context.Context, string, string, bool, *string) error { return nil }
+
+func (m *mockStore) SetPinnedOrder(context.Context, string, *string, []string) error { return nil }

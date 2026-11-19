@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/pgxutil"
 	"github.com/justrag/go-backend/internal/store"
@@ -129,7 +130,10 @@ func toChatRow(r chatDBRow) ChatRow {
 // chatListDBRow is a chats row plus the list-only has_branches flag.
 type chatListDBRow struct {
 	chatDBRow
-	HasBranches bool `db:"has_branches"`
+	HasBranches bool       `db:"has_branches"`
+	PinnedAt    *time.Time `db:"pinned_at"`
+	PinPosition *int       `db:"pin_position"`
+	SectionID   *string    `db:"section_id"`
 }
 
 func toMessageRow(r messageDBRow) (MessageRow, error) {
@@ -213,7 +217,8 @@ func isJSONNull(raw json.RawMessage) bool {
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
 		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
-		       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id,
+		       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.pinned_at, c.pin_position,
+		       c.section_id::text AS section_id,
 		       EXISTS (
 		           SELECT 1 FROM messages m
 		           WHERE m.chat_id = c.id
@@ -232,6 +237,76 @@ func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow,
 	for i, r := range rows {
 		result[i] = toChatRow(r.chatDBRow)
 		result[i].HasBranches = r.HasBranches
+		result[i].PinnedAt = r.PinnedAt
+		result[i].PinPosition = r.PinPosition
+		result[i].SectionID = r.SectionID
+	}
+	return result, nil
+}
+
+// allChatsDBRow scans a row of GetAllChats.
+type allChatsDBRow struct {
+	chatListDBRow
+	KBName       string `db:"kb_name"`
+	KBVisibility string `db:"kb_visibility"`
+	KBRole       string `db:"kb_role"`
+}
+
+// GetAllChats returns the user's chats across topics, ordered by updated_at
+// DESC: every chat the user keeps at hand (pinned or filed; at most
+// MaxPinnedOrder, the most recently active first), and of the rest the limit
+// most recently active. The cap is on the plain history only, so it never
+// drops a kept chat however many there are or however long ago one was
+// used. A chat is listed only while the user can still
+// open its topic: the join against kbaccess.VisibleKBsCTE drops chats in a
+// topic whose membership was removed or that was unpublished, which the
+// chat's own routes would refuse anyway. Library chats have no topic and are
+// not listed (GET /api/library/chats). has_branches is computed for the
+// capped rows only.
+func (s *PGStore) GetAllChats(ctx context.Context, userID, sysRole string, limit int) ([]ChatListRow, error) {
+	const sql = `
+		WITH ` + kbaccess.VisibleKBsCTE + `,
+		mine AS (
+			SELECT c.id, c.kb_id::text AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
+			       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.pinned_at, c.pin_position,
+			       c.section_id::text AS section_id,
+			       v.name AS kb_name, v.visibility AS kb_visibility, v.role AS kb_role
+			FROM chats c
+			JOIN visible_kbs v ON v.id = c.kb_id
+			WHERE c.user_id = $1::uuid AND v.role IS NOT NULL
+		),
+		recent AS (
+			(SELECT * FROM mine WHERE pinned_at IS NOT NULL ORDER BY updated_at DESC LIMIT $5)
+			UNION ALL
+			(SELECT * FROM mine WHERE pinned_at IS NULL ORDER BY updated_at DESC LIMIT $4)
+		)
+		SELECT r.*,
+		       EXISTS (
+		           SELECT 1 FROM messages m
+		           WHERE m.chat_id = r.id
+		           GROUP BY m.parent_message_id
+		           HAVING count(*) > 1
+		       ) AS has_branches
+		FROM recent r
+		ORDER BY r.updated_at DESC`
+
+	// $3 is the CTE's scoping topic: NULL lists every topic.
+	rows, err := pgxutil.QueryRows[allChatsDBRow](ctx, s.pool, sql, userID, sysRole, nil, limit, MaxPinnedOrder)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllChats: %w", err)
+	}
+	result := make([]ChatListRow, len(rows))
+	for i, r := range rows {
+		result[i] = ChatListRow{
+			ChatRow:      toChatRow(r.chatDBRow),
+			KBName:       r.KBName,
+			KBVisibility: r.KBVisibility,
+			KBRole:       r.KBRole,
+		}
+		result[i].HasBranches = r.HasBranches
+		result[i].PinnedAt = r.PinnedAt
+		result[i].PinPosition = r.PinPosition
+		result[i].SectionID = r.SectionID
 	}
 	return result, nil
 }
@@ -484,6 +559,59 @@ func (s *PGStore) UpdateChatTitle(ctx context.Context, chatID, userID, title str
 	}
 	if ct.RowsAffected() == 0 {
 		return fmt.Errorf("chat %s: %w", chatID, store.ErrNotFound)
+	}
+	return nil
+}
+
+// SetChatPinned keeps a chat at hand for its owner (pinned_at = now, in the
+// section sectionID or, with nil, the built-in "Angepinnt") or lets it go
+// (all three columns NULL), in one statement like UpdateChatTitle. Keeping a
+// chat that is kept already leaves its first pinned_at; it keeps its place
+// only while it stays in the same section, and otherwise lands on top of the
+// new one. The section must be the user's own: checked in the same
+// statement, so a section id of someone else's matches no row.
+// updated_at is left alone: a pin is not activity.
+func (s *PGStore) SetChatPinned(ctx context.Context, chatID, userID string, pinned bool, sectionID *string) error {
+	ct, err := s.pool.Exec(ctx, `
+		UPDATE chats
+		SET pinned_at = CASE WHEN $3 THEN COALESCE(pinned_at, now()) END,
+		    pin_position = CASE WHEN $3 AND section_id IS NOT DISTINCT FROM $4::uuid THEN pin_position END,
+		    section_id = CASE WHEN $3 THEN $4::uuid END
+		WHERE id = $1 AND user_id = $2
+		  AND (NOT $3 OR $4::uuid IS NULL OR EXISTS (
+		        SELECT 1 FROM chat_sections cs WHERE cs.id = $4::uuid AND cs.user_id = $2))`,
+		chatID, userID, pinned, sectionID)
+	if err != nil {
+		return fmt.Errorf("SetChatPinned: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return fmt.Errorf("chat %s: %w", chatID, store.ErrNotFound)
+	}
+	return nil
+}
+
+// SetPinnedOrder writes the user's order of one section's chats (nil: the
+// built-in "Angepinnt") in one statement: every kept chat of the user in
+// that section gets its 1-based place in chatIDs, or NULL when it is not
+// listed. Ids that are not such chats match no row and are ignored; of a
+// repeated id the first place counts. updated_at is left alone, as in
+// SetChatPinned.
+func (s *PGStore) SetPinnedOrder(ctx context.Context, userID string, sectionID *string, chatIDs []string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE chats c
+		SET pin_position = o.ord
+		FROM (
+			SELECT ch.id, min(l.ord)::int AS ord
+			FROM chats ch
+			LEFT JOIN unnest($3::uuid[]) WITH ORDINALITY AS l(id, ord) ON l.id = ch.id
+			WHERE ch.user_id = $1::uuid AND ch.pinned_at IS NOT NULL
+			  AND ch.section_id IS NOT DISTINCT FROM $2::uuid
+			GROUP BY ch.id
+		) o
+		WHERE c.id = o.id`,
+		userID, sectionID, chatIDs)
+	if err != nil {
+		return fmt.Errorf("SetPinnedOrder: %w", err)
 	}
 	return nil
 }

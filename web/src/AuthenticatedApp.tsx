@@ -87,7 +87,7 @@ export default function AuthenticatedApp() {
    * authenticated half only — but no current trigger: the app components
    * `Login` renders are `Footer`, `FieldRow` and `LegalPage` (everything
    * else in it comes from @ki4jlu/design-system), and none of those three,
-   * nor `ReloadPrompt`, imports `contexts/ModalContext` at all. Every
+   * nor `AppUpdateProvider`, imports `contexts/ModalContext` at all. Every
    * `useModalContext()` call site sits inside this authenticated tree —
    * `grep -rn "useModalContext()" src` is the check, and it is a grep and
    * not a number here on purpose, so it cannot go stale. Moving the
