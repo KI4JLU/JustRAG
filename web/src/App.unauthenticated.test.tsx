@@ -166,7 +166,7 @@ describe('App — legal pages on the unauthenticated route', () => {
       .toBeInTheDocument();
 
     await userEvent.click(await screen.findByRole('button', { name: new RegExp(tr('backToHome', 'de')) }));
-    expect(await screen.findByRole('heading', { level: 1, name: tr('welcomeBack', 'de') }))
+    expect(await screen.findByRole('heading', { level: 1, name: tr('loginWelcome', 'de') }))
       .toBeInTheDocument();
   });
 });

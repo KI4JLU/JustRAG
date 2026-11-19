@@ -210,19 +210,19 @@ describe('Login — control census', () => {
     expect(container.querySelectorAll('form')).toHaveLength(1);
     expect(container.querySelectorAll('button[type="submit"]')).toHaveLength(1);
     expect(container.querySelectorAll('h1')).toHaveLength(1);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(translations.welcomeBack.en);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(translations.loginWelcome.en);
   });
 
   it('keeps the language toggle reachable by its accessible name', async () => {
-    // ORACLE: the aria-label strings are literals in the pre-migration source
-    // (lines 182-183 at the claim base) and are unchanged by this card, so the
-    // control is addressable exactly as before even though it moved out of the
-    // card's corner into the template's `footer` slot.
+    // ORACLE: the toggle names the language it switches to, in that language
+    // (the page renders in English here, so it offers German), and carries
+    // that language as `lang` so a screen reader pronounces it correctly.
     mockLocalAuth();
     renderLogin();
     await screen.findByLabelText(USERNAME_LABEL);
 
-    const toggle = screen.getByRole('button', { name: 'Zu Deutsch wechseln' });
+    const toggle = screen.getByRole('button', { name: 'Deutsch' });
+    expect(toggle).toHaveAttribute('lang', 'de');
     fireEvent.click(toggle);
     expect(setLanguage).toHaveBeenCalledWith('de');
   });
@@ -237,7 +237,7 @@ describe('Login — control census', () => {
     });
     const { container } = renderLogin();
 
-    const link = await screen.findByRole('link', { name: /Azure AD/ });
+    const link = await screen.findByRole('link', { name: 'Sign in with JLU account' });
     expect(link.tagName.toLowerCase()).toBe('a');
     expect(link).toHaveAttribute('href', `${API_BASE_URL}/api/auth/oidc/login`);
     expect(container.querySelectorAll('form')).toHaveLength(0);

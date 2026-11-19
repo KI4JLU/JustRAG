@@ -21,8 +21,8 @@ export const translations = {
     copy: { de: 'Kopieren', en: 'Copy' },
 
     // Login
-    welcomeBack: { de: 'Willkommen zurück', en: 'Welcome back' },
-    loginSubtitle: { de: 'Melde dich an, um auf deine Knowledge Base zuzugreifen', en: 'Log in to access your Knowledge Base' },
+    loginWelcome: { de: 'Willkommen', en: 'Welcome' },
+    loginSubtitle: { de: 'Melde dich an, um fortzufahren', en: 'Log in to continue' },
     username: { de: 'Benutzername', en: 'Username' },
     enterUsername: { de: 'Gib deinen Benutzernamen ein', en: 'Enter your username' },
     password: { de: 'Passwort', en: 'Password' },
@@ -1923,7 +1923,7 @@ export const translations = {
     oidcIssuerUrlRequired: { de: 'Issuer-URL ist erforderlich', en: 'Issuer URL is required' },
     oidcClientIdRequired: { de: 'Client-ID ist erforderlich', en: 'Client ID is required' },
     oidcRedirectUriRequired: { de: 'Redirect-URI ist erforderlich', en: 'Redirect URI is required' },
-    loginWithSso: { de: 'Mit Single Sign-On anmelden', en: 'Sign in with Single Sign-On' },
+    loginWithSso: { de: 'Mit {institution}-Account anmelden', en: 'Sign in with {institution} account' },
     oidcLoginFailed: { de: 'Anmeldung über Single Sign-On fehlgeschlagen', en: 'Single Sign-On login failed' },
 
     // Users Tab

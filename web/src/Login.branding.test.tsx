@@ -163,7 +163,7 @@ describe('Login — the OIDC button is the primary action', () => {
     expect(expected).not.toBe(rejected);
 
     renderLogin({});
-    const link = await screen.findByRole('link', { name: /Azure AD/ });
+    const link = await screen.findByRole('link', { name: 'loginWithSso' });
 
     expect(link.className).toBe(expected);
     expect(link.className).not.toBe(rejected);

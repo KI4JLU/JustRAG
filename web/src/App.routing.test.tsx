@@ -417,7 +417,7 @@ describe('App routing — before sign-in', () => {
     // 1. A signed-out visitor opens a topic link and presses the SSO button.
     window.history.replaceState(null, '', KB_URL);
     const first = render(<App />);
-    const sso = await screen.findByRole('link', { name: /Uni-SSO/ });
+    const sso = await screen.findByRole('link', { name: 'Mit JLU-Account anmelden' });
     // The navigation itself is the browser's; only the parking is ours.
     sso.addEventListener('click', (e) => e.preventDefault());
     fireEvent.click(sso);
