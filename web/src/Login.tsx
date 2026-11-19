@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useLocation, useRouter } from '@tanstack/react-router';
-import { KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Alert, AlertDescription, AuthLayout, Button, Spinner, Stack } from '@ki4jlu/design-system';
 import { API_BASE_URL } from './api';
@@ -10,6 +9,8 @@ import { useTheme } from './contexts/ThemeContext';
 import { useFormValidation } from './hooks/useFormValidation';
 import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
 import { AppLogo } from './components/AppLogo';
+import { LanguageFlag } from './components/LanguageFlag';
+import { appNameFrom } from './utils/appName';
 import { Footer } from './components/Footer';
 import { LegalPage } from './components/LegalPage';
 import { FieldRow } from './components/form/FieldRow';
@@ -89,6 +90,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
         return () => { cancelled = true; };
     }, []);
 
+    const appName = appNameFrom(siteConfigs);
+    const otherLanguage = language === 'de' ? 'en' : 'de';
     const oidcProvider = providers.find(p => p.type === 'oidc') ?? null;
     const ldapActive = providers.some(p => p.type === 'ldap');
     const showPasswordForm = isAdminRoute || (authConfigLoaded && (localAuthEnabled || ldapActive));
@@ -212,10 +215,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                 /* The design system's wordmark, built from the configured app
                  * name (utils/appName.ts): real text on the brand tokens, so
                  * it is readable content and scales with the type system.
-                 * There is no uploaded-logo override any more. `size="lg"`
-                 * matches the only other consumer of this slot
-                 * (CampusAgents' LoginPage) rather than being chosen here. */
-                logo={<AppLogo siteConfigs={siteConfigs} size="lg" />}
+                 * There is no uploaded-logo override any more. `xxl` is the
+                 * wordmark's size above an auth card. */
+                logo={<AppLogo siteConfigs={siteConfigs} size="xxl" />}
                 /* CardTitle renders a <div>, so the page's only <h1> has to
                  * come from the call site or be lost outright. `m-0` and
                  * `text-headline-md`/`font-semibold` are not a re-skin: they
@@ -228,25 +230,24 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                  * TODO: raise as a design-system gap — AuthLayout's title
                  * should be a heading, or CardTitle should take `asChild`.
                  * Not yet filed. */
-                title={<h1 className="m-0 text-headline-md font-semibold">{t('welcomeBack')}</h1>}
+                title={<h1 className="m-0 text-headline-md font-semibold">{t('loginWelcome')}</h1>}
                 description={t('loginSubtitle')}
                 footer={
                     <>
-                        {/* Moved out of the card's absolutely-positioned
-                          * top-right corner: the template owns the card, and
-                          * `footer` is its documented slot for muted
-                          * page-level links. The round shape comes from the DS
-                          * `size="icon"` (`p-2 rounded-full`), not from a
-                          * hand-set 44px circle. */}
+                        {/* The toggle shows where it leads: flag and name of
+                          * the other language. That name is the accessible
+                          * name too, and `lang` has a screen reader say it in
+                          * its own language — an `aria-label` would override
+                          * the text and be read in the page's language. */}
                         <Button
                             variant="outline"
-                            size="icon"
+                            size="sm"
                             type="button"
-                            onClick={() => setLanguage(language === 'de' ? 'en' : 'de')}
-                            title={language === 'de' ? "Switch to English" : "Zu Deutsch wechseln"}
-                            aria-label={language === 'de' ? "Switch to English" : "Zu Deutsch wechseln"}
+                            onClick={() => setLanguage(otherLanguage)}
+                            lang={otherLanguage}
                         >
-                            {language.toUpperCase()}
+                            <LanguageFlag language={otherLanguage} />
+                            {otherLanguage === 'de' ? 'Deutsch' : 'English'}
                         </Button>
                         <Footer onNavigate={(page) => navigateTo({ view: page })} />
                     </>
@@ -292,6 +293,11 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                                 <FieldRow
                                     label={t('username')}
                                     type="text"
+                                    name="username"
+                                    autoComplete="username"
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    spellCheck={false}
                                     value={username}
                                     onChange={(e) => { setUsername(e.target.value); clearError('username'); }}
                                     placeholder={t('enterUsername')}
@@ -300,6 +306,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                                 <FieldRow
                                     label={t('password')}
                                     type="password"
+                                    name="password"
+                                    autoComplete="current-password"
                                     value={password}
                                     onChange={(e) => { setPassword(e.target.value); clearError('password'); }}
                                     placeholder="••••••••"
@@ -321,13 +329,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                     {showOidcButton && (
                         /* `asChild` is the DS's documented way to style a link
                          * as a button — the href, and with it the OIDC flow,
-                         * is untouched. */
+                         * is untouched. The label names the institution, not
+                         * the provider: an admin-set provider name („Login
+                         * JLU") is not written for the person signing in. */
                         <Button asChild variant="default" className="w-full">
                             <a
                                 href={`${API_BASE_URL}/api/auth/oidc/login`}
                                 onClick={() => parkPostLoginPath(window.location.pathname + window.location.search)}
                             >
-                                <KeyRound size={18} /> {oidcProvider.name || t('loginWithSso')}
+                                {t('loginWithSso').replace('{institution}', appName.prefix)}
                             </a>
                         </Button>
                     )}

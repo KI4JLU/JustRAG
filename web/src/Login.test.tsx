@@ -46,7 +46,7 @@ describe('Login visibility', () => {
     mockProviders({ providers: [{ id: 'p1', type: 'oidc', name: 'Azure AD' }], localAuthEnabled: false });
     renderLogin();
 
-    expect(await screen.findByText('Azure AD')).toBeInTheDocument();
+    expect(await screen.findByText('loginWithSso')).toBeInTheDocument();
     expect(screen.queryByLabelText('username')).not.toBeInTheDocument();
   });
 
@@ -76,7 +76,7 @@ describe('Login visibility', () => {
     // a new component type per render — see the regression test below.)
     await waitFor(() => expect(mockedGet).toHaveBeenCalled());
     expect(await screen.findByLabelText('username')).toBeInTheDocument();
-    expect(screen.queryByText('Azure AD')).not.toBeInTheDocument();
+    expect(screen.queryByText('loginWithSso')).not.toBeInTheDocument();
   });
 
   it('/admin: keeps the password form mounted across the auth-config commit', async () => {
