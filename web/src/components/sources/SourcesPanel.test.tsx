@@ -55,7 +55,7 @@ describe('SourcesPanel', () => {
     //
     // Der Oracle ist die Zuständigkeit, nicht die Ausgabe dieser Komponente:
     // dass die Spalte rechts hängt und `isRightSidebarOpen` führt, prüft
-    // KbWorkspaceLayout.test.tsx am `rightPanel`-Prop. Hier steht die
+    // AppFrame.workspace.test.tsx am `rightPanel`-Prop. Hier steht die
     // Gegenprobe, dass das Panel selbst nichts davon mitbringt.
     const { container } = render(<SourcesPanel />);
     expect(container.querySelector('aside')).toBeNull();
@@ -69,8 +69,8 @@ describe('SourcesPanel', () => {
     beforeEach(() => { myRole = 'edit'; capabilities = undefined; isGlobal = false; files = [{ id: 'f1', name: 'a.pdf', status: 'error', origin: 'upload' }]; });
 
     // The column's title („Quellen hinzufügen" / „Quellen") is no longer the
-    // panel's: it sits in the column header row KbWorkspaceLayout hands the
-    // shell (KbWorkspaceLayout.test) — the panel brings none of its own.
+    // panel's: it sits in the column header row AppFrame hands the
+    // shell (AppFrame.workspace.test) — the panel brings none of its own.
     it('an editor gets the add-sources grid and retry-all, without a title of its own', () => {
       render(<SourcesPanel />);
       expect(screen.getByTestId('sources-grid')).toBeInTheDocument();

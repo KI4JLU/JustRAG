@@ -111,7 +111,7 @@ describe('useViewState swipe navigation', () => {
   });
 });
 
-// Oracle: without seeSources KbWorkspaceLayout renders only history and chat,
+// Oracle: without seeSources AppFrame renders only history and chat,
 // so the swipe order is exactly those two tabs — no swipe lands on 'files',
 // and one swipe right from chat opens history.
 describe('useViewState swipe without the files tab', () => {

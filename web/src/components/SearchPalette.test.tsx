@@ -2,7 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Input } from '@ki4jlu/design-system';
-import { SearchActionRow, SearchNavRow, SearchPalette, SearchRailButton } from './SearchPalette';
+import { SearchNavRow, SearchPalette } from './SearchPalette';
 import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
 
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
@@ -24,12 +24,8 @@ describe('SearchPalette', () => {
     expect(field()).toBeNull();
   });
 
-  it.each([
-    ['the nav row', <SearchNavRow key="n" />],
-    ['the action row', <SearchActionRow key="a" />],
-    ['the rail button', <SearchRailButton key="r" />],
-  ])('opens from %s, focuses the field, and Escape gives focus back', async (_name, trigger) => {
-    render(<>{trigger}<Palette /></>);
+  it('opens from the nav row, focuses the field, and Escape gives focus back', async () => {
+    render(<><SearchNavRow /><Palette /></>);
     const button = screen.getByRole('button', { name: /searchOpen/ });
     expect(button).toHaveAttribute('aria-haspopup', 'dialog');
     await userEvent.click(button);

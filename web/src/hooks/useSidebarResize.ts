@@ -3,7 +3,9 @@ import { usePersistedWidth } from '@ki4jlu/design-system';
 import { STORAGE_NAMESPACE } from './useStoredFlag';
 
 /* ---------------------------------------------------------------------------
- * The KB screen's two column states: open/closed and width, left and right.
+ * The sources card's state (open/closed, width), and the keys and bounds of
+ * both columns. The left column itself — one for every view — is the app
+ * frame's (AppChrome.tsx): it reads LEFT_SIDEBAR_WIDTH_KEY and the bounds here.
  *
  * WHAT LEFT (2026-09-21). Until the KB screen moved onto the design system's
  * `AppShellLayout`, this hook also ran the drag: `isResizingLeft/Right`, a
@@ -43,31 +45,22 @@ export const LEFT_SIDEBAR_BOUNDS = { min: 150, max: 600 } as const;
 // headroom for other fonts. A stored narrower width is clamped up on read.
 export const RIGHT_SIDEBAR_BOUNDS = { min: 360, max: 800 } as const;
 
-const DEFAULT_SIDEBAR_WIDTH = 296;
+/** The left column's width before the user drags it; the column itself is the app frame's (AppChrome.tsx). */
+export const DEFAULT_LEFT_SIDEBAR_WIDTH = 296;
 const DEFAULT_RIGHT_SIDEBAR_WIDTH = RIGHT_SIDEBAR_BOUNDS.min;
 
 export function useSidebarResize() {
-  const [leftSidebarWidth, setLeftSidebarWidth] = usePersistedWidth(LEFT_SIDEBAR_WIDTH_KEY, {
-    defaultWidth: DEFAULT_SIDEBAR_WIDTH,
-    minWidth: LEFT_SIDEBAR_BOUNDS.min,
-    maxWidth: LEFT_SIDEBAR_BOUNDS.max,
-  });
   const [rightSidebarWidth, setRightSidebarWidth] = usePersistedWidth(RIGHT_SIDEBAR_WIDTH_KEY, {
     defaultWidth: DEFAULT_RIGHT_SIDEBAR_WIDTH,
     minWidth: RIGHT_SIDEBAR_BOUNDS.min,
     maxWidth: RIGHT_SIDEBAR_BOUNDS.max,
   });
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
   return {
-    leftSidebarWidth,
     rightSidebarWidth,
-    isLeftSidebarOpen,
-    setIsLeftSidebarOpen,
     isRightSidebarOpen,
     setIsRightSidebarOpen,
-    setLeftSidebarWidth,
     setRightSidebarWidth,
   };
 }
