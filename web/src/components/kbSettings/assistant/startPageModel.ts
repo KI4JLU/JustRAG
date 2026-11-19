@@ -176,3 +176,6 @@ export function suggestionQuestions(s: (Omit<Suggestions, 'dynamicCount'> & { dy
         ? dynamicQuestions.slice(0, s.dynamicCount)
         : s.fixedQuestions.filter(q => q.trim());
 }
+
+/** The most role cards the start page's skeleton draws; more do not fit a row anyway. */
+export const MAX_SKELETON_CARDS = 6;
