@@ -36,7 +36,7 @@ export function SourcesRail() {
         ...confluenceSources.map(source => ({ kind: 'confluence' as const, source })),
         ...gitRepoSources.map(source => ({ kind: 'git' as const, source })),
     ];
-    // Mounted only with seeSources (KbWorkspaceLayout). The "+" needs
+    // Mounted only with seeSources (AppFrame). The "+" needs
     // addSources; opening and the hover preview need downloadSources (the
     // preview is the downloaded file) — without it an icon is display-only.
     const { addSources: canAdd, downloadSources: canDownload } = useKbSourceRights();

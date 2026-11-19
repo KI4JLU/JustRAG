@@ -2,22 +2,23 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AppShellLayoutProps } from '@ki4jlu/design-system';
-import { KbWorkspaceLayout } from './KbWorkspaceLayout';
+import { AppFrame, type WorkspaceFrame } from './AppChrome';
 
 /* ---------------------------------------------------------------------------
  * What this file can and cannot assert, after the move to `AppShellLayout`.
  *
- * `KbWorkspaceLayout` no longer BUILDS a three-column frame — it hands one to
- * the design system and injects content plus controlled state. So the thing
+ * The subject is `AppFrame` with a topic open (its `workspace` prop). It does
+ * not BUILD a three-column frame — it hands one to the design system and
+ * injects content plus controlled state. So the thing
  * under test is the wiring, and the honest way to read it is to capture what
  * the shell is handed. `AppShellLayout` is therefore replaced by a stub that
  * records its props and renders the three areas unconditionally; everything
  * else in `@ki4jlu/design-system` stays real (`importOriginal`), so `Logo` and
  * `Button` are the shipped components.
  *
- * THE ORACLE IS NOT THIS COMPONENT'S OUTPUT. The left and right sidebar mocks
- * below carry DELIBERATELY DIFFERENT numbers (320 vs 500) and opposite open
- * states, so a wiring that reads the left state into the right column — the
+ * THE ORACLE IS NOT THIS COMPONENT'S OUTPUT. The left column (the frame's own
+ * state) and the sources card (the workspace's) carry DELIBERATELY DIFFERENT
+ * numbers (320 vs 500) and opposite open states, so a wiring that reads the left state into the right column — the
  * mistake this file is here to catch — comes out red rather than plausible.
  * The arrangement itself (which column is where, how it collapses, what the
  * rail looks like) is the design system's own contract and is measured in its
@@ -29,6 +30,7 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
+    usePersistedWidth: () => [320, setLeftSidebarWidth] as const,
     AppShellLayout: (props: AppShellLayoutProps) => {
       shellProps = props;
       return (
@@ -51,7 +53,6 @@ vi.mock('./history/HistoryPanel', () => ({
   HistoryPanel: () => <div data-testid="history-panel" />,
   NewChatButton: () => <div data-testid="new-chat-button" />,
 }));
-vi.mock('./ChatView', () => ({ ChatView: () => <div data-testid="chat-view" /> }));
 // The search reads four contexts of its own; its behaviour is
 // App.authenticated-workspace-search.test.tsx's subject, not this file's.
 vi.mock('./WorkspaceSearch', () => ({ WorkspaceSearch: () => <div data-testid="workspace-search" /> }));
@@ -60,8 +61,34 @@ vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) =
 vi.mock('./HistoryControls', () => ({ HistoryControls: () => null }));
 // Reads the chat context; its own test covers it.
 vi.mock('./DesktopMenuCommands', () => ({ DesktopMenuCommands: () => null }));
-const navigateTo = vi.fn();
-vi.mock('../routing/navigation', () => ({ useAppNavigate: () => navigateTo }));
+// The frame's own dependencies on every view; their subjects are the
+// overview tests (MyTopicsView.test.tsx, GlobalSearch.test.tsx).
+const onViewSharedTopics = vi.fn();
+const onViewDiscover = vi.fn();
+vi.mock('../contexts/AppNavContext', () => ({
+  useAppNav: () => ({
+    onViewMyTopics: vi.fn(), onViewSharedTopics, onViewDiscover, onViewTools: vi.fn(),
+    onOpenTopic: vi.fn(), onOpenSource: vi.fn(), onOpenChat: vi.fn(),
+  }),
+}));
+vi.mock('../contexts/KbSearchContext', () => ({
+  useKbSearch: () => ({
+    query: '', setQuery: vi.fn(), applyCatalogQuery: vi.fn(),
+    focusPendingFor: null, requestFocus: vi.fn(), consumeFocus: vi.fn(),
+  }),
+}));
+vi.mock('../hooks/useAccountSearchGroup', () => ({ useAccountSearchGroup: () => ({ heading: '', items: [] }) }));
+vi.mock('./GlobalSearch', () => ({ GlobalSearch: () => null }));
+vi.mock('./AppUserMenu', () => ({ AppUserMenu: () => null }));
+vi.mock('./SearchPalette', () => ({
+  SearchNavRow: () => null,
+  // Closed at rest, like the real palette: its content is not in the document.
+  SearchPalette: () => null,
+}));
+const onCollapsedChange = vi.fn();
+vi.mock('../hooks/useSidebarCollapse', () => ({
+  useSidebarCollapse: () => ({ collapsed: false, onCollapsedChange }),
+}));
 // What the gear is told about the topic's settings; the diff itself is
 // topicSettingsDiff.test.ts's subject.
 let settingsDiff = { isCustomized: false, changedKeys: [] as string[], labels: [] as string[], count: 0 };
@@ -82,36 +109,31 @@ const handleGoHome = vi.fn();
 let kbView = 'chat';
 const setKbView = vi.fn();
 
-vi.mock('../contexts/KbCoreContext', () => ({
-  useKbCore: () => ({
-    currentKb: { id: 'kb1', name: 'TEST', ...kbExtra },
-    kbView,
-    setKbView,
-    handleGoHome,
-    kbMgmt: { handleRenameKB: vi.fn(), globalKbs: subscribedKbs },
-  }),
-}));
-
-const setIsLeftSidebarOpen = vi.fn();
 const setIsRightSidebarOpen = vi.fn();
 const setLeftSidebarWidth = vi.fn();
 const setRightSidebarWidth = vi.fn();
 const setSystemPromptOpen = vi.fn();
 
-// Links/Rechts bewusst UNTERSCHIEDLICH: eine Verdrahtung, die den linken
-// Zustand in die rechte Spalte schreibt, wird daran rot statt plausibel.
-vi.mock('../contexts/KbLayoutContext', () => ({
-  useKbLayout: () => ({
-    sidebar: {
-      isLeftSidebarOpen: true, isRightSidebarOpen: false,
-      leftSidebarWidth: 320, rightSidebarWidth: 500,
-      setIsLeftSidebarOpen, setIsRightSidebarOpen,
-      setLeftSidebarWidth, setRightSidebarWidth,
-    },
+/** The open topic as AuthenticatedApp hands it over, read at render time from the variables above. */
+const workspaceFor = (mobileTab: 'history' | 'chat' | 'files', setMobileTab: (tab: string) => void): WorkspaceFrame => ({
+  core: {
+    currentKb: { id: 'kb1', name: 'TEST', ...kbExtra },
+    kbView,
+    setKbView,
+    handleGoHome,
+    kbMgmt: { handleRenameKB: vi.fn(), globalKbs: subscribedKbs },
+  },
+  chat: {},
+  data: {},
+  layout: {
+    sidebar: { isRightSidebarOpen: false, rightSidebarWidth: 500, setIsRightSidebarOpen, setRightSidebarWidth },
     systemPromptOpen: false,
     setSystemPromptOpen,
-  }),
-}));
+  },
+  mobileTab,
+  setMobileTab,
+  swipeHandlers: noSwipe,
+} as unknown as WorkspaceFrame);
 
 const noSwipe = { onTouchStart: vi.fn(), onTouchEnd: vi.fn() };
 
@@ -128,12 +150,14 @@ beforeEach(() => {
 
 const renderLayout = (mobileTab: 'history' | 'chat' | 'files' = 'chat', setMobileTab = vi.fn()) => {
   const result = render(
-    <KbWorkspaceLayout mobileTab={mobileTab} setMobileTab={setMobileTab} swipeHandlers={noSwipe} />,
+    <AppFrame active={null} workspace={workspaceFor(mobileTab, setMobileTab)}>
+      <div data-testid="chat-view" />
+    </AppFrame>,
   );
   return { ...result, setMobileTab };
 };
 
-describe('KbWorkspaceLayout — was die Shell bekommt', () => {
+describe('AppFrame, topic open — was die Shell bekommt', () => {
   it('hängt den Verlauf in die Navigationsspalte und den Chat in den Hauptbereich', () => {
     renderLayout();
     expect(screen.getByTestId('shell-nav')).toContainElement(screen.getByTestId('history-panel'));
@@ -142,8 +166,10 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
 
   it('verdrahtet links den linken und rechts den rechten Sidebar-Zustand', () => {
     renderLayout();
-    expect(shellProps.leftOpen).toBe(true);              // isLeftSidebarOpen
-    expect(shellProps.onLeftOpenChange).toBe(setIsLeftSidebarOpen);
+    // Left: the frame's own remembered state, stored as „collapsed".
+    expect(shellProps.leftOpen).toBe(true);
+    shellProps.onLeftOpenChange?.(false);
+    expect(onCollapsedChange).toHaveBeenCalledExactlyOnceWith(true);
     expect(shellProps.rightPanel?.isOpen).toBe(false);   // isRightSidebarOpen, NICHT der linke
     expect(shellProps.rightPanel?.onOpenChange).toBe(setIsRightSidebarOpen);
 
@@ -176,7 +202,7 @@ describe('KbWorkspaceLayout — was die Shell bekommt', () => {
   });
 });
 
-describe('KbWorkspaceLayout — Systemmeldung (KI-936)', () => {
+describe('AppFrame, topic open — Systemmeldung (KI-936)', () => {
   it('gibt der Shell keine Meldung, solange keine eingeschaltet ist', () => {
     renderLayout();
     expect(shellProps.notice).toBeNull();
@@ -199,7 +225,7 @@ describe('KbWorkspaceLayout — Systemmeldung (KI-936)', () => {
   });
 });
 
-describe('KbWorkspaceLayout Quellen-Sichtbarkeit', () => {
+describe('AppFrame, topic open Quellen-Sichtbarkeit', () => {
   it('nimmt die Quellenspalte nie heraus — es gibt keine Workspace-Ansicht mehr (22.09.2026)', () => {
     // Bis zum 22.09.2026 blendete `showRight={false}` die Spalte im Workspace
     // aus. Die Ansicht ist nicht mehr erreichbar (KbViewType = 'chat'), also
@@ -211,7 +237,7 @@ describe('KbWorkspaceLayout Quellen-Sichtbarkeit', () => {
   });
 });
 
-describe('KbWorkspaceLayout Reiter-Ableitung', () => {
+describe('AppFrame, topic open Reiter-Ableitung', () => {
   it('zieht kbView beim Wechsel auf „chat" mit', async () => {
     const setMobileTab = vi.fn();
     renderLayout('chat', setMobileTab);
@@ -231,7 +257,7 @@ describe('KbWorkspaceLayout Reiter-Ableitung', () => {
   });
 });
 
-describe('KbWorkspaceLayout Chrome-Leiste', () => {
+describe('AppFrame, topic open Chrome-Leiste', () => {
   it('trägt den Pfad „Bereich / Thema" — der Bereich als Weg zurück, das Thema als aktuelle Seite', () => {
     renderLayout();
     render(<div data-testid="page-label">{shellProps.pageLabel}</div>);
@@ -330,7 +356,8 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     render(<div>{shellProps.pageLabel}</div>);
     await userEvent.click(screen.getByRole('link', { name: 'myTopics' }));
     expect(handleGoHome).toHaveBeenCalledTimes(1);
-    expect(navigateTo).not.toHaveBeenCalled();
+    expect(onViewSharedTopics).not.toHaveBeenCalled();
+    expect(onViewDiscover).not.toHaveBeenCalled();
   });
 
   // ORACLE: the three overviews a topic is listed in — own, shared with me,
@@ -348,7 +375,10 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
     renderLayout();
     render(<div>{shellProps.pageLabel}</div>);
     await userEvent.click(screen.getByRole('link', { name: label }));
-    expect(navigateTo).toHaveBeenCalledExactlyOnceWith({ view });
+    const jump = view === 'discover' ? onViewDiscover : onViewSharedTopics;
+    const other = view === 'discover' ? onViewSharedTopics : onViewDiscover;
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(other).not.toHaveBeenCalled();
     expect(setKbView).toHaveBeenCalledWith('chat');
     expect(handleGoHome).not.toHaveBeenCalled();
   });
@@ -358,7 +388,7 @@ describe('KbWorkspaceLayout Chrome-Leiste', () => {
 // source right (add, download and manage all require it), so without it the
 // sources card has nothing usable to show. The UI rule: no card and no mobile
 // tab; the card's toggle stays in its place, locked, and says why.
-describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
+describe('AppFrame, topic open — the sources column follows seeSources', () => {
   const caps = (seeSources: boolean) => ({
     seeSources, addSources: false, downloadSources: false, seeCitations: true, manageSources: false,
   });
@@ -408,7 +438,7 @@ describe('KbWorkspaceLayout — the sources column follows seeSources', () => {
   });
 });
 
-describe('KbWorkspaceLayout — files dragged into the window bring the sources up', () => {
+describe('AppFrame, topic open — files dragged into the window bring the sources up', () => {
   const dragFilesIn = () => {
     const event = new Event('dragenter', { bubbles: true });
     Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'] } });

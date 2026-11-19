@@ -1,5 +1,4 @@
-import { useState, lazy, Suspense, useCallback, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { useState, lazy, Suspense, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { BreadcrumbBack } from '@ki4jlu/design-system';
 import type { KnowledgeBase, GeneratedContent } from './types';
@@ -7,13 +6,14 @@ import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
 import { useToast } from './contexts/ToastContext';
-import { KbCoreProvider, type KbCoreContextValue } from './contexts/KbCoreContext';
-import { KbChatProvider, type KbChatContextValue } from './contexts/KbChatContext';
-import { KbDataProvider, type KbDataContextValue } from './contexts/KbDataContext';
-import { KbLayoutProvider, type KbLayoutContextValue } from './contexts/KbLayoutContext';
+import type { KbCoreContextValue } from './contexts/KbCoreContext';
+import type { KbChatContextValue } from './contexts/KbChatContext';
+import type { KbDataContextValue } from './contexts/KbDataContext';
+import type { KbLayoutContextValue } from './contexts/KbLayoutContext';
 import { AppNavProvider, type AppNavContextValue } from './contexts/AppNavContext';
 import { KbSearchProvider } from './contexts/KbSearchContext';
-import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
+import { ChatHistoryStore, type ChatHistoryHost } from './components/history/ChatHistoryStore';
+import { topicSection } from './utils/topicSection';
 
 // Hooks
 import { useSidebarResize } from './hooks/useSidebarResize';
@@ -44,7 +44,8 @@ import { MyTopicsView } from './components/MyTopicsView';
 import { SharedTopicsView } from './components/SharedTopicsView';
 import { DiscoverView } from './components/DiscoverView';
 import { ToolsView } from './components/ToolsView';
-import { KbWorkspaceLayout } from './components/KbWorkspaceLayout';
+import { AppFrame, WorkspaceProviders, type AppChromeView, type WorkspaceFrame } from './components/AppChrome';
+import { ChatView } from './components/ChatView';
 import { KbWorkspaceModals } from './components/KbWorkspaceModals';
 
 // Lazy load heavy components
@@ -115,7 +116,6 @@ function AuthenticatedAppInner() {
   const { user, token, updateUser: onUpdateUser, siteConfigs } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
-  const reducedMotion = useReducedMotion();
 
   // The URL names the view (routing/routes.ts); `navigateTo` changes it.
   const route = useAppRoute();
@@ -149,7 +149,7 @@ function AuthenticatedAppInner() {
   const kbSettings = useKbSettings();
   const viewState = useViewState({
     navigateTo, setKbView, setShowSettings: kbSettings.setShowSettings,
-    // The swipe follows the tabs KbWorkspaceLayout renders (no 'files'
+    // The swipe follows the tabs AppFrame renders (no 'files'
     // without seeSources).
     showFilesTab: kbSourceRights(currentKb, user?.role, user?.id).seeSources,
   });
@@ -504,234 +504,218 @@ function AuthenticatedAppInner() {
     );
   }
 
-  /* „Geteilte Knowledge Bases" (KI-783) — a top-level view, not a section.
-   *
-   * It is mounted inside THE SAME providers as the overview, and that is
-   * load-bearing rather than symmetric-looking: `AppChrome` calls
-   * `useAppNav()` and `useKbSearch()`, both of which THROW without a
-   * provider. `App.authenticated-home.test.tsx` is the route-level guard that
-   * exists because exactly this kind of omission once stayed green in both
-   * component suites; `App.authenticated-shared-kbs.test.tsx` is its twin for
-   * this branch.
-   * `Footer` stays, so the legal pages remain reachable. */
+  /* The overview pages and the topic workspace share ONE shell (`AppFrame`),
+   * returned from this one place, so the sidebar stays mounted when the main
+   * area changes. Everything below builds what goes into it. */
+  const workspaceKb = onWorkspace ? routeKb : null;
+  let workspace: WorkspaceFrame | null = null;
+  if (workspaceKb) {
+  const coreValue: KbCoreContextValue = {
+      currentKb: workspaceKb,
+      isPro: kbSettings.isPro,
+      availableConfigs: kbSettings.availableConfigs,
+      kbView,
+      setKbView,
+      kbMgmt,
+      handleGoHome: viewState.handleGoHome,
+      handleViewHome: viewState.handleViewHome,
+      onViewAgents: () => navigateTo({ view: 'agents' }),
+      handleUpdateKBSettings,
+    };
+
+    const chatValue: KbChatContextValue = {
+      chat,
+      enhance: kbSettings.enhance,
+      setEnhance: kbSettings.setEnhance,
+      reasoningEnabled: kbSettings.reasoningEnabled,
+      setReasoningEnabled: kbSettings.setReasoningEnabled,
+      webSearchEnabled: kbSettings.webSearchEnabled,
+      setWebSearchEnabled: kbSettings.setWebSearchEnabled,
+      reasoningLevel: kbSettings.reasoningLevel,
+      setReasoningLevel: kbSettings.setReasoningLevel,
+      showSettings: kbSettings.showSettings,
+      setShowSettings: kbSettings.setShowSettings,
+      researchRunning: kbSettings.researchRunning,
+      academicResearchRunning: kbSettings.academicResearchRunning,
+      setResearchRunning: kbSettings.setResearchRunning,
+      setAcademicResearchRunning: kbSettings.setAcademicResearchRunning,
+      agentSelection: kbSettings.agentSelection,
+      setAgentSelection: kbSettings.setAgentSelection,
+    };
+
+    const dataValue: KbDataContextValue = {
+      fileMgmt,
+      webTools,
+      content,
+      rssFeeds,
+      rssLoading,
+      fetchRssFeeds,
+      addRssFeed,
+      updateRssFeed,
+      deleteRssFeeds,
+      pollFeedNow,
+      pollingFeedIds,
+      confluenceSources: confluenceHook.confluenceSources,
+      confluenceConnection: confluenceHook.confluenceConnection,
+      confluenceLoading: confluenceHook.confluenceLoading,
+      fetchConfluenceSources: confluenceHook.fetchSources,
+      fetchConfluenceConnectionInfo: confluenceHook.fetchConnectionInfo,
+      saveConfluenceConnection: confluenceHook.saveConnection,
+      addConfluenceSource: confluenceHook.addSource,
+      updateConfluenceSource: confluenceHook.updateSource,
+      deleteConfluenceSources: confluenceHook.deleteSources,
+      syncConfluenceNow: confluenceHook.syncNow,
+      fetchConfluenceSpaces: confluenceHook.fetchSpaces,
+      fetchConfluenceSpacePages: confluenceHook.fetchSpacePages,
+      fetchConfluencePageChildren: confluenceHook.fetchPageChildren,
+      fetchConfluenceAllSpacePages: confluenceHook.fetchAllSpacePages,
+      gitRepoSources: gitRepoHook.gitRepoSources,
+      gitRepoLoading: gitRepoHook.gitRepoLoading,
+      fetchGitRepoSources: gitRepoHook.fetchGitRepoSources,
+      addGitRepoSource: gitRepoHook.addGitRepoSource,
+      updateGitRepoSource: gitRepoHook.updateGitRepoSource,
+      deleteGitRepoSources: gitRepoHook.deleteGitRepoSources,
+      syncGitRepoNow: gitRepoHook.syncGitRepoNow,
+      handleSelectContent,
+    };
+
+    const layoutValue: KbLayoutContextValue = {
+      sidebar,
+      systemPromptOpen: topicSettings.open,
+      setSystemPromptOpen: topicSettings.setOpen,
+      systemPromptSection: topicSettings.section,
+      setSystemPromptSection: topicSettings.setSection,
+    };
+
+    workspace = {
+      core: coreValue, chat: chatValue, data: dataValue, layout: layoutValue,
+      mobileTab: viewState.mobileTab,
+      setMobileTab: viewState.setMobileTab,
+      swipeHandlers: viewState.swipeHandlers,
+    };
+  }
+
+  /* The sidebar's chat history: every topic's chats in one list, on every
+   * view. A chat of the open topic is selected in place; any other is opened
+   * by its URL, which brings its topic along (useChatRoute). */
+  const { handleSelectChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
+  const subscribedIds = new Set(kbMgmt.globalKbs.map(kb => kb.id));
+  const chatHistory: ChatHistoryHost = {
+    activeChatId: workspace ? chat.activeChatId : null,
+    openTopicId: workspace ? workspace.core.currentKb.id : null,
+    sectionOf: (c) => topicSection({
+      isPublic: c.kbVisibility === 'public',
+      isOwner: c.kbRole === 'owner',
+      isSubscribed: subscribedIds.has(c.kbId),
+    }),
+    openChat: (c) => {
+      if (workspace && c.kbId === workspace.core.currentKb.id) {
+        // The chat already on screen is not loaded again: that would replace
+        // the local state of a running answer.
+        if (c.id !== chat.activeChatId) void handleSelectChat(c);
+        setKbView('chat');
+        return;
+      }
+      navigateTo({ view: 'chat', chatId: c.id });
+    },
+    deleteChats: handleDeleteChats,
+    renameChat: handleRenameChat,
+    newChat: workspace ? handleNewChat : null,
+    newTopic: () => { void kbMgmt.handleCreateKB(); },
+    generating: workspace ? content.generating : false,
+    generatingMessage: workspace ? content.podcastProgress?.message : undefined,
+  };
+
+  let active: AppChromeView | null = null;
+  let main: ReactNode;
   if (view === 'tools') {
-    /* THE SAME TWO PROVIDERS AS EVERY OTHER VIEW, even though the page itself
-       renders no search target (it was a placeholder when this was written).
- 
-       They are not the VIEW's dependencies, they are `AppChrome`'s: the shell
-       reads `useKbSearch` for the top-bar field and `useAppNav` for its nav
-       rows, on every page that wraps itself in it. Shipping
-       this branch with `AppNavProvider` alone threw
-       „useKbSearch must be used within KbSearchProvider" the moment the row was
-       clicked — the placeholder had nothing to do with it. Any future view that
-       renders `AppChrome` needs both. */
-    return (
-      <AppNavProvider value={appNav}>
-      <KbSearchProvider value={kbSearch}>
-        {/* Owned + shared (`kbs`) and subscribed public topics (`globalKbs`):
-            generated content is view-gated, so every one of them is a valid
-            target for the text-documents tool. The two lists are disjoint
-            (GET /api/kb returns private topics only); the id filter is a guard,
-            not a known case. */}
-        <ToolsView topics={uniqueById([...kbMgmt.kbs, ...kbMgmt.globalKbs])} />
-      </KbSearchProvider>
-      </AppNavProvider>
+    active = 'tools';
+    /* Owned + shared (`kbs`) and subscribed public topics (`globalKbs`):
+       generated content is view-gated, so every one of them is a valid
+       target for the text-documents tool. The two lists are disjoint
+       (GET /api/kb returns private topics only); the id filter is a guard,
+       not a known case. */
+    main = <ToolsView topics={uniqueById([...kbMgmt.kbs, ...kbMgmt.globalKbs])} />;
+  } else if (view === 'discover') {
+    active = 'discover';
+    main = (
+      <DiscoverView
+        onSubscriptionChange={() => { kbMgmt.fetchKBs(); }}
+        onOpenKbById={kbMgmt.handleOpenKbById}
+      />
     );
-  }
-
-  if (view === 'discover') {
-    return (
-      <AppNavProvider value={appNav}>
-      <KbSearchProvider value={kbSearch}>
-      <motion.div
-        key="discover"
-        {...getMotionProps(reducedMotion)}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2 }}
-      >
-        <DiscoverView
-          onSubscriptionChange={() => { kbMgmt.fetchKBs(); }}
-          onOpenKbById={kbMgmt.handleOpenKbById}
-        />
-      </motion.div>
-      </KbSearchProvider>
-      </AppNavProvider>
+  } else if (view === 'shared-topics') {
+    active = 'shared-topics';
+    main = (
+      <SharedTopicsView
+        kbs={kbMgmt.kbs}
+        globalKbs={kbMgmt.globalKbs}
+        loading={kbMgmt.kbsStatus === 'loading'}
+        loadFailed={kbMgmt.kbsStatus === 'failed'}
+        onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
+        onSelectKB={kbMgmt.handleSelectKB}
+        onDeleteKB={kbMgmt.handleDeleteKB}
+        removingKb={kbMgmt.removingKb}
+        onRenameKB={kbMgmt.handleRenameKB}
+        onToggleFavorite={kbMgmt.handleToggleFavorite}
+      />
     );
-  }
-
-  if (view === 'shared-topics') {
-    return (
-      <AppNavProvider value={appNav}>
-      <KbSearchProvider value={kbSearch}>
-      <motion.div
-        key="shared-topics"
-        {...getMotionProps(reducedMotion)}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2 }}
-      >
-        <SharedTopicsView
-          kbs={kbMgmt.kbs}
-          globalKbs={kbMgmt.globalKbs}
-          loading={kbMgmt.kbsStatus === 'loading'}
-          loadFailed={kbMgmt.kbsStatus === 'failed'}
-          onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
-          onSelectKB={kbMgmt.handleSelectKB}
-          onDeleteKB={kbMgmt.handleDeleteKB}
-          removingKb={kbMgmt.removingKb}
-          onRenameKB={kbMgmt.handleRenameKB}
-          onToggleFavorite={kbMgmt.handleToggleFavorite}
-        />
-      </motion.div>
-      </KbSearchProvider>
-      </AppNavProvider>
+  } else if (view === 'my-topics') {
+    active = 'my-topics';
+    main = (
+      <MyTopicsView
+        kbs={kbMgmt.kbs}
+        loading={kbMgmt.kbsStatus === 'loading'}
+        loadFailed={kbMgmt.kbsStatus === 'failed'}
+        onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
+        currentKb={currentKb}
+        availableConfigs={kbSettings.availableConfigs}
+        onCreateKB={kbMgmt.handleCreateKB}
+        onSelectKB={kbMgmt.handleSelectKB}
+        onDeleteKB={kbMgmt.handleDeleteKB}
+        removingKb={kbMgmt.removingKb}
+        onRenameKB={kbMgmt.handleRenameKB}
+        onToggleFavorite={kbMgmt.handleToggleFavorite}
+        onUpdateKBSettings={handleUpdateKBSettings}
+        showSettings={kbSettings.showSettings}
+        setShowSettings={kbSettings.setShowSettings}
+      />
     );
-  }
-
-  if (view === 'my-topics') {
-    // The two overview contexts.
-    return (
-      <AppNavProvider value={appNav}>
-      <KbSearchProvider value={kbSearch}>
-      <motion.div
-        key="my-topics"
-        {...getMotionProps(reducedMotion)}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2 }}
-      >
-        <MyTopicsView
-          kbs={kbMgmt.kbs}
-          loading={kbMgmt.kbsStatus === 'loading'}
-          loadFailed={kbMgmt.kbsStatus === 'failed'}
-          onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
-          currentKb={currentKb}
-          availableConfigs={kbSettings.availableConfigs}
-          onCreateKB={kbMgmt.handleCreateKB}
-          onSelectKB={kbMgmt.handleSelectKB}
-          onDeleteKB={kbMgmt.handleDeleteKB}
-          removingKb={kbMgmt.removingKb}
-          onRenameKB={kbMgmt.handleRenameKB}
-          onToggleFavorite={kbMgmt.handleToggleFavorite}
-          onUpdateKBSettings={handleUpdateKBSettings}
-          showSettings={kbSettings.showSettings}
-          setShowSettings={kbSettings.setShowSettings}
-        />
-      </motion.div>
-      </KbSearchProvider>
-      </AppNavProvider>
-    );
-  }
-
-  // What is left is the topic workspace. Any other view that got here (the
-  // profile before `user` exists) and a topic URL whose topic is still
-  // loading show the spinner.
-  if (!onWorkspace || !routeKb) {
-    return (
+  } else if (workspace) {
+    main = <ChatView />;
+  } else {
+    // A topic URL whose topic is still loading, or any other view that got
+    // here (the profile before `user` exists): the spinner, in the main area.
+    main = (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
         <Loader2 className="animate-spin" size={32} color="var(--accent-primary)" />
       </div>
     );
   }
 
-  const coreValue: KbCoreContextValue = {
-    currentKb: routeKb,
-    isPro: kbSettings.isPro,
-    availableConfigs: kbSettings.availableConfigs,
-    kbView,
-    setKbView,
-    kbMgmt,
-    handleGoHome: viewState.handleGoHome,
-    handleViewHome: viewState.handleViewHome,
-    onViewAgents: () => navigateTo({ view: 'agents' }),
-    handleUpdateKBSettings,
-  };
-
-  const chatValue: KbChatContextValue = {
-    chat,
-    enhance: kbSettings.enhance,
-    setEnhance: kbSettings.setEnhance,
-    reasoningEnabled: kbSettings.reasoningEnabled,
-    setReasoningEnabled: kbSettings.setReasoningEnabled,
-    webSearchEnabled: kbSettings.webSearchEnabled,
-    setWebSearchEnabled: kbSettings.setWebSearchEnabled,
-    reasoningLevel: kbSettings.reasoningLevel,
-    setReasoningLevel: kbSettings.setReasoningLevel,
-    showSettings: kbSettings.showSettings,
-    setShowSettings: kbSettings.setShowSettings,
-    researchRunning: kbSettings.researchRunning,
-    academicResearchRunning: kbSettings.academicResearchRunning,
-    setResearchRunning: kbSettings.setResearchRunning,
-    setAcademicResearchRunning: kbSettings.setAcademicResearchRunning,
-    agentSelection: kbSettings.agentSelection,
-    setAgentSelection: kbSettings.setAgentSelection,
-  };
-
-  const dataValue: KbDataContextValue = {
-    fileMgmt,
-    webTools,
-    content,
-    rssFeeds,
-    rssLoading,
-    fetchRssFeeds,
-    addRssFeed,
-    updateRssFeed,
-    deleteRssFeeds,
-    pollFeedNow,
-    pollingFeedIds,
-    confluenceSources: confluenceHook.confluenceSources,
-    confluenceConnection: confluenceHook.confluenceConnection,
-    confluenceLoading: confluenceHook.confluenceLoading,
-    fetchConfluenceSources: confluenceHook.fetchSources,
-    fetchConfluenceConnectionInfo: confluenceHook.fetchConnectionInfo,
-    saveConfluenceConnection: confluenceHook.saveConnection,
-    addConfluenceSource: confluenceHook.addSource,
-    updateConfluenceSource: confluenceHook.updateSource,
-    deleteConfluenceSources: confluenceHook.deleteSources,
-    syncConfluenceNow: confluenceHook.syncNow,
-    fetchConfluenceSpaces: confluenceHook.fetchSpaces,
-    fetchConfluenceSpacePages: confluenceHook.fetchSpacePages,
-    fetchConfluencePageChildren: confluenceHook.fetchPageChildren,
-    fetchConfluenceAllSpacePages: confluenceHook.fetchAllSpacePages,
-    gitRepoSources: gitRepoHook.gitRepoSources,
-    gitRepoLoading: gitRepoHook.gitRepoLoading,
-    fetchGitRepoSources: gitRepoHook.fetchGitRepoSources,
-    addGitRepoSource: gitRepoHook.addGitRepoSource,
-    updateGitRepoSource: gitRepoHook.updateGitRepoSource,
-    deleteGitRepoSources: gitRepoHook.deleteGitRepoSources,
-    syncGitRepoNow: gitRepoHook.syncGitRepoNow,
-    handleSelectContent,
-  };
-
-  const layoutValue: KbLayoutContextValue = {
-    sidebar,
-    systemPromptOpen: topicSettings.open,
-    setSystemPromptOpen: topicSettings.setOpen,
-    systemPromptSection: topicSettings.section,
-    setSystemPromptSection: topicSettings.setSection,
-  };
-
   return (
-    // Nav for the sidebar's user menu (AppUserMenu: profile, admin), as on every page.
+    /* `AppFrame` reads both contexts on every view: `useAppNav` for its nav
+       rows and user menu, `useKbSearch` for the search palette. */
     <AppNavProvider value={appNav}>
-    <KbCoreProvider value={coreValue}>
-      <KbChatProvider value={chatValue}>
-        <KbDataProvider value={dataValue}>
-          <KbLayoutProvider value={layoutValue}>
-            <div>
-              <a href="#chat-message-input" className="skip-link">{t('skipToChat')}</a>
-              <KbWorkspaceLayout
-                mobileTab={viewState.mobileTab}
-                setMobileTab={viewState.setMobileTab}
-                swipeHandlers={viewState.swipeHandlers}
-              />
-              <KbWorkspaceModals />
-            </div>
-          </KbLayoutProvider>
-        </KbDataProvider>
-      </KbChatProvider>
-    </KbCoreProvider>
+      <KbSearchProvider value={kbSearch}>
+        {/* Every topic's chats, for the sidebar history; read again when the
+            view or the open topic changes, and when the open topic's own list does. */}
+        <ChatHistoryStore
+          host={chatHistory}
+          liveChats={chat.chats}
+          currentKb={currentKb}
+          refreshKey={`${view}:${currentKb?.id ?? ''}:${chat.chats.length}`}
+        >
+          <AppFrame active={active} workspace={workspace}>
+            {main}
+          </AppFrame>
+        </ChatHistoryStore>
+        {workspace && (
+          <WorkspaceProviders value={workspace}>
+            <KbWorkspaceModals />
+          </WorkspaceProviders>
+        )}
+      </KbSearchProvider>
     </AppNavProvider>
   );
 }

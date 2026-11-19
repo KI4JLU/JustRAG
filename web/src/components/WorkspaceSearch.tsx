@@ -33,7 +33,7 @@ import { useKbSourceRights } from '../hooks/useKbSourceRights';
  *
  * `WorkspaceSearchField` is the part with no context reads, so the geometry
  * story can render the exact markup the bar gets. It sits in the bar's
- * centred `search` slot (KI-844; `KbWorkspaceLayout.tsx`).
+ * centred `search` slot (KI-844; `AppChrome.tsx`).
  * ------------------------------------------------------------------------- */
 
 export interface WorkspaceSearchFieldProps {

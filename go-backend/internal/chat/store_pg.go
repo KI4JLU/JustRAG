@@ -594,8 +594,9 @@ func (s *PGStore) SetChatPinned(ctx context.Context, chatID, userID string, pinn
 // built-in "Angepinnt") in one statement: every kept chat of the user in
 // that section gets its 1-based place in chatIDs, or NULL when it is not
 // listed. Ids that are not such chats match no row and are ignored; of a
-// repeated id the first place counts. updated_at is left alone, as in
-// SetChatPinned.
+// repeated id the first place counts. A chat whose place does not change is
+// not written: a drag moves a few rows, not the section. updated_at is left
+// alone, as in SetChatPinned.
 func (s *PGStore) SetPinnedOrder(ctx context.Context, userID string, sectionID *string, chatIDs []string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE chats c
@@ -608,7 +609,7 @@ func (s *PGStore) SetPinnedOrder(ctx context.Context, userID string, sectionID *
 			  AND ch.section_id IS NOT DISTINCT FROM $2::uuid
 			GROUP BY ch.id
 		) o
-		WHERE c.id = o.id`,
+		WHERE c.id = o.id AND c.pin_position IS DISTINCT FROM o.ord`,
 		userID, sectionID, chatIDs)
 	if err != nil {
 		return fmt.Errorf("SetPinnedOrder: %w", err)

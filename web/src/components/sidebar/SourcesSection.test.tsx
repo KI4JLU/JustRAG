@@ -159,7 +159,7 @@ describe('SourcesSection error display + retry', () => {
 
   it('no longer carries the section heading or the bulk retry button', () => {
     // Both moved into the right column's h-16 header row, which the shell
-    // renders and `KbWorkspaceLayout` fills — see SourcesHeader.test.tsx.
+    // renders and `AppFrame` fills — see SourcesHeader.test.tsx.
     // Asserted here rather than only there because a SECOND copy left behind
     // in the scrolling list is exactly what this move must not produce, and
     // nothing in SourcesHeader's own test can see it.

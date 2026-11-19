@@ -60,7 +60,7 @@ const SourcesPanelComp: React.FC = () => {
 
     // What the caller may do with the sources (backend capabilities, see
     // kbSourceRights). A control they cannot use is not rendered at all. The
-    // panel itself is mounted only with seeSources (KbWorkspaceLayout).
+    // panel itself is mounted only with seeSources (AppFrame).
     //  - addSources: the add grid, the upload dropzone, the window drag. The
     //    backend's add routes take a global KB like any other (only its file
     //    limit differs), so the KB kind is no extra condition.

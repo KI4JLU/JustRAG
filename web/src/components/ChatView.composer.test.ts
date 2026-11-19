@@ -31,7 +31,7 @@ describe('ChatView-Composer', () => {
 // Der Zurückknopf saß bis 2026-08 in der Quellenleiste, dann in ChatViews
 // eigener `chat-header`. Diese Kopfleiste gibt es nicht mehr: seit der Umzug
 // auf `AppShellLayout` die Chrome-Leiste der Shell zur einzigen macht, steht
-// der Knopf in `KbWorkspaceLayout.tsx` und wird als `pageLabel` eingehängt.
+// der Knopf in `AppChrome.tsx` (dem einen Rahmen aller Ansichten) und wird als `pageLabel` eingehängt.
 // Der Wächter zieht mit ihm um — bliebe er auf ChatView.tsx stehen, wäre er
 // ab sofort dauerhaft rot, ohne dass am Knopf etwas fehlt.
 //
@@ -43,7 +43,7 @@ const sourcesPanel = readFileSync(
   'utf8',
 );
 const workspaceLayout = readFileSync(
-  path.join(here, 'KbWorkspaceLayout.tsx'),
+  path.join(here, 'AppChrome.tsx'),
   'utf8',
 );
 
@@ -54,7 +54,7 @@ describe('Zurück-Knopf in der KB-Kopfleiste', () => {
     // handleViewHome — sonst bleibt kbView auf dem zuletzt gewählten Reiter
     // stehen und die KB öffnet sich beim nächsten Mal nicht im Chat).
     expect(workspaceLayout).toContain('<BreadcrumbPage');
-    expect(workspaceLayout).toContain('handleGoHome()');
+    expect(workspaceLayout).toContain('core.handleGoHome()');
     expect(workspaceLayout).not.toContain('ArrowLeft');
     expect(workspaceLayout).not.toContain("t('backToOverview')");
     // Eine Sicht, ein Knopf: die alte Form war ein Ternär — Mobil Zurück ODER
@@ -64,7 +64,7 @@ describe('Zurück-Knopf in der KB-Kopfleiste', () => {
     // die Fallunterscheidung Desktop/Mobil gehört seit dem Umzug der Shell.
     expect(workspaceLayout).not.toContain('isMobile');
     // Vakuum-Schutz für DIESE Datei: sie wird wirklich gelesen.
-    expect(workspaceLayout).toContain('export function KbWorkspaceLayout');
+    expect(workspaceLayout).toContain('export function AppFrame');
   });
 
   it('ist aus ChatViews eigener Kopfleiste verschwunden', () => {

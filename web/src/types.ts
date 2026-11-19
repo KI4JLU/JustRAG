@@ -593,9 +593,33 @@ export interface ChatEntry {
      *  question): the chat it was copied from, which may have been deleted
      *  since. Absent on an ordinary chat. */
     branchedFromChatId?: string | null;
+    /** The chat lists only: when the user pinned the chat in the history;
+     *  absent for a chat that is not pinned. */
+    pinnedAt?: string | null;
+    /** The chat lists only: a pinned chat's place in the user's own order
+     *  (1 = first); absent for one pinned since the order was last saved. */
+    pinPosition?: number | null;
+    /** The chat lists only: the user's section a kept chat is filed in;
+     *  absent for one in the built-in „Angepinnt" and for a chat not kept. */
+    sectionId?: string | null;
     /** The chat list only: the chat forks INSIDE itself — versions from
      *  before branching opened a new chat. Absent means false. */
     hasBranches?: boolean;
+}
+
+/** One of the user's own sections of the chat history (GET /api/chat-sections). */
+export interface ChatSection {
+    id: string;
+    name: string;
+    createdAt: string;
+}
+
+/** A row of GET /api/chats: a chat with the topic it belongs to, as the caller sees it now. */
+export interface ChatListEntry extends ChatEntry {
+    kbName: string;
+    kbVisibility: 'private' | 'public';
+    /** The caller's effective role on the topic. */
+    kbRole: 'view' | 'edit' | 'admin' | 'owner';
 }
 
 export interface FlashcardItem {

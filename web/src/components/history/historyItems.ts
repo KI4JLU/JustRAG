@@ -7,6 +7,8 @@ export interface HistoryItem {
   kind: HistoryKind;
   title: string;
   createdAt: string;
+  /** Last activity: a chat's `updatedAt`, else the creation date. */
+  updatedAt: string;
   /** Nur bei kind === 'artifact': der Artefakttyp für Icon und Label. */
   artifactType?: GeneratedContent['type'];
   /** Nur bei Chats: der Chat ist ein Zweig eines anderen, oder er verzweigt
@@ -40,6 +42,7 @@ export function buildHistoryItems(input: {
       kind: chatKind((c as { type?: string }).type),
       title: c.title,
       createdAt: c.createdAt,
+      updatedAt: c.updatedAt ?? c.createdAt,
       branched: !!c.branchedFromChatId || c.hasBranches === true,
       source: c,
     })),
@@ -48,6 +51,7 @@ export function buildHistoryItems(input: {
       kind: 'artifact' as const,
       title: g.title,
       createdAt: g.createdAt,
+      updatedAt: g.createdAt,
       artifactType: g.type,
       source: g,
     })),

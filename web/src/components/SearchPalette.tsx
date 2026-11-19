@@ -1,12 +1,12 @@
 import { useEffect, type ReactNode } from 'react';
 import {
-  Dialog, DialogContent, DialogTitle, NavItem, SidebarAction, SidebarRailItem,
+  Dialog, DialogContent, DialogTitle, NavItem,
 } from '@ki4jlu/design-system';
 import { Search } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { ShortcutHint } from './ShortcutHint';
 import { restoreSearchPaletteFocus, setSearchPaletteOpen, useSearchPaletteOpen } from '../hooks/useSearchPalette';
-import { IS_APPLE, SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
+import { SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
 
 /**
  * The search as a palette: a dialog near the top of the window that is the
@@ -55,7 +55,7 @@ export function SearchPalette({ children }: { children: ReactNode }) {
 
 const openPalette = () => setSearchPaletteOpen(true);
 
-/** „Suchen" as a row of a nav column (the overview's sidebar); icon-only in the rail. */
+/** „Suchen" as a row of the sidebar's primary navigation; icon-only in the rail. */
 export function SearchNavRow() {
   const { t } = useTheme();
   return (
@@ -64,33 +64,5 @@ export function SearchNavRow() {
       <span>{t('searchOpen')}</span>
       <ShortcutHint letter="K" />
     </NavItem>
-  );
-}
-
-/** „Suchen" as an action row of a side panel's head (the topic view's history column). */
-export function SearchActionRow() {
-  const { t } = useTheme();
-  return (
-    <SidebarAction
-      type="button"
-      icon={<Search />}
-      trailing={<ShortcutHint letter="K" />}
-      aria-keyshortcuts={SEARCH_KEYSHORTCUT}
-      aria-haspopup="dialog"
-      onClick={openPalette}
-    >
-      {t('searchOpen')}
-    </SidebarAction>
-  );
-}
-
-/** „Suchen" in a collapsed rail. */
-export function SearchRailButton() {
-  const { t } = useTheme();
-  const label = `${t('searchOpen')} (${IS_APPLE ? '⌘K' : `${t('kbdCtrl')} K`})`;
-  return (
-    <SidebarRailItem onClick={openPalette} title={label} aria-label={t('searchOpen')} aria-keyshortcuts={SEARCH_KEYSHORTCUT} aria-haspopup="dialog">
-      <Search aria-hidden="true" />
-    </SidebarRailItem>
   );
 }

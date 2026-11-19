@@ -8,7 +8,7 @@
 }
 
 /* Die rechte Leiste trägt keinen eigenen Rand: den zeichnet das
-   Resize-Handle in KbWorkspaceLayout (borderLeft), sonst stünden dort zwei
+   Resize-Handle in AppFrame (borderLeft), sonst stünden dort zwei
    1px-Linien nebeneinander. Doppelklasse statt einfacher Klasse, damit die
    Regel `.sidebar` in index.css:280 sicher schlägt und nicht bloß über die
    Reihenfolge der Stylesheet-Importe gewinnt. */

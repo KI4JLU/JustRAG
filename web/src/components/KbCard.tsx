@@ -1,7 +1,10 @@
 import {
   Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Users, Lock, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
-import { ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, ScrollingText, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem } from '@ki4jlu/design-system';
+import {
+  ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, ScrollingText,
+  SortableItemHandle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem,
+} from '@ki4jlu/design-system';
 import { visibilityState } from '../utils/kbVisibility';
 import type { KnowledgeBase } from '../types';
 import type { Language } from '../translations';
@@ -10,7 +13,6 @@ import { CategoryPill } from './CategoryPill';
 import { categoryDotColor } from './kbSettings/assistant/startPageModel';
 import { canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
 import { useFittingLineClamp } from '../hooks/useFittingLineClamp';
-import { SortableHandle } from './SortableGrid';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
@@ -399,7 +401,7 @@ export function PrivateKbCard({
             positioned, so it takes no grid cell. Shown on hover and to the
             keyboard, as on the card. Without hover (touch) it is invisible,
             so it lets taps through to the row: a long press on the row drags. */}
-        <SortableHandle
+        <SortableItemHandle
           vertical
           label={`${t('kbMoveCard')}: ${kb.name}`}
           className="absolute top-1/2 left-1 z-10 h-8 w-4 -translate-y-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-row:opacity-100 [@media(hover:none)]:pointer-events-none"
@@ -429,7 +431,7 @@ export function PrivateKbCard({
           no room from the title. Only inside a sortable grid; shown on hover
           and to the keyboard. Without hover it lets taps through to the card,
           where a long press drags. */}
-      <SortableHandle
+      <SortableItemHandle
         label={`${t('kbMoveCard')}: ${kb.name}`}
         className="absolute top-0.5 left-1/2 z-10 h-5 w-9 -translate-x-1/2 cursor-grab rounded-[var(--ui-radius-control)] text-on-surface-variant opacity-0 transition-opacity focus-visible:opacity-100 group-hover/kb-card:opacity-100 [@media(hover:none)]:pointer-events-none"
       />

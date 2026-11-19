@@ -120,6 +120,13 @@ function routeGets() {
       return Promise.resolve({ data: [chatEntry('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsfragen'), chatEntry('88888888-8888-4888-8888-888888888888', '11111111-1111-4111-8111-111111111111', 'Modulwahl')] });
     }
     if (u.endsWith('/api/kb/22222222-2222-4222-8222-222222222222/chats')) return Promise.resolve({ data: [chatEntry('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik-Grundlagen')] });
+    // The sidebar history: the caller's chats across topics.
+    if (u.endsWith('/api/chats')) {
+      return Promise.resolve({ data: [
+        { ...chatEntry('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsfragen'), kbName: 'Prüfungsordnungen', kbVisibility: 'private', kbRole: 'owner' },
+        { ...chatEntry('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik-Grundlagen'), kbName: 'Statistik', kbVisibility: 'private', kbRole: 'view' },
+      ] });
+    }
     // A chat hit is re-read through GET /api/chats/{id} (its sticky team/agent).
     const one = u.match(/\/api\/chats\/([0-9a-f-]{36})$/);
     if (one) {
@@ -321,4 +328,54 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     expect(toasts!.textContent).toBe('');
     expect(document.activeElement).toBe(field);
   }, 30000);
+});
+
+/* The overview pages and a topic share one shell: opening a topic and leaving
+ * it again changes the main area, not the sidebar.
+ *
+ * ORACLE: DOM node identity. React keeps a DOM node exactly as long as the
+ * component instance that rendered it; a shell that was unmounted and mounted
+ * again renders a NEW `<nav>` element, however alike the two look. */
+describe('App — one shell for the overview and a topic', () => {
+  const sidebarNav = () => screen.getByRole('navigation', { name: translations.mainNavigation.de });
+
+  it('keeps the sidebar mounted from the overview into a topic and back', async () => {
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
+    const before = sidebarNav();
+
+    await openPalette();
+    await userEvent.type(await screen.findByRole('combobox', { name: translations.globalSearchPlaceholder.de }), 'Prüf');
+    await userEvent.click(await screen.findByRole('option', { name: /Prüfungsfragen/ }, { timeout: 2000 }));
+    await screen.findByText(MESSAGES['77777777-7777-4777-8777-777777777777'][1], {}, { timeout: 5000 });
+
+    // In the topic: the same column, now with the primary navigation above the topic's chats.
+    expect(sidebarNav()).toBe(before);
+    const inTopic = within(sidebarNav());
+    expect(inTopic.getByRole('button', { name: translations.sharedTopics.de })).toBeInTheDocument();
+    expect(inTopic.getByRole('button', { name: translations.newChat.de })).toBeInTheDocument();
+
+    await userEvent.click(inTopic.getByRole('button', { name: translations.sharedTopics.de }));
+    await screen.findByRole('heading', { level: 1, name: translations.sharedTopics.de });
+    expect(sidebarNav()).toBe(before);
+    // „Neuer Chat" belongs to a topic: „Neues Thema" takes its place. The history stays.
+    expect(within(sidebarNav()).queryByRole('button', { name: translations.newChat.de })).toBeNull();
+    expect(within(sidebarNav()).getByRole('button', { name: translations.newTopic.de })).toBeInTheDocument();
+    expect(within(sidebarNav()).getByText('Statistik-Grundlagen')).toBeInTheDocument();
+  });
+
+  // ORACLE: the request fixtures — GET /api/chats lists chats of two topics,
+  // and each chat's messages appear in exactly one response.
+  it('lists every topic\'s chats on the overview and opens one in its topic', async () => {
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
+    const history = within(sidebarNav());
+    expect(await history.findByText('Prüfungsfragen')).toBeInTheDocument();
+    expect(history.getByText('Statistik-Grundlagen')).toBeInTheDocument();
+
+    await userEvent.click(history.getByText('Statistik-Grundlagen'));
+
+    expect(await screen.findByText(MESSAGES['99999999-9999-4999-8999-999999999999'][1], {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(window.location.pathname).toMatch(/^\/c\//);
+  });
 });
