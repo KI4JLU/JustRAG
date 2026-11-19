@@ -3,6 +3,7 @@ import type { KbCategory } from '../../../types';
 import type { StartPage } from './api';
 import type { RoleView } from './roleModel';
 import { StartGlow, TitleCard } from './StartPageParts';
+import { soleRoleName } from './startPageModel';
 import { StartView } from './StartView';
 
 /**
@@ -33,7 +34,7 @@ export function RoleChatMock({
             <div data-slot="chat-stage" className="chat-column flex min-h-0 min-w-0 flex-1 flex-col">
                 <div data-slot="chat-stage-content" className="flex min-w-0 flex-col pt-12">
                     <div className="mx-auto flex w-full max-w-2xl flex-col px-4 py-6">
-                        <TitleCard title={kbTitle} category={category} description={description} fileCount={fileCount} asOf={asOf} />
+                        <TitleCard title={kbTitle} category={category} role={soleRoleName(page, activeRoleId, roles)} description={description} fileCount={fileCount} asOf={asOf} />
                     </div>
                 </div>
                 <div data-slot="chat-stage-composer" className="w-full shrink-0">

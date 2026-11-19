@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { ArrowUp, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import {
-    Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
+    Badge, Button, Card, CardBand, CardHairline, Carousel, CarouselContent, CarouselDots, CarouselItem,
     FileDropzone, cn, useCarousel, useCarouselSlides,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -60,12 +60,14 @@ export function TitleCardMeta({ fileCount, asOf, leading = true }: { fileCount?:
     );
 }
 
-/** The title block as members see it, centred: title, category and meta line, description. */
+/** The title block as members see it, centred: title, category and meta line, description, then the role. */
 export function TitleCard({
-    title, category, description, fileCount, asOf, action,
+    title, category, role, description, fileCount, asOf, action,
 }: {
     title: string;
     category: KbCategory | null;
+    /** The one role the KB offers (`soleRoleName`), as the chat's role badge under the description. */
+    role?: string;
     description: string;
     fileCount?: number;
     asOf?: string;
@@ -84,6 +86,11 @@ export function TitleCard({
                 <TitleCardMeta fileCount={fileCount} asOf={asOf} leading={!!category} />
             </p>
             {description && <p className="m-0 mt-3 text-center text-sm leading-6 text-on-surface-variant">{description}</p>}
+            {role && (
+                <p className="m-0 mt-4 flex justify-center">
+                    <Badge tone="primary">{t('asstRoleBadge').replace('{role}', role)}</Badge>
+                </p>
+            )}
         </TitleCardFrame>
     );
 }

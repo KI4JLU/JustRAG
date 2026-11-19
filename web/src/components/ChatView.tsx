@@ -24,7 +24,7 @@ import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUplo
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
 import { RoleStartCards, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
-import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
+import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
@@ -314,7 +314,10 @@ const ChatViewComp = () => {
     autoSendNowRef.current = message;
     (document.getElementById('chat-composer') as HTMLFormElement | null)?.requestSubmit?.();
   }, [composerFileCount, composerUploadStates, composerReadiness]);
-  const chatRole = chat.chatRoleId ? startPage?.roles.find(r => r.id === chat.chatRoleId) : undefined;
+  // The role the chat answers in: the one it was started in, else the KB's
+  // active role — none of the KB's where an agent or a team answers.
+  const answersAsAgent = !!(agentSelection.teamId || agentSelection.agentId);
+  const chatRole = startPage?.roles.find(r => r.id === (chat.chatRoleId ?? (answersAsAgent ? undefined : startPage.activeRoleId)));
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
@@ -774,8 +777,9 @@ const ChatViewComp = () => {
                   {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
                     <StartGlow category={startPage.category} />
                   )}
-                  {(chat.chatRoleId || (chat.roleStart && chat.messages.length === 0)) && (
-                    // The role this chat was started in — for the whole chat, also when reopened from the history.
+                  {(chat.chatRoleId || chat.roleStart || (chat.messages.length > 0 && chatRole)) && startPage && (
+                    // The chat's role — for the whole chat, also when reopened from the history.
+                    // The start page itself names it in its title block (a single role) or on its cards.
                     <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
                       {chat.roleStart && chat.messages.length === 0 && (
                         <Button variant="ghost" size="sm" onClick={chat.handleNewChat}>
@@ -784,7 +788,7 @@ const ChatViewComp = () => {
                       )}
                       {chatRole ? (
                         <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRole.name)}</Badge>
-                      ) : chat.chatRoleId && startPage ? (
+                      ) : chat.chatRoleId ? (
                         <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
                       ) : null}
                     </div>
@@ -839,6 +843,7 @@ const ChatViewComp = () => {
                             <TitleCard
                               title={currentKb?.name ?? ''}
                               category={startPage.category}
+                              role={chat.chatRoleId || answersAsAgent ? undefined : soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles)}
                               description={shownDescription}
                               fileCount={currentKb?.fileCount}
                               asOf={currentKb?.lastIngestedAt}
@@ -851,7 +856,7 @@ const ChatViewComp = () => {
                               ? t('asstFileStartHint')
                               : chat.roleStart.kind === 'task' && chat.roleStart.text.trim()
                                 ? t('asstTaskPrefilledHint')
-                                : t('asstNewChatInRole').replace('{role}', (chatRole ?? startPage?.roles.find(r => r.id === startPage.activeRoleId))?.name ?? t('asstAssistant'))}
+                                : t('asstNewChatInRole').replace('{role}', chatRole?.name ?? t('asstAssistant'))}
                           </p>
                         ) : (
                           <>

@@ -8,7 +8,7 @@ import { ChatStartEditor } from './ChatStartEditor';
 import { RoleChatPreview } from './RoleChatPreview';
 import { allRoles } from './roleModel';
 import { StartGlow, TitleCard } from './StartPageParts';
-import { chatStartIncomplete, pageQuestions } from './startPageModel';
+import { chatStartIncomplete, pageQuestions, soleRoleName } from './startPageModel';
 import { StartView } from './StartView';
 import { TitleCardEditor } from './TitleCardEditor';
 import { useAssistantSettings } from './useAssistantSettings';
@@ -143,6 +143,7 @@ export function StartPageSection() {
                                         <TitleCard
                                             title={draft.title}
                                             category={category}
+                                            role={soleRoleName(page, activeRoleId, roles)}
                                             description={draft.description ?? t('kbHeaderDefault')}
                                             fileCount={kb.fileCount}
                                             asOf={kb.lastIngestedAt}
