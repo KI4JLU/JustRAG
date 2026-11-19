@@ -133,8 +133,7 @@ func (s *PGSectionStore) Rename(ctx context.Context, sectionID, userID, name str
 // SetOrder writes the user's order of their sections in one statement: each
 // of their sections gets its 1-based place in sectionIDs, or NULL when it is
 // not listed. Ids that are not the user's sections match no row and are
-// ignored; of a repeated id the first place counts. A section whose place
-// does not change is not written.
+// ignored; of a repeated id the first place counts.
 func (s *PGSectionStore) SetOrder(ctx context.Context, userID string, sectionIDs []string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE chat_sections cs
@@ -146,7 +145,7 @@ func (s *PGSectionStore) SetOrder(ctx context.Context, userID string, sectionIDs
 			WHERE own.user_id = $1::uuid
 			GROUP BY own.id
 		) o
-		WHERE cs.id = o.id AND cs.position IS DISTINCT FROM o.ord`,
+		WHERE cs.id = o.id`,
 		userID, sectionIDs)
 	if err != nil {
 		return fmt.Errorf("order chat sections: %w", err)
