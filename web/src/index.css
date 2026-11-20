@@ -1445,49 +1445,6 @@ button.source-card {
   transform: translateY(0);
 }
 
-.dropzone {
-  border: 2px dashed var(--border-color);
-  border-radius: var(--shape-lg);
-  padding: 3rem 2rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  text-align: center;
-  transition: border-color 0.2s, background 0.2s;
-  cursor: pointer;
-  min-height: 200px;
-}
-
-.dropzone:hover {
-  border-color: var(--accent-primary);
-  background: var(--tag-bg);
-}
-
-.dropzone.dragging {
-  border-color: var(--accent-primary);
-  background: var(--tag-bg);
-  border-style: solid;
-}
-
-.dropzone-icon {
-  width: 48px;
-  height: 48px;
-  color: var(--accent-primary);
-}
-
-.dropzone-text {
-  color: var(--text-primary);
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.dropzone-subtext {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-}
-
 
 /* Skip Navigation Link - Accessibility */
 .skip-link {

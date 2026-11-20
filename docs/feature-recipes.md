@@ -36,7 +36,7 @@ Migration **0043**. Composable with `chat_plan_execute_tool_aware`. KB chat mode
 ## Per-user long-term memory + Self-RAG
 
 ```
-chat_longmem_enabled               = true        # GDPR "My Memory" drawer ships (see note below)
+chat_longmem_enabled               = true        # memory API: see note below
 chat_longmem_min_salience          = 0.5         # filter low-salience extractor output
 chat_longmem_recall_top_k          = 5           # facts prepended per turn
 chat_longmem_decay_days            = 30          # half-life of the recency component
@@ -50,7 +50,7 @@ chat_plan_execute_dag_iterative    = true        # inter-level critic; needs cha
 chat_plan_execute_dag_iterative_model = <small>  # critic LLM override
 ```
 
-Migration **0045**. "My Memory" drawer (per-entry delete + bulk clear + JSON export per GDPR Art. 20) ships in `Profile.tsx` regardless of `chat_longmem_enabled`, backed by `/api/user/memory` via the `internal/memory` handler.
+Migration **0045**. A user's memory is read, deleted per entry, cleared and exported as JSON (GDPR Art. 20) through `/api/user/memory` (`internal/memory`), regardless of `chat_longmem_enabled`. The web app has no screen for it.
 
 **T1-2 dim — ops sequence after embedder change:** the `user_memory.embedding` column is re-widened by `migrate.EnsureUserMemoryEmbedding` at `cmd/migrate` + worker startup (**not** server startup; DROP INDEX → ALTER → CREATE INDEX; halfvec for 2000–4000 dims, no HNSW index above 4000 — mirrors `vector/schema.go`). Run `cmd/migrate` (or restart the worker) → trigger `POST /api/admin/reembed-user-memory` (the ALTER discards old vectors) → only then enable `chat_longmem_recall_semantic` + `_conflict_resolution`.
 

@@ -173,7 +173,6 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
       user={args.user}
       token="story-token"
       logout={idle()}
-      updateUser={idle()}
       siteConfigs={args.siteConfigs}
     >
       <ModalProvider>

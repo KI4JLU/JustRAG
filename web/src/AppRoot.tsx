@@ -321,11 +321,6 @@ export function AppRoot() {
     localStorage.setItem('user', JSON.stringify(newUser));
   };
 
-  const handleUpdateUser = (updatedUser: UserType) => {
-    applyUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-  };
-
   return (
     <ErrorBoundary>
       <ThemeProvider>
@@ -385,7 +380,6 @@ export function AppRoot() {
                   token={token}
                   siteConfigs={siteConfigs}
                   logout={handleLogout}
-                  updateUser={handleUpdateUser}
                 >
                   <ErrorBoundary>
                     <AuthenticatedApp />

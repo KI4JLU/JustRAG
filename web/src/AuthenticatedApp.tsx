@@ -58,7 +58,6 @@ import { chatWebSearchRequestField } from './utils/chatWebSearch';
 import { kbSourceRights } from './utils/kbAccess';
 
 // Lazy Loaded Components
-const Profile = lazy(() => import('./Profile'));
 const AgentsView = lazy(() => import('./components/agents/AgentsView'));
 
 const LoadingFallback = () => (
@@ -106,7 +105,7 @@ function AuthenticatedAppInner() {
   // to carry the resolved value or the container would silently stop matching
   // `[data-theme="dark"]` for every OS-following user.
   const { resolvedTheme, t } = useTheme();
-  const { user, token, updateUser: onUpdateUser, siteConfigs } = useAuth();
+  const { user, token, siteConfigs } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
 
@@ -454,18 +453,6 @@ function AuthenticatedAppInner() {
     );
   }
 
-  if (view === 'profile' && user) {
-    return (
-      <div className="app-container" data-theme={resolvedTheme}>
-        <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
-          <Suspense fallback={<LoadingFallback />}>
-            <Profile user={user} onBack={goHome} onUpdateUser={onUpdateUser} />
-          </Suspense>
-        </div>
-      </div>
-    );
-  }
-
   if (view === 'terms' || view === 'privacy' || view === 'accessibility') {
     return <LegalPage page={view} onBack={goHome} siteConfigs={siteConfigs} />;
   }
@@ -644,8 +631,7 @@ function AuthenticatedAppInner() {
   } else if (workspace) {
     main = <ChatView />;
   } else {
-    // A topic URL whose topic is still loading, or any other view that got
-    // here (the profile before `user` exists): the spinner, in the main area.
+    // A topic URL whose topic is still loading: the spinner, in the main area.
     main = (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
         <Loader2 className="animate-spin" size={32} color="var(--accent-primary)" />

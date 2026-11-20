@@ -11,7 +11,6 @@ describe('routeFromMatch', () => {
     expect(routeFromMatch({ routeId: '/', params: {} })).toEqual({ view: 'my-topics' });
     expect(routeFromMatch({ routeId: '/shared', params: {} })).toEqual({ view: 'shared-topics' });
     expect(routeFromMatch({ routeId: '/discover', params: {} })).toEqual({ view: 'discover' });
-    expect(routeFromMatch({ routeId: '/profile', params: {} })).toEqual({ view: 'profile' });
     expect(routeFromMatch({ routeId: '/privacy', params: {} })).toEqual({ view: 'privacy' });
   });
 

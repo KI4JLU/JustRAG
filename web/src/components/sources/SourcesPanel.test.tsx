@@ -13,7 +13,6 @@ vi.mock('../sidebar/CrawlModal', () => ({ CrawlModal: () => null }));
 vi.mock('../sidebar/RssModal', () => ({ RssModal: () => null }));
 vi.mock('../sidebar/ConfluenceModal', () => ({ ConfluenceModal: () => null }));
 vi.mock('../sidebar/GitRepoModal', () => ({ GitRepoModal: () => null }));
-vi.mock('../sidebar/FileUploadModal', () => ({ FileUploadModal: () => null }));
 vi.mock('../sidebar/TextSourceModal', () => ({ TextSourceModal: () => null }));
 vi.mock('../../contexts/MobileContext', () => ({ useIsMobileContext: () => false }));
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
@@ -39,7 +38,7 @@ vi.mock('../../contexts/KbCoreContext', () => ({
 }));
 vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
-    fileMgmt: { files, filesLoaded: true, retryAllFailed: vi.fn(), fileInputRef: { current: null }, showUploadModal: false, setShowUploadModal: vi.fn(), handleToggleFilesSelection, deleteFiles },
+    fileMgmt: { files, filesLoaded: true, retryAllFailed: vi.fn(), fileInputRef: { current: null }, handleToggleFilesSelection, deleteFiles },
     webTools: { setToolTab: vi.fn(), searchResults: [], crawlResults: [], sourcesAddedCount: 0, setShowWebWorkspace: vi.fn() },
     rssFeeds, deleteRssFeeds, confluenceSources, deleteConfluenceSources, gitRepoSources, deleteGitRepoSources,
   }),

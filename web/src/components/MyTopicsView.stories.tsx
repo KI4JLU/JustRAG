@@ -219,7 +219,6 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
       user={args.user}
       token="story-token"
       logout={args.onLogout}
-      updateUser={idle()}
       siteConfigs={args.siteConfigs}
     >
       <ModalProvider>

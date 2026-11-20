@@ -751,7 +751,6 @@ export const translations = {
 
     // Upload Modal
     dropFilesHere: { de: 'Dateien hier ablegen', en: 'Drop files here' },
-    orClickToUpload: { de: 'oder klicken zum Hochladen', en: 'or click to upload' },
     insertText: { de: 'Text einfügen', en: 'Insert Text' },
     textTitle: { de: 'Titel', en: 'Title' },
     textContent: { de: 'Inhalt', en: 'Content' },
@@ -1461,8 +1460,6 @@ export const translations = {
     gitFiles: { de: 'Dateien', en: 'files' },
 
     // Profile
-    myProfile: { de: 'Mein Profil', en: 'My Profile' },
-    profileSubtitle: { de: 'Verwalte deine persönlichen Einstellungen', en: 'Manage your personal settings' },
     ldapNotice: { de: 'Dein Profil wird zentral über LDAP verwaltet. Änderungen können nur dort vorgenommen werden.', en: 'Your profile is managed centrally via LDAP. Changes can only be made there.' },
     firstName: { de: 'Vorname', en: 'First name' },
     lastName: { de: 'Nachname', en: 'Last name' },
@@ -3059,29 +3056,6 @@ export const translations = {
     },
 
     // My Memory (GDPR)
-    myMemory: { de: 'Mein Gedächtnis', en: 'My Memory' },
-    myMemoryDescription: {
-        de: 'Dauerhafte Fakten, die der Assistent über dich gespeichert hat. Du kannst einzelne Einträge löschen, alles entfernen oder als JSON exportieren.',
-        en: 'Durable facts the assistant has stored about you. You can delete individual entries, clear everything, or export as JSON.',
-    },
-    memoryNone: { de: 'Keine gespeicherten Erinnerungen.', en: 'No stored memories.' },
-    memoryLoadError: { de: 'Erinnerungen konnten nicht geladen werden.', en: 'Failed to load memories.' },
-    memoryDeleteError: { de: 'Erinnerung konnte nicht gelöscht werden.', en: 'Failed to delete memory.' },
-    memoryDeleteConfirm: { de: 'Diese Erinnerung löschen?', en: 'Delete this memory?' },
-    memoryClearAll: { de: 'Alle löschen', en: 'Clear all' },
-    memoryClearAllConfirm: {
-        de: 'Wirklich ALLE gespeicherten Erinnerungen löschen? Das kann nicht rückgängig gemacht werden.',
-        en: 'Really delete ALL stored memories? This cannot be undone.',
-    },
-    memoryExport: { de: 'Als JSON exportieren', en: 'Export as JSON' },
-    memoryColumnKind: { de: 'Art', en: 'Kind' },
-    memoryColumnContent: { de: 'Inhalt', en: 'Content' },
-    memoryColumnScope: { de: 'Bereich', en: 'Scope' },
-    memoryColumnCreated: { de: 'Erstellt', en: 'Created' },
-    memoryScopeGlobal: { de: 'Global', en: 'Global' },
-    memoryKindSemantic: { de: 'Identität', en: 'Identity' },
-    memoryKindProcedural: { de: 'Arbeitsweise', en: 'Workflow' },
-    memoryKindEpisodic: { de: 'Ereignis', en: 'Recent' },
     // My Agents (user-created agents & teams)
     myAgents: { de: 'Meine Agenten', en: 'My Agents' },
     agentsTabAgents: { de: 'Agenten', en: 'Agents' },

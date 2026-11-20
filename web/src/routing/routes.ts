@@ -31,7 +31,6 @@ function buildRouteTree(rootComponent: RouteComponent) {
   const discover = createRoute({ getParentRoute: () => rootRoute, path: '/discover' });
   const agents = createRoute({ getParentRoute: () => rootRoute, path: '/agents' });
   const agentTeams = createRoute({ getParentRoute: () => rootRoute, path: '/agents/teams' });
-  const profile = createRoute({ getParentRoute: () => rootRoute, path: '/profile' });
   const terms = createRoute({ getParentRoute: () => rootRoute, path: '/terms' });
   const privacy = createRoute({ getParentRoute: () => rootRoute, path: '/privacy' });
   const accessibility = createRoute({ getParentRoute: () => rootRoute, path: '/accessibility' });
@@ -42,7 +41,7 @@ function buildRouteTree(rootComponent: RouteComponent) {
   const chat = createRoute({ getParentRoute: () => rootRoute, path: '/c/$chatId' });
 
   return rootRoute.addChildren([
-    myTopics, sharedTopics, discover, agents, agentTeams, profile, terms, privacy, accessibility,
+    myTopics, sharedTopics, discover, agents, agentTeams, terms, privacy, accessibility,
     globalKbSettings, kb, chat,
   ]);
 }

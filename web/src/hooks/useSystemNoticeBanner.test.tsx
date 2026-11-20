@@ -38,7 +38,7 @@ const USER = { id: 'u1', username: 'jamie', role: 'user' } as User;
 function renderBanner(siteConfigs: Record<string, string>) {
   const tree = (configs: Record<string, string>) => (
     <ThemeProvider>
-      <AuthProvider user={USER} token="t" logout={() => {}} updateUser={() => {}} siteConfigs={configs}>
+      <AuthProvider user={USER} token="t" logout={() => {}} siteConfigs={configs}>
         <Banner />
       </AuthProvider>
     </ThemeProvider>

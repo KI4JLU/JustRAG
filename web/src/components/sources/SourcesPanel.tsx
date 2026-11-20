@@ -16,7 +16,6 @@ import { SourcesGrid } from '../sidebar/SourcesGrid';
 import type { SourceType } from '../sidebar/SourcesGrid';
 import { CrawlModal } from '../sidebar/CrawlModal';
 import { RssModal } from '../sidebar/RssModal';
-import { FileUploadModal } from '../sidebar/FileUploadModal';
 import { TextSourceModal } from '../sidebar/TextSourceModal';
 import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
@@ -43,10 +42,9 @@ const SourcesPanelComp: React.FC = () => {
         handleToggleFilesSelection,
         handleDownloadFile, handleDeleteFile, deleteFiles, handleFileUpload,
         retryFile,
-        isDragging, textSourceTitle, setTextSourceTitle,
+        textSourceTitle, setTextSourceTitle,
         textSourceContent, setTextSourceContent,
-        handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd, uploadFiles,
-        showUploadModal, setShowUploadModal,
+        handleTextSourceAdd, uploadFiles,
     } = fileMgmt;
 
     const {
@@ -385,16 +383,6 @@ const SourcesPanelComp: React.FC = () => {
                 onClose={closeSourceModal}
                 loading={gitRepoLoading}
                 onAdd={addGitRepoSource}
-            />
-            <FileUploadModal
-                show={showUploadModal}
-                onClose={() => setShowUploadModal(false)}
-                fileInputRef={fileInputRef}
-                onDragOver={handleDragOver}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                isDragging={isDragging}
             />
             <TextSourceModal
                 show={activeSourceModal === 'text'}
