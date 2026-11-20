@@ -232,7 +232,6 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
             onViewMyTopics: idle(),
             onViewSharedTopics: args.onViewSharedKbs,
             onViewDiscover: idle(),
-            onViewTools: idle(),
             onViewProfile: args.onViewProfile,
             onEditGlobalKb: idle(),
             onViewLegal: idle(),

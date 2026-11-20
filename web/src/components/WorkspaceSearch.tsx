@@ -88,7 +88,7 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
 );
 
 export function WorkspaceSearch() {
-  const { currentKb, setKbView } = useKbCore();
+  const { currentKb } = useKbCore();
   const { chat } = useKbChat();
   const { webTools } = useKbData();
   const appNav = useAppNav();
@@ -123,8 +123,7 @@ export function WorkspaceSearch() {
     // Same rule as HistoryPanel.openItem: the chat already on screen is not
     // reloaded (a reload rebuilds the tree under a running answer).
     if (entry.id !== activeChatId) void handleSelectChat(entry);
-    setKbView('chat');
-  }, [kbId, appNav, chats, activeChatId, handleSelectChat, setKbView]);
+  }, [kbId, appNav, chats, activeChatId, handleSelectChat]);
 
   /* The empty field offers a new chat, the topic's three most recent
      conversations — the same entries, opened the same way, as the history
@@ -141,7 +140,7 @@ export function WorkspaceSearch() {
           id: 'new-chat',
           label: t('newChat'),
           icon: <MessageSquarePlus aria-hidden="true" />,
-          onSelect: () => { handleNewChat(); setKbView('chat'); },
+          onSelect: handleNewChat,
         }],
       },
       {
@@ -152,13 +151,12 @@ export function WorkspaceSearch() {
           icon: <MessageSquare aria-hidden="true" />,
           onSelect: () => {
             if (entry.id !== activeChatId) void handleSelectChat(entry);
-            setKbView('chat');
           },
         })),
       },
       accountSearchGroup,
     ];
-  }, [chats, activeChatId, handleSelectChat, handleNewChat, setKbView, t, accountSearchGroup]);
+  }, [chats, activeChatId, handleSelectChat, handleNewChat, t, accountSearchGroup]);
 
   return (
     <WorkspaceSearchField

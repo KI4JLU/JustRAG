@@ -26,7 +26,7 @@ import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
     const { t } = useTheme();
-    const { currentKb, setKbView } = useKbCore();
+    const { currentKb } = useKbCore();
     const { showConfirm } = useModalContext();
     const {
         fileMgmt, webTools,
@@ -129,7 +129,7 @@ const SourcesPanelComp: React.FC = () => {
             setToolTab(type);
         }
         setActiveSourceModal(type);
-    }, [setKbView, fileInputRef, setToolTab]);
+    }, [fileInputRef, setToolTab]);
 
     const closeSourceModal = useCallback(() => setActiveSourceModal(null), []);
 

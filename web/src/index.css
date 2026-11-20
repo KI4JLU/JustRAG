@@ -1242,18 +1242,6 @@ button.source-card {
   padding-bottom: 0.25rem;
 }
 
-@keyframes reasoning-cursor-blink {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0;
-  }
-}
-
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1669,16 +1657,6 @@ button.source-card {
     width: 100% !important;
     height: calc(100vh - 60px);
     height: calc(100dvh - 60px);
-  }
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
   }
 }
 

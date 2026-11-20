@@ -25,11 +25,7 @@ import type { LegalPageType } from '../components/LegalPage';
  * the drilling layer KI-770 removed.
  *
  * Deliberately NOT extended to the legal pages (`Footer` keeps its own
- * `onNavigate`) or to `handleGoHome`/`handleViewHome` (KB-workspace
- * navigation, already on `KbCoreContext`). `onViewMyTopics` below is NOT those
- * two: they also reset `kbView` and close the settings panel on the way out of
- * a KB workspace, while this one is a plain jump between chrome-level views
- * that never entered one.
+ * `onNavigate`).
  */
 export interface AppNavContextValue {
   /** „Mein Wissen" — the topics this user owns. */
@@ -38,8 +34,6 @@ export interface AppNavContextValue {
   onViewSharedTopics: () => void;
   /** „Entdecken" — the catalog of global topics not held yet. */
   onViewDiscover: () => void;
-  /** „Werkzeuge" — placeholder for the workspace tools that move here. */
-  onViewTools: () => void;
   /** „Mein Profil" — the settings window on its Profil tab. */
   onViewProfile: () => void;
   /**

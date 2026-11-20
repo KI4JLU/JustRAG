@@ -18,7 +18,7 @@ import {
 import { HistoryControls } from './HistoryControls';
 import {
   Home, Users,
-  LayoutGrid, Menu, Compass, Wrench, FolderOpen, History, Lock, MessageSquare,
+  LayoutGrid, Menu, Compass, FolderOpen, History, Lock, MessageSquare,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -45,7 +45,7 @@ import { useTopicSettingsDiff } from '../hooks/useTopicSettingsDiff';
 import { TopicSettingsButton } from './TopicSettingsButton';
 import { SourcesPanel } from './sources/SourcesPanel';
 import { HistoryPanel, NewChatButton } from './history/HistoryPanel';
-import { deriveActiveMobileTab, type MobileTab } from '../utils/activeMobileTab';
+import type { MobileTab } from '../utils/activeMobileTab';
 import { canOpenKbTopicSettings, kbSourceRights } from '../utils/kbAccess';
 import { topicSection } from '../utils/topicSection';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
@@ -78,19 +78,13 @@ import './HomeView.css';
  * ------------------------------------------------------------------------- */
 
 /** Which top-level view is currently on screen. One row, one `aria-current`. */
-export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover' | 'tools';
-
-/* „Werkzeuge" is hidden from the sidebar and the search defaults until the
-   tools section is finished. The view and its `/tools` route stay — flip this
-   to bring the entry back. */
-const SHOW_TOOLS_NAV = false;
+export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover';
 
 /** The skip link's target per overview page; each page puts the id on its content landmark. */
 const CONTENT_IDS: Record<AppChromeView, string> = {
   'my-topics': 'my-topics-content',
   'shared-topics': 'shared-topics-content',
   discover: 'discover-content',
-  tools: 'tools-content',
 };
 
 /** What the frame needs to show a topic: the four workspace contexts and the narrow-screen area. */
@@ -160,7 +154,7 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
   const { t } = useTheme();
   const { user, siteConfigs } = useAuth();
   const {
-    onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools,
+    onViewMyTopics, onViewSharedTopics, onViewDiscover,
     onOpenTopic, onOpenSource, onOpenChat,
   } = useAppNav();
   const accountSearchGroup = useAccountSearchGroup();
@@ -204,7 +198,6 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
 
   /* ---- Topic workspace ---------------------------------------------------- */
   const currentKb = ws?.core.currentKb ?? null;
-  const setKbView = ws?.core.setKbView;
   const setWorkspaceTab = ws?.setMobileTab;
   const { seeSources, addSources } = kbSourceRights(currentKb, user?.role, user?.id);
 
@@ -219,14 +212,13 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
   );
 
   const handleWorkspaceTabChange = useCallback((tab: string) => {
-    if (tab === 'chat') setKbView?.('chat');
     setWorkspaceTab?.(tab as MobileTab);
-  }, [setKbView, setWorkspaceTab]);
+  }, [setWorkspaceTab]);
 
   // The active area is derived, not a second state. Without seeSources there
   // is no sources column, so a swipe that lands on 'files' shows the chat.
-  const derivedWorkspaceTab: MobileTab = deriveActiveMobileTab(ws?.mobileTab ?? 'chat');
-  const workspaceTab: MobileTab = !seeSources && derivedWorkspaceTab === 'files' ? 'chat' : derivedWorkspaceTab;
+  const mobileTab: MobileTab = ws?.mobileTab ?? 'chat';
+  const workspaceTab: MobileTab = !seeSources && mobileTab === 'files' ? 'chat' : mobileTab;
 
   // Files dragged into the window bring the sources card up, so its dropzone
   // is there to drop on — also after the card closed by itself on a narrow
@@ -261,14 +253,14 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
 
   /* The `logo` slot: the design system's wordmark, built from the configured
      app name. Real text on the brand tokens. Inside a topic it is a button to
-     the overview; `handleGoHome` also resets the topic to its chat. */
+     the overview. */
   const logo = ws ? (
     <Button
       type="button"
       variant="ghost"
       // No hover tint on the brand, only the pointer cursor.
       className="h-auto cursor-pointer p-0 hover:bg-transparent active:bg-transparent"
-      onClick={ws.core.handleGoHome}
+      onClick={onViewMyTopics}
       title={t('goToHome')}
       aria-label={t('goToHome')}
     >
@@ -276,10 +268,8 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
     </Button>
   ) : <AppLogo siteConfigs={siteConfigs} size="sm" />;
 
-  /* Leaving a topic through the sidebar resets it to its chat, as the
-     breadcrumb does, so the topic opens in the chat next time. */
+  /* A nav row jumps and, on a phone, switches back to the content. */
   const go = (jump: () => void) => () => {
-    setKbView?.('chat');
     jump();
     showContent();
   };
@@ -320,17 +310,6 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
         <Compass size={20} aria-hidden="true" />
         <span>{t('discoverTopics')}</span>
       </NavItem>
-      {SHOW_TOOLS_NAV && (
-        <NavItem
-          type="button"
-          label={t('tools')}
-          active={active === 'tools'}
-          onClick={go(onViewTools)}
-        >
-          <Wrench size={20} aria-hidden="true" />
-          <span>{t('tools')}</span>
-        </NavItem>
-      )}
     </>
   );
 
@@ -344,9 +323,6 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
         { id: 'my-topics', label: t('myTopics'), icon: <Home aria-hidden="true" />, onSelect: onViewMyTopics },
         { id: 'shared-topics', label: t('sharedTopics'), icon: <Users aria-hidden="true" />, onSelect: onViewSharedTopics },
         { id: 'discover', label: t('discoverTopics'), icon: <Compass aria-hidden="true" />, onSelect: onViewDiscover },
-        ...(SHOW_TOOLS_NAV
-          ? [{ id: 'tools', label: t('tools'), icon: <Wrench aria-hidden="true" />, onSelect: onViewTools }]
-          : []),
       ].filter((item) => item.id !== active),
     },
     accountSearchGroup,
@@ -393,12 +369,9 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
     section === 'discover' ? t('discoverTopics') : section === 'my-topics' ? t('myTopics') : t('sharedTopics');
   const sectionPath = section === 'discover' ? '/discover' : section === 'my-topics' ? '/' : '/shared';
   const leaveToSection = () => {
-    if (section === 'my-topics') {
-      ws?.core.handleGoHome();
-      return;
-    }
-    setKbView?.('chat');
-    if (section === 'discover') onViewDiscover(); else onViewSharedTopics();
+    if (section === 'my-topics') onViewMyTopics();
+    else if (section === 'discover') onViewDiscover();
+    else onViewSharedTopics();
   };
   const pageLabel = ws ? (
     <Breadcrumb aria-label={t('breadcrumbNav')} className="min-w-0">

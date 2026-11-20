@@ -35,7 +35,7 @@ let isGlobal = false;
 let files: Array<Record<string, unknown>> = [{ id: 'f0', name: 'x.pdf', status: 'completed', origin: 'upload' }];
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ siteConfigs: {}, user: { id: 'u1', role: 'user' } }) }));
 vi.mock('../../contexts/KbCoreContext', () => ({
-  useKbCore: () => ({ currentKb: { id: 'kb1', isGlobal, visibility: isGlobal ? 'public' : 'private', userId: null, myRole, capabilities }, setKbView: vi.fn(), handleGoHome: vi.fn(), handleViewHome: vi.fn() }),
+  useKbCore: () => ({ currentKb: { id: 'kb1', isGlobal, visibility: isGlobal ? 'public' : 'private', userId: null, myRole, capabilities } }),
 }));
 vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({

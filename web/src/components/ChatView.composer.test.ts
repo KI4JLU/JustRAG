@@ -50,11 +50,9 @@ const workspaceLayout = readFileSync(
 describe('Zurück-Knopf in der KB-Kopfleiste', () => {
   it('ist in der Chrome-Leiste der Shell der Pfad „Bereich / Thema" und nicht an isMobile gebunden', () => {
     // Der Weg zurück ist seit dem Pfad kein Pfeil mehr: der Bereich im Pfad
-    // führt zurück. Für „Mein Wissen" über handleGoHome (nicht
-    // handleViewHome — sonst bleibt kbView auf dem zuletzt gewählten Reiter
-    // stehen und die KB öffnet sich beim nächsten Mal nicht im Chat).
+    // führt zurück.
     expect(workspaceLayout).toContain('<BreadcrumbPage');
-    expect(workspaceLayout).toContain('core.handleGoHome()');
+    expect(workspaceLayout).toContain('leaveToSection()');
     expect(workspaceLayout).not.toContain('ArrowLeft');
     expect(workspaceLayout).not.toContain("t('backToOverview')");
     // Eine Sicht, ein Knopf: die alte Form war ein Ternär — Mobil Zurück ODER
@@ -81,7 +79,6 @@ describe('Zurück-Knopf in der KB-Kopfleiste', () => {
     // Ein zweiter Knopf an der alten Stelle wäre für Nutzer kein Fehler, den
     // jemand meldet — er sähe nur nach Doppelung aus und bliebe stehen.
     expect(sourcesPanel).not.toContain('backToOverview');
-    expect(sourcesPanel).not.toContain('handleViewHome');
     // Vakuum-Schutz für DIESE Datei: sie wird wirklich gelesen.
     expect(sourcesPanel).toContain('const SourcesPanelComp');
   });

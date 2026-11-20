@@ -154,7 +154,6 @@ describe('App routing — signed in', () => {
     ['/', 'myTopics'],
     ['/shared', 'sharedTopics'],
     ['/discover', 'discoverTopics'],
-    ['/tools', 'tools'],
   ] as const)('opens %s directly on its view', async (url, key) => {
     window.history.replaceState(null, '', url);
     render(<App />);

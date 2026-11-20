@@ -89,7 +89,6 @@ const NAV = {
   onViewMyTopics: vi.fn(),
   onViewSharedTopics: vi.fn(),
   onViewDiscover: vi.fn(),
-  onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
   onEditGlobalKb: vi.fn(),
   onViewLegal: vi.fn(),
@@ -110,7 +109,6 @@ beforeEach(() => {
   NAV.onViewMyTopics.mockClear();
   NAV.onViewSharedTopics.mockClear();
   NAV.onViewDiscover.mockClear();
-  NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
   setAdminDialogOpen(false);
   NAV.onOpenTopicSettings.mockClear();
@@ -470,9 +468,6 @@ describe('AppChrome, through the view that mounts it', () => {
        nav on 18.09.2026 and `AppNavContext.onViewAgents` with it.) */
     await userEvent.click(screen.getByRole('button', { name: translations.discoverTopics.en }));
     expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
-
-    // „Werkzeuge" is hidden until the tools section is finished (AppChrome's SHOW_TOOLS_NAV).
-    expect(screen.queryByRole('button', { name: translations.tools.en })).toBeNull();
 
     /* KI-783's new destination, asserted the same way: the row has to reach
        the jump, not merely exist. This is what makes „the sidebar row has a

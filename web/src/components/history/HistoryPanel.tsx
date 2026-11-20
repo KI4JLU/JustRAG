@@ -80,9 +80,9 @@ const HistoryPanelComp: React.FC<HistoryPanelProps> = ({ nav }) => {
     const primary = usePrimaryAction();
     const { filters, set: setFilter, reset: resetFilters } = useHistoryFilters();
 
-    // Chats only: research and academic entries opened report views that are
-    // not reachable (KbViewType = 'chat'), and loading one as a chat does
-    // nothing. The data stays on the server.
+    // Chats only: research and academic entries opened report views that no
+    // longer exist, and loading one as a chat does nothing. The data stays on
+    // the server.
     const allItems = useMemo(
         () => buildHistoryItems({ chats, generatedContent: [] }).filter(item => item.kind === 'chat'),
         [chats],

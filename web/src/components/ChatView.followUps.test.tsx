@@ -45,9 +45,6 @@ vi.mock('../contexts/KbCoreContext', () => ({
   useKbCore: () => ({
     currentKb,
     availableConfigs: [],
-    kbView: 'chat' as const,
-    setKbView: vi.fn(),
-    handleGoHome: vi.fn(),
     handleUpdateKBSettings: vi.fn(),
     onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,

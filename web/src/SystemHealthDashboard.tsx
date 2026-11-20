@@ -829,8 +829,7 @@ export default function SystemHealthDashboard() {
             {/* SURVIVING <style> BLOCK — deliberately NOT deleted, even though
               * nothing in this file uses `.spin` any more.
               *
-              * `.spin` is NOT defined in src/index.css (only `@keyframes spin`
-              * and `.animate-spin` are), yet ~17 components across the app
+              * `.spin` is NOT defined in src/index.css, yet ~17 components across the app
               * render `className="spin"`. The class exists only because three
               * components inject it globally through a <style> element, and
               * this is one of them. Removing it is an app-wide CSS change with

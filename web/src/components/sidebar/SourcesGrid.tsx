@@ -50,9 +50,9 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
         const gitRepoEnabled = siteConfigs?.git_repo_enabled === 'true';
         return gridItems.filter(i => {
             if (i.type === 'confluence' && !confluenceEnabled) return false;
-            // 'academic' öffnete die Academic-Research-Ansicht; die ist seit
-            // dem 22.09.2026 nicht erreichbar (KbViewType = 'chat'), also
-            // fehlt die Kachel — unabhängig von academic_search_enabled.
+            // 'academic' öffnete die Academic-Research-Ansicht; die gibt es
+            // nicht mehr, also fehlt die Kachel — unabhängig von
+            // academic_search_enabled.
             if (i.type === 'academic') return false;
             if (i.type === 'gitrepo' && !gitRepoEnabled) return false;
             return true;

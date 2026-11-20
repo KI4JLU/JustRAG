@@ -75,8 +75,7 @@ export interface TopicGridPageProps {
    * others. Layout only; the cells fill the row by the grid's default
    * `align-items: stretch`, and `PrivateKbCard` pins its footer to the bottom.
    *
-   * Opt-in, because the tiles of other pages („Werkzeuge") were not asked to
-   * change. Ignored in list view: one-line rows are not cards.
+   * Opt-in. Ignored in list view: one-line rows are not cards.
    */
   uniformRows?: boolean;
   /**

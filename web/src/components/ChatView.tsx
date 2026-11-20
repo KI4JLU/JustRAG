@@ -468,8 +468,6 @@ const ChatViewComp = () => {
           selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
       {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
           `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
-      {/* Nur der Chat (22.09.2026): `KbViewType` ist auf 'chat' verengt, also
-          gibt es nichts mehr zu verzweigen. */}
       {
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>

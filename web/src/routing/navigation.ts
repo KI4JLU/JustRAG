@@ -5,7 +5,7 @@ import { fromShortId, toShortId } from './shortId';
 
 /** Views with no parameter of their own. */
 export type PageView =
-  | 'my-topics' | 'shared-topics' | 'discover' | 'tools' | 'profile'
+  | 'my-topics' | 'shared-topics' | 'discover' | 'profile'
   | 'terms' | 'privacy' | 'accessibility';
 
 export type AgentsTab = 'agents' | 'teams';
@@ -68,7 +68,6 @@ export function routeFromMatch(match: LastMatch | null): AppRoute {
     case '/': return { view: 'my-topics' };
     case '/shared': return { view: 'shared-topics' };
     case '/discover': return { view: 'discover' };
-    case '/tools': return { view: 'tools' };
     case '/agents': return { view: 'agents', tab: 'agents' };
     case '/agents/teams': return { view: 'agents', tab: 'teams' };
     case '/profile': return { view: 'profile' };
@@ -121,7 +120,6 @@ export function useAppNavigate(): AppNavigate {
       case 'my-topics': void navigate({ to: '/', replace }); return;
       case 'shared-topics': void navigate({ to: '/shared', replace }); return;
       case 'discover': void navigate({ to: '/discover', replace }); return;
-      case 'tools': void navigate({ to: '/tools', replace }); return;
       case 'agents': void navigate({ to: target.tab === 'teams' ? '/agents/teams' : '/agents', replace }); return;
       case 'profile': void navigate({ to: '/profile', replace }); return;
       case 'terms': void navigate({ to: '/terms', replace }); return;

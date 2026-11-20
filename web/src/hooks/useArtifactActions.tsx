@@ -16,10 +16,9 @@ import { useToast } from '../contexts/ToastContext';
  * WHY THIS IS A HOOK NOW. These four handlers lived inside
  * `Studio/StudioWorkspace` and were the whole "save/copy/DOCX/PDF path" of a
  * markdown artifact — `MarkdownEditor` only renders the buttons and calls back.
- * The „Textdokumente" tool on the Werkzeuge page (card KI-833) opens the same
- * artifacts in the same editor, so it needs the same four handlers. Moving them
- * here gives both callers ONE implementation instead of a copy of the PDF
- * template that would drift; the bodies are moved unchanged, with one
+ * Here they are ONE implementation for every editor that opens such an
+ * artifact, instead of copies of the PDF template that would drift; the
+ * bodies are moved unchanged, with one
  * exception noted at `downloadPdf` (HTML escaping), and one addition
  * (`onSaved`).
  *

@@ -67,7 +67,7 @@ const onViewSharedTopics = vi.fn();
 const onViewDiscover = vi.fn();
 vi.mock('../contexts/AppNavContext', () => ({
   useAppNav: () => ({
-    onViewMyTopics: vi.fn(), onViewSharedTopics, onViewDiscover, onViewTools: vi.fn(),
+    onViewMyTopics, onViewSharedTopics, onViewDiscover,
     onOpenTopic: vi.fn(), onOpenSource: vi.fn(), onOpenChat: vi.fn(),
   }),
 }));
@@ -105,9 +105,7 @@ let subscribedKbs: { id: string }[] = [];
 let siteConfigs: Record<string, string> = {};
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser, siteConfigs }) }));
 
-const handleGoHome = vi.fn();
-let kbView = 'chat';
-const setKbView = vi.fn();
+const onViewMyTopics = vi.fn();
 
 const setIsRightSidebarOpen = vi.fn();
 const setLeftSidebarWidth = vi.fn();
@@ -118,9 +116,6 @@ const setSystemPromptOpen = vi.fn();
 const workspaceFor = (mobileTab: 'history' | 'chat' | 'files', setMobileTab: (tab: string) => void): WorkspaceFrame => ({
   core: {
     currentKb: { id: 'kb1', name: 'TEST', ...kbExtra },
-    kbView,
-    setKbView,
-    handleGoHome,
     kbMgmt: { handleRenameKB: vi.fn(), globalKbs: subscribedKbs },
   },
   chat: {},
@@ -139,7 +134,6 @@ const noSwipe = { onTouchStart: vi.fn(), onTouchEnd: vi.fn() };
 
 beforeEach(() => {
   shellProps = {};
-  kbView = 'chat';
   authUser = { role: 'user' };
   siteConfigs = {};
   kbExtra = {};
@@ -228,8 +222,8 @@ describe('AppFrame, topic open — Systemmeldung (KI-936)', () => {
 describe('AppFrame, topic open Quellen-Sichtbarkeit', () => {
   it('nimmt die Quellenspalte nie heraus — es gibt keine Workspace-Ansicht mehr (22.09.2026)', () => {
     // Bis zum 22.09.2026 blendete `showRight={false}` die Spalte im Workspace
-    // aus. Die Ansicht ist nicht mehr erreichbar (KbViewType = 'chat'), also
-    // gibt es keinen Zustand, in dem die Spalte fehlen dürfte.
+    // aus. Die Ansicht gibt es nicht mehr, also keinen Zustand, in dem die
+    // Spalte fehlen dürfte.
     renderLayout();
     expect(screen.getByTestId('sources-panel')).toBeInTheDocument();
     expect(shellProps.showRight).toBeUndefined();
@@ -238,15 +232,14 @@ describe('AppFrame, topic open Quellen-Sichtbarkeit', () => {
 });
 
 describe('AppFrame, topic open Reiter-Ableitung', () => {
-  it('zieht kbView beim Wechsel auf „chat" mit', async () => {
+  it('reicht den Reiterwechsel an setMobileTab weiter', () => {
     const setMobileTab = vi.fn();
     renderLayout('chat', setMobileTab);
     shellProps.onMobileTabChange?.('chat');
-    expect(setKbView).toHaveBeenCalledWith('chat');
     expect(setMobileTab).toHaveBeenCalledWith('chat');
   });
 
-  it('meldet für „chat" immer „chat" als aktiv — kbView hat keinen zweiten Wert mehr', () => {
+  it('meldet für „chat" den Reiter „chat" als aktiv', () => {
     renderLayout('chat');
     expect(shellProps.activeMobileTab).toBe('chat');
   });
@@ -347,15 +340,15 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     renderLayout();
     render(<div>{shellProps.logo}</div>);
     await userEvent.click(screen.getByRole('button', { name: 'goToHome' }));
-    expect(handleGoHome).toHaveBeenCalledTimes(1);
+    expect(onViewMyTopics).toHaveBeenCalledTimes(1);
   });
 
-  it('führt vom eigenen Thema über handleGoHome zurück zu „Mein Wissen", nicht über handleViewHome', async () => {
+  it('führt vom eigenen Thema zurück zu „Mein Wissen"', async () => {
     kbExtra = { myRole: 'owner' };
     renderLayout();
     render(<div>{shellProps.pageLabel}</div>);
     await userEvent.click(screen.getByRole('link', { name: 'myTopics' }));
-    expect(handleGoHome).toHaveBeenCalledTimes(1);
+    expect(onViewMyTopics).toHaveBeenCalledTimes(1);
     expect(onViewSharedTopics).not.toHaveBeenCalled();
     expect(onViewDiscover).not.toHaveBeenCalled();
   });
@@ -369,7 +362,7 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     ['ein öffentliches Thema', { myRole: 'view', visibility: 'public' }, [], 'discoverTopics', 'discover'],
     ['ein öffentliches Thema, ein anderes ist abonniert', { visibility: 'public' }, [{ id: 'kb2' }], 'discoverTopics', 'discover'],
     ['ein abonniertes öffentliches Thema', { visibility: 'public' }, [{ id: 'kb1' }], 'sharedTopics', 'shared-topics'],
-  ] as const)('führt für %s in dessen Bereich zurück und setzt die Ansicht auf den Chat', async (_name, extra, subscribed, label, view) => {
+  ] as const)('führt für %s in dessen Bereich zurück', async (_name, extra, subscribed, label, view) => {
     kbExtra = extra;
     subscribedKbs = [...subscribed];
     renderLayout();
@@ -379,8 +372,7 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     const other = view === 'discover' ? onViewSharedTopics : onViewDiscover;
     expect(jump).toHaveBeenCalledTimes(1);
     expect(other).not.toHaveBeenCalled();
-    expect(setKbView).toHaveBeenCalledWith('chat');
-    expect(handleGoHome).not.toHaveBeenCalled();
+    expect(onViewMyTopics).not.toHaveBeenCalled();
   });
 });
 
