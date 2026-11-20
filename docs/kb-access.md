@@ -48,7 +48,8 @@ KBs also have the name field in `GlobalKbSettings`.
 Consequences:
 
 - An explicit `kb_members` row beats the implicit public-KB roles (rule 2 before 3 and 4).
-- An unpublished public KB is not readable by ordinary users on any `view`-gated route: the whole
+- An unpublished public KB is readable only through rules 1 to 3 (superadmin, a `kb_members` row
+  of any role, system admin), not through rule 4. That holds on every `view`-gated route: the whole
   `kbViewChain` (chat, graph, generated content, files, research, export), plus `/api/v1/*` and
   the KB-as-MCP endpoint, which wrap `RequireKBRole(kbaccess.RoleView)` directly.
 
@@ -211,8 +212,8 @@ Details:
 - The star on a card is a favorites toggle (`/favorite`). Removing is a separate action:
   `useKbRemoval` routes every public KB to `DELETE /api/kb/{id}/subscription`, which drops no
   membership and no chats.
-- `PUT` / `DELETE …/subscription` sit on `kbViewChain` and accept a staged public KB; only a
-  member reaches the route for one.
+- `PUT` / `DELETE …/subscription` sit on `kbViewChain` and accept a staged public KB; a member
+  or a system admin reaches the route for one.
 - `kbmembers.LeaveKB` (a member removes the KB) drops the membership and the caller's chats and
   writes an `opted_out` subscription row, in one transaction. Without the `opted_out` row,
   `auto_subscribe` would bring the tile back.
@@ -229,8 +230,9 @@ Details:
 
 ## Per-user topic filters
 
-Migration 0086, `internal/kbfilters`. The shell's chip row: "Alle", "Favoriten", the user's own
-categories, "+". Personal state, never an access grant.
+Migration 0086, `internal/kbfilters`: favorites and per-user categories. Personal state, never an
+access grant. The web app's chip row filters by favorite and by the topic's platform category
+(`web/src/hooks/useTopicFilters.ts`).
 
 **Tables**
 
