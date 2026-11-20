@@ -350,8 +350,6 @@ export const translations = {
     searchMode: { de: 'Suchmodus', en: 'Search mode' },
     websearchFast: { de: 'Schnell', en: 'Fast' },
     websearchDeep: { de: 'Tiefgehend', en: 'Deep' },
-    websearchFastDesc: { de: 'Schnelle Websuche mit direkten Ergebnissen.', en: 'Quick web search with direct results.' },
-    websearchDeepDesc: { de: 'Mehrstufige Recherche — der Agent durchsucht das Web, liest Seiten und fasst die Ergebnisse zusammen.', en: 'Multi-step research — the agent searches the web, reads pages, and summarizes findings.' },
     crawlDesc: { de: 'Crawle eine Website und extrahiere Inhalte von mehreren Seiten.', en: 'Crawl a website and extract content from multiple pages.' },
     rssDesc: { de: 'Abonniere einen RSS-Feed, um automatisch neue Inhalte als Quellen hinzuzufügen.', en: 'Subscribe to an RSS feed to automatically add new content as sources.' },
     rssFetchFullText: { de: 'Vollständigen Artikeltext von der verlinkten Seite abrufen', en: 'Fetch full article text from the linked page' },
@@ -529,19 +527,11 @@ export const translations = {
 
     // Chat Area
     proSearch: { de: 'Pro-Suche', en: 'Pro Search' },
-    ragMode: { de: 'RAG-MODUS', en: 'RAG MODE' },
-    vectorSearchOnly: { de: 'Vector Search Only', en: 'Vector Search Only' },
     aiProvider: { de: 'KI-PROVIDER', en: 'AI PROVIDER' },
     chatModel: { de: 'CHAT-MODELL', en: 'CHAT MODEL' },
     embeddingModel: { de: 'EMBEDDING-MODELL', en: 'EMBEDDING MODEL' },
     rerankModel: { de: 'RERANK-MODELL', en: 'RERANK MODEL' },
     ttsModel: { de: 'TTS-MODELL', en: 'TTS MODEL' },
-    defaultSystemConfig: { de: 'Standard-Systemkonfiguration', en: 'Default System Config' },
-    providerDefault: { de: 'Provider-Standard', en: 'Provider Default' },
-    systemDefault: { de: 'System-Standard', en: 'System Default' },
-    noneDisabled: { de: 'Keines (Deaktiviert)', en: 'None (Disabled)' },
-    settingsTitle: { de: 'Pro-Einstellungen', en: 'Pro Settings' },
-    closeSettings: { de: 'Einstellungen schließen', en: 'Close Settings' },
     promptSuggestions: { de: 'Vorschläge', en: 'Suggestions' },
     promptSuggestionsLoading: { de: 'Vorschläge werden geladen', en: 'Loading suggestions' },
     promptSuggestionsHint: { de: 'Fragevorschläge unter dem Eingabefeld eines neuen Chats.', en: 'Suggested questions under the input of a new chat.' },
@@ -593,65 +583,26 @@ export const translations = {
     quiz: { de: 'Quiz', en: 'Quiz' },
     mindMap: { de: 'Mindmap', en: 'Mind Map' },
     workspace: { de: 'Workspace', en: 'Workspace' },
-    mindMapLoading: { de: 'Wissensgraph wird geladen…', en: 'Loading knowledge graph…' },
-    mindMapBuilding: { de: 'Wissensgraph wird aktualisiert…', en: 'Updating knowledge graph…' },
-    graphExport: { de: 'Exportieren', en: 'Export' },
-    graphFmtPng: { de: 'PNG-Bild', en: 'PNG image' },
-    graphFmtGraphml: { de: 'GraphML', en: 'GraphML' },
-    graphFmtJson: { de: 'JSON', en: 'JSON' },
-    graphFmtCsv: { de: 'CSV', en: 'CSV' },
-    graphSearchPlaceholder: { de: 'Entität suchen…', en: 'Search entities…' },
-    graphFilterTypes: { de: 'Typen', en: 'Types' },
-    mindMapError: { de: 'Wissensgraph konnte nicht geladen werden.', en: 'Failed to load the knowledge graph.' },
-    mindMapEmpty: { de: 'Für diese Wissensdatenbank ist noch kein Wissensgraph verfügbar. Aktivieren Sie die KG-Extraktion und ingestieren Sie Dokumente neu.', en: 'No knowledge graph available for this knowledge base yet. Enable KG extraction and re-ingest documents.' },
     mindMapAskAbout: { de: 'Im Chat fragen', en: 'Ask in chat' },
-    mindMapNodeHint: { de: 'Knoten anklicken, um im Chat danach zu fragen', en: 'Click a node to ask about it in chat' },
     mindMapAskPrompt: { de: 'Erzähl mir mehr über', en: 'Tell me more about' },
     viewGraphForAnswer: { de: 'Graph zu dieser Antwort', en: 'View graph for this answer' },
     viewGraphLabel: { de: 'Wissensgraph', en: 'Knowledge graph' },
-    showWholeKb: { de: 'Ganze Wissensbasis', en: 'Show whole KB' },
-    scopedToThisAnswer: { de: 'Auf diese Antwort beschränkt', en: 'Scoped to this answer' },
-    sourcesFor: { de: 'Quellen für', en: 'Sources for' },
-    noSourcesForNode: { de: 'Keine Quellen für diesen Knoten', en: 'No sources for this node' },
-    askAbout: { de: 'Frage zu', en: 'Ask about' },
-    entityConnections: { de: 'Verbindungen', en: 'connections' },
-    entityNeighbors: { de: 'Verbunden mit', en: 'Connected to' },
-    entityDetailError: { de: 'Details konnten nicht geladen werden.', en: 'Could not load details.' },
-    quizScore: { de: 'Punktzahl', en: 'Score' },
-    quizAnswered: { de: 'beantwortet', en: 'answered' },
-    quizEmpty: { de: 'Keine Quizfragen verfügbar.', en: 'No quiz questions available.' },
-    generateAbstractTitle: { de: 'Abstract generieren', en: 'Generate Abstract' },
-    abstractTypeLabel: { de: 'Art des Abstracts', en: 'Abstract type' },
-    abstractTypeAcademic: { de: 'Akademisches Abstract', en: 'Academic Abstract' },
-    abstractTypeExecutive: { de: 'Executive Summary', en: 'Executive Summary' },
-    abstractSelectFile: { de: 'Datei auswählen', en: 'Select file' },
-    abstractSuccess: { de: 'Abstract erfolgreich generiert!', en: 'Abstract successfully generated!' },
-    abstractNoFiles: { de: 'Keine verarbeiteten Dateien verfügbar.', en: 'No processed files available.' },
     generatingContent: { de: 'Generiere Inhalte...', en: 'Generating content...' },
     podcastGeneratingScript: { de: 'Generiere Skript...', en: 'Generating script...' },
     podcastGeneratingAudio: { de: 'Generiere Audio', en: 'Generating audio' },
     podcastWaiting: { de: 'Warte auf Verarbeitung...', en: 'Waiting for processing...' },
     podcastFailed: { de: 'Podcast-Generierung fehlgeschlagen', en: 'Podcast generation failed' },
-    playbackSpeed: { de: 'Geschwindigkeit', en: 'Speed' },
-    audioNotSupported: { de: 'Dein Browser unterstützt das Audio-Element nicht.', en: 'Your browser does not support the audio element.' },
     noContent: { de: 'Erstelle Lernmaterialien aus deinen Quellen.', en: 'Create learning materials from your sources.' },
-    generateChartTitle: { de: 'Diagramm generieren', en: 'Generate Chart' },
-    chartPromptLabel: { de: 'Welches Diagramm soll erstellt werden?', en: 'What chart should be created?' },
-    chartPromptPlaceholder: { de: 'z.B. Erstelle ein Balkendiagramm der Verkaufszahlen pro Region...', en: 'e.g. Create a bar chart of sales by region...' },
     dataSource: { de: 'Datenquelle (Excel/CSV)', en: 'Data Source (Excel/CSV)' },
-    automaticLastFile: { de: 'Automatisch (letzte Datei)', en: 'Automatic (last file)' },
     generate: { de: 'Generieren', en: 'Generate' },
     analysis: { de: 'Analyse', en: 'Analysis' },
     // save is already defined in Common
-    newAnalysis: { de: 'Neue Analyse', en: 'New Analysis' },
-    noAnalysisSelected: { de: 'Keine Analyse ausgewählt', en: 'No analysis selected' },
     deleteAnalysis: { de: 'Analyse löschen', en: 'Delete Analysis' },
     saveSuccess: { de: 'Analyse erfolgreich gespeichert', en: 'Analysis saved successfully' },
     saveError: { de: 'Fehler beim Speichern', en: 'Error saving analysis' },
     close: { de: 'Schließen', en: 'Close' },
 
     // Research
-    newResearch: { de: 'Neue Recherche', en: 'New Research' },
     researchSearching: { de: 'Durchsuche das Web...', en: 'Searching the web...' },
     researchReading: { de: 'Lese Webseiten...', en: 'Reading web pages...' },
     researchSynthesizing: { de: 'Analysiere Inhalte...', en: 'Analyzing content...' },
@@ -662,17 +613,9 @@ export const translations = {
 
     // Academic Research
     justFind: { de: 'JustFind', en: 'JustFind' },
-    academicResearch: { de: 'Akademische Recherche', en: 'Academic Research' },
     academicResearchDesc: { de: 'Akademische Paper durchsuchen und eine Literaturübersicht erstellen.', en: 'Search academic papers and generate a literature review.' },
-    peerReviewedOnly: { de: 'Nur begutachtet', en: 'Peer-reviewed only' },
     startAcademicResearch: { de: 'Akademische Recherche starten', en: 'Start Academic Research' },
     academicResearchPlaceholder: { de: 'Forschungsthema oder Fragestellung eingeben...', en: 'Enter research topic or question...' },
-    papersFound: { de: 'Gefundene Paper', en: 'Papers Found' },
-    addSelectedToKb: { de: 'Ausgewählte zur Wissensdatenbank hinzufügen', en: 'Add Selected to Knowledge Base' },
-    addingPapers: { de: 'Papers werden hinzugefügt...', en: 'Adding papers...' },
-    papersAdded: { de: 'Papers erfolgreich hinzugefügt', en: 'Papers added successfully' },
-    papersAddFailed: { de: 'Einige Papers konnten nicht hinzugefügt werden', en: 'Some papers could not be added' },
-    noPdfAvailable: { de: 'Kein PDF verfügbar', en: 'No PDF available' },
     citations: { de: 'Zitationen', en: 'Citations' },
     references: { de: 'Referenzen', en: 'References' },
     searchingScholar: { de: 'Durchsuche akademische Datenbanken...', en: 'Searching academic databases...' },
@@ -680,7 +623,6 @@ export const translations = {
     generatingAcademicReport: { de: 'Erstelle akademischen Bericht...', en: 'Generating academic report...' },
     academicResearchComplete: { de: 'Akademische Recherche abgeschlossen', en: 'Academic research complete' },
     selectPapersToAdd: { de: 'Papers zum Hinzufügen auswählen', en: 'Select papers to add' },
-    pdfAvailable: { de: 'PDF verfügbar', en: 'PDF available' },
 
     // History
     history: { de: 'Verlauf', en: 'History' },
@@ -1045,8 +987,6 @@ export const translations = {
 
     // Accessibility - aria-labels
     newChat: { de: 'Neuer Chat', en: 'New Chat' },
-    previousCard: { de: 'Vorherige Karte', en: 'Previous card' },
-    nextCard: { de: 'Nächste Karte', en: 'Next card' },
     createNewKb: { de: 'Neue Knowledge Base erstellen', en: 'Create new Knowledge Base' },
     adminSettings: { de: 'Admin-Einstellungen', en: 'Admin settings' },
     closeBanner: { de: 'Banner schließen', en: 'Close banner' },
@@ -1064,7 +1004,6 @@ export const translations = {
     deleteProvider: { de: 'Anbieter löschen', en: 'Delete provider' },
     vectorDimensions: { de: 'Vektor-Dimensionen', en: 'Vector dimensions' },
     vectorDimensionsHelp: { de: 'Vektor-Dimensionen: leer = automatisch (native Größe des Modells). Ein Wert fordert MRL-gekürzte Vektoren an — nur setzen, wenn das Modell Matryoshka-Kürzung unterstützt; Änderung erfordert Re-Ingest.', en: 'Vector dimensions: empty = auto (model-native size). A value requests MRL-truncated vectors — only set if the model supports Matryoshka truncation; changing it requires a re-ingest.' },
-    flashcardFlip: { de: 'Zum Umdrehen drücken', en: 'Press to flip' },
     enterUrl: { de: 'URL eingeben', en: 'Enter URL' },
     bold: { de: 'Fett', en: 'Bold' },
     italic: { de: 'Kursiv', en: 'Italic' },
@@ -1074,11 +1013,6 @@ export const translations = {
     copyToClipboard: { de: 'In Zwischenablage kopieren', en: 'Copy to clipboard' },
     exportDocx: { de: 'DOCX exportieren', en: 'Export DOCX' },
     downloadPdf: { de: 'PDF herunterladen', en: 'Download PDF' },
-    downloadAudio: { de: 'Audio herunterladen', en: 'Download Audio' },
-    downloadPptx: { de: 'PPTX herunterladen', en: 'Download PPTX' },
-    downloadSvg: { de: 'SVG herunterladen', en: 'Download SVG' },
-    presentationCreated: { de: 'Präsentation erstellt', en: 'Presentation created' },
-    noDataAvailable: { de: 'Keine Daten verfügbar', en: 'No data available' },
     analyzeWithAi: { de: 'Mit KI analysieren', en: 'Analyze with AI' },
     saveChanges: { de: 'Änderungen speichern', en: 'Save changes' },
     filters: { de: 'Filter', en: 'Filters' },
@@ -1198,9 +1132,6 @@ export const translations = {
 
     // Empty sources state
     openWorkspace: { de: 'Workspace öffnen', en: 'Open workspace' },
-    sourcesRequiredHint: { de: 'Füge zuerst Quellen hinzu, um diese Funktion zu nutzen.', en: 'Add sources first to use this feature.' },
-    analyzingContent: { de: 'Analyse wird erstellt...', en: 'Generating analysis...' },
-    analyzingContentHint: { de: 'Dies kann je nach Umfang der Quellen einige Sekunden dauern.', en: 'This may take a few seconds depending on the size of your sources.' },
 
     // Onboarding Tour
 
@@ -1242,7 +1173,6 @@ export const translations = {
     messageActions: { de: 'Aktionen zur Nachricht', en: 'Message actions' },
 
     // Chat Header Tabs
-    analytics: { de: 'Analyse', en: 'Analytics' },
 
     // Language Switcher
     switchLanguage: { de: 'Switch to English', en: 'Zu Deutsch wechseln' },
@@ -1299,18 +1229,9 @@ export const translations = {
     or: { de: 'oder', en: 'or' },
 
     // Chart Modal
-    selectFile: { de: 'Datei auswählen', en: 'Select file' },
-    dataFileDirect: { de: 'Datendatei (direkt)', en: 'Data file (direct)' },
     documentAiExtraction: { de: 'Dokument (KI-Extraktion)', en: 'Document (AI extraction)' },
 
-    // Settings Modal
-    languageFulltextSearch: { de: 'Sprache (Volltextsuche)', en: 'Language (Full-text search)' },
-    aiProviderConfig: { de: 'KI-Provider-Konfiguration', en: 'AI Provider Configuration' },
-    ttsModelLabel: { de: 'TTS-Modell (für Podcast & Co)', en: 'TTS Model (for Podcast etc.)' },
-    activeDefault: { de: 'Standard', en: 'Default' },
-
     // Alerts & Errors
-    chartSuccess: { de: 'Diagramm erfolgreich generiert!', en: 'Chart successfully generated!' },
     fileLimitReached: { de: 'Datei-Limit pro Knowledge Base erreicht.', en: 'File limit per Knowledge Base reached.' },
     uploadFailed: { de: 'Upload fehlgeschlagen', en: 'Upload failed' },
     uploadFailedMore: { de: '{count} weitere Dateien konnten ebenfalls nicht hochgeladen werden.', en: '{count} more files could not be uploaded either.' },
@@ -1356,7 +1277,6 @@ export const translations = {
     chatAttachmentsRemoveFailed: { de: 'Entferne zuerst die Anhänge, die nicht hochgeladen werden konnten.', en: 'Remove the attachments that could not be uploaded first.' },
     comparisonUploadFailed: { de: 'Upload fehlgeschlagen', en: 'Upload failed' },
     comparisonDisabled: { de: 'Dokumentenvergleich ist deaktiviert', en: 'Document comparison is disabled' },
-    comparisonModesLabel: { de: 'Vergleichsmodi', en: 'Comparison modes' },
     comparisonModeContradiction: { de: 'Widerspruch', en: 'Contradiction' },
     comparisonModeFormal: { de: 'Formal', en: 'Formal' },
     comparisonModeCompleteness: { de: 'Vollständigkeit', en: 'Completeness' },
@@ -1367,7 +1287,6 @@ export const translations = {
     // as-is for anything still using it as an action label. The Workspace
     // dialog's file field needs a noun, matching its siblings ("Vorlage",
     // "Prompt", "Vergleichsmodi"), hence the separate key below.
-    comparisonFileLabel: { de: 'Dokument', en: 'Document' },
     documentComparison: { de: 'Dokumentenvergleich', en: 'Document comparison' },
     deleteFileError: { de: 'Fehler beim Löschen der Datei', en: 'Error deleting file' },
     downloadFileError: { de: 'Fehler beim Herunterladen der Datei. Bitte stelle sicher, dass du angemeldet bist.', en: 'Error downloading file. Please make sure you are logged in.' },
@@ -1411,7 +1330,6 @@ export const translations = {
     configsFetchError: { de: 'Fehler beim Laden der Konfigurationen', en: 'Error loading configurations' },
     addEditorError: { de: 'Fehler beim Hinzufügen des Bearbeiters', en: 'Error adding editor' },
     sharesFetchError: { de: 'Fehler beim Laden der Freigaben', en: 'Error loading shares' },
-    audioLoadError: { de: 'Fehler beim Laden des Audios', en: 'Error loading audio' },
     pageLoadError: { de: 'Seite konnte nicht geladen werden', en: 'Failed to load page' },
     pdfLoadError: { de: 'Fehler beim Laden der PDF-Datei', en: 'Error loading PDF file' },
     pdfLoading: { de: 'PDF wird geladen…', en: 'Loading PDF…' },
@@ -1431,8 +1349,6 @@ export const translations = {
     providersFetchError: { de: 'Fehler beim Laden der Provider', en: 'Error loading providers' },
     usersFetchError: { de: 'Fehler beim Laden der Benutzer', en: 'Error loading users' },
     roleChangeError: { de: 'Fehler beim Ändern der Rolle', en: 'Error changing role' },
-    analysisError: { de: 'Analyse fehlgeschlagen. Bitte prüfe die Verbindung oder versuche es erneut.', en: 'Analysis failed. Please check your network or try again.' },
-    analysisDegradedNoAgent: { de: 'Ohne Agent erzeugt — die gewählte Auswahl war nicht mehr verfügbar.', en: 'Generated without an agent — the selection was no longer available.' },
     previewNotSupported: { de: 'Für dieses Dateiformat gibt es keine Vorschau. Bitte lade die Datei herunter, um sie anzusehen.', en: 'There is no preview for this file format. Please download the file to view it.' },
     siteConfigFetchError: { de: 'Fehler beim Laden der Einstellungen', en: 'Error loading settings' },
     saveFailed: { de: 'Speichern fehlgeschlagen', en: 'Save failed' },
@@ -1454,7 +1370,6 @@ export const translations = {
 
     // Export errors
     docxExportFailed: { de: 'DOCX-Export fehlgeschlagen', en: 'DOCX export failed' },
-    bibtexExportFailed: { de: 'BibTeX-Export fehlgeschlagen', en: 'BibTeX export failed' },
 
     // Misc errors
     clipboardCopyFailed: { de: 'Kopieren in die Zwischenablage fehlgeschlagen', en: 'Failed to copy to clipboard' },
@@ -1585,16 +1500,6 @@ export const translations = {
     gitRepoSourceUpdated: { de: 'Git-Quelle aktualisiert', en: 'Git source updated' },
     gitRepoSyncTriggered: { de: 'Synchronisierung gestartet', en: 'Sync triggered' },
     gitFiles: { de: 'Dateien', en: 'files' },
-
-    // Background Jobs
-    bgJobUrlFetch: { de: 'URL-Abruf läuft', en: 'URL fetch in progress' },
-    bgJobWebResearch: { de: 'Web-Recherche läuft', en: 'Web research in progress' },
-    bgJobRss: { de: 'RSS-Feed wird verarbeitet', en: 'RSS feed processing' },
-    bgJobConfluence: { de: 'Confluence-Sync läuft', en: 'Confluence sync in progress' },
-    bgJobFileProcessing: { de: 'Dateien werden verarbeitet', en: 'Processing files' },
-    bgJobResearch: { de: 'Recherche läuft', en: 'Research in progress' },
-    bgJobAcademicResearch: { de: 'Akademische Recherche läuft', en: 'Academic research in progress' },
-    bgJobsRunning: { de: 'Hintergrund-Aufgaben aktiv', en: 'Background tasks running' },
 
     // Profile
     myProfile: { de: 'Mein Profil', en: 'My Profile' },
@@ -3262,14 +3167,6 @@ export const translations = {
     kbAgentsAttach: { de: 'Verknüpfen', en: 'Attach' },
     kbAgentsForeign: { de: 'Von jemand anderem erstellt — hier zuordnen, aber nicht bearbeiten.', en: 'Created by someone else — attachable here, but not editable.' },
     kbAgentsDetach: { de: 'Entfernen', en: 'Detach' },
-    agentPicker: { de: 'Agent / Team', en: 'Agent / Team' },
-    agentPickerStandard: { de: 'Standard (kein Agent)', en: 'Standard (no agent)' },
-    agentPickerTeamsGroup: { de: 'Teams', en: 'Teams' },
-    agentPickerAgentsGroup: { de: 'Agenten', en: 'Agents' },
-    promptPreset: { de: 'Vorlage', en: 'Preset' },
-    promptPresetOwn: { de: 'Eigene Eingabe', en: 'Custom' },
-    promptPresetBuiltIn: { de: 'Eingebaute Vorlagen', en: 'Built-in templates' },
-    promptPresetFromAgents: { de: 'Aus meinen Agenten', en: 'From my agents' },
     prompt: { de: 'Prompt', en: 'Prompt' },
     start: { de: 'Starten', en: 'Start' },
     membersCount: { de: 'Mitglieder', en: 'members' },

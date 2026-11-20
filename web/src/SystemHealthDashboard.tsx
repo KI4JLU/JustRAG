@@ -19,8 +19,7 @@ import { useTheme } from './contexts/ThemeContext';
 
 /* ---------------------------------------------------------------------------
  * Shell: the design system's `DashboardLayout` template (card KI-714,
- * Stage 4b). The template's slot API and how it compares to `AuthLayout`'s two
- * known gaps are documented once, in Dashboard.tsx — read that first.
+ * Stage 4b).
  *
  * Two things about THIS page's migration:
  *
@@ -173,9 +172,7 @@ const MotionCard = motion.create(Card);
  *
  * It stays a LOCAL composition of `Card`: the design system ships no stat/KPI
  * component even though `DashboardLayout`'s `stats` prop is documented as "KPI
- * tiles". Reported as a DS gap — Dashboard.tsx has the un-animated twin, and
- * promoting the two into one shared local primitive would be inventing the
- * component the design system is missing.
+ * tiles". Reported as a DS gap.
  */
 const StatCard = ({ title, value, subtitle, icon: Icon, tone }: {
     title: string;
@@ -281,7 +278,7 @@ const GaugeBar = ({ value, max, label, barClassName }: {
 };
 
 /**
- * Chart panel. Same composition as Dashboard.tsx's: `CardHeader`'s `flex-col`
+ * Chart panel. `CardHeader`'s `flex-col`
  * is flipped to `flex-row` through tailwind-merge, and the heading stays an
  * `<h3>` (CardTitle is a `div` at 24px; these titles were 16px/500). `m-0`
  * neutralises index.css's `@layer base { h3 { margin: revert } }`.

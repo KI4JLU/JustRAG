@@ -99,7 +99,6 @@ export function useArtifactActions({ kbId, item, text, onSaved }: UseArtifactAct
     try {
       const contentToExport = isMarkdownArtifact(item.type) ? text : JSON.stringify(item.content, null, 2);
 
-      // Matches ResearchMode.tsx: body: JSON.stringify({ report, goal })
       // Axios automatically stringifies the body, so we pass the object directly.
       const response = await axios.post(`${API_BASE_URL}/api/kb/${kbId}/export/docx`, {
         report: contentToExport,

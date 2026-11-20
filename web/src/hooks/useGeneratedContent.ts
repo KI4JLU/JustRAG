@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
-import type { KnowledgeBase, FileEntry, GeneratedContent } from '../types';
+import type { KnowledgeBase, GeneratedContent } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage } from '../utils/apiError';
 
 interface PodcastProgress {
   step: 'waiting' | 'script' | 'audio' | 'done';
@@ -16,11 +15,10 @@ interface PodcastProgress {
 
 interface UseGeneratedContentParams {
   currentKb: KnowledgeBase | null;
-  files: FileEntry[];
 }
 
 export function useGeneratedContent({
-  currentKb, files,
+  currentKb,
 }: UseGeneratedContentParams) {
   const { language, t } = useTheme();
   const { showPrompt, showConfirm } = useModalContext();
@@ -28,14 +26,6 @@ export function useGeneratedContent({
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent[]>([]);
   const [generating, setGenerating] = useState(false);
   const [selectedContent, setSelectedContent] = useState<GeneratedContent | null>(null);
-
-  const [showChartGenerationModal, setShowChartGenerationModal] = useState(false);
-  const [chartPrompt, setChartPrompt] = useState('');
-  const [selectedFileId, setSelectedFileId] = useState('');
-
-  const [showAbstractModal, setShowAbstractModal] = useState(false);
-  const [abstractFileId, setAbstractFileId] = useState('');
-  const [abstractType, setAbstractType] = useState<'academic' | 'executive'>('academic');
 
   // Podcast async state
   const [podcastProgress, setPodcastProgress] = useState<PodcastProgress | null>(null);
@@ -116,28 +106,7 @@ export function useGeneratedContent({
     }, 3000);
   }, [t, fetchGeneratedContent, toast]);
 
-  const handleGenerate = useCallback(async (type: 'cards' | 'presentation' | 'podcast' | 'chart' | 'abstract' | 'briefing_doc' | 'faq' | 'study_guide' | 'timeline' | 'quiz') => {
-    if (type === 'chart') {
-      const dataFileExtensions = ['.xlsx', '.xls', '.csv', '.ods', '.json', '.parquet'];
-      const dataFile = files.find(f => dataFileExtensions.some(ext => f.name.toLowerCase().endsWith(ext)));
-      if (dataFile) {
-        setSelectedFileId(dataFile.id);
-      } else {
-        const completedFile = files.find(f => f.status === 'completed');
-        if (completedFile) setSelectedFileId(completedFile.id);
-      }
-
-      setShowChartGenerationModal(true);
-      return;
-    }
-
-    if (type === 'abstract') {
-      const completedFile = files.find(f => f.status === 'completed');
-      if (completedFile) setAbstractFileId(completedFile.id);
-      setShowAbstractModal(true);
-      return;
-    }
-
+  const handleGenerate = useCallback(async (type: 'cards' | 'presentation' | 'podcast' | 'briefing_doc' | 'faq' | 'study_guide' | 'timeline' | 'quiz') => {
     const topic = await showPrompt(t('enterGenerationTopic'));
     if (!topic || !currentKb) return;
 
@@ -163,53 +132,7 @@ export function useGeneratedContent({
       toast.error(t('errorGenerate'));
       setGenerating(false);
     }
-  }, [currentKb, files, language, showPrompt, t, fetchGeneratedContent, startPodcastPolling, toast]);
-
-  const submitChartGeneration = useCallback(async () => {
-    if (!chartPrompt || !currentKb) return;
-    setGenerating(true);
-    setShowChartGenerationModal(false);
-    try {
-      const res = await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/generate/chart`, {
-        topic: chartPrompt,
-        fileId: selectedFileId || undefined,
-        language
-      });
-      await fetchGeneratedContent(currentKb.id);
-      if (res.data?.id) setSelectedContent(res.data as GeneratedContent);
-      toast.success(t('chartSuccess'));
-      setChartPrompt('');
-      setSelectedFileId('');
-    } catch (err: unknown) {
-      console.error('Generation failed:', err);
-      toast.error(getApiErrorMessage(err, t('errorGenerate')));
-    } finally {
-      setGenerating(false);
-    }
-  }, [chartPrompt, currentKb, selectedFileId, language, fetchGeneratedContent, t, toast]);
-
-  const submitAbstractGeneration = useCallback(async () => {
-    if (!abstractFileId || !currentKb) return;
-    setGenerating(true);
-    setShowAbstractModal(false);
-    try {
-      const res = await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/generate/abstract`, {
-        fileId: abstractFileId,
-        abstractType,
-        language,
-      });
-      await fetchGeneratedContent(currentKb.id);
-      if (res.data?.id) setSelectedContent(res.data as GeneratedContent);
-      toast.success(t('abstractSuccess'));
-      setAbstractFileId('');
-      setAbstractType('academic');
-    } catch (err: unknown) {
-      console.error('Abstract generation failed:', err);
-      toast.error(getApiErrorMessage(err, t('errorGenerate')));
-    } finally {
-      setGenerating(false);
-    }
-  }, [abstractFileId, abstractType, currentKb, language, fetchGeneratedContent, t, toast]);
+  }, [currentKb, language, showPrompt, t, fetchGeneratedContent, startPodcastPolling, toast]);
 
   const handleDeleteGeneratedContent = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -227,22 +150,12 @@ export function useGeneratedContent({
   return useMemo(() => ({
     generatedContent, setGeneratedContent, generating,
     selectedContent, setSelectedContent,
-    showChartGenerationModal, setShowChartGenerationModal,
-    chartPrompt, setChartPrompt,
-    selectedFileId, setSelectedFileId,
-    fetchGeneratedContent, handleGenerate, submitChartGeneration, handleDeleteGeneratedContent,
+    fetchGeneratedContent, handleGenerate, handleDeleteGeneratedContent,
     podcastProgress,
-    showAbstractModal, setShowAbstractModal,
-    abstractFileId, setAbstractFileId,
-    abstractType, setAbstractType,
-    submitAbstractGeneration,
   }), [
     generatedContent, generating,
     selectedContent,
-    showChartGenerationModal, chartPrompt, selectedFileId,
-    fetchGeneratedContent, handleGenerate, submitChartGeneration, handleDeleteGeneratedContent,
+    fetchGeneratedContent, handleGenerate, handleDeleteGeneratedContent,
     podcastProgress,
-    showAbstractModal, abstractFileId, abstractType,
-    submitAbstractGeneration,
   ]);
 }

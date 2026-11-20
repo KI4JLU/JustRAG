@@ -148,7 +148,7 @@ function AuthenticatedAppInner() {
   // New extracted hooks
   const kbSettings = useKbSettings();
   const viewState = useViewState({
-    navigateTo, setKbView, setShowSettings: kbSettings.setShowSettings,
+    navigateTo, setKbView,
     // The swipe follows the tabs AppFrame renders (no 'files'
     // without seeSources).
     showFilesTab: kbSourceRights(currentKb, user?.role, user?.id).seeSources,
@@ -213,9 +213,7 @@ function AuthenticatedAppInner() {
     fetchFiles: fileMgmt.fetchFiles,
   });
 
-  const content = useGeneratedContent({
-    currentKb, files: fileMgmt.files,
-  });
+  const content = useGeneratedContent({ currentKb });
 
   const kbMgmt = useKnowledgeBases({
     onKBSelected: chat.handleNewChat,
@@ -335,8 +333,6 @@ function AuthenticatedAppInner() {
     fetchRssFeeds,
     fetchConfluenceSources: confluenceHook.fetchSources,
     fetchConfluenceConnectionInfo: confluenceHook.fetchConnectionInfo,
-    showSettings: kbSettings.showSettings,
-    setShowSettings: kbSettings.setShowSettings,
   });
 
   const { fetchGitRepoSources } = gitRepoHook;
@@ -533,12 +529,6 @@ function AuthenticatedAppInner() {
       setWebSearchEnabled: kbSettings.setWebSearchEnabled,
       reasoningLevel: kbSettings.reasoningLevel,
       setReasoningLevel: kbSettings.setReasoningLevel,
-      showSettings: kbSettings.showSettings,
-      setShowSettings: kbSettings.setShowSettings,
-      researchRunning: kbSettings.researchRunning,
-      academicResearchRunning: kbSettings.academicResearchRunning,
-      setResearchRunning: kbSettings.setResearchRunning,
-      setAcademicResearchRunning: kbSettings.setAcademicResearchRunning,
       agentSelection: kbSettings.agentSelection,
       setAgentSelection: kbSettings.setAgentSelection,
     };
@@ -668,17 +658,12 @@ function AuthenticatedAppInner() {
         loading={kbMgmt.kbsStatus === 'loading'}
         loadFailed={kbMgmt.kbsStatus === 'failed'}
         onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
-        currentKb={currentKb}
-        availableConfigs={kbSettings.availableConfigs}
         onCreateKB={kbMgmt.handleCreateKB}
         onSelectKB={kbMgmt.handleSelectKB}
         onDeleteKB={kbMgmt.handleDeleteKB}
         removingKb={kbMgmt.removingKb}
         onRenameKB={kbMgmt.handleRenameKB}
         onToggleFavorite={kbMgmt.handleToggleFavorite}
-        onUpdateKBSettings={handleUpdateKBSettings}
-        showSettings={kbSettings.showSettings}
-        setShowSettings={kbSettings.setShowSettings}
       />
     );
   } else if (workspace) {

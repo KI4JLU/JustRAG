@@ -4,7 +4,7 @@ import {
   Badge, Button, Container, PageHeader, Spinner,
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from '@ki4jlu/design-system';
-import type { FileEntry, GeneratedContent, KnowledgeBase } from '../../types';
+import type { GeneratedContent, KnowledgeBase } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useGeneratedContent } from '../../hooks/useGeneratedContent';
 import { useArtifactActions } from '../../hooks/useArtifactActions';
@@ -42,11 +42,6 @@ import { SelectFieldRow } from '../form/FieldRow';
  * dialog, file picker, multi-step research) — see the card for the follow-up.
  * ------------------------------------------------------------------------- */
 
-/** `handleGenerate` only reads files for `chart` and `abstract`, neither of
- *  which this tool offers — a stable empty list keeps the hook's callbacks
- *  stable instead of changing identity on every render. */
-const NO_FILES: FileEntry[] = [];
-
 interface TextDocumentsToolProps {
   /** Anchors the skip link; must match `AppChrome`'s `contentId`. */
   id: string;
@@ -66,7 +61,7 @@ export function TextDocumentsTool({ id, topics, onBack }: TextDocumentsToolProps
   const [loadState, setLoadState] = useState<LoadState>(null);
 
   const topic = useMemo(() => topics.find(k => k.id === topicId) ?? null, [topics, topicId]);
-  const content = useGeneratedContent({ currentKb: topic, files: NO_FILES });
+  const content = useGeneratedContent({ currentKb: topic });
   const {
     generatedContent, setGeneratedContent,
     selectedContent, setSelectedContent,

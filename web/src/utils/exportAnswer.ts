@@ -75,8 +75,7 @@ export async function exportAnswerDocx(
 }
 
 // printAnswerPdf prints the already-rendered answer DOM node so the PDF matches
-// exactly what the user sees. Mirrors AcademicResearchMode.downloadPdf's
-// hidden-iframe + window.print() pattern.
+// exactly what the user sees, through a hidden iframe and window.print().
 export function printAnswerPdf(node: HTMLElement | null, title: string): void {
   if (!node) return;
   const iframe = document.createElement('iframe');
@@ -95,7 +94,7 @@ export function printAnswerPdf(node: HTMLElement | null, title: string): void {
   }
   doc.open();
   // Escape the title (user-supplied question) and DOMPurify the body before
-  // re-injecting into the iframe — mirrors AcademicResearchMode.downloadPdf.
+  // re-injecting into the iframe.
   // The body is already rehype-sanitized in MessageContent; DOMPurify here is
   // defense-in-depth.
   doc.write(`<!DOCTYPE html><html><head><title>${title.replace(/</g, '&lt;')}</title>

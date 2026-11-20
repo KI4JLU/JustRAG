@@ -23,7 +23,6 @@ function touchEnd(x: number): ReactTouchEvent {
 function setup(initialKbView: KbViewType = 'chat', showFilesTab = true) {
   const navigateTo = vi.fn();
   const setKbViewSpy = vi.fn();
-  const setShowSettings = vi.fn();
   const { result } = renderHook(() => {
     const [kbView, setKbViewState] = useState<KbViewType>(initialKbView);
     const setKbView: Dispatch<SetStateAction<KbViewType>> = (v) => {
@@ -31,9 +30,9 @@ function setup(initialKbView: KbViewType = 'chat', showFilesTab = true) {
       setKbViewState(v);
     };
     void kbView;
-    return useViewState({ navigateTo, setKbView, setShowSettings, showFilesTab });
+    return useViewState({ navigateTo, setKbView, showFilesTab });
   });
-  return { result, setKbView: setKbViewSpy, navigateTo, setShowSettings };
+  return { result, setKbView: setKbViewSpy, navigateTo };
 }
 
 // dx = end.x - start.x. dx < 0 (drag left) triggers onSwipeLeft, which in
@@ -129,21 +128,20 @@ describe('useViewState swipe without the files tab', () => {
   });
 });
 
-// Oracle: leaving a topic is a navigation to the overview's URL, plus the two
-// resets the workspace needs on the way out.
+// Oracle: leaving a topic is a navigation to the overview's URL, plus the
+// view reset the workspace needs on the way out.
 describe('useViewState home navigation', () => {
-  it('handleGoHome navigates to my-topics and closes the settings', () => {
-    const { result, navigateTo, setShowSettings, setKbView } = setup('chat');
+  it('handleGoHome navigates to my-topics and resets the view', () => {
+    const { result, navigateTo, setKbView } = setup('chat');
     act(() => result.current.handleGoHome());
     expect(navigateTo).toHaveBeenCalledWith({ view: 'my-topics' });
-    expect(setShowSettings).toHaveBeenCalledWith(false);
     expect(setKbView).toHaveBeenCalledWith('chat');
   });
 
   it('handleViewHome only navigates', () => {
-    const { result, navigateTo, setShowSettings } = setup('chat');
+    const { result, navigateTo, setKbView } = setup('chat');
     act(() => result.current.handleViewHome());
     expect(navigateTo).toHaveBeenCalledWith({ view: 'my-topics' });
-    expect(setShowSettings).not.toHaveBeenCalled();
+    expect(setKbView).not.toHaveBeenCalled();
   });
 });

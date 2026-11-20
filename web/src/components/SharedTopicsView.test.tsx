@@ -218,8 +218,6 @@ const noopProps = {
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
-  showSettings: false,
-  setShowSettings: vi.fn(),
 };
 
 /* `RealRemovalSharedTopicsView` / `renderSharedTopicsView` stood here — the

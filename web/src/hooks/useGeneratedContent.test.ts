@@ -2,7 +2,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { useGeneratedContent } from './useGeneratedContent';
-import type { FileEntry, KnowledgeBase } from '../types';
+import type { KnowledgeBase } from '../types';
 
 vi.mock('axios');
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'de' }) }));
@@ -14,7 +14,6 @@ vi.mock('../contexts/ModalContext', () => ({
 }));
 
 const kb = { id: 'kb1', name: 'KB' } as KnowledgeBase;
-const files = [{ id: 'f1', name: 'a.pdf', status: 'completed' }] as FileEntry[];
 
 const faqRecord = {
   id: 'g-faq', kbId: 'kb1', userId: 'u1', title: 'FAQ zu X',
@@ -31,7 +30,7 @@ describe('useGeneratedContent: erzeugter Inhalt wird geöffnet', () => {
     vi.mocked(axios.post).mockResolvedValue({ data: faqRecord });
     vi.mocked(axios.get).mockResolvedValue({ data: [faqRecord] });
 
-    const { result } = renderHook(() => useGeneratedContent({ currentKb: kb, files }));
+    const { result } = renderHook(() => useGeneratedContent({ currentKb: kb }));
     await act(async () => { await result.current.handleGenerate('faq'); });
 
     await waitFor(() => {
@@ -43,7 +42,7 @@ describe('useGeneratedContent: erzeugter Inhalt wird geöffnet', () => {
     vi.mocked(axios.post).mockRejectedValue(new Error('boom'));
     vi.mocked(axios.get).mockResolvedValue({ data: [] });
 
-    const { result } = renderHook(() => useGeneratedContent({ currentKb: kb, files }));
+    const { result } = renderHook(() => useGeneratedContent({ currentKb: kb }));
     await act(async () => { await result.current.handleGenerate('faq'); });
 
     expect(result.current.selectedContent).toBeNull();
@@ -65,7 +64,7 @@ describe('useGeneratedContent: Podcast', () => {
         : Promise.resolve({ data: [alt, podcast] }),
     );
 
-    const { result } = renderHook(() => useGeneratedContent({ currentKb: kb, files }));
+    const { result } = renderHook(() => useGeneratedContent({ currentKb: kb }));
     await act(async () => { await result.current.handleGenerate('podcast'); });
     await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
 

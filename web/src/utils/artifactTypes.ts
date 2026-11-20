@@ -18,9 +18,9 @@ export const MARKDOWN_ARTIFACT_TYPES = new Set<GeneratedContent['type']>([
 // backend registry go-backend/internal/contentgen/registry.go `TextArtifacts`,
 // each served by the generic POST /api/kb/{id}/generate/{type} handler that
 // useGeneratedContent.handleGenerate calls. The other three markdown types are
-// produced by different flows and are not creatable through this call:
-// `analysis` (StudioWorkspace's agent/preset dialog, /generate/analysis),
-// `abstract` (a file picker, /generate/abstract) and `research` (ResearchMode).
+// produced by different backend flows and are not creatable through this call:
+// `analysis` (/generate/analysis), `abstract` (/generate/abstract) and
+// `research`. The app has no UI that creates them; it lists and opens them.
 // Kept in step with the Go registry by hand — there is no generated link.
 export const PROMPT_TEXT_ARTIFACT_TYPES = ['briefing_doc', 'faq', 'study_guide', 'timeline'] as const;
 export type PromptTextArtifactType = typeof PROMPT_TEXT_ARTIFACT_TYPES[number];

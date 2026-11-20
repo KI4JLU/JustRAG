@@ -34,13 +34,6 @@
   color: var(--text-secondary);
 }
 
-.panel-section__subtitle {
-  margin: 0.5rem 0 0;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
 /* A row inside a section: icon tile, name + secondary line, actions. Same
    tile as the sidebar cards. */
 .panel-row {

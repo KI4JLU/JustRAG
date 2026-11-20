@@ -19,8 +19,7 @@ import { KbTransferOwnerDialog } from './components/admin/KbTransferOwnerDialog'
 
 /* ---------------------------------------------------------------------------
  * Shell: the design system's `DashboardLayout` template (card KI-714,
- * Stage 4b). The template's slot API and how it compares to `AuthLayout`'s two
- * known gaps are documented once, in Dashboard.tsx — read that first.
+ * Stage 4b).
  *
  * What this file uses the slots for:
  *   toolbar -> `ListToolbar` (search field left, column-picker right). This is

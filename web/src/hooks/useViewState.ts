@@ -6,18 +6,14 @@ import type { AppNavigate } from '../routing/navigation';
 
 /* NUR 'chat' (Entwickler, 22.09.2026): die KB-Ansicht ist der Chat. Die
  * früheren Werte 'dashboard' | 'research' | 'academic_research' |
- * 'workspace' | 'mindmap' sind absichtlich aus dem Typ gestrichen — die
- * Komponenten dahinter (Dashboard, ResearchMode, AcademicMode,
- * StudioWorkspace, MindMapView) bleiben im Repo und werden später als Tools
- * angebunden, dürfen bis dahin aber von nirgends erreichbar sein. Der Typ
- * ist die Sperre: ein `setKbView('workspace')` kompiliert nicht mehr. */
+ * 'workspace' | 'mindmap' und die Komponenten dahinter sind entfernt; wer sie
+ * als Tools wieder anbindet, holt sie aus der Git-Historie. */
 type KbViewType = 'chat';
 
 interface UseViewStateParams {
   /** Router navigation by view (routing/navigation.ts). */
   navigateTo: AppNavigate;
   setKbView: React.Dispatch<React.SetStateAction<KbViewType>>;
-  setShowSettings: (val: boolean) => void;
   /**
    * Whether the 'files' tab exists (capabilities.seeSources). Without it the
    * swipe order is history ↔ chat, the same tabs AppFrame renders,
@@ -28,7 +24,7 @@ interface UseViewStateParams {
 
 export type { KbViewType };
 
-export function useViewState({ navigateTo, setKbView, setShowSettings, showFilesTab = true }: UseViewStateParams) {
+export function useViewState({ navigateTo, setKbView, showFilesTab = true }: UseViewStateParams) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
 
   const TAB_ORDER: MobileTab[] = useMemo(
@@ -62,10 +58,9 @@ export function useViewState({ navigateTo, setKbView, setShowSettings, showFiles
   const swipeHandlers = useSwipeGesture(swipeLeft, swipeRight);
 
   const handleGoHome = useCallback(() => {
-    setShowSettings(false);
     setKbView('chat');
     navigateTo({ view: 'my-topics' });
-  }, [setShowSettings, setKbView, navigateTo]);
+  }, [setKbView, navigateTo]);
 
   const handleViewHome = useCallback(() => navigateTo({ view: 'my-topics' }), [navigateTo]);
 

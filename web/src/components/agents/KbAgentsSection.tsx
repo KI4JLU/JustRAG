@@ -12,8 +12,7 @@ import {
 
 interface Props {
   /**
-   * The KB to attach to, or null when no KB is current (SettingsModal is
-   * reachable from HomeView, where currentKb can be null). With null the
+   * The KB to attach to, or null when no KB is current. With null the
    * section still explains itself and links to agent creation — it just
    * cannot offer attach controls.
    */

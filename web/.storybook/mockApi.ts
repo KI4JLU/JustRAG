@@ -106,10 +106,6 @@ const never = () => new Promise<never>(() => {});
 export interface ApiMockParameters {
   authProviders?: MockAuthConfig;
   loginRejection?: MockLoginRejection;
-  /** GET /api/kb/{id}/analytics */
-  kbAnalytics?: unknown;
-  /** GET /api/kb/{id}/analytics/retrieval-quality */
-  kbRetrievalQuality?: unknown;
   /** GET /api/admin/kb-overview */
   kbOverview?: unknown;
   /** GET /api/system-health/live */
@@ -120,8 +116,6 @@ export interface ApiMockParameters {
   aiCheck?: unknown;
   /** Endpoints whose request must hang, so the story shows the loading state. */
   pending?: Array<
-    | 'kbAnalytics'
-    | 'kbRetrievalQuality'
     | 'kbOverview'
     | 'systemHealthLive'
     | 'systemHealthHistory'
@@ -181,12 +175,9 @@ export interface ApiMockParameters {
 /**
  * Tail-anchored URL patterns. API_BASE_URL is the Storybook origin at runtime
  * (.storybook/env.ts), so the URL axios is handed is absolute; the query
- * string is matched by axios-mock-adapter separately from the path, which is
- * why `analytics` needs the `(\?|$)` tail — `Dashboard` always appends `?…`.
+ * string is matched by axios-mock-adapter separately from the path.
  */
 const URLS = {
-  kbAnalytics: /\/api\/kb\/[^/]+\/analytics(\?|$)/,
-  kbRetrievalQuality: /\/api\/kb\/[^/]+\/analytics\/retrieval-quality(\?|$)/,
   kbOverview: /\/api\/admin\/kb-overview$/,
   systemHealthLive: /\/api\/system-health\/live$/,
   systemHealthHistory: /\/api\/system-health\/history$/,
@@ -304,21 +295,7 @@ export function installApiMock(params: ApiMockParameters): () => void {
 
   const pending = new Set(params.pending ?? []);
 
-  // retrieval-quality FIRST: axios-mock-adapter matches handlers in
-  // registration order, and `/analytics(\?|$)` would otherwise swallow
-  // `/analytics/retrieval-quality?…` before the more specific pattern is
-  // reached.
-  if (pending.has('kbRetrievalQuality')) {
-    mock.onGet(URLS.kbRetrievalQuality).reply(never);
-  } else if (params.kbRetrievalQuality !== undefined) {
-    mock.onGet(URLS.kbRetrievalQuality).reply(200, params.kbRetrievalQuality);
-  } else {
-    // Dashboard treats a failure here as "optional data absent" and keeps
-    // rendering, so 404 is the honest default rather than an empty object.
-    mock.onGet(URLS.kbRetrievalQuality).reply(404, { error: 'not configured' });
-  }
-
-  for (const key of ['kbAnalytics', 'kbOverview', 'systemHealthLive', 'systemHealthHistory'] as const) {
+  for (const key of ['kbOverview', 'systemHealthLive', 'systemHealthHistory'] as const) {
     if (pending.has(key)) {
       mock.onGet(URLS[key]).reply(never);
     } else if (params[key] !== undefined) {
@@ -365,8 +342,7 @@ export function installApiMock(params: ApiMockParameters): () => void {
 
   /* Registration order is irrelevant here: none of the four patterns can
    * match another's URL, and none of them collides with a pattern registered
-   * above (checked against `/api/kb/{id}/analytics` and its
-   * retrieval-quality twin, the only other `/api/kb/…` readers). */
+   * above. */
   for (const key of ['kbCategories', 'kbCatalog', 'kbMembers', 'kbInviteLinks'] as const) {
     if (params[key] !== undefined) mock.onGet(URLS[key]).reply(200, params[key]);
   }

@@ -99,10 +99,10 @@
  *
  *   `ol,ul,menu{list-style:none}`
  *       Every bullet and number disappears from every chat answer while
- *       `padding-left` keeps the indent (indented lines, no markers), plus five
+ *       `padding-left` keeps the indent (indented lines, no markers), plus four
  *       hand-written lists outside markdown: MessageBubble.tsx:163,
  *       admin/AdminEvalTab.tsx:479, sidebar/ConfluenceModal.tsx:362,
- *       ConfluenceTokenManager.tsx:286, MindMap/EntityCard.tsx:52.
+ *       ConfluenceTokenManager.tsx:286.
  *
  *   `sub,sup{font-size:75%;line-height:0;position:relative;
  *            vertical-align:baseline}` + `sup{top:-0.5em}`
@@ -730,10 +730,9 @@ button.source-card {
   min-width: 0;
 }
 
-/* Rendered markdown — the product's main surface (six call sites wrap
- * ReactMarkdown in `.markdown-content`: MessageContent x2, PreviewModal,
- * ResearchMode, AcademicResearchMode, Studio/StudioWorkspace; the seventh,
- * Studio/MarkdownEditor's `.markdown-preview`, has its own inline <style>).
+/* Rendered markdown — the product's main surface (the call sites wrap
+ * ReactMarkdown in `.markdown-content`; Studio/MarkdownEditor's
+ * `.markdown-preview` has its own inline \3c style>).
  *
  * This block is deliberately UNCHANGED by the Preflight switch-on. Everything
  * it leaves to the browser — list markers, paragraph margins, h1-h3 size,
@@ -1282,57 +1281,6 @@ button.source-card {
   box-shadow: var(--shadow-xl);
 }
 
-/* Flashcard Styling */
-.flashcard {
-  background-color: transparent;
-  width: 100%;
-  max-width: 600px;
-  height: 300px;
-  perspective: 1000px;
-  cursor: pointer;
-}
-
-.flashcard-inner {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  text-align: center;
-  transition: transform 0.6s;
-  transform-style: preserve-3d;
-  box-shadow: var(--shadow-md);
-  border-radius: var(--shape-lg);
-}
-
-.flashcard.is-flipped .flashcard-inner {
-  transform: rotateY(180deg);
-}
-
-.flashcard-front,
-.flashcard-back {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  border-radius: var(--shape-lg);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-}
-
-.flashcard-front {
-  color: var(--text-primary);
-}
-
-.flashcard-back {
-  background-color: var(--tag-bg);
-  color: var(--text-primary);
-  transform: rotateY(180deg);
-}
-
 .secondary-button {
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -1381,7 +1329,7 @@ button.source-card {
 /* ---------------------------------------------------------------------------
    Button hierarchy (improvement #7)
    One named system so the four tiers + icon-only can't drift again. Emitted by
-   the <Button>/<IconButton> components; legacy .search-button (primary),
+   hand-written `btn btn--*` class names; legacy .search-button (primary),
    .secondary-button (secondary) and .text-button (tertiary) stay as aliases.
    Shared metrics: height 38 (44 on touch), radius --shape-md, padding
    --space-4, gap --space-2, label --type-body, icon 16–18 (set on the glyph).
@@ -1463,20 +1411,6 @@ button.source-card {
   background: transparent;
 }
 
-/* Destructive — error tokens, never the accent (always behind a confirm) */
-.btn--destructive {
-  background: var(--error-bg);
-  color: var(--error-text);
-}
-
-.btn--destructive:hover:not(:disabled) {
-  border-color: var(--error-text);
-}
-
-.btn--destructive:active:not(:disabled) {
-  transform: translateY(0);
-}
-
 /* Icon-only — square, 44px hit-area on touch; keep aria-label + title */
 .btn--icon {
   min-width: 38px;
@@ -1487,12 +1421,6 @@ button.source-card {
 
 .btn--icon:hover:not(:disabled) {
   background: var(--tag-bg);
-  color: var(--text-primary);
-}
-
-.btn--icon.btn--icon-bordered {
-  border-color: var(--border-color);
-  background: var(--bg-primary);
   color: var(--text-primary);
 }
 
@@ -1597,450 +1525,6 @@ button.source-card {
  * of the deprecated `clip: rect(...)`, and an unlayered copy here would also
  * have outranked Tailwind's `.not-sr-only`. */
 
-/* ========================================
-   Research Mode Styles
-   ======================================== */
-
-.research-mode-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bg-secondary);
-  border-radius: var(--shape-lg);
-  overflow: hidden;
-}
-
-.research-mode-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-}
-
-.research-mode-header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.research-mode-header h2 {
-  margin: 0;
-  font: var(--type-h1);
-  /* improvement #4 */
-  color: var(--text-primary);
-}
-
-.research-mode-subtitle {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-}
-
-.research-mode-close {
-  background: none;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--text-secondary);
-  padding: 0.5rem;
-  border-radius: var(--shape-full);
-  transition: background 0.2s, color 0.2s;
-}
-
-.research-mode-close:hover {
-  background: var(--tag-bg);
-  color: var(--text-primary);
-}
-
-/* Accordion Toggle */
-.research-mode-accordion-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem 2rem;
-  background: var(--tag-bg);
-  border: none;
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  text-align: left;
-  transition: background 0.2s, color 0.2s;
-}
-
-.research-mode-accordion-toggle:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
-
-.research-mode-accordion-icon {
-  display: inline-flex;
-  align-items: center;
-  transition: transform 0.2s;
-}
-
-.research-mode-accordion-summary {
-  margin-left: 0.5rem;
-  color: var(--text-secondary);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 400px;
-}
-
-/* Collapsed State */
-.research-mode-input-section.collapsed,
-.research-mode-progress-section.collapsed,
-.research-mode-findings-section.collapsed {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  overflow: hidden;
-  border: none;
-  opacity: 0;
-  transition: max-height 0.3s ease-out, padding 0.3s ease-out, opacity 0.2s ease-out;
-}
-
-.research-mode-input-section:not(.collapsed),
-.research-mode-progress-section:not(.collapsed),
-.research-mode-findings-section:not(.collapsed) {
-  max-height: 600px;
-  opacity: 1;
-  transition: max-height 0.3s ease-in, padding 0.3s ease-in, opacity 0.2s ease-in;
-}
-
-/* Input Section */
-.research-mode-input-section {
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.research-mode-input-section label {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 0.5rem;
-}
-
-.research-mode-input-section textarea {
-  width: 100%;
-  padding: 0.875rem 1rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  background: var(--input-bg);
-  color: var(--text-primary);
-  font-size: 1rem;
-  font-family: inherit;
-  resize: vertical;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.research-mode-input-section textarea:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 10%, transparent);
-}
-
-.research-mode-input-section textarea::placeholder {
-  color: var(--placeholder-text);
-}
-
-.research-mode-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.research-mode-start-btn,
-.research-mode-cancel-btn {
-  padding: 0.75rem 1.5rem;
-  border-radius: var(--shape-md);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
-}
-
-.research-mode-start-btn {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
-  border: none;
-}
-
-.research-mode-start-btn:disabled {
-  background: var(--border-color);
-  cursor: not-allowed;
-}
-
-.research-mode-cancel-btn {
-  background: transparent;
-  color: var(--error-text);
-  border: 1px solid var(--error-text);
-}
-
-.research-mode-cancel-btn:hover {
-  background: var(--error-bg);
-}
-
-/* Progress Section */
-.research-mode-progress-section {
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.research-mode-progress-bar {
-  height: 6px;
-  background: var(--border-color);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.research-mode-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-  border-radius: 3px;
-  transition: width 0.3s ease-out;
-}
-
-.research-mode-status {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  background: var(--tag-bg);
-  border-radius: var(--shape-md);
-}
-
-.research-mode-status-icon {
-  display: inline-flex;
-  align-items: center;
-}
-
-.research-mode-status-text {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.research-mode-status-step {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin-left: auto;
-}
-
-.research-mode-status-complete {
-  background: rgba(45, 143, 78, 0.1);
-}
-
-.research-mode-status-error {
-  background: var(--error-bg);
-}
-
-/* Event Log */
-.research-mode-event-log {
-  max-height: 200px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background: var(--bg-primary);
-  border-radius: var(--shape-md);
-  border: 1px solid var(--border-color);
-}
-
-.research-mode-event {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  border-radius: var(--shape-sm);
-  background: transparent;
-  transition: background 0.2s;
-}
-
-.research-mode-event:last-child {
-  background: var(--tag-bg);
-  color: var(--text-primary);
-}
-
-.research-mode-event-icon {
-  flex-shrink: 0;
-}
-
-.research-mode-event-message {
-  flex: 1;
-  word-break: break-word;
-}
-
-/* Findings Section */
-.research-mode-findings-section {
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid var(--border-color);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.research-mode-findings-section h3 {
-  margin: 0 0 1rem 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.research-mode-findings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.research-mode-finding {
-  padding: 1rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-}
-
-.research-mode-finding-content {
-  margin: 0 0 0.5rem 0;
-  font-size: 0.95rem;
-  color: var(--text-primary);
-  line-height: 1.5;
-}
-
-.research-mode-finding-sources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.research-mode-finding-source {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  background: var(--tag-bg);
-  border-radius: var(--shape-sm);
-  font-size: 0.75rem;
-  color: var(--accent-primary);
-}
-
-/* Report Section */
-.research-mode-report-section {
-  flex: 1;
-  padding: 1.5rem 2rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.research-mode-report-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.research-mode-report-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.research-mode-copy-btn {
-  padding: 0.5rem 1rem;
-  background: var(--tag-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  font-size: 0.875rem;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.research-mode-copy-btn:hover:not(:disabled) {
-  background: var(--border-color);
-  border-color: var(--accent-primary);
-}
-
-.research-mode-copy-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.research-mode-report-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.research-mode-report-content {
-  flex: 1;
-  padding: 1.5rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  overflow-y: auto;
-}
-
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-
-  .research-mode-header,
-  .research-mode-input-section,
-  .research-mode-progress-section,
-  .research-mode-findings-section,
-  .research-mode-report-section {
-    padding: 1rem;
-  }
-
-  .research-mode-header h2 {
-    font-size: 1.25rem;
-  }
-}
-
-/* Studio Workspace */
-.studio-gen-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  padding: 0.75rem;
-  cursor: pointer;
-  font-size: 0.8rem;
-  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-  color: var(--text-primary);
-  text-align: center;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.studio-gen-btn:focus-visible:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--accent-primary);
-  outline: none;
-}
-
-.studio-gen-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  background: var(--bg-primary);
-}
-
 @media (hover: hover) {
   .source-card:hover {
     transform: translateY(-2px);
@@ -2057,18 +1541,6 @@ button.source-card {
 
   [data-theme='dark'] .follow-up-chip:hover {
     box-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 15%, transparent);
-  }
-
-  .research-mode-start-btn:hover:not(:disabled) {
-    background: var(--accent-secondary);
-    transform: translateY(-1px);
-  }
-
-  .studio-gen-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-    border-color: var(--accent-primary);
-    outline: none;
   }
 }
 
@@ -2200,29 +1672,6 @@ button.source-card {
   }
 }
 
-/* Background Jobs Indicator */
-.bg-jobs-indicator {
-  display: flex;
-  align-items: center;
-  padding: 4px;
-  color: var(--accent-primary);
-  animation: bg-jobs-fade-in 0.3s ease-in;
-}
-
-.bg-jobs-spinner {
-  animation: spin 1.2s linear infinite;
-}
-
-@keyframes bg-jobs-fade-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -2255,98 +1704,6 @@ button.source-card {
     transition-duration: 0.01ms !important;
   }
 }
-
-/* Query-scoped mindmap: per-node sources side panel (overlays the graph canvas). */
-.node-sources-panel {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 11;
-  width: 280px;
-  max-width: calc(100% - 24px);
-  max-height: calc(100% - 24px);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--shape-md);
-  box-shadow: var(--shadow-md);
-  color: var(--text-primary);
-  font-size: 0.85rem;
-}
-
-.node-sources-panel ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.node-sources-panel li {
-  word-break: break-word;
-  color: var(--text-secondary);
-}
-
-.node-sources-panel>button {
-  align-self: flex-start;
-  cursor: pointer;
-}
-
-.node-sources-panel header button {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.1rem;
-  line-height: 1;
-  color: var(--text-secondary);
-}
-
-.entity-card { max-height: 70%; overflow-y: auto; }
-.entity-card .entity-card-type { font-size: 0.75rem; color: var(--text-secondary); }
-.entity-card .entity-card-src { background: none; border: none; color: var(--accent-primary); cursor: pointer; padding: 0; text-align: left; font-size: 0.82rem; }
-.entity-card .entity-card-src:hover { text-decoration: underline; }
-.entity-card .entity-card-neighbors { font-size: 0.8rem; color: var(--text-secondary); }
-
-.graph-export-menu { position: relative; }
-.graph-export-btn {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--bg-secondary); color: var(--text-primary);
-    border: 1px solid var(--border-color); border-radius: var(--shape-md);
-    padding: 6px 10px; font-size: 0.8rem; cursor: pointer;
-    box-shadow: var(--shadow-md);
-}
-.graph-export-btn:hover { border-color: var(--accent-primary); }
-.graph-export-list {
-    position: absolute; top: calc(100% + 4px); left: 0; margin: 0; padding: 4px;
-    list-style: none; min-width: 140px; z-index: 20;
-    background: var(--bg-secondary); border: 1px solid var(--border-color);
-    border-radius: var(--shape-md); box-shadow: var(--shadow-md);
-}
-.graph-export-list li { margin: 0; }
-.graph-export-list button {
-    display: block; width: 100%; text-align: left;
-    background: none; border: none; color: var(--text-primary);
-    padding: 6px 8px; font-size: 0.8rem; border-radius: var(--shape-sm); cursor: pointer;
-}
-.graph-export-list button:hover { background: var(--tag-bg); }
-.graph-toolbar { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-.graph-toolbar input {
-    background: var(--bg-secondary); color: var(--text-primary);
-    border: 1px solid var(--border-color); border-radius: var(--shape-md);
-    padding: 6px 10px; font-size: 0.8rem; width: 180px; box-shadow: var(--shadow-md);
-}
-.graph-toolbar-chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 220px; }
-.graph-type-chip {
-    background: var(--tag-bg); color: var(--text-primary);
-    border: 1px solid var(--border-color); border-radius: var(--shape-full);
-    padding: 2px 8px; font-size: 0.72rem; cursor: pointer;
-}
-.graph-type-chip[aria-pressed="false"] { opacity: 0.4; }
 
 /* ---------------------------------------------------------------------------
  * Agent surface (My Agents, agent forms, KB agent attachment).
@@ -2410,19 +1767,6 @@ button.source-card {
 .segmented-control__item:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
-}
-
-/* .btn--icon (line 1243) and .btn--destructive (line 1229) are both single-class
-   selectors (specificity 0-1-0), so source order alone decided and .btn--icon's
-   `background: none; color: var(--text-secondary)` silently won over destructive's
-   error colors. This two-class selector outranks both on specificity. */
-.btn--icon.btn--destructive {
-  color: var(--error-text);
-}
-
-.btn--icon.btn--destructive:hover:not(:disabled) {
-  background: var(--error-bg);
-  color: var(--error-text);
 }
 
 /* The answer's sentences that cite the passage the source panel shows

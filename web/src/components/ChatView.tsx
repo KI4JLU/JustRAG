@@ -50,7 +50,6 @@ import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from 
 import { MessageSkeleton } from './Skeleton';
 import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
 
-const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
 
 // Attaches a DOM element to a ref owned by useChat (textareaRef). Done in a module-level helper so the `.current` write — and
@@ -147,7 +146,6 @@ const ChatViewComp = () => {
     else if (defAgent) setAgentSelection({ agentId: defAgent.id });
   }, [kbAgentOptions, chat.activeChatId, setAgentSelection]);
 
-  const [showKbSettings, setShowKbSettings] = useState(false);
   // Improve the UNSENT draft in place (rewrite / expand / spell) via
   // POST /api/enhance, so the user can revise before sending. The old
   // behaviour — flagging the message and letting the chat stream enhance it
@@ -470,11 +468,8 @@ const ChatViewComp = () => {
           selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
       {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
           `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
-      {/* Nur der Chat (22.09.2026). Die Zweige für 'research',
-          'academic_research', 'workspace', 'mindmap' und das Dashboard sind
-          hier gestrichen; die Komponenten bleiben im Repo für die spätere
-          Anbindung als Tools. `KbViewType` ist auf 'chat' verengt, also gibt
-          es nichts mehr zu verzweigen. */}
+      {/* Nur der Chat (22.09.2026): `KbViewType` ist auf 'chat' verengt, also
+          gibt es nichts mehr zu verzweigen. */}
       {
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
@@ -1073,41 +1068,6 @@ const ChatViewComp = () => {
               </div>
             )
       }
-      {showKbSettings && currentKb && (
-        <div
-          className="modal-overlay"
-          style={{ zIndex: 3000 }}
-          onClick={() => setShowKbSettings(false)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setShowKbSettings(false); }}
-          role="presentation"
-        >
-          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="KB settings"
-            className="modal-content"
-            style={{ maxWidth: '640px', maxHeight: '80vh', overflowY: 'auto' }}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>KB Settings (RAG Tuning)</h3>
-              <button
-                type="button"
-                onClick={() => setShowKbSettings(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
-                aria-label="Close"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <Suspense fallback={<div>Loading…</div>}>
-              <KbSettingsPanelLazy kbId={currentKb.id} />
-            </Suspense>
-          </div>
-        </div>
-      )}
       {showSystemPrompt && currentKb && canEditSystemPrompt && (
         // Modal over the chat: the chat stays where it was underneath and the
         // rest of the app is inert until the dialog closes.

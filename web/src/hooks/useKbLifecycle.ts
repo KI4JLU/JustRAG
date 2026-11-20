@@ -12,8 +12,6 @@ interface UseKbLifecycleParams {
   fetchRssFeeds: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceSources: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceConnectionInfo: () => void;
-  showSettings: boolean;
-  setShowSettings: (val: boolean) => void;
 }
 
 export function useKbLifecycle({
@@ -21,7 +19,6 @@ export function useKbLifecycle({
   fetchKBs, fetchAvailableConfigs,
   fetchFiles, fetchChats, fetchGeneratedContent,
   fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo,
-  showSettings, setShowSettings,
 }: UseKbLifecycleParams) {
   // Fetch KBs and configs on auth
   useEffect(() => {
@@ -44,17 +41,4 @@ export function useKbLifecycle({
       return () => controller.abort();
     }
   }, [currentKb, fetchFiles, fetchChats, fetchGeneratedContent, fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo]);
-
-  // ESC handler. An Escape something inside the modal already handled — an
-  // open Select or ⋮ menu closing itself (Radix marks it defaultPrevented) —
-  // must not close the modal around it as well.
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (showSettings) setShowSettings(false);
-      }
-    };
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, [showSettings, setShowSettings]);
 }

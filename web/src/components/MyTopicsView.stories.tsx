@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, screen, waitFor, within } from 'storybook/test';
 import { MyTopicsView } from './MyTopicsView';
@@ -196,11 +196,9 @@ interface MyTopicsViewStoryArgs {
  * Supplies what `AuthenticatedApp.tsx`'s `view === 'home'` branch supplies, and
  * nothing else — as of KI-770 that is 18 props plus two contexts.
  *
- * `showSettings` is the one piece of state still owned here, and only because
- * the prop pair still exists. Everything that is genuinely the parent's
- * business — creating, deleting, renaming, opening settings — stays a spy,
- * because a story that faked those outcomes would be inventing behaviour
- * rather than recording this component's.
+ * Everything that is the parent's business — creating, deleting, renaming,
+ * opening settings — stays a spy, because a story that faked those outcomes
+ * would be inventing behaviour rather than recording this component's.
  */
 /**
  * The REAL `useKbSearchState` behind `KbSearchContext` (cards KI-787, KI-837).
@@ -216,8 +214,6 @@ function StoryKbSearchProvider({ children }: { children: ReactNode }) {
 }
 
 function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
-  const [showSettings, setShowSettings] = useState(false);
-
   return (
     <AuthProvider
       user={args.user}
@@ -251,17 +247,12 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
           <StoryKbSearchProvider>
           <MyTopicsView
             kbs={args.kbs}
-            currentKb={null}
-            availableConfigs={[]}
             onCreateKB={args.onCreateKB}
             onSelectKB={args.onSelectKB}
             onDeleteKB={idle()}
             removingKb={args.removingKb}
             onRenameKB={idle()}
             onToggleFavorite={idle()}
-            onUpdateKBSettings={idle()}
-            showSettings={showSettings}
-            setShowSettings={setShowSettings}
           />
           </StoryKbSearchProvider>
         </AppNavProvider>
@@ -276,7 +267,7 @@ function MyTopicsViewHarness(args: MyTopicsViewStoryArgs) {
 
 type Canvas = ReturnType<typeof within>;
 
-/** The four section ids, i.e. the localStorage keys `useSectionOpen` persists. */
+/** The four section ids, i.e. the localStorage keys the former sections persisted. */
 const SECTION_IDS = ['favorites', 'discover', 'shared', 'mine'] as const;
 const SECTION_STORAGE_KEYS = SECTION_IDS.map((id) => `justrag.home.section.${id}`);
 
@@ -473,7 +464,7 @@ const meta = {
   /**
    * Determinism for two pieces of state the view reads from localStorage.
    *
-   * `useSectionOpen` persists each section's open/closed state under
+   * The former sections persisted each open/closed state under
    * `justrag.home.section.<id>`, so a story that expands a section would
    * otherwise decide the starting state of every story after it — and in the
    * browser runner that storage is shared across the whole origin, not per

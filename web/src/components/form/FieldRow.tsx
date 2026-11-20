@@ -5,7 +5,7 @@
  * (Stufe 1 of the DS migration, board card KI-691). Six more admin/settings
  * screens carry the same row markup — 143 rows in AdminAgentTab.tsx alone, and
  * ~50 more across AdminAuthTab, AdminConfigsTab, AdminSiteTab, AdminSearchTab,
- * AdminEvalTab and SettingsModal — so the composition lives HERE, once, and
+ * AdminEvalTab and the former SettingsModal — so the composition lives HERE, once, and
  * those screens import it. It is not a pattern to copy.
  *
  * Stage 3b (card KI-692) migrated AdminEvalTab and AdminConfigsTab onto it and

@@ -227,8 +227,6 @@ const noopProps = {
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
-  showSettings: false,
-  setShowSettings: vi.fn(),
 };
 
 // RealRemovalMyTopicsView wires onDeleteKB to the real useKbRemoval hook (rather
