@@ -146,7 +146,7 @@ working tree. **Shown today** is what the user sees in this working tree. A key
 marked *(proposed)* does not exist yet; its text is a proposal. "+ S12–S15" after
 a key means the shared cases apply on top of it (section 1). Language ternaries
 that are not error surfaces are left out (`ChatView.tsx` citation labels,
-`MessageContent.tsx` tooltips, `BranchTreeNav.tsx`, `Login.tsx:236–237`).
+`MessageContent.tsx` tooltips, `BranchTreeNav.tsx`, `pages/Login.tsx:236–237`).
 
 ### A. Every user
 
@@ -173,13 +173,13 @@ Chat, composer, upload, sources sidebar, login, profile pages.
 | A20 | `components/sidebar/SourcesSection.tsx:199` | RSS feed in status `error` | Raw `errorMessage` (backend or remote text) | `rssFeedSyncError` *(proposed)* | Der RSS-Feed konnte nicht abgerufen werden. Prüfe die Adresse oder versuche es später erneut. | The RSS feed could not be fetched. Check the address or try again later. | open |
 | A21 | `components/sidebar/SourcesSection.tsx:283` | Confluence source in status `error` | Raw `errorMessage` | `confluenceSourceSyncError` *(proposed)* | Die Confluence-Quelle konnte nicht synchronisiert werden. Prüfe deine Confluence-Verbindung. | The Confluence source could not be synced. Check your Confluence connection. | open |
 | A22 | `components/sidebar/SourcesSection.tsx:349` | Git repository in status `error` | Raw `errorMessage` | `gitRepoSyncError` *(proposed)* | Das Repository konnte nicht synchronisiert werden. Prüfe die Adresse und das Zugriffstoken. | The repository could not be synced. Check the address and the access token. | open |
-| A23 | `Login.tsx:130` | 401: wrong user name or password | `Invalid username or password` (backend, English) | `invalidCredentials` | Ungültiger Benutzername oder Passwort | Invalid username or password | open |
-| A24 | `Login.tsx:130` | 403 or 429 | Raw backend text | S12, S13 | (section 2) | (section 2) | open |
-| A25 | `Login.tsx:130` | No response or 5xx: login unavailable | Ungültiger Benutzername oder Passwort (reads as wrong credentials) | `loginUnavailable` *(proposed)* | Die Anmeldung ist gerade nicht möglich. Bitte versuche es später erneut. | Signing in is not possible right now. Please try again later. | open |
-| A26 | `Login.tsx:91` | OIDC `state_missing`, `state_mismatch`, `verifier_missing`, `code_missing` | Anmeldung über Single Sign-On fehlgeschlagen (state_mismatch) | `oidcLoginExpired` *(proposed)* | Die Anmeldung ist abgelaufen. Bitte melde dich erneut an. | The sign-in has expired. Please sign in again. | open |
-| A27 | `Login.tsx:91` | OIDC `provider_unavailable`, `provider_init_failed` | … fehlgeschlagen (provider_unavailable) | `oidcLoginUnavailable` *(proposed)* | Single Sign-On ist gerade nicht erreichbar. Bitte versuche es später erneut. | Single Sign-On is currently unavailable. Please try again later. | open |
-| A28 | `Login.tsx:91` | OIDC `email_missing`, `email_unverified` | … fehlgeschlagen (email_unverified) | `oidcLoginNoEmail` *(proposed)* | Für dein Konto ist keine bestätigte E-Mail-Adresse hinterlegt. Wende dich an den Support. | Your account has no verified e-mail address. Please contact support. | open |
-| A29 | `Login.tsx:91`, `:105` | Any other OIDC code; unreadable OIDC fragment | … fehlgeschlagen (code_exchange_failed) | `oidcLoginFailed` (without the code) | Anmeldung über Single Sign-On fehlgeschlagen | Single Sign-On login failed | open |
+| A23 | `pages/Login.tsx:130` | 401: wrong user name or password | `Invalid username or password` (backend, English) | `invalidCredentials` | Ungültiger Benutzername oder Passwort | Invalid username or password | open |
+| A24 | `pages/Login.tsx:130` | 403 or 429 | Raw backend text | S12, S13 | (section 2) | (section 2) | open |
+| A25 | `pages/Login.tsx:130` | No response or 5xx: login unavailable | Ungültiger Benutzername oder Passwort (reads as wrong credentials) | `loginUnavailable` *(proposed)* | Die Anmeldung ist gerade nicht möglich. Bitte versuche es später erneut. | Signing in is not possible right now. Please try again later. | open |
+| A26 | `pages/Login.tsx:91` | OIDC `state_missing`, `state_mismatch`, `verifier_missing`, `code_missing` | Anmeldung über Single Sign-On fehlgeschlagen (state_mismatch) | `oidcLoginExpired` *(proposed)* | Die Anmeldung ist abgelaufen. Bitte melde dich erneut an. | The sign-in has expired. Please sign in again. | open |
+| A27 | `pages/Login.tsx:91` | OIDC `provider_unavailable`, `provider_init_failed` | … fehlgeschlagen (provider_unavailable) | `oidcLoginUnavailable` *(proposed)* | Single Sign-On ist gerade nicht erreichbar. Bitte versuche es später erneut. | Single Sign-On is currently unavailable. Please try again later. | open |
+| A28 | `pages/Login.tsx:91` | OIDC `email_missing`, `email_unverified` | … fehlgeschlagen (email_unverified) | `oidcLoginNoEmail` *(proposed)* | Für dein Konto ist keine bestätigte E-Mail-Adresse hinterlegt. Wende dich an den Support. | Your account has no verified e-mail address. Please contact support. | open |
+| A29 | `pages/Login.tsx:91`, `:105` | Any other OIDC code; unreadable OIDC fragment | … fehlgeschlagen (code_exchange_failed) | `oidcLoginFailed` (without the code) | Anmeldung über Single Sign-On fehlgeschlagen | Single Sign-On login failed | open |
 | A30 | `components/ErrorBoundary.tsx:46`, `:48` (buttons `:69`, `:79`) | Render error caught by the boundary | Something went wrong / An unexpected error occurred. Try reloading the page. (English only) | `errorBoundaryTitle`, `errorBoundaryText` *(proposed)* | Etwas ist schiefgelaufen. Ein unerwarteter Fehler ist aufgetreten. Lade die Seite neu. | Something went wrong. An unexpected error occurred. Reload the page. | open |
 | A31 | `components/ErrorBoundary.tsx:57` | Render error caught by the boundary | Raw `error.message`, e.g. `Cannot read properties of undefined …` | none: log only | — | — | open |
 | A32 | `components/ChartRenderer.tsx:35` | A chart cannot be rendered (heading) | Fehler beim Anzeigen des Diagramms (German only) | `chartRenderError` *(proposed)* | Das Diagramm kann nicht angezeigt werden. | The chart cannot be displayed. | open |
@@ -251,8 +251,8 @@ providers, dashboards, evaluation, MCP servers, configurations. A topic admin
 
 | ID | Where | When | Shown today | Message key | DE | EN | Status |
 |---|---|---|---|---|---|---|---|
-| C01 | `AdminUI.tsx:335`, `:365` | Saving an AI provider or auth provider refused | Raw backend text | `saveFailed` + S12–S15 | Speichern fehlgeschlagen | Save failed | open |
-| C02 | `AdminUI.tsx:322` → `components/admin/AdminConfigsTab.tsx:214` | Provider connection test reports unhealthy | Provider error text | `connectionFailed` | Verbindung fehlgeschlagen | Connection failed | open |
+| C01 | `pages/AdminUI.tsx:335`, `:365` | Saving an AI provider or auth provider refused | Raw backend text | `saveFailed` + S12–S15 | Speichern fehlgeschlagen | Save failed | open |
+| C02 | `pages/AdminUI.tsx:322` → `components/admin/AdminConfigsTab.tsx:214` | Provider connection test reports unhealthy | Provider error text | `connectionFailed` | Verbindung fehlgeschlagen | Connection failed | open |
 | C03 | `components/admin/AdminConfigsTab.tsx:135` | Context-window detection refused | Raw backend text | `contextWindowDetectFailed` + S12–S15 | Kontextfenster konnten nicht ermittelt werden. | Could not detect the context windows. | open |
 | C04 | `components/admin/AdminEvalTab.tsx:158`, `:225` | Loading golden sets fails | Raw backend text | `evalGoldenSetsFetchFailed` + S12–S15 | Laden der Golden-Sets fehlgeschlagen. | Failed to load golden sets. | open |
 | C05 | `components/admin/AdminEvalTab.tsx:211` | Starting golden-set generation refused | Raw backend text | `evalGenFailed` + S12–S15 | Generierung fehlgeschlagen | Generation failed | open |
@@ -268,15 +268,15 @@ providers, dashboards, evaluation, MCP servers, configurations. A topic admin
 | C15 | `components/admin/AdminGlobalKbsTab.tsx:232` | Making a public topic private refused | Raw backend text | `unpublishError` + S12–S15 | Fehler beim Zurücknehmen der Wissensdatenbank | Error making the knowledge base private | open |
 | C16 | `components/admin/AdminUnpublishDialog.tsx:68` | Loading the unpublish impact fails | Raw backend text | `unpublishImpactLoadError` + S12–S15 | Fehler beim Laden der Auswirkungen | Error loading the impact | open |
 | C17 | `components/admin/KbTransferOwnerDialog.tsx:58` | Loading the user list fails | Raw backend text | `kbTransferUsersLoadError` + S12–S15 | Fehler beim Laden der Nutzenden | Error loading users | open |
-| C18 | `KBOverviewDashboard.tsx:314` | Loading the topic overview fails | Raw backend text | `kbOverviewLoadError` + S12–S15 | Fehler beim Laden der KB-Übersicht | Error loading KB overview | open |
-| C19 | `KBOverviewDashboard.tsx:330` | Deleting a topic refused | Raw backend text | `kbDeleteFailed` + S12–S15 | Löschen fehlgeschlagen | Delete failed | open |
-| C20 | `KBOverviewDashboard.tsx:357` | Publishing a topic refused | Raw backend text | `kbPublishFailed` + S12–S15 | Veröffentlichen fehlgeschlagen | Publishing failed | open |
-| C21 | `KBOverviewDashboard.tsx:372` | Transferring ownership refused | Raw backend text | `kbTransferFailed` + S12–S15 | Übertragung fehlgeschlagen | Transfer failed | open |
-| C22 | `SystemHealthDashboard.tsx:409`, `:444` | Loading metrics fails | Raw backend text, else Fehler beim Laden der Metriken (German only) | `metricsFetchError` + S12–S15 | Fehler beim Laden der Metriken | Error loading metrics | open |
-| C23 | `SystemHealthDashboard.tsx:418`, `:454` | Loading historical data fails | Raw backend text | `historicalDataError` + S12–S15 | Fehler beim Laden der historischen Daten | Error loading historical data | open |
-| C24 | `SystemHealthDashboard.tsx:246` | A service health check reports an error | `dial tcp 10.0.0.5:5432: connect: connection refused` | `healthServiceUnreachable` *(proposed)* | Nicht erreichbar | Not reachable | open |
-| C25 | `SystemHealthDashboard.tsx:352` (shown at `:691`) | The AI check reports unhealthy | Provider error text | `healthServiceUnreachable` *(proposed)* | Nicht erreichbar | Not reachable | open |
-| C26 | `SystemHealthDashboard.tsx:355` | The AI check request fails | Prüfung fehlgeschlagen (German only) | `connectionTestFailed` | Verbindungstest fehlgeschlagen | Connection test failed | open |
+| C18 | `pages/KBOverviewDashboard.tsx:314` | Loading the topic overview fails | Raw backend text | `kbOverviewLoadError` + S12–S15 | Fehler beim Laden der KB-Übersicht | Error loading KB overview | open |
+| C19 | `pages/KBOverviewDashboard.tsx:330` | Deleting a topic refused | Raw backend text | `kbDeleteFailed` + S12–S15 | Löschen fehlgeschlagen | Delete failed | open |
+| C20 | `pages/KBOverviewDashboard.tsx:357` | Publishing a topic refused | Raw backend text | `kbPublishFailed` + S12–S15 | Veröffentlichen fehlgeschlagen | Publishing failed | open |
+| C21 | `pages/KBOverviewDashboard.tsx:372` | Transferring ownership refused | Raw backend text | `kbTransferFailed` + S12–S15 | Übertragung fehlgeschlagen | Transfer failed | open |
+| C22 | `pages/SystemHealthDashboard.tsx:409`, `:444` | Loading metrics fails | Raw backend text, else Fehler beim Laden der Metriken (German only) | `metricsFetchError` + S12–S15 | Fehler beim Laden der Metriken | Error loading metrics | open |
+| C23 | `pages/SystemHealthDashboard.tsx:418`, `:454` | Loading historical data fails | Raw backend text | `historicalDataError` + S12–S15 | Fehler beim Laden der historischen Daten | Error loading historical data | open |
+| C24 | `pages/SystemHealthDashboard.tsx:246` | A service health check reports an error | `dial tcp 10.0.0.5:5432: connect: connection refused` | `healthServiceUnreachable` *(proposed)* | Nicht erreichbar | Not reachable | open |
+| C25 | `pages/SystemHealthDashboard.tsx:352` (shown at `:691`) | The AI check reports unhealthy | Provider error text | `healthServiceUnreachable` *(proposed)* | Nicht erreichbar | Not reachable | open |
+| C26 | `pages/SystemHealthDashboard.tsx:355` | The AI check request fails | Prüfung fehlgeschlagen (German only) | `connectionTestFailed` | Verbindungstest fehlgeschlagen | Connection test failed | open |
 | C27 | `components/admin/AdminMCPSection.tsx:142–146`, `:272` | Loading the MCP status fails | `Error: Error: HTTP 500` | `mcpStatusLoadError` *(proposed)* + S12–S15 | Der MCP-Status konnte nicht geladen werden. | Could not load the MCP status. | open |
 | C28 | `components/admin/AdminMCPSection.tsx:161–168`, `:272` | Reloading the MCP registry refused | `Error: Error: HTTP 500: <body>` | `mcpReloadError` *(proposed)* + S12–S15 | Die MCP-Server konnten nicht neu geladen werden. | Could not reload the MCP servers. | open |
 | C29 | `components/admin/AdminMCPSection.tsx:118` | One MCP server reports an error | Raw server error text | `mcpServerUnreachable` *(proposed)* | Server nicht erreichbar | Server not reachable | open |

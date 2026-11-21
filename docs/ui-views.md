@@ -6,7 +6,7 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 
 - The path names the routed view. The route table is `routing/routes.ts`; `useAppRoute`
   (`routing/navigation.ts`) turns the matched route into an `AppRoute`.
-- The root route mounts `AppRoot.tsx`, which renders `Login.tsx` or `AuthenticatedApp.tsx`.
+- The root route mounts `AppRoot.tsx`, which renders `pages/Login.tsx` or `AuthenticatedApp.tsx`.
   `AuthenticatedApp` reads the route and picks what to render; routes carry no components.
 - Ids in generated paths are 22-character short ids (`routing/shortId.ts`); a full UUID typed by
   hand resolves too.
@@ -46,8 +46,8 @@ a join link is replaced with `/`.
 
 | Screen | Component | Notes |
 |---|---|---|
-| Login | `Login.tsx` | Password form when local auth or LDAP is enabled (also the fallback when provider discovery fails); SSO button when OIDC is configured. Variants: session expired, pending invite. |
-| Password login | `Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
+| Login | `pages/Login.tsx` | Password form when local auth or LDAP is enabled (also the fallback when provider discovery fails); SSO button when OIDC is configured. Variants: session expired, pending invite. |
+| Password login | `pages/Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
 | Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/Footer.tsx`). |
 | Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. `useJoinRedeem` redeems it and opens the topic, after sign-in or at once in an existing session. |
 
@@ -210,7 +210,7 @@ failure.
 
 ### `?admin=` — admin console
 
-`AdminUI.tsx`. Roles `admin` and `superadmin`; for anyone else the shell removes the parameter.
+`pages/AdminUI.tsx`. Roles `admin` and `superadmin`; for anyone else the shell removes the parameter.
 A section the user may not see falls back to `configs`.
 
 | Section | Component | Visible to | Sub-screens |
@@ -221,12 +221,12 @@ A section the user may not see falls back to `configs`.
 | `agent` | `admin/AdminAgentTab` | Superadmin | — |
 | `site` | `admin/AdminSiteTab` | Superadmin | — |
 | `notice` | `admin/AdminSystemNoticeTab` | Admin | — |
-| `kb-overview` | `KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" (deprecated) |
+| `kb-overview` | `pages/KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" (deprecated) |
 | `global-kbs` | `admin/AdminGlobalKbsTab` | Admin | Take-back dialog with impact and owner picker; opens the public-topic editor |
 | `templates` | `admin/AdminTemplatesTab` | Admin | Tabs `roles` and `categories`; role-template editor |
 | `users` | `admin/AdminUsersTab` | Admin | Read-only user details |
 | `roles` | `admin/AdminRolesTab` | Admin | — |
-| `health` | `SystemHealthDashboard.tsx` | Admin | `ReembedSection` (superadmin) |
+| `health` | `pages/SystemHealthDashboard.tsx` | Admin | `ReembedSection` (superadmin) |
 | `eval` | `admin/AdminEvalTab` | Superadmin | Run comparison panel |
 
 "Admin" includes superadmin.
