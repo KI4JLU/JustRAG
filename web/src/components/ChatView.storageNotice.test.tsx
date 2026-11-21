@@ -106,7 +106,6 @@ vi.mock('../contexts/KbChatContext', () => ({
       setLoadedResearchSession: vi.fn(),
       loadedAcademicSession: null,
       setLoadedAcademicSession: vi.fn(),
-      startComparison: vi.fn(),
     },
     enhance: null,
     setEnhance: vi.fn(),

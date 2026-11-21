@@ -210,9 +210,6 @@ export interface Message {
     // message (GET /api/chats/{id}/messages). Undefined when the turn had no
     // steps.
     trajectory?: TrajectoryEvent[];
-    // In-chat document comparison findings, populated by useChatStream from
-    // the `comparisonFindings` SSE event during a comparison turn.
-    comparisonFindings?: ComparisonFinding[];
     // Conflicting-sources report (Wave 5, chat_conflict_surfacing_enabled):
     // populated live from the `conflicts` SSE frame (useChatStream, right
     // after `sources`) and from the persisted `conflicts` column on reload
@@ -238,16 +235,6 @@ export interface MessageConflict {
     newer: 'a' | 'b' | 'unknown';
     fileA: string;
     fileB: string;
-}
-
-export interface ComparisonFinding {
-    mode: 'contradiction' | 'formal' | 'completeness';
-    severity: 'high' | 'medium' | 'low';
-    sectionIdx: number;
-    uploadQuote: string;
-    issue: string;
-    citedFileIds: string[];
-    citedQuote: string;
 }
 
 export interface BranchInfo {

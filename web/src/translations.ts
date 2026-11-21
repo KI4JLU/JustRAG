@@ -970,9 +970,6 @@ export const translations = {
     list: { de: 'Liste', en: 'List' },
     copyToClipboard: { de: 'In Zwischenablage kopieren', en: 'Copy to clipboard' },
     exportDocx: { de: 'DOCX exportieren', en: 'Export DOCX' },
-    downloadPdf: { de: 'PDF herunterladen', en: 'Download PDF' },
-    analyzeWithAi: { de: 'Mit KI analysieren', en: 'Analyze with AI' },
-    saveChanges: { de: 'Änderungen speichern', en: 'Save changes' },
     filters: { de: 'Filter', en: 'Filters' },
     exportCsv: { de: 'CSV exportieren', en: 'Export CSV' },
     exportPng: { de: 'PNG exportieren', en: 'Export PNG' },
@@ -1233,14 +1230,6 @@ export const translations = {
     chatAttachmentsTooLongTogether: { de: 'Die angehängten Dateien sind zusammen zu lang, um im Chat als Kontext mitgelesen zu werden. Entferne eine Datei und sende erneut.', en: 'Together, the attached files are too long to be read as context in the chat. Remove a file and send again.' },
     chatAttachmentRemoveHint: { de: 'Entferne die Datei und sende erneut.', en: 'Remove the file and send again.' },
     chatAttachmentsRemoveFailed: { de: 'Entferne zuerst die Anhänge, die nicht hochgeladen werden konnten.', en: 'Remove the attachments that could not be uploaded first.' },
-    comparisonUploadFailed: { de: 'Upload fehlgeschlagen', en: 'Upload failed' },
-    comparisonDisabled: { de: 'Dokumentenvergleich ist deaktiviert', en: 'Document comparison is disabled' },
-    comparisonModeContradiction: { de: 'Widerspruch', en: 'Contradiction' },
-    comparisonModeFormal: { de: 'Formal', en: 'Formal' },
-    comparisonModeCompleteness: { de: 'Vollständigkeit', en: 'Completeness' },
-    comparisonCitedKb: { de: 'WB', en: 'KB' },
-    comparisonCitedFiles: { de: 'Dateien', en: 'Files' },
-    comparisonDefaultMessage: { de: 'Vergleiche dieses Dokument mit der Wissensbasis', en: 'Compare this document against the knowledge base' },
     // `comparisonAttach` is the paperclip's OWN imperative aria-label — kept
     // as-is for anything still using it as an action label. The Workspace
     // dialog's file field needs a noun, matching its siblings ("Vorlage",
@@ -2905,8 +2894,8 @@ export const translations = {
     agentSectionCompare: { de: 'Dokumentenvergleich (im Chat)', en: 'In-chat document comparison' },
     chatCompareEnabled: { de: 'Dokumentenvergleich aktivieren', en: 'Enable document comparison' },
     chatCompareEnabledHelp: {
-        de: 'Master-Schalter. Wenn aktiviert, kann ein im Chat angehängtes Dokument abschnittsweise gegen den KB-Korpus verglichen werden. Standard: aus.',
-        en: 'Master gate. When on, a document attached in chat can be compared section-by-section against the KB corpus. Default: off.',
+        de: 'Master-Schalter. Wenn aktiviert, lässt sich ein Dokument über die API abschnittsweise gegen den KB-Korpus vergleichen. Die Web-App bietet dafür keinen Einstieg. Standard: aus.',
+        en: 'Master gate. When on, a document can be compared section by section against the KB corpus through the API. The web app has no entry point for it. Default: off.',
     },
     chatCompareModel: { de: 'Vergleich: Modell-Override', en: 'Comparison: model override' },
     chatCompareModelHelp: {

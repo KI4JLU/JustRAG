@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, ComparisonFinding, MessageConflict, MessageAttachment } from '../types';
+import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, MessageConflict, MessageAttachment } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { chatSourceSelection } from '../utils/kbAccess';
@@ -79,8 +79,6 @@ export function useChatStream({
     // appended the edited question to the very answer it replaces.
     editParentId?: string | null,
     opts?: {
-      attachmentId?: string;
-      comparisonModes?: string[];
       // Chat attachments of this question: ids for the request, chip data for
       // the optimistic message.
       attachmentIds?: string[];
@@ -196,17 +194,10 @@ export function useChatStream({
           ...(webSearchEnabled === undefined ? {} : { webSearch: webSearchEnabled }),
           language,
           ...(selection.selectedFileIds ? { selectedFileIds: selection.selectedFileIds } : {}),
-          // In-chat document comparison: when an attachment is present the
-          // backend injects it; non-empty `comparisonModes` makes the turn a
-          // comparison (otherwise it's a normal follow-up over the attachment).
-          ...(opts?.attachmentId ? { attachmentId: opts.attachmentId } : {}),
           ...(opts?.roleId && !activeChatIdRef.current ? { roleId: opts.roleId } : {}),
           // Chat attachments as context (API.md § Chat): files uploaded for
           // this question.
           ...(opts?.attachmentIds?.length ? { attachmentIds: opts.attachmentIds } : {}),
-          ...(opts?.comparisonModes && opts.comparisonModes.length > 0
-            ? { comparisonModes: opts.comparisonModes }
-            : {}),
         }),
         signal: abortController.signal,
       });
@@ -411,11 +402,6 @@ export function useChatStream({
           if (event.structuredTable) {
             setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               structured_table: event.structuredTable as StructuredTable,
-            }));
-          }
-          if (event.comparisonFindings) {
-            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
-              comparisonFindings: event.comparisonFindings as ComparisonFinding[],
             }));
           }
           if (event.conflicts) {

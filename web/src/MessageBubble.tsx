@@ -13,7 +13,6 @@ import { MessageActions } from './components/MessageActions';
 import { MessageContextMenu } from './components/MessageContextMenu';
 import { InlineMessageEditor } from './components/InlineMessageEditor';
 import MessageContent from './components/MessageContent';
-import { ComparisonFindings } from './components/ComparisonFindings';
 import { messageSectionKey, type MessageSection } from './hooks/useMessageSections';
 import { useIsMobileContext } from './contexts/MobileContext';
 import { useTheme } from './contexts/ThemeContext';
@@ -512,10 +511,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                         )}
                     </>
                 ) : <>{attachmentChips}{questionBody}</>}
-
-                {message.role === 'ai' && message.comparisonFindings && message.comparisonFindings.length > 0 && (
-                    <ComparisonFindings findings={message.comparisonFindings} t={t} />
-                )}
 
                 {/* §8 answer footer: shown on hover, focus inside the answer or a tap,
                     keeping its space while hidden. The source list and the actions wait for

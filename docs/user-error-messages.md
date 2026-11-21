@@ -48,9 +48,8 @@ Rules that apply to every message:
   unreachable server — every start-up load failing at once — shows S14 a single
   time.
 - **A status that means something else on one endpoint is handled before the
-  mapping.** The comparison upload's 503 means "comparison is switched off"
-  (`comparisonDisabled`), not an outage; the URL fetch's 502 means "the remote
-  page is unreachable" (B09).
+  mapping.** The URL fetch's 502 means "the remote page is unreachable" (B09),
+  not an outage.
 
 ## 2. Shared messages
 
@@ -161,10 +160,6 @@ Chat, composer, upload, sources sidebar, login, profile pages.
 | A04 | `utils/chatAttachments.ts:41` (chip text via `hooks/useComposerUploads.ts:66`) | Composer attachment refused with a code or status; 503 "attachments not available" is S14 | The case's message for that file | S1–S9, S12–S15 | (section 2) | (section 2) | done |
 | A05 | `utils/chatAttachments.ts:41` | Composer attachment refused without a code (400, 404) | „a.pdf“ konnte nicht hochgeladen werden. | `errorUploadFailed` | „{name}“ konnte nicht hochgeladen werden. | Could not upload “{name}”. | done |
 | A06 | `hooks/useComposerUploads.ts:68` | Upload failed outside the request | „a.pdf“ konnte nicht hochgeladen werden. | `errorUploadFailed` | „{name}“ konnte nicht hochgeladen werden. | Could not upload “{name}”. | done |
-| A07 | `hooks/useChatAttachment.ts:51` (toast at `hooks/useChat.ts:454`) | Comparison upload refused with a code or status | The case's message for that file | S1, S4, S5, S6, S12–S15 | (section 2) | (section 2) | done |
-| A08 | `hooks/useChatAttachment.ts:50` | Comparison upload 503: comparison is switched off | Dokumentenvergleich ist deaktiviert | `comparisonDisabled` | Dokumentenvergleich ist deaktiviert | Document comparison is disabled | done |
-| A09 | `hooks/useChatAttachment.ts:51` | Comparison upload refused without a code (400 `invalid_upload`, 404) | „a.pdf“ konnte nicht hochgeladen werden. | `errorUploadFailed` | „{name}“ konnte nicht hochgeladen werden. | Could not upload “{name}”. | done |
-| A10 | `hooks/useChat.ts:454` | Comparison upload failed without a recorded message (not reached in practice) | Upload fehlgeschlagen | `comparisonUploadFailed` | Upload fehlgeschlagen | Upload failed | done |
 | A11 | `hooks/useChatStream.ts:210` | Send refused, 422 `too_large_for_context` | The S7 send message | `chatAttachmentsTooLongTogether` (S7) | Die angehängten Dateien sind zusammen zu lang für den Chat. Entferne eine Datei und sende erneut. | The attached files are too long for the chat together. Remove a file and send again. | done |
 | A12 | `hooks/useChatStream.ts:215` | Send refused with another file code (415/422 `unsupported_file_type`, `file_unreadable`, `no_text`, `parse_timeout`); the body names the attachment in `fileName` | „a.pdf“ konnte nicht gelesen werden. Die Datei ist möglicherweise beschädigt. Entferne die Datei und sende erneut. | the case's key (S4, S5, S6, S8) + `chatAttachmentRemoveHint` | (case text) + Entferne die Datei und sende erneut. | (case text) + Remove the file and send again. | done |
 | A12a | `hooks/useChatStream.ts:217` | Same, from a backend that does not send `fileName` yet | Ein angehängtes Dokument kann nicht verwendet werden. … | `chatAttachmentsUnusable` | Ein angehängtes Dokument kann nicht verwendet werden. Entferne es und sende erneut. | An attached document cannot be used. Remove it and send again. | done |
@@ -300,7 +295,6 @@ show nothing.
 | D01 | `hooks/useChatStream.ts:216` | Send refused | Nothing; logs `chat send refused: <status>` (no server text) | none; the user sees A11–A14 | — | — | done |
 | D02 | `hooks/useChatStream.ts:222` | No stream reader; `noReaderError` is thrown | The A17 bubble | none; the user sees `aiGenericError` (A17) | — | — | done |
 | D03 | `utils/sseParser.ts:32` | Idle timeout; the English `SseIdleTimeoutError` text is logged | The A15 bubble | none; the user sees `errorAnswerTimeout` (A15) | — | — | done |
-| D04 | `hooks/useChatAttachment.ts:24` | Former English fallbacks for a missing `t` | Removed; `t` is required | none | — | — | done |
 | D05 | `hooks/useWebTools.ts:199`; `components/GlobalKbSettings.tsx:236` | Crawl job ends in `failed`; the reason is thrown, then lost | Aufgabe fehlgeschlagen / Hinzufügen fehlgeschlagen | `crawlFailed` *(proposed)* | Die Website konnte nicht durchsucht werden. Prüfe die Adresse und versuche es erneut. | The website could not be crawled. Check the address and try again. | open |
 | D06 | `hooks/useWebTools.ts:205`; `components/GlobalKbSettings.tsx:240` | Crawl has no result after 5 minutes | Aufgabe fehlgeschlagen / Hinzufügen fehlgeschlagen | `crawlTimedOut` *(proposed)* | Das Durchsuchen der Website hat zu lange gedauert. Versuche es mit weniger Seiten erneut. | Crawling the website took too long. Try again with fewer pages. | open |
 | D07 | `hooks/useWebTools.ts:172`; `components/GlobalKbSettings.tsx:216` | Crawl start answers without a job id | Aufgabe fehlgeschlagen / Hinzufügen fehlgeschlagen | `errorUnexpected` (S15) | Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut. | An unexpected error occurred. Please try again. | open |

@@ -232,7 +232,6 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                                 <MarkdownEditor
                                     value={editContent}
                                     onChange={setEditContent}
-                                    isAnalyzing={false}
                                 />
                             </div>
                         </div>

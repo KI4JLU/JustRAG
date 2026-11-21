@@ -10,25 +10,6 @@ import { chatSourceSelection } from '../utils/kbAccess';
 import { buildMessageMap, findDefaultLeaf, isTempMessageId, nearestPersistedAncestorId } from '../utils/messageTree';
 import { useMessageTree } from './useMessageTree';
 import { useChatStream } from './useChatStream';
-import { useChatAttachment, type ChatAttachment } from './useChatAttachment';
-
-/**
- * Pure helper for `startComparison`: turns an uploaded attachment + chosen
- * modes + free-text instruction into the (message, send-options) pair
- * `useChatStream.handleSendMessage` expects. Extracted so it is testable
- * without a `useChat` render harness.
- */
-export function buildComparisonSend(
-  attachment: ChatAttachment,
-  modes: string[],
-  instruction: string,
-  fallbackMessage: string,
-): { message: string; opts: { attachmentId: string; comparisonModes: string[] } } {
-  return {
-    message: instruction.trim() || fallbackMessage,
-    opts: { attachmentId: attachment.attachmentId, comparisonModes: modes },
-  };
-}
 
 /** The role card a new chat starts from (the start page's „Rollenauswahl"). */
 export interface RoleStart {
@@ -105,13 +86,6 @@ export function useChat({
   // The role card the empty chat was started from („Rollenauswahl"): the
   // start page then gives way to the chat (or the card's upload area).
   const [roleStart, setRoleStart] = useState<RoleStart | null>(null);
-
-  // In-chat document comparison: the attachment persists across the chat
-  // session so follow-up turns keep sending its id (the backend injects the
-  // document via buildFollowUpContext). The comparison MODES are not held
-  // here — they are chosen in the Workspace dialog and travel with that one
-  // turn's send options; nothing in the chat UI can change them afterwards.
-  const attachmentState = useChatAttachment(currentKb?.id ?? '', t, language);
 
   // Chat history state
   const [chats, setChats] = useState<ChatEntry[]>([]);
@@ -303,13 +277,6 @@ export function useChat({
     }
   }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, toast, t, focusPrompt]);
 
-  // Drops the comparison attachment so it cannot leak from one chat into the
-  // next. Called by handleNewChat; startComparison re-adopts the upload right
-  // after, which is what keeps follow-up turns working.
-  const clearComparison = useCallback(() => {
-    attachmentState.clear();
-  }, [attachmentState]);
-
   const handleNewChat = useCallback(() => {
     setActiveChatId(null);
     setPendingRoleId(null);
@@ -321,9 +288,8 @@ export function useChat({
     setEditingMessageId(null);
     setLoadedResearchSession(null);
     setLoadedAcademicSession(null);
-    clearComparison();
     focusPrompt();
-  }, [setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, clearComparison, focusPrompt]);
+  }, [setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, focusPrompt]);
 
   const handleDeleteChat = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -386,10 +352,6 @@ export function useChat({
     e.preventDefault();
     if (!currentKb || loading || chatSwitchingRef.current) return false;
 
-    // A comparison send (attachment + ≥1 mode) is allowed with an empty input —
-    // we substitute a localized default message because the backend rejects an
-    // empty message with 400 before running the comparison. Don't start a
-    // comparison while the attachment is still uploading.
     const userMessage = (text ?? userMessageInput).trim();
     if (!userMessage) return false;
 
@@ -397,12 +359,7 @@ export function useChat({
     // (at least one selected file — unless the caller may not select at all).
     if (!chatSourceSelection(currentKb, files).canSend) return false;
 
-
     const sendOpts = {
-      // Empty modes deliberately: a follow-up turn must carry the uploaded
-      // document as context (buildFollowUpContext) without re-running the
-      // per-section comparison. willRunComparison requires non-empty modes.
-      ...(attachmentState.attachment ? { attachmentId: attachmentState.attachment.attachmentId, comparisonModes: [] } : {}),
       ...(attachments.length > 0 ? { attachmentIds: attachments.map(a => a.userFileId), attachments } : {}),
       ...(pendingRoleId ? { roleId: pendingRoleId } : {}),
     };
@@ -426,7 +383,7 @@ export function useChat({
           resolve(accepted);
         }, () => resolve(false));
     });
-  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, attachmentState.attachment, pendingRoleId]);
+  }, [userMessageInput, currentKb, loading, files, activeLeafId, stream, pendingRoleId]);
 
   /**
    * A role card on the start page: a NEW chat in `start.roleId` (null = the
@@ -454,64 +411,6 @@ export function useChat({
 
   // The role of the chat on screen: the open chat's, or the pending one of a new chat.
   const chatRoleId = activeChatId ? (chats.find(c => c.id === activeChatId)?.roleId ?? null) : pendingRoleId;
-
-  /**
-   * Starts a document comparison from the Workspace tile.
-   *
-   * The comparison stays a real chat turn — only its entry point moved 2026-08
-   * from the composer into a Workspace tile. That keeps follow-up questions
-   * about the uploaded document working unchanged in the resulting chat
-   * (backend: buildFollowUpContext) — the same property `handleSendMessage`
-   * preserved pre-rework by deliberately NOT clearing the attachment after a
-   * comparison send ("keep the attachment until the user removes it").
-   *
-   * Order here matters and is upload -> handleNewChat -> adopt -> send:
-   *  - upload FIRST, so a failed upload (413/415/422/503, see below) never
-   *    wipes the user's current chat for nothing;
-   *  - handleNewChat clears any attachment left over from the PREVIOUS chat
-   *    (via clearComparison) — required so an attachment can't leak across
-   *    chats — which also wipes the one we just uploaded;
-   *  - adopt immediately re-establishes it from the `uploaded` result
-   *    already in hand (no re-upload), so `attachmentState.attachment` is
-   *    populated again before any later render, and every follow-up
-   *    `handleSendMessage` in this new chat keeps sending its id.
-   *
-   * Returns whether the turn actually started, so the caller (the Workspace
-   * dialog) can keep itself open — and the composer's tab-switch un-done — on
-   * an upload failure (413/415/422/503) instead of closing silently. Before
-   * this fix wave, `attachmentState.error` had zero consumers: the composer's
-   * inline error line was deleted along with the composer entry point, and
-   * nothing replaced it, so a failed upload produced no feedback at all.
-   */
-  const startComparison = useCallback(async (input: {
-    file: File;
-    modes: string[];
-    instruction: string;
-  }): Promise<boolean> => {
-    if (!currentKb) return false;
-    const uploaded = await attachmentState.upload(input.file);
-    if (!uploaded) {
-      // attachmentState.errorRef (not the `error` *state*) is read here
-      // deliberately — see its doc comment in useChatAttachment.
-      toast.error(attachmentState.errorRef.current || t('comparisonUploadFailed'));
-      return false;
-    }
-
-    handleNewChat();
-    // Restore the attachment handleNewChat just cleared — see the ordering
-    // note in this function's doc comment above.
-    attachmentState.adopt(uploaded);
-
-    const { message, opts } = buildComparisonSend(uploaded, input.modes, input.instruction, t('comparisonDefaultMessage'));
-    await stream.handleSendMessage(
-      { preventDefault: () => {} } as React.FormEvent,
-      message,
-      null,
-      undefined,
-      opts,
-    );
-    return true;
-  }, [currentKb, attachmentState, handleNewChat, stream, t, toast]);
 
   const handleStartEdit = useCallback((messageId: string) => {
     setEditingMessageId(messageId);
@@ -672,9 +571,6 @@ export function useChat({
     userMessageInput,
     setUserMessageInput,
     loading,
-    // Document comparison
-    attachment: attachmentState.attachment,
-    clearComparison,
     // Chat history
     chats,
     setChats,
@@ -701,7 +597,6 @@ export function useChat({
     handleEditSubmit,
     handleForkFromMessage,
     handleStartComparison,
-    startComparison,
     handleRegenerate,
     handleFollowUpClick,
     handleFeedback,
@@ -727,8 +622,6 @@ export function useChat({
     editingMessageId,
     userMessageInput,
     loading,
-    attachmentState,
-    clearComparison,
     chats,
     activeChatId,
     loadedResearchSession,
@@ -745,7 +638,6 @@ export function useChat({
     handleEditSubmit,
     handleForkFromMessage,
     handleStartComparison,
-    startComparison,
     handleRegenerate,
     handleFollowUpClick,
     handleFeedback,

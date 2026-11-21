@@ -28,31 +28,6 @@ Skeleton.Circle = function SkeletonCircle({ size = 20 }: { size?: number }) {
 
 /* Pre-composed skeleton layouts */
 
-export function KBCardSkeleton() {
-  return (
-    <li className="skeleton--card skeleton-kb-card" aria-hidden="true">
-      <div className="skeleton-kb-card__top">
-        <Skeleton.Circle size={20} />
-        <Skeleton width={60} height={16} borderRadius={8} />
-      </div>
-      <Skeleton.Text width="70%" />
-      <Skeleton.Text width="40%" />
-    </li>
-  );
-}
-
-export function FileRowSkeleton() {
-  return (
-    <li className="skeleton-file-row" aria-hidden="true">
-      <Skeleton.Circle size={18} />
-      <div className="skeleton-file-row__text">
-        <Skeleton.Text width="80%" />
-        <Skeleton.Text width="50%" />
-      </div>
-    </li>
-  );
-}
-
 export function ContentRowSkeleton() {
   return (
     <li className="skeleton-file-row" aria-hidden="true">
