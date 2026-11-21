@@ -1,8 +1,8 @@
 import { Button } from '@ki4jlu/design-system';
 import { useCanGoBack, useRouter } from '@tanstack/react-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { useCanGoForward } from '../hooks/useCanGoForward';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useCanGoForward } from '../../hooks/useCanGoForward';
 
 /**
  * History back and forward for the desktop app's title bar. The design system

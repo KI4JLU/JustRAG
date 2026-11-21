@@ -58,7 +58,7 @@ vi.mock('../history/HistoryPanel', () => ({
 vi.mock('../search/TopicSearch', () => ({ TopicSearch: () => <div data-testid="topic-search" /> }));
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 // The history buttons read the router; their subject is the desktop title bar.
-vi.mock('../HistoryControls', () => ({ HistoryControls: () => null }));
+vi.mock('./HistoryControls', () => ({ HistoryControls: () => null }));
 // Reads the chat context; its own test covers it.
 vi.mock('./DesktopMenuCommands', () => ({ DesktopMenuCommands: () => null }));
 // The frame's own dependencies on every view; their subjects are the

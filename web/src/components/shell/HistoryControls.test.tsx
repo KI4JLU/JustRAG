@@ -6,7 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { HistoryControls } from './HistoryControls';
 
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
 /*
  * ORACLE: a browser's own back and forward buttons — back is off on the first

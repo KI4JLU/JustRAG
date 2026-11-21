@@ -15,7 +15,7 @@ import {
   useWindowFileDrag,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
-import { HistoryControls } from '../HistoryControls';
+import { HistoryControls } from './HistoryControls';
 import {
   Home, Users,
   LayoutGrid, Menu, Compass, FolderOpen, History, Lock, MessageSquare,
