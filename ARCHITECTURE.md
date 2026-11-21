@@ -121,7 +121,7 @@ Current storage split:
 The frontend lives in `web/src/` and is organized around:
 
 - `app/`: the app shell (`App`, `AppRoot`, `AuthenticatedApp`); `main.tsx` and `index.css` stay in `src/`
-- `pages/`: the full-screen views the router opens (overview pages, admin, login, legal)
+- `pages/`: the full-screen views the router opens (overview pages, the topic admin page, login, legal)
 - `routing/`: the route table, URL dialogs and short ids
 - `components/`: feature UI, admin sections, sidebars, API key UI
 - `contexts/`: auth, theme, modal, toast, topic view state
