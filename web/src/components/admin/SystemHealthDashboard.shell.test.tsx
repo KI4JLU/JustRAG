@@ -30,7 +30,7 @@ vi.mock('axios', () => ({
 // requests became 3168 before the assertion timed out. Same trap
 // Login.shell.test.tsx documents.
 const themeMock = { t: (k: string) => k, language: 'en' as const };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 
 const mockedGet = axios.get as unknown as Mock;
 

@@ -12,8 +12,8 @@ const mockedAxios = axios as unknown as {
     post: ReturnType<typeof vi.fn>;
 };
 
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'en' }) }));
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'op-1', role: 'superadmin' } }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'en' }) }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'op-1', role: 'superadmin' } }) }));
 
 // Stub Storage: the dashboard persists optional-column visibility, and jsdom
 // gives a bare {} locally vs a working localStorage in CI (see the actions

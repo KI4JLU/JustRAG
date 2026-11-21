@@ -221,12 +221,12 @@ A section the user may not see falls back to `configs`.
 | `agent` | `admin/AdminAgentTab` | Superadmin | — |
 | `site` | `admin/AdminSiteTab` | Superadmin | — |
 | `notice` | `admin/AdminSystemNoticeTab` | Admin | — |
-| `kb-overview` | `pages/KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" (deprecated) |
+| `kb-overview` | `components/admin/KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" (deprecated) |
 | `global-kbs` | `admin/AdminGlobalKbsTab` | Admin | Take-back dialog with impact and owner picker; opens the public-topic editor |
 | `templates` | `admin/AdminTemplatesTab` | Admin | Tabs `roles` and `categories`; role-template editor |
 | `users` | `admin/AdminUsersTab` | Admin | Read-only user details |
 | `roles` | `admin/AdminRolesTab` | Admin | — |
-| `health` | `pages/SystemHealthDashboard.tsx` | Admin | `ReembedSection` (superadmin) |
+| `health` | `components/admin/SystemHealthDashboard.tsx` | Admin | `ReembedSection` (superadmin) |
 | `eval` | `admin/AdminEvalTab` | Superadmin | Run comparison panel |
 
 "Admin" includes superadmin.
