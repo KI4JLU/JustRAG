@@ -11,7 +11,7 @@ Four roles, strictly ordered: `view < edit < admin < owner`.
 |---|---|
 | `view` | Chat with the KB. Never adds sources. |
 | `edit` | Fill the corpus: upload and delete files, RSS / Confluence / git sources, crawl. Adding also needs the `editor_add_sources` flag. |
-| `admin` | Everything that can force a re-ingest or change answer quality: description, prompt, models, tuning knobs, agents and teams (deprecated), eval, canonicalize, knowledge-graph communities, member management. |
+| `admin` | Everything that can force a re-ingest or change answer quality: description, prompt, models, canonicalize, knowledge-graph communities, member management. Tuning knobs, evals, workflow and agents and teams are the advanced surface, open to system admins only (see Role resolution). |
 | `owner` | Everything, plus rename. At most one per KB (partial unique index); a public KB has none. Moves only through the transfer endpoint, never through `/members`. |
 
 **Rename** (`name`) is the one field of `PATCH /api/kb/{id}` that is stricter than the route's
@@ -70,8 +70,8 @@ Consequences:
 - Parity test: `TestVisibilityAgreesWithEffectiveRole` (`internal/globalsearch`, integration).
 - No feature package writes its own SQL copy.
 
-**Advanced surface** (`kbAdvancedChain`: RAG settings, agents and teams (deprecated), evals, workflow,
-per-KB re-embed)
+**Advanced surface** (`kbAdvancedChain`: RAG settings, agents and teams (deprecated, API only), evals,
+workflow, per-KB re-embed)
 
 - The system role `admin` / `superadmin` is the whole permission; no KB role is needed and no KB
   role opens it to anyone else (an api-user included).
@@ -81,8 +81,8 @@ per-KB re-embed)
   - Own = the raw `kb_members` row is `owner`, not the effective role.
 - Somebody else's private, unshared KB stays closed to everyone, superadmin included.
 - Entry point: „RAG-Settings" in the admin console's KB-Übersicht.
-- `GET /api/kb/{id}/agents` (`kbAgentListChain`, deprecated with agents and teams) opens to
-  system admins on the same KBs.
+- `GET /api/kb/{id}/agents` (`kbAgentListChain`, deprecated with agents and teams, no web caller)
+  opens to system admins on the same KBs.
 - Basic settings of one's own KB sit on `kbAdminChain` and are open to a plain user.
 
 ## Source permissions

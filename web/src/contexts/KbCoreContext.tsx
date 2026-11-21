@@ -7,8 +7,6 @@ export interface KbCoreContextValue {
   isPro: boolean;
   availableConfigs: SafeAIConfig[];
   kbMgmt: ReturnType<typeof useKnowledgeBases>;
-  /** Navigate to the My Agents screen (linked from KB settings). */
-  onViewAgents: () => void;
   handleUpdateKBSettings: (data: Record<string, unknown>) => Promise<boolean>;
 }
 

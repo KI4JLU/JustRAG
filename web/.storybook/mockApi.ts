@@ -79,13 +79,11 @@ export interface MockLoginRejection {
  * returns 0, but the tab renders two children that fetch on mount —
  * AdminMCPSection (`GET /api/admin/mcp/status`, AdminMCPSection.tsx:152) and
  * AdminAgentMetricsCard (`GET /api/admin/agent-metrics`,
- * AdminAgentMetricsCard.tsx:152) — and AdminEvalTab reaches
- * `GET /api/kb/{id}/agents` through `fetchKbAgents`
- * (src/components/agents/api.ts:104). All three go through `authFetch`.
+ * AdminAgentMetricsCard.tsx:152). Both go through `authFetch`.
  * Unmocked, each renders its own `Error: HTTP 404` box, which is a false
  * signal for the reviewer this card exists to serve.
  *
- * So the three are answered here, at the `window.fetch` boundary, on the same
+ * So the two are answered here, at the `window.fetch` boundary, on the same
  * terms as the axios half: matched by METHOD and URL, with everything above
  * the transport left real (the real effect, the real `API_BASE_URL`
  * construction, the real `r.ok` check, the real `.catch()`). The patch is
@@ -136,8 +134,6 @@ export interface ApiMockParameters {
   mcpStatus?: unknown;
   /** GET /api/admin/agent-metrics?window=… — AdminAgentMetricsCard. */
   agentMetrics?: unknown;
-  /** GET /api/kb/{id}/agents — AdminEvalTab's team select, via fetchKbAgents. */
-  kbAgents?: unknown;
 
   /* -- HomeView, axios half (card KI-774).
    *
@@ -209,7 +205,6 @@ const URLS = {
 const FETCH_URLS = {
   mcpStatus: /\/api\/admin\/mcp\/status(\?|$)/,
   agentMetrics: /\/api\/admin\/agent-metrics(\?|$)/,
-  kbAgents: /\/api\/kb\/[^/]+\/agents(\?|$)/,
 } as const;
 
 /**
@@ -362,7 +357,7 @@ export function installApiMock(params: ApiMockParameters): () => void {
   /* -- The authFetch half ------------------------------------------------ */
 
   const fetchRoutes: Array<[RegExp, unknown]> = [];
-  for (const key of ['mcpStatus', 'agentMetrics', 'kbAgents'] as const) {
+  for (const key of ['mcpStatus', 'agentMetrics'] as const) {
     if (params[key] !== undefined) fetchRoutes.push([FETCH_URLS[key], params[key]]);
   }
 

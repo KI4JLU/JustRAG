@@ -388,16 +388,6 @@ describe('App routing — settings dialogs', () => {
   });
 });
 
-describe('App routing — agents', () => {
-  it('opens the teams tab from its URL', async () => {
-    signIn();
-    window.history.replaceState(null, '', '/agents/teams');
-    render(<App />);
-    const teams = await screen.findByRole('button', { name: translations.agentsTabTeams.de }, SLOW);
-    expect(teams).toHaveAttribute('aria-pressed', 'true');
-  });
-});
-
 describe('App routing — before sign-in', () => {
   it('opens a legal page from its URL without signing in', async () => {
     window.history.replaceState(null, '', '/terms');

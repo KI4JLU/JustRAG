@@ -11,23 +11,19 @@ import { fetchChat } from './useChatRoute';
  *
  * THE ORDERING TRAP. Opening a topic (`handleOpenKbById` → `handleSelectKB`)
  * calls `onKBSelected`, which is `useChat.handleNewChat`: it resets the active
- * chat, the message tree and the agent selection to a fresh, empty chat. A
+ * chat and the message tree to a fresh, empty chat. A
  * chat selected BEFORE that has run is therefore overwritten by an empty one.
  * So every in-topic destination AWAITS the topic first and only then acts,
  * and does nothing if the topic could not be opened (`handleOpenKbById` has
  * already toasted why). `App.authenticated-home.test.tsx` pins that the chosen
  * chat's messages are what ends up on screen.
  *
- * WHY A CHAT HIT IS RE-READ FROM `GET /api/chats/{id}`. `handleSelectChat`
- * restores the chat's sticky team/agent from `ChatEntry.teamId/agentId`, and a
- * search hit carries neither. Built from the hit alone, a chat bound to a team
- * would open with the selection cleared — and the next turn would send no
- * team, which the backend persists as a cleared binding
- * (`UpdateChatAgentSelection`: NULLs clear it). The route returns the chat's
- * row, the same shape as the sidebar's list, and is fetched in parallel with
- * the topic so it costs no extra wait. If it fails, the hit's own fields are
- * used — `type` is what `handleSelectChat` needs to route research sessions,
- * and the backend returns it for exactly that reason.
+ * WHY A CHAT HIT IS RE-READ FROM `GET /api/chats/{id}`. A search hit carries
+ * only part of a `ChatEntry`. The route returns the chat's row, the same shape
+ * as the sidebar's list, and is fetched in parallel with the topic so it costs
+ * no extra wait. If it fails, the hit's own fields are used — `type` is what
+ * `handleSelectChat` needs to route research sessions, and the backend returns
+ * it for exactly that reason.
  *
  * Scrolling to the matched message is out of scope.
  * // TODO: jump to the message, not only the chat — not yet carded.
@@ -60,7 +56,7 @@ interface UseSearchNavigationParams {
 /**
  * A `ChatEntry` built from a search hit alone — the fallback when the chat
  * list does not carry the chat. `type` is what `handleSelectChat` routes on;
- * `teamId`/`agentId` are unknown here (see the header above).
+ * the other fields are unknown here (see the header above).
  */
 export function chatEntryFromTarget(target: SearchChatTarget): ChatEntry {
   return {

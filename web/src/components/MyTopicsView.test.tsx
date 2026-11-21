@@ -463,9 +463,7 @@ describe('AppChrome, through the view that mounts it', () => {
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
     /* ORACLE: the module-level spies in NAV. One mount per node since
-       design-system 0.30.0, so an unscoped query reaches the only row there is.
-       („Meine Agenten" was the third row asserted here; it was removed from the
-       nav on 18.09.2026 and `AppNavContext.onViewAgents` with it.) */
+       design-system 0.30.0, so an unscoped query reaches the only row there is. */
     await userEvent.click(screen.getByRole('button', { name: translations.discoverTopics.en }));
     expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
 

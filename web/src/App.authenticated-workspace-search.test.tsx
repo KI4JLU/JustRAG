@@ -72,7 +72,7 @@ const KB2 = kb('22222222-2222-4222-8222-222222222222', 'Statistik');
 
 const chatEntry = (id: string, kbId: string, title: string) => ({
   id, kbId, userId: 'user-1', title, type: 'chat',
-  createdAt: '2026-09-20T09:00:00Z', updatedAt: '2026-09-20T10:00:00Z', teamId: null, agentId: null,
+  createdAt: '2026-09-20T09:00:00Z', updatedAt: '2026-09-20T10:00:00Z',
 });
 const chatHit = (id: string, kbId: string, kbName: string, title: string) => ({
   id, title, type: 'chat', kbId, kbName, updatedAt: '2026-09-20T10:00:00Z', match: 'prefix',
@@ -127,7 +127,7 @@ function routeGets() {
         { ...chatEntry('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222', 'Statistik-Grundlagen'), kbName: 'Statistik', kbVisibility: 'private', kbRole: 'view' },
       ] });
     }
-    // A chat hit is re-read through GET /api/chats/{id} (its sticky team/agent).
+    // A chat hit is re-read through GET /api/chats/{id}.
     const one = u.match(/\/api\/chats\/([0-9a-f-]{36})$/);
     if (one) {
       const rows = [

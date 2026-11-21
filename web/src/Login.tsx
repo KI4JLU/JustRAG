@@ -285,11 +285,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                     {showPasswordForm && (
                         <Stack asChild gap="md">
                             <form onSubmit={handleSubmit}>
-                                {/* The leading User/Lock icons are dropped:
-                                  * FieldRow omits `leadingIcon` from its props
-                                  * type on purpose and the row composition is
-                                  * closed (KI-691/KI-692), so an icon here
-                                  * would mean extending it. */}
+                                {/* No leading icons: FieldRow omits
+                                  * `leadingIcon` from its props on purpose. */}
                                 <FieldRow
                                     label={t('username')}
                                     type="text"

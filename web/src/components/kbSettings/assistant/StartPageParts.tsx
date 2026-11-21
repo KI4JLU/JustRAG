@@ -11,7 +11,7 @@ import { KindIcon } from './entryKinds';
 import { IconTile } from './roles';
 import type { RoleView } from './roleModel';
 import { CategoryPill } from '../../CategoryPill';
-import { MAX_SKELETON_CARDS, ROLE_BADGE_KEY, categoryGlowStyle, roleAccent, roleCardCover, type RoleBadgeKind } from './startPageModel';
+import { MAX_SKELETON_CARDS, categoryGlowStyle, roleAccent, roleCardCover } from './startPageModel';
 
 /*
  * The pieces of a KB's start page that the settings' Startseite and the real
@@ -62,14 +62,12 @@ export function TitleCardMeta({ fileCount, asOf, leading = true }: { fileCount?:
 
 /** The title block as members see it, centred: title, category and meta line, description, then the role. */
 export function TitleCard({
-    title, category, role, roleKind = 'role', description, fileCount, asOf, action, pending,
+    title, category, role, description, fileCount, asOf, action, pending,
 }: {
     title: string;
     category: KbCategory | null;
     /** The one role the KB offers (`soleRoleName`), as the chat's role badge under the description. */
     role?: string;
-    /** What `role` is: an agent or a team (from before the roles) says so in the badge. */
-    roleKind?: RoleBadgeKind;
     description: string;
     fileCount?: number;
     asOf?: string;
@@ -97,7 +95,7 @@ export function TitleCard({
             {description && <p className="m-0 mt-3 text-center text-sm leading-6 text-on-surface-variant">{description}</p>}
             {role && (
                 <p className="m-0 mt-4 flex justify-center">
-                    <Badge tone="primary">{t(ROLE_BADGE_KEY[roleKind]).replace('{role}', role)}</Badge>
+                    <Badge tone="primary">{t('asstRoleBadge').replace('{role}', role)}</Badge>
                 </p>
             )}
         </>

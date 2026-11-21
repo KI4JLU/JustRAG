@@ -6,14 +6,6 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { userErrorMessage } from '../utils/userErrors';
 
-// Per-chat-session sticky agent/team selection for the chat send path.
-// `teamId`/`agentId` are mutually exclusive; an empty object means Standard
-// (no agent/team) and omits both fields from the chat POST body.
-export interface AgentSelection {
-  teamId?: string;
-  agentId?: string;
-}
-
 export function useKbSettings() {
   const { t } = useTheme();
   const toast = useToast();
@@ -25,7 +17,6 @@ export function useKbSettings() {
   // Per-turn web search (composer + menu → badge); sent as `webSearch`.
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [reasoningLevel, setReasoningLevel] = useState<'low' | 'medium' | 'high'>('low');
-  const [agentSelection, setAgentSelection] = useState<AgentSelection>({});
 
   const fetchAvailableConfigs = useCallback(async () => {
     try {
@@ -44,7 +35,6 @@ export function useKbSettings() {
     reasoningEnabled, setReasoningEnabled,
     webSearchEnabled, setWebSearchEnabled,
     reasoningLevel, setReasoningLevel,
-    agentSelection, setAgentSelection,
     fetchAvailableConfigs,
   };
 }

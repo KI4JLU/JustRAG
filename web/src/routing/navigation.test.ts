@@ -14,11 +14,6 @@ describe('routeFromMatch', () => {
     expect(routeFromMatch({ routeId: '/privacy', params: {} })).toEqual({ view: 'privacy' });
   });
 
-  it('reads the agents page and its teams tab', () => {
-    expect(routeFromMatch({ routeId: '/agents', params: {} })).toEqual({ view: 'agents', tab: 'agents' });
-    expect(routeFromMatch({ routeId: '/agents/teams', params: {} })).toEqual({ view: 'agents', tab: 'teams' });
-  });
-
   it('decodes the short ids in topic and chat paths to UUIDs', () => {
     expect(routeFromMatch({ routeId: '/kb/$kbId', params: { kbId: toShortId(KB) } })).toEqual({ view: 'kb', kbId: KB });
     expect(routeFromMatch({ routeId: '/c/$chatId', params: { chatId: toShortId(CHAT) } })).toEqual({ view: 'chat', chatId: CHAT });

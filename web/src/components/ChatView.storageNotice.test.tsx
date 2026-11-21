@@ -39,10 +39,6 @@ vi.mock('../utils/chatAttachments', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../utils/chatAttachments')>()),
   uploadChatAttachment: vi.fn(async () => ({ id: 'uf1', name: 'notes.pdf', mime: 'application/pdf', size: 1, tokens: 1 })),
 }));
-vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
-}));
-
 let userId = 'u1';
 let run = 0;
 let capabilities: KbCapabilities | undefined;
@@ -61,7 +57,6 @@ vi.mock('../contexts/KbCoreContext', () => ({
     currentKb: currentKb(),
     availableConfigs: [],
     handleUpdateKBSettings: vi.fn(),
-    onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,
     onViewGraphForMessage: vi.fn(),
     onCloseMindmap: vi.fn(),
@@ -117,8 +112,6 @@ vi.mock('../contexts/KbChatContext', () => ({
     setEnhance: vi.fn(),
     reasoningEnabled: false,
     setReasoningEnabled: vi.fn(),
-    agentSelection: {},
-    setAgentSelection: vi.fn(),
   }),
 }));
 

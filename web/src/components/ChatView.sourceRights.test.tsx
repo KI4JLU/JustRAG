@@ -35,9 +35,6 @@ vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
-vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
-}));
 // The start page as the hook reports it: still loading unless a test says otherwise.
 // A small store, so a test can let the answer arrive on a mounted ChatView.
 let startPageState: { startPage: unknown; loading: boolean; shape?: unknown } = { startPage: null, loading: true };
@@ -77,7 +74,6 @@ vi.mock('../contexts/KbCoreContext', () => ({
     currentKb: currentKb(),
     availableConfigs: [],
     handleUpdateKBSettings: vi.fn(),
-    onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,
     onViewGraphForMessage: vi.fn(),
     onCloseMindmap: vi.fn(),
@@ -133,8 +129,6 @@ vi.mock('../contexts/KbChatContext', () => ({
     setEnhance: vi.fn(),
     reasoningEnabled: false,
     setReasoningEnabled: vi.fn(),
-    agentSelection: {},
-    setAgentSelection: vi.fn(),
   }),
 }));
 

@@ -14,10 +14,9 @@ import type { Message, KnowledgeBase } from '../types';
 // class of bug, which a `MessageBubble`-only unit test structurally cannot.
 //
 // `ChatView` is context-driven (no props) and pulls in four Kb*Context
-// hooks and `useKbAgents`. Everything below is mocked to
-// the minimum needed to reach the message list without crashing;
-// `useMessageSections` (the real caller-owned open-state store) and
-// `MessageBubble` itself are left REAL, since the whole point is to exercise
+// hooks. Everything below is mocked to the minimum needed to reach the
+// message list without crashing; `useMessageSections` (the real caller-owned
+// open-state store) and `MessageBubble` itself are left REAL, since the whole point is to exercise
 // the actual wiring between them.
 vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
@@ -44,10 +43,6 @@ vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
-vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
-}));
-
 const currentKb: KnowledgeBase = {
   id: 'kb1', name: 'Handbuch', description: null, userId: 'someone-else',
   createdAt: '2026-01-01', isPro: false, isGlobal: false,
@@ -59,7 +54,6 @@ vi.mock('../contexts/KbCoreContext', () => ({
     currentKb,
     availableConfigs: [],
     handleUpdateKBSettings: vi.fn(),
-    onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,
     onViewGraphForMessage: vi.fn(),
     onCloseMindmap: vi.fn(),
@@ -116,8 +110,6 @@ vi.mock('../contexts/KbChatContext', () => ({
     setEnhance: vi.fn(),
     reasoningEnabled: false,
     setReasoningEnabled: vi.fn(),
-    agentSelection: {},
-    setAgentSelection: vi.fn(),
   }),
 }));
 

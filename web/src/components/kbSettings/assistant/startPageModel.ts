@@ -97,10 +97,6 @@ export function pageMode(page: StartPage, activeRoleId: string, roles?: RoleStar
     return kind === 'task' ? 'task' : kind === 'file' ? 'upload' : 'input';
 }
 
-/** What a chat's role badge names: a role, or an agent or a team from before the roles. */
-export type RoleBadgeKind = 'role' | 'agent' | 'team';
-export const ROLE_BADGE_KEY = { role: 'asstRoleBadge', agent: 'asstAgentBadge', team: 'asstTeamBadge' } as const;
-
 /**
  * The role the start page names under its description: the active role's name
  * while it is the only one offered. With further role cards („Rollenauswahl")

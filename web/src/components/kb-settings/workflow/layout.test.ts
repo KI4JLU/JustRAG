@@ -25,7 +25,6 @@ const graph: WorkflowGraph = {
   presetBase: '',
   presetBaseKnown: true,
   deviations: [],
-  agentBinding: { kind: '', id: '', name: '', disabled: false, emptyTeam: false, options: [] },
 };
 
 describe('layoutWorkflow', () => {
@@ -94,7 +93,6 @@ describe('layoutWorkflow', () => {
       presetBase: '',
       presetBaseKnown: true,
       deviations: [],
-      agentBinding: { kind: '', id: '', name: '', disabled: false, emptyTeam: false, options: [] },
     };
 
     const { nodes, edges } = layoutWorkflow(fan);
@@ -123,7 +121,6 @@ const liveLoop: WorkflowGraph = {
   presetBase: '',
   presetBaseKnown: true,
   deviations: [],
-  agentBinding: { kind: '', id: '', name: '', disabled: false, emptyTeam: false, options: [] },
 };
 
 describe('layoutWorkflow edge state', () => {
@@ -161,8 +158,8 @@ describe('layoutWorkflow edge state', () => {
 // --- Viewport fit against the REAL graph size, not a 3-node fixture ---
 
 describe('layoutWorkflow at production scale', () => {
-  // The live projection is 24 nodes (go-backend/internal/pipeline/nodes.go:21-44
-  // — 23 until Phase 6 added agent_binding) in a mostly linear pipeline. A
+  // The live projection is 24 nodes (go-backend/internal/pipeline/nodes.go:21-44)
+  // in a mostly linear pipeline. A
   // 24-node chain is the worst case and within a few ranks of the real topology
   // (~21 ranks, since answer fans out to factuality + citation_validate, which
   // then rejoin).
@@ -180,7 +177,6 @@ describe('layoutWorkflow at production scale', () => {
     presetBase: '',
     presetBaseKnown: true,
     deviations: [],
-    agentBinding: { kind: '', id: '', name: '', disabled: false, emptyTeam: false, options: [] },
   };
 
   const layoutHeight = () => {

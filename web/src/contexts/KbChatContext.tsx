@@ -1,6 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { useChat } from '../hooks/useChat';
-import type { AgentSelection } from '../hooks/useKbSettings';
 
 export interface KbChatContextValue {
   chat: ReturnType<typeof useChat>;
@@ -12,8 +11,6 @@ export interface KbChatContextValue {
   setWebSearchEnabled: (val: boolean) => void;
   reasoningLevel: 'low' | 'medium' | 'high';
   setReasoningLevel: (val: 'low' | 'medium' | 'high') => void;
-  agentSelection: AgentSelection;
-  setAgentSelection: (val: AgentSelection) => void;
 }
 
 const KbChatContext = createContext<KbChatContextValue | null>(null);

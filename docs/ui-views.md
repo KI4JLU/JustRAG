@@ -23,7 +23,6 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 | `/kb/<id>` | `kb` | `components/ChatView.tsx` on a new chat | `AppFrame` with workspace |
 | `/c/<id>` | `chat` | `components/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with workspace |
 | `/kb/<id>/admin` | `global-kb-settings` | `components/GlobalKbSettings.tsx` | Full page |
-| `/agents`, `/agents/teams` | `agents` | `components/agents/AgentsView.tsx`, one tab per URL | Full page |
 | `/terms`, `/privacy`, `/accessibility` | same as path | `components/LegalPage.tsx` | Full page |
 | Anything else, or an id segment that is no id | `not-found` | See redirects | — |
 
@@ -222,7 +221,7 @@ A section the user may not see falls back to `configs`.
 | `agent` | `admin/AdminAgentTab` | Superadmin | — |
 | `site` | `admin/AdminSiteTab` | Superadmin | — |
 | `notice` | `admin/AdminSystemNoticeTab` | Admin | — |
-| `kb-overview` | `KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" |
+| `kb-overview` | `KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" (deprecated) |
 | `global-kbs` | `admin/AdminGlobalKbsTab` | Admin | Take-back dialog with impact and owner picker; opens the public-topic editor |
 | `templates` | `admin/AdminTemplatesTab` | Admin | Tabs `roles` and `categories`; role-template editor |
 | `users` | `admin/AdminUsersTab` | Admin | Read-only user details |
@@ -237,8 +236,7 @@ A section the user may not see falls back to `configs`.
 | Page | Reached from | Content |
 |---|---|---|
 | Public-topic editor (`GlobalKbSettings`) | Admin console → `global-kbs`; `/kb/<id>/admin` directly | Settings of a public topic; can open `ConfluenceModal` when Confluence is enabled. Back goes to `/`. |
-| RAG settings (`kb-settings/KbSettingsPanel`) | Admin console → `kb-overview` → row menu „RAG-Settings", for the admin's own, shared and public topics | Tabs `settings`, `agents`, `evals`, `workflow`. Loading and error states; a 403 shows „Keine Berechtigung". Choosing a workflow preset opens a change preview first; selecting a workflow node opens its inspector. The breadcrumb goes back to the admin console's KB overview. |
-| Agents (`AgentsView`) | „Agent erstellen" in the RAG settings' `agents` tab; the URLs directly, for any signed-in user | Tabs `agents` and `teams`; each switches between its list and a create or edit form. A team needs an existing agent. |
+| RAG settings (`kb-settings/KbSettingsPanel`), deprecated | Admin console → `kb-overview` → row menu „RAG-Settings", for the admin's own, shared and public topics | Tabs `settings`, `evals`, `workflow`. Loading and error states; a 403 shows „Keine Berechtigung". Choosing a workflow preset opens a change preview first; selecting a workflow node opens its inspector. The breadcrumb goes back to the admin console's KB overview. |
 | Legal (`LegalPage`) | User menu → Hilfe; the login footer; the policy notice (terms and privacy, new tab) | Terms, privacy, accessibility |
 
 ## Gates and overlays

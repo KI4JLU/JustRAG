@@ -33,10 +33,6 @@ vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
-vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
-}));
-
 let capabilities: KbCapabilities | undefined;
 let files: Array<{ id: string; selected?: boolean }> = [{ id: 'f1', selected: true }];
 let hasFiles = true;
@@ -53,7 +49,6 @@ vi.mock('../contexts/KbCoreContext', () => ({
     currentKb: currentKb(),
     availableConfigs: [],
     handleUpdateKBSettings: vi.fn(),
-    onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,
     onViewGraphForMessage: vi.fn(),
     onCloseMindmap: vi.fn(),
@@ -110,8 +105,6 @@ vi.mock('../contexts/KbChatContext', () => ({
     setEnhance: vi.fn(),
     reasoningEnabled: false,
     setReasoningEnabled: vi.fn(),
-    agentSelection: {},
-    setAgentSelection: vi.fn(),
   }),
 }));
 

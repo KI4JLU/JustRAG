@@ -58,7 +58,6 @@ import { chatWebSearchRequestField } from './utils/chatWebSearch';
 import { kbSourceRights } from './utils/kbAccess';
 
 // Lazy Loaded Components
-const AgentsView = lazy(() => import('./components/agents/AgentsView'));
 
 const LoadingFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
@@ -163,7 +162,6 @@ function AuthenticatedAppInner() {
     // hides the toggle by.
     webSearchEnabled: chatWebSearchRequestField(siteConfigs, kbSettings.webSearchEnabled),
     reasoningLevel: kbSettings.reasoningLevel,
-    agentSelection: kbSettings.agentSelection, setAgentSelection: kbSettings.setAgentSelection,
   });
 
   /* The topic the URL names, once it is the open one. A topic view renders
@@ -445,7 +443,7 @@ function AuthenticatedAppInner() {
           </div>
           <div style={{ padding: '1.25rem 1.5rem 2rem' }}>
             <Suspense fallback={<LoadingFallback />}>
-              <KbSettingsPanel kbId={advanced.id} onCreateAgent={() => navigateTo({ view: 'agents' })} />
+              <KbSettingsPanel kbId={advanced.id} />
             </Suspense>
           </div>
         </div>
@@ -455,24 +453,6 @@ function AuthenticatedAppInner() {
 
   if (view === 'terms' || view === 'privacy' || view === 'accessibility') {
     return <LegalPage page={view} onBack={goHome} siteConfigs={siteConfigs} />;
-  }
-
-  if (route.view === 'agents') {
-    return (
-      <div className="app-container" data-theme={resolvedTheme}>
-        <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
-          <Suspense fallback={<LoadingFallback />}>
-            <AgentsView
-              onBack={goHome}
-              tab={route.tab}
-              // A tab is not a step of its own: back leaves the page.
-              onTabChange={(tab) => navigateTo({ view: 'agents', tab }, { replace: true })}
-              availableModels={[...new Set(kbSettings.availableConfigs.flatMap(c => c.chat_models))]}
-            />
-          </Suspense>
-        </div>
-      </div>
-    );
   }
 
   /* The overview pages and the topic workspace share ONE shell (`AppFrame`),
@@ -486,7 +466,6 @@ function AuthenticatedAppInner() {
       isPro: kbSettings.isPro,
       availableConfigs: kbSettings.availableConfigs,
       kbMgmt,
-      onViewAgents: () => navigateTo({ view: 'agents' }),
       handleUpdateKBSettings,
     };
 
@@ -500,8 +479,6 @@ function AuthenticatedAppInner() {
       setWebSearchEnabled: kbSettings.setWebSearchEnabled,
       reasoningLevel: kbSettings.reasoningLevel,
       setReasoningLevel: kbSettings.setReasoningLevel,
-      agentSelection: kbSettings.agentSelection,
-      setAgentSelection: kbSettings.setAgentSelection,
     };
 
     const dataValue: KbDataContextValue = {

@@ -64,31 +64,6 @@
       "count": 8
     }
   },
-  "src/components/agents/AgentConfigFields.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/agents/AgentForm.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
-    }
-  },
-  "src/components/agents/AgentsView.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 7
-    }
-  },
-  "src/components/agents/KbAgentsSection.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/agents/TeamForm.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
-    }
-  },
   "src/components/kb-settings/KbSettingsPanel.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 10

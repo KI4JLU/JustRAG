@@ -5,22 +5,9 @@ import { useChatStream } from './useChatStream';
 import type { KnowledgeBase, FileEntry, Message } from '../types';
 import { getBranchInfo } from '../utils/messageTree';
 
-// Fix round 1: `useChatStream.handleSendMessage` builds its outgoing request
-// (and the attribution it later stamps onto the AI message) from a closure
-// over `agentSelection` — a plain hook parameter, not a ref. Calling
-// `setAgentSelection` right before `await stream.handleSendMessage(...)`
-// (the original, WRONG fix in useChat.ts) cannot affect that closure: the
-// state update only takes effect on the *next* render, but the request is
-// built synchronously, before any re-render happens. The corrected fix has
-// `handleSendMessage` prefer `opts.agentSelection` over the closure value
-// (`effectiveSelection = opts?.agentSelection ?? agentSelection`) so a caller
-// can override the selection for a single turn without waiting on state.
-//
-// No pre-existing test harness for `useChatStream` (checked:
-// `find . -iname "useChatStream*test*"` — nothing). `authFetch` is mocked to
-// return a tiny fake SSE stream; `parseSseStream`, `messageTree` utils and
-// `triggerHaptic` are the real implementations (all pure / environment-safe
-// in jsdom).
+// `authFetch` is mocked to return a tiny fake SSE stream; `parseSseStream`,
+// `messageTree` utils and `triggerHaptic` are the real implementations (all
+// pure / environment-safe in jsdom).
 
 const authFetchMock = vi.fn();
 vi.mock('../api', () => ({
@@ -48,7 +35,7 @@ const files = [{ id: 'f1', selected: true }] as FileEntry[];
 
 /** Minimal stand-in for the tree-state slice `useMessageTree` normally owns,
  * so `result.current.messageTree` reflects what `handleSendMessage` wrote. */
-function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: string }; webSearchEnabled?: boolean | undefined; kb?: KnowledgeBase; files?: FileEntry[] } = {}) {
+function useHarness(overrides: { webSearchEnabled?: boolean | undefined; kb?: KnowledgeBase; files?: FileEntry[] } = {}) {
   const [messageTree, setMessageTree] = useState<Map<string, Message>>(new Map());
   const messageTreeRef = useRef(messageTree);
   useEffect(() => { messageTreeRef.current = messageTree; }, [messageTree]);
@@ -62,10 +49,6 @@ function useHarness(overrides: { agentSelection?: { teamId?: string; agentId?: s
     reasoningEnabled: false,
     webSearchEnabled: 'webSearchEnabled' in overrides ? overrides.webSearchEnabled : false,
     reasoningLevel: 'low',
-    // The "stale" selection: what a plain state closure would still hold if
-    // a caller only called setAgentSelection() (which lands on the NEXT
-    // render) instead of passing opts.agentSelection.
-    agentSelection: overrides.agentSelection ?? { agentId: 'stale-agent' },
     language: 'de',
     setMessageTree, messageTreeRef, setActiveLeafId: () => {},
     // `activeChatId` itself is unused inside useChatStream (only
@@ -83,50 +66,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('useChatStream.handleSendMessage — opts.agentSelection precedence', () => {
-  it('sendet die Team-/Agent-Auswahl aus opts, nicht die aus dem Hook-State', async () => {
+describe('useChatStream.handleSendMessage — request body', () => {
+  it('sends no agent or team', async () => {
     authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
     const { result } = renderHook(() => useHarness());
-
-    await act(async () => {
-      await result.current.stream.handleSendMessage(
-        { preventDefault: () => {} } as React.FormEvent,
-        'Vergleiche das.',
-        null,
-        undefined,
-        { attachmentId: 'att1', comparisonModes: ['contradiction'], agentSelection: { teamId: 't1' } },
-      );
-    });
-
-    expect(authFetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = authFetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(init.body as string);
-    expect(body.teamId).toBe('t1');
-    expect(body.agentId).toBeUndefined();
-  });
-
-  it('schreibt die opts-Auswahl als Attribution auf die KI-Nachricht, nicht den alten Hook-State', async () => {
-    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai1' }]));
-    const { result } = renderHook(() => useHarness());
-
-    await act(async () => {
-      await result.current.stream.handleSendMessage(
-        { preventDefault: () => {} } as React.FormEvent,
-        'Vergleiche das.',
-        null,
-        undefined,
-        { attachmentId: 'att1', comparisonModes: ['contradiction'], agentSelection: { teamId: 't1' } },
-      );
-    });
-
-    const aiMsg = result.current.messageTree.get('ai1');
-    expect(aiMsg?.teamId).toBe('t1');
-    expect(aiMsg?.agentId ?? null).toBe(null);
-  });
-
-  it('fällt ohne opts.agentSelection auf den Hook-State zurück (normaler Chat-Turn)', async () => {
-    authFetchMock.mockResolvedValueOnce(okResponse([{ aiMessageId: 'ai2' }]));
-    const { result } = renderHook(() => useHarness({ agentSelection: { agentId: 'a-default' } }));
 
     await act(async () => {
       await result.current.stream.handleSendMessage(
@@ -139,8 +82,8 @@ describe('useChatStream.handleSendMessage — opts.agentSelection precedence', (
 
     const [, init] = authFetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.agentId).toBe('a-default');
-    expect(result.current.messageTree.get('ai2')?.agentId).toBe('a-default');
+    expect(body).not.toHaveProperty('teamId');
+    expect(body).not.toHaveProperty('agentId');
   });
 });
 
@@ -569,7 +512,7 @@ describe('useChatStream.handleSendMessage — roleId', () => {
     const { result } = renderHook(() => useHarness());
     await act(async () => {
       await result.current.stream.handleSendMessage(
-        { preventDefault: () => {} } as React.FormEvent, 'Erkläre die Elternzeit', null, null, { roleId: 'tutor', agentSelection: {} },
+        { preventDefault: () => {} } as React.FormEvent, 'Erkläre die Elternzeit', null, null, { roleId: 'tutor' },
       );
     });
     const body = JSON.parse((authFetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);

@@ -239,8 +239,8 @@
   --sidebar-bg: var(--color-surface-container-low);
   --accent-primary: var(--color-primary);
   --accent-primary-translucent: color-mix(in srgb, var(--accent-primary) 8%, transparent);
-  /* Text/icon color for the 12 filled controls that sit ON --accent-primary
-   * (.btn--primary, .send-button, .message-user, …). This MUST stay a token and
+  /* Text/icon color for the filled controls that sit ON --accent-primary
+   * (.send-button, .message-user, …). This MUST stay a token and
    * never a hardcoded white: --accent-primary is a dark blue on light and a
    * light blue on dark, so white would fail WCAG in dark mode (the app shipped
    * exactly that bug at 2.96:1). --color-on-primary inverts with the theme. */
@@ -1314,123 +1314,7 @@ button.source-card {
   cursor: not-allowed;
 }
 
-/* ---------------------------------------------------------------------------
-   Button hierarchy (improvement #7)
-   One named system so the four tiers + icon-only can't drift again. Emitted by
-   hand-written `btn btn--*` class names; legacy .search-button (primary),
-   .secondary-button (secondary) and .text-button (tertiary) stay as aliases.
-   Shared metrics: height 38 (44 on touch), radius --shape-md, padding
-   --space-4, gap --space-2, label --type-body, icon 16–18 (set on the glyph).
-   Every tier defines hover / active / focus-visible / disabled.
---------------------------------------------------------------------------- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: 38px;
-  padding: 0 var(--space-4);
-  border: 1px solid transparent;
-  border-radius: var(--shape-md);
-  font: var(--type-body);
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: none;
-  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.1s;
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
-}
-
-.btn:disabled,
-.btn[aria-disabled='true'] {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
-}
-
-/* Primary — accent fill; one per view */
-.btn--primary {
-  background: var(--accent-primary);
-  color: var(--accent-on-primary);
-}
-
-.btn--primary:hover:not(:disabled) {
-  background: var(--accent-secondary);
-  box-shadow: var(--shadow-md);
-}
-
-.btn--primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: none;
-}
-
-/* Secondary — outline */
-.btn--secondary {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--border-color);
-}
-
-.btn--secondary:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
-}
-
-.btn--secondary:active:not(:disabled) {
-  background: var(--tag-bg);
-}
-
-/* Tertiary / ghost — text only */
-.btn--tertiary {
-  background: none;
-  color: var(--accent-primary);
-  padding: 0 var(--space-2);
-}
-
-.btn--tertiary:hover:not(:disabled) {
-  background: var(--tag-bg);
-}
-
-.btn--tertiary:active:not(:disabled) {
-  background: transparent;
-}
-
-/* Icon-only — square, 44px hit-area on touch; keep aria-label + title */
-.btn--icon {
-  min-width: 38px;
-  padding: 0 var(--space-2);
-  background: none;
-  color: var(--text-secondary);
-}
-
-.btn--icon:hover:not(:disabled) {
-  background: var(--tag-bg);
-  color: var(--text-primary);
-}
-
-@media (pointer: coarse) {
-  .btn {
-    min-height: 44px;
-  }
-
-  .btn--icon {
-    min-width: 44px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .btn {
-    transition: background 0.2s, border-color 0.2s, color 0.2s;
-    transform: none;
-  }
-}
-
-/* Legacy state parity (improvement #7): give the existing tier classes the
-   active/disabled states the system defines, without a call-site migration. */
+/* Active and disabled states for the button classes. */
 .secondary-button:active:not(:disabled) {
   background: var(--tag-bg);
 }
@@ -1489,30 +1373,6 @@ button.source-card {
   }
 }
 
-/* ========================================
-   Admin UI Styles
-   ======================================== */
-
-.admin-container {
-  max-width: min(1600px, 95vw);
-  margin: 0 auto;
-  padding: 2rem;
-  width: 100%;
-  animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .field-error {
   display: block;
   color: var(--error-text);
@@ -1547,12 +1407,6 @@ button.source-card {
 
 .admin-content {
   width: 100%;
-}
-
-@media (max-width: 768px) {
-  .admin-container {
-    padding: 1rem;
-  }
 }
 
 /* ========================================
@@ -1638,70 +1492,6 @@ button.source-card {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* ---------------------------------------------------------------------------
- * Agent surface (My Agents, agent forms, KB agent attachment).
- * Added 2026-08-11: no house pattern existed for muted hint text, styled
- * fieldsets, or a two-way segmented control.
- * ------------------------------------------------------------------------- */
-
-.form-hint {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  margin: 0 0 0.35rem;
-}
-
-.form-fieldset {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 0.75rem;
-  margin: 0 0 0.75rem;
-}
-
-.form-fieldset__legend {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  padding: 0 0.4rem;
-}
-
-.segmented-control {
-  display: inline-flex;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: var(--bg-primary);
-}
-
-.segmented-control__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.segmented-control__item:hover:not([aria-pressed='true']) {
-  color: var(--text-primary);
-}
-
-.segmented-control__item[aria-pressed='true'] {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
-}
-
-.segmented-control__item:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
 }
 
 /* The answer's sentences that cite the passage the source panel shows

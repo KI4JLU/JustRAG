@@ -11,32 +11,22 @@ import { buildMessageMap, findDefaultLeaf, isTempMessageId, nearestPersistedAnce
 import { useMessageTree } from './useMessageTree';
 import { useChatStream } from './useChatStream';
 import { useChatAttachment, type ChatAttachment } from './useChatAttachment';
-import type { AgentSelection } from './useKbSettings';
 
 /**
  * Pure helper for `startComparison`: turns an uploaded attachment + chosen
- * modes + free-text instruction + agent/team choice into the
- * (message, send-options) pair `useChatStream.handleSendMessage` expects.
- * Extracted so it is testable without a `useChat` render harness (none
- * exists yet for this hook).
- *
- * `agentSelection` travels in `opts`, not (only) through `setAgentSelection`
- * state: `useChatStream.handleSendMessage`'s outgoing request is built
- * synchronously from a closure captured before any `setAgentSelection` call
- * can take effect (state updates land on the *next* render), so the state
- * write alone would silently send the *previous* selection for this turn.
- * See `useChatStream`'s `effectiveSelection`.
+ * modes + free-text instruction into the (message, send-options) pair
+ * `useChatStream.handleSendMessage` expects. Extracted so it is testable
+ * without a `useChat` render harness.
  */
 export function buildComparisonSend(
   attachment: ChatAttachment,
   modes: string[],
   instruction: string,
   fallbackMessage: string,
-  agentSelection: AgentSelection,
-): { message: string; opts: { attachmentId: string; comparisonModes: string[]; agentSelection: AgentSelection } } {
+): { message: string; opts: { attachmentId: string; comparisonModes: string[] } } {
   return {
     message: instruction.trim() || fallbackMessage,
-    opts: { attachmentId: attachment.attachmentId, comparisonModes: modes, agentSelection },
+    opts: { attachmentId: attachment.attachmentId, comparisonModes: modes },
   };
 }
 
@@ -65,8 +55,6 @@ interface RawChatMessage {
   verification?: MessageVerification | null;
   traceId?: string | null;
   structured_table?: StructuredTable | null;
-  teamId?: string | null;
-  agentId?: string | null;
   conflicts?: MessageConflict[];
   attachments?: MessageAttachment[];
   trajectory?: TrajectoryEvent[];
@@ -80,15 +68,13 @@ interface UseChatParams {
   /** `undefined` omits `webSearch` from the chat request (gate closed). */
   webSearchEnabled: boolean | undefined;
   reasoningLevel: 'low' | 'medium' | 'high';
-  agentSelection: AgentSelection;
-  setAgentSelection: (val: AgentSelection) => void;
   onResearchLoaded?: () => void;
   onAcademicResearchLoaded?: () => void;
 }
 
 export function useChat({
   currentKb, files, enhance,
-  reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, setAgentSelection,
+  reasoningEnabled, webSearchEnabled, reasoningLevel,
   onResearchLoaded, onAcademicResearchLoaded,
 }: UseChatParams) {
   const { language, t } = useTheme();
@@ -178,7 +164,7 @@ export function useChat({
   // Compose: SSE streaming
   const stream = useChatStream({
     currentKb, files, enhance,
-    reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language,
+    reasoningEnabled, webSearchEnabled, reasoningLevel, language,
     setMessageTree, messageTreeRef, setActiveLeafId,
     activeChatIdRef, activeChatId, setActiveChatId, setChats,
     fetchChats, fetchChatsTimerRef,
@@ -282,7 +268,6 @@ export function useChat({
     }
 
     setActiveChatId(chat.id);
-    setAgentSelection({ teamId: chat.teamId ?? undefined, agentId: chat.agentId ?? undefined });
     chatSwitchingRef.current = true;
     focusPrompt();
     try {
@@ -300,8 +285,6 @@ export function useChat({
         verification: m.verification ?? null,
         traceId: m.traceId ?? null,
         structured_table: m.structured_table ?? null,
-        teamId: m.teamId ?? null,
-        agentId: m.agentId ?? null,
         conflicts: m.conflicts,
         ...(m.trajectory?.length ? { trajectory: m.trajectory } : {}),
         ...(m.attachments?.length ? { attachments: m.attachments } : {}),
@@ -318,7 +301,7 @@ export function useChat({
     } finally {
       chatSwitchingRef.current = false;
     }
-  }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setAgentSelection, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, toast, t, focusPrompt]);
+  }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, toast, t, focusPrompt]);
 
   // Drops the comparison attachment so it cannot leak from one chat into the
   // next. Called by handleNewChat; startComparison re-adopts the upload right
@@ -331,10 +314,6 @@ export function useChat({
     setActiveChatId(null);
     setPendingRoleId(null);
     setRoleStart(null);
-    // Clear the sticky selection so a fresh chat doesn't inherit the
-    // previous chat's team/agent; ChatView's default-selection effect
-    // re-applies the KB's isDefault team/agent once options are loaded.
-    setAgentSelection({});
     setMessageTree(new Map());
     setActiveLeafId(null);
     setComparisonMode(false);
@@ -344,7 +323,7 @@ export function useChat({
     setLoadedAcademicSession(null);
     clearComparison();
     focusPrompt();
-  }, [setActiveChatId, setAgentSelection, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, clearComparison, focusPrompt]);
+  }, [setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, clearComparison, focusPrompt]);
 
   const handleDeleteChat = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -467,10 +446,8 @@ export function useChat({
       if (start.kind !== 'file') requestAnimationFrame(() => textareaRef.current?.focus());
       return;
     }
-    // The stream reads its agent selection from this render's closure, which
-    // still holds the previous chat's: send this one without any (Standard).
     const e = { preventDefault: () => undefined } as unknown as React.FormEvent;
-    void Promise.resolve(stream.handleSendMessage(e, text, null, null, { ...(start.roleId ? { roleId: start.roleId } : {}), agentSelection: {} })).then(accepted => {
+    void Promise.resolve(stream.handleSendMessage(e, text, null, null, start.roleId ? { roleId: start.roleId } : {})).then(accepted => {
       if (!accepted) setUserMessageInput(prev => prev || text);
     });
   }, [currentKb, loading, files, handleNewChat, stream]);
@@ -510,7 +487,6 @@ export function useChat({
     file: File;
     modes: string[];
     instruction: string;
-    agentSelection: AgentSelection;
   }): Promise<boolean> => {
     if (!currentKb) return false;
     const uploaded = await attachmentState.upload(input.file);
@@ -525,21 +501,8 @@ export function useChat({
     // Restore the attachment handleNewChat just cleared — see the ordering
     // note in this function's doc comment above.
     attachmentState.adopt(uploaded);
-    // Two separate writes for two separate turns:
-    //  - `opts.agentSelection` (via buildComparisonSend below) makes THIS
-    //    turn — the comparison itself — use the dialog's choice. It has to
-    //    travel through the send options because `setAgentSelection` only
-    //    takes effect on the next render, after this request is already
-    //    built (see buildComparisonSend's doc comment / useChatStream's
-    //    `effectiveSelection`).
-    //  - `setAgentSelection(input.agentSelection)` makes the choice STICK
-    //    for follow-up questions in the chat `handleNewChat()` just created
-    //    (e.g. "and what does policy 4 say about this?" after the findings
-    //    should get the same agent) — that's a later render/turn, where the
-    //    state write has long since landed.
-    setAgentSelection(input.agentSelection);
 
-    const { message, opts } = buildComparisonSend(uploaded, input.modes, input.instruction, t('comparisonDefaultMessage'), input.agentSelection);
+    const { message, opts } = buildComparisonSend(uploaded, input.modes, input.instruction, t('comparisonDefaultMessage'));
     await stream.handleSendMessage(
       { preventDefault: () => {} } as React.FormEvent,
       message,
@@ -548,7 +511,7 @@ export function useChat({
       opts,
     );
     return true;
-  }, [currentKb, attachmentState, handleNewChat, setAgentSelection, stream, t, toast]);
+  }, [currentKb, attachmentState, handleNewChat, stream, t, toast]);
 
   const handleStartEdit = useCallback((messageId: string) => {
     setEditingMessageId(messageId);

@@ -31,10 +31,6 @@ vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
-vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
-}));
-
 const currentKb: KnowledgeBase = {
   id: 'kb1', name: 'Handbuch', description: null, userId: 'someone-else',
   createdAt: '2026-01-01', isPro: false, isGlobal: false,
@@ -46,7 +42,6 @@ vi.mock('../contexts/KbCoreContext', () => ({
     currentKb,
     availableConfigs: [],
     handleUpdateKBSettings: vi.fn(),
-    onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,
     onViewGraphForMessage: vi.fn(),
     onCloseMindmap: vi.fn(),
@@ -102,8 +97,6 @@ vi.mock('../contexts/KbChatContext', () => ({
     setEnhance: vi.fn(),
     reasoningEnabled: false,
     setReasoningEnabled: vi.fn(),
-    agentSelection: {},
-    setAgentSelection: vi.fn(),
   }),
 }));
 
