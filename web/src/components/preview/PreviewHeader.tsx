@@ -3,9 +3,9 @@ import {
     FileAudio, FileImage, FilePen, FileSpreadsheet, FileText, FileType, FileVideo, type LucideIcon,
 } from 'lucide-react';
 import { PreviewBackLink, type PreviewBack, type PreviewHeaderProps as DsPreviewHeaderProps } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { cleanSourceTitle } from '../utils/sourceDisplay';
-import type { PreviewKind } from '../utils/previewKind';
+import { useTheme } from '../../contexts/ThemeContext';
+import { cleanSourceTitle } from '../../utils/sourceDisplay';
+import type { PreviewKind } from '../../utils/previewKind';
 
 export type { PreviewBack };
 

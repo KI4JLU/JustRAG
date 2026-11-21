@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import { Alert, AlertDescription, Button, ImageViewer } from '@ki4jlu/design-system';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
-import { cachedSourceImage } from '../hooks/sourcePreviews';
-import { loadUserFileUrl } from '../hooks/userFileUrls';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { cachedSourceImage } from '../../hooks/sourcePreviews';
+import { loadUserFileUrl } from '../../hooks/userFileUrls';
 import { PreviewDialog } from './PreviewDialog';
 import { usePreviewBackLink, type PreviewBack } from './PreviewHeader';
 

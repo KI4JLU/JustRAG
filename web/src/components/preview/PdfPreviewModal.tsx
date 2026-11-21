@@ -4,9 +4,9 @@ import axios from 'axios';
 import {
     Alert, AlertDescription, Button, PdfViewer,
 } from '@ki4jlu/design-system';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
-import { useToast } from '../contexts/ToastContext';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useToast } from '../../contexts/ToastContext';
 import { PreviewDialog } from './PreviewDialog';
 import { usePreviewBackLink, type PreviewBack } from './PreviewHeader';
 
