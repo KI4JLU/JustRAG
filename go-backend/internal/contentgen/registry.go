@@ -13,7 +13,7 @@ import (
 
 // ArtifactSpec describes a markdown-text generated-content artifact (briefing
 // doc, FAQ, study guide, timeline, ...). Every such artifact follows the same
-// retrieve→generate→store flow as GenerateAnalysis; only the system prompt,
+// retrieve→generate→store flow; only the system prompt,
 // stored content type, title, and retrieval breadth differ. New text artifacts
 // are added by appending an ArtifactSpec to TextArtifacts plus one prompt
 // function in the prompts package — no new handler or route boilerplate, and
@@ -37,8 +37,8 @@ const defaultArtifactContextLimit = 25
 // TextArtifacts is the registry of markdown-text artifacts served by the
 // generic GenerateArtifact handler. Order is irrelevant; routes are registered
 // by iterating this slice. Output is stored as {"text": markdown}, the same
-// content shape as analysis, so the frontend renders, edits, and exports these
-// through its existing markdown-artifact path.
+// content shape as stored "analysis" artifacts, so the frontend renders, edits,
+// and exports these through its existing markdown-artifact path.
 var TextArtifacts = []ArtifactSpec{
 	{
 		Type:         "briefing_doc",
@@ -67,7 +67,7 @@ var TextArtifacts = []ArtifactSpec{
 
 // GenerateArtifact returns an http.HandlerFunc that retrieves KB context for the
 // requested topic, generates a markdown document with the artifact's system
-// prompt (using the KB chat model, like analysis), and stores it as
+// prompt (using the KB chat model), and stores it as
 // {"text": markdown}. Runs inline — a single LLM call, no worker needed.
 func (h *Handler) GenerateArtifact(spec ArtifactSpec) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -108,8 +108,8 @@ func (h *Handler) GenerateArtifact(spec ArtifactSpec) http.HandlerFunc {
 			return
 		}
 
-		// Same content shape as GenerateAnalysis ({"text": markdown}) so the
-		// frontend's markdown-artifact path renders/edits/exports it unchanged.
+		// Same content shape as stored "analysis" artifacts ({"text": markdown})
+		// so the frontend's markdown-artifact path renders/edits/exports it unchanged.
 		contentVal := map[string]any{"text": strings.TrimSpace(text)}
 		record, err := h.store.CreateGeneratedContent(ctx, kbID, caller.ID, spec.Type, spec.TitleFn(req.Topic), contentVal)
 		if err != nil {

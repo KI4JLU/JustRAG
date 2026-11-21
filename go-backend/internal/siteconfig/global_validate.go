@@ -13,8 +13,7 @@ import (
 // globalValidators maps a GLOBAL-ONLY site_config key to the validator its
 // stored value must pass at save time (W6-R14). These keys carry JSON
 // documents rather than scalars, and they have no kbConfigRegistry row (like
-// kb_stale_days), so the registry's own FieldJSON validation — which is
-// hard-wired to the workflow-preset shape — never sees them.
+// kb_stale_days), so the registry's per-KB validation never sees them.
 //
 // The readers on the answer path fall back to the default on an unparseable
 // value, so this hook is not the only line of defence; it is the one that

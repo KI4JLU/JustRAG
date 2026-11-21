@@ -1019,21 +1019,19 @@ routes.
 | POST | `/kb/{id}/generate/podcast` | available |
 | GET | `/kb/{id}/generate/podcast/status/{jobId}` | available |
 | POST | `/kb/{id}/generate/chart` | available |
-| POST | `/kb/{id}/generate/analysis` | available |
 | POST | `/kb/{id}/generate/abstract` | available |
 | POST | `/kb/{id}/generate/quiz` | available |
 | POST | `/kb/{id}/generate/briefing_doc` | available |
 | POST | `/kb/{id}/generate/faq` | available |
 | POST | `/kb/{id}/generate/study_guide` | available |
 | POST | `/kb/{id}/generate/timeline` | available |
-| GET | `/kb/{id}/workspace/presets` | available |
 | PATCH | `/generated-content/{id}` | available |
 | DELETE | `/generated-content/{id}` | available |
 | GET | `/generated-content/{id}/download` | available |
 | GET | `/generated-content/{id}/stream` | available |
 | POST | `/describe-image` | `503` unless `describe_image_enabled` and `describe_image_model` are set |
 
-All `generate/*` routes need KB view and use the `generate` rate limit. `briefing_doc`, `faq`, `study_guide` and `timeline` are the Markdown study artifacts (one generic handler, `contentgen.TextArtifacts`). `GET /kb/{id}/workspace/presets` returns the workspace tiles available for the KB (generator presets, plus whether document comparison is enabled).
+All `generate/*` routes need KB view and use the `generate` rate limit. `briefing_doc`, `faq`, `study_guide` and `timeline` are the Markdown study artifacts (one generic handler, `contentgen.TextArtifacts`).
 
 ### Research and export
 

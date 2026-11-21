@@ -1,5 +1,5 @@
 // Package contentgen provides HTTP handlers for AI-powered content generation
-// (flashcards, presentation, podcast, analysis, abstract, chart).
+// (flashcards, quiz, presentation, podcast, abstract, chart, text artifacts).
 package contentgen
 
 import (
@@ -16,7 +16,6 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
-	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/gencontent"
 	"github.com/justrag/go-backend/internal/httputil"
 	"github.com/justrag/go-backend/internal/jobs"
@@ -24,7 +23,6 @@ import (
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/pptx"
 	"github.com/justrag/go-backend/internal/prompts"
-	"github.com/justrag/go-backend/internal/siteconfig"
 	"github.com/justrag/go-backend/internal/vector"
 	"github.com/redis/go-redis/v9"
 )
@@ -39,15 +37,10 @@ type Searcher interface {
 // Request types
 // ---------------------------------------------------------------------------
 
-// GenerateRequest is the body for cards, presentation, podcast, and analysis.
+// GenerateRequest is the body for cards, quiz, presentation, and podcast.
 type GenerateRequest struct {
 	Topic    string `json:"topic"`
 	Language string `json:"language"` // default "de"
-	// AgentID / TeamID kommen nur noch von alten Clients: Agenten und Teams
-	// sind entfernt. GenerateAnalysis läuft dann ohne Agent und meldet das
-	// als degradedReason "unavailable", statt stillschweigend zu liefern.
-	AgentID string `json:"agentId"`
-	TeamID  string `json:"teamId"`
 }
 
 // GenerateChartRequest is the body for chart generation.
@@ -107,11 +100,6 @@ type Handler struct {
 	// otherwise it falls back to LLM-from-context. See chart.go.
 	chartCatalog ChartCatalog
 	chartRO      ChartQuerier
-
-	// Optionale Preset-Abhängigkeiten (via SetPresetDeps). Fehlen sie, liefert
-	// GetWorkspacePresets die Code-Defaults — die Dialoge bleiben bedienbar.
-	siteCfg SiteConfigReader
-	kbCfg   KBConfigOverrideLister
 }
 
 // NewHandler creates a new Handler.
@@ -145,69 +133,6 @@ func defaultLang(lang string) string {
 		return "de"
 	}
 	return lang
-}
-
-// SetPresetDeps verdrahtet die Preset-Auflösung. Getrennter Setter statt
-// NewHandler-Parameter, weil NewHandler von Tests in mehreren Paketen
-// aufgerufen wird — dasselbe Muster wie SetChartDeps.
-func (h *Handler) SetPresetDeps(cfg SiteConfigReader, kbCfg KBConfigOverrideLister) {
-	h.siteCfg = cfg
-	h.kbCfg = kbCfg
-}
-
-// readerForKB überlagert den globalen Reader mit den per-KB-Overrides.
-// Fehlschläge degradieren auf den globalen Reader statt zu erroren — aber
-// NICHT unbemerkt: ein Ladefehler wird geloggt (anders als "diese KB hat
-// keine Overrides", was ein normaler, stiller Fall ist), damit ein
-// dauerhafter DB-Fehler nicht für immer unsichtbar globale Presets
-// ausliefert. Gleiches Muster wie internal/chat/kbconfig.go's forKB
-// (chat.kb_config.load_failed).
-func (h *Handler) readerForKB(ctx context.Context, kbID string) SiteConfigReader {
-	if h.siteCfg == nil || h.kbCfg == nil {
-		return h.siteCfg
-	}
-	overrides, err := h.kbCfg.ListKBOverrides(ctx, kbID)
-	if err != nil {
-		logctx.From(ctx).Warn("workspace.presets.kb_config.load_failed", "kb_id", kbID, "error", err)
-		return h.siteCfg
-	}
-	if len(overrides) == 0 {
-		return h.siteCfg
-	}
-	return siteconfig.NewKBOverlay(h.siteCfg, overrides)
-}
-
-// GetWorkspacePresets — GET /api/kb/{id}/workspace/presets?lang=de
-//
-// Liefert die im Workspace angebotenen Prompt-Presets sowie das
-// Vergleichs-Flag. Letzteres reist mit, weil chat_compare_enabled sonst
-// nirgends im Frontend bekannt ist: bis 2026-08 wurde die Büroklammer im
-// Composer ungegated gerendert und das Backend antwortete mit 503.
-// compareEnabled nutzt bewusst chat.CompareEnabled (statt eines eigenen
-// String-Vergleichs) — das ist derselbe Gate-Helfer, der den 503 tatsächlich
-// auslöst, inklusive dessen Semantik (case-insensitiv, getrimmt, Default
-// false bei fehlendem/kaputtem Wert). Ein eigener, abweichender Vergleich
-// hier hätte die Kachel inkonsistent zu dem gemacht, was das Backend
-// tatsächlich freischaltet.
-//
-// compareEnabled wird bewusst vom GLOBALEN Reader gelesen, nicht von cfg:
-// internal/chat/http_attachment.go's UploadAttachment — der Gate, der den 503
-// tatsächlich auslöst — ruft niemals forKB auf und liest ausschließlich global.
-// Läse die Kachel stattdessen das KB-Overlay, würden beide auseinanderlaufen,
-// sobald jemand chat_compare_enabled per-KB überschreibbar macht: die Kachel
-// verspräche etwas, das der Upload verweigert. Die Presets darüber lesen sehr
-// wohl das Overlay — sie sind ausdrücklich per-KB gedacht.
-func (h *Handler) GetWorkspacePresets(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	kbID := kbIDFromContext(r)
-	lang := defaultLang(r.URL.Query().Get("lang"))
-	cfg := h.readerForKB(ctx, kbID)
-
-	httputil.WriteJSONCtx(ctx, w, http.StatusOK, map[string]any{
-		"analysis":       resolvePresets(ctx, cfg, "workspace_analysis_presets", DefaultAnalysisPresets(lang)),
-		"comparison":     resolvePresets(ctx, cfg, "workspace_comparison_presets", DefaultComparisonPresets(lang)),
-		"compareEnabled": chat.CompareEnabled(ctx, h.siteCfg),
-	})
 }
 
 // ---------------------------------------------------------------------------
@@ -658,68 +583,6 @@ func (h *Handler) GetPodcastStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // GenerateChart is implemented in chart.go (hybrid SQL-over-tabular + LLM path).
-
-// ---------------------------------------------------------------------------
-// GenerateAnalysis — POST /api/kb/{id}/generate/analysis
-// ---------------------------------------------------------------------------
-
-// GenerateAnalysis performs a structured analysis of KB content on the given topic.
-// Runs inline.
-func (h *Handler) GenerateAnalysis(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	kbID := kbIDFromContext(r)
-
-	caller := auth.UserFromContext(ctx)
-	if caller == nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-
-	var req GenerateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if strings.TrimSpace(req.Topic) == "" {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "topic is required")
-		return
-	}
-	lang := defaultLang(req.Language)
-
-	degraded := ""
-	if req.AgentID != "" || req.TeamID != "" {
-		degraded = "unavailable"
-	}
-
-	contextStr, err := getContext(ctx, h.searchSvc, kbID, req.Topic, 25)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to retrieve context")
-		return
-	}
-
-	prompt := fmt.Sprintf("Analyze the following topic based on the context:\n\nTopic: %s\n\nContext:\n%s", req.Topic, contextStr)
-	analysis, err := generateWithLLM(ctx, h.aiResolver, prompt, prompts.AnalysisSystemPrompt(lang), kbID)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "LLM generation failed")
-		return
-	}
-
-	contentVal := map[string]any{"text": analysis}
-
-	title := fmt.Sprintf("Analysis: %s", req.Topic)
-	record, err := h.store.CreateGeneratedContent(ctx, kbID, caller.ID, "analysis", title, contentVal)
-	if err != nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to save generated content")
-		return
-	}
-
-	// Das Artefakt reist mit dem Degradationsgrund, damit ein alter Client
-	// „Ohne Agent erzeugt“ anzeigen kann statt stillschweigend zu liefern.
-	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{
-		"record":         record,
-		"degradedReason": degraded,
-	})
-}
 
 // ---------------------------------------------------------------------------
 // GenerateAbstract — POST /api/kb/{id}/generate/abstract
