@@ -42,7 +42,7 @@ import { LegalPage } from './LegalPage';
  * below rendered correctly. The advice "open Pages/LegalPage in Storybook to
  * check it" was therefore actively misleading, and no story can be made to
  * catch this class of bug: a story renders this component under the preview's
- * decorators, never under the app's routes. `src/App.unauthenticated.test.tsx`
+ * decorators, never under the app's routes. `src/app/App.unauthenticated.test.tsx`
  * is the guard that can — it renders the real App and clicks through the login
  * footer. These stories answer a different question: how the DOCUMENTS look at
  * the page's measure.

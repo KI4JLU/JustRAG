@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { stubViewport } from './test/viewport';
+import { stubViewport } from '../test/viewport';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from './translations';
-import { POST_LOGIN_PATH_KEY } from './routing/postLoginPath';
-import { toShortId } from './routing/shortId';
+import { translations } from '../translations';
+import { POST_LOGIN_PATH_KEY } from '../routing/postLoginPath';
+import { toShortId } from '../routing/shortId';
 
 const KB_ID = 'd0ddefd4-6ccd-49a5-a7f0-2f1eba3c8141';
 const KB_GONE = '0f0f0f0f-0000-4000-8000-000000000001';

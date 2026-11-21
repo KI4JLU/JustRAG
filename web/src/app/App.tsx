@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
-import { captureJoinToken } from './hooks/useJoinLink';
-import { createAppRouter } from './routing/routes';
-import { bindUrlDialogHistory } from './routing/urlDialog';
+import { captureJoinToken } from '../hooks/useJoinLink';
+import { createAppRouter } from '../routing/routes';
+import { bindUrlDialogHistory } from '../routing/urlDialog';
 import { AppRoot } from './AppRoot';
 
 // Runs once at module load, before React renders anything — the token has to

@@ -1,22 +1,22 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
-import type { User as UserType } from './types';
-import { API_BASE_URL } from './api';
-import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
-import { appNameFrom, applyAppNameToDocument, rememberAppName, siteConfigSeed } from './utils/appName';
-import { ThemeProvider } from './contexts/ThemeContext';
-import { AuthProvider } from './contexts/AuthContext';
-import { MobileProvider } from './contexts/MobileContext';
-import { ToastProvider } from './contexts/ToastContext';
-import { viewportHeight } from './utils/viewport';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { ToastContainer } from './components/ToastContainer';
-import { AppUpdateProvider } from './contexts/AppUpdateContext';
-import { useVersionCheck } from './hooks/useVersionCheck';
-import { goToSsoLogin, reloadPage, startSsoReauth } from './routing/sessionExpiry';
+import type { User as UserType } from '../types';
+import { API_BASE_URL } from '../api';
+import { SITE_CONFIG_UPDATED_EVENT } from '../utils/siteConfigEvents';
+import { appNameFrom, applyAppNameToDocument, rememberAppName, siteConfigSeed } from '../utils/appName';
+import { ThemeProvider } from '../contexts/ThemeContext';
+import { AuthProvider } from '../contexts/AuthContext';
+import { MobileProvider } from '../contexts/MobileContext';
+import { ToastProvider } from '../contexts/ToastContext';
+import { viewportHeight } from '../utils/viewport';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { ToastContainer } from '../components/ToastContainer';
+import { AppUpdateProvider } from '../contexts/AppUpdateContext';
+import { useVersionCheck } from '../hooks/useVersionCheck';
+import { goToSsoLogin, reloadPage, startSsoReauth } from '../routing/sessionExpiry';
 // Lazy load
-const Login = lazy(() => import('./pages/Login'));
+const Login = lazy(() => import('../pages/Login'));
 const AuthenticatedApp = lazy(() => import('./AuthenticatedApp'));
 
 const LoadingFallback = () => (

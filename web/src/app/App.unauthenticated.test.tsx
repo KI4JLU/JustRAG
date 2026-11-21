@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { stubViewport } from './test/viewport';
+import { stubViewport } from '../test/viewport';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations, type Language } from './translations';
+import { translations, type Language } from '../translations';
 
 /* ---------------------------------------------------------------------------
  * The test that did not exist (card KI-740).

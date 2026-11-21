@@ -6,7 +6,7 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 
 - The path names the routed view. The route table is `routing/routes.ts`; `useAppRoute`
   (`routing/navigation.ts`) turns the matched route into an `AppRoute`.
-- The root route mounts `AppRoot.tsx`, which renders `pages/Login.tsx` or `AuthenticatedApp.tsx`.
+- The root route mounts `app/AppRoot.tsx`, which renders `pages/Login.tsx` or `app/AuthenticatedApp.tsx`.
   `AuthenticatedApp` reads the route and picks what to render; routes carry no components.
 - Ids in generated paths are 22-character short ids (`routing/shortId.ts`); a full UUID typed by
   hand resolves too.
@@ -243,7 +243,7 @@ A section the user may not see falls back to `configs`.
 
 | Element | Component | When |
 |---|---|---|
-| Loading screen | `LoadingFallback` in `AppRoot.tsx` and in `AuthenticatedApp.tsx` | While the sign-in split loads; during a redirect and while a lazy full page loads |
+| Loading screen | `LoadingFallback` in `app/AppRoot.tsx` and in `app/AuthenticatedApp.tsx` | While the sign-in split loads; during a redirect and while a lazy full page loads |
 | Error screen | `components/ErrorBoundary.tsx` | A render crash: full screen, with „Try Again" and „Reload Page" |
 | Usage-policy notice | `components/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
 | System notice | `components/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |

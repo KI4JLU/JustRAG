@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { stubViewport } from './test/viewport';
+import { stubViewport } from '../test/viewport';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from './translations';
-import { goToSsoLogin, reloadPage } from './routing/sessionExpiry';
-import { POST_LOGIN_PATH_KEY } from './routing/postLoginPath';
+import { translations } from '../translations';
+import { goToSsoLogin, reloadPage } from '../routing/sessionExpiry';
+import { POST_LOGIN_PATH_KEY } from '../routing/postLoginPath';
 
 /* What a 401 does to a signed-in app: the session ended, the user did not log
  * out. Renders the real App and Login; the signed-in half is a stub, since
@@ -31,7 +31,7 @@ let reportError: (message: string) => void = () => {};
 
 // A caller whose request failed with the session reports its own error.
 vi.mock('./AuthenticatedApp', async () => {
-  const { useToast } = await import('./contexts/ToastContext');
+  const { useToast } = await import('../contexts/ToastContext');
   const { Button } = await import('@ki4jlu/design-system');
   return {
     default: function SignedInApp() {
@@ -42,8 +42,8 @@ vi.mock('./AuthenticatedApp', async () => {
   };
 });
 
-vi.mock('./routing/sessionExpiry', async (importActual) => ({
-  ...(await importActual<typeof import('./routing/sessionExpiry')>()),
+vi.mock('../routing/sessionExpiry', async (importActual) => ({
+  ...(await importActual<typeof import('../routing/sessionExpiry')>()),
   goToSsoLogin: vi.fn(),
   reloadPage: vi.fn(),
 }));

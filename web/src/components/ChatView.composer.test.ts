@@ -91,7 +91,7 @@ describe('Zurück-Knopf in der KB-Kopfleiste', () => {
 // render harness. The predicate itself is unit-tested in
 // utils/chatWebSearch.test.ts; this pins that the composer actually uses it,
 // for both the menu item and the "on" badge.
-const authenticatedApp = readFileSync(path.join(here, '..', 'AuthenticatedApp.tsx'), 'utf8');
+const authenticatedApp = readFileSync(path.join(here, '..', 'app', 'AuthenticatedApp.tsx'), 'utf8');
 
 describe('Websuche im Composer', () => {
   it('hängt Menüpunkt und Badge an das Admin-Gate', () => {

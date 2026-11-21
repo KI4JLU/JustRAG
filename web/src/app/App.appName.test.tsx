@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import axios from 'axios';
-import { stubViewport } from './test/viewport';
-import { SITE_CONFIG_UPDATED_EVENT } from './utils/siteConfigEvents';
+import { stubViewport } from '../test/viewport';
+import { SITE_CONFIG_UPDATED_EVENT } from '../utils/siteConfigEvents';
 import App from './App';
 
 /* The first frame names the app the server wrote into the page — not the

@@ -42,7 +42,7 @@ import { translations, type Language } from '../translations';
  * authenticated half of the tree only. The mock was not a shortcut, it was
  * the blind spot: every render below now goes through the REAL provider, the
  * REAL hook and the REAL container, so the wiring is part of what is asserted
- * rather than part of what is assumed. See `src/App.unauthenticated.test.tsx`
+ * rather than part of what is assumed. See `src/app/App.unauthenticated.test.tsx`
  * for the route-level guard.
  * ------------------------------------------------------------------------- */
 

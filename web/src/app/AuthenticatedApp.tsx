@@ -1,60 +1,60 @@
 import { useState, lazy, Suspense, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { BreadcrumbBack } from '@ki4jlu/design-system';
-import type { KnowledgeBase } from './types';
-import { useTheme } from './contexts/ThemeContext';
-import { useAuth } from './contexts/AuthContext';
-import { ModalProvider, useModalContext } from './contexts/ModalContext';
-import { useToast } from './contexts/ToastContext';
-import type { KbCoreContextValue } from './contexts/KbCoreContext';
-import type { KbChatContextValue } from './contexts/KbChatContext';
-import type { KbDataContextValue } from './contexts/KbDataContext';
-import type { KbLayoutContextValue } from './contexts/KbLayoutContext';
-import { AppNavProvider, type AppNavContextValue } from './contexts/AppNavContext';
-import { KbSearchProvider } from './contexts/KbSearchContext';
-import { ChatHistoryStore, type ChatHistoryHost } from './components/history/ChatHistoryStore';
-import { topicSection } from './utils/topicSection';
+import type { KnowledgeBase } from '../types';
+import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { ModalProvider, useModalContext } from '../contexts/ModalContext';
+import { useToast } from '../contexts/ToastContext';
+import type { KbCoreContextValue } from '../contexts/KbCoreContext';
+import type { KbChatContextValue } from '../contexts/KbChatContext';
+import type { KbDataContextValue } from '../contexts/KbDataContext';
+import type { KbLayoutContextValue } from '../contexts/KbLayoutContext';
+import { AppNavProvider, type AppNavContextValue } from '../contexts/AppNavContext';
+import { KbSearchProvider } from '../contexts/KbSearchContext';
+import { ChatHistoryStore, type ChatHistoryHost } from '../components/history/ChatHistoryStore';
+import { topicSection } from '../utils/topicSection';
 
 // Hooks
-import { useSidebarResize } from './hooks/useSidebarResize';
-import { useChat } from './hooks/useChat';
-import { useFileManagement } from './hooks/useFileManagement';
-import { useUploadStorageNotice } from './hooks/useUploadStorageNotice';
-import { UploadStorageNoticeDialog } from './components/UploadStorageNoticeDialog';
-import { useWebTools } from './hooks/useWebTools';
-import { useKnowledgeBases } from './hooks/useKnowledgeBases';
-import { useJoinRedeem } from './hooks/useJoinRedeem';
-import { useKbSearchState } from './hooks/useKbSearchState';
-import { useSearchNavigation } from './hooks/useSearchNavigation';
-import { useRssFeeds } from './hooks/useRssFeeds';
-import { useConfluenceSources } from './hooks/useConfluenceSources';
-import { useGitRepoSources } from './hooks/useGitRepoSources';
-import { useViewState } from './hooks/useViewState';
+import { useSidebarResize } from '../hooks/useSidebarResize';
+import { useChat } from '../hooks/useChat';
+import { useFileManagement } from '../hooks/useFileManagement';
+import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
+import { UploadStorageNoticeDialog } from '../components/UploadStorageNoticeDialog';
+import { useWebTools } from '../hooks/useWebTools';
+import { useKnowledgeBases } from '../hooks/useKnowledgeBases';
+import { useJoinRedeem } from '../hooks/useJoinRedeem';
+import { useKbSearchState } from '../hooks/useKbSearchState';
+import { useSearchNavigation } from '../hooks/useSearchNavigation';
+import { useRssFeeds } from '../hooks/useRssFeeds';
+import { useConfluenceSources } from '../hooks/useConfluenceSources';
+import { useGitRepoSources } from '../hooks/useGitRepoSources';
+import { useViewState } from '../hooks/useViewState';
 import { useLocation, useRouter } from '@tanstack/react-router';
-import { useAppNavigate, useAppRoute } from './routing/navigation';
-import { useKbSettings } from './hooks/useKbSettings';
-import { useKbLifecycle } from './hooks/useKbLifecycle';
-import { openTopicSettings, useTopicSettings } from './hooks/useTopicSettings';
-import { openSettingsDialog } from './hooks/settingsDialog';
-import { useChatRoute, useChatTopic } from './hooks/useChatRoute';
+import { useAppNavigate, useAppRoute } from '../routing/navigation';
+import { useKbSettings } from '../hooks/useKbSettings';
+import { useKbLifecycle } from '../hooks/useKbLifecycle';
+import { openTopicSettings, useTopicSettings } from '../hooks/useTopicSettings';
+import { openSettingsDialog } from '../hooks/settingsDialog';
+import { useChatRoute, useChatTopic } from '../hooks/useChatRoute';
 
 // Components
-import { MyTopicsView } from './pages/MyTopicsView';
-import { SharedTopicsView } from './pages/SharedTopicsView';
-import { DiscoverView } from './pages/DiscoverView';
-import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from './components/AppChrome';
-import { ChatView } from './components/ChatView';
-import { TopicModals } from './components/TopicModals';
+import { MyTopicsView } from '../pages/MyTopicsView';
+import { SharedTopicsView } from '../pages/SharedTopicsView';
+import { DiscoverView } from '../pages/DiscoverView';
+import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/AppChrome';
+import { ChatView } from '../components/ChatView';
+import { TopicModals } from '../components/TopicModals';
 
 // Lazy load heavy components
-const GlobalKbSettings = lazy(() => import('./pages/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
-const KbSettingsPanel = lazy(() => import('./components/kbSettings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
+const GlobalKbSettings = lazy(() => import('../pages/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
+const KbSettingsPanel = lazy(() => import('../components/kbSettings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
-import { LegalPage } from './pages/LegalPage';
-import { PolicyAcceptanceGate } from './components/PolicyAcceptanceDialog';
-import { viewportHeight } from './utils/viewport';
-import { chatWebSearchRequestField } from './utils/chatWebSearch';
-import { kbSourceRights } from './utils/kbAccess';
+import { LegalPage } from '../pages/LegalPage';
+import { PolicyAcceptanceGate } from '../components/PolicyAcceptanceDialog';
+import { viewportHeight } from '../utils/viewport';
+import { chatWebSearchRequestField } from '../utils/chatWebSearch';
+import { kbSourceRights } from '../utils/kbAccess';
 
 // Lazy Loaded Components
 

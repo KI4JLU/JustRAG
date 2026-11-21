@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { JOIN_TOKEN_KEY, peekJoinToken } from './hooks/useJoinLink';
+import { JOIN_TOKEN_KEY, peekJoinToken } from '../hooks/useJoinLink';
 
 // App.tsx calls captureJoinToken() at MODULE SCOPE — before React renders
 // anything — so an invite link is picked up whether the visitor lands on the

@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { stubViewport } from './test/viewport';
+import { stubViewport } from '../test/viewport';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from './translations';
+import { translations } from '../translations';
 
 /* ---------------------------------------------------------------------------
  * The route-level provider guard for „Geteilte Knowledge Bases" (card KI-783).
