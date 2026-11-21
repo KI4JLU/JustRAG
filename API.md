@@ -1224,7 +1224,7 @@ These routes drive the in-app evaluation runner. They are admin-only and are ski
 
 `POST /admin/eval/golden-sets/generate` starts an asynchronous draft golden set generated from a KB's corpus; `GET /admin/eval/golden-sets/jobs` reports the jobs.
 
-A run request (`POST /admin/eval/runs`, `POST /kb/{id}/eval/runs`) that carries `team_id` is refused with `400` (team eval runs were removed). The run lists still carry `team_id` and `team_name` on runs made through a team before then.
+A run request (`POST /admin/eval/runs`, `POST /kb/{id}/eval/runs`) that carries a non-null `team_id` is refused with `400` (team eval runs were removed); `"team_id": null` counts as omitted. The run lists still carry `team_id` and `team_name` on runs made through a team before then.
 
 ### Per-KB evaluation
 

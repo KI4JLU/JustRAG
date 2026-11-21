@@ -37,6 +37,7 @@ type mockRunStore struct {
 	insertID        uuid.UUID
 	insertErr       error
 	inserted        eval.Run
+	insertCalls     int
 	markFailedCalls []struct {
 		id  uuid.UUID
 		msg string
@@ -64,6 +65,7 @@ type mockRunStore struct {
 
 func (m *mockRunStore) Insert(_ context.Context, r eval.Run) (uuid.UUID, error) {
 	m.inserted = r
+	m.insertCalls++
 	return m.insertID, m.insertErr
 }
 
@@ -336,8 +338,8 @@ func TestCreateRun_TeamID_Refused(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), errTeamRunUnsupported) {
 				t.Errorf("expected %q, got: %s", errTeamRunUnsupported, rec.Body.String())
 			}
-			if store.inserted.ID != uuid.Nil || eq.calls != 0 {
-				t.Errorf("expected no insert and no enqueue, got %+v / %d calls", store.inserted, eq.calls)
+			if store.insertCalls != 0 || eq.calls != 0 {
+				t.Errorf("expected no insert and no enqueue, got %d inserts / %d enqueues", store.insertCalls, eq.calls)
 			}
 		})
 	}

@@ -2,7 +2,9 @@ package app
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -85,13 +87,39 @@ func TestAdvancedSurfaceIsOnKbAdvancedChain(t *testing.T) {
 }
 
 // TestNoAgentTeamRoutes pins the removal of the user-created agents and
-// teams: none of their routes may come back by accident. Oracle: the route
-// table in routes.go.
+// teams: none of their routes may come back by accident, on any chain or in
+// any registration form. Oracle: every quoted path literal in the package's
+// non-test sources, not only the rc.<chain>(...) shape routeChains reads.
 func TestNoAgentTeamRoutes(t *testing.T) {
-	agentRoute := regexp.MustCompile(`^[A-Z]+ /api/(agents|agent-teams)(/|$)|^[A-Z]+ /api/kb/\{id\}/(agents|teams)(/|$)`)
-	for pattern := range routeChains(t) {
-		if agentRoute.MatchString(pattern) {
-			t.Errorf("%s is registered — the agents and teams routes were removed", pattern)
+	agentRoute := regexp.MustCompile(`"(?:[A-Z]+ )?/api/(?:agents|agent-teams|kb/\{id\}/(?:agents|teams))(?:/[^"]*)?"`)
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanned := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
 		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		scanned++
+		for _, m := range agentRoute.FindAllString(string(src), -1) {
+			t.Errorf("%s registers %s — the agents and teams routes were removed", f, m)
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("no source files scanned")
+	}
+	// Self-check: the pattern still catches the forms it guards against.
+	for _, s := range []string{`"GET /api/agents"`, `"/api/agent-teams/"`, `"DELETE /api/kb/{id}/teams/{teamId}"`, `"POST /api/kb/{id}/agents"`} {
+		if !agentRoute.MatchString(s) {
+			t.Errorf("pattern misses %s", s)
+		}
+	}
+	if agentRoute.MatchString(`"POST /api/kb/{id}/agui/chat"`) {
+		t.Error("pattern matches the AG-UI agent chat route")
 	}
 }
