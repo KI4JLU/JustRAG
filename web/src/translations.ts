@@ -541,7 +541,6 @@ export const translations = {
     timeline: { de: 'Zeitleiste', en: 'Timeline' },
     quiz: { de: 'Quiz', en: 'Quiz' },
     mindMap: { de: 'Mindmap', en: 'Mind Map' },
-    workspace: { de: 'Workspace', en: 'Workspace' },
     mindMapAskAbout: { de: 'Im Chat fragen', en: 'Ask in chat' },
     mindMapAskPrompt: { de: 'Erzähl mir mehr über', en: 'Tell me more about' },
     viewGraphForAnswer: { de: 'Graph zu dieser Antwort', en: 'View graph for this answer' },
@@ -1087,7 +1086,6 @@ export const translations = {
     tabHistory: { de: 'Verlauf', en: 'History' },
     tabFiles: { de: 'Dateien', en: 'Files' },
     tabChat: { de: 'Chat', en: 'Chat' },
-    tabWorkspace: { de: 'Workspace', en: 'Workspace' },
 
     // Footer & Legal Pages
     help: { de: 'Hilfe', en: 'Help' },
@@ -1223,11 +1221,6 @@ export const translations = {
     chatAttachmentsTooLongTogether: { de: 'Die angehängten Dateien sind zusammen zu lang, um im Chat als Kontext mitgelesen zu werden. Entferne eine Datei und sende erneut.', en: 'Together, the attached files are too long to be read as context in the chat. Remove a file and send again.' },
     chatAttachmentRemoveHint: { de: 'Entferne die Datei und sende erneut.', en: 'Remove the file and send again.' },
     chatAttachmentsRemoveFailed: { de: 'Entferne zuerst die Anhänge, die nicht hochgeladen werden konnten.', en: 'Remove the attachments that could not be uploaded first.' },
-    // `comparisonAttach` is the paperclip's OWN imperative aria-label — kept
-    // as-is for anything still using it as an action label. The Workspace
-    // dialog's file field needs a noun, matching its siblings ("Vorlage",
-    // "Prompt", "Vergleichsmodi"), hence the separate key below.
-    documentComparison: { de: 'Dokumentenvergleich', en: 'Document comparison' },
     deleteFileError: { de: 'Fehler beim Löschen der Datei', en: 'Error deleting file' },
     downloadFileError: { de: 'Fehler beim Herunterladen der Datei. Bitte stelle sicher, dass du angemeldet bist.', en: 'Error downloading file. Please make sure you are logged in.' },
     downloadFailed: { de: 'Download fehlgeschlagen', en: 'Download failed' },
