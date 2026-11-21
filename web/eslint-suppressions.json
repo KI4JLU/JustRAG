@@ -1,9 +1,4 @@
 {
-  "src/components/ApiKeys/ApiKeyManager.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 4
-    }
-  },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
@@ -17,11 +12,6 @@
   "src/components/ConfluenceTokenManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 6
-    }
-  },
-  "src/components/DataExplorer/DataExplorerToolbar.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 7
     }
   },
   "src/components/ErrorBoundary.tsx": {
@@ -54,37 +44,47 @@
       "count": 3
     }
   },
-  "src/components/Studio/MarkdownEditor.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 7
-    }
-  },
   "src/components/WebResultsEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 8
     }
   },
-  "src/components/kb-settings/KbSettingsPanel.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 10
-    }
-  },
-  "src/components/kb-settings/workflow/NodeFieldInput.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/kb-settings/workflow/NodeInspector.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/kb-settings/workflow/PresetPicker.tsx": {
+  "src/components/apiKeys/ApiKeyManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 4
     }
   },
-  "src/components/kb-settings/workflow/WorkflowCanvas.tsx": {
+  "src/components/dataExplorer/DataExplorerToolbar.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/editor/MarkdownEditor.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 7
+    }
+  },
+  "src/components/kbSettings/KbSettingsPanel.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 10
+    }
+  },
+  "src/components/kbSettings/workflow/NodeFieldInput.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 1
+    }
+  },
+  "src/components/kbSettings/workflow/NodeInspector.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 2
+    }
+  },
+  "src/components/kbSettings/workflow/PresetPicker.tsx": {
+    "design-system/no-raw-ui-elements": {
+      "count": 4
+    }
+  },
+  "src/components/kbSettings/workflow/WorkflowCanvas.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
     }

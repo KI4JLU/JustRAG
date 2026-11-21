@@ -731,7 +731,7 @@ button.source-card {
 }
 
 /* Rendered markdown — the product's main surface (the call sites wrap
- * ReactMarkdown in `.markdown-content`; Studio/MarkdownEditor's
+ * ReactMarkdown in `.markdown-content`; editor/MarkdownEditor's
  * `.markdown-preview` has its own inline \3c style>).
  *
  * This block is deliberately UNCHANGED by the Preflight switch-on. Everything

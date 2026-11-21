@@ -236,7 +236,7 @@ A section the user may not see falls back to `configs`.
 | Page | Reached from | Content |
 |---|---|---|
 | Public-topic editor (`GlobalKbSettings`) | Admin console → `global-kbs`; `/kb/<id>/admin` directly | Settings of a public topic; can open `ConfluenceModal` when Confluence is enabled. Back goes to `/`. |
-| RAG settings (`kb-settings/KbSettingsPanel`), deprecated | Admin console → `kb-overview` → row menu „RAG-Settings", for the admin's own, shared and public topics | Tabs `settings`, `evals`, `workflow`. Loading and error states; a 403 shows „Keine Berechtigung". Choosing a workflow preset opens a change preview first; selecting a workflow node opens its inspector. The breadcrumb goes back to the admin console's KB overview. |
+| RAG settings (`kbSettings/KbSettingsPanel`), deprecated | Admin console → `kb-overview` → row menu „RAG-Settings", for the admin's own, shared and public topics | Tabs `settings`, `evals`, `workflow`. Loading and error states; a 403 shows „Keine Berechtigung". Choosing a workflow preset opens a change preview first; selecting a workflow node opens its inspector. The breadcrumb goes back to the admin console's KB overview. |
 | Legal (`LegalPage`) | User menu → Hilfe; the login footer; the policy notice (terms and privacy, new tab) | Terms, privacy, accessibility |
 
 ## Gates and overlays

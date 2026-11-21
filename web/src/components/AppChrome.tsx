@@ -49,8 +49,9 @@ import type { MobileTab } from '../utils/activeMobileTab';
 import { canOpenKbTopicSettings, kbSourceRights } from '../utils/kbAccess';
 import { topicSection } from '../utils/topicSection';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
-// with `KbCard.tsx` and `HomeView.tsx` rather than split — see KbCard.tsx's
-// header for why the `home-view__` block name outlived the component.
+// with `KbCard.tsx`, `MyTopicsView.tsx` and `LegalPage.tsx` rather than split —
+// see KbCard.tsx's header for why the `home-view__` block name outlived the
+// component.
 import './HomeView.css';
 
 

@@ -43,7 +43,7 @@ const DIALOGS: Dialog[] = [
         keys: USER_SETTINGS_SEARCH_KEYS,
         files: {
             general: ['UserSettingsModal.tsx'],
-            connectors: ['ApiKeys/ApiKeyManager.tsx', 'ConfluenceTokenManager.tsx'],
+            connectors: ['apiKeys/ApiKeyManager.tsx', 'ConfluenceTokenManager.tsx'],
         },
     },
     {

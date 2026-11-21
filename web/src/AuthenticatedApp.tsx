@@ -48,7 +48,7 @@ import { TopicModals } from './components/TopicModals';
 
 // Lazy load heavy components
 const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
-const KbSettingsPanel = lazy(() => import('./components/kb-settings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
+const KbSettingsPanel = lazy(() => import('./components/kbSettings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
 import { LegalPage } from './components/LegalPage';
 import { PolicyAcceptanceGate } from './components/PolicyAcceptanceDialog';

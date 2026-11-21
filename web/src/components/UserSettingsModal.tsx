@@ -8,7 +8,7 @@ import {
 import type { Theme } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import ApiKeyManager from './ApiKeys/ApiKeyManager';
+import ApiKeyManager from './apiKeys/ApiKeyManager';
 import { Choice } from './form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import { userSettingsKeywords } from './userSettingsSearchKeywords';

@@ -5,7 +5,7 @@ import {
     X, Eye, Pencil, Plus,
     Save, Layout, Check, ArrowLeft
 } from 'lucide-react';
-import { MarkdownEditor } from './Studio/MarkdownEditor';
+import { MarkdownEditor } from './editor/MarkdownEditor';
 import { Badge } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useIsMobileContext } from '../contexts/MobileContext';

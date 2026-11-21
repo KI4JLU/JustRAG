@@ -63,7 +63,7 @@ import { useKbSortable } from '../hooks/useKbSortable';
  * navigate away through handlers this view does not own and all three land on
  * „Mein Wissen" rather than back here: `handleDeleteKB` calls `handleGoHome()`
  * after a successful delete/leave/unsubscribe (useKnowledgeBases.ts:166), and
- * the `kb-settings` Back button calls it too. The action always succeeds — only
+ * the `kbSettings` Back button calls it too. The action always succeeds — only
  * the landing place is wrong. The router keeps where the user came from (the
  * browser's Back returns here), but these handlers still navigate to „Mein
  * Wissen" explicitly rather than back.
