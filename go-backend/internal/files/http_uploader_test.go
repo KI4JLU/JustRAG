@@ -1,6 +1,7 @@
 package files_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,8 @@ func TestFetchURL_RecordsUploader(t *testing.T) {
 	defer files.StubFetchForTest("<html>hello</html>", "text/html")()
 
 	kb := defaultKB()
-	store := &mockStore{kb: kb}
+	created := &files.FileRecord{ID: "fetched-file-id"}
+	store := &mockStore{kb: kb, createFile: created}
 	h := defaultIngestHandler(store)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/kb/kb-1/fetch-url",
@@ -30,6 +32,15 @@ func TestFetchURL_RecordsUploader(t *testing.T) {
 	}
 	if len(store.created) != 1 || store.created[0].UploadedBy != ingestUser().ID {
 		t.Fatalf("CreateFile got %+v, want UploadedBy=%q", store.created, ingestUser().ID)
+	}
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != created.ID {
+		t.Errorf("returned file ID = %q, want %q", resp.ID, created.ID)
 	}
 }
 
