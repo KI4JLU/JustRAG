@@ -32,8 +32,8 @@ import { useKbSourceRights } from '../hooks/useKbSourceRights';
  *    beyond closing the list: the user is already there.
  *
  * `TopicSearchField` is the part with no context reads, so the geometry
- * story can render the exact markup the bar gets. It sits in the bar's
- * centred `search` slot (KI-844; `AppChrome.tsx`).
+ * story can render it on its own. The app shows it inside `SearchPalette`
+ * (`AppChrome.tsx`).
  * ------------------------------------------------------------------------- */
 
 export interface TopicSearchFieldProps {

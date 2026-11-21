@@ -188,10 +188,11 @@ export const KbColumnHeadingBaseline: Story = {
  * both side regions keep an 11rem floor. For this case that is
  * 560 − 2×24 gutter − 2×16 gap − 2×176 floor = 128px of search.
  *
- * WHAT IS REAL: the shell, the stylesheets, `TopicSearchField` — the exact
- * markup `AppFrame` puts in the `search` slot, minus the context
- * reads — `GlobalSearch`, the DS Combobox, and `GET /api/search` through the
- * story API mock. The pageLabel (back button only) and gear are rebuilt from
+ * WHAT IS REAL: the shell, the stylesheets, `TopicSearchField` — the markup
+ * `TopicSearch` renders, minus the context reads — `GlobalSearch`, the DS
+ * Combobox, and `GET /api/search` through the story API mock. The story puts
+ * the field into the DS `search` slot itself; the app opens it through
+ * `SearchPalette`, which this story does not cover. The pageLabel (back button only) and gear are rebuilt from
  * the same DS `Button`s `AppFrame` uses; the topic name is a
  * deliberately LONG one, the worst case for the search field's accessible
  * name.
