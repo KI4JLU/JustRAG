@@ -323,8 +323,8 @@ func TestRunComparisonChatAuthz(t *testing.T) {
 
 // --- Follow-up over a prior upload -----------------------------------------
 //
-// The whole reason the document comparison stayed a chat turn (rather than
-// becoming a workspace artifact) is that the user can keep asking about the
+// The whole reason the document comparison is a chat turn (rather than a
+// generated artifact) is that the user can keep asking about the
 // uploaded document afterwards. That promise rests on two pieces which had no
 // test at all: the gate that decides a turn carries a prior upload, and the
 // block that renders the document into the system prompt.

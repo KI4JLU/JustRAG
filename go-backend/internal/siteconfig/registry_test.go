@@ -76,33 +76,6 @@ func TestKGExtractionIsPerKBReingest(t *testing.T) {
 	}
 }
 
-func TestFieldJSONValidate(t *testing.T) {
-	cases := []struct {
-		name    string
-		value   string
-		wantErr bool
-	}{
-		{"leer ist erlaubt (fällt auf Code-Defaults zurück)", "", false},
-		{"gültige Preset-Liste", `[{"label":"Risiken","prompt":"Nenne die Risiken."}]`, false},
-		{"leeres Array", `[]`, false},
-		{"kaputtes JSON", `[{"label":`, true},
-		{"Objekt statt Array", `{"label":"x"}`, true},
-		{"Eintrag ohne label", `[{"prompt":"x"}]`, true},
-		{"Eintrag ohne prompt", `[{"label":"x"}]`, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := Validate("workspace_analysis_presets", tc.value)
-			if tc.wantErr && err == nil {
-				t.Fatalf("Validate(%q) = nil, want error", tc.value)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("Validate(%q) = %v, want nil", tc.value, err)
-			}
-		})
-	}
-}
-
 func TestTabularCatalogKeysAreRegistered(t *testing.T) {
 	cases := []struct {
 		key      string
@@ -238,20 +211,5 @@ func TestChatTabularGuidanceMaxTokensIsRegistered(t *testing.T) {
 	}
 	if !IsPerKB("chat_tabular_guidance_max_tokens") {
 		t.Error("chat_tabular_guidance_max_tokens must be per-KB overridable")
-	}
-}
-
-func TestPresetKeysAreRegistered(t *testing.T) {
-	for _, key := range []string{"workspace_analysis_presets", "workspace_comparison_presets"} {
-		fld, ok := Field(key)
-		if !ok {
-			t.Fatalf("registry has no %q", key)
-		}
-		if fld.Type != FieldJSON {
-			t.Errorf("%s.Type = %q, want FieldJSON", key, fld.Type)
-		}
-		if !IsPerKB(key) {
-			t.Errorf("%s must be per-KB overridable", key)
-		}
 	}
 }

@@ -109,7 +109,7 @@ func TestToMessageRow_CorruptJSONBReturnsError(t *testing.T) {
 }
 
 // TestToMessageRow_PreservesResearchFindingShape pins the fix for a data-loss
-// bug that predates the workspace rework: research sessions store their
+// bug: research sessions store their
 // findings in messages.sources as [{content, sources, relevanceScore}], but
 // toMessageRow used to decode that column into []ChatSource and hand the
 // decoded value to the client. ChatSource has no `sources` and no
