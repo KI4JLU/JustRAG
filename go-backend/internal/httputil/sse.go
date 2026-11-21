@@ -92,12 +92,6 @@ func StartSSE(ctx context.Context, w http.ResponseWriter) *SSEStream {
 	return startSSE(ctx, w, SSEHeartbeatInterval)
 }
 
-// StartSSEWithInterval is StartSSE with an explicit silence threshold. The
-// tests use a few milliseconds so a heartbeat is observable quickly.
-func StartSSEWithInterval(ctx context.Context, w http.ResponseWriter, interval time.Duration) *SSEStream {
-	return startSSE(ctx, w, interval)
-}
-
 func startSSE(ctx context.Context, w http.ResponseWriter, interval time.Duration) *SSEStream {
 	if s, ok := w.(*SSEStream); ok {
 		return s

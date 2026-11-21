@@ -3,7 +3,6 @@ package httputil
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -22,8 +21,8 @@ type errorResponse struct {
 
 // WriteJSONCtx writes v as JSON with the given status code and logs encode
 // failures with the request context (request_id, user_id, kb_id, trace_id).
-// Prefer this over WriteJSON in HTTP handlers — pass r.Context() so the rare
-// "encode after WriteHeader" failure log is correlated with the request.
+// Pass r.Context() so the rare "encode after WriteHeader" failure log is
+// correlated with the request.
 func WriteJSONCtx(ctx context.Context, w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -59,30 +58,6 @@ func WriteCodedErrorCtx(ctx context.Context, w http.ResponseWriter, status int, 
 func WriteInternalErrorCtx(ctx context.Context, w http.ResponseWriter, err error) {
 	logctx.From(ctx).ErrorContext(ctx, "httputil: internal error", "error", err)
 	WriteErrorCtx(ctx, w, http.StatusInternalServerError, SanitizeError(err))
-}
-
-// WriteJSON writes v as JSON with the given status code. Logs encode failures
-// without request correlation. Prefer WriteJSONCtx in HTTP handlers.
-func WriteJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("httputil: JSON encode failed", "error", err)
-	}
-}
-
-// WriteError writes a JSON error response: {"error": msg}. Prefer
-// WriteErrorCtx in HTTP handlers.
-func WriteError(w http.ResponseWriter, status int, msg string) {
-	WriteJSON(w, status, errorResponse{Error: msg})
-}
-
-// WriteInternalError logs the raw err internally and returns HTTP 500 with a
-// SanitizeError-redacted message. Prefer WriteInternalErrorCtx in HTTP handlers
-// so the log line carries request correlation.
-func WriteInternalError(w http.ResponseWriter, err error) {
-	slog.Error("httputil: internal error", "error", err)
-	WriteError(w, http.StatusInternalServerError, SanitizeError(err))
 }
 
 // SSEWriteTimeout is the sliding per-frame write deadline for SSE streams.

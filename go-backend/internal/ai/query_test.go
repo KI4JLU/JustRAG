@@ -168,7 +168,7 @@ func TestClassifyQueryComplexity_ParseFailure(t *testing.T) {
 	}
 }
 
-// Test 6: GenerateMultiQueries parses a JSON array and returns up to 3 items.
+// Test 6: GenerateMultiQueriesWithModel parses a JSON array and returns up to 3 items.
 func TestGenerateMultiQueries(t *testing.T) {
 	jsonResp, _ := json.Marshal([]string{
 		"How does neural network training work?",
@@ -181,7 +181,7 @@ func TestGenerateMultiQueries(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	queries, err := GenerateMultiQueries(context.Background(), resolver, "neural network training", "", "en")
+	queries, err := GenerateMultiQueriesWithModel(context.Background(), resolver, "neural network training", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestGenerateMultiQueries(t *testing.T) {
 	}
 }
 
-// Test 6b: GenerateMultiQueries caps results at 3.
+// Test 6b: GenerateMultiQueriesWithModel caps results at 3.
 func TestGenerateMultiQueries_CapsAtThree(t *testing.T) {
 	jsonResp, _ := json.Marshal([]string{"q1", "q2", "q3", "q4"})
 
@@ -199,7 +199,7 @@ func TestGenerateMultiQueries_CapsAtThree(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	queries, err := GenerateMultiQueries(context.Background(), resolver, "topic", "", "en")
+	queries, err := GenerateMultiQueriesWithModel(context.Background(), resolver, "topic", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -208,14 +208,14 @@ func TestGenerateMultiQueries_CapsAtThree(t *testing.T) {
 	}
 }
 
-// Test 6c: GenerateMultiQueries returns empty slice on parse failure.
+// Test 6c: GenerateMultiQueriesWithModel returns empty slice on parse failure.
 func TestGenerateMultiQueries_ParseFailure(t *testing.T) {
 	srv := buildChatServer(t, func(w http.ResponseWriter, r *http.Request) {
 		writeChatJSON(w, chatResponse("no array here", ""))
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	queries, err := GenerateMultiQueries(context.Background(), resolver, "topic", "", "en")
+	queries, err := GenerateMultiQueriesWithModel(context.Background(), resolver, "topic", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

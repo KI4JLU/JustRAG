@@ -213,14 +213,6 @@ type ChatContext struct {
 // Token helpers
 // ---------------------------------------------------------------------------
 
-// CountTokensApprox returns a token count for text. Uses tiktoken (cl100k_base)
-// via splitter.CountTokens, which falls back to a chars/4 heuristic only if the
-// tokenizer fails to initialize. Kept under the historic name for callers that
-// still reference it; new code should call splitter.CountTokens directly.
-func CountTokensApprox(text string) int {
-	return splitter.CountTokens(text)
-}
-
 // TruncateChunksToFit selects the highest-scored subset of chunks that fits
 // within maxTokens. Survivors are returned in their original input order so
 // downstream re-ordering (e.g. SandwichOrder) is unaffected.

@@ -1254,7 +1254,7 @@ func TestAgentBindingBoundIsFalseWhenItCannotRun(t *testing.T) {
 // affirmative phrasing matches AND, where the claim has a natural negation, a
 // `reject` pattern that fails loudly when someone writes it.
 func TestAgentBindingHelpStatesTheThreeTruths(t *testing.T) {
-	spec, ok := NodeByID(NodeAgentBinding)
+	spec, ok := nodeByID(NodeAgentBinding)
 	if !ok {
 		t.Fatal("NodeAgentBinding is not in the vocabulary")
 	}

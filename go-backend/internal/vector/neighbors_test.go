@@ -316,3 +316,27 @@ func TestExpandNeighbors_ParallelOutputMatchesExpected(t *testing.T) {
 		}
 	}
 }
+
+// extractPages reads the citable page numbers from metadata "page" (single)
+// and "pages" (slice).
+func extractPages(meta map[string]any) []int {
+	var pages []int
+	if v, ok := meta["page"]; ok {
+		if n, ok := toInt(v); ok {
+			pages = append(pages, n)
+		}
+	}
+	if v, ok := meta["pages"]; ok {
+		switch p := v.(type) {
+		case []any:
+			for _, item := range p {
+				if n, ok := toInt(item); ok {
+					pages = append(pages, n)
+				}
+			}
+		case []int:
+			pages = append(pages, p...)
+		}
+	}
+	return pages
+}

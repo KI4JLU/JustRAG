@@ -29,12 +29,6 @@ func (p GenJobParams) toJSON() (json.RawMessage, error) {
 	return json.RawMessage(b), err
 }
 
-func parseGenJobParams(raw json.RawMessage) (GenJobParams, error) {
-	var p GenJobParams
-	err := json.Unmarshal(raw, &p)
-	return p, err
-}
-
 type GenJob struct {
 	ID          uuid.UUID       `json:"id"`
 	KBID        uuid.UUID       `json:"kb_id"`

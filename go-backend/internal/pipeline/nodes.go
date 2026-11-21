@@ -394,19 +394,5 @@ var nodes = []NodeSpec{
 	},
 }
 
-var nodeIndex = func() map[NodeID]NodeSpec {
-	m := make(map[NodeID]NodeSpec, len(nodes))
-	for _, n := range nodes {
-		m[n.ID] = n
-	}
-	return m
-}()
-
 // Nodes returns the ordered node vocabulary.
 func Nodes() []NodeSpec { return nodes }
-
-// NodeByID looks up a single node.
-func NodeByID(id NodeID) (NodeSpec, bool) {
-	n, ok := nodeIndex[id]
-	return n, ok
-}

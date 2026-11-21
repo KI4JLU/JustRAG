@@ -91,13 +91,9 @@ func splitLangs(v string) []string {
 	return out
 }
 
-// buildFactory returns the parser chain for kind: "builtin" is JustRAG with
-// Docling disabled; "docling" mirrors internal/app/worker.go with Docling
+// buildFactoryWith returns the parser chain for kind: "builtin" is JustRAG
+// with Docling disabled; "docling" mirrors internal/app/worker.go with Docling
 // enabled (Docling first, built-in parser as fallback).
-func buildFactory(kind, doclingURL string) (*parser.Factory, error) {
-	return buildFactoryWith(kind, doclingURL, "de,en", "accurate")
-}
-
 func buildFactoryWith(kind, doclingURL, ocrLangs, tableMode string) (*parser.Factory, error) {
 	switch kind {
 	case "builtin":

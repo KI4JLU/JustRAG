@@ -238,16 +238,6 @@ func CitationValidationEnabled(ctx context.Context, reader SiteConfigReader) boo
 	return readBool(ctx, reader, "citation_validation_enabled", true)
 }
 
-// AdaptiveRoutingEnabled reports whether the Phase 2 §C tiered routing
-// should fire. When true, PrepareChatContext disables CRAG for queries
-// the Phase 1 classifier labeled QueryTypeLookup (and that didn't carry
-// an explicit Enhance setting from the caller). Default off — existing
-// deployments are bit-for-bit unchanged. Tunable via site_configs key
-// "adaptive_routing_enabled".
-func AdaptiveRoutingEnabled(ctx context.Context, reader SiteConfigReader) bool {
-	return readBool(ctx, reader, "adaptive_routing_enabled", false)
-}
-
 // RAGASSamplingEnabled reports whether the production-traffic RAGAS sampling
 // task should fire on completed chat responses. When true, runPostResponseTasks
 // rolls a per-response dice against RAGASSamplingRate and enqueues an Asynq
@@ -1580,24 +1570,6 @@ func RaptorClusteringAlgorithm(ctx context.Context, reader SiteConfigReader) str
 // (0, 10]. Tunable via "raptor_leiden_resolution".
 func RaptorLeidenResolution(ctx context.Context, reader SiteConfigReader) float64 {
 	return readFloat(ctx, reader, "raptor_leiden_resolution", 1.0, 0.01, 10.0)
-}
-
-// ChatFeedbackBoostEnabled gates the retrieval-time feedback boost. Default off.
-// When true, retrieval scoring applies a tanh-shaped score adjustment derived
-// from accumulated thumbs-up/thumbs-down signals stored for each chunk. The
-// maximum adjustment magnitude is bounded by FeedbackBoostWeight so feedback
-// can nudge but never dominate relevance. Tunable via
-// "chat_feedback_boost_enabled".
-func ChatFeedbackBoostEnabled(ctx context.Context, reader SiteConfigReader) bool {
-	return readBool(ctx, reader, "chat_feedback_boost_enabled", false)
-}
-
-// FeedbackBoostWeight is the maximum absolute score adjustment applied from
-// feedback signals (the bounded tanh is scaled by this). Default 0.05,
-// clamped to [0, 0.5] so feedback can nudge but never dominate relevance.
-// Tunable via "feedback_boost_weight".
-func FeedbackBoostWeight(ctx context.Context, reader SiteConfigReader) float64 {
-	return readFloat(ctx, reader, "feedback_boost_weight", 0.05, 0.0, 0.5)
 }
 
 // HyPEEnabled gates ingest-time generation of hypothetical questions

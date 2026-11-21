@@ -105,10 +105,10 @@ func BenchmarkApplyMMR(b *testing.B) {
 	}
 }
 
-// BenchmarkFuseRRF measures the merge cost over multiple ranked lists with
+// BenchmarkFuseRRFUnweighted measures the merge cost over multiple ranked lists with
 // realistic overlap. Vector + BM25 fusion is the typical 2-list shape; the
 // 3-list case mirrors hybrid + multi-query fan-out.
-func BenchmarkFuseRRF(b *testing.B) {
+func BenchmarkFuseRRFUnweighted(b *testing.B) {
 	for _, n := range []int{50, 200} {
 		docs := makeBenchDocs(n)
 		// Build two overlapping rank lists by shuffling the same set with
@@ -123,7 +123,7 @@ func BenchmarkFuseRRF(b *testing.B) {
 		b.Run(fmt.Sprintf("two_lists_n=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				FuseRRF(60, listA, listB)
+				FuseRRFWeighted(60, nil, listA, listB)
 			}
 		})
 
@@ -133,7 +133,7 @@ func BenchmarkFuseRRF(b *testing.B) {
 		b.Run(fmt.Sprintf("three_lists_n=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				FuseRRF(60, listA, listB, listC)
+				FuseRRFWeighted(60, nil, listA, listB, listC)
 			}
 		})
 	}

@@ -81,49 +81,6 @@ func TestToRankedDocs_Empty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// buildMetadataFilterClause
-// ---------------------------------------------------------------------------
-
-func TestBuildMetadataFilterClause_NoFilters(t *testing.T) {
-	t.Parallel()
-	clause, args, next := buildMetadataFilterClause("kb_id = $1::uuid", []any{"kb-1"}, 2, nil)
-	if clause != "kb_id = $1::uuid" {
-		t.Errorf("unexpected clause: %q", clause)
-	}
-	if len(args) != 1 {
-		t.Errorf("expected 1 arg, got %d", len(args))
-	}
-	if next != 2 {
-		t.Errorf("expected next=2, got %d", next)
-	}
-}
-
-func TestBuildMetadataFilterClause_WithFilters(t *testing.T) {
-	t.Parallel()
-	filters := map[string]string{"lang": "de"}
-	clause, args, next := buildMetadataFilterClause("kb_id = $1::uuid", []any{"kb-1"}, 2, filters)
-
-	if len(args) != 2 {
-		t.Fatalf("expected 2 args, got %d", len(args))
-	}
-	if next != 3 {
-		t.Errorf("expected next=3, got %d", next)
-	}
-	// The added arg should be a JSON snippet containing the filter key/value.
-	snippet, ok := args[1].(string)
-	if !ok {
-		t.Fatalf("second arg is not a string: %T", args[1])
-	}
-	if snippet != `{"lang":"de"}` {
-		t.Errorf("unexpected JSON snippet: %q", snippet)
-	}
-	// Clause must contain @> $2::jsonb.
-	if !strings.Contains(clause, "$2::jsonb") {
-		t.Errorf("clause missing jsonb filter: %q", clause)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // SearchResult type
 // ---------------------------------------------------------------------------
 
@@ -172,20 +129,6 @@ func TestSearchOptions_ZeroValue(t *testing.T) {
 	}
 	if opts.FileIDs != nil {
 		t.Error("FileIDs should default to nil")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// joinStrings helper (internal)
-// ---------------------------------------------------------------------------
-
-func TestJoinStrings(t *testing.T) {
-	t.Parallel()
-	if joinStrings([]string{"a", "b", "c"}) != "a,b,c" {
-		t.Error("joinStrings failed")
-	}
-	if joinStrings(nil) != "" {
-		t.Error("joinStrings(nil) should be empty string")
 	}
 }
 

@@ -56,19 +56,14 @@ type OwnerLookup interface {
 	UserFileOwner(ctx context.Context, userFileID string) (string, error)
 }
 
-// NewFileProcessingHandler returns an asynq.HandlerFunc that processes a single file.
-// It looks up the KB's chunk settings before processing.
-// If storage is S3, the file is downloaded to a temp path first.
+// NewFileProcessingHandlerWithOwners returns an asynq.HandlerFunc that
+// processes a single file. It looks up the KB's chunk settings before
+// processing. If storage is S3, the file is downloaded to a temp path first.
 //
 // queryCache is optional — when non-nil, the handler nukes cached
 // SearchResults for the KB after a successful ingestion so freshly
 // embedded chunks are visible immediately rather than after the cache TTL.
-func NewFileProcessingHandler(proc *processor.Processor, kbStore KBChunkConfigStore, queryCache QueryCacheInvalidator, stor ...storage.Storage) asynq.HandlerFunc {
-	return NewFileProcessingHandlerWithOwners(proc, kbStore, queryCache, nil, stor...)
-}
-
-// NewFileProcessingHandlerWithOwners is NewFileProcessingHandler plus the
-// owner lookup that enables the library parse cache. owners may be nil.
+// owners enables the library parse cache and may be nil.
 func NewFileProcessingHandlerWithOwners(proc fileProcessor, kbStore KBChunkConfigStore, queryCache QueryCacheInvalidator, owners OwnerLookup, stor ...storage.Storage) asynq.HandlerFunc {
 	var storageBackend storage.Storage
 	if len(stor) > 0 {

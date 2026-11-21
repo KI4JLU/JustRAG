@@ -176,10 +176,10 @@ func TestParseResultsHTML_ReturnsPapers(t *testing.T) {
 </ol>
 </body></html>`
 
-	// Use ParseResultsHTML directly to avoid SSRF guard on local test servers.
-	papers, err := academic.ParseResultsHTML(sampleHTML, "http://justfind.example.com")
+	// Use ParseResultsHTMLForTest directly to avoid SSRF guard on local test servers.
+	papers, err := academic.ParseResultsHTMLForTest(sampleHTML, "http://justfind.example.com")
 	if err != nil {
-		t.Fatalf("ParseResultsHTML error: %v", err)
+		t.Fatalf("ParseResultsHTMLForTest error: %v", err)
 	}
 	if len(papers) == 0 {
 		t.Error("expected at least one paper in response")
@@ -406,8 +406,8 @@ func TestSearchJustFind_ParsesHTML(t *testing.T) {
 </ul>
 </body></html>`
 
-	// Use ParseResultsHTML directly — avoids SSRF guard on local test servers.
-	papers, err := academic.ParseResultsHTML(html, "https://justfind.example.com")
+	// Use ParseResultsHTMLForTest directly — avoids SSRF guard on local test servers.
+	papers, err := academic.ParseResultsHTMLForTest(html, "https://justfind.example.com")
 	if err != nil {
 		t.Fatalf("SearchJustFind error: %v", err)
 	}

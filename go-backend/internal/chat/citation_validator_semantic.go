@@ -139,25 +139,6 @@ func windowsByN(answer string) map[int]string {
 	return out
 }
 
-// citationWindows returns the deduped list of sentence windows in answer
-// (one per marker, in order of appearance). Exposed for tests that need
-// to align fake-embedding inputs with the windows the validator computes.
-func citationWindows(answer string) []string {
-	spans := ExtractCitationSpans(answer)
-	out := make([]string, 0, len(spans))
-	seen := make(map[string]struct{}, len(spans))
-	masked, text := maskCitationMarkers(answer, spans), withPlainMarkers(answer, spans)
-	for _, sp := range spans {
-		win := sentenceWithMarker(text, masked, sp.Start)
-		if _, dup := seen[win]; dup {
-			continue
-		}
-		seen[win] = struct{}{}
-		out = append(out, win)
-	}
-	return out
-}
-
 // cosineSimilarity returns the cosine similarity of two vectors, or 0
 // when either is empty, mismatched in length, or has zero magnitude.
 // Zero return on edge cases is intentional: it cannot pass any positive

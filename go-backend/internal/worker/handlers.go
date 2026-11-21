@@ -52,15 +52,6 @@ func MarkErrorOnExhaustion(h asynq.HandlerFunc, store statusStore) asynq.Handler
 	}
 }
 
-// DefaultJobOptions returns standard retry/cleanup options.
-func DefaultJobOptions() []asynq.Option {
-	return []asynq.Option{
-		asynq.MaxRetry(3),
-		asynq.Queue(jobs.QueueHeavy),
-		asynq.Retention(24 * time.Hour),
-	}
-}
-
 // Instrument wraps an asynq.HandlerFunc with the standard task lifecycle
 // observability: a per-task request_id, a start log, an end log carrying
 // status + duration, and a worker_task Prometheus metric pair (counter +

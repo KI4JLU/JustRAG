@@ -16,8 +16,8 @@ import (
 // validation via SetRedirectPolicy(). Retry replaces retryablehttp.
 //
 // Decompression contract: DisableAutoReadResponse() is set so the
-// caller receives the raw *http.Response body. applyDefaultHeaders
-// explicitly sets Accept-Encoding: "gzip, br", so Tier 1 must
+// caller receives the raw *http.Response body. Tier 1's request headers
+// explicitly set Accept-Encoding: "gzip, br", so Tier 1 must
 // decompress the body itself (see decodeBody in tier1.go).
 func newReqClient(cfg Config) *req.Client {
 	// Defensive clamp: a Config{} literal (no DefaultConfig) leaves
@@ -92,27 +92,4 @@ func newCheckRedirect(cfg Config) func(req *http.Request, via []*http.Request) e
 		}
 		return nil
 	}
-}
-
-// applyDefaultHeaders sets the headers we want on every Tier-1 request:
-// realistic UA, broad Accept, language hint, decompression preferences,
-// Chrome Client Hints, and Sec-Fetch navigation headers.
-func applyDefaultHeaders(req *http.Request, userAgent, acceptLanguage string) {
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-	req.Header.Set("Accept-Language", acceptLanguage)
-	req.Header.Set("Accept-Encoding", "gzip, br")
-	req.Header.Set("DNT", "1")
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
-	// Chrome Client Hints — many anti-bot systems validate these match
-	// the User-Agent. The version here should stay in sync with the UA
-	// pool versions in options.go.
-	req.Header.Set("Sec-Ch-Ua", `"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"`)
-	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
-	// Sec-Fetch headers indicate a top-level navigation (user-initiated).
-	req.Header.Set("Sec-Fetch-Dest", "document")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", "none")
-	req.Header.Set("Sec-Fetch-User", "?1")
 }

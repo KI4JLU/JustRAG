@@ -13,9 +13,6 @@ func TestNew_AttachesCounterToContext(t *testing.T) {
 	if got := aibudget.Used(ctx); got != 0 {
 		t.Errorf("Used() on fresh counter: want 0, got %d", got)
 	}
-	if got := aibudget.Remaining(ctx); got != 1000 {
-		t.Errorf("Remaining() on fresh 1000-budget counter: want 1000, got %d", got)
-	}
 }
 
 func TestAdd_AccumulatesAndReportsExceeded(t *testing.T) {
@@ -42,9 +39,6 @@ func TestNoCounter_OperationsAreNoOp(t *testing.T) {
 	}
 	if got := aibudget.Used(ctx); got != 0 {
 		t.Errorf("Used() with no counter: want 0, got %d", got)
-	}
-	if got := aibudget.Remaining(ctx); got != aibudget.NoCounterRemaining {
-		t.Errorf("Remaining() with no counter: want NoCounterRemaining, got %d", got)
 	}
 }
 
@@ -79,8 +73,5 @@ func TestNegativeBudget_AlwaysExceeded(t *testing.T) {
 	ctx := aibudget.New(context.Background(), -1)
 	if !aibudget.Exceeded(ctx) {
 		t.Errorf("Exceeded() with negative budget: want true, got false")
-	}
-	if got := aibudget.Remaining(ctx); got != 0 {
-		t.Errorf("Remaining() with negative budget: want 0, got %d", got)
 	}
 }

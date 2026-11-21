@@ -43,11 +43,6 @@ var (
 // appNameReader reads the app name's two parts for one request.
 type appNameReader func(ctx context.Context) (prefix, product string)
 
-// staticAppName is an appNameReader that always answers prefix and product.
-func staticAppName(prefix, product string) appNameReader {
-	return func(context.Context) (string, string) { return prefix, product }
-}
-
 // renderAppShell returns shell with the app named prefix + " " + product.
 func renderAppShell(shell []byte, prefix, product string) []byte {
 	name := []byte(html.EscapeString(prefix + " " + product))

@@ -7,7 +7,7 @@ import (
 
 func TestCSVSniffAndDecode(t *testing.T) {
 	t.Parallel()
-	src, err := OpenCSV("testdata/bom_semicolon_cp1252.csv")
+	src, err := OpenCSVNamed("testdata/bom_semicolon_cp1252.csv", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestCSVSniffAndDecode(t *testing.T) {
 
 func TestCSVDecimalCommaQuoted(t *testing.T) {
 	t.Parallel()
-	src, err := OpenCSV("testdata/decimal_comma.csv")
+	src, err := OpenCSVNamed("testdata/decimal_comma.csv", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestOpenCSVNamedSheetName(t *testing.T) {
 	if got := src.Sheets()[0].Name; got != "Umsatz 2025" {
 		t.Fatalf("sheet name = %q, want original file stem", got)
 	}
-	plain, err := OpenCSV("testdata/decimal_comma.csv")
+	plain, err := OpenCSVNamed("testdata/decimal_comma.csv", "")
 	if err != nil {
 		t.Fatal(err)
 	}

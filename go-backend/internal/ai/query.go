@@ -221,15 +221,9 @@ func ClassifyQueryComplexity(ctx context.Context, resolver *ConfigResolver, quer
 	return false, nil
 }
 
-// GenerateHypotheticalAnswer generates a hypothetical answer for use in
-// HyDE (Hypothetical Document Embeddings) retrieval.
-func GenerateHypotheticalAnswer(ctx context.Context, resolver *ConfigResolver, query, kbID, lang string) (string, error) {
-	return GenerateHypotheticalAnswerWithModel(ctx, resolver, query, kbID, lang, "")
-}
-
-// GenerateHypotheticalAnswerWithModel is like GenerateHypotheticalAnswer but
-// lets the caller override the chat model. Empty modelOverride falls back to
-// the resolver's ChatModel.
+// GenerateHypotheticalAnswerWithModel generates a hypothetical answer for use
+// in HyDE (Hypothetical Document Embeddings) retrieval. Empty modelOverride
+// falls back to the resolver's ChatModel.
 func GenerateHypotheticalAnswerWithModel(ctx context.Context, resolver *ConfigResolver, query, kbID, lang, modelOverride string) (string, error) {
 	result, err := GenerateCompletionWithModel(ctx, resolver, query, prompts.HyDESystemPrompt(lang), kbID, false, modelOverride)
 	if err != nil {
@@ -238,15 +232,9 @@ func GenerateHypotheticalAnswerWithModel(ctx context.Context, resolver *ConfigRe
 	return strings.TrimSpace(result.Content), nil
 }
 
-// GenerateMultiQueries generates up to 3 alternative phrasings of the query.
-// On JSON parse failure an empty slice is returned (non-critical operation).
-func GenerateMultiQueries(ctx context.Context, resolver *ConfigResolver, query, kbID, lang string) ([]string, error) {
-	return GenerateMultiQueriesWithModel(ctx, resolver, query, kbID, lang, "")
-}
-
-// GenerateMultiQueriesWithModel is like GenerateMultiQueries but lets the
-// caller override the chat model. Empty modelOverride falls back to the
-// resolver's ChatModel.
+// GenerateMultiQueriesWithModel generates up to 3 alternative phrasings of
+// the query. On JSON parse failure an empty slice is returned (non-critical
+// operation). Empty modelOverride falls back to the resolver's ChatModel.
 func GenerateMultiQueriesWithModel(ctx context.Context, resolver *ConfigResolver, query, kbID, lang, modelOverride string) ([]string, error) {
 	result, err := GenerateCompletionWithModel(ctx, resolver, query, prompts.MultiQueryPrompt(lang), kbID, false, modelOverride)
 	if err != nil {

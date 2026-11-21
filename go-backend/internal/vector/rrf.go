@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// rrfMergeMapPool recycles the merged-doc map used by FuseRRF. Maps grown
+// rrfMergeMapPool recycles the merged-doc map used by FuseRRFWeighted. Maps grown
 // past the typical search size (≤ a few hundred unique docs) stay sized for
 // the pooled reuse: clear() drops entries but keeps the bucket array, so
 // subsequent calls don't pay the rehash + allocation cost of the typical
@@ -48,19 +48,14 @@ type RankedDoc struct {
 	TreeLevel int
 }
 
-// FuseRRF merges multiple ranked lists using Reciprocal Rank Fusion.
-// For each document across all lists: score += 1 / (k + rank + 1) where rank is 0-based.
-// Documents appearing in multiple lists accumulate score.
-// The highest VectorScore and KeywordRank seen across lists are preserved.
-// The result is sorted by Score descending.
-func FuseRRF(k int, lists ...[]RankedDoc) []RankedDoc {
-	return FuseRRFWeighted(k, nil, lists...)
-}
-
-// FuseRRFWeighted is FuseRRF with a per-list multiplicative weight applied
-// to each list's RRF contribution. weights[i] is the multiplier for lists[i];
-// if weights is shorter than lists, missing entries default to 1.0 so the
-// behavior matches FuseRRF on unweighted call sites. Negative weights are
+// FuseRRFWeighted merges multiple ranked lists using Reciprocal Rank Fusion.
+// For each document across all lists: score += w / (k + rank + 1) where rank
+// is 0-based and w is the list's weight. Documents appearing in multiple
+// lists accumulate score. The highest VectorScore and KeywordRank seen
+// across lists are preserved. The result is sorted by Score descending.
+//
+// weights[i] is the multiplier for lists[i]; if weights is shorter than
+// lists, missing entries default to 1.0 (nil weights = plain RRF). Negative weights are
 // clamped to 0 (a zero-weight list contributes nothing). Tunable via
 // site_configs keys "rrf_weight_vector" and "rrf_weight_bm25".
 func FuseRRFWeighted(k int, weights []float64, lists ...[]RankedDoc) []RankedDoc {

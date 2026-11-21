@@ -1176,7 +1176,7 @@ func TestListAllSpacePages_EmptyReturnsArrayNotNull(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	// Trim trailing newline that httputil.WriteJSON typically appends.
+	// Trim trailing newline that the JSON encoder appends.
 	body = strings.TrimRight(body, "\n")
 	if body != "[]" {
 		t.Errorf("expected response body %q, got %q", "[]", body)

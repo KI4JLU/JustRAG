@@ -36,7 +36,7 @@ func TestFuseRRF_OverlappingLists(t *testing.T) {
 	}
 
 	k := 10
-	result := FuseRRF(k, list1, list2)
+	result := FuseRRFWeighted(k, nil, list1, list2)
 
 	docA, ok := docByID(result, "a")
 	if !ok {
@@ -89,7 +89,7 @@ func TestFuseRRF_DisjointLists(t *testing.T) {
 		{ID: "q"},
 	}
 
-	result := FuseRRF(60, list1, list2)
+	result := FuseRRFWeighted(60, nil, list1, list2)
 
 	if len(result) != 4 {
 		t.Fatalf("expected 4 docs, got %d", len(result))
@@ -111,7 +111,7 @@ func TestFuseRRF_StandardK(t *testing.T) {
 		{ID: "third"},
 	}
 
-	result := FuseRRF(k, list)
+	result := FuseRRFWeighted(k, nil, list)
 
 	// rank 0 → 1/61, rank 1 → 1/62, rank 2 → 1/63
 	expected := map[string]float64{
@@ -770,7 +770,7 @@ func TestFuseRRFWeighted_DefaultWeightsMatchUnweighted(t *testing.T) {
 	list2 := []RankedDoc{{ID: "a"}, {ID: "c"}}
 
 	weighted := FuseRRFWeighted(10, []float64{1.0, 1.0}, list1, list2)
-	plain := FuseRRF(10, list1, list2)
+	plain := FuseRRFWeighted(10, nil, list1, list2)
 
 	if len(weighted) != len(plain) {
 		t.Fatalf("length mismatch: weighted=%d plain=%d", len(weighted), len(plain))
@@ -821,7 +821,7 @@ func TestFuseRRFWeighted_MissingWeightsDefaultToOne(t *testing.T) {
 
 	// Two weights provided; the third list should be treated as weight 1.0.
 	got := FuseRRFWeighted(10, []float64{1.0, 1.0}, list1, list2, list3)
-	plain := FuseRRF(10, list1, list2, list3)
+	plain := FuseRRFWeighted(10, nil, list1, list2, list3)
 
 	if len(got) != 3 {
 		t.Fatalf("expected 3 docs, got %d", len(got))

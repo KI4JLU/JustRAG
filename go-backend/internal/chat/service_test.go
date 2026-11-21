@@ -370,26 +370,6 @@ func TestMaybeDecomposeQuery_PrePopulatedSubQueriesSkips(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CountTokensApprox tests
-// ---------------------------------------------------------------------------
-
-func TestCountTokensApprox(t *testing.T) {
-	// Now delegates to splitter.CountTokens (tiktoken cl100k_base).
-	// We only assert structural invariants: empty → 0, non-empty → > 0.
-	t.Parallel()
-
-	if got := CountTokensApprox(""); got != 0 {
-		t.Errorf("CountTokensApprox(\"\") = %d, want 0", got)
-	}
-	texts := []string{"hello", "hello world", strings.Repeat("token ", 100)}
-	for _, text := range texts {
-		if got := CountTokensApprox(text); got <= 0 {
-			t.Errorf("CountTokensApprox(%q) = %d, want > 0", text, got)
-		}
-	}
-}
-
 func TestRenderSourceHeader_CommunitySummary(t *testing.T) {
 	got := renderSourceHeader(3, "kg", "", "community_summary", 0)
 	if got != "[3] (knowledge-graph community) [Source: kg]" {
