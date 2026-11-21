@@ -639,8 +639,8 @@ func registerAdminRoutes(rc *routeCtx) {
 	rc.mux.Handle("POST /api/admin/agent/template", rc.superadminChain(maintenanceHandler.UploadAgentTemplate))
 	// The per-KB sweep sits on kbAdvancedChain, not kbAdminChain: its only
 	// caller is the advanced settings panel's Save flow, which offers it after
-	// a key marked requiresReingest changes (the panel's api.ts is the sole
-	// reference to the path). Leaving it a rung lower would
+	// a key marked requiresReingest changes (`reembedKb` in the panel's api.ts
+	// is the only frontend request to it). Leaving it a rung lower would
 	// hand anyone refused the settings themselves a way to queue a full
 	// re-ingest of the KB anyway.
 	rc.mux.Handle("POST /api/kb/{id}/reembed", rc.kbAdvancedChain(maintenanceHandler.ReembedKB))
