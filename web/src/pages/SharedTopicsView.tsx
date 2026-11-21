@@ -8,7 +8,7 @@ import { AppChrome } from '../components/AppChrome';
 import { KbListHeader, PrivateKbCard } from '../components/KbCard';
 import { Button } from '@ki4jlu/design-system';
 import { Plus, Users } from 'lucide-react';
-import { TopicGridPage } from './TopicGridPage';
+import { TopicGridPage } from '../components/TopicGridPage';
 import { TopicFilterBar } from '../components/TopicFilterBar';
 import { TopicListEmptyState, TopicsEmptyState } from '../components/TopicsEmptyState';
 import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';

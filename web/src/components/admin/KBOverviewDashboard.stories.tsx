@@ -140,7 +140,7 @@ export const Superadmin: Story = {
     // admin area's <h1>, and until v0.24.0 the template's level was fixed at 1
     // and gave those pages two. Rendered standalone here, the page therefore
     // has no <h1> at all; that AdminUI's tree has exactly one is what
-    // src/pages/AdminUI.headings.test.tsx pins, which no story can (a story never
+    // src/components/admin/AdminUI.headings.test.tsx pins, which no story can (a story never
     // renders the app's routes).
     const heading = await canvas.findByRole('heading', { level: 2, name: NAME.overview });
 

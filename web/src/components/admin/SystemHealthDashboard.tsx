@@ -33,7 +33,7 @@ import { useTheme } from '../../contexts/ThemeContext';
  *    real `<h1>` and the level was not a prop), which gave this page two:
  *    AdminUI.tsx already renders one. Closed by card KI-743 — design-system
  *    v0.24.0 added `headingLevel`, this call site passes 2, and
- *    `src/pages/AdminUI.headings.test.tsx` pins the count in the admin composition.
+ *    `src/components/admin/AdminUI.headings.test.tsx` pins the count in the admin composition.
  *
  * TODO: no visual confirmation in this pass; the stories exist for the
  * developer's both-theme pass.
