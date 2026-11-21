@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { X } from 'lucide-react';
-import type { Message } from '../types';
-import MessageBubble from '../MessageBubble';
-import { getPathToRoot, findCommonAncestor } from '../utils/messageTree';
-import { useTheme } from '../contexts/ThemeContext';
-import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
+import type { Message } from '../../types';
+import MessageBubble from './MessageBubble';
+import { getPathToRoot, findCommonAncestor } from '../../utils/messageTree';
+import { useTheme } from '../../contexts/ThemeContext';
+import { messageSectionKey, useMessageSections } from '../../hooks/useMessageSections';
 
 interface ComparisonViewProps {
     messageTree: Map<string, Message>;

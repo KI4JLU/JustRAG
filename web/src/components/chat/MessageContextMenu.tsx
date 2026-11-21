@@ -4,11 +4,11 @@ import {
     ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
     ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
 } from '@ki4jlu/design-system';
-import type { Message } from '../types';
-import { useTheme } from '../contexts/ThemeContext';
-import { openExternal } from '../utils/openExternal';
-import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { type MessageActionHandlers, useMessageActionRules, useMessageExport } from '../hooks/useMessageActions';
+import type { Message } from '../../types';
+import { useTheme } from '../../contexts/ThemeContext';
+import { openExternal } from '../../utils/openExternal';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
+import { type MessageActionHandlers, useMessageActionRules, useMessageExport } from '../../hooks/useMessageActions';
 
 interface MessageContextMenuProps extends MessageActionHandlers {
     message: Message;

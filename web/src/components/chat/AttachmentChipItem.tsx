@@ -1,8 +1,8 @@
 import type React from 'react';
 import { AttachmentChip } from '@ki4jlu/design-system';
-import type { MessageAttachment } from '../types';
-import { useUserFileUrl } from '../hooks/userFileUrls';
-import { hasThumbnail, previewKindOf } from '../utils/previewKind';
+import type { MessageAttachment } from '../../types';
+import { useUserFileUrl } from '../../hooks/userFileUrls';
+import { hasThumbnail, previewKindOf } from '../../utils/previewKind';
 
 /**
  * A sent message's attachment as the composer's chip (DS AttachmentChip),

@@ -1,46 +1,43 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatView } from './ChatView';
-import type { Message, KnowledgeBase, KbCapabilities } from '../types';
-import type { KbStartPageData } from '../hooks/useKbStartPage';
-import type { StartPage } from './kbSettings/assistant/api';
-import type { RoleView } from './kbSettings/assistant/roleModel';
+import type { Message, KnowledgeBase, KbCapabilities } from '../../types';
+import { UploadStorageNoticeDialog } from '../sources/UploadStorageNoticeDialog';
+import { uploadChatAttachment } from '../../utils/chatAttachments';
 
-// The real ChatView on the harness of ChatView.storageNotice.test.tsx. Under
-// test: where the chat names its role — the badge over a chat, and the title
-// block of the start page.
+// The real ChatView with the real composer, mocked to the minimum — the same
+// harness as ChatView.sourceRights.test.tsx. What is under test is the wiring:
+// which composer uploads raise the storage notice the shell shows.
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
-    t: (key: string) => ({ asstRoleBadge: 'Rolle: {role}' } as Record<string, string>)[key] ?? key,
+    t: (key: string) => key,
     language: 'en' as const,
     theme: 'light' as const,
     toggleTheme: vi.fn(),
     setLanguage: vi.fn(),
   }),
 }));
-vi.mock('../contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: userId, role: 'user' }, siteConfigs: {} }),
 }));
-vi.mock('../contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('../contexts/MobileContext', () => ({
+vi.mock('../../contexts/MobileContext', () => ({
   // isMobile=true collapses most of ChatView's desktop-only chrome (theme/
   // language toggles, …) that this test has no reason to
   // exercise or mock further.
   useIsMobileContext: () => true,
 }));
-vi.mock('../hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
-let startPage: KbStartPageData | null = null;
-vi.mock('../hooks/useKbStartPage', () => ({
-  useKbStartPage: () => ({ startPage, loading: false }),
-}));
-vi.mock('../hooks/useStarterQuestions', () => ({
-  useStarterQuestions: () => ({ questions: [], loading: false }),
+// The upload itself is not under test: it resolves at once.
+vi.mock('../../utils/chatAttachments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../utils/chatAttachments')>()),
+  uploadChatAttachment: vi.fn(async () => ({ id: 'uf1', name: 'notes.pdf', mime: 'application/pdf', size: 1, tokens: 1 })),
 }));
 let userId = 'u1';
 let run = 0;
@@ -54,9 +51,8 @@ const currentKb = (): KnowledgeBase => ({
   capabilities,
 });
 const handlePdfSourceOpen = vi.fn();
-let chatRoleId: string | null = null;
 
-vi.mock('../contexts/KbCoreContext', () => ({
+vi.mock('../../contexts/KbCoreContext', () => ({
   useKbCore: () => ({
     currentKb: currentKb(),
     availableConfigs: [],
@@ -77,14 +73,10 @@ const answer: Message = {
 };
 let messages: Message[] = [answer];
 
-vi.mock('../contexts/KbChatContext', () => ({
+vi.mock('../../contexts/KbChatContext', () => ({
   useKbChat: () => ({
     chat: {
       activeChatId: 'c1',
-      chatRoleId,
-      roleStart: null,
-      startRoleChat: vi.fn(),
-      handleNewChat: vi.fn(),
       messageTree: new Map(),
       messages,
       activeLeafId: null,
@@ -122,7 +114,7 @@ vi.mock('../contexts/KbChatContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/KbDataContext', () => ({
+vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: {
       hasFiles, filesLoaded: true, selectedFileCount: 1, fileInputRef: { current: null },
@@ -139,7 +131,7 @@ vi.mock('../contexts/KbDataContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/KbLayoutContext', () => ({
+vi.mock('../../contexts/KbLayoutContext', () => ({
   useKbLayout: () => ({
     sidebar: { setIsRightSidebarOpen: vi.fn(), setIsLeftSidebarOpen: vi.fn() },
   }),
@@ -156,81 +148,78 @@ class MemoryStorage implements Storage {
   setItem(k: string, v: string) { this.data.set(k, v); }
 }
 
-const role = (id: string, name: string): RoleView => ({ id, name, description: '', prompt: '' } as RoleView);
-const page = (patch: Partial<StartPage> = {}): StartPage => ({
-  version: 1, colors: { from: '#0056B3', to: '#3897E8' }, startMode: 'input',
-  questionsOn: false, questionMode: 'dynamic', dynamicCount: 4, fixedQuestions: [],
-  uploadLabel: '', uploadInstruction: '',
-  roleStarts: {},
-  roleEntries: [],
-  ...patch,
-});
-const start = (patch: Partial<StartPage> = {}): KbStartPageData => ({
-  kbId: 'kb1', page: page(patch), configured: true,
-  roles: [role('chat', 'Assistent'), role('tutor', 'Tutor')],
-  activeRoleId: 'chat', category: null,
-});
-
 beforeEach(() => {
   Object.defineProperty(window, 'localStorage', {
     value: new MemoryStorage(), configurable: true, writable: true,
   });
+  // The shared flag is cached per key for the module's lifetime: one user per test.
   userId = `u${++run}`;
   capabilities = undefined;
   files = [{ id: 'f1', selected: true }];
   hasFiles = true;
   messages = [answer];
-  chatRoleId = null;
-  startPage = start();
 });
 
-// Oracle: developer, 18.11.2026 — every chat names its role, the KB's default
-// one included and also when the KB offers only one; a start page with a
-// single role names it under its description.
-describe('the chat names its role', () => {
-  it('shows the active role over a chat started without a role', () => {
-    render(<ChatView />);
-    expect(screen.getByText('Rolle: Assistent')).toBeTruthy();
+// PromptInput's hidden file input (a sibling of the form, named by the DS):
+// the composer's + picks through it.
+function pick(name = 'notes.pdf') {
+  const input = screen.getByLabelText('Upload files') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['x'], name, { type: 'application/pdf' })] } });
+}
+
+function dropOnComposer(name = 'notes.pdf') {
+  const form = document.getElementById('chat-composer') as HTMLFormElement;
+  const file = new File(['x'], name, { type: 'application/pdf' });
+  fireEvent.drop(form, { dataTransfer: { files: [file], types: ['Files'] } });
+}
+
+// The shell's dialog, mounted beside the chat as AuthenticatedApp does.
+const Shell = () => <><ChatView /><UploadStorageNoticeDialog /></>;
+const raised = () => document.getElementById('upload-storage-notice') !== null;
+
+const chips = () => document.getElementById('chat-composer-attachments');
+
+// Oracle: card F-17 as refined by the developer — a file attached to the
+// composer (picked or dropped) waits on the storage notice: nothing is
+// uploaded before "Verstanden", and closing the notice takes the file out.
+describe('ChatView — the storage notice before a composer upload', () => {
+  beforeEach(() => vi.mocked(uploadChatAttachment).mockClear());
+
+  it('asks for a file picked with the composer\'s +, uploading nothing yet', async () => {
+    render(<Shell />);
+    pick();
+    await waitFor(() => expect(raised()).toBe(true));
+    expect(chips()).toHaveTextContent('notes');
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
   });
 
-  it('shows the role a chat was started in', () => {
-    chatRoleId = 'tutor';
-    render(<ChatView />);
-    expect(screen.getByText('Rolle: Tutor')).toBeTruthy();
-    expect(screen.queryByText('Rolle: Assistent')).toBeNull();
+  it('asks for a file dropped onto the composer', async () => {
+    render(<Shell />);
+    dropOnComposer();
+    await waitFor(() => expect(raised()).toBe(true));
   });
 
-  it('says so when the chat\'s role is gone', () => {
-    chatRoleId = 'deleted';
-    render(<ChatView />);
-    expect(screen.getByText('asstRoleDeleted')).toBeTruthy();
-    expect(screen.queryByText(/^Rolle: /)).toBeNull();
+  it('uploads the file once the notice is accepted', async () => {
+    render(<Shell />);
+    pick();
+    await waitFor(() => expect(raised()).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: 'uploadStorageNoticeAccept' }));
+    await waitFor(() => expect(uploadChatAttachment).toHaveBeenCalledTimes(1));
+    expect(chips()).toHaveTextContent('notes');
   });
 
-  it('names a single role in the start page\'s title block', () => {
-    messages = [];
-    render(<ChatView />);
-    expect(screen.getAllByText('Rolle: Assistent')).toHaveLength(1);
+  it('takes the file out again when the notice is closed', async () => {
+    render(<Shell />);
+    pick();
+    await waitFor(() => expect(raised()).toBe(true));
+    fireEvent.keyDown(document.getElementById('upload-storage-notice') as HTMLElement, { key: 'Escape' });
+    await waitFor(() => expect(raised()).toBe(false));
+    await waitFor(() => expect(chips()).not.toBeInTheDocument());
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
   });
 
-  it('leaves the naming to the cards when the start page offers several roles', () => {
-    messages = [];
-    startPage = start({ roleEntries: [{ id: 're-1', roleId: 'tutor' }] });
-    render(<ChatView />);
-    expect(screen.queryByText(/^Rolle: /)).toBeNull();
-  });
-
-  it('names the role once while a chat started in a role has no messages yet', () => {
-    messages = [];
-    chatRoleId = 'tutor';
-    render(<ChatView />);
-    expect(screen.getAllByText(/^Rolle: /)).toHaveLength(1);
-    expect(screen.getByText('Rolle: Tutor')).toBeTruthy();
-  });
-
-  it('shows no role where the KB has no start page', () => {
-    startPage = null;
-    render(<ChatView />);
-    expect(screen.queryByText(/^Rolle: /)).toBeNull();
+  it('does not ask before a file is attached', () => {
+    render(<Shell />);
+    expect(raised()).toBe(false);
   });
 });

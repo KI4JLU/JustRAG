@@ -1,8 +1,8 @@
 import {
     MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
 } from '@ki4jlu/design-system';
-import type { BranchInfo } from '../types';
-import { useTheme } from '../contexts/ThemeContext';
+import type { BranchInfo } from '../../types';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface BranchIndicatorProps {
     branchInfo: BranchInfo;

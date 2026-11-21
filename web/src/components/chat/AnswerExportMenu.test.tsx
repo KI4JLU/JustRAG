@@ -4,12 +4,12 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { AnswerExportMenu } from './AnswerExportMenu';
-import type { Message } from '../types';
+import type { Message } from '../../types';
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (k: string) => k, language: 'en' as const }),
 }));
-vi.mock('../contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
 }));
 
@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   docx: vi.fn(async () => {}),
   pdf: vi.fn(),
 }));
-vi.mock('../utils/exportAnswer', () => ({
+vi.mock('../../utils/exportAnswer', () => ({
   copyAnswerWithCitations: mocks.copy,
   downloadAnswerMarkdown: mocks.md,
   exportAnswerDocx: mocks.docx,

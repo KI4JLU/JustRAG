@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Check, X } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface InlineMessageEditorProps {
     initialContent: string;

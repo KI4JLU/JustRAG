@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BranchIndicator } from './BranchIndicator';
-import type { BranchInfo } from '../types';
+import type { BranchInfo } from '../../types';
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
     t: (key: string) => ({
       previousVersion: 'Previous version ({target} of {total})',

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InlineMessageEditor } from './InlineMessageEditor';
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
     t: (key: string) => {
       const translations: Record<string, string> = {

@@ -1,11 +1,11 @@
-// web/src/components/AnswerExportMenu.tsx
+// web/src/components/chat/AnswerExportMenu.tsx
 import { useEffect, useState, useRef } from 'react';
 import { Download } from 'lucide-react';
 import { MenuItem, MessageAction } from '@ki4jlu/design-system';
-import type { Message } from '../types';
-import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { useMessageExport } from '../hooks/useMessageActions';
-import { AnchoredPopover } from './ui/AnchoredPopover';
+import type { Message } from '../../types';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
+import { useMessageExport } from '../../hooks/useMessageActions';
+import { AnchoredPopover } from '../ui/AnchoredPopover';
 
 interface AnswerExportMenuProps {
   message: Message;

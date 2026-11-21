@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import MessageContent from './MessageContent';
-import type { TrajectoryEvent } from '../types';
-import { SourcePanelContext, type SourcePanelApi } from '../contexts/SourcePanelContext';
-import { translations } from '../translations';
-import * as ThemeContext from '../contexts/ThemeContext';
+import type { TrajectoryEvent } from '../../types';
+import { SourcePanelContext, type SourcePanelApi } from '../../contexts/SourcePanelContext';
+import { translations } from '../../translations';
+import * as ThemeContext from '../../contexts/ThemeContext';
 
 // Mock the module
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
     useTheme: vi.fn(),
 }));
 
 // Stub the export helper — it lazy-loads ExcelJS and touches the DOM/Blob APIs,
 // neither of which we want to exercise in a unit test of the wiring.
-vi.mock('../utils/exportXlsx', () => ({
+vi.mock('../../utils/exportXlsx', () => ({
     exportRowsToXlsx: vi.fn(),
 }));
 
@@ -227,7 +227,7 @@ describe('MessageContent', () => {
     });
 
     it('exports the table cells (incl. header) on click', async () => {
-        const { exportRowsToXlsx } = await import('../utils/exportXlsx');
+        const { exportRowsToXlsx } = await import('../../utils/exportXlsx');
 
         const md = '| Name | Score |\n| --- | --- |\n| Alice | 9 |\n| Bob | 7 |';
         render(<MessageContent content={md} />);
@@ -248,7 +248,7 @@ describe('MessageContent', () => {
     // MessageBubble's footer.
 
     it('strips citation markers from exported table cells', async () => {
-        const { exportRowsToXlsx } = await import('../utils/exportXlsx');
+        const { exportRowsToXlsx } = await import('../../utils/exportXlsx');
         const sources = [{ index: 1, fileName: 'doc.pdf', fileId: 'f1', content: '', score: 0.9, pages: [4] }];
 
         // The cell carries an inline citation that renders as a sup.source-ref.

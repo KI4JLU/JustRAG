@@ -5,28 +5,28 @@ import {
     Badge, Button, MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
     HoverPreviewGroup, MessageToolbar, Sources, SourcesContent, SourcesTrigger,
 } from '@ki4jlu/design-system';
-import type { Message, BranchInfo, MessageAttachment, MessageVerification, MessageConflict } from './types';
-import { flaggedClaimsFor } from './utils/verification';
-import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
-import { BranchIndicator } from './components/BranchIndicator';
-import { MessageActions } from './components/MessageActions';
-import { MessageContextMenu } from './components/MessageContextMenu';
-import { InlineMessageEditor } from './components/InlineMessageEditor';
-import MessageContent from './components/MessageContent';
-import { messageSectionKey, type MessageSection } from './hooks/useMessageSections';
-import { useIsMobileContext } from './contexts/MobileContext';
-import { useTheme } from './contexts/ThemeContext';
-import { HAPTIC_PATTERNS, triggerHaptic } from './utils/haptics';
-import { withoutCitations } from './utils/citations';
-import { buildCitationModel, citationSpanMap, citingTextByRaw, type CitedSource } from './utils/sourceDisplay';
-import { citationMarkers } from './utils/citationRefs';
-import { isTempMessageId } from './utils/messageTree';
-import { normalizeMathDelimiters } from './utils/markdownMath';
-import { SourceList } from './components/sources/SourceList';
-import { useSourcePanel } from './contexts/SourcePanelContext';
-import { formatMessageTime } from './utils/chatDates';
-import { previewKindOf } from './utils/previewKind';
-import { AttachmentChipItem } from './components/AttachmentChipItem';
+import type { Message, BranchInfo, MessageAttachment, MessageVerification, MessageConflict } from '../../types';
+import { flaggedClaimsFor } from '../../utils/verification';
+import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
+import { BranchIndicator } from './BranchIndicator';
+import { MessageActions } from './MessageActions';
+import { MessageContextMenu } from './MessageContextMenu';
+import { InlineMessageEditor } from './InlineMessageEditor';
+import MessageContent from './MessageContent';
+import { messageSectionKey, type MessageSection } from '../../hooks/useMessageSections';
+import { useIsMobileContext } from '../../contexts/MobileContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
+import { withoutCitations } from '../../utils/citations';
+import { buildCitationModel, citationSpanMap, citingTextByRaw, type CitedSource } from '../../utils/sourceDisplay';
+import { citationMarkers } from '../../utils/citationRefs';
+import { isTempMessageId } from '../../utils/messageTree';
+import { normalizeMathDelimiters } from '../../utils/markdownMath';
+import { SourceList } from '../sources/SourceList';
+import { useSourcePanel } from '../../contexts/SourcePanelContext';
+import { formatMessageTime } from '../../utils/chatDates';
+import { previewKindOf } from '../../utils/previewKind';
+import { AttachmentChipItem } from './AttachmentChipItem';
 
 interface MessageBubbleProps {
     message: Message;

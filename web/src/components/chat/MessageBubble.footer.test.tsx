@@ -3,32 +3,32 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Button } from '@ki4jlu/design-system';
 import MessageBubble from './MessageBubble';
-import { messageSectionKey, useMessageSections } from './hooks/useMessageSections';
-import type { BranchInfo, Message, MessageConflict, MessageVerification } from './types';
+import { messageSectionKey, useMessageSections } from '../../hooks/useMessageSections';
+import type { BranchInfo, Message, MessageConflict, MessageVerification } from '../../types';
 
 // Same harness mocks as MessageBubble.test.tsx, plus a switchable mobile flag.
-vi.mock('./contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (key: string) => key, language: 'en' as const }),
 }));
-vi.mock('./contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('./contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: null, siteConfigs: {} }),
 }));
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
 const copyAnswerWithCitations = vi.hoisted(() => vi.fn(async () => true));
-vi.mock('./utils/exportAnswer', () => ({
+vi.mock('../../utils/exportAnswer', () => ({
   copyAnswerWithCitations,
   downloadAnswerMarkdown: vi.fn(),
   exportAnswerDocx: vi.fn(),
   printAnswerPdf: vi.fn(),
 }));
 let isMobile = false;
-vi.mock('./contexts/MobileContext', () => ({
+vi.mock('../../contexts/MobileContext', () => ({
   useIsMobileContext: () => isMobile,
 }));
 

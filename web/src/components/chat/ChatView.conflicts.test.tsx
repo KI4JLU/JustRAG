@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatView } from './ChatView';
-import type { Message, KnowledgeBase } from '../types';
+import type { Message, KnowledgeBase } from '../../types';
 
 // Fix round 1 (review finding): `ComponentView`-level coverage isn't enough
 // — the review found that `ChatView.tsx` (the MAIN chat surface, not just
@@ -18,7 +18,7 @@ import type { Message, KnowledgeBase } from '../types';
 // message list without crashing; `useMessageSections` (the real caller-owned
 // open-state store) and `MessageBubble` itself are left REAL, since the whole point is to exercise
 // the actual wiring between them.
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
     t: (key: string) => key,
     language: 'en' as const,
@@ -27,19 +27,19 @@ vi.mock('../contexts/ThemeContext', () => ({
     setLanguage: vi.fn(),
   }),
 }));
-vi.mock('../contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', role: 'user' }, siteConfigs: {} }),
 }));
-vi.mock('../contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('../contexts/MobileContext', () => ({
+vi.mock('../../contexts/MobileContext', () => ({
   // isMobile=true collapses most of ChatView's desktop-only chrome (theme/
   // language toggles, …) that this test has no reason to
   // exercise or mock further.
   useIsMobileContext: () => true,
 }));
-vi.mock('../hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
@@ -49,7 +49,7 @@ const currentKb: KnowledgeBase = {
   aiConfigId: null, chatModel: null, embeddingModel: null, rerankModel: null, ttsModel: null,
 };
 
-vi.mock('../contexts/KbCoreContext', () => ({
+vi.mock('../../contexts/KbCoreContext', () => ({
   useKbCore: () => ({
     currentKb,
     availableConfigs: [],
@@ -71,7 +71,7 @@ const conflictMessage: Message = {
   ],
 };
 
-vi.mock('../contexts/KbChatContext', () => ({
+vi.mock('../../contexts/KbChatContext', () => ({
   useKbChat: () => ({
     chat: {
       activeChatId: 'c1',
@@ -112,7 +112,7 @@ vi.mock('../contexts/KbChatContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/KbDataContext', () => ({
+vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: {
       hasFiles: true, selectedFileCount: 1, fileInputRef: { current: null },
@@ -129,7 +129,7 @@ vi.mock('../contexts/KbDataContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/KbLayoutContext', () => ({
+vi.mock('../../contexts/KbLayoutContext', () => ({
   useKbLayout: () => ({
     sidebar: { setIsRightSidebarOpen: vi.fn(), setIsLeftSidebarOpen: vi.fn() },
   }),

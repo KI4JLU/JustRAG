@@ -1,21 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import MessageBubble from './MessageBubble';
-import type { Message } from './types';
-import { SourcePanelContext } from './contexts/SourcePanelContext';
+import type { Message } from '../../types';
+import { SourcePanelContext } from '../../contexts/SourcePanelContext';
 
 // Same harness mocks as MessageBubble.test.tsx: identity `t`, the footer's
 // MessageActions contexts, and no matchMedia in jsdom.
-vi.mock('./contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (key: string) => key, language: 'en' as const }),
 }));
-vi.mock('./contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('./contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: null, siteConfigs: {} }),
 }));
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));

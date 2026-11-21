@@ -20,8 +20,8 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 | `/` | `my-topics` | `pages/MyTopicsView.tsx` | `AppFrame` |
 | `/shared` | `shared-topics` | `pages/SharedTopicsView.tsx` | `AppFrame` |
 | `/discover` | `discover` | `pages/DiscoverView.tsx` | `AppFrame` |
-| `/kb/<id>` | `kb` | `components/ChatView.tsx` on a new chat | `AppFrame` with a topic |
-| `/c/<id>` | `chat` | `components/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
+| `/kb/<id>` | `kb` | `components/chat/ChatView.tsx` on a new chat | `AppFrame` with a topic |
+| `/c/<id>` | `chat` | `components/chat/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
 | `/kb/<id>/admin` | `global-kb-settings` | `pages/GlobalKbSettings.tsx` | Full page |
 | `/terms`, `/privacy`, `/accessibility` | same as path | `pages/LegalPage.tsx` | Full page |
 | Anything else, or an id segment that is no id | `not-found` | See redirects | — |
@@ -119,7 +119,7 @@ Rendered for `/kb/<id>` and `/c/<id>`. While the topic resolves, the main area s
 | Area | Component | Shown |
 |---|---|---|
 | Top bar | Breadcrumb „section / topic" and the topic-settings gear | Gear: users with topic-settings rights |
-| Main | `components/ChatView.tsx` | Always |
+| Main | `components/chat/ChatView.tsx` | Always |
 | Right column | `components/sources/SourcesPanel.tsx` | With `seeSources`; without it the desktop shows a locked sources control |
 
 **Topic-settings rights** (`utils/kbAccess.ts`): the topic's owner and KB admins, superadmins, and

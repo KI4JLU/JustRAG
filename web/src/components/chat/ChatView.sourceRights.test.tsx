@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { stubViewport } from '../test/viewport';
+import { stubViewport } from '../../test/viewport';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppShell } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
-import type { Message, KnowledgeBase, KbCapabilities } from '../types';
+import type { Message, KnowledgeBase, KbCapabilities } from '../../types';
 
 // The real ChatView with the real MessageBubble, mocked to the minimum —
 // the same harness as ChatView.conflicts.test.tsx. What is under test is the
 // wiring: which source rights ChatView hands to the answers and the composer,
 // and which description the empty start page shows.
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
     t: (key: string) => key,
     language: 'en' as const,
@@ -19,19 +19,19 @@ vi.mock('../contexts/ThemeContext', () => ({
     setLanguage: vi.fn(),
   }),
 }));
-vi.mock('../contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', role: 'user' }, siteConfigs: {} }),
 }));
-vi.mock('../contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('../contexts/MobileContext', () => ({
+vi.mock('../../contexts/MobileContext', () => ({
   // isMobile=true collapses most of ChatView's desktop-only chrome (theme/
   // language toggles, …) that this test has no reason to
   // exercise or mock further.
   useIsMobileContext: () => true,
 }));
-vi.mock('../hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
@@ -43,7 +43,7 @@ const setStartPageState = (next: typeof startPageState) => {
   startPageState = next;
   startPageListeners.forEach(notify => notify());
 };
-vi.mock('../hooks/useKbStartPage', async () => {
+vi.mock('../../hooks/useKbStartPage', async () => {
   const { useSyncExternalStore } = await import('react');
   return {
     useKbStartPage: () => useSyncExternalStore(
@@ -69,7 +69,7 @@ const currentKb = (): KnowledgeBase => ({
 });
 const handlePdfSourceOpen = vi.fn();
 
-vi.mock('../contexts/KbCoreContext', () => ({
+vi.mock('../../contexts/KbCoreContext', () => ({
   useKbCore: () => ({
     currentKb: currentKb(),
     availableConfigs: [],
@@ -90,7 +90,7 @@ const answer: Message = {
 };
 let messages: Message[] = [answer];
 
-vi.mock('../contexts/KbChatContext', () => ({
+vi.mock('../../contexts/KbChatContext', () => ({
   useKbChat: () => ({
     chat: {
       activeChatId,
@@ -131,7 +131,7 @@ vi.mock('../contexts/KbChatContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/KbDataContext', () => ({
+vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: {
       hasFiles, filesLoaded, selectedFileCount: 1, fileInputRef: { current: null },
@@ -148,7 +148,7 @@ vi.mock('../contexts/KbDataContext', () => ({
   }),
 }));
 
-vi.mock('../contexts/KbLayoutContext', () => ({
+vi.mock('../../contexts/KbLayoutContext', () => ({
   useKbLayout: () => ({
     sidebar: { setIsRightSidebarOpen: vi.fn(), setIsLeftSidebarOpen: vi.fn() },
   }),

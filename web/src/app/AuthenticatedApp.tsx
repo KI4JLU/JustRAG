@@ -43,7 +43,7 @@ import { MyTopicsView } from '../pages/MyTopicsView';
 import { SharedTopicsView } from '../pages/SharedTopicsView';
 import { DiscoverView } from '../pages/DiscoverView';
 import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/shell/AppChrome';
-import { ChatView } from '../components/ChatView';
+import { ChatView } from '../components/chat/ChatView';
 import { TopicModals } from '../components/topics/TopicModals';
 
 // Lazy load heavy components

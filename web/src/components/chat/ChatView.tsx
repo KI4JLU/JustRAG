@@ -4,29 +4,29 @@ import {
   X, Check, Pencil,
   Globe, WandSparkles, Loader2, FileText, Quote,
 } from 'lucide-react';
-import type { Message } from '../types';
-import { chatPlaceholderFor } from '../utils/systemNames';
-import { useTheme } from '../contexts/ThemeContext';
-import { IS_APPLE } from '../utils/searchShortcut';
-import { useAuth } from '../contexts/AuthContext';
-import { useKbCore } from '../contexts/KbCoreContext';
-import { useKbChat } from '../contexts/KbChatContext';
-import { useKbData } from '../contexts/KbDataContext';
-import { KbSettingsDialog } from './topics/KbSettingsDialog';
-import { useKbLayout } from '../contexts/KbLayoutContext';
-import { useStarterQuestions } from '../hooks/useStarterQuestions';
-import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../hooks/useChatSuggestionPrefs';
-import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
-import { hasAgentSteps } from './agentSteps/buildSteps';
-import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
-import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
-import { useKbStartPage } from '../hooks/useKbStartPage';
-import { RoleStartCards, START_SKELETON_DELAY, StartBlockSkeleton, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
-import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
-import { toMessageAttachments } from '../utils/chatAttachments';
-import { useComposerNotch } from '../hooks/useComposerNotch';
-import { useToast } from '../contexts/ToastContext';
-import { STORAGE_NAMESPACE } from '../hooks/useStoredFlag';
+import type { Message } from '../../types';
+import { chatPlaceholderFor } from '../../utils/systemNames';
+import { useTheme } from '../../contexts/ThemeContext';
+import { IS_APPLE } from '../../utils/searchShortcut';
+import { useAuth } from '../../contexts/AuthContext';
+import { useKbCore } from '../../contexts/KbCoreContext';
+import { useKbChat } from '../../contexts/KbChatContext';
+import { useKbData } from '../../contexts/KbDataContext';
+import { KbSettingsDialog } from '../topics/KbSettingsDialog';
+import { useKbLayout } from '../../contexts/KbLayoutContext';
+import { useStarterQuestions } from '../../hooks/useStarterQuestions';
+import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../../hooks/useChatSuggestionPrefs';
+import { messageSectionKey, useMessageSections } from '../../hooks/useMessageSections';
+import { hasAgentSteps } from '../agentSteps/buildSteps';
+import { ComposerUploadSync, useComposerUploads } from '../../hooks/useComposerUploads';
+import { useUploadStorageNotice } from '../../hooks/useUploadStorageNotice';
+import { useKbStartPage } from '../../hooks/useKbStartPage';
+import { RoleStartCards, START_SKELETON_DELAY, StartBlockSkeleton, StartGlow, TitleCard, UploadStart } from '../kbSettings/assistant/StartPageParts';
+import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from '../kbSettings/assistant/startPageModel';
+import { toMessageAttachments } from '../../utils/chatAttachments';
+import { useComposerNotch } from '../../hooks/useComposerNotch';
+import { useToast } from '../../contexts/ToastContext';
+import { STORAGE_NAMESPACE } from '../../hooks/useStoredFlag';
 import {
   InputGroupAddon,
   ChatStage, Skeleton, SkeletonText, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
@@ -36,18 +36,18 @@ import {
   Spinner, Button, AppShellSidePanel, usePersistedWidth,
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
-import MessageBubble from '../MessageBubble';
-import { getBranchInfo } from '../utils/messageTree';
-import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../utils/kbAccess';
-import { sourceFlagsOf, sourceFlagsPatch } from '../utils/kbRoleRights';
-import { isChatWebSearchAvailable } from '../utils/chatWebSearch';
-import { API_BASE_URL, authFetch } from '../api';
-import { SourcePanel } from './sources/SourcePanel';
-import { CitationsPanel } from './sources/CitationsPanel';
-import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
-import { MessageSkeleton } from './ui/Skeleton';
-import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
+import MessageBubble from './MessageBubble';
+import { getBranchInfo } from '../../utils/messageTree';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
+import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../../utils/kbAccess';
+import { sourceFlagsOf, sourceFlagsPatch } from '../../utils/kbRoleRights';
+import { isChatWebSearchAvailable } from '../../utils/chatWebSearch';
+import { API_BASE_URL, authFetch } from '../../api';
+import { SourcePanel } from '../sources/SourcePanel';
+import { CitationsPanel } from '../sources/CitationsPanel';
+import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../../contexts/SourcePanelContext';
+import { MessageSkeleton } from '../ui/Skeleton';
+import { formatDaySeparator, sameLocalDay } from '../../utils/chatDates';
 
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
 

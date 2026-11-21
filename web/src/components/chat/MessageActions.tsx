@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Copy, Pencil, GitBranch, Columns, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink, Network } from 'lucide-react';
 import { Button, MessageAction, MessageActions as DsMessageActions, Textarea } from '@ki4jlu/design-system';
-import type { Message } from '../types';
-import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { openExternal } from '../utils/openExternal';
-import { useTheme } from '../contexts/ThemeContext';
-import { useMessageActionRules, useMessageExport } from '../hooks/useMessageActions';
+import type { Message } from '../../types';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
+import { openExternal } from '../../utils/openExternal';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useMessageActionRules, useMessageExport } from '../../hooks/useMessageActions';
 import { AnswerExportMenu } from './AnswerExportMenu';
-import { AnchoredPopover } from './ui/AnchoredPopover';
+import { AnchoredPopover } from '../ui/AnchoredPopover';
 
 interface MessageActionsProps {
     message: Message;

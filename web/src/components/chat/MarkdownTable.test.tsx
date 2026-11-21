@@ -5,11 +5,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MarkdownTable } from './MarkdownTable';
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
     useTheme: () => ({ t: (k: string) => k, language: 'de' }),
 }));
 const exportRowsToXlsx = vi.fn();
-vi.mock('../utils/exportXlsx', () => ({ exportRowsToXlsx: (...args: unknown[]) => exportRowsToXlsx(...args) }));
+vi.mock('../../utils/exportXlsx', () => ({ exportRowsToXlsx: (...args: unknown[]) => exportRowsToXlsx(...args) }));
 
 const MD = [
     '| Posten | Anzahl |',

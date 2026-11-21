@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MessageBubble from './MessageBubble';
-import { useMessageSections } from './hooks/useMessageSections';
-import type { Message, MessageConflict } from './types';
+import { useMessageSections } from '../../hooks/useMessageSections';
+import type { Message, MessageConflict } from '../../types';
 
 // MessageBubble pulls in ThemeContext (t/language), AuthContext + ToastContext
 // (via the always-mounted §8 footer <MessageActions variant="inline">) and
@@ -11,16 +11,16 @@ import type { Message, MessageConflict } from './types';
 // same gap documented in Login.test.tsx). `t` is the identity function so
 // assertions can match on the raw translation keys instead of duplicating
 // the German/English copy here.
-vi.mock('./contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ t: (key: string) => key, language: 'en' as const }),
 }));
-vi.mock('./contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('./contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: null, siteConfigs: {} }),
 }));
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));

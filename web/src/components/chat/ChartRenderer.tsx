@@ -1,8 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, ScatterChart, Scatter, ZAxis } from 'recharts';
-import type { DataExplorerConfig, FileSchema } from '../types';
+import type { DataExplorerConfig, FileSchema } from '../../types';
 
-const DataExplorer = lazy(() => import('./dataExplorer/DataExplorer'));
+const DataExplorer = lazy(() => import('../dataExplorer/DataExplorer'));
 
 const COLORS = ['#165a97', '#2d8f4e', '#cc8400', '#c0392b', '#6a1b9a', '#d84315'];
 

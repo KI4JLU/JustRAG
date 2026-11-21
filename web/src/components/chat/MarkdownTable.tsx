@@ -1,12 +1,12 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { Download, Maximize2 } from 'lucide-react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { exportRowsToXlsx } from '../utils/exportXlsx';
+import { useTheme } from '../../contexts/ThemeContext';
+import { exportRowsToXlsx } from '../../utils/exportXlsx';
 
 // Lazy: the preview (SheetTable, row details) loads on the first "Maximize",
 // not with every chat answer.
-const LocalTablePreviewDialog = lazy(() => import('./tablePreview/LocalTablePreviewDialog').then(module => ({ default: module.LocalTablePreviewDialog })));
+const LocalTablePreviewDialog = lazy(() => import('../tablePreview/LocalTablePreviewDialog').then(module => ({ default: module.LocalTablePreviewDialog })));
 
 // Minimal hast (HTML AST) node shape — react-markdown passes the parsed node
 // for each rendered element via the `node` prop.
