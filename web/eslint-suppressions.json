@@ -9,7 +9,7 @@
       "count": 3
     }
   },
-  "src/components/ConfluenceTokenManager.tsx": {
+  "src/components/settings/ConfluenceTokenManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 6
     }

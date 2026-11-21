@@ -6,15 +6,15 @@ import {
     type AccentColor, type ColorsChoice, type ContrastChoice,
 } from '@ki4jlu/design-system';
 import type { Theme } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
-import ApiKeyManager from './apiKeys/ApiKeyManager';
-import { Choice } from './form/Choice';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
+import ApiKeyManager from '../apiKeys/ApiKeyManager';
+import { Choice } from '../form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import { userSettingsKeywords } from './userSettingsSearchKeywords';
-import type { Language } from '../translations';
-import { roleLabel } from '../utils/roleLabel';
-import { useAutoScrollEnabled, useChatWidth, useFollowUpsEnabled, usePromptSuggestionsEnabled, type ChatWidth } from '../hooks/useChatSuggestionPrefs';
+import type { Language } from '../../translations';
+import { roleLabel } from '../../utils/roleLabel';
+import { useAutoScrollEnabled, useChatWidth, useFollowUpsEnabled, usePromptSuggestionsEnabled, type ChatWidth } from '../../hooks/useChatSuggestionPrefs';
 
 export type SettingsTab = 'general' | 'chat' | 'profile' | 'connectors';
 

@@ -5,8 +5,8 @@ import { UserSettingsModal, type SettingsTab } from './UserSettingsModal';
 
 // Translation keys stand in for the labels, so the assertions name the setting, not its wording.
 const themeMock = { t: (k: string) => k, theme: 'light', setTheme: vi.fn(), language: 'de', setLanguage: vi.fn() };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: null, siteConfigs: {} }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: null, siteConfigs: {} }) }));
 
 /** A real in-memory Storage, installed fresh per test (jsdom's is unreliable on Node 25). */
 function memoryStorage(): Storage {

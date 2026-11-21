@@ -9,7 +9,7 @@ import {
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAppNav } from '../../contexts/AppNavContext';
-import { UserSettingsModal } from '../UserSettingsModal';
+import { UserSettingsModal } from '../settings/UserSettingsModal';
 import { openSettingsDialog, setSettingsDialogOpen, setSettingsDialogTab, useSettingsDialog } from '../../hooks/settingsDialog';
 import { openAdminDialog, setAdminDialogOpen, setAdminDialogSection, stripAdminDialog, useAdminDialog } from '../../hooks/adminDialog';
 import { roleLabel } from '../../utils/roleLabel';

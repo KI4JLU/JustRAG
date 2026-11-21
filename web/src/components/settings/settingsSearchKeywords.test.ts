@@ -2,8 +2,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ADMIN_SEARCH_KEYS } from './admin/adminSearchKeywords';
-import { KB_SETTINGS_SEARCH_KEYS } from './kbSettings/kbSettingsSearchKeywords';
+import { ADMIN_SEARCH_KEYS } from '../admin/adminSearchKeywords';
+import { KB_SETTINGS_SEARCH_KEYS } from '../kbSettings/kbSettingsSearchKeywords';
 import { USER_SETTINGS_SEARCH_KEYS } from './userSettingsSearchKeywords';
 
 /*
@@ -17,7 +17,8 @@ import { USER_SETTINGS_SEARCH_KEYS } from './userSettingsSearchKeywords';
  * Oracle: the source files themselves. A label built at runtime (`t(job.labelKey)`,
  * `RIGHT_LABEL_KEY[right]`) is not seen; list such keys by hand or from their table.
  */
-const HERE = dirname(fileURLToPath(import.meta.url));
+/** `components/`: the section paths below are relative to it. */
+const COMPONENTS = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 type Dialog = { name: string; keys: Record<string, readonly string[]>; files: Record<string, string[]> };
 
@@ -39,11 +40,11 @@ const DIALOGS: Dialog[] = [
         },
     },
     {
-        name: 'user settings (userSettingsSearchKeywords.ts)',
+        name: 'user settings (settings/userSettingsSearchKeywords.ts)',
         keys: USER_SETTINGS_SEARCH_KEYS,
         files: {
-            general: ['UserSettingsModal.tsx'],
-            connectors: ['apiKeys/ApiKeyManager.tsx', 'ConfluenceTokenManager.tsx'],
+            general: ['settings/UserSettingsModal.tsx'],
+            connectors: ['apiKeys/ApiKeyManager.tsx', 'settings/ConfluenceTokenManager.tsx'],
         },
     },
     {
@@ -73,7 +74,7 @@ function labelKeys(source: string): string[] {
     return LABEL_PATTERNS.flatMap((rx) => [...source.matchAll(rx)].map((m) => m[1]));
 }
 
-const read = (file: string) => readFileSync(resolve(HERE, file), 'utf8');
+const read = (file: string) => readFileSync(resolve(COMPONENTS, file), 'utf8');
 
 /** Tab files of the admin console without settings of their own (lists, tables, read-only references). */
 const ADMIN_NO_ROWS = ['AdminRolesTab.tsx', 'AdminGlobalKbsTab.tsx'];
@@ -97,7 +98,7 @@ describe('settings search keywords', () => {
     // A new admin tab or section file has to be listed above, or its rows escape the rule.
     it('covers every admin tab and section file', () => {
         const listed = new Set(Object.values(DIALOGS[0].files).flat().map((f) => f.replace('admin/', '')));
-        const files = readdirSync(resolve(HERE, 'admin')).filter((f) => /^Admin\w*(Tab|Section)\.tsx$/.test(f) && !ADMIN_NO_ROWS.includes(f));
+        const files = readdirSync(resolve(COMPONENTS, 'admin')).filter((f) => /^Admin\w*(Tab|Section)\.tsx$/.test(f) && !ADMIN_NO_ROWS.includes(f));
         expect(files.filter((f) => !listed.has(f))).toEqual([]);
     });
 });

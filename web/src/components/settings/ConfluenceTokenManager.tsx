@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { BookOpen, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
-import { getApiErrorMessage } from '../utils/apiError';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
-import { useModalContext } from '../contexts/ModalContext';
-import type { ConfluenceConnectionInfo } from '../types';
+import { getApiErrorMessage } from '../../utils/apiError';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useModalContext } from '../../contexts/ModalContext';
+import type { ConfluenceConnectionInfo } from '../../types';
 
 export default function ConfluenceTokenManager() {
     const { t } = useTheme();

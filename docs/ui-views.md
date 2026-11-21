@@ -183,7 +183,7 @@ text, Markdown, image, audio or video; Word files and spreadsheets do not.
 
 ### `?settings=` — user settings
 
-`components/UserSettingsModal.tsx`
+`components/settings/UserSettingsModal.tsx`
 
 | Tab | Content |
 |---|---|
