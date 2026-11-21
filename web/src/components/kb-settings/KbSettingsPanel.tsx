@@ -407,18 +407,6 @@ function FieldInput({ field, value, onChange }: { field: KbConfigField; value: s
       </select>
     );
   }
-  if (field.type === 'json') {
-    return (
-      <textarea
-        id={id}
-        data-testid={id}
-        rows={6}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ ...fieldInputStyle, minWidth: 320, resize: 'vertical' }}
-      />
-    );
-  }
   const numeric = field.type === 'int' || field.type === 'float';
   return (
     <input
