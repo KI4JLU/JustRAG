@@ -14,7 +14,7 @@ describe('fetchWorkflow', () => {
   beforeEach(() => vi.mocked(authFetch).mockReset());
   afterEach(() => vi.restoreAllMocks());
 
-  it('requests the selected lane without an agent or team binding', async () => {
+  it('requests the workflow endpoint with the lane as a query parameter', async () => {
     vi.mocked(authFetch).mockResolvedValue({
       ok: true,
       json: async () => ({ lane: 'lookup', nodes: [], edges: [], orchestrators: [], estLlmCalls: 0, estLatencyMs: 0 }),
@@ -22,7 +22,7 @@ describe('fetchWorkflow', () => {
 
     const g = await fetchWorkflow('kb-1', 'lookup');
 
-    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb-1/workflow?lane=lookup&binding=none');
+    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb-1/workflow?lane=lookup');
     expect(g.lane).toBe('lookup');
   });
 
@@ -34,7 +34,7 @@ describe('fetchWorkflow', () => {
 
     await fetchWorkflow('kb/1', 'lookup');
 
-    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb%2F1/workflow?lane=lookup&binding=none');
+    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb%2F1/workflow?lane=lookup');
   });
 
   it('throws with the status on a non-ok response', async () => {

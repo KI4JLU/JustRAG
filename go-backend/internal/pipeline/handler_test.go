@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -218,21 +217,6 @@ func TestGetWorkflowProjectsTheResolvedBinding(t *testing.T) {
 	}
 	if team.Activation != ActivationConditional {
 		t.Errorf("OrchTeam Activation = %q, want %q", team.Activation, ActivationConditional)
-	}
-}
-
-func TestGetWorkflowWithoutBindingProjectsStandardChat(t *testing.T) {
-	const target = "/api/kb/kb-1/workflow?lane=lookup"
-	globals := map[string]string{"chat_context_compression_enabled": "true"}
-	withTeam := NewHandler(fakeStore{}, fakeReader{vals: globals}, boundTeam())
-	got := getGraph(t, withTeam, target+"&binding=none")
-	want := getGraph(t, newTestHandler(nil, globals), target)
-
-	if n := nodeByIDIn(got, NodeCompression); n == nil || n.Activation != ActivationActive {
-		t.Fatalf("web chat should run context compression, got %+v", n)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Error("a saved team changed the workflow for a chat without a binding")
 	}
 }
 

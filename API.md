@@ -325,7 +325,6 @@ Discovery and subscription of public KBs. A subscription decides whether a publi
 
 - `/settings` are the per-KB overrides of the `site_config` registry; `DELETE /settings/{key}` falls back to the global value.
 - `POST /reembed` queues a full re-ingest of the KB; the panel offers it after saving a key marked `requiresReingest`.
-- `GET /kb/{id}/workflow?binding=none` projects the workflow for a chat without an agent or team, as used by web chat. Omitting `binding` projects the saved KB default. Both support the `lane` parameter.
 - `GET /workflow/preset` previews which settings a preset would overwrite; `POST` applies it. `GET /workflow/presets` is the deployment-wide preset catalogue.
 
 ### Behavior: roles and rules
