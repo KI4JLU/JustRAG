@@ -12,7 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getApiErrorMessage } from '../../utils/apiError';
 import type { KbCategory } from '../../types';
 import { AdminUnpublishDialog } from './AdminUnpublishDialog';
-import { KbListRow } from '../KbListRow';
+import { KbListRow } from './KbListRow';
 import { missingCardFields } from './globalKbCard';
 
 interface GlobalKbRow {
