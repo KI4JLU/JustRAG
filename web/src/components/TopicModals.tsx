@@ -7,9 +7,9 @@ const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(mod
 const PdfPreviewModal = lazy(() => import('./PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
 const MediaPreviewModal = lazy(() => import('./MediaPreviewModal').then(module => ({ default: module.MediaPreviewModal })));
 const TablePreviewDialog = lazy(() => import('./tablePreview/TablePreviewDialog').then(module => ({ default: module.TablePreviewDialog })));
-const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ default: module.WebWorkspace })));
+const WebResultsEditor = lazy(() => import('./WebResultsEditor').then(module => ({ default: module.WebResultsEditor })));
 
-export function KbWorkspaceModals() {
+export function TopicModals() {
   const { currentKb } = useKbCore();
   const { fileMgmt, webTools } = useKbData();
 
@@ -33,9 +33,9 @@ export function KbWorkspaceModals() {
         />}
       </Suspense>
 
-      {webTools.showWebWorkspace && currentKb && (
+      {webTools.showWebResults && currentKb && (
         <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50"><Loader2 className="animate-spin text-white" /></div>}>
-          <WebWorkspace
+          <WebResultsEditor
             type={webTools.toolTab === 'websearch' ? 'websearch' : 'crawl'}
             results={(webTools.toolTab === 'websearch' ? webTools.searchResults.map(r => ({ ...r, content: r.content ?? '' })) : webTools.crawlResults)}
             selectedUrls={webTools.selectedPages}
@@ -54,7 +54,7 @@ export function KbWorkspaceModals() {
               }
             }}
             onAddSources={webTools.handleAddSources}
-            onClose={() => webTools.setShowWebWorkspace(false)}
+            onClose={() => webTools.setShowWebResults(false)}
             onUpdateResult={webTools.handleUpdateWebResult}
             onStartEdit={webTools.handleStartEditWebResult}
           />

@@ -9,7 +9,7 @@ import type { SearchDefaultGroup } from '../components/GlobalSearch';
 /**
  * The account group of the search field's default list — the user menu's
  * entries (`AppUserMenu`), in its order, so ⌘K reaches them too. Shared by the
- * shell header and the topic workspace search, and always their LAST group:
+ * shell header and the topic search, and always their LAST group:
  * „Abmelden" ends the list.
  */
 export function useAccountSearchGroup(): SearchDefaultGroup {

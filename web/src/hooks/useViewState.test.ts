@@ -21,7 +21,7 @@ function setup(showFilesTab = true) {
 // dx = end.x - start.x. dx < 0 (drag left) triggers onSwipeLeft, which in
 // useViewState advances TAB_ORDER forward. dx > 0 (drag right) triggers
 // onSwipeRight, which moves backward. TAB_ORDER = [history, chat, files] (no
-// workspace tab since 22.09.2026 — the KB has one main-area view, the chat).
+// tools tab since 22.09.2026 — the KB has one main-area view, the chat).
 function swipeLeft(result: ReturnType<typeof setup>['result']) {
   act(() => {
     result.current.swipeHandlers.onTouchStart(touchStart(200));
@@ -51,7 +51,7 @@ describe('useViewState swipe navigation', () => {
     expect(result.current.mobileTab).toBe('history');
   });
 
-  it('Swipe links von chat landet direkt auf files (kein Workspace-Reiter mehr)', () => {
+  it('Swipe links von chat landet direkt auf files (kein Werkzeug-Reiter mehr)', () => {
     const { result } = setup();
     swipeLeft(result);
     expect(result.current.mobileTab).toBe('files');

@@ -20,7 +20,7 @@ interface WebSearchProps {
     webResearchProgress: { step: number; total: number };
     onCancelWebResearch: () => void;
     hasResults?: boolean;
-    onOpenWorkspace?: () => void;
+    onOpenWebResults?: () => void;
 }
 
 interface SourcesGridProps {
@@ -154,12 +154,12 @@ const SourcesGridComp: React.FC<SourcesGridProps> = ({ onSelect, webSearch }) =>
                                 </Tooltip>
                             )}
                         </div>
-                        {webSearch.hasResults && webSearch.onOpenWorkspace && (
+                        {webSearch.hasResults && webSearch.onOpenWebResults && (
                             <button
-                                onClick={webSearch.onOpenWorkspace}
+                                onClick={webSearch.onOpenWebResults}
                                 className="sources-grid__search-results-link"
                             >
-                                {t('openWorkspace')}
+                                {t('editWebResults')}
                             </button>
                         )}
                         {/* A running research report belongs to this box: its status

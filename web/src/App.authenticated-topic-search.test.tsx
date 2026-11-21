@@ -7,11 +7,11 @@ import App from './App';
 import { translations } from './translations';
 
 /* ---------------------------------------------------------------------------
- * The workspace header's topic-scoped search, on the real route (KI-838).
+ * The topic header's scoped search, on the real route.
  *
- * The route into the workspace is the header search itself (a chat hit,
+ * The route into the topic view is the header search itself (a chat hit,
  * KI-837), so every test starts inside topic kb-1 with chat-7 on screen. From
- * there it exercises what only the workspace does:
+ * there it exercises what only the topic view does:
  *  - the request carries `kb_id=kb-1` and the field NAMES the topic;
  *  - a hit in the SAME topic swaps the chat or opens the preview WITHOUT
  *    reopening the topic (reopening runs `handleNewChat`, which would replace
@@ -87,7 +87,7 @@ const MESSAGES: Record<string, [string, string]> = {
 const PREVIEW_BODY = 'Paragraph 12 regelt die Wiederholung von Prüfungen.';
 
 const empty = { topics: [], sources: [], chats: [], messages: [] };
-/** Header search (no kb_id), used to enter the workspace. */
+/** Header search (no kb_id), used to enter the topic view. */
 const ENTRY_SEARCH = { query: 'Prüf', kbId: null, ...empty, chats: [chatHit('77777777-7777-4777-8777-777777777777', '11111111-1111-4111-8111-111111111111', 'Prüfungsordnungen', 'Prüfungsfragen')] };
 /** Scoped to kb-1: a second chat and a markdown source of the same topic. */
 const SCOPED_SEARCH = {
@@ -179,7 +179,7 @@ afterEach(() => {
 const urls = () => mockedGet.mock.calls.map(([u]) => String(u));
 const count = (re: RegExp) => urls().filter((u) => re.test(u)).length;
 const searchUrls = () => urls().filter((u) => u.includes('/api/search?'));
-const scopedName = translations.workspaceSearchPlaceholder.de.replace('{topic}', 'Prüfungsordnungen');
+const scopedName = translations.topicSearchPlaceholder.de.replace('{topic}', 'Prüfungsordnungen');
 
 /** The search is a palette: „Suchen" in the sidebar opens it. */
 async function openPalette() {
@@ -188,7 +188,7 @@ async function openPalette() {
 }
 
 /** Boots the app and enters topic kb-1 with chat-7 on screen, via the header search. */
-async function enterWorkspace() {
+async function enterTopic() {
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: translations.myTopics.de }, { timeout: 15000 });
   await openPalette();
@@ -202,9 +202,9 @@ async function enterWorkspace() {
 
 const activeOption = (field: HTMLElement) => document.getElementById(field.getAttribute('aria-activedescendant') ?? '');
 
-describe('App — the workspace header search, scoped to the open topic', () => {
+describe('App — the topic header search, scoped to the open topic', () => {
   it('names the topic, sends kb_id, and omits the Topics group', async () => {
-    const field = await enterWorkspace();
+    const field = await enterTopic();
     // ORACLE: translations.ts with the fixture's topic name — the scope is in
     // the accessible name, i.e. audible, and in the placeholder.
     expect(field).toHaveAttribute('placeholder', scopedName);
@@ -219,11 +219,11 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     ]);
     // The fixture carries a topic hit; scoped mode shows no Topics group.
     expect(within(listbox).queryByRole('group', { name: translations.globalSearchGroupTopics.de })).toBeNull();
-    expect(within(listbox).getByRole('option', { name: translations.workspaceSearchAllTopics.de })).toBeInTheDocument();
+    expect(within(listbox).getByRole('option', { name: translations.topicSearchAllTopics.de })).toBeInTheDocument();
   }, 30000);
 
   it('swaps to a chat of the SAME topic without reopening the topic', async () => {
-    const field = await enterWorkspace();
+    const field = await enterTopic();
     const topicOpens = count(/\/api\/kb\/11111111-1111-4111-8111-111111111111$/);
     expect(topicOpens).toBe(1);
 
@@ -243,7 +243,7 @@ describe('App — the workspace header search, scoped to the open topic', () => 
   }, 30000);
 
   it('opens a source of the SAME topic in the preview and keeps the chat on screen', async () => {
-    const field = await enterWorkspace();
+    const field = await enterTopic();
     const topicOpens = count(/\/api\/kb\/11111111-1111-4111-8111-111111111111$/);
 
     await userEvent.type(field, 'Wied');
@@ -258,15 +258,15 @@ describe('App — the workspace header search, scoped to the open topic', () => 
   }, 30000);
 
   it('widens the same text to all topics with the caret kept, and a hit elsewhere navigates there', async () => {
-    const field = await enterWorkspace();
+    const field = await enterTopic();
     await userEvent.type(field, 'Stat');
-    await screen.findByRole('option', { name: translations.workspaceSearchAllTopics.de });
+    await screen.findByRole('option', { name: translations.topicSearchAllTopics.de });
 
     // The widen row is the LAST option; the list loops, so ↑ from the first
     // lands on it. Keyboard-reachable, and announced as the active option.
     await waitFor(() => expect(activeOption(field)).not.toBeNull());
     await userEvent.keyboard('{ArrowUp}');
-    expect(activeOption(field)).toHaveAccessibleName(translations.workspaceSearchAllTopics.de);
+    expect(activeOption(field)).toHaveAccessibleName(translations.topicSearchAllTopics.de);
     await userEvent.keyboard('{Enter}');
 
     // ORACLE: the recorded URL — the same q, now WITHOUT kb_id.
@@ -278,7 +278,7 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     expect(field).toHaveAccessibleName(translations.globalSearchPlaceholder.de);
     // Widened results have a Topics group, and no second widen row.
     expect(screen.getByRole('group', { name: translations.globalSearchGroupTopics.de })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: translations.workspaceSearchAllTopics.de })).toBeNull();
+    expect(screen.queryByRole('option', { name: translations.topicSearchAllTopics.de })).toBeNull();
 
     // A hit in ANOTHER topic navigates like the header: topic, then chat.
     await userEvent.click(widened);
@@ -287,14 +287,14 @@ describe('App — the workspace header search, scoped to the open topic', () => 
     // …and the palette, opened again, now names the new topic.
     await openPalette();
     expect(await screen.findByRole('combobox', {
-      name: translations.workspaceSearchPlaceholder.de.replace('{topic}', 'Statistik'),
+      name: translations.topicSearchPlaceholder.de.replace('{topic}', 'Statistik'),
     })).toBeInTheDocument();
   }, 30000);
 
   it('closes the palette on Escape and starts scoped again when it is opened after widening', async () => {
-    const field = await enterWorkspace();
+    const field = await enterTopic();
     await userEvent.type(field, 'Stat');
-    await userEvent.click(await screen.findByRole('option', { name: translations.workspaceSearchAllTopics.de }));
+    await userEvent.click(await screen.findByRole('option', { name: translations.topicSearchAllTopics.de }));
     await screen.findByRole('option', { name: /Statistik-Grundlagen/ });
 
     // One Escape closes the list and the palette with it.
@@ -314,15 +314,15 @@ describe('App — the workspace header search, scoped to the open topic', () => 
 
   it('says the topic is unavailable on a 404, offers all topics, and raises no toast', async () => {
     scopedSearch = () => Promise.reject({ response: { status: 404 } });
-    const field = await enterWorkspace();
+    const field = await enterTopic();
     await userEvent.type(field, 'Modul');
 
-    const line = await screen.findByText(translations.workspaceSearchTopicUnavailable.de, {}, { timeout: 2000 });
+    const line = await screen.findByText(translations.topicSearchTopicUnavailable.de, {}, { timeout: 2000 });
     expect(line).toHaveAttribute('role', 'status');
     expect(screen.queryByText(translations.globalSearchError.de)).toBeNull();
     // The combobox registers its items after mount; on a slow runner the
     // option can land a tick after the status line.
-    expect(await screen.findByRole('option', { name: translations.workspaceSearchAllTopics.de }, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: translations.topicSearchAllTopics.de }, { timeout: 2000 })).toBeInTheDocument();
     const toasts = document.querySelector('.toast-container');
     expect(toasts).not.toBeNull();
     expect(toasts!.textContent).toBe('');

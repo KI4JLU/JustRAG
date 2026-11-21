@@ -135,7 +135,7 @@ const heading = (key: keyof typeof translations) =>
   screen.findByRole('heading', { level: 1, name: translations[key].de }, SLOW);
 
 /** The topic view is on screen: its bar names the topic as the current page. */
-const workspaceSearch = () => screen.findByText(KB1.name, { selector: '[aria-current="page"]' }, SLOW);
+const topicOpen = () => screen.findByText(KB1.name, { selector: '[aria-current="page"]' }, SLOW);
 
 const path = () => window.location.pathname;
 
@@ -190,7 +190,7 @@ describe('App routing — signed in', () => {
     window.history.replaceState(null, '', KB_URL);
     render(<App />);
 
-    expect(await workspaceSearch()).toBeInTheDocument();
+    expect(await topicOpen()).toBeInTheDocument();
     const paths = mockedGet.mock.calls.map(([url]) => new URL(url, window.location.origin).pathname);
     expect(paths).toContain(`/api/kb/${KB_ID}`);
     expect(paths).toContain(`/api/kb/${KB_ID}/chats`);
@@ -202,7 +202,7 @@ describe('App routing — signed in', () => {
     render(<App />);
     await heading('myTopics');
     await act(async () => { window.history.pushState(null, '', KB_URL); window.dispatchEvent(new PopStateEvent('popstate')); });
-    await workspaceSearch();
+    await topicOpen();
 
     await goBack();
     expect(await heading('myTopics')).toBeInTheDocument();
@@ -264,7 +264,7 @@ describe('App routing — chats', () => {
   it('writes a chat picked in the history into the URL, as a step back can undo', async () => {
     window.history.replaceState(null, '', KB_URL);
     render(<App />);
-    await workspaceSearch();
+    await topicOpen();
 
     await userEvent.click(await screen.findByText('Pflichtmodule', {}, SLOW));
     expect(await answer(C8)).toBeInTheDocument();
@@ -422,7 +422,7 @@ describe('App routing — before sign-in', () => {
     render(<App />);
 
     // 3. They land on the topic they asked for, and the parked path is gone.
-    expect(await workspaceSearch()).toBeInTheDocument();
+    expect(await topicOpen()).toBeInTheDocument();
     expect(path()).toBe(KB_URL);
     expect(window.location.hash).toBe('');
     expect(sessionStorage.getItem(POST_LOGIN_PATH_KEY)).toBeNull();

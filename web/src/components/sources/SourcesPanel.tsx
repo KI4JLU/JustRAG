@@ -53,7 +53,7 @@ const SourcesPanelComp: React.FC = () => {
         toolLoading, handleToolSubmit, crawlResults, searchResults,
         handlePreviewSource,
         webResearchRunning, webResearchStatus, webResearchProgress, handleCancelWebResearch,
-        setShowWebWorkspace, sourcesAddedCount,
+        setShowWebResults, sourcesAddedCount,
     } = webTools;
 
     // What the caller may do with the sources (backend capabilities, see
@@ -65,14 +65,14 @@ const SourcesPanelComp: React.FC = () => {
     //  - manageSources: delete, retry, sync, pause, schedule.
     //  - downloadSources: download, the preview on click and on hover.
     const { addSources: canAdd, manageSources: canManage, downloadSources: canDownload } = useKbSourceRights();
-    // Files dragged anywhere over the workspace turn the source list into a
+    // Files dragged anywhere over the topic view turn the source list into a
     // dropzone.
     const fileDragActive = useWindowFileDrag(canAdd);
     // A KB with no sources at all keeps the dropzone as its list (the empty
-    // workspace placeholder); it opens the file picker on click / Enter too.
+    // topic view placeholder); it opens the file picker on click / Enter too.
     const noSourcesYet = canAdd && filesLoaded && files.length === 0 && uploads.length === 0
         && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0;
-    const handleOpenWorkspace = useCallback(() => setShowWebWorkspace(true), [setShowWebWorkspace]);
+    const handleOpenWebResults = useCallback(() => setShowWebResults(true), [setShowWebResults]);
 
     const [activeSourceModal, setActiveSourceModal] = useState<SourceType | null>(null);
     // The open details dialog (hooks/sourceDetails): kind + id, resolved
@@ -222,7 +222,7 @@ const SourcesPanelComp: React.FC = () => {
                                     webResearchProgress,
                                     onCancelWebResearch: handleCancelWebResearch,
                                     hasResults: searchResults.length > 0 || crawlResults.length > 0,
-                                    onOpenWorkspace: handleOpenWorkspace,
+                                    onOpenWebResults: handleOpenWebResults,
                                 }}
                             />
                         )}
@@ -353,7 +353,7 @@ const SourcesPanelComp: React.FC = () => {
                 crawlMaxPages={crawlMaxPages}
                 setCrawlMaxPages={setCrawlMaxPages}
                 crawlResults={crawlResults}
-                onOpenWorkspace={handleOpenWorkspace}
+                onOpenWebResults={handleOpenWebResults}
             />
             <RssModal
                 show={activeSourceModal === 'rss'}

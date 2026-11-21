@@ -79,7 +79,7 @@ export const translations = {
      * — because those are what the developer called them. What is
      * new is the ENTITY: a knowledge base is a „Thema" / „topic" on these four
      * pages. The rename is deliberately scoped to them (developer ruling): the
-     * KB settings panel, the workspace, the admin console and every toast still
+     * KB settings panel, the topic view, the admin console and every toast still
      * say Knowledge Base, so `myKBs` / `newKB` / `createNewKb` above stay and
      * are still used there. Two vocabularies coexist until the rest follows.
      *
@@ -808,13 +808,13 @@ export const translations = {
     globalSearchNoResults: { de: 'Keine Treffer für „{query}“', en: 'No results for “{query}”' },
     globalSearchRateLimited: { de: 'Zu viele Suchanfragen – bitte einen Moment warten.', en: 'Too many searches – please wait a moment.' },
     globalSearchError: { de: 'Die Suche ist gerade nicht verfügbar.', en: 'Search is unavailable right now.' },
-    /* The workspace's topic-scoped search (card KI-838). `{topic}` is the
+    /* The topic header's scoped search. `{topic}` is the
      * topic's name — the placeholder doubles as the accessible name, so the
      * scope is audible, not only visible. */
-    workspaceSearchPlaceholder: { de: 'In „{topic}“ suchen…', en: 'Search in “{topic}”…' },
-    workspaceSearchAllTopics: { de: 'In allen Themen suchen', en: 'Search all topics' },
-    workspaceSearchNoResults: { de: 'Keine Treffer für „{query}“ in diesem Thema', en: 'No results for “{query}” in this topic' },
-    workspaceSearchTopicUnavailable: { de: 'Dieses Thema ist nicht mehr verfügbar. Du kannst in allen Themen suchen.', en: 'This topic is no longer available. You can search all topics instead.' },
+    topicSearchPlaceholder: { de: 'In „{topic}“ suchen…', en: 'Search in “{topic}”…' },
+    topicSearchAllTopics: { de: 'In allen Themen suchen', en: 'Search all topics' },
+    topicSearchNoResults: { de: 'Keine Treffer für „{query}“ in diesem Thema', en: 'No results for “{query}” in this topic' },
+    topicSearchTopicUnavailable: { de: 'Dieses Thema ist nicht mehr verfügbar. Du kannst in allen Themen suchen.', en: 'This topic is no longer available. You can search all topics instead.' },
     globalSearchShowAllInDiscover: { de: 'Alle passenden Themen in „Entdecken“ anzeigen', en: 'Show all matching topics in Discover' },
     /* The catalog's empty state. Two keys, because it renders as a heading and
      * a line under it — a `\n` in one string cannot carry that. It replaces the
@@ -1078,7 +1078,9 @@ export const translations = {
     summary: { de: 'Zusammenfassung', en: 'Summary' },
 
     // Empty sources state
-    openWorkspace: { de: 'Workspace öffnen', en: 'Open workspace' },
+    editWebResults: { de: 'Ergebnisse bearbeiten', en: 'Edit results' },
+    /* Title of the web results editor; `{source}` is „Websearch“ or „Crawl“. */
+    webResultsTitle: { de: '{source} – Ergebnisse', en: '{source} – results' },
 
     // Onboarding Tour
 

@@ -2,12 +2,12 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AppShellLayoutProps } from '@ki4jlu/design-system';
-import { AppFrame, type WorkspaceFrame } from './AppChrome';
+import { AppFrame, type TopicFrame } from './AppChrome';
 
 /* ---------------------------------------------------------------------------
  * What this file can and cannot assert, after the move to `AppShellLayout`.
  *
- * The subject is `AppFrame` with a topic open (its `workspace` prop). It does
+ * The subject is `AppFrame` with a topic open (its `topic` prop). It does
  * not BUILD a three-column frame — it hands one to the design system and
  * injects content plus controlled state. So the thing
  * under test is the wiring, and the honest way to read it is to capture what
@@ -17,7 +17,7 @@ import { AppFrame, type WorkspaceFrame } from './AppChrome';
  * `Button` are the shipped components.
  *
  * THE ORACLE IS NOT THIS COMPONENT'S OUTPUT. The left column (the frame's own
- * state) and the sources card (the workspace's) carry DELIBERATELY DIFFERENT
+ * state) and the sources card (the topic view's) carry DELIBERATELY DIFFERENT
  * numbers (320 vs 500) and opposite open states, so a wiring that reads the left state into the right column — the
  * mistake this file is here to catch — comes out red rather than plausible.
  * The arrangement itself (which column is where, how it collapses, what the
@@ -54,8 +54,8 @@ vi.mock('./history/HistoryPanel', () => ({
   NewChatButton: () => <div data-testid="new-chat-button" />,
 }));
 // The search reads four contexts of its own; its behaviour is
-// App.authenticated-workspace-search.test.tsx's subject, not this file's.
-vi.mock('./WorkspaceSearch', () => ({ WorkspaceSearch: () => <div data-testid="workspace-search" /> }));
+// App.authenticated-topic-search.test.tsx's subject, not this file's.
+vi.mock('./TopicSearch', () => ({ TopicSearch: () => <div data-testid="topic-search" /> }));
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 // The history buttons read the router; their subject is the desktop title bar.
 vi.mock('./HistoryControls', () => ({ HistoryControls: () => null }));
@@ -113,7 +113,7 @@ const setRightSidebarWidth = vi.fn();
 const setSystemPromptOpen = vi.fn();
 
 /** The open topic as AuthenticatedApp hands it over, read at render time from the variables above. */
-const workspaceFor = (mobileTab: 'history' | 'chat' | 'files', setMobileTab: (tab: string) => void): WorkspaceFrame => ({
+const topicFor = (mobileTab: 'history' | 'chat' | 'files', setMobileTab: (tab: string) => void): TopicFrame => ({
   core: {
     currentKb: { id: 'kb1', name: 'TEST', ...kbExtra },
     kbMgmt: { handleRenameKB: vi.fn(), globalKbs: subscribedKbs },
@@ -128,7 +128,7 @@ const workspaceFor = (mobileTab: 'history' | 'chat' | 'files', setMobileTab: (ta
   mobileTab,
   setMobileTab,
   swipeHandlers: noSwipe,
-} as unknown as WorkspaceFrame);
+} as unknown as TopicFrame);
 
 const noSwipe = { onTouchStart: vi.fn(), onTouchEnd: vi.fn() };
 
@@ -144,7 +144,7 @@ beforeEach(() => {
 
 const renderLayout = (mobileTab: 'history' | 'chat' | 'files' = 'chat', setMobileTab = vi.fn()) => {
   const result = render(
-    <AppFrame active={null} workspace={workspaceFor(mobileTab, setMobileTab)}>
+    <AppFrame active={null} topic={topicFor(mobileTab, setMobileTab)}>
       <div data-testid="chat-view" />
     </AppFrame>,
   );
@@ -180,7 +180,7 @@ describe('AppFrame, topic open — was die Shell bekommt', () => {
     expect(shellProps.rightPanel?.collapsedPreview).toBeUndefined();
   });
 
-  it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung — kein Workspace mehr', () => {
+  it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung — kein vierter Reiter mehr', () => {
     renderLayout();
     expect(shellProps.mobileTabs?.map(tab => [tab.id, tab.pane])).toEqual([
       ['history', 'left'],
@@ -220,8 +220,8 @@ describe('AppFrame, topic open — Systemmeldung (KI-936)', () => {
 });
 
 describe('AppFrame, topic open Quellen-Sichtbarkeit', () => {
-  it('nimmt die Quellenspalte nie heraus — es gibt keine Workspace-Ansicht mehr (22.09.2026)', () => {
-    // Bis zum 22.09.2026 blendete `showRight={false}` die Spalte im Workspace
+  it('nimmt die Quellenspalte nie heraus — seit dem 22.09.2026', () => {
+    // Bis zum 22.09.2026 blendete `showRight={false}` die Spalte im alten Werkzeug-Reiter
     // aus. Die Ansicht gibt es nicht mehr, also keinen Zustand, in dem die
     // Spalte fehlen dürfte.
     renderLayout();
@@ -264,7 +264,7 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     expect(label.getByText('TEST')).toHaveAttribute('aria-current', 'page');
     // The back arrow it replaces is gone.
     expect(screen.queryByRole('button', { name: 'backToOverview' })).toBeNull();
-    // Der alte Reiter-Block (Chat / Bericht / Mindmap / Workspace) und die
+    // Der alte Reiter-Block (Chat / Bericht / Mindmap / Werkzeuge) und die
     // rechte Knopfgruppe (Sprache, Teilen, KB-Einstellungen) sind mit der
     // `chat-header` gegangen und haben hier keinen Ersatz — das ist Absicht
     // und Aufgabe der Folgekarte. Rechts steht seit dem 22.09.2026 nur das
@@ -284,12 +284,12 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     // The bar has no search field any more: „Suchen" in the history column
     // (HistoryPanel) or ⌘K opens the palette, which is closed at rest.
     expect(shellProps.search).toBeUndefined();
-    expect(screen.queryByTestId('workspace-search')).toBeNull();
+    expect(screen.queryByTestId('topic-search')).toBeNull();
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
     const actions = screen.getByTestId('actions');
     // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
     expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'topicSettingsButton' })]);
-    expect(within(actions).queryByTestId('workspace-search')).toBeNull();
+    expect(within(actions).queryByTestId('topic-search')).toBeNull();
     // The way back stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
     expect(screen.getByRole('link', { name: 'sharedTopics' })).toBeInTheDocument();

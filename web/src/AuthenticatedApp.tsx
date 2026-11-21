@@ -42,9 +42,9 @@ import { useChatRoute, useChatTopic } from './hooks/useChatRoute';
 import { MyTopicsView } from './components/MyTopicsView';
 import { SharedTopicsView } from './components/SharedTopicsView';
 import { DiscoverView } from './components/DiscoverView';
-import { AppFrame, WorkspaceProviders, type AppChromeView, type WorkspaceFrame } from './components/AppChrome';
+import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from './components/AppChrome';
 import { ChatView } from './components/ChatView';
-import { KbWorkspaceModals } from './components/KbWorkspaceModals';
+import { TopicModals } from './components/TopicModals';
 
 // Lazy load heavy components
 const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
@@ -117,8 +117,8 @@ function AuthenticatedAppInner() {
   // A chat URL (`/c/<id>`) names the chat alone; its topic is the chat's own.
   const routeChatId = route.view === 'chat' ? route.chatId : null;
   const chatTopic = useChatTopic(routeChatId);
-  /** A topic's workspace: its new chat (`/kb/<id>`) or one of its chats (`/c/<id>`). */
-  const onWorkspace = view === 'kb' || view === 'chat';
+  /** A topic's view: its new chat (`/kb/<id>`) or one of its chats (`/c/<id>`). */
+  const onTopic = view === 'kb' || view === 'chat';
 
   /* The advanced settings page (RAG settings, evals, workflow; KbSettingsPanel)
    * deliberately has NO URL: it is experimental and partly deprecated, so it
@@ -170,7 +170,7 @@ function AuthenticatedAppInner() {
    *
    * A chat URL whose chat is the one on screen belongs to the open topic, with
    * no lookup: a new chat's first answer switches `/kb/<id>` to `/c/<chat>`,
-   * and waiting even one render for the chat's topic would drop the workspace
+   * and waiting even one render for the chat's topic would drop the topic view
    * for a spinner and mount it again — a visible flicker mid-answer. */
   const routeKbId = 'kbId' in route ? route.kbId
     : routeChatId && routeChatId === chat.activeChatId && currentKb ? currentKb.id
@@ -178,7 +178,7 @@ function AuthenticatedAppInner() {
     : null;
   const routeKb = currentKb && currentKb.id === routeKbId ? currentKb : null;
   // Thema-Einstellungen: open for one topic at a time (see useTopicSettings).
-  const topicSettings = useTopicSettings(onWorkspace && routeKb !== null);
+  const topicSettings = useTopicSettings(onTopic && routeKb !== null);
 
   const webTools = useWebTools({
     currentKb,
@@ -273,7 +273,7 @@ function AuthenticatedAppInner() {
 
   // The chat on screen and the chat in the URL (/c/<id>, or /kb/<id> for a new chat).
   useChatRoute({
-    kbId: onWorkspace && routeKb ? routeKb.id : null,
+    kbId: onTopic && routeKb ? routeKb.id : null,
     routeChatId,
     routeChatEntry: chatTopic.topic?.status === 'found' ? chatTopic.topic.entry : null,
     rememberTopic: chatTopic.remember,
@@ -440,14 +440,14 @@ function AuthenticatedAppInner() {
     return <LegalPage page={view} onBack={goHome} siteConfigs={siteConfigs} />;
   }
 
-  /* The overview pages and the topic workspace share ONE shell (`AppFrame`),
+  /* The overview pages and the topic view share ONE shell (`AppFrame`),
    * returned from this one place, so the sidebar stays mounted when the main
    * area changes. Everything below builds what goes into it. */
-  const workspaceKb = onWorkspace ? routeKb : null;
-  let workspace: WorkspaceFrame | null = null;
-  if (workspaceKb) {
+  const topicKb = onTopic ? routeKb : null;
+  let topic: TopicFrame | null = null;
+  if (topicKb) {
   const coreValue: KbCoreContextValue = {
-      currentKb: workspaceKb,
+      currentKb: topicKb,
       isPro: kbSettings.isPro,
       availableConfigs: kbSettings.availableConfigs,
       kbMgmt,
@@ -508,7 +508,7 @@ function AuthenticatedAppInner() {
       setSystemPromptSection: topicSettings.setSection,
     };
 
-    workspace = {
+    topic = {
       core: coreValue, chat: chatValue, data: dataValue, layout: layoutValue,
       mobileTab: viewState.mobileTab,
       setMobileTab: viewState.setMobileTab,
@@ -522,15 +522,15 @@ function AuthenticatedAppInner() {
   const { handleSelectChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
   const subscribedIds = new Set(kbMgmt.globalKbs.map(kb => kb.id));
   const chatHistory: ChatHistoryHost = {
-    activeChatId: workspace ? chat.activeChatId : null,
-    openTopicId: workspace ? workspace.core.currentKb.id : null,
+    activeChatId: topic ? chat.activeChatId : null,
+    openTopicId: topic ? topic.core.currentKb.id : null,
     sectionOf: (c) => topicSection({
       isPublic: c.kbVisibility === 'public',
       isOwner: c.kbRole === 'owner',
       isSubscribed: subscribedIds.has(c.kbId),
     }),
     openChat: (c) => {
-      if (workspace && c.kbId === workspace.core.currentKb.id) {
+      if (topic && c.kbId === topic.core.currentKb.id) {
         // The chat already on screen is not loaded again: that would replace
         // the local state of a running answer.
         if (c.id !== chat.activeChatId) void handleSelectChat(c);
@@ -540,7 +540,7 @@ function AuthenticatedAppInner() {
     },
     deleteChats: handleDeleteChats,
     renameChat: handleRenameChat,
-    newChat: workspace ? handleNewChat : null,
+    newChat: topic ? handleNewChat : null,
     newTopic: () => { void kbMgmt.handleCreateKB(); },
   };
 
@@ -586,7 +586,7 @@ function AuthenticatedAppInner() {
         onToggleFavorite={kbMgmt.handleToggleFavorite}
       />
     );
-  } else if (workspace) {
+  } else if (topic) {
     main = <ChatView />;
   } else {
     // A topic URL whose topic is still loading: the spinner, in the main area.
@@ -610,14 +610,14 @@ function AuthenticatedAppInner() {
           currentKb={currentKb}
           refreshKey={`${view}:${currentKb?.id ?? ''}:${chat.chats.length}`}
         >
-          <AppFrame active={active} workspace={workspace}>
+          <AppFrame active={active} topic={topic}>
             {main}
           </AppFrame>
         </ChatHistoryStore>
-        {workspace && (
-          <WorkspaceProviders value={workspace}>
-            <KbWorkspaceModals />
-          </WorkspaceProviders>
+        {topic && (
+          <TopicProviders value={topic}>
+            <TopicModals />
+          </TopicProviders>
         )}
       </KbSearchProvider>
     </AppNavProvider>

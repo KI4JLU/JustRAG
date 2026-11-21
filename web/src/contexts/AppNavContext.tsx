@@ -59,7 +59,7 @@ export interface AppNavContextValue {
   /**
    * Open a topic with its „Thema-Einstellungen" on `section` — „Teilen" on the
    * topic cards opens Mitglieder. The caller gates the entry point with
-   * canOpenKbTopicSettings; the workspace applies the same gate again.
+   * canOpenKbTopicSettings; the topic view applies the same gate again.
    */
   onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
   /**

@@ -59,7 +59,7 @@
       "count": 7
     }
   },
-  "src/components/WebWorkspace.tsx": {
+  "src/components/WebResultsEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 8
     }

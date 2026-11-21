@@ -537,7 +537,7 @@ describe('HistoryPanel', () => {
     //
     // Der Oracle ist NICHT die Ausgabe dieser Komponente, sondern die
     // Zuständigkeit: `AppFrame` hängt das Panel in `nav` ein und
-    // führt links `isLeftSidebarOpen` — geprüft in AppFrame.workspace.test.tsx.
+    // führt links `isLeftSidebarOpen` — geprüft in AppFrame.topic.test.tsx.
     // Hier bleibt die Gegenprobe: das Panel selbst führt nichts davon.
     const { container } = render(<HistoryPanel />);
     expect(container.querySelector('aside')).toBeNull();

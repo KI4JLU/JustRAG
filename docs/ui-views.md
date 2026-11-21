@@ -20,8 +20,8 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 | `/` | `my-topics` | `components/MyTopicsView.tsx` | `AppFrame` |
 | `/shared` | `shared-topics` | `components/SharedTopicsView.tsx` | `AppFrame` |
 | `/discover` | `discover` | `components/DiscoverView.tsx` | `AppFrame` |
-| `/kb/<id>` | `kb` | `components/ChatView.tsx` on a new chat | `AppFrame` with workspace |
-| `/c/<id>` | `chat` | `components/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with workspace |
+| `/kb/<id>` | `kb` | `components/ChatView.tsx` on a new chat | `AppFrame` with a topic |
+| `/c/<id>` | `chat` | `components/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
 | `/kb/<id>/admin` | `global-kb-settings` | `components/GlobalKbSettings.tsx` | Full page |
 | `/terms`, `/privacy`, `/accessibility` | same as path | `components/LegalPage.tsx` | Full page |
 | Anything else, or an id segment that is no id | `not-found` | See redirects | — |
@@ -53,7 +53,7 @@ a join link is replaced with `/`.
 
 ## The shell (`AppFrame`)
 
-`components/AppChrome.tsx`. One shell for the three overview pages and the topic workspace, so
+`components/AppChrome.tsx`. One shell for the three overview pages and the topic view, so
 the sidebar stays mounted when the main area changes. Layout comes from the design system's
 `AppShellLayout`. Full pages render without it.
 
@@ -81,7 +81,7 @@ the sidebar stays mounted when the main area changes. Layout comes from the desi
 | Where | Search | Empty field offers |
 |---|---|---|
 | Overview page | `GlobalSearch`: topics, sources, chats, chat content; „show all in Entdecken" on topic hits | The other overview pages, account actions |
-| Topic | `components/WorkspaceSearch.tsx`: the topic's sources, chats and chat content; „search all topics" widens it | New chat, up to three recent chats of the topic, account actions |
+| Topic | `components/TopicSearch.tsx`: the topic's sources, chats and chat content; „search all topics" widens it | New chat, up to three recent chats of the topic, account actions |
 
 The palette has loading, empty, error, rate-limited and unavailable states.
 
@@ -112,7 +112,7 @@ Categories are the platform's; each user chooses which chips show.
 - Creating and renaming a topic use a text-entry dialog.
 - Access rules: `docs/kb-access.md`.
 
-## Topic workspace
+## Topic view
 
 Rendered for `/kb/<id>` and `/c/<id>`. While the topic resolves, the main area shows a spinner.
 
@@ -152,7 +152,7 @@ action needs the site flag `chat_web_search_enabled`.
 | Feedback comment popover | Rating an answer |
 | Upload storage notice (`UploadStorageNoticeDialog`) | The first source upload and the first chat upload, each until accepted (stored per user and browser) |
 
-### Dialogs opened from the workspace
+### Dialogs opened from the topic view
 
 | Dialog | Component | Opened from |
 |---|---|---|
@@ -164,7 +164,7 @@ action needs the site flag `chat_web_search_enabled`.
 | PDF preview | `PdfPreviewModal` | See file previews |
 | Media preview | `MediaPreviewModal` | See file previews |
 | Table preview | `tablePreview/TablePreviewDialog` (sheet tabs, row details) | A spreadsheet source |
-| Web results | `WebWorkspace` (full screen) | Opens when a crawl or a fast source search finishes; reopened from the crawl dialog or the sources search box. On a phone, choosing a result switches from the list to the editor. Deep research shows its progress in the sources column instead. |
+| Web results | `WebResultsEditor` (full screen) | Opens when a crawl or a fast source search finishes; reopened from the crawl dialog or the sources search box. On a phone, choosing a result switches from the list to the editor. Deep research shows its progress in the sources column instead. |
 
 **File previews** open from: a file row, an entry in a synced source's details, a search hit
 (global or topic), a cited source's full view, a citation in the comparison view, a finished

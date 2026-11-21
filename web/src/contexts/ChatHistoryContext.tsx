@@ -4,7 +4,7 @@ import type { TopicSection } from '../utils/topicSection';
 
 /**
  * The sidebar's chat history: the user's chats across all topics, on every
- * view. Its own context rather than part of the topic workspace's, because
+ * view. Its own context rather than part of the topic view's, because
  * the sidebar is there when no topic is open.
  */
 export interface ChatHistoryContextValue {

@@ -130,7 +130,7 @@
   width: 60%;
 }
 
-.sidebar-left__workspace-card {
+.sidebar-left__web-results-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -141,19 +141,19 @@
   background: var(--bg-primary);
 }
 
-.sidebar-left__workspace-header {
+.sidebar-left__web-results-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.sidebar-left__workspace-count {
+.sidebar-left__web-results-count {
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-secondary);
 }
 
-.sidebar-left__workspace-btn {
+.sidebar-left__web-results-btn {
   display: flex;
   align-items: center;
   justify-content: center;

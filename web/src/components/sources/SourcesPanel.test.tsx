@@ -39,7 +39,7 @@ vi.mock('../../contexts/KbCoreContext', () => ({
 vi.mock('../../contexts/KbDataContext', () => ({
   useKbData: () => ({
     fileMgmt: { files, filesLoaded: true, retryAllFailed: vi.fn(), fileInputRef: { current: null }, handleToggleFilesSelection, deleteFiles },
-    webTools: { setToolTab: vi.fn(), searchResults: [], crawlResults: [], sourcesAddedCount: 0, setShowWebWorkspace: vi.fn() },
+    webTools: { setToolTab: vi.fn(), searchResults: [], crawlResults: [], sourcesAddedCount: 0, setShowWebResults: vi.fn() },
     rssFeeds, deleteRssFeeds, confluenceSources, deleteConfluenceSources, gitRepoSources, deleteGitRepoSources,
   }),
 }));
@@ -54,7 +54,7 @@ describe('SourcesPanel', () => {
     //
     // Der Oracle ist die Zuständigkeit, nicht die Ausgabe dieser Komponente:
     // dass die Spalte rechts hängt und `isRightSidebarOpen` führt, prüft
-    // AppFrame.workspace.test.tsx am `rightPanel`-Prop. Hier steht die
+    // AppFrame.topic.test.tsx am `rightPanel`-Prop. Hier steht die
     // Gegenprobe, dass das Panel selbst nichts davon mitbringt.
     const { container } = render(<SourcesPanel />);
     expect(container.querySelector('aside')).toBeNull();
@@ -69,7 +69,7 @@ describe('SourcesPanel', () => {
 
     // The column's title („Quellen hinzufügen" / „Quellen") is no longer the
     // panel's: it sits in the column header row AppFrame hands the
-    // shell (AppFrame.workspace.test) — the panel brings none of its own.
+    // shell (AppFrame.topic.test) — the panel brings none of its own.
     it('an editor gets the add-sources grid and retry-all, without a title of its own', () => {
       render(<SourcesPanel />);
       expect(screen.getByTestId('sources-grid')).toBeInTheDocument();

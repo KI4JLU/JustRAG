@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import { WorkspaceSearchField } from './WorkspaceSearch';
+import { TopicSearchField } from './TopicSearch';
 import type { SearchResponse } from '../types';
 
 vi.mock('axios');
@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 const renderField = (canOpenOwnSources?: boolean) => render(
-  <WorkspaceSearchField kbId="kb-1" kbName="Hier" canOpenOwnSources={canOpenOwnSources}
+  <TopicSearchField kbId="kb-1" kbName="Hier" canOpenOwnSources={canOpenOwnSources}
     onOpenTopic={vi.fn()} onOpenSource={vi.fn()} onOpenChat={vi.fn()} />,
 );
 
@@ -32,7 +32,7 @@ const renderField = (canOpenOwnSources?: boolean) => render(
 // opens its preview, which loads the file (downloadSources); without that
 // right the hit would open nothing, so it is not listed. A hit of another
 // topic opens that topic and stays.
-describe('WorkspaceSearchField — own source hits follow downloadSources', () => {
+describe('TopicSearchField — own source hits follow downloadSources', () => {
   it('lists the topic\'s own source hits with downloadSources', async () => {
     mockedGet.mockResolvedValueOnce(response([OWN, OTHER]));
     renderField(true);
