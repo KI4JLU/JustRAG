@@ -3,10 +3,10 @@ import {
   Dialog, DialogContent, DialogTitle, NavItem,
 } from '@ki4jlu/design-system';
 import { Search } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { ShortcutHint } from './ui/ShortcutHint';
-import { restoreSearchPaletteFocus, setSearchPaletteOpen, useSearchPaletteOpen } from '../hooks/useSearchPalette';
-import { SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
+import { useTheme } from '../../contexts/ThemeContext';
+import { ShortcutHint } from '../ui/ShortcutHint';
+import { restoreSearchPaletteFocus, setSearchPaletteOpen, useSearchPaletteOpen } from '../../hooks/useSearchPalette';
+import { SEARCH_KEYSHORTCUT, isSearchShortcut } from '../../utils/searchShortcut';
 
 /**
  * The search as a palette: a dialog near the top of the window that is the

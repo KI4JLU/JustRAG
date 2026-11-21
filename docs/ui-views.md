@@ -81,7 +81,7 @@ the sidebar stays mounted when the main area changes. Layout comes from the desi
 | Where | Search | Empty field offers |
 |---|---|---|
 | Overview page | `GlobalSearch`: topics, sources, chats, chat content; „show all in Entdecken" on topic hits | The other overview pages, account actions |
-| Topic | `components/TopicSearch.tsx`: the topic's sources, chats and chat content; „search all topics" widens it | New chat, up to three recent chats of the topic, account actions |
+| Topic | `components/search/TopicSearch.tsx`: the topic's sources, chats and chat content; „search all topics" widens it | New chat, up to three recent chats of the topic, account actions |
 
 The palette has loading, empty, error, rate-limited and unavailable states.
 

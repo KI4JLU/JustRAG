@@ -3,9 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Input } from '@ki4jlu/design-system';
 import { SearchNavRow, SearchPalette } from './SearchPalette';
-import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
+import { setSearchPaletteOpen } from '../../hooks/useSearchPalette';
 
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
 /*
  * ORACLE: the WAI-ARIA dialog pattern — a named modal dialog that takes

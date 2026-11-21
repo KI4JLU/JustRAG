@@ -14,11 +14,11 @@ import {
   KbdGroup,
 } from '@ki4jlu/design-system';
 import { BookOpen, Compass, FileText, Globe, MessageSquare, Search, TextQuote } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { isSearchableQuery, useGlobalSearch } from '../hooks/useGlobalSearch';
-import { splitSnippet } from '../utils/searchSnippet';
-import { IS_APPLE, SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
-import type { SearchChatHit, SearchMessageHit, SearchSourceHit, SearchTopicHit } from '../types';
+import { useTheme } from '../../contexts/ThemeContext';
+import { isSearchableQuery, useGlobalSearch } from '../../hooks/useGlobalSearch';
+import { splitSnippet } from '../../utils/searchSnippet';
+import { IS_APPLE, SEARCH_KEYSHORTCUT, isSearchShortcut } from '../../utils/searchShortcut';
+import type { SearchChatHit, SearchMessageHit, SearchSourceHit, SearchTopicHit } from '../../types';
 
 /* ---------------------------------------------------------------------------
  * The shell header's global search (card KI-837): topics, sources, chats and

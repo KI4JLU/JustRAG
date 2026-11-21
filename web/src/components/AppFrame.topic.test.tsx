@@ -55,7 +55,7 @@ vi.mock('./history/HistoryPanel', () => ({
 }));
 // The search reads four contexts of its own; its behaviour is
 // App.authenticated-topic-search.test.tsx's subject, not this file's.
-vi.mock('./TopicSearch', () => ({ TopicSearch: () => <div data-testid="topic-search" /> }));
+vi.mock('./search/TopicSearch', () => ({ TopicSearch: () => <div data-testid="topic-search" /> }));
 vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 // The history buttons read the router; their subject is the desktop title bar.
 vi.mock('./HistoryControls', () => ({ HistoryControls: () => null }));
@@ -78,9 +78,9 @@ vi.mock('../contexts/KbSearchContext', () => ({
   }),
 }));
 vi.mock('../hooks/useAccountSearchGroup', () => ({ useAccountSearchGroup: () => ({ heading: '', items: [] }) }));
-vi.mock('./GlobalSearch', () => ({ GlobalSearch: () => null }));
+vi.mock('./search/GlobalSearch', () => ({ GlobalSearch: () => null }));
 vi.mock('./AppUserMenu', () => ({ AppUserMenu: () => null }));
-vi.mock('./SearchPalette', () => ({
+vi.mock('./search/SearchPalette', () => ({
   SearchNavRow: () => null,
   // Closed at rest, like the real palette: its content is not in the document.
   SearchPalette: () => null,

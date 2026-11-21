@@ -1,15 +1,15 @@
 import { forwardRef, useCallback, useMemo, useState } from 'react';
 import { MessageSquare, MessageSquarePlus } from 'lucide-react';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
-import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
-import { useKbCore } from '../contexts/KbCoreContext';
-import { useKbChat } from '../contexts/KbChatContext';
-import { useKbData } from '../contexts/KbDataContext';
-import { useAppNav } from '../contexts/AppNavContext';
-import { chatEntryFromTarget, type SearchChatTarget, type SearchSourceTarget } from '../hooks/useSearchNavigation';
-import { useKbSourceRights } from '../hooks/useKbSourceRights';
+import { setSearchPaletteOpen } from '../../hooks/useSearchPalette';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAccountSearchGroup } from '../../hooks/useAccountSearchGroup';
+import { useKbCore } from '../../contexts/KbCoreContext';
+import { useKbChat } from '../../contexts/KbChatContext';
+import { useKbData } from '../../contexts/KbDataContext';
+import { useAppNav } from '../../contexts/AppNavContext';
+import { chatEntryFromTarget, type SearchChatTarget, type SearchSourceTarget } from '../../hooks/useSearchNavigation';
+import { useKbSourceRights } from '../../hooks/useKbSourceRights';
 
 /* ---------------------------------------------------------------------------
  * The topic header's scoped search.

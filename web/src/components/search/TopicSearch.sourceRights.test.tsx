@@ -3,11 +3,11 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { TopicSearchField } from './TopicSearch';
-import type { SearchResponse } from '../types';
+import type { SearchResponse } from '../../types';
 
 vi.mock('axios');
 const mockedGet = vi.mocked(axios, true).get;
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
 const OWN = { id: 'f-1', name: 'Eigene.pdf', type: 'pdf', kbId: 'kb-1', kbName: 'Hier', match: 'prefix' as const };
 const OTHER = { id: 'f-2', name: 'Andere.pdf', type: 'pdf', kbId: 'kb-2', kbName: 'Dort', match: 'prefix' as const };

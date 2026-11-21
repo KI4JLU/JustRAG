@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, waitFor, within } from 'storybook/test';
 import { AppShellLayout, Button, SidebarPanel, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
 import { ArrowLeft, History, MessageSquare, Settings } from 'lucide-react';
-import { TopicSearchField } from './TopicSearch';
+import { TopicSearchField } from './search/TopicSearch';
 import { apiMockHistory } from '../../.storybook/mockApi';
 import './sidebar-primitives.css';
 import './history/HistoryPanel.css';

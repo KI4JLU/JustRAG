@@ -5,8 +5,8 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { Button } from '@ki4jlu/design-system';
 import { GlobalSearch, type GlobalSearchProps, type SearchDefaultGroup } from './GlobalSearch';
-import { translations } from '../translations';
-import type { SearchResponse } from '../types';
+import { translations } from '../../translations';
+import type { SearchResponse } from '../../types';
 
 /* ---------------------------------------------------------------------------
  * `GlobalSearch` against a mocked `GET /api/search` (card KI-837).
@@ -30,7 +30,7 @@ const mockedGet = vi.mocked(axios, true).get;
 type Key = keyof typeof translations;
 const de = (k: Key) => translations[k].de;
 const themeMock = { t: (k: string) => (translations as Record<string, { de: string }>)[k]?.de ?? k };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 
 function response(over: Partial<SearchResponse> = {}): { data: SearchResponse } {
   return {

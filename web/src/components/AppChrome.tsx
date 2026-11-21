@@ -30,15 +30,15 @@ import { KbLayoutProvider, type KbLayoutContextValue } from '../contexts/KbLayou
 import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
 import { AppUserMenu } from './AppUserMenu';
 import { AppLogo } from './AppLogo';
-import { SearchNavRow, SearchPalette } from './SearchPalette';
+import { SearchNavRow, SearchPalette } from './search/SearchPalette';
 import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
 import { useKbSearch } from '../contexts/KbSearchContext';
 import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
 import {
   DEFAULT_LEFT_SIDEBAR_WIDTH, LEFT_SIDEBAR_BOUNDS, LEFT_SIDEBAR_WIDTH_KEY,
 } from '../hooks/useSidebarResize';
-import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
-import { TopicSearch } from './TopicSearch';
+import { GlobalSearch, type SearchDefaultGroup } from './search/GlobalSearch';
+import { TopicSearch } from './search/TopicSearch';
 import { DesktopMenuCommands } from './DesktopMenuCommands';
 import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 import { useTopicSettingsDiff } from '../hooks/useTopicSettingsDiff';
