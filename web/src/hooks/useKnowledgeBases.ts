@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 import axios from 'axios';
-import type { KnowledgeBase, GeneratedContent } from '../types';
+import type { KnowledgeBase } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useModalContext } from '../contexts/ModalContext';
@@ -52,13 +52,11 @@ interface UseKnowledgeBasesParams {
   setIsPro: (isPro: boolean) => void;
   /** Router navigation by view (routing/navigation.ts). */
   navigateTo: AppNavigate;
-  setSelectedContent: (content: GeneratedContent | null) => void;
-  setGeneratedContent: (content: GeneratedContent[]) => void;
 }
 
 export function useKnowledgeBases({
   onKBSelected, handleGoHome,
-  setCurrentKb, setIsPro, navigateTo, setSelectedContent, setGeneratedContent,
+  setCurrentKb, setIsPro, navigateTo,
 }: UseKnowledgeBasesParams) {
   const { t } = useTheme();
   const { showConfirm, showPrompt } = useModalContext();
@@ -111,10 +109,8 @@ export function useKnowledgeBases({
   const applyKbSelection = useCallback((kb: KnowledgeBase) => {
     setCurrentKb(kb);
     setIsPro(kb.isPro);
-    setSelectedContent(null);
-    setGeneratedContent([]);
     onKBSelected();
-  }, [onKBSelected, setCurrentKb, setIsPro, setSelectedContent, setGeneratedContent]);
+  }, [onKBSelected, setCurrentKb, setIsPro]);
 
   const handleSelectKB = useCallback((kb: KnowledgeBase) => {
     applyKbSelection(kb);

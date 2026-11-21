@@ -230,7 +230,6 @@ Exception: the rows on `GlobalKbSettings` (the public-topic editor) and on `kb-s
 | B21 | `hooks/useWebTools.ts:214` | Web search or crawl request refused | Raw backend text, else Aufgabe fehlgeschlagen | `taskFailed` + S12–S15 | Aufgabe fehlgeschlagen | Task failed | open |
 | B22 | `hooks/useWebTools.ts:268` | Adding selected web pages refused | Raw backend text, else Hinzufügen fehlgeschlagen | `addSourcesFailed` + S12–S15 | Hinzufügen fehlgeschlagen | Failed to add sources | open |
 | B23 | `hooks/useWebTools.ts:73–74`, `:78`, `:109`, `:121–123` | Deep web research refused, no body, SSE error event, or network failure | `HTTP 502`, `No response body`, `Error`, `Failed to fetch` (status line and toast) | `webResearchFailed` *(proposed)* + S12–S15 | Die Webrecherche konnte nicht abgeschlossen werden. Bitte versuche es erneut. | The web research could not be completed. Please try again. | open |
-| B26 | `hooks/useGeneratedContent.ts:104` | Podcast job ends in `failed` | Worker error text | `podcastFailed` | Podcast-Generierung fehlgeschlagen | Podcast generation failed | open |
 | B32 | `components/kb-settings/KbSettingsPanel.tsx:92` (`kb-settings/api.ts:31`) | Loading topic settings fails (a 403 hides the panel instead) | `Error: fetch settings: 500` | `siteConfigFetchError` + S13–S15 | Fehler beim Laden der Einstellungen | Error loading settings | open |
 | B33 | `components/kb-settings/KbSettingsPanel.tsx:143` (`kb-settings/api.ts:43`); `kb-settings/workflow/WorkflowCanvas.tsx:309` | Saving settings refused | `Error: save settings: 500` or raw backend text | `settingsSaveError` + S12–S15 | Fehler beim Speichern der Einstellungen | Error saving settings | open |
 | B34 | `components/kb-settings/KbSettingsPanel.tsx:143`, `:167`; `kb-settings/workflow/WorkflowCanvas.tsx:309`, `:338` | Save or reset refused, 400: two settings exclude each other (needs a backend code that names the keys) | Raw backend text naming both keys | `kbSettingsConflict` *(proposed)* | Diese Einstellungen schließen sich gegenseitig aus: {keys}. Ändere eine davon und speichere erneut. | These settings exclude each other: {keys}. Change one of them and save again. | open |
@@ -336,10 +335,10 @@ codes. A code in parentheses is the `code` the response now carries.
 | Group | Messages | Done | Open |
 |---|---|---|---|
 | A. Every user | 46 | 22 | 24 |
-| B. Topic editors and topic admins | 50 | 8 | 42 |
+| B. Topic editors and topic admins | 49 | 8 | 41 |
 | C. System administrators only | 32 | 0 | 32 |
 | D. Not user-visible | 12 | 4 | 8 |
-| **Total** | **140** | **34** | **106** |
+| **Total** | **139** | **34** | **105** |
 
 C32 stands for every message of the two policy validators (about 27), counted as
 one row.

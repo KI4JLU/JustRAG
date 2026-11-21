@@ -1,7 +1,7 @@
 import { useState, lazy, Suspense, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { BreadcrumbBack } from '@ki4jlu/design-system';
-import type { KnowledgeBase, GeneratedContent } from './types';
+import type { KnowledgeBase } from './types';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
@@ -22,7 +22,6 @@ import { useFileManagement } from './hooks/useFileManagement';
 import { useUploadStorageNotice } from './hooks/useUploadStorageNotice';
 import { UploadStorageNoticeDialog } from './components/UploadStorageNoticeDialog';
 import { useWebTools } from './hooks/useWebTools';
-import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
 import { useJoinRedeem } from './hooks/useJoinRedeem';
 import { useKbSearchState } from './hooks/useKbSearchState';
@@ -202,14 +201,10 @@ function AuthenticatedAppInner() {
     fetchFiles: fileMgmt.fetchFiles,
   });
 
-  const content = useGeneratedContent({ currentKb });
-
   const kbMgmt = useKnowledgeBases({
     onKBSelected: chat.handleNewChat,
     handleGoHome: goHome,
     setCurrentKb, setIsPro: kbSettings.setIsPro, navigateTo,
-    setSelectedContent: content.setSelectedContent,
-    setGeneratedContent: content.setGeneratedContent,
   });
 
   /* URL -> open topic. When the URL names a topic that is not the open one —
@@ -318,7 +313,6 @@ function AuthenticatedAppInner() {
     fetchAvailableConfigs: kbSettings.fetchAvailableConfigs,
     fetchFiles: fileMgmt.fetchFiles,
     fetchChats: chat.fetchChats,
-    fetchGeneratedContent: content.fetchGeneratedContent,
     fetchRssFeeds,
     fetchConfluenceSources: confluenceHook.fetchSources,
     fetchConfluenceConnectionInfo: confluenceHook.fetchConnectionInfo,
@@ -344,15 +338,6 @@ function AuthenticatedAppInner() {
       void fetchKBs({ silent: true });
     }
   }, [view, fetchKBs]);
-
-  // Cross-hook handlers. The setters are destructured into stable locals so
-  // the useCallback dep arrays don't have to depend on the whole hook objects
-  // (which are recreated each render and would defeat the memoization).
-  const { setSelectedContent } = content;
-
-  const handleSelectContent = useCallback((item: GeneratedContent) => {
-    setSelectedContent(item);
-  }, [setSelectedContent]);
 
   // Resolves true once the PATCH succeeded, false when it was declined or
   // failed (already toasted), so a caller can keep its drafts on screen.
@@ -484,7 +469,6 @@ function AuthenticatedAppInner() {
     const dataValue: KbDataContextValue = {
       fileMgmt,
       webTools,
-      content,
       rssFeeds,
       rssLoading,
       fetchRssFeeds,
@@ -514,7 +498,6 @@ function AuthenticatedAppInner() {
       updateGitRepoSource: gitRepoHook.updateGitRepoSource,
       deleteGitRepoSources: gitRepoHook.deleteGitRepoSources,
       syncGitRepoNow: gitRepoHook.syncGitRepoNow,
-      handleSelectContent,
     };
 
     const layoutValue: KbLayoutContextValue = {
@@ -559,8 +542,6 @@ function AuthenticatedAppInner() {
     renameChat: handleRenameChat,
     newChat: workspace ? handleNewChat : null,
     newTopic: () => { void kbMgmt.handleCreateKB(); },
-    generating: workspace ? content.generating : false,
-    generatingMessage: workspace ? content.podcastProgress?.message : undefined,
   };
 
   let active: AppChromeView | null = null;

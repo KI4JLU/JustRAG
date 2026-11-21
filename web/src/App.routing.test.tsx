@@ -191,7 +191,10 @@ describe('App routing — signed in', () => {
     render(<App />);
 
     expect(await workspaceSearch()).toBeInTheDocument();
-    expect(mockedGet.mock.calls.some(([u]) => String(u).endsWith(`/api/kb/${KB_ID}`))).toBe(true);
+    const paths = mockedGet.mock.calls.map(([url]) => new URL(url, window.location.origin).pathname);
+    expect(paths).toContain(`/api/kb/${KB_ID}`);
+    expect(paths).toContain(`/api/kb/${KB_ID}/chats`);
+    expect(paths).not.toContain(`/api/kb/${KB_ID}/generated-content`);
     expect(path()).toBe(KB_URL);
   });
 

@@ -41,9 +41,6 @@ export interface ChatHistoryContextValue {
   newChat: (() => void) | null;
   /** Create a topic: the sidebar's primary action while no topic is open. */
   newTopic: (() => void) | null;
-  /** Generated content is being produced in the open topic, with its progress line. */
-  generating?: boolean;
-  generatingMessage?: string;
 }
 
 /* Without a provider the history is empty: a page rendered on its own (a

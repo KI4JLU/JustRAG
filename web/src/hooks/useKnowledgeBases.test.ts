@@ -77,8 +77,6 @@ function setup() {
     setCurrentKb,
     setIsPro: vi.fn(),
     navigateTo: vi.fn(),
-    setSelectedContent: vi.fn(),
-    setGeneratedContent: vi.fn(),
   }));
 }
 

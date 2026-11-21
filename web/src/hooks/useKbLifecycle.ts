@@ -8,7 +8,6 @@ interface UseKbLifecycleParams {
   fetchAvailableConfigs: () => void;
   fetchFiles: (kbId: string, signal?: AbortSignal) => void;
   fetchChats: (kbId: string, signal?: AbortSignal) => void;
-  fetchGeneratedContent: (kbId: string, signal?: AbortSignal) => void;
   fetchRssFeeds: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceSources: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceConnectionInfo: () => void;
@@ -17,7 +16,7 @@ interface UseKbLifecycleParams {
 export function useKbLifecycle({
   token, currentKb,
   fetchKBs, fetchAvailableConfigs,
-  fetchFiles, fetchChats, fetchGeneratedContent,
+  fetchFiles, fetchChats,
   fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo,
 }: UseKbLifecycleParams) {
   // Fetch KBs and configs on auth
@@ -34,11 +33,10 @@ export function useKbLifecycle({
       const controller = new AbortController();
       fetchFiles(currentKb.id, controller.signal);
       fetchChats(currentKb.id, controller.signal);
-      fetchGeneratedContent(currentKb.id, controller.signal);
       fetchRssFeeds(currentKb.id, controller.signal);
       fetchConfluenceSources(currentKb.id, controller.signal);
       fetchConfluenceConnectionInfo();
       return () => controller.abort();
     }
-  }, [currentKb, fetchFiles, fetchChats, fetchGeneratedContent, fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo]);
+  }, [currentKb, fetchFiles, fetchChats, fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo]);
 }

@@ -546,11 +546,8 @@ export const translations = {
     mindMapAskPrompt: { de: 'Erzähl mir mehr über', en: 'Tell me more about' },
     viewGraphForAnswer: { de: 'Graph zu dieser Antwort', en: 'View graph for this answer' },
     viewGraphLabel: { de: 'Wissensgraph', en: 'Knowledge graph' },
-    generatingContent: { de: 'Generiere Inhalte...', en: 'Generating content...' },
     podcastGeneratingScript: { de: 'Generiere Skript...', en: 'Generating script...' },
     podcastGeneratingAudio: { de: 'Generiere Audio', en: 'Generating audio' },
-    podcastWaiting: { de: 'Warte auf Verarbeitung...', en: 'Waiting for processing...' },
-    podcastFailed: { de: 'Podcast-Generierung fehlgeschlagen', en: 'Podcast generation failed' },
     noContent: { de: 'Erstelle Lernmaterialien aus deinen Quellen.', en: 'Create learning materials from your sources.' },
     dataSource: { de: 'Datenquelle (Excel/CSV)', en: 'Data Source (Excel/CSV)' },
     generate: { de: 'Generieren', en: 'Generate' },
@@ -634,10 +631,6 @@ export const translations = {
     historyKindAcademic: { de: 'Akad. Recherche', en: 'Academic' },
 
     // Prompts & Alerts
-    enterGenerationTopic: { de: 'Thema für die Generierung eingeben:', en: 'Enter topic for generation:' },
-    successGenerate: { de: 'Inhalt erfolgreich generiert!', en: 'Content successfully generated!' },
-    errorGenerate: { de: 'Fehler bei der Generierung', en: 'Generation error' },
-    confirmDeleteContent: { de: 'Möchtest du diesen Inhalt wirklich löschen?', en: 'Do you really want to delete this content?' },
     confirmDeleteChat: { de: 'Bist du sicher, dass du diesen Chat-Verlauf löschen möchtest?', en: 'Are you sure you want to delete this chat history?' },
     confirmDeleteKB: { de: 'Bist du sicher, dass du diese Knowledge Base löschen möchtest?', en: 'Are you sure you want to delete this knowledge base?' },
     // Zwei Varianten derselben Frage: die Chat-Warnung erscheint nur, wenn es
@@ -1240,7 +1233,6 @@ export const translations = {
     downloadFailed: { de: 'Download fehlgeschlagen', en: 'Download failed' },
     addTextFailed: { de: 'Text hinzufügen fehlgeschlagen', en: 'Failed to add text' },
     deleteKBError: { de: 'Fehler beim Löschen der Knowledge Base', en: 'Error deleting knowledge base' },
-    deleteContentError: { de: 'Fehler beim Löschen des Inhalts', en: 'Error deleting content' },
     deleteChatError: { de: 'Fehler beim Löschen des Chats', en: 'Error deleting chat' },
     removeEditorError: { de: 'Fehler beim Entfernen des Bearbeiters', en: 'Error removing editor' },
     removeShareError: { de: 'Fehler beim Entfernen der Freigabe', en: 'Error removing share' },
@@ -1271,7 +1263,6 @@ export const translations = {
     filesFetchError: { de: 'Fehler beim Laden der Dateien', en: 'Error loading files' },
     kbFetchError: { de: 'Fehler beim Laden der Knowledge Bases', en: 'Error loading knowledge bases' },
     kbCreateError: { de: 'Fehler beim Erstellen des Themas', en: 'Error creating topic' },
-    contentFetchError: { de: 'Fehler beim Laden der generierten Inhalte', en: 'Error loading generated content' },
     rssFetchError: { de: 'Fehler beim Laden der RSS-Feeds', en: 'Error loading RSS feeds' },
     editorsFetchError: { de: 'Fehler beim Laden der Bearbeiter', en: 'Error loading editors' },
     configsFetchError: { de: 'Fehler beim Laden der Konfigurationen', en: 'Error loading configurations' },
@@ -1320,7 +1311,6 @@ export const translations = {
 
     // Misc errors
     clipboardCopyFailed: { de: 'Kopieren in die Zwischenablage fehlgeschlagen', en: 'Failed to copy to clipboard' },
-    podcastPollingFailed: { de: 'Podcast-Generierung konnte nicht überprüft werden. Bitte versuche es erneut.', en: 'Could not check podcast generation status. Please try again.' },
     addSourcesPartialFail: { de: '{count} Quelle(n) konnten nicht hinzugefügt werden', en: '{count} source(s) could not be added' },
 
     // API Keys

@@ -133,8 +133,6 @@ vi.mock('../contexts/KbDataContext', () => ({
       handlePreviewSource: vi.fn(), handlePdfSourceOpen, setToolTab: vi.fn(),
       toolLoading: false, webResearchRunning: false,
     },
-    content: { handleGenerate: vi.fn(), selectedContent: null, fetchGeneratedContent: vi.fn() },
-    handleSelectContent: vi.fn(),
     rssLoading: false,
     confluenceLoading: false,
     confluenceSources: [],

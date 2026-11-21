@@ -5,7 +5,6 @@ import { Button } from '@ki4jlu/design-system';
 import { HistoryPanel } from './HistoryPanel';
 
 const handleSelectChat = vi.fn();
-const handleSelectContent = vi.fn();
 const handleNewChat = vi.fn();
 const handleNewTopic = vi.fn();
 const handlePinChat = vi.fn();
@@ -19,7 +18,6 @@ let userSections: { id: string; name: string; createdAt: string }[] = [];
 const handleDeleteChat = vi.fn();
 const handleRenameChat = vi.fn();
 const handleDeleteChats = vi.fn(async () => true);
-const handleDeleteGeneratedContent = vi.fn();
 
 let activeChatId: string | null = null;
 let extraChats: Record<string, string>[] = [];
@@ -106,7 +104,6 @@ describe('HistoryPanel', () => {
     for (const hidden of ['Zero-Trust', 'Paper']) {
       expect(screen.queryByText(hidden)).not.toBeInTheDocument();
     }
-    expect(handleSelectContent).not.toHaveBeenCalled();
   });
 
   it('gruppiert die Chats nach Tag statt je Zeile ein Datum zu zeigen', () => {
@@ -556,7 +553,6 @@ describe('HistoryPanel', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: /deleteItem/ }));
     expect(handleDeleteChat).not.toHaveBeenCalled();
     expect(handleDeleteChats).not.toHaveBeenCalled();
-    expect(handleDeleteGeneratedContent).not.toHaveBeenCalled();
     expect(screen.getByRole('toolbar', { name: 'deleteChats' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'selectChat Budget?' })).toHaveAttribute('aria-checked', 'true');
     // Was gelöscht werden soll, ist rot markiert (DS selectionTone="destructive"):
