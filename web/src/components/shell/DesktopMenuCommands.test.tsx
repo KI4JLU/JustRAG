@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DesktopMenuCommands } from './DesktopMenuCommands';
 
 const handleNewChat = vi.fn();
-vi.mock('../contexts/KbChatContext', () => ({ useKbChat: () => ({ chat: { handleNewChat } }) }));
+vi.mock('../../contexts/KbChatContext', () => ({ useKbChat: () => ({ chat: { handleNewChat } }) }));
 
 /*
  * ORACLE: the bridge's contract (design system, „Native shell" → Menu

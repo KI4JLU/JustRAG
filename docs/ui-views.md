@@ -48,12 +48,12 @@ a join link is replaced with `/`.
 |---|---|---|
 | Login | `pages/Login.tsx` | Password form when local auth or LDAP is enabled (also the fallback when provider discovery fails); SSO button when OIDC is configured. Variants: session expired, pending invite. |
 | Password login | `pages/Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
-| Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/Footer.tsx`). |
+| Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/shell/Footer.tsx`). |
 | Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. `useJoinRedeem` redeems it and opens the topic, after sign-in or at once in an existing session. |
 
 ## The shell (`AppFrame`)
 
-`components/AppChrome.tsx`. One shell for the three overview pages and the topic view, so
+`components/shell/AppChrome.tsx`. One shell for the three overview pages and the topic view, so
 the sidebar stays mounted when the main area changes. Layout comes from the design system's
 `AppShellLayout`. Full pages render without it.
 
@@ -64,7 +64,7 @@ the sidebar stays mounted when the main area changes. Layout comes from the desi
 | Logo | The configured app name. Inside a topic it is a button to `/`. |
 | Navigation | Search (opens the palette), „Mein Wissen" (`/`), „Geteiltes Wissen" (`/shared`), „Entdecken" (`/discover`) |
 | Chat history | `components/history/HistoryPanel.tsx`: filters, empty and filtered-empty states, hover previews, rename |
-| Footer | The user menu (`components/AppUserMenu.tsx`); it also hosts the `?settings=` and `?admin=` dialogs |
+| Footer | The user menu (`components/shell/AppUserMenu.tsx`); it also hosts the `?settings=` and `?admin=` dialogs |
 
 **User menu**
 
@@ -245,7 +245,7 @@ A section the user may not see falls back to `configs`.
 |---|---|---|
 | Loading screen | `LoadingFallback` in `app/AppRoot.tsx` and in `app/AuthenticatedApp.tsx` | While the sign-in split loads; during a redirect and while a lazy full page loads |
 | Error screen | `components/ui/ErrorBoundary.tsx` | A render crash: full screen, with „Try Again" and „Reload Page" |
-| Usage-policy notice | `components/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
-| System notice | `components/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |
+| Usage-policy notice | `components/shell/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
+| System notice | `components/shell/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |
 | App update | `hooks/useSystemNoticeBanner.tsx` | A new version is waiting: an alert in the shell that applies it and reloads |
 | Toasts | `ToastContainer` | Mounted above the sign-in split, so they work on both sides |

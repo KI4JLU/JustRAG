@@ -43,7 +43,7 @@ const sourcesPanel = readFileSync(
   'utf8',
 );
 const appFrameSource = readFileSync(
-  path.join(here, 'AppChrome.tsx'),
+  path.join(here, 'shell', 'AppChrome.tsx'),
   'utf8',
 );
 

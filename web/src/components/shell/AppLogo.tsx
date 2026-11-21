@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { Logo } from '@ki4jlu/design-system';
-import { appNameFrom } from '../utils/appName';
+import { appNameFrom } from '../../utils/appName';
 
 interface AppLogoProps {
   siteConfigs: Record<string, string> | null | undefined;

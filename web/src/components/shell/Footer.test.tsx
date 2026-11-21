@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Footer } from './Footer';
 
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
     theme: 'light' as const,
     resolvedTheme: 'light' as const,

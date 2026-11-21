@@ -5,7 +5,7 @@ import { AppShellLayout, Button, SidebarPanel, Logo, type MobilePaneTab } from '
 import { ArrowLeft, History, MessageSquare, Settings } from 'lucide-react';
 import { TopicSearchField } from './search/TopicSearch';
 import { apiMockHistory } from '../../.storybook/mockApi';
-import './sidebar-primitives.css';
+import './shell/sidebar-primitives.css';
 import './history/HistoryPanel.css';
 import './sidebar/SourcesGrid.css';
 import './sources/SourcesPanel.css';

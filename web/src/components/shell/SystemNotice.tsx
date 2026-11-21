@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Alert, AlertAction, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { isExternalNoticeHref, type SystemNotice, type SystemNoticePlacement } from '../utils/systemNotice';
+import { useTheme } from '../../contexts/ThemeContext';
+import { isExternalNoticeHref, type SystemNotice, type SystemNoticePlacement } from '../../utils/systemNotice';
 
 interface SystemNoticeAlertProps {
   notice: SystemNotice;

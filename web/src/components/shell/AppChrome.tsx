@@ -15,44 +15,44 @@ import {
   useWindowFileDrag,
   type MobilePaneTab,
 } from '@ki4jlu/design-system';
-import { HistoryControls } from './HistoryControls';
+import { HistoryControls } from '../HistoryControls';
 import {
   Home, Users,
   LayoutGrid, Menu, Compass, FolderOpen, History, Lock, MessageSquare,
 } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
-import { useAppNav } from '../contexts/AppNavContext';
-import { KbCoreProvider, type KbCoreContextValue } from '../contexts/KbCoreContext';
-import { KbChatProvider, type KbChatContextValue } from '../contexts/KbChatContext';
-import { KbDataProvider, type KbDataContextValue } from '../contexts/KbDataContext';
-import { KbLayoutProvider, type KbLayoutContextValue } from '../contexts/KbLayoutContext';
-import { useAccountSearchGroup } from '../hooks/useAccountSearchGroup';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { useAppNav } from '../../contexts/AppNavContext';
+import { KbCoreProvider, type KbCoreContextValue } from '../../contexts/KbCoreContext';
+import { KbChatProvider, type KbChatContextValue } from '../../contexts/KbChatContext';
+import { KbDataProvider, type KbDataContextValue } from '../../contexts/KbDataContext';
+import { KbLayoutProvider, type KbLayoutContextValue } from '../../contexts/KbLayoutContext';
+import { useAccountSearchGroup } from '../../hooks/useAccountSearchGroup';
 import { AppUserMenu } from './AppUserMenu';
 import { AppLogo } from './AppLogo';
-import { SearchNavRow, SearchPalette } from './search/SearchPalette';
-import { setSearchPaletteOpen } from '../hooks/useSearchPalette';
-import { useKbSearch } from '../contexts/KbSearchContext';
-import { useSidebarCollapse } from '../hooks/useSidebarCollapse';
+import { SearchNavRow, SearchPalette } from '../search/SearchPalette';
+import { setSearchPaletteOpen } from '../../hooks/useSearchPalette';
+import { useKbSearch } from '../../contexts/KbSearchContext';
+import { useSidebarCollapse } from '../../hooks/useSidebarCollapse';
 import {
   DEFAULT_LEFT_SIDEBAR_WIDTH, LEFT_SIDEBAR_BOUNDS, LEFT_SIDEBAR_WIDTH_KEY,
-} from '../hooks/useSidebarResize';
-import { GlobalSearch, type SearchDefaultGroup } from './search/GlobalSearch';
-import { TopicSearch } from './search/TopicSearch';
+} from '../../hooks/useSidebarResize';
+import { GlobalSearch, type SearchDefaultGroup } from '../search/GlobalSearch';
+import { TopicSearch } from '../search/TopicSearch';
 import { DesktopMenuCommands } from './DesktopMenuCommands';
-import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
-import { useTopicSettingsDiff } from '../hooks/useTopicSettingsDiff';
-import { TopicSettingsButton } from './TopicSettingsButton';
-import { SourcesPanel } from './sources/SourcesPanel';
-import { HistoryPanel, NewChatButton } from './history/HistoryPanel';
-import type { MobileTab } from '../utils/activeMobileTab';
-import { canOpenKbTopicSettings, kbSourceRights } from '../utils/kbAccess';
-import { topicSection } from '../utils/topicSection';
+import { useSystemNoticeBanner } from '../../hooks/useSystemNoticeBanner';
+import { useTopicSettingsDiff } from '../../hooks/useTopicSettingsDiff';
+import { TopicSettingsButton } from '../TopicSettingsButton';
+import { SourcesPanel } from '../sources/SourcesPanel';
+import { HistoryPanel, NewChatButton } from '../history/HistoryPanel';
+import type { MobileTab } from '../../utils/activeMobileTab';
+import { canOpenKbTopicSettings, kbSourceRights } from '../../utils/kbAccess';
+import { topicSection } from '../../utils/topicSection';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `MyTopicsView.tsx` rather than split —
 // see KbCard.tsx's header for why the `home-view__` block name outlived the
 // component.
-import './HomeView.css';
+import '../HomeView.css';
 
 
 /* ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@
       "count": 2
     }
   },
-  "src/components/Footer.tsx": {
+  "src/components/shell/Footer.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
     }

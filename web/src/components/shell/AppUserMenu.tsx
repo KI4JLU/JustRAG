@@ -6,16 +6,16 @@ import {
 import {
     Accessibility, ExternalLink, FileText, LifeBuoy, LogOut, Settings, Shield, ShieldCheck, User,
 } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
-import { useAppNav } from '../contexts/AppNavContext';
-import { UserSettingsModal } from './UserSettingsModal';
-import { openSettingsDialog, setSettingsDialogOpen, setSettingsDialogTab, useSettingsDialog } from '../hooks/settingsDialog';
-import { openAdminDialog, setAdminDialogOpen, setAdminDialogSection, stripAdminDialog, useAdminDialog } from '../hooks/adminDialog';
-import { roleLabel } from '../utils/roleLabel';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { useAppNav } from '../../contexts/AppNavContext';
+import { UserSettingsModal } from '../UserSettingsModal';
+import { openSettingsDialog, setSettingsDialogOpen, setSettingsDialogTab, useSettingsDialog } from '../../hooks/settingsDialog';
+import { openAdminDialog, setAdminDialogOpen, setAdminDialogSection, stripAdminDialog, useAdminDialog } from '../../hooks/adminDialog';
+import { roleLabel } from '../../utils/roleLabel';
 
 // The admin console and its tabs load only when it is opened.
-const AdminUI = lazy(() => import('./admin/AdminUI'));
+const AdminUI = lazy(() => import('../admin/AdminUI'));
 
 /**
  * The user menu of every sidebar (AppChrome's pages and the topic view):

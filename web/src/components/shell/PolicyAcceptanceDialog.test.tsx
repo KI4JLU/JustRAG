@@ -16,15 +16,15 @@ import { PolicyAcceptanceGate } from './PolicyAcceptanceDialog';
 vi.mock('axios', () => ({
     default: { get: vi.fn(), post: vi.fn(), isAxiosError: (e: unknown) => !!(e as { isAxiosError?: boolean })?.isAxiosError },
 }));
-vi.mock('../contexts/ThemeContext', () => ({
+vi.mock('../../contexts/ThemeContext', () => ({
     useTheme: () => ({ t: (k: string) => k, language: 'de' as const }),
 }));
 const logout = vi.fn();
-vi.mock('../contexts/AuthContext', () => ({
+vi.mock('../../contexts/AuthContext', () => ({
     useAuth: () => ({ logout }),
 }));
 const toast = { info: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn() };
-vi.mock('../contexts/ToastContext', () => ({
+vi.mock('../../contexts/ToastContext', () => ({
     useToast: () => toast,
 }));
 let pathname = '/';

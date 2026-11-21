@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
-import { AppChrome } from '../components/AppChrome';
+import { AppChrome } from '../components/shell/AppChrome';
 import { KbListHeader, PrivateKbCard } from '../components/KbCard';
 import { Button } from '@ki4jlu/design-system';
 import { FolderPlus, Plus } from 'lucide-react';

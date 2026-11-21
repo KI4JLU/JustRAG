@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useKbChat } from '../contexts/KbChatContext';
+import { useKbChat } from '../../contexts/KbChatContext';
 
 /**
  * The desktop app's menu commands that act on the open topic. Today one:

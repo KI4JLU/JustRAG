@@ -48,52 +48,52 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => {
   };
 });
 
-vi.mock('./sources/SourcesPanel', () => ({ SourcesPanel: () => <div data-testid="sources-panel" /> }));
-vi.mock('./history/HistoryPanel', () => ({
+vi.mock('../sources/SourcesPanel', () => ({ SourcesPanel: () => <div data-testid="sources-panel" /> }));
+vi.mock('../history/HistoryPanel', () => ({
   HistoryPanel: () => <div data-testid="history-panel" />,
   NewChatButton: () => <div data-testid="new-chat-button" />,
 }));
 // The search reads four contexts of its own; its behaviour is
 // App.authenticated-topic-search.test.tsx's subject, not this file's.
-vi.mock('./search/TopicSearch', () => ({ TopicSearch: () => <div data-testid="topic-search" /> }));
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../search/TopicSearch', () => ({ TopicSearch: () => <div data-testid="topic-search" /> }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 // The history buttons read the router; their subject is the desktop title bar.
-vi.mock('./HistoryControls', () => ({ HistoryControls: () => null }));
+vi.mock('../HistoryControls', () => ({ HistoryControls: () => null }));
 // Reads the chat context; its own test covers it.
 vi.mock('./DesktopMenuCommands', () => ({ DesktopMenuCommands: () => null }));
 // The frame's own dependencies on every view; their subjects are the
 // overview tests (MyTopicsView.test.tsx, GlobalSearch.test.tsx).
 const onViewSharedTopics = vi.fn();
 const onViewDiscover = vi.fn();
-vi.mock('../contexts/AppNavContext', () => ({
+vi.mock('../../contexts/AppNavContext', () => ({
   useAppNav: () => ({
     onViewMyTopics, onViewSharedTopics, onViewDiscover,
     onOpenTopic: vi.fn(), onOpenSource: vi.fn(), onOpenChat: vi.fn(),
   }),
 }));
-vi.mock('../contexts/KbSearchContext', () => ({
+vi.mock('../../contexts/KbSearchContext', () => ({
   useKbSearch: () => ({
     query: '', setQuery: vi.fn(), applyCatalogQuery: vi.fn(),
     focusPendingFor: null, requestFocus: vi.fn(), consumeFocus: vi.fn(),
   }),
 }));
-vi.mock('../hooks/useAccountSearchGroup', () => ({ useAccountSearchGroup: () => ({ heading: '', items: [] }) }));
-vi.mock('./search/GlobalSearch', () => ({ GlobalSearch: () => null }));
+vi.mock('../../hooks/useAccountSearchGroup', () => ({ useAccountSearchGroup: () => ({ heading: '', items: [] }) }));
+vi.mock('../search/GlobalSearch', () => ({ GlobalSearch: () => null }));
 vi.mock('./AppUserMenu', () => ({ AppUserMenu: () => null }));
-vi.mock('./search/SearchPalette', () => ({
+vi.mock('../search/SearchPalette', () => ({
   SearchNavRow: () => null,
   // Closed at rest, like the real palette: its content is not in the document.
   SearchPalette: () => null,
 }));
 const onCollapsedChange = vi.fn();
-vi.mock('../hooks/useSidebarCollapse', () => ({
+vi.mock('../../hooks/useSidebarCollapse', () => ({
   useSidebarCollapse: () => ({ collapsed: false, onCollapsedChange }),
 }));
 // What the gear is told about the topic's settings; the diff itself is
 // topicSettingsDiff.test.ts's subject.
 let settingsDiff = { isCustomized: false, changedKeys: [] as string[], labels: [] as string[], count: 0 };
 const useTopicSettingsDiff = vi.fn<(...args: unknown[]) => typeof settingsDiff>(() => settingsDiff);
-vi.mock('../hooks/useTopicSettingsDiff', () => ({
+vi.mock('../../hooks/useTopicSettingsDiff', () => ({
   useTopicSettingsDiff: (...args: unknown[]) => useTopicSettingsDiff(...args),
 }));
 // Wer schaut: Standard ist ein fremder Nutzer ohne KB-Rolle. Tests, die den
@@ -103,7 +103,7 @@ let kbExtra: Record<string, unknown> = {};
 // The public topics the user subscribed to (`kbMgmt.globalKbs`).
 let subscribedKbs: { id: string }[] = [];
 let siteConfigs: Record<string, string> = {};
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser, siteConfigs }) }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser, siteConfigs }) }));
 
 const onViewMyTopics = vi.fn();
 

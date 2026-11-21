@@ -42,7 +42,7 @@ import { useChatRoute, useChatTopic } from '../hooks/useChatRoute';
 import { MyTopicsView } from '../pages/MyTopicsView';
 import { SharedTopicsView } from '../pages/SharedTopicsView';
 import { DiscoverView } from '../pages/DiscoverView';
-import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/AppChrome';
+import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/shell/AppChrome';
 import { ChatView } from '../components/ChatView';
 import { TopicModals } from '../components/TopicModals';
 
@@ -51,7 +51,7 @@ const GlobalKbSettings = lazy(() => import('../pages/GlobalKbSettings').then(mod
 const KbSettingsPanel = lazy(() => import('../components/kbSettings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
 import { LegalPage } from '../pages/LegalPage';
-import { PolicyAcceptanceGate } from '../components/PolicyAcceptanceDialog';
+import { PolicyAcceptanceGate } from '../components/shell/PolicyAcceptanceDialog';
 import { viewportHeight } from '../utils/viewport';
 import { chatWebSearchRequestField } from '../utils/chatWebSearch';
 import { kbSourceRights } from '../utils/kbAccess';

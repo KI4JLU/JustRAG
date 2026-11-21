@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import axios from 'axios';
 import { useLocation } from '@tanstack/react-router';
 import { NoticeDialog, NoticeDialogLink } from '@ki4jlu/design-system';
-import { API_BASE_URL } from '../api';
-import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { useToast } from '../contexts/ToastContext';
-import { errorInfo, userErrorMessage } from '../utils/userErrors';
+import { API_BASE_URL } from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useToast } from '../../contexts/ToastContext';
+import { errorInfo, userErrorMessage } from '../../utils/userErrors';
 
 const POLICY_URL = `${API_BASE_URL}/api/user/policy-acceptance`;
 
