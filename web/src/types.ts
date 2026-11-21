@@ -848,7 +848,7 @@ export interface AcademicFinding {
     relevanceScore: number;
 }
 
-export type KbConfigFieldType = 'bool' | 'int' | 'float' | 'string' | 'enum' | 'json';
+export type KbConfigFieldType = 'bool' | 'int' | 'float' | 'string' | 'enum';
 
 export interface KbConfigField {
   key: string;
