@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify';
 import { Button, Container, PageHeader, Spinner } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import type { Language } from '../translations';
+import type { Language } from '../i18n/translations';
 import { appNameFrom, appNameText } from '../utils/appName';
 import { renameDefaultAppName } from '../utils/appNameShell';
 

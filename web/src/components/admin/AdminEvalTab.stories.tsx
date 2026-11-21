@@ -316,7 +316,7 @@ export const GoldenSetNotSelected: Story = {
         await userEvent.click(await canvas.findByRole('button', { name: 'Evaluation starten' }));
 
         /* ORACLE 1: the German source string for `evalSelectGoldenSet` in
-         * src/translations.ts, read out of the rendered document. The message
+         * src/i18n/translations.ts, read out of the rendered document. The message
          * the user sees has to be the app guard's, not the browser's.
          *
          * ORACLE 2: `aria-invalid` plus `aria-describedby` IDREF resolution —

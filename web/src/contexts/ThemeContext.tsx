@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { ThemeProvider as DesignSystemThemeProvider, AppearanceProvider, type Theme, type ResolvedTheme } from '@ki4jlu/design-system';
 import { useThemeAndLanguage } from '../hooks/useThemeAndLanguage';
-import type { Language } from '../translations';
+import type { Language } from '../i18n/translations';
 
 /**
  * Theme + language for the whole app.

@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 import { setSettingsDialogOpen, setSettingsDialogTab } from '../hooks/settingsDialog';
 
 /* ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ describe('App — the KB overview on the authenticated home route', () => {
    * dialog over the current view (like the settings window), and closing it
    * must leave that view where it was.
    *
-   * ORACLES, both independent of the code under change: src/translations.ts
+   * ORACLES, both independent of the code under change: src/i18n/translations.ts
    * for every accessible name (`adminSettings`, `adminDashboard`) and
    * WAI-ARIA's button / menuitem / dialog role mappings.
    * -------------------------------------------------------------------- */
@@ -255,7 +255,7 @@ describe('App — the KB overview on the authenticated home route', () => {
    * control — if it went missing, no type error or build step would notice.
    *
    * ORACLES: WAI-ARIA's menu/dialog/combobox roles as testing-library resolves
-   * them, and src/translations.ts for every name.
+   * them, and src/i18n/translations.ts for every name.
    * -------------------------------------------------------------------- */
   it('opens the settings window from the user menu, with the preferences in it', async () => {
     seedUser('admin');

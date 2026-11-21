@@ -6,7 +6,7 @@ import { ThemeProvider as DesignSystemThemeProvider } from '@ki4jlu/design-syste
 import axios from 'axios';
 import type { KnowledgeBase } from '../types';
 import { SharedTopicsView } from './SharedTopicsView';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
@@ -238,7 +238,7 @@ const noopProps = {
  *
  * ORACLES, all independent of the code under test: WAI-ARIA's `navigation` /
  * `complementary` / `button` role mappings as @testing-library implements them,
- * the DOM's own id semantics, and src/translations.ts for every accessible name.
+ * the DOM's own id semantics, and src/i18n/translations.ts for every accessible name.
  * ------------------------------------------------------------------------- */
 /* ---------------------------------------------------------------------------
  * `SharedTopicsView` — „Geteiltes Wissen" (18.09.2026).

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useState } from 'react';
 import AdminAgentTab from './AdminAgentTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 // Real English strings so labels can be matched by text.
 const tMock = (key: string) => {

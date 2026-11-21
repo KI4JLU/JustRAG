@@ -1,4 +1,4 @@
-import type { Language } from '../../translations';
+import type { Language } from '../../i18n/translations';
 
 interface LanguageFlagProps {
   language: Language;

@@ -1,7 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
 import { AuthProvider } from '../../contexts/AuthContext';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import KBOverviewDashboard from './KBOverviewDashboard';
 
 /* ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import {
 } from '@ki4jlu/design-system';
 import { visibilityState } from '../../utils/kbVisibility';
 import type { KnowledgeBase } from '../../types';
-import type { Language } from '../../translations';
+import type { Language } from '../../i18n/translations';
 import { formatRelativeCoarse } from '../../utils/dates';
 import { CategoryPill } from './CategoryPill';
 import { categoryDotColor } from '../kbSettings/assistant/startPageModel';

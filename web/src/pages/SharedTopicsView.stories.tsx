@@ -35,7 +35,7 @@ async function openKbMenu(canvas: Canvas, userEvent: { click: (el: Element) => P
  * are absent. Inverting `splitKbsByOwnership`'s predicate fails both halves.
  *
  * ORACLES, and why they are independent of the code under test:
- *  - `src/translations.ts` for every expected string. The view never computes
+ *  - `src/i18n/translations.ts` for every expected string. The view never computes
  *    a label; it looks one up, and the assertions read the table, not the view.
  *  - WAI-ARIA's role mappings (`h1` -> heading level 1, `main`, `nav`,
  *    `footer` -> contentinfo, `section[aria-label]` -> region), as
@@ -236,7 +236,7 @@ const CHROME_STORAGE_KEYS = [SECTION_STORAGE_KEY, SIDEBAR_COLLAPSED_STORAGE_KEY]
  * navigation landmark, one `contentinfo`, the `<h1>` inside the content region,
  * and a skip link that actually resolves to it.
  *
- * ORACLE: WAI-ARIA's role mappings plus src/translations.ts. The counts are
+ * ORACLE: WAI-ARIA's role mappings plus src/i18n/translations.ts. The counts are
  * what make it directional — a second `<h1>` (the acceptance criterion names
  * that one explicitly) or a lost landmark fails here rather than looking fine.
  */
@@ -343,7 +343,7 @@ export const OwnedAndShared: Story = {
      * exactly two cards are on the page. ORACLE: the fixture's shared count. */
     await expect(canvasElement.querySelectorAll('[data-testid="kb-card"]')).toHaveLength(2);
 
-    /* ORACLE: src/translations.ts (`sharedBy` = "von {name}") composed with the
+    /* ORACLE: src/i18n/translations.ts (`sharedBy` = "von {name}") composed with the
      * fixture's owner names. It renders because the KB's userId differs from
      * the signed-in user's — and on this view, by construction, it renders on
      * every card. That is the difference between this page and the overview's
@@ -372,7 +372,7 @@ export const NothingSharedWithMe: Story = {
   play: async ({ canvas, canvasElement }) => {
     await expectPageFrame(canvas, canvasElement);
 
-    /* ORACLE: src/translations.ts. An empty page shows the placeholder below
+    /* ORACLE: src/i18n/translations.ts. An empty page shows the placeholder below
        the filter row; „Thema hinzufügen" is on the page twice, in the toolbar
        and in the placeholder, and both leave for the catalog. The „Wissen
        teilen" tile that briefly stood here is asserted absent, because sharing
@@ -395,7 +395,7 @@ export const NothingSharedWithMe: Story = {
  * and the other rows still go somewhere.
  *
  * ORACLE: `NavItem`'s documented mapping of `active` to `aria-current="page"`
- * (WAI-ARIA), src/translations.ts for the row labels, and the `fn()` spies for
+ * (WAI-ARIA), src/i18n/translations.ts for the row labels, and the `fn()` spies for
  * the jumps. The "drops off the others" half is the one a careless wiring gets
  * wrong — a second `active` row is invisible until a screen reader announces
  * two current pages — so it is asserted as an exhaustive list of the elements
@@ -525,7 +525,7 @@ export const ViewerSeesNoManagementControls: Story = {
  * I looked at" is precisely the evidence that is not good enough here.
  *
  * ORACLES: the DOM's id semantics, WAI-ARIA's group/button mappings, and
- * src/translations.ts for the four names.
+ * src/i18n/translations.ts for the four names.
  */
 export const SettingsMenuIsOnThisViewToo: Story = {
   args: { kbs: [SHARED_EDITOR] },

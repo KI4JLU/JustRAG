@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PrivateKbCard } from './KbCard';
-import { translations, type Language } from '../../translations';
+import { translations, type Language } from '../../i18n/translations';
 import type { KnowledgeBase } from '../../types';
 
 /* ---------------------------------------------------------------------------

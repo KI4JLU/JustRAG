@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { LegalPage } from './LegalPage';
 import { ToastProvider } from '../contexts/ToastContext';
 import { ToastContainer } from '../components/ui/ToastContainer';
-import { translations, type Language } from '../translations';
+import { translations, type Language } from '../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * There was no test on this file before card KI-693, which replaced its
